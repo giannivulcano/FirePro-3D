@@ -130,7 +130,7 @@ INSERT block explosion uses per-entity exception handling: the `virtual_entities
 
 ### Preview rendering
 
-The DXF preview dialog (`dxf_preview_dialog.py`) batches all geometry into a small number of `QPainterPath` objects (one per pen style) rather than creating individual `QGraphicsItem` instances. This reduces 293K+ items to ~6, enabling interactive preview of large files. Text is rendered as `QPainterPath.addText()` with multiline support (splits on `\n`, renders each line at vertical offset) and alignment offsets computed via `QFontMetricsF` (halign: left/center/right; valign: top/middle/bottom/baseline).
+The underlay import dialog (`underlay_import_dialog.py`) batches all geometry into a small number of `QPainterPath` objects (one per pen style) rather than creating individual `QGraphicsItem` instances. This reduces 293K+ items to ~6, enabling interactive preview of large files. Text is rendered as `QPainterPath.addText()` with multiline support (splits on `\n`, renders each line at vertical offset) and alignment offsets computed via `QFontMetricsF` (halign: left/center/right; valign: top/middle/bottom/baseline).
 
 ### Underlay cache
 

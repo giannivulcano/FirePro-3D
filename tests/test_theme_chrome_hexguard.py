@@ -12,7 +12,7 @@ SRC = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
 GUARDED = [
     "loading_bar.py", "wall_dialog.py", "roof_dialog.py",
     "titleblock_arrange.py", "titleblock_editor.py",
-    "auto_populate_dialog.py", "dxf_preview_dialog.py", "view_3d.py",
+    "auto_populate_dialog.py", "underlay_import_dialog.py", "view_3d.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")

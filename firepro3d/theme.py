@@ -92,6 +92,7 @@ class Theme:
     faint: str
     accent: str
     accent_ink: str
+    on_accent: str
     selection: str
     selection_active: str
     ok: str
@@ -187,7 +188,7 @@ DARK = Theme(
     ground="#141619", surface="#1E2125", sunken="#212529", raised="#24282D",
     line="#363B41", line_strong="#454B52",
     ink="#E6E9EC", muted="#98A1AA", faint="#6F7982",
-    accent="#63BE8B", accent_ink="#0E1712",
+    accent="#63BE8B", accent_ink="#0E1712", on_accent="#ffffff",
     selection="#63BE8B", selection_active="#8FE3B4",
     ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
 )
@@ -197,7 +198,7 @@ LIGHT = Theme(
     ground="#f4f5f6", surface="#ffffff", sunken="#ffffff", raised="#eceef0",
     line="#d4d8dc", line_strong="#b4bac0",
     ink="#1c2024", muted="#5a636c", faint="#98a1aa",
-    accent="#2f9e63", accent_ink="#ffffff",
+    accent="#2f9e63", accent_ink="#ffffff", on_accent="#ffffff",
     selection="#2f9e63", selection_active="#1f7a49",
     ok="#2f9e63", warn="#b46500", danger="#c42b1c",
 )
@@ -717,46 +718,52 @@ RibbonSmallButton:disabled {{
 # Kept identical to the original so the manager renders the same after retirement.
 # ---------------------------------------------------------------------------
 _UNDERLAY_MANAGER_QSS = """
-QDialog#UnderlayManagerDialog {
+QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
     background: $surface;
     color: $ink;
     font-size: 13px;
 }
-#UnderlayManagerDialog QLabel { background: transparent; color: $ink; }
-#UnderlayManagerDialog QLabel[role="muted"]  { color: $muted; }
-#UnderlayManagerDialog QLabel[role="faint"]  { color: $faint; font-size: 12px; }
-#UnderlayManagerDialog QLabel[role="header"] {
+#UnderlayManagerDialog QLabel, #UnderlayImportDialog QLabel { background: transparent; color: $ink; }
+#UnderlayManagerDialog QLabel[role="muted"], #UnderlayImportDialog QLabel[role="muted"]  { color: $muted; }
+#UnderlayManagerDialog QLabel[role="faint"], #UnderlayImportDialog QLabel[role="faint"]  { color: $faint; font-size: 12px; }
+#UnderlayManagerDialog QLabel[role="header"], #UnderlayImportDialog QLabel[role="header"] {
     color: $muted; font-size: 10px; font-weight: 600;
 }
-#UnderlayManagerDialog QLabel[state="warn"] {
+#UnderlayManagerDialog QLabel[role="title"], #UnderlayImportDialog QLabel[role="title"] {
+    color: $ink; font-size: 14px; font-weight: 700;
+}
+#UnderlayManagerDialog QLabel[role="name"], #UnderlayImportDialog QLabel[role="name"] {
+    color: $ink; font-size: 14px; font-weight: 600;
+}
+#UnderlayManagerDialog QLabel[state="warn"], #UnderlayImportDialog QLabel[state="warn"] {
     color: $warn; background: $warn_soft;
     border-radius: 6px; padding: 6px 8px;
 }
 
-#UnderlayManagerDialog QPushButton {
+#UnderlayManagerDialog QPushButton, #UnderlayImportDialog QPushButton {
     background: $table; color: $ink;
     border: 1px solid $line_strong; border-radius: 6px;
     padding: 5px 12px; font-weight: 500;
 }
-#UnderlayManagerDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
-#UnderlayManagerDialog QPushButton:disabled { color: $faint; border-color: $line; }
-#UnderlayManagerDialog QPushButton[variant="primary"] {
-    background: $accent; color: $accent_ink; border-color: $accent; font-weight: 600;
+#UnderlayManagerDialog QPushButton:hover:enabled, #UnderlayImportDialog QPushButton:hover:enabled { background: $accent_soft; border-color: $accent; }
+#UnderlayManagerDialog QPushButton:disabled, #UnderlayImportDialog QPushButton:disabled { color: $faint; border-color: $line; }
+#UnderlayManagerDialog QPushButton[variant="primary"], #UnderlayImportDialog QPushButton[variant="primary"] {
+    background: $accent; color: $on_accent; border-color: $accent; font-weight: 600;
 }
-#UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
-#UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled {
+#UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
+#UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="danger"]:hover:enabled {
     background: $danger_soft; color: $danger; border-color: $danger;
 }
 
-#UnderlayManagerDialog QLineEdit {
+#UnderlayManagerDialog QLineEdit, #UnderlayImportDialog QLineEdit {
     background: $table; color: $ink;
     border: 1px solid $line_strong; border-radius: 6px;
     padding: 5px 9px;
     selection-background-color: $accent_soft2;
 }
-#UnderlayManagerDialog QLineEdit:focus { border-color: $accent; }
+#UnderlayManagerDialog QLineEdit:focus, #UnderlayImportDialog QLineEdit:focus { border-color: $accent; }
 
-QTableView#underlayTable {
+QTreeView#underlayTable {
     background: $table;
     alternate-background-color: $table;
     color: $ink;
@@ -766,26 +773,37 @@ QTableView#underlayTable {
     selection-color: $ink;
     outline: none;
 }
-QTableView#underlayTable::item {
+QTreeView#underlayTable::item {
     border-bottom: 1px solid $line;
     padding: 0 4px;
 }
-QTableView#underlayTable::item:hover    { background: $accent_soft; }
-QTableView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
+QTreeView#underlayTable::item:hover    { background: $accent_soft; }
+QTreeView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
+/* Keep the branch/indent strip (left of the first column) on the base row
+   background so a hovered/selected child row's accent never bleeds leftward
+   past the row content into the disclosure/indent area. Styling ::branch
+   disables Qt's native arrow drawing, so we must supply the disclosure
+   chevrons explicitly for the has-children closed/open states. */
+QTreeView#underlayTable::branch { background: $table; }
+QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
+QTreeView#underlayTable::branch:closed:has-children:has-siblings {
+    background: $table; image: url("$chevron_right");
+}
+QTreeView#underlayTable::branch:open:has-children:!has-siblings,
+QTreeView#underlayTable::branch:open:has-children:has-siblings {
+    background: $table; image: url("$chevron_down");
+}
 QHeaderView::section {
     background: $table; color: $muted;
     border: none; border-bottom: 1px solid $line_strong;
     padding: 7px 8px;
     font-size: 10px; font-weight: 600;
 }
-QTableView QTableCornerButton::section { background: $table; border: none; }
 
 QFrame#detailsPanel { background: $surface; border-left: 1px solid $line; }
+QFrame#shellHeader { background: $surface2; border-bottom: 1px solid $line; }
 QFrame#footerBar    { background: $surface2; border-top: 1px solid $line; }
 QFrame#toolbarBar   { background: $surface; border-bottom: 1px solid $line; }
-QLabel#previewBox {
-    background: $table; border: 1px solid $line; border-radius: 6px;
-}
 
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
 QScrollBar::handle:vertical { background: $line_strong; border-radius: 5px; min-height: 30px; }
@@ -817,7 +835,7 @@ QToolTip {
 # Token names the Underlay Manager QSS references via `$name`.
 _UM_QSS_TOKENS = (
     "ground", "surface", "surface2", "table", "ink", "muted", "faint",
-    "line_strong", "line", "accent_ink", "accent_soft2", "accent_soft",
+    "line_strong", "line", "accent_ink", "on_accent", "accent_soft2", "accent_soft",
     "accent", "warn_soft", "warn", "danger_soft", "danger", "ok",
     "chip_ink", "chip",
 )
@@ -836,4 +854,13 @@ def build_underlay_manager_qss(t: Theme) -> str:
     # longest keys first so `$line` never clobbers `$line_strong`
     for key in sorted(_UM_QSS_TOKENS, key=len, reverse=True):
         qss = qss.replace("$" + key, getattr(t, key))
+    # Disclosure chevrons for the tree's ::branch states. These are asset file
+    # paths, not theme tokens; Qt QSS url() needs forward slashes even on
+    # Windows, so normalise the backslashes the OS join may produce.
+    qss = qss.replace(
+        "$chevron_right", asset_path("chevron_right.svg").replace("\\", "/")
+    )
+    qss = qss.replace(
+        "$chevron_down", asset_path("chevron_down.svg").replace("\\", "/")
+    )
     return qss

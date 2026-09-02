@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-09-01 · verified-commit: 2727df5 (feat/import-dialog-redesign — house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
+<!-- last-verified: 2026-09-01 · verified-commit: cfcb6d6 (feat/underlay-manager-chrome-match — FramelessShellMixin house shell, on_accent token, role=title/name selectors; house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
 
 # Theming & UI Style
 
@@ -33,8 +33,13 @@ consumers actually use — `bg_base`/`bg_raised`/`bg_sunken`, `btn_hover`/
 `text_primary`/`text_secondary`/`text_disabled`/`text_accent`, `canvas_bg`,
 `grid_dot`, `accent_primary`, `status_ok`/`status_warn`/`status_error`, and the
 soft/rgba fills `accent_soft`/`accent_soft2`/`warn_soft`/`danger_soft`, plus
-`chip`/`chip_ink`/`surface2`/`table`. Each is a pure function of primitives (an
-alias or an alpha/`_mix` derivation), so LIGHT can't drift from DARK.
+`chip`/`chip_ink`/`surface2`/`table`, plus **`on_accent`** (the text/ink colour
+for accent-filled primary buttons — white in both themes). Each is a pure
+function of primitives (an alias or an alpha/`_mix` derivation), so LIGHT can't
+drift from DARK.
+
+> **Watch-item:** white `on_accent` over the dark-theme `accent` (`#63BE8B`) is a
+> known low-contrast pairing — revisit if it fails a contrast pass.
 
 `Theme.color(name, alpha=255) -> QColor` resolves any primitive or hex-valued
 semantic name (used for delegate/canvas painting; the rgba `*_soft` strings are
@@ -143,9 +148,17 @@ Rules:
 - **Overline labels are UPPERCASE** via `role="header"` (author normal-case and
   `QLabel(text.upper())`, or author uppercased). Field labels (`Scale:`, `X:`)
   stay sentence case; **button** labels are bold sentence case, never all-caps.
-- **Button hover** in dialog chrome uses an **accent-soft** wash + accent border
-  (not a neutral `surface2` fill). The base Underlay-Manager QSS predates this
-  and may still use `surface2`; new/ported dialogs override to accent-soft.
+- **Roles are wired via QSS `objectName` selectors** on the widget: `role="title"`
+  (dialog/section title text) and `role="name"` (item/record names, e.g. an
+  underlay file node) map to the Title/Body specs above, alongside the shared
+  `role="header"` for overlines. Set the objectName; the single-homed QSS in
+  `theme.py` paints the role.
+- **Interactive-hover highlight uses the accent**, never grey: hovering any
+  interactive control (buttons, pills, list items, step rows) fills with
+  `accent_soft` and borders with `accent` (not a neutral `surface2`/`faint`
+  wash). This is the shared generic `:hover:enabled` rule; more-specific
+  variants (`primary`→`ok`, `danger`→danger) legitimately override it. The
+  Underlay Import dialog is the reference implementation.
 
 ### Selection controls
 
@@ -166,6 +179,12 @@ Rules:
   Underlay Manager / Import Underlay dialogs are the reference. Window controls =
   three circular icons (grey circle + accent inlay: – minimise / + maximise / ×
   close).
+- **`FramelessShellMixin` (`frameless_shell.py`) is the reusable house shell** —
+  it provides the frameless window, the standard `shellHeader` titlebar with
+  min/max/close, drag-to-move, double-click-to-maximize, resize edges, the DWM
+  rounded corners, and an optional titlebar icon. New dialogs adopt the shell by
+  inheriting the mixin rather than re-implementing the chrome; both the Underlay
+  Import and Underlay Manager dialogs inherit it.
 - **Panel containerization:** flat **overline sections** (UPPERCASE label +
   content); only *input surfaces* (lists, evidence readouts) get a border — do
   not wrap whole sections/pages in cards.

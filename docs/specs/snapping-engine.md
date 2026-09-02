@@ -1,7 +1,7 @@
 # Snapping Engine — Specification
 
 > **Status:** North-star design + decomposed roadmap (spec-only — no code changes delivered by this document)
-> **Source files:** `firepro3d/snap_engine.py`, `firepro3d/model_view.py`, `firepro3d/model_space.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/annotations.py` (HatchItem)
+> **Source files:** `firepro3d/snap_engine.py`, `firepro3d/model_view.py`, `firepro3d/model_space.py`, `firepro3d/underlay_import_dialog.py`, `firepro3d/annotations.py` (HatchItem)
 > **Date:** 2026-04-07
 > **Revision:** 1 (post grill + brainstorm session)
 > **Impl note (2026-06-25):** two intersection-snap fixes shipped + verified. **(1)** §6.1 priority-band floor (`SNAP_PRIORITY_BAND_PX = 12`) — stops intersection snapping collapsing at low user tolerance (Pain #2); regression `tests/test_snap_priority_band.py`. **(2)** §6.3 Change A now **exempts underlay-index segments** (`parent_key = None`) so crossings *within* one imported entity (e.g. a self-crossing `LWPOLYLINE`) still snap; regression `tests/test_snap_underlay_internal_intersection.py`. Roadmap §6.3 Changes A/B shipped earlier (2026-04-07).

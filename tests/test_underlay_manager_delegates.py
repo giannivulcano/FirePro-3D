@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import QGraphicsPixmapItem, QStyleOptionViewItem
 
 from firepro3d.underlay import Underlay
 from firepro3d.theme import DARK
-from firepro3d.underlay_manager_model import UnderlayTreeModel, Col
+from firepro3d.underlay_manager_model import UnderlayTreeModel, Col, LayerListRole
 from firepro3d.underlay_manager_delegates import (
     ToggleDelegate,
     ColourDelegate,
@@ -299,3 +299,54 @@ def test_levels_editor_layer_ignored(qapp):
     opt = _option()
     handled = d.editorEvent(_release_event(opt), model, opt, idx)
     assert handled is False
+
+
+# --------------------------------------------------------------------------
+# partial-visibility eye state (parent underlay row) — Feature 1
+# --------------------------------------------------------------------------
+def test_eye_state_visible_no_hidden_is_on(qapp):
+    rec = _dxf_record()
+    rec.visible = True
+    rec.hidden_layers = []
+    assert ToggleDelegate._eye_state(rec, ["GRID", "WALLS"]) == "on"
+
+
+def test_eye_state_not_visible_is_off(qapp):
+    rec = _dxf_record()
+    rec.visible = False
+    rec.hidden_layers = ["GRID"]
+    assert ToggleDelegate._eye_state(rec, ["GRID", "WALLS"]) == "off"
+
+
+def test_eye_state_visible_some_hidden_is_partial(qapp):
+    rec = _dxf_record()
+    rec.visible = True
+    rec.hidden_layers = ["GRID"]
+    assert ToggleDelegate._eye_state(rec, ["GRID", "WALLS"]) == "partial"
+
+
+def test_eye_state_visible_all_hidden_is_on(qapp):
+    # Every known layer hidden -> not "partial" (the underlay itself is still on).
+    rec = _dxf_record()
+    rec.visible = True
+    rec.hidden_layers = ["GRID", "WALLS"]
+    assert ToggleDelegate._eye_state(rec, ["GRID", "WALLS"]) == "on"
+
+
+def test_eye_state_hidden_without_total_falls_back_to_partial(qapp):
+    # No total-layer set available -> any hidden layer reads as partial.
+    rec = _dxf_record()
+    rec.visible = True
+    rec.hidden_layers = ["GRID"]
+    assert ToggleDelegate._eye_state(rec, []) == "partial"
+
+
+def test_toggle_visible_paint_partial_no_crash(qapp):
+    # Parent eye takes the partial branch when some (not all) layers hidden.
+    rec, _scene, model = _dxf_model()  # layers: GRID, WALLS
+    rec.hidden_layers = ["GRID"]
+    d = ToggleDelegate(DARK, "visible")
+    top = model.index(0, int(Col.VIS), QModelIndex())
+    # The model exposes the total layer set via LayerListRole on the parent row.
+    assert top.data(LayerListRole) == ["GRID", "WALLS"]
+    assert _paint(d, top)

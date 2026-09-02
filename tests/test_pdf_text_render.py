@@ -1,13 +1,13 @@
 """Item 6: PDF import text matches the source — DPI-independent, fractional-
 exact size (pixel-100 font scaled, not rounded point size), and placed at the
 span's baseline origin. The text-render path builder is duplicated in
-model_space + dxf_preview_dialog; both must render identically."""
+model_space + underlay_import_dialog; both must render identically."""
 import fitz  # PyMuPDF
 from PyQt6.QtGui import QFont, QPainterPath
 
 from firepro3d.pdf_import_worker import extract_pdf_vectors_sync
 from firepro3d.model_space import Model_Space
-from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+from firepro3d.underlay_import_dialog import UnderlayImportDialog
 
 
 def _text_pdf(path):

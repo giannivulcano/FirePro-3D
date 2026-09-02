@@ -46,7 +46,7 @@ def test_page_names_use_labels_when_present(tmp_path):
 def test_dialog_shows_page_name_captions(qapp, tmp_path):
     p = tmp_path / "multi.pdf"
     _make_pdf(p, pages=3)
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None)
     dlg._load_pdf(str(p))
     captions = [dlg._thumb_list.item(i).text()

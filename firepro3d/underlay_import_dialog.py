@@ -1,6 +1,6 @@
 """
-dxf_preview_dialog.py
-=====================
+underlay_import_dialog.py
+=========================
 Unified underlay import dialog for FirePro 3D.
 
 Handles both **PDF** and **DXF** files from a single preview-first dialog.
@@ -43,10 +43,9 @@ from PyQt6.QtGui import (
     QCursor, QPainter, QPixmap, QIcon, QTransform,
 )
 from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread,
-    QByteArray, pyqtSignal,
+    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread, QTimer,
+    pyqtSignal,
 )
-from PyQt6.QtSvg import QSvgRenderer
 
 try:
     import ezdxf
@@ -67,6 +66,7 @@ from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
 from .theme import (detect, build_app_qss, build_underlay_manager_qss,
                     FONT_UI, FONT_VALUE)
+from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
@@ -171,6 +171,11 @@ class ImportParams:
         self.selected_layers: list[str] | None = None  # None = all
         self.rotation: float = 0.0         # degrees (applied to final group)
         self.insert_at_origin: bool = True
+        # Modify-only insertion-position control. Only meaningful when the
+        # dialog was opened with a modify_record. "reuse" keeps the underlay
+        # exactly where it is (in-situ replace); "pick" re-places it
+        # interactively on the canvas; "origin" drops it at scene (0, 0).
+        self.placement_mode: str = "reuse"   # "reuse" | "pick" | "origin"
         # PDF-specific
         self.pdf_page: int = 0
         self.pdf_dpi: int = 150
@@ -913,6 +918,8 @@ def build_commit_sentence(
         sentence += " — then pick the insertion point."
     elif position == "origin":
         sentence += " — placed at the origin."
+    elif position == "reuse":
+        sentence += " — kept in its current position."
 
     return sentence
 
@@ -925,64 +932,63 @@ def _import_extra_qss(t) -> str:
     # darkest. A thin light outer edge frames the frameless window. Active rail
     # tab = rounded accent-soft highlight (no left bar), matching the prototype.
     return f"""
-    QDialog#UnderlayManagerDialog {{ background:{t.surface};
+    QDialog#UnderlayImportDialog {{ background:{t.surface};
         border:1px solid {t.muted}; }}
-    #UnderlayManagerDialog QListWidget {{ background:{t.raised}; color:{t.ink};
+    /* The app-wide `QWidget {{ font-size:13px }}` rule gives inheriting combos a
+       pixel-size font whose pointSize() is -1; Qt then emits
+       `QFont::setPointSize: Point size <= 0` when it measures the popup. This
+       point-based override (9.75pt == 13px @96dpi) restores a valid pointSize
+       while keeping the rendered size identical. */
+    #UnderlayImportDialog QComboBox {{ font-size:9.75pt; }}
+    #UnderlayImportDialog QListWidget {{ background:{t.raised}; color:{t.ink};
         border:1px solid {t.line_strong}; border-radius:6px; }}
-    #UnderlayManagerDialog QListWidget::item {{ padding:3px 6px; }}
-    #UnderlayManagerDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
-    #UnderlayManagerDialog QListWidget::item:selected {{
+    #UnderlayImportDialog QListWidget::item {{ padding:3px 6px; }}
+    #UnderlayImportDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
+    #UnderlayImportDialog QListWidget::item:selected {{
         background:{t.accent_soft}; color:{t.ink}; }}
-    QFrame#importHeader {{ background:{t.raised};
-        border-bottom:1px solid {t.line}; }}
     QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
-    #UnderlayManagerDialog QPushButton:hover:enabled {{
-        background:{t.accent_soft}; border-color:{t.accent}; }}
-    #UnderlayManagerDialog QPushButton[variant="primary"] {{ color:#ffffff; }}
-    #UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled {{
-        color:#ffffff; }}
-    #UnderlayManagerDialog QPushButton[switch="true"] {{ background:{t.raised};
+    #UnderlayImportDialog QPushButton[switch="true"] {{ background:{t.raised};
         color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
         padding:5px 14px; font-weight:600; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="left"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="left"] {{
         border-top-left-radius:7px; border-bottom-left-radius:7px; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="right"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="right"] {{
         border-top-right-radius:7px; border-bottom-right-radius:7px;
         border-left:none; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="mid"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="mid"] {{
         border-left:none; }}
-    #UnderlayManagerDialog QPushButton[switch="true"]:checked {{
-        background:{t.accent}; color:#ffffff; border-color:{t.accent}; }}
+    #UnderlayImportDialog QPushButton[switch="true"]:checked {{
+        background:{t.accent}; color:{t.on_accent}; border-color:{t.accent}; }}
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
     QFrame#stepRail {{ background:{t.surface};
         border-right:1px solid {t.line_strong}; }}
-    #UnderlayManagerDialog QFrame#stepRailInner {{ background:transparent; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"] {{ border-radius:6px;
+    #UnderlayImportDialog QFrame#stepRailInner {{ background:transparent; }}
+    #UnderlayImportDialog QFrame[stepRow="true"] {{ border-radius:6px;
         border-left:2px solid transparent; background:transparent; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"][current="true"] {{
+    #UnderlayImportDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
+    #UnderlayImportDialog QFrame[stepRow="true"][current="true"] {{
         background:{t.accent_soft}; border-left:2px solid {t.accent}; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"] {{ background:{t.raised};
+    #UnderlayImportDialog QLabel[stepNo="true"] {{ background:{t.raised};
         color:{t.muted}; border-radius:8px; font-size:9px; font-weight:700; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"][current="true"],
-    #UnderlayManagerDialog QLabel[stepNo="true"][done="true"] {{
+    #UnderlayImportDialog QLabel[stepNo="true"][current="true"],
+    #UnderlayImportDialog QLabel[stepNo="true"][done="true"] {{
         background:{t.accent}; color:{t.accent_ink}; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"][warn="true"] {{
+    #UnderlayImportDialog QLabel[stepNo="true"][warn="true"] {{
         background:{t.warn_soft}; color:{t.warn}; }}
-    #UnderlayManagerDialog QLabel[stepName="true"] {{ font-size:12px;
+    #UnderlayImportDialog QLabel[stepName="true"] {{ font-size:12px;
         font-weight:700; background:transparent; color:{t.ink}; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"] {{ font-size:10px;
+    #UnderlayImportDialog QLabel[stepStatus="true"] {{ font-size:10px;
         color:{t.faint}; background:transparent; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
+    #UnderlayImportDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
+    #UnderlayImportDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
         border-left:1px solid {t.line_strong}; }}
-    #UnderlayManagerDialog QWidget#panelPage {{ background:{t.surface}; }}
+    #UnderlayImportDialog QWidget#panelPage {{ background:{t.surface}; }}
     QFrame#scaleCard, QFrame#srcCard {{ background:{t.raised};
         border:1px solid {t.line_strong}; border-radius:7px; }}
-    #UnderlayManagerDialog QCheckBox {{ background:transparent; }}
-    #UnderlayManagerDialog QWidget#pdfOpts {{ background:transparent; }}
+    #UnderlayImportDialog QCheckBox {{ background:transparent; }}
+    #UnderlayImportDialog QWidget#pdfOpts {{ background:transparent; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
     QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
         border-radius:9px; border:1px solid transparent; }}
@@ -992,51 +998,7 @@ def _import_extra_qss(t) -> str:
     """
 
 
-_WINCTL_INLAY = {
-    "min":   '<path d="M7 12 H17"/>',
-    "max":   '<path d="M12 7 V17 M7 12 H17"/>',
-    "close": '<path d="M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5"/>',
-}
-
-
-def _winctl_pixmap(kind: str, circle: str, inlay: str, px: int = 16) -> QPixmap:
-    """Render a window-control icon: grey circle + accent inlay."""
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-           f'<circle cx="12" cy="12" r="11" fill="{circle}"/>'
-           f'<g stroke="{inlay}" stroke-width="2.2" stroke-linecap="round"'
-           f' fill="none">{_WINCTL_INLAY[kind]}</g></svg>')
-    pm = QPixmap(px, px)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    QSvgRenderer(QByteArray(svg.encode())).render(p)
-    p.end()
-    return pm
-
-
-class _WinDot(QPushButton):
-    """A window-control dot (min/max/close): accent inlay on a grey circle;
-    the circle brightens on hover."""
-    def __init__(self, kind: str, slot, theme, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(20, 20)
-        self.setIconSize(QSize(18, 18))
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QPushButton{border:none;background:transparent;}")
-        self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent, 18))
-        self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent, 18))
-        self.setIcon(self._normal)
-        self.clicked.connect(slot)
-
-    def enterEvent(self, e):
-        self.setIcon(self._hover)
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self.setIcon(self._normal)
-        super().leaveEvent(e)
-
-
-class UnderlayImportDialog(QDialog):
+class UnderlayImportDialog(FramelessShellMixin, QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
     _SCALE_OPTIONS = [
@@ -1063,8 +1025,15 @@ class UnderlayImportDialog(QDialog):
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
-        self.setWindowTitle(f"Import Underlay — {self._project_name}")
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        # Frameless chrome (flags, drag, maximize toggle, DWM rounded corners)
+        # comes from FramelessShellMixin. This dialog is modal and not resizable,
+        # and builds its own richer titlebar (icon + title + file label + dots)
+        # in _build_ui, so we skip the mixin's plain titlebar builder.
+        self.init_frameless_shell(
+            title=f"Import Underlay — {self._project_name}",
+            controls=("min", "max", "close"), resizable=False,
+            build_titlebar=False)
+        self._did_initial_max = False
         self.resize(1150, 660)
         # Never let content (e.g. the PDF filmstrip/layer list on load) grow the
         # dialog past the screen and push the panel off-edge.
@@ -1072,13 +1041,16 @@ class UnderlayImportDialog(QDialog):
         if _scr is not None:
             _avail = _scr.availableGeometry()
             self.setMaximumSize(_avail.width(), _avail.height())
-        self._drag_pos = None
 
         self._sm = scale_manager
         self._default_dir = default_dir
         self._import_levels = list(levels) if levels else []
         self._current_level = current_level
         self._modify_record = modify_record
+        # Modify-flow deferred restores (consumed once geometry is available;
+        # the async DXF/DWG load populates layers/geoms after _load_file returns).
+        self._pending_modify_layers: list[str] | None = None
+        self._pending_modify_bounds: list[float] | None = None
         self._mru = RecentSources()
         self._scale_verified = False
         self._scale_provenance = ""
@@ -1154,17 +1126,27 @@ class UnderlayImportDialog(QDialog):
         if _ok is not None:
             _ok.setText("Save changes")
 
+        # Saved layer subset / crop must survive the (async) geometry load.
+        # The sync PDF path populates the layer list inside _load_file below;
+        # the async DXF/DWG path populates it later in _on_extract_finished.
+        # Both consume these pending fields once geometry is available.
+        self._pending_modify_layers = list(record.selected_layers or [])
+        self._pending_modify_bounds = (
+            list(record.import_bounds) if record.import_bounds else None)
+
         # Load the file first (sync for PDF, async for DXF).
         self._file_edit.setText(record.path)
         self._load_file()
 
-        # PDF page — set the target page and (re)render it.
+        # PDF page — set the target page and (re)render it, then sync the
+        # visible page indicator (thumbnail strip row) to the restored page.
         if record.type == "pdf" and record.page:
             self._pdf_page = record.page
             try:
                 self._load_pdf_page(record.path, record.page)
             except Exception:
                 pass
+            self._sync_page_indicator(record.page)
 
         # DPI / import mode combos (PDF).
         self._dpi_combo.blockSignals(True)
@@ -1176,14 +1158,54 @@ class UnderlayImportDialog(QDialog):
 
         # Scale — the record stores the baked import multiplier as import_scale.
         # Route it through the "Custom…" option so get_import_params().scale
-        # reproduces it exactly.
+        # reproduces it exactly. Do NOT block the combo signal when selecting
+        # Custom — _on_scale_combo_changed must fire to make _custom_scale_edit
+        # VISIBLE (the commit-sentence echo and other visibility-gated reads
+        # depend on it). Set the edit text AFTER, so the visible field carries
+        # the record's factor.
         custom_idx = len(self._SCALE_OPTIONS) - 1
-        self._scale_combo.blockSignals(True)
         self._scale_combo.setCurrentIndex(custom_idx)
-        self._scale_combo.blockSignals(False)
+        self._on_scale_combo_changed(custom_idx)   # ensure visible even if idx unchanged
         self._custom_scale_edit.blockSignals(True)
         self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
         self._custom_scale_edit.blockSignals(False)
+
+        # SYNC (PDF) path: geometry is already loaded (final page rendered
+        # above) and the layer list is populated. The multi-call PDF load
+        # (_load_pdf renders page 0, then the prefill re-renders the target
+        # page) means _populate_layer_list may have consumed _pending_modify_
+        # layers against the wrong page — so re-apply layers + crop explicitly
+        # here against the FINAL geometry, then clear the pending fields so the
+        # async callback doesn't double-apply. The ASYNC (DXF/DWG) path has no
+        # geometry yet (_load_file returned before extraction) → this guard is
+        # False and the extract-finished callback consumes the pending fields.
+        if self._all_geoms:
+            if self._pending_modify_layers:
+                self._apply_selected_layers(self._pending_modify_layers)
+            self._pending_modify_layers = None
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
+
+        # Enforce the "pending consumed by end of the SYNC load" invariant for
+        # PDF — and PDF ONLY. Two PDF sub-cases reach here:
+        #   • vector-sync: the reconcile block above already applied+cleared;
+        #   • raster: _load_pdf_page set _all_geoms=[] so the guard was False
+        #     and nothing was applied (raster records carry no layers/crop) —
+        #     the pending fields would otherwise linger as stale state that a
+        #     same-session import-mode switch could mis-read.
+        # Either way, by the time the SYNC PDF load returns the geometry is
+        # final, so clearing here is safe.
+        #
+        # ⚠ TIMING HAZARD — do NOT hoist this into an unconditional clear at the
+        # end of _apply_modify_prefill. The ASYNC DXF/DWG path has NOT loaded
+        # geometry yet (_load_file returned before the extract worker finishes);
+        # its pending fields MUST survive prefill to be consumed in
+        # _on_extract_finished / the memoized _extract_for_layout branch. Gating
+        # on the PDF (sync) file type keeps async intact.
+        if self._file_type == "pdf":
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
 
         # Rotation (display transform).
         self._set_rotation(record.rotation)
@@ -1233,14 +1255,13 @@ class UnderlayImportDialog(QDialog):
         # Pin it: the window keeps its explicit size, content fits inside.
         outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
-        # Share the manager's object-scoped QSS (prototype convention) + the
-        # import-specific selectors. No custom header — the OS title bar shows
-        # the window title.
-        self.setObjectName("UnderlayManagerDialog")
+        # Shared chrome QSS is dual-homed in theme.py to both #UnderlayManagerDialog
+        # and #UnderlayImportDialog; this dialog's own id-scoped overrides follow.
+        self.setObjectName("UnderlayImportDialog")
         self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
         # ── Header bar (single custom header; styled like the footer) ────────
-        self._titlebar = QFrame(objectName="importHeader")
+        self._titlebar = QFrame(objectName="shellHeader")
         self._titlebar.setFixedHeight(40)
         hb = QHBoxLayout(self._titlebar)
         hb.setContentsMargins(14, 7, 10, 7)
@@ -1252,8 +1273,8 @@ class UnderlayImportDialog(QDialog):
         except Exception:
             pass
         name_lbl = QLabel("Import Underlay")
-        name_lbl.setStyleSheet(          # Title role
-            f"color:{t.ink}; font-size:14px; font-weight:700; background:transparent;")
+        name_lbl.setProperty("role", "title")
+        self._title_lbl = name_lbl        # so _apply_modify_prefill can retitle to "Modify Underlay — …"
         self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
         self._header_file_lbl.setProperty("role", "faint")
         hb.addWidget(glyph)
@@ -1270,7 +1291,9 @@ class UnderlayImportDialog(QDialog):
         for _k, _slot in (("min", self.showMinimized),
                           ("max", self._toggle_max),
                           ("close", self.reject)):
-            hb.addWidget(_WinDot(_k, _slot, t), 0, _vc)
+            _dot = _WinDot(_k, _slot, t)
+            self._win_controls[_k] = _dot     # FramelessShellMixin contract
+            hb.addWidget(_dot, 0, _vc)
         outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
@@ -1631,16 +1654,33 @@ class UnderlayImportDialog(QDialog):
                              base_y_lbl, self._base_y_edit, self._pick_base_btn]
 
         # Position — binary → toggle switch (switch left, label right)
-        pl_v.addWidget(_hdr("Position"))
+        self._position_hdr = _hdr("Position")
+        pl_v.addWidget(self._position_hdr)
         pos_row = QHBoxLayout()
         self._origin_switch = _ToggleSwitch(t, checked=True)
         self._origin_switch.toggled.connect(
             lambda *_: (self._update_base_enabled(), self._update_all()))
         pos_row.addWidget(self._origin_switch)
         pos_row.addSpacing(8)
-        pos_row.addWidget(QLabel("Insert at origin"))
+        self._origin_switch_lbl = QLabel("Insert at origin")
+        pos_row.addWidget(self._origin_switch_lbl)
         pos_row.addStretch()
         pl_v.addLayout(pos_row)
+
+        # Modify-only 3-way insertion-position control (segmented switch bar,
+        # house style: single-select = switch bar). Subsumes the plain origin
+        # toggle when modifying, so that toggle+label are hidden in modify mode.
+        self._placement_bar = _SwitchBar(
+            ["Reuse existing position", "Pick new position", "Insert at origin"])
+        self._placement_bar.changed.connect(lambda *_: self._update_all())
+        pl_v.addWidget(self._placement_bar)
+        if self._modify_record is not None:
+            self._origin_switch.setVisible(False)
+            self._origin_switch_lbl.setVisible(False)
+            self._placement_bar.set_current(0)   # "Reuse existing position"
+        else:
+            self._placement_bar.setVisible(False)
+
         pl_v.addStretch(1)
         self._panel_stack.addWidget(pl_pg)
 
@@ -1713,61 +1753,85 @@ class UnderlayImportDialog(QDialog):
         self._active_step = key
         self._update_all()
 
-    def _toggle_max(self):
-        if self.isMaximized():
-            self.showNormal()
-        else:
-            self.showMaximized()
-
-    # Frameless-window drag: the header moves the dialog.
-    def mousePressEvent(self, event):
-        tb = getattr(self, "_titlebar", None)
-        if (tb is not None and event.button() == Qt.MouseButton.LeftButton
-                and tb.geometry().contains(event.position().toPoint())):
-            self._drag_pos = (event.globalPosition().toPoint()
-                              - self.frameGeometry().topLeft())
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (self._drag_pos is not None
-                and event.buttons() & Qt.MouseButton.LeftButton):
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        tb = getattr(self, "_titlebar", None)
-        if tb is not None and tb.geometry().contains(event.position().toPoint()):
-            self._toggle_max()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
+    # Frameless chrome (_toggle_max / mouse*Event drag / showEvent rounded
+    # corners / _enable_rounded_corners) is provided by FramelessShellMixin.
 
     def showEvent(self, event):
+        # Chain to the mixin's showEvent (enables DWM rounded corners) via MRO,
+        # then maximize once on first show. The guard preserves a later
+        # double-click/restore (a reshow won't re-maximize).
         super().showEvent(event)
-        self._enable_rounded_corners()
+        if not getattr(self, "_did_initial_max", False):
+            self._did_initial_max = True
+            self.showMaximized()
+            # Any geometry loaded BEFORE the dialog was shown (Modify prefill or
+            # a constructor file_path) was fit against an unsized viewport, so
+            # _fit_scale is wrong and the preview reads "100%" while zoomed out.
+            # Re-fit once the maximize has given the viewport its real size.
+            QTimer.singleShot(0, self._fit_preview_to_content)
 
-    def _enable_rounded_corners(self):
-        """Win11 DWM rounded corners for the frameless window (matches the
-        native-framed Underlay Manager). No-op / harmless elsewhere."""
-        try:
-            import ctypes
-            hwnd = int(self.winId())
-            DWMWA_WINDOW_CORNER_PREFERENCE = 33
-            DWMWCP_ROUND = 2
-            val = ctypes.c_int(DWMWCP_ROUND)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
-                ctypes.byref(val), ctypes.sizeof(val))
-        except Exception:
-            pass
+    def _content_rect(self) -> QRectF:
+        """Scene bounds of the *drawing* content only.
+
+        ``QGraphicsScene.itemsBoundingRect()`` unions EVERY item — including the
+        base-point crosshair (drawn at the base point, which defaults to the
+        origin) and the invisible snap-cursor lines. When the geometry sits far
+        from the origin (a PDF page whose vectors are offset, or a page switch
+        that keeps a stale base point) that union balloons from the origin out
+        to the geometry, so a fit against it zooms the drawing way out even
+        though the readout says "Fit". Fit against the geometry alone instead:
+        the batched geometry group's scene bounds (vector), else the union of
+        every non-overlay item (raster pixmap fallback)."""
+        scene = getattr(self, "_preview_scene", None)
+        if scene is None:
+            return QRectF()
+        group = getattr(self, "_preview_geom_group", None)
+        if group is not None:
+            try:
+                r = group.sceneBoundingRect()
+                if not r.isEmpty():
+                    return r
+            except RuntimeError:
+                pass  # C++ object gone (scene cleared) — fall through
+        # Raster / no-group fallback: union of everything except the overlays.
+        overlays = set()
+        for attr in ("_cursor_h", "_cursor_v"):
+            o = getattr(self, attr, None)
+            if o is not None:
+                overlays.add(o)
+        for m in getattr(self, "_base_markers", []) or []:
+            overlays.add(m)
+        rect = QRectF()
+        for it in scene.items():
+            if it in overlays:
+                continue
+            r = it.sceneBoundingRect()
+            if r.isEmpty():
+                continue
+            rect = r if rect.isEmpty() else rect.united(r)
+        return rect
+
+    def _fit_preview_to_content(self) -> None:
+        """Canonical "fit drawing to viewport" — deterministic across every
+        content change (initial load, page switch, Modify prefill).
+
+        Fits against ``_content_rect`` (geometry only, no overlay markers) and
+        pins ``setSceneRect`` to that same rect so the scene rect can't drift as
+        cleared/added items accumulate. Same geometry → same rect → same fit,
+        so switching PDF pages and back reproduces the identical zoom. Safe
+        no-op when there is nothing to show."""
+        view = getattr(self, "_preview_view", None)
+        scene = getattr(self, "_preview_scene", None)
+        if view is None or scene is None:
+            return
+        rect = self._content_rect()
+        if rect.isEmpty():
+            return
+        fit_rect = rect.adjusted(-10, -10, 10, 10)
+        # Pin the scene rect to the content so the auto-grown default (which only
+        # ever expands) can't skew future pans/fits.
+        scene.setSceneRect(fit_rect)
+        view.fitInView(fit_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
@@ -1877,7 +1941,11 @@ class UnderlayImportDialog(QDialog):
             scale_str = self._scale_combo.currentText() or "1:1"
         rotation = int(round(self._get_rotation()))
         levels = self._levels_picker.selected()
-        position = "origin" if self._origin_switch.isChecked() else "pick"
+        if self._modify_record is not None and hasattr(self, "_placement_bar"):
+            position = {0: "reuse", 1: "pick", 2: "origin"}.get(
+                self._placement_bar.current_index(), "reuse")
+        else:
+            position = "origin" if self._origin_switch.isChecked() else "pick"
 
         self._commit_label.setText(build_commit_sentence(
             name=name, page=page, pages=pages, layers_hidden=layers_hidden,
@@ -2153,8 +2221,16 @@ class UnderlayImportDialog(QDialog):
         if cached is not None:
             self._all_geoms, layers = cached
             self._layers = list(layers)
-            self._populate_layer_list()
+            # ASYNC consume site (DXF/DWG, memoized-layout branch). Same timing
+            # contract as _on_extract_finished: _apply_modify_prefill left these
+            # pending (its clear is gated to _file_type=="pdf") so this branch
+            # can consume them here once the (cached) geometry is available.
+            self._populate_layer_list()   # applies _pending_modify_layers
+            self._pending_modify_layers = None
             self._selected_indices = None
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
             self._set_loading("Building preview…")
             self._rebuild_preview()
             self._clear_loading()
@@ -2239,8 +2315,19 @@ class UnderlayImportDialog(QDialog):
                 ]
 
         self._layers = list(layers)
-        self._populate_layer_list()
+        # ASYNC consume site (DXF/DWG). These pending fields were deliberately
+        # LEFT UNCLEARED by _apply_modify_prefill because geometry did not exist
+        # yet when that returned — the sync-path clear there is gated to
+        # _file_type=="pdf" precisely so this branch still sees them. Consume +
+        # clear them here now that the extract has finished.
+        self._populate_layer_list()   # applies _pending_modify_layers
+        self._pending_modify_layers = None
         self._selected_indices = None
+        # Modify flow: restore the saved crop now that geometry exists (async
+        # DXF/DWG — the sync PDF path applies it inline in the prefill).
+        if self._pending_modify_bounds is not None:
+            self._restore_crop_from_bounds(self._pending_modify_bounds)
+            self._pending_modify_bounds = None
 
         # Memoize — only complete (non-aborted) extractions reach here
         self._layout_cache[layout_name] = (
@@ -2511,8 +2598,17 @@ class UnderlayImportDialog(QDialog):
         names = getattr(self, "_pdf_page_names", [])
         return names[page] if 0 <= page < len(names) else f"Page {page + 1}"
 
-    def _load_pdf_page(self, path: str, page: int, dpi: int | None = None):
-        """Load vectors from a specific PDF page."""
+    def _load_pdf_page(self, path: str, page: int, dpi: int | None = None,
+                       reset_base: bool = True):
+        """Load vectors from a specific PDF page.
+
+        Args:
+            reset_base: When True (initial load / prefill), auto-fill the base
+                point from the new page's geometry bounds. A user PAGE SWITCH
+                passes False so the user's base point (and, with it, scale /
+                levels / DPI / mode, which this method never touches) survives.
+                LAYERS and CROP still reset — the geometry itself changed.
+        """
         if dpi is None:
             dpi = int(self._dpi_combo.currentText())
 
@@ -2557,7 +2653,7 @@ class UnderlayImportDialog(QDialog):
                         ys += [y0, y0 + g.get("h", g.get("rh", 0))]
                     elif kind == "text":
                         xs.append(g["x"]); ys.append(g["y"])
-                if xs and ys:
+                if xs and ys and reset_base:
                     self._base_x_edit.blockSignals(True)
                     self._base_y_edit.blockSignals(True)
                     self._base_x_edit.set_value_mm(min(xs))
@@ -2625,10 +2721,7 @@ class UnderlayImportDialog(QDialog):
             item = QGraphicsPixmapItem(pixmap)
             item.setZValue(-200)
             self._preview_scene.addItem(item)
-            self._preview_view.fitInView(
-                self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
+            self._fit_preview_to_content()
             self._set_drop_overlay(False)   # raster loaded → hide the prompt
         except Exception:
             pass
@@ -2640,8 +2733,45 @@ class UnderlayImportDialog(QDialog):
         if row < 0:
             return
         path = self._file_edit.text().strip()
-        if path and os.path.exists(path):
-            self._load_pdf_page(path, row)
+        if not (path and os.path.exists(path)):
+            return
+        # A user page switch loads the new page's geometry (which resets the
+        # layer list + crop inside _load_pdf_page), but the user's selections
+        # should PERSIST across the switch — matched to the new page the same
+        # way the Modify flow matches them: layers by NAME, crop by BOUNDS.
+        # Capture BEFORE the load; re-apply AFTER (see below). Non-geometry
+        # settings (scale, base point, levels, DPI, import mode) persist because
+        # _load_pdf_page never touches those widgets; reset_base=False keeps it
+        # from re-deriving the base point from the new page's bounds.
+        captured_layers = self._active_layers()          # set[str] | None
+        captured_bounds = self._current_crop_bounds()     # [minx,miny,maxx,maxy] | None
+
+        self._load_pdf_page(path, row, reset_base=False)
+
+        # Re-apply against the freshly loaded page. Layers absent on the new page
+        # are simply not re-checked (no error); the crop bounds re-select
+        # whatever geoms now fall inside them. _restore_crop_from_bounds already
+        # rebuilds the preview; call it last so its rebuild reflects the layers.
+        if captured_layers is not None and self._all_geoms:
+            self._apply_selected_layers(captured_layers)
+            if captured_bounds is None:
+                self._rebuild_preview()
+        if captured_bounds is not None and self._all_geoms:
+            self._restore_crop_from_bounds(captured_bounds)
+
+    def _sync_page_indicator(self, page: int) -> None:
+        """Reflect the restored PDF page in the thumbnail strip (Modify flow).
+
+        Set the current row WITHOUT firing _on_page_thumb_clicked (which would
+        reload the page and clobber the just-restored crop/layer selection).
+        """
+        strip = getattr(self, "_thumb_list", None)
+        if strip is None:
+            return
+        if 0 <= page < strip.count():
+            strip.blockSignals(True)
+            strip.setCurrentRow(page)
+            strip.blockSignals(False)
 
     # ── Common helpers ───────────────────────────────────────────────────────
 
@@ -2653,6 +2783,33 @@ class UnderlayImportDialog(QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
             self._layer_list.addItem(item)
+        self._layer_list.blockSignals(False)
+        # Modify flow: if a saved layer subset is pending (async paths populate
+        # the list after the extract finishes), apply it now. Do NOT clear the
+        # pending field here — the PDF sync load populates twice (page 0 then
+        # the target page), so the owning caller (prefill sync block / async
+        # extract callback) clears it once against the final geometry.
+        pending = getattr(self, "_pending_modify_layers", None)
+        if pending:
+            self._apply_selected_layers(pending)
+
+    def _apply_selected_layers(self, names) -> None:
+        """Check ONLY the layers in *names* (Modify-flow restore).
+
+        A ``None``/empty *names* means "all layers" (the record's
+        ``selected_layers`` is None when nothing was deselected) — leave the
+        freshly populated all-checked state untouched. Blocks the list's
+        itemChanged signal so no preview rebuild fires per check.
+        """
+        if not names:
+            return
+        wanted = set(names)
+        self._layer_list.blockSignals(True)
+        for i in range(self._layer_list.count()):
+            it = self._layer_list.item(i)
+            it.setCheckState(
+                Qt.CheckState.Checked if it.text() in wanted
+                else Qt.CheckState.Unchecked)
         self._layer_list.blockSignals(False)
 
     # ── Preview rendering ─────────────────────────────────────────────────────
@@ -2747,10 +2904,7 @@ class UnderlayImportDialog(QDialog):
 
         self._draw_base_marker()
         if self._all_geoms:
-            self._preview_view.fitInView(
-                self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
+            self._fit_preview_to_content()
         self._set_drop_overlay(not self._all_geoms)
 
     @staticmethod
@@ -2928,6 +3082,42 @@ class UnderlayImportDialog(QDialog):
         self._rebuild_preview()
         self._update_status()
 
+    def _current_crop_bounds(self) -> list[float] | None:
+        """Bounding box of the currently cropped geoms, or None if no crop.
+
+        Same derivation ``get_import_params`` bakes into ``import_bounds``:
+        the bbox of the ``_selected_indices`` geoms via ``compute_geom_bounds``.
+        Used to carry a crop across a page switch (re-selected by bounds on the
+        new page through ``_restore_crop_from_bounds``)."""
+        if self._selected_indices is None:
+            return None
+        geoms = [g for idx, g in enumerate(self._all_geoms)
+                 if idx in self._selected_indices]
+        if not geoms:
+            return None
+        from .dwg_converter import compute_geom_bounds
+        return compute_geom_bounds(geoms)
+
+    def _restore_crop_from_bounds(self, bounds) -> None:
+        """Rebuild ``_selected_indices`` from a saved crop bbox (Modify flow).
+
+        *bounds* is ``[min_x, min_y, max_x, max_y]`` (the same representation
+        ``get_import_params`` bakes into ``import_bounds``). Selects the geoms
+        whose representative point falls inside — using the SAME predicate the
+        save path round-trips through (``_geom_in_any_bound``) so re-Saving is
+        lossless. Repaints via the crop-apply preview refresh.
+        """
+        if not bounds:
+            return
+        from .dwg_converter import _geom_in_any_bound
+        box = [(bounds[0], bounds[1], bounds[2], bounds[3])]
+        sel = {idx for idx, g in enumerate(self._all_geoms)
+               if _geom_in_any_bound(g, box)}
+        self._selected_indices = sel or None
+        # Same repaint the rubber-band / area-select path uses.
+        self._rebuild_preview()
+        self._update_status()
+
     # ── Scale ─────────────────────────────────────────────────────────────────
 
     def _populate_scale_combo(self, is_pdf: bool):
@@ -3023,6 +3213,38 @@ class UnderlayImportDialog(QDialog):
         else:
             lbl.setText(f"≈ {w_mm:.0f} × {h_mm:.0f} mm real")
         lbl.setVisible(True)
+
+    def _cancel_pick_mode(self):
+        """Leave the active point-pick sub-mode (calibrate or base) cleanly,
+        without closing the dialog. Mirrors the success-path cleanup: exits the
+        mode, restores the pan cursor / hides the snap cursor, drops any partial
+        scale-pick markers, and resets the status line."""
+        was = self._pick_mode
+        self._pick_mode = None
+        # Drop any partial scale-pick markers (diamonds/dots/line) drawn so far.
+        for m in getattr(self, "_pick_markers", []):
+            try:
+                if m.scene() is self._preview_scene:
+                    self._preview_scene.removeItem(m)
+            except RuntimeError:
+                pass
+        self._pick_markers = []
+        self._pick_pts = []
+        # set_mode("pan") restores the arrow cursor and hides the snap cursor.
+        self._preview_view.set_mode("pan")
+        if was == "base":
+            self._status_lbl.setText("Base point pick cancelled.")
+        else:
+            self._status_lbl.setText("Scale pick cancelled.")
+
+    def keyPressEvent(self, event):
+        if (event.key() == Qt.Key.Key_Escape
+                and self._pick_mode is not None):
+            # Escape exits the pick sub-mode; it must NOT reject the dialog.
+            self._cancel_pick_mode()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _start_pick2(self):
         self._pick_pts = []
@@ -3302,6 +3524,13 @@ class UnderlayImportDialog(QDialog):
         p.import_mode = self._mode_combo.currentText().lower()
         p.insert_at_origin = self._origin_switch.isChecked()
 
+        # Modify-only insertion-position control (3-way subsumes the origin
+        # toggle when modifying). Fresh imports leave placement_mode="reuse".
+        if self._modify_record is not None and hasattr(self, "_placement_bar"):
+            p.placement_mode = {
+                0: "reuse", 1: "pick", 2: "origin",
+            }.get(self._placement_bar.current_index(), "reuse")
+
         active_layers = self._active_layers()
         geoms = []
         for idx, g in enumerate(self._all_geoms):
@@ -3333,7 +3562,3 @@ class UnderlayImportDialog(QDialog):
 
         self._save_settings()
         return p
-
-
-# ── Backwards compat alias ───────────────────────────────────────────────────
-DxfPreviewDialog = UnderlayImportDialog

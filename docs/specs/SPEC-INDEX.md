@@ -13,7 +13,7 @@
 | SNAP toolbar / per-type toggles | `specs/snap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
 | Ribbon bar (tabs/groups/buttons, mode-button sync, contextual tabs) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `icons.py`, `preferences_dialog.py`, `main.py` (`init_ribbon` + `_init_*_tab` + contextual-tab mechanism) | current |
 | Ribbon icons / graphics | `specs/icon-style-guide.md` | `icons.py`, `svg_utils.py`, `graphics/Ribbon/` | current |
-| Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `underlay_freeze.py`, `dwg_converter.py` | current |
+| Underlay / import I/O (DXF·DWG·PDF) + import dialog / Underlay Manager UI | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `underlay_import_dialog.py`, `underlay_manager.py`, `underlay_manager_model.py`, `underlay_manager_delegates.py`, `frameless_shell.py`, `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `underlay_freeze.py`, `dwg_converter.py`, `model_space.py` (underlay display + replace) | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `align_engine.py` | current |
 | 2D geometry / drawing items | `specs/2d-geometry.md` | `construction_geometry.py`, `model_space.py` (2D-geometry placement + dispatch), `snap_engine.py` (2D snap) | current |
@@ -23,7 +23,7 @@
 | Parametric constraints / align | `specs/parametric-constraint-system.md` | `constraints.py`, `scene_tools.py` | current |
 | Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py` (consumes the floor two-boundary z-model via `slab._z_range_with_lm` — still governed here; §7.1 plan view-range upper bound), `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py`, `view_range_dialog.py` | current |
 | Display / visibility | `architecture/display-system.md` (Z-order owned by `view-relationships.md §7.3` + `constants.py`) | `display_manager.py`, `displayable_item.py` | current |
-| Theming / UI tokens | `architecture/theming.md` | `theme.py` | current |
+| Theming / UI tokens | `architecture/theming.md` | `theme.py`, `frameless_shell.py` (FramelessShellMixin house shell) | current |
 | Property panel / templates | `specs/property-panel.md` | `property_manager.py`, `dimension_edit.py` | current |
 | Units & formatting conventions | `specs/units-and-formatting.md` | `scale_manager.py` (conventions consumed app-wide) | current |
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |

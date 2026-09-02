@@ -40,7 +40,7 @@ def test_import_dialog_seeds_from_prefs(qapp):
     s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
     s.setValue("import/pdf_dpi", 300)
     s.setValue("import/pdf_import_mode", "raster")
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None)
     dlg._seed_pdf_options_from_prefs()
     assert dlg._dpi_combo.currentText() == "300"

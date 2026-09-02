@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
+from PyQt6.QtCore import QModelIndex, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .frameless_shell import FramelessShellMixin
 from .underlay_manager_delegates import (
     ColourDelegate, LevelsDelegate, ToggleDelegate, WeightDelegate,
     make_menu,
@@ -79,19 +80,12 @@ class _DetailsPanel(QFrame):
         root.setContentsMargins(14, 12, 14, 14)
         root.setSpacing(9)
 
-        header = QLabel("D E T A I L S")
+        header = QLabel("DETAILS")
         header.setProperty("role", "header")
         root.addWidget(header)
 
-        # Themed placeholder where a preview would go (no real thumbnail for MVP).
-        self.preview = QLabel()
-        self.preview.setObjectName("previewBox")
-        self.preview.setFixedHeight(122)
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self.preview)
-
         self.name = QLabel()
-        self.name.setStyleSheet("font-weight:600;font-size:14px;")
+        self.name.setProperty("role", "name")
         root.addWidget(self.name)
 
         self.status = QLabel()
@@ -148,7 +142,7 @@ class _DetailsPanel(QFrame):
     # -- population --------------------------------------------------------
     def show_selection(self, records: list, layer_count: int = 0) -> None:
         single = len(records) == 1
-        for widget in (self.preview, self.name, self.status,
+        for widget in (self.name, self.status,
                        self.btn_reload, self.btn_relink):
             widget.setVisible(single)
         for i in range(self.grid.count()):
@@ -189,13 +183,22 @@ class _DetailsPanel(QFrame):
 # ---------------------------------------------------------------------------
 # The dialog
 # ---------------------------------------------------------------------------
-class UnderlayManagerDialog(QDialog):
+class UnderlayManagerDialog(FramelessShellMixin, QDialog):
     """Modeless manager — instant apply, no OK/Apply. Open with ``.show()``."""
+
+    #: QSettings key for the tree header's saved column layout (widths/order).
+    HEADER_STATE_KEY = "underlay_manager/header_state"
 
     def __init__(self, scene, main_window, theme: Theme | None = None, parent=None,
                  apply_stylesheet: bool = True):
         theme = theme or detect()
         super().__init__(parent)
+        self.init_frameless_shell(
+            title="Underlay Manager",
+            controls=("min", "max", "close"),
+            resizable=True,
+            icon="underlay_manager_icon.svg",
+        )
         self.scene = scene
         self.main_window = main_window
         self.t = theme
@@ -203,8 +206,10 @@ class UnderlayManagerDialog(QDialog):
         self.setWindowTitle("Underlay Manager")
         if apply_stylesheet:
             self.setStyleSheet(build_underlay_manager_qss(theme))
-        self.resize(1080, 560)
+        self.setMinimumSize(720, 420)
+        self.resize(1080, 560)  # restore baseline (size after un-maximize)
         self.setModal(False)
+        self._did_initial_max = False
 
         self._known_levels = lambda: [
             l.name for l in main_window.level_mgr.levels]
@@ -222,6 +227,8 @@ class UnderlayManagerDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        root.addWidget(self._titlebar)
 
         toolbar = QFrame(objectName="toolbarBar")
         bar = QHBoxLayout(toolbar)
@@ -278,12 +285,22 @@ class UnderlayManagerDialog(QDialog):
         header = self.view.header()
         header.setHighlightSections(False)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(Col.SOURCE, QHeaderView.ResizeMode.Stretch)
+        # Every inner divider (incl. SOURCE<->TYPE, NAME<->SOURCE) stays
+        # draggable: keep all sections Interactive and let the LAST column
+        # (LEVELS) absorb slack instead of a Stretch section (which resists
+        # interactive resize of its neighbouring dividers).
+        header.setStretchLastSection(True)
         for col, width in (
-            (Col.NAME, 200), (Col.TYPE, 64), (Col.VIS, 40), (Col.SNAP, 44),
-            (Col.COLOUR, 110), (Col.WEIGHT, 84), (Col.LEVELS, 160),
+            (Col.NAME, 200), (Col.SOURCE, 220), (Col.TYPE, 64), (Col.VIS, 92),
+            (Col.SNAP, 44), (Col.COLOUR, 110), (Col.WEIGHT, 84),
+            (Col.LEVELS, 160),
         ):
             self.view.setColumnWidth(col, width)
+        # Restore the user's saved header layout AFTER defaults — first-ever
+        # open uses the defaults above; later opens use the persisted widths.
+        self._restore_header_state(header)
+        # Persist any subsequent user resize back to QSettings.
+        header.sectionResized.connect(self._save_header_state)
         body.addWidget(self.view, 1)
 
         self.details = _DetailsPanel(self.t)
@@ -305,7 +322,53 @@ class UnderlayManagerDialog(QDialog):
         foot.addWidget(self.btn_close)
         root.addWidget(footer)
 
-        self.view.expandAll()
+        # Underlays default to COLLAPSED (Bug 2). Expansion state is then
+        # preserved across model resets by the _before_reset/_after_reset pair
+        # (Bug 3) rather than force-expanded on every edit.
+
+    # ---------------------------------------------------------- header persist
+    def _settings(self) -> QSettings:
+        """The QSettings store to persist UI layout in.
+
+        Prefer the MainWindow's shared store (``main_window.settings`` — the
+        app-wide ``QSettings("GV", "FirePro3D")``); fall back to constructing
+        the SAME org/app store so persistence lands in one place.
+        """
+        settings = getattr(self.main_window, "settings", None)
+        if isinstance(settings, QSettings):
+            return settings
+        return QSettings("GV", "FirePro3D")
+
+    def _restore_header_state(self, header: QHeaderView) -> None:
+        try:
+            blob = self._settings().value(self.HEADER_STATE_KEY)
+            if blob:
+                header.restoreState(blob)
+        except Exception:
+            # Corrupt/old blob (or a changed column set): keep the defaults.
+            pass
+
+    def _save_header_state(self, *_args) -> None:
+        try:
+            self._settings().setValue(
+                self.HEADER_STATE_KEY, self.view.header().saveState())
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        self._save_header_state()
+        super().closeEvent(event)
+
+    # -------------------------------------------------------------- lifecycle
+    def showEvent(self, event):
+        # Chain to the mixin's showEvent (DWM rounded corners) via MRO, then
+        # maximize once on first show. The guard keeps the 1080x560 resize() as
+        # the restore baseline and prevents a later reshow (singleton reopen via
+        # open_underlay_manager) or user restore from being re-maximized.
+        super().showEvent(event)
+        if not getattr(self, "_did_initial_max", False):
+            self._did_initial_max = True
+            self.showMaximized()
 
     # ---------------------------------------------------------------- wiring
     def _wire(self) -> None:
@@ -327,12 +390,42 @@ class UnderlayManagerDialog(QDialog):
         self.details.reloadRequested.connect(self._reload)
         self.details.relinkRequested.connect(self._relink)
 
-        # Model resets on scene.underlaysChanged; keep the tree expanded and
-        # the details/toolbar in sync afterwards.
+        # Model resets on scene.underlaysChanged (every VIS/appearance edit
+        # routes through beginResetModel/endResetModel). Snapshot which
+        # underlays the user had expanded BEFORE the reset and restore exactly
+        # those afterwards, so an edit never force-re-expands collapsed rows
+        # (Bug 3) and new/initial rows stay collapsed (Bug 2).
+        self._expanded_keys: set = set()
+        self.model.modelAboutToBeReset.connect(self._before_reset)
         self.model.modelReset.connect(self._after_reset)
 
+    def _before_reset(self) -> None:
+        """Snapshot the set of expanded top-level underlays, keyed by the
+        stable record identity (``id(record)`` — records survive the reset;
+        the model only rebuilds its _Node wrappers)."""
+        keys: set = set()
+        root = QModelIndex()
+        for row in range(self.proxy.rowCount(root)):
+            proxy_index = self.proxy.index(row, 0, root)
+            if not proxy_index.isValid():
+                continue
+            if self.view.isExpanded(proxy_index):
+                record = proxy_index.data(UnderlayRole)
+                if record is not None:
+                    keys.add(id(record))
+        self._expanded_keys = keys
+
     def _after_reset(self) -> None:
-        self.view.expandAll()
+        # Restore only the previously-expanded underlays; everything else
+        # (incl. brand-new imports) stays collapsed.
+        root = QModelIndex()
+        for row in range(self.proxy.rowCount(root)):
+            proxy_index = self.proxy.index(row, 0, root)
+            if not proxy_index.isValid():
+                continue
+            record = proxy_index.data(UnderlayRole)
+            if record is not None and id(record) in self._expanded_keys:
+                self.view.expand(proxy_index)
         self._sync_ui()
 
     def _on_double_click(self, index: QModelIndex) -> None:

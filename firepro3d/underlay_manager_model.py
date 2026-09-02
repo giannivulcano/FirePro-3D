@@ -39,13 +39,14 @@ class Col(IntEnum):
     LEVELS = 7
 
 
-TITLES = ["NAME", "SOURCE", "TYPE", "VIS", "SNAP", "COLOUR", "WEIGHT", "LEVELS"]
+TITLES = ["NAME", "SOURCE", "TYPE", "VISIBILITY", "SNAP", "COLOUR", "WEIGHT", "LEVELS"]
 
 UnderlayRole = Qt.ItemDataRole.UserRole + 1   # -> Underlay record (both row kinds)
 SearchRole = Qt.ItemDataRole.UserRole + 2     # -> combined lowercase text for filtering
 SortRole = Qt.ItemDataRole.UserRole + 3       # -> per-column sort key
 LayerRole = Qt.ItemDataRole.UserRole + 4      # -> layer name (child row) / None (underlay row)
 AppearanceEditableRole = Qt.ItemDataRole.UserRole + 5  # -> bool: colour/weight/snap editable (False for raster PDF)
+LayerListRole = Qt.ItemDataRole.UserRole + 6  # -> list[str]: all source-layer names of the underlay (both row kinds)
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +220,12 @@ class UnderlayTreeModel(QAbstractItemModel):
         return len(Col)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if (orientation == Qt.Orientation.Horizontal
-                and role == Qt.ItemDataRole.DisplayRole
-                and 0 <= section < len(TITLES)):
-            return TITLES[section]
+        if orientation == Qt.Orientation.Horizontal:
+            if role == Qt.ItemDataRole.DisplayRole and 0 <= section < len(TITLES):
+                return TITLES[section]
+            if (role == Qt.ItemDataRole.TextAlignmentRole
+                    and section in (Col.VIS, Col.SNAP, Col.TYPE)):
+                return int(Qt.AlignmentFlag.AlignCenter)
         return None
 
     def flags(self, index):
@@ -240,6 +243,12 @@ class UnderlayTreeModel(QAbstractItemModel):
         record = node.record
         col = index.column()
 
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            # Centre the TYPE cell text (VIS/SNAP are delegate-painted/centred;
+            # other text columns keep default left alignment).
+            if col == Col.TYPE:
+                return int(Qt.AlignmentFlag.AlignCenter)
+            return None
         if role == UnderlayRole:
             return record
         if role == LayerRole:
@@ -251,6 +260,11 @@ class UnderlayTreeModel(QAbstractItemModel):
             if node.layer is not None:
                 return True
             return not isinstance(self._group_for(record), QGraphicsPixmapItem)
+        if role == LayerListRole:
+            # All source-layer names for this underlay (same on both row kinds).
+            # Lets the VIS delegate tell "some layers hidden" (partial) from
+            # "all layers hidden" on the parent eye glyph.
+            return self._layers_of(record)
 
         if node.layer is not None:
             return self._layer_data(node, col, role)
@@ -395,7 +409,13 @@ class UnderlayTreeModel(QAbstractItemModel):
                 pass
 
     def _apply_visibility(self):
-        lm = getattr(self._scene, "level_mgr", None)
+        # The real Model_Space exposes the level manager as ``_level_manager``
+        # (main.py sets ``scene._level_manager``); test fakes use ``level_mgr``.
+        # Honour both — otherwise the master (underlay-level) VIS toggle is a
+        # silent no-op on the live canvas, because ``apply_to_scene`` is the
+        # only path that gates the whole group on ``record.visible``.
+        lm = (getattr(self._scene, "level_mgr", None)
+              or getattr(self._scene, "_level_manager", None))
         if lm is None:
             return
         active = getattr(self._scene, "active_level", None)

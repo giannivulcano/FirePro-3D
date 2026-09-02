@@ -206,7 +206,7 @@ def test_cache_key_backward_compat():
 
 def test_import_params_dwg_layout():
     """ImportParams carries DWG layout through to Underlay record."""
-    from firepro3d.dxf_preview_dialog import ImportParams
+    from firepro3d.underlay_import_dialog import ImportParams
     from firepro3d.underlay import Underlay
 
     p = ImportParams()
@@ -265,7 +265,7 @@ def test_underlay_dwg_serialization_roundtrip():
 
 def test_import_params_dxf_layout():
     """ImportParams carries layout for DXF files with paper layouts."""
-    from firepro3d.dxf_preview_dialog import ImportParams
+    from firepro3d.underlay_import_dialog import ImportParams
     from firepro3d.underlay import Underlay
 
     p = ImportParams()

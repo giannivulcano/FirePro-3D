@@ -1,9 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
      stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- stacked layers (manager operates on a stack of underlays) -->
-  <path d="M24 8 L39 16 L24 24 L9 16 Z"/>
-  <path d="M9 23 L24 31 L39 23"/>
-  <!-- accent 'manage' control handle beneath the stack -->
-  <path stroke="#004CFF" d="M12 39 H36"/>
-  <circle cx="28" cy="39" r="3" fill="#004CFF" stroke="none"/>
+  <!-- stacked underlay layers, accent-solid top -->
+  <path fill="#004CFF" stroke="#004CFF" d="M24 8 L40 17 L24 26 L8 17 Z"/>
+  <path d="M8 24 L24 33 L40 24"/>
+  <path d="M8 31 L24 40 L40 31"/>
 </svg>

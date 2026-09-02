@@ -1,5 +1,5 @@
 import inspect
-import firepro3d.dxf_preview_dialog as dpd
+import firepro3d.underlay_import_dialog as dpd
 import firepro3d.display_manager as dm
 import firepro3d.model_browser as mb
 import firepro3d.underlay_context_menu as ucm

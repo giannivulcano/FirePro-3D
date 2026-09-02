@@ -169,7 +169,7 @@ A **paper viewport** is not a view type — it is a **frame** placed on a paper 
 These are not view types under this spec, even though their filenames suggest otherwise:
 - `view_cube.py` — 3D navigation widget. Part of the 3D view, not its own type.
 - `view_range_dialog.py` — UI for editing a view's range. Configures a view, is not a view.
-- `dxf_preview_dialog.py` — import-time preview. Not a project view.
+- `underlay_import_dialog.py` — import-time preview. Not a project view.
 - `model_browser.py`, `project_browser.py` — tree widgets. Not graphical views.
 
 ---
