@@ -82,13 +82,16 @@ from .assets import asset_path
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DXF_INSUNITS: dict[int, tuple[str, float]] = {
-    # code: (display_name, scale_factor_to_inches)
+    # code: (display_name, scale_factor_to_mm)
+    # Factor is source-unit -> mm (mm per source unit), matching the app's
+    # scale = real_mm / source_units. code 0 (Unitless) is unused: the
+    # consumer gate skips it.
     0: ("Unitless",  1.0),
-    1: ("Inches",    1.0),
-    2: ("Feet",      12.0),
-    4: ("Millimeters", 1.0 / 25.4),
-    5: ("Centimeters", 1.0 / 2.54),
-    6: ("Meters",    1.0 / 0.0254),
+    1: ("Inches",    25.4),
+    2: ("Feet",      304.8),
+    4: ("Millimeters", 1.0),
+    5: ("Centimeters", 10.0),
+    6: ("Meters",    1000.0),
 }
 
 
