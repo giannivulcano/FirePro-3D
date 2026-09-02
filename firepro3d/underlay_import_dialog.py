@@ -2299,6 +2299,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             return
         self._selected_layout = layout_name
 
+        # Replace the static "Select a layout to preview." hint immediately so
+        # the info area narrates the switch (both the memoized and worker
+        # branches below). The finished/summary path overwrites it with the
+        # entity count.
+        self._info_lbl.setText(f"Loading {layout_name}…")
+
         # ── Memoized layout — skip re-extraction entirely ────────────────
         cached = self._layout_cache.get(layout_name)
         if cached is not None:
