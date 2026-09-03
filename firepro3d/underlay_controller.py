@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PyQt6.QtCore import Qt, QRectF, QSize
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSize
 from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
@@ -961,3 +961,185 @@ class UnderlayController:
         except RuntimeError:
             return
         self._scene.underlaysChanged.emit()
+
+    # -------------------------------------------------------------------------
+    # UNDERLAYS — INTERACTIVE PLACEMENT (place_import)
+
+    def begin_place_import(self, params):
+        """
+        Start the interactive placement of a DXF block after the preview dialog.
+
+        The scene enters 'place_import' mode.  A ghost bounding-box preview
+        follows the cursor.  Clicking commits the placement.
+
+        Parameters
+        ----------
+        params : ImportParams
+            Result from UnderlayImportDialog.get_import_params()
+        """
+        self._place_import_params = params
+        self._place_import_ghost = None
+        # Fresh import carries no management/remove-old payload. The Modify
+        # "Pick new position" path re-sets these AFTER calling this method.
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
+
+        # Build a bounding rect for the (scaled, base-point-adjusted) geometry
+        if params.geom_list:
+            xs, ys = [], []
+            s = params.scale
+            bx, by = params.base_x, params.base_y
+            for g in params.geom_list:
+                kind = g.get("kind")
+                if kind == "line":
+                    xs += [(g["x1"] - bx) * s, (g["x2"] - bx) * s]
+                    ys += [(g["y1"] - by) * s, (g["y2"] - by) * s]
+                elif kind in ("circle", "arc"):
+                    x0 = (g.get("x", g.get("rx", 0)) - bx) * s
+                    y0 = (g.get("y", g.get("ry", 0)) - by) * s
+                    xs += [x0, x0 + g.get("w", g.get("rw", 0)) * s]
+                    ys += [y0, y0 + g.get("h", g.get("rh", 0)) * s]
+                elif kind == "path_points":
+                    for pt in g.get("points", []):
+                        xs.append((pt[0] - bx) * s)
+                        ys.append((pt[1] - by) * s)
+                elif kind == "text":
+                    xs.append((g["x"] - bx) * s)
+                    ys.append((g["y"] - by) * s)
+            if xs and ys:
+                self._place_import_bounds = QRectF(
+                    min(xs), min(ys),
+                    max(xs) - min(xs), max(ys) - min(ys)
+                )
+            else:
+                self._place_import_bounds = QRectF(-50, -50, 100, 100)
+        else:
+            self._place_import_bounds = QRectF(-50, -50, 100, 100)
+
+        self._scene.set_mode("place_import")
+
+    def _update_place_import_ghost(self, pos: QPointF):
+        """Reposition the ghost bounding rect at cursor position."""
+        if self._place_import_ghost is not None:
+            if self._place_import_ghost.scene() is self._scene:
+                self._scene.removeItem(self._place_import_ghost)
+            self._place_import_ghost = None
+
+        r = self._place_import_bounds
+        ghost = QGraphicsRectItem(r)  # local coords
+        pen = QPen(QColor("#4fa3e0"), 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        ghost.setPen(pen)
+        ghost.setBrush(QBrush(QColor(79, 163, 224, 20)))
+        ghost.setZValue(200)
+        ghost.setPos(pos)
+        # Show rotation from import params
+        rotation = getattr(self._place_import_params, "rotation", 0.0)
+        if rotation != 0.0:
+            ghost.setRotation(rotation)
+        self._scene.addItem(ghost)
+        self._place_import_ghost = ghost
+
+    def _commit_place_import(self, insert_pt: QPointF):
+        """Finalize placement: create the underlay group at insert_pt."""
+        if self._place_import_ghost is not None:
+            if self._place_import_ghost.scene() is self._scene:
+                self._scene.removeItem(self._place_import_ghost)
+            self._place_import_ghost = None
+
+        params = self._place_import_params
+        if not params or not params.geom_list:
+            self._scene.set_mode(None)
+            return
+
+        # Write geometry cache (raw, pre-transform)
+        _cache_written = self._scene._write_underlay_cache(
+            params.file_path, params.geom_list,
+            page=getattr(params, "pdf_page", 0),
+            selected_layers=getattr(params, "selected_layers", None),
+            layout=getattr(params, "layout", ""),
+            import_bounds=getattr(params, "import_bounds", None))
+
+        s = params.scale
+        bx, by = params.base_x, params.base_y
+
+        # Transform geometry: shift by base point and apply scale.
+        from .dwg_converter import apply_import_transform
+        transformed = apply_import_transform(params.geom_list, s, bx, by)
+
+        file_type = getattr(params, "file_type", "dxf")
+        rotation = getattr(params, "rotation", 0.0)
+        from .model_space import _record_levels
+        record = Underlay(
+            type=file_type, path=params.file_path,
+            x=insert_pt.x(), y=insert_pt.y(),
+            rotation=rotation,
+            colour="#c0c0c0",
+            line_weight=UNDERLAY_LINE_WIDTH_PX,
+            # PDF page/dpi MUST persist or any later re-extraction (refresh,
+            # cache miss) silently rebuilds from page 0 — the cover sheet.
+            page=getattr(params, "pdf_page", 0),
+            dpi=getattr(params, "pdf_dpi", 150),
+            import_scale=s,
+            import_base_x=bx,
+            import_base_y=by,
+            selected_layers=getattr(params, "selected_layers", None),
+            levels=_record_levels(params, self._scene.active_level),
+            scale_verified=getattr(params, "scale_verified", False),
+            import_mode=getattr(params, "import_mode", "auto"),
+            layout=getattr(params, "layout", ""),
+            import_bounds=getattr(params, "import_bounds", None),
+            name=getattr(params, "name", ""),
+        )
+
+        # Modify "Pick new position": carry the old record's management fields
+        # (colour/opacity/locked/snap/visible/hidden_layers/overrides/…) onto
+        # the freshly built record before display is applied, so the re-placed
+        # underlay keeps its look. Applying to a record we may still discard
+        # (build failure below) is harmless — the DESTRUCTIVE removal of the old
+        # underlay is deferred until the build is known good.
+        preserve_mgmt = getattr(self, "_place_import_preserve_mgmt", None)
+        remove_old = getattr(self, "_place_import_remove_old", None)
+        if preserve_mgmt:
+            for f, v in preserve_mgmt.items():
+                setattr(record, f, v)
+
+        result = self._build_batched_underlay_group(transformed, record)
+        if result is None:
+            # Build failed — do NOT remove the old underlay; leave it in place.
+            self._scene.set_mode(None)
+            return
+
+        # Build succeeded → this pick is committing. Remove the old underlay
+        # now (deferred removal keeps a cancelled/failed pick non-destructive)
+        # and clear the payloads so set_mode(None) below is a no-op for them.
+        if remove_old is not None:
+            old_rec, old_item = remove_old
+            self.remove_underlay(old_rec, old_item)
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
+
+        group, all_layers = result
+        group.setPos(insert_pt)
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
+        group.setData(2, all_layers)
+        # Snapshot the FILTERED raw geoms — storing the full page extraction
+        # here poisoned the per-bounds cache on save (loads then rebuilt the
+        # whole sheet: 4x geometry, ~10x slower repaints).
+        _raw_for_cache = params.geom_list
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            _raw_for_cache = filter_geoms_by_bounds(
+                _raw_for_cache, [tuple(record.import_bounds)])
+        group.setData(5, _raw_for_cache)  # raw pre-transform geom for cache
+        group.setData(6, not _cache_written)  # dirty until cached on save
+
+        self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, transformed, record)
+        self.items.append((record, group))
+        self._scene.underlaysChanged.emit()
+        self._scene.push_undo_state()
+
+        self._scene.set_mode(None)
