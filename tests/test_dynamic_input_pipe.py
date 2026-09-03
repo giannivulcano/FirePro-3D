@@ -74,3 +74,30 @@ class TestPipePublishesResolvedPoint:
         assert scene.get_resolved_point() is None  # nothing published yet
         scene._pipe_ctl.move_pipe(None, QPointF(1000, 0))
         assert scene.get_resolved_point() == QPointF(1000, 0)
+
+
+class TestPipeAngleModeLabeling:
+    def _engage(self, scene):
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_free_node_labels_absolute_A(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        # Lone start node (no coplanar pipe) → free/absolute.
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
+                                   None, None, None)
+        scene._pipe_ctl.move_pipe(None, QPointF(0, 1000))   # publish a preview
+        hud = self._engage(scene)
+        assert hud.field_label_text("Angle") == "A"
+        scene.end_dynamic_input()
+
+    def test_connected_node_labels_relative(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        # Draw one segment so the end node has a coplanar reference pipe.
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
+                                   None, None, None)
+        scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)  # node_start_pos now the end node
+        scene._pipe_ctl.move_pipe(None, QPointF(1000, 1000))     # publish a preview off the ref
+        hud = self._engage(scene)
+        assert hud.field_label_text("Angle") == "Rel A"
+        scene.end_dynamic_input()

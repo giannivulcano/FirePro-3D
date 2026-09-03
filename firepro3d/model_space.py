@@ -52,7 +52,8 @@ from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
 from .constraints import Constraint as ConstraintBase
-from .dynamic_input import SCHEMAS, effective_modifiers
+from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
+                            seed_line, is_valid_relative_angle)
 from . import geometry_intersect as gi
 import os
 
@@ -179,6 +180,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
+        # Held reference pipe for the pipe HUD's relative-angle frame (T19).
+        # Chosen at HUD-engage from the live preview direction and held stable
+        # for the whole typing session so the frame cannot drift mid-edit.
+        self._pipe_hud_reference = None
         self._pipe_node_was_new = False
         self._selected_items = None
         # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
@@ -2512,6 +2517,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # floor mirrors wall: primitive-aware (rect step-aware / polygon), the
         # router dispatches to the same press handlers the mouse uses.
         "floor": "_apply_floor_dynamic_input",
+        # pipe is relative-angle aware: _on_dynamic_input_committed special-cases
+        # it BEFORE the generic resolve (see _commit_pipe_typed).  This entry
+        # only satisfies the _hud_available gate; _apply_pipe_dynamic_input is a
+        # backstop the pipe branch makes unreachable.
+        "pipe": "_apply_pipe_dynamic_input",
     }
 
     # Mode -> ordered placement variants: (label, first-point instruction,
@@ -2742,6 +2752,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Drop the published point and readout (placement finished/cancelled)."""
         self._resolved_point = None
         self._draw_dim_hint = None
+        self._pipe_hud_reference = None
 
     def publish_placement_state(self, anchor, point) -> None:
         """Record the resolved placement point and derive the HUD readout.
@@ -2982,6 +2993,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             hud = self._create_dynamic_input()
             if hud is None:
                 return
+        self._arm_pipe_relative(schema)
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
@@ -3028,6 +3040,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # moves, and the anchor can have been armed by a click the pointer never
         # moved after, leaving the readout a frame behind what Enter would
         # commit.
+        self._arm_pipe_relative(schema)
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
@@ -3079,6 +3092,66 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         v = self._snap_view()
         return v.transform().m11() if v is not None else 1.0
 
+    def _pipe_reference_pipe(self):
+        """The coplanar pipe anchoring the relative 45° frame for typed input.
+
+        Chosen from the live preview direction (the last published resolved
+        point) so it matches the ghost the user was looking at when they began
+        typing.  With no preview yet (engage straight after the first click), a
+        node with exactly one coplanar pipe uses it; otherwise None (free /
+        absolute).  Returns None when the start is not a Node (never in pipe
+        mode) or has no coplanar connection.
+        """
+        nsp = self.node_start_pos
+        if not isinstance(nsp, Node):
+            return None
+        start = nsp.scenePos()
+        preview = self.get_resolved_point()
+        if preview is not None:
+            return nsp._nearest_coplanar_pipe(start, preview)
+        coplanar = [p for p in nsp.pipes
+                    if (far := nsp._other_end(p)) is not None
+                    and abs(getattr(far, "z_pos", 0.0)
+                            - getattr(nsp, "z_pos", 0.0)) <= Z_COPLANAR_TOL]
+        return coplanar[0] if len(coplanar) == 1 else None
+
+    def _arm_pipe_relative(self, schema) -> None:
+        """Hold the reference pipe and set the Angle label for the pipe HUD.
+
+        Called from ``begin_dynamic_input`` BEFORE ``set_values`` so the seed
+        can read ``_pipe_hud_reference``.  No-op unless this is the pipe mode's
+        ``line`` schema.
+        """
+        hud = self.dynamic_input
+        if self.mode != "pipe" or hud is None or schema.name != "line":
+            self._pipe_hud_reference = None
+            return
+        ref = self._pipe_reference_pipe()
+        self._pipe_hud_reference = ref
+        hud.set_field_label("Angle", "Rel A" if ref is not None else "A")
+        hud.editor("Angle").setProperty("relative", ref is not None)
+
+    def _seed_pipe_line(self, anchor) -> dict:
+        """Seed the pipe HUD's Length + (relative|absolute) Angle.
+
+        Connected: Angle is the relative angle in ``snap_point_45``'s frame,
+        ``(get_vector_angle(start, preview) - 90) - base`` — the same quantity
+        the mouse snaps, so accepting the seed round-trips to the mouse output.
+        Free: seed the absolute Y-up angle via ``seed_line``.
+        """
+        point = self.get_resolved_point()
+        start = anchor
+        end = anchor if point is None else point
+        ref = self._pipe_hud_reference
+        if ref is None:
+            return seed_line(start, end)
+        length = CAD_Math.get_vector_length(start, end)
+        base = CAD_Math.get_vector_angle(ref.node1.scenePos(),
+                                         ref.node2.scenePos())
+        abs_ang = CAD_Math.get_vector_angle(start, end) - 90.0
+        rel = ((abs_ang - base) + 180.0) % 360.0 - 180.0   # → (-180, 180]
+        return {"Length": length, "Angle": rel}
+
     def _seed_values_for(self, schema, anchor) -> dict:
         """Return the values *schema*'s HUD should open with.
 
@@ -3101,6 +3174,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # already measured when it recovered the winning ray.  Seeding it
             # keeps the readout showing how far along the path the cursor sits.
             return {"Distance": self._align_track_dist}
+        if self.mode == "pipe" and schema.name == "line":
+            # Pipe's Angle is relative (connected) or absolute (free); the frame
+            # must match _commit_pipe_typed's, so seed via the dedicated helper.
+            return self._seed_pipe_line(anchor)
         if schema.is_placement:
             # Explicit None test, never truthiness: PyQt gives QPointF a
             # __bool__ that is False at the origin, so ``point or anchor`` would
