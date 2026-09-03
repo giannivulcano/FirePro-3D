@@ -161,7 +161,7 @@ class SceneIOMixin:
             "titleblock_template": getattr(self, "_titleblock_template", None),
         }
         # Ensure all underlays have cache entries
-        self._ensure_underlay_caches(os.path.abspath(filename))
+        self._underlay_ctl._ensure_underlay_caches(os.path.abspath(filename))
 
         bak_path = filename + ".bak"
         if os.path.exists(filename):
@@ -315,7 +315,7 @@ class SceneIOMixin:
                 source_mtime = None
 
             # Try cache first (fast path)
-            if self._load_underlay_from_cache(udata, source_mtime):
+            if self._underlay_ctl._load_underlay_from_cache(udata, source_mtime):
                 continue
             # Cache miss — fall back to source file parsing
             if resolved is None:
@@ -354,10 +354,12 @@ class SceneIOMixin:
                                 _record=udata,
                                 layout=udata.layout,
                                 skip_sanitize=True)  # ODA output is clean
-                # Store DWG metadata for async cleanup in _on_dxf_finished
-                if hasattr(self, '_dxf_import_params') and self._dxf_import_params:
-                    self._dxf_import_params["_dwg_cleanup_path"] = converted
-                    self._dxf_import_params["_dwg_source_path"] = udata.path
+                # Store DWG metadata for async cleanup in _on_dxf_finished.
+                # _dxf_import_params moved to the controller (underlay slice);
+                # import_dxf sets it synchronously above, so it is populated here.
+                if self._underlay_ctl._dxf_import_params:
+                    self._underlay_ctl._dxf_import_params["_dwg_cleanup_path"] = converted
+                    self._underlay_ctl._dxf_import_params["_dwg_source_path"] = udata.path
 
         # Handle missing underlay files
         for udata in missing_underlays:
@@ -534,7 +536,7 @@ class SceneIOMixin:
         self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
-        self.underlays = []
+        self._underlay_ctl.reset()
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
