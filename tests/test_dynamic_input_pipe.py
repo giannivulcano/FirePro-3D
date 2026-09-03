@@ -101,3 +101,85 @@ class TestPipeAngleModeLabeling:
         hud = self._engage(scene)
         assert hud.field_label_text("Angle") == "Rel A"
         scene.end_dynamic_input()
+
+
+def _end_away_from(pipe, start_pt):
+    """The pipe endpoint node that is NOT at *start_pt* (the placement start)."""
+    return pipe.node2 if pipe.node1.scenePos() == start_pt else pipe.node1
+
+
+class TestPipeAngleModeCommit:
+    def _arm_and_engage(self, scene, first, preview):
+        scene._pipe_ctl.press_pipe(None, first, first, None, None, None)
+        scene._pipe_ctl.move_pipe(None, preview)
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_free_typed_angle_is_exact(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        hud = self._arm_and_engage(scene, QPointF(0, 0), QPointF(0, 1000))
+        # Type absolute 30° Y-up, length 1000 → resolve_line (1000·cos30, -1000·sin30).
+        hud.set_values({"Length": 1000.0, "Angle": 30.0})
+        scene._on_dynamic_input_committed(hud.values())
+        p = scene.sprinkler_system.pipes[-1]
+        end = _end_away_from(p, QPointF(0, 0)).scenePos()
+        assert end.x() == pytest.approx(1000 * math.cos(math.radians(30)), abs=1e-6)
+        assert end.y() == pytest.approx(-1000 * math.sin(math.radians(30)), abs=1e-6)
+
+    def test_connected_typed_45_is_on_grid_and_matches_mouse(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        # A NON-axis-aligned reference pipe (≈30°): this is what distinguishes a
+        # RELATIVE frame from an ABSOLUTE one — the reference's 45° grid lines do
+        # NOT coincide with the absolute 45° grid, so an absolute (resolve_line)
+        # commit would land off the reference grid and fail the idempotency check.
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+        start = QPointF(866.0254, 500.0)                          # ~30° from origin
+        scene._pipe_ctl._commit_pipe_at(start, None)             # direct: exact ref axis
+        node = scene.node_start_pos                               # the start-of-2nd-seg node
+        assert node.scenePos() == start
+        scene._pipe_ctl.move_pipe(None, QPointF(-100, 760))      # preview off the ref
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        assert is_valid_relative_angle(hud.values()["Angle"])     # seeded value is on-grid
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        scene._on_dynamic_input_committed(hud.values())
+        # Polyline continuation advances node_start_pos to the typed segment's end
+        # node — robust to any wye stub the sharp-angle join may add.
+        typed_end = scene.node_start_pos.scenePos()
+        v_new = (typed_end.x() - start.x(), typed_end.y() - start.y())
+        # Length preserved …
+        assert math.hypot(*v_new) == pytest.approx(1000, abs=1e-6)
+        # … and the segment sits on the REFERENCE's grid: the angle between the
+        # reference pipe and the typed segment is an exact 45° multiple.  This is
+        # measured directly from the two segment vectors (not via a post-commit
+        # snap, which would pick the just-placed pipe as its own reference), so it
+        # genuinely distinguishes a RELATIVE frame from an ABSOLUTE one: an
+        # absolute-45 commit against this ~30° reference yields ~75° — not a 45°
+        # multiple — and fails here.
+        v_ref = (0.0 - start.x(), 0.0 - start.y())   # ref pipe's other end is the origin
+        cos_a = ((v_ref[0] * v_new[0] + v_ref[1] * v_new[1])
+                 / (math.hypot(*v_ref) * math.hypot(*v_new)))
+        inter = math.degrees(math.acos(max(-1.0, min(1.0, cos_a))))
+        assert abs(inter - round(inter / 45.0) * 45.0) == pytest.approx(0.0, abs=1e-4)
+
+    def test_connected_non_45_is_refused_not_rounded(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+        scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)
+        scene._pipe_ctl.move_pipe(None, QPointF(1700, 700))
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        before = len(scene.sprinkler_system.pipes)
+        hud.set_values({"Length": 1000.0, "Angle": 37.0})   # off-grid relative
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene.sprinkler_system.pipes) == before   # nothing placed
+        assert hud.has_invalid_field() is True
+        assert scene.is_input_mode() is True                  # HUD still open
+
+    def test_polyline_continuation_after_typed_commit(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        hud = self._arm_and_engage(scene, QPointF(0, 0), QPointF(1000, 0))
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        scene._on_dynamic_input_committed(hud.values())
+        # After commit the chain advances to the new end node.
+        assert scene.node_start_pos.scenePos().x() == pytest.approx(1000, abs=1e-6)

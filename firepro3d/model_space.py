@@ -3399,6 +3399,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self.end_dynamic_input()
             return
         hud = self.dynamic_input
+        if self.mode == "pipe" and schema.name == "line":
+            if self._commit_pipe_typed(values):
+                self.end_dynamic_input()
+            # A refusal (off-grid angle or a hard rejection) leaves the HUD open
+            # with the field flagged inside _commit_pipe_typed; nothing else.
+            return
         geometry = schema.resolve(anchor, values)
         # On-path Navigate at the FIRST point (BUG A): the ``track`` schema is a
         # placement schema, so ``get_placement_anchor`` hands back the tracking
@@ -7338,6 +7344,52 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if self._wall_primitive == "rect":
             return self._move_wall_rect(*args)
         return self._move_wall(*args)
+
+    def _commit_pipe_typed(self, values: dict) -> bool:
+        """Validate + resolve a typed pipe placement and commit it (T19).
+
+        Connected (held reference): Angle is RELATIVE and must be a 45° multiple
+        — off-grid is flagged red and refused, never rounded.  The endpoint is
+        built in ``snap_point_45``'s own frame so it is byte-identical to the
+        mouse.  Free: Angle is ABSOLUTE Y-up, taken exactly via ``resolve_line``.
+
+        Returns:
+            True when a pipe was committed (or an elevation confirm is pending);
+            False on refusal, with the HUD left open and the offending field
+            (Angle for off-grid; none for a hard controller rejection whose own
+            warning dialog is the feedback) flagged.
+        """
+        start = self.node_start_pos.scenePos()
+        length = values["Length"]
+        angle = values["Angle"]
+        ref = self._pipe_hud_reference
+        if ref is not None:
+            if not is_valid_relative_angle(angle):
+                if self.dynamic_input is not None:
+                    self.dynamic_input.mark_field_invalid("Angle")
+                self._show_status(
+                    "Pipe angle must be a 45° multiple off the reference pipe",
+                    timeout=2500)
+                return False
+            r = round(angle / 45.0) * 45.0   # clean seed-dust to the exact grid
+            base = CAD_Math.get_vector_angle(ref.node1.scenePos(),
+                                             ref.node2.scenePos())
+            rad = math.radians(base + r)
+            end = QPointF(start.x() + length * math.cos(rad),
+                          start.y() + length * math.sin(rad))
+        else:
+            end = resolve_line(start, {"Length": length, "Angle": angle})
+        return self._pipe_ctl._commit_pipe_at(end, None)
+
+    def _apply_pipe_dynamic_input(self, geometry) -> bool:
+        """Backstop applier so the ``_hud_available`` gate accepts pipe mode.
+
+        Unreachable via the HUD: ``_on_dynamic_input_committed`` special-cases
+        pipe BEFORE the generic resolve/apply path, so this only guards a direct
+        ``apply_dynamic_input`` call.  Routes the resolved point through the
+        shared commit body without re-snapping.
+        """
+        return self._pipe_ctl._commit_pipe_at(geometry, None)
 
     def _apply_wall_dynamic_input(self, geometry) -> bool:
         """Commit a typed wall placement via the same builders the mouse uses.
