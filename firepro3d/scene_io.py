@@ -354,10 +354,12 @@ class SceneIOMixin:
                                 _record=udata,
                                 layout=udata.layout,
                                 skip_sanitize=True)  # ODA output is clean
-                # Store DWG metadata for async cleanup in _on_dxf_finished
-                if hasattr(self, '_dxf_import_params') and self._dxf_import_params:
-                    self._dxf_import_params["_dwg_cleanup_path"] = converted
-                    self._dxf_import_params["_dwg_source_path"] = udata.path
+                # Store DWG metadata for async cleanup in _on_dxf_finished.
+                # _dxf_import_params moved to the controller (underlay slice);
+                # import_dxf sets it synchronously above, so it is populated here.
+                if self._underlay_ctl._dxf_import_params:
+                    self._underlay_ctl._dxf_import_params["_dwg_cleanup_path"] = converted
+                    self._underlay_ctl._dxf_import_params["_dwg_source_path"] = udata.path
 
         # Handle missing underlay files
         for udata in missing_underlays:
