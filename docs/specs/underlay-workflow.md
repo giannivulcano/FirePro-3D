@@ -5,7 +5,8 @@ verified-commit: ea6c1ea
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
-  - firepro3d/model_space.py          # §16.3 pens, repen_underlay
+  - firepro3d/model_space.py          # §16.3 pens, repen_underlay — now thin delegating shells (see note below)
+  - firepro3d/underlay_controller.py  # 2026-09-02: underlay concern extracted here (UnderlayController); behavior unchanged
   - firepro3d/level_manager.py        # §7.2 per-level visibility clause
   - firepro3d/level_widget.py         # §16.7 rename remap
   - firepro3d/paper_display.py        # §16.5 paper override stage
@@ -36,6 +37,8 @@ source-tasks:
 # Underlay Workflow — Specification
 
 > **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is current** (Underlay Manager shipped on `feat/underlay-manager`, 2026-08-29 @ `56c8148`). §17 PDF Import Polish shipped 2026-08-28. Sections tagged "(as-built)" reflect shipped code.
+>
+> **Structural note (2026-09-02 — Model_Space decomposition, underlay slice):** the underlay/import concern (~28 methods incl. `_build_batched_underlay_group`, `_on_dxf_finished`, `import_dxf`/`import_pdf`, `replace_underlay`, `refresh_underlay`, `_apply_underlay_display`, `repen_underlay`, `_commit_place_import`, the cache methods) was **relocated** from `model_space.py` into `firepro3d/underlay_controller.py` (`class UnderlayController(scene)`). This spec's `Model_Space.<method>` / `model_space.<method>` references now resolve as **thin delegating shells** on the scene (the real implementations live on the controller) — **behavior is unchanged** (pure relocation; `.fpd` byte-identical, undo untouched). `Model_Space.underlays` is a read-property → `self._underlay_ctl.items`; `underlaysChanged` and `abort_underlay_freeze` stay on the scene; the `UnderlayFreezeController` (§18) **deliberately stays owned by `Model_Space`** as `scene._underlay_freeze`. Governing structural spec: `model-space-architecture.md §5`.
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/underlay_import_dialog.py`, `firepro3d/frameless_shell.py`, `firepro3d/underlay_manager.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
 > **Revision:** 8 (adds §16 — display management & view assignment design: per-layer colour/weight, per-view visibility, Display Manager Underlays tab)
