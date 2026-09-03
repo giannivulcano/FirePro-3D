@@ -132,6 +132,26 @@ def seed_line(anchor: QPointF, point: QPointF) -> dict:
             "Angle": math.degrees(math.atan2(-dy, dx))}
 
 
+# Tolerance absorbing the float dust a preview-seeded relative angle carries
+# (get_vector_angle → subtraction → atan2 round-trip is ~1e-9°); tight enough
+# that a real typo (44°, off by 1°) is still rejected.
+_REL_ANGLE_TOL_DEG = 0.01
+
+
+def is_valid_relative_angle(deg: float) -> bool:
+    """Whether *deg* is a 45° multiple within seed-dust tolerance.
+
+    The relative pipe angle must land on the 45° fitting grid (0/45/90/…).
+    A value off the grid is **rejected, never rounded** — rounding would hand
+    the user a fitting classification (45elbow/wye vs tee) they did not choose.
+    The tolerance exists only to accept a preview-seeded value the user did not
+    retype, not to snap a genuinely off-grid typed value.
+    """
+    if not math.isfinite(deg):
+        return False
+    return abs(deg - round(deg / 45.0) * 45.0) < _REL_ANGLE_TOL_DEG
+
+
 # ── Rectangle ─────────────────────────────────────────────────────────────
 
 def resolve_rectangle(anchor: QPointF, values: dict) -> QPointF:
