@@ -1170,9 +1170,35 @@ class PipeNetworkController:
     def clear(self):
         """Idempotent teardown of pipe placement transient state.
 
-        Populated in a later slice (C3, set_mode + cancel wiring). Kept
-        no-op-safe here so C1 wiring is inert until then.
+        Absorbs set_mode's orphan-delete (only a freshly-created start node is
+        removed; a pre-existing node, or a QPointF from paste/move, survives)
+        plus the Tab-cycle reset.
         """
+        sc = self._scene
+        if sc.node_start_pos is not None:
+            if isinstance(sc.node_start_pos, Node) and sc._pipe_node_was_new:
+                self.remove_node(sc.node_start_pos)
+            sc.node_start_pos = None
+        sc._pipe_node_was_new = False
         self._tab_candidates = []
         self._tab_index = 0
         self._tab_pos = None
+
+    def cancel_placement(self) -> bool:
+        """Cancel a pipe chain mid-placement, staying in pipe mode.
+
+        Returns True if a cancel was handled (a start node existed). Mirrors the
+        legacy main._on_escape pipe branch."""
+        sc = self._scene
+        if sc.node_start_pos is None:
+            return False
+        if (sc._pipe_node_was_new
+                and isinstance(sc.node_start_pos, Node)
+                and not sc.node_start_pos.pipes):
+            self.remove_node(sc.node_start_pos)
+        sc.node_start_pos = None
+        sc._pipe_node_was_new = False
+        sc.preview_pipe.hide()
+        sc.preview_node.hide()
+        sc.instructionChanged.emit("Pick start node")
+        return True

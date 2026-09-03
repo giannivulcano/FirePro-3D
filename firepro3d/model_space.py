@@ -983,9 +983,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.clear_placement_state()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
-        self._pipe_ctl._tab_candidates = []
-        self._pipe_ctl._tab_index = 0
-        self._pipe_ctl._tab_pos = None
         if hasattr(self, 'pipeNodeHighlight'):
             self.pipeNodeHighlight.emit("")
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
@@ -1043,14 +1040,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 if self._design_area_rect_item.scene() is self:
                     self.removeItem(self._design_area_rect_item)
                 self._design_area_rect_item = None
-        # Only remove node if we created it during pipe first-click and it's orphaned.
-        # Pre-existing nodes must survive escape. In paste/move mode node_start_pos
-        # is a QPointF — never call remove_node on it.
-        if self.node_start_pos is not None:
-            if isinstance(self.node_start_pos, Node) and self._pipe_node_was_new:
-                self.remove_node(self.node_start_pos)
-            self.node_start_pos = None
-        self._pipe_node_was_new = False
+        # Pipe placement teardown (orphan-delete + Tab-cycle reset) — owned by
+        # the pipe controller (slice 5). Idempotent; safe on every mode change.
+        self._pipe_ctl.clear()
         # Cancel in-progress construction geometry
         if mode != "polyline" and self._polyline_active is not None:
             # Cancel: always discard the in-progress polyline
@@ -5702,6 +5694,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _press_pipe(self, event, pos, snapped, item_under, node_under, pipe_under):
         return self._pipe_ctl.press_pipe(
             event, pos, snapped, item_under, node_under, pipe_under)
+
+    def cancel_pipe_placement(self) -> bool:
+        return self._pipe_ctl.cancel_placement()
 
     def _press_set_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cal_point1 is None:
