@@ -161,7 +161,7 @@ class SceneIOMixin:
             "titleblock_template": getattr(self, "_titleblock_template", None),
         }
         # Ensure all underlays have cache entries
-        self._ensure_underlay_caches(os.path.abspath(filename))
+        self._underlay_ctl._ensure_underlay_caches(os.path.abspath(filename))
 
         bak_path = filename + ".bak"
         if os.path.exists(filename):
@@ -315,7 +315,7 @@ class SceneIOMixin:
                 source_mtime = None
 
             # Try cache first (fast path)
-            if self._load_underlay_from_cache(udata, source_mtime):
+            if self._underlay_ctl._load_underlay_from_cache(udata, source_mtime):
                 continue
             # Cache miss — fall back to source file parsing
             if resolved is None:

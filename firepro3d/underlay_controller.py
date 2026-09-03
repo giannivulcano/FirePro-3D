@@ -119,7 +119,7 @@ class UnderlayController:
 
         # Write geometry cache (filtered, pre-transform)
         cache_source = params.get("_dwg_source_path", params["file_path"])
-        _cache_written = self._scene._write_underlay_cache(
+        _cache_written = self._write_underlay_cache(
             cache_source, geom_list,
             page=0,
             selected_layers=params.get("layers"),
@@ -490,7 +490,7 @@ class UnderlayController:
                 geom_list, [tuple(_record.import_bounds)])
 
         # Write geometry cache (filtered, pre-transform)
-        _cache_written = self._scene._write_underlay_cache(
+        _cache_written = self._write_underlay_cache(
             file_path, geom_list, page=page,
             selected_layers=None,
             import_bounds=(_record.import_bounds
@@ -1053,7 +1053,7 @@ class UnderlayController:
             return
 
         # Write geometry cache (raw, pre-transform)
-        _cache_written = self._scene._write_underlay_cache(
+        _cache_written = self._write_underlay_cache(
             params.file_path, params.geom_list,
             page=getattr(params, "pdf_page", 0),
             selected_layers=getattr(params, "selected_layers", None),
@@ -1143,3 +1143,161 @@ class UnderlayController:
         self._scene.push_undo_state()
 
         self._scene.set_mode(None)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Geometry cache
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _ensure_underlay_caches(self, project_path: str):
+        """Ensure every underlay has a cache entry.
+
+        Called on save.  Reads the raw geometry stored on each group's
+        ``data(5)`` — this is the exact geometry that was imported
+        (including area selection filtering), avoiding expensive
+        re-extraction from the source file.
+
+        The JSON write is skipped when the geometry is unchanged since
+        the last write (``data(6)`` dirty flag is falsy) AND the cache
+        file already exists — serialising hundreds of thousands of geoms
+        on every Ctrl+S froze the UI for seconds.  The existence check
+        keeps Save-As (new cache directory) and externally-deleted cache
+        files self-healing.
+        """
+        from .underlay_cache import cache_dir_for_project, write_cache
+        cache_dir = cache_dir_for_project(project_path)
+        for record, item in self.items:
+            if item is None or not os.path.isfile(record.path):
+                continue
+            key = record.cache_key()
+            if (not item.data(6)
+                    and os.path.isfile(os.path.join(cache_dir, key))):
+                continue
+            geom_list = item.data(5)
+            if not geom_list:
+                continue
+            try:
+                source_mtime = os.path.getmtime(record.path)
+                write_cache(cache_dir, key, geom_list,
+                            source_mtime=source_mtime)
+            except OSError:
+                continue  # non-fatal — cache is an optimisation
+            item.setData(6, False)
+
+    def _load_underlay_from_cache(self, record, source_mtime):
+        """Try to load an underlay from the geometry cache.
+
+        Returns True if the underlay was loaded from a fresh cache entry,
+        False if the caller should fall back to async parsing (cache
+        stale, missing, or project never saved).
+        """
+        project_path = getattr(self._scene, "_project_path", None)
+        if not project_path:
+            return False
+
+        from .underlay_cache import cache_dir_for_project, read_cache
+        cache_dir = cache_dir_for_project(project_path)
+        key = record.cache_key()
+
+        geom_list = read_cache(cache_dir, key, source_mtime=source_mtime)
+        if geom_list is None:
+            # Cache stale or missing — fall back to the async import path
+            # (scene_io load) rather than re-extracting synchronously on
+            # the GUI thread.  The async path handles _record / layout /
+            # import_bounds and rewrites the cache when it finishes.
+            return False
+
+        # Heal poisoned caches: some writers stored the UNFILTERED page
+        # extraction under a key that claims the area-selected variant —
+        # re-apply the import-time spatial filter (mirrors _on_dxf_finished).
+        _healed = False
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            filtered = filter_geoms_by_bounds(
+                geom_list, [tuple(record.import_bounds)])
+            _healed = len(filtered) != len(geom_list)
+            geom_list = filtered
+
+        # Snapshot raw geom for cache-on-save
+        _raw_geom = geom_list
+
+        # Apply import transform (same logic as _on_dxf_finished reload path)
+        if (record.import_scale != 1.0
+                or record.import_base_x != 0.0
+                or record.import_base_y != 0.0):
+            from .dwg_converter import apply_import_transform
+            geom_list = apply_import_transform(
+                geom_list, record.import_scale,
+                record.import_base_x, record.import_base_y)
+
+        # Filter the render geometry by the record's selected layers. PDF
+        # caches hold the FULL page (layer-agnostic key), so a cache hit must
+        # re-apply the layer filter or ALL layers draw regardless of the
+        # dialog selection. DXF caches key on selected_layers already, so this
+        # is a no-op there. hidden_layers still composes on top below.
+        # selected_layers is None → no filter (all layers).
+        from .dwg_converter import filter_geoms_by_layers
+        geom_list = filter_geoms_by_layers(geom_list, record.selected_layers)
+
+        # Build batched render items (same as _commit_place_import)
+        result = self._build_batched_underlay_group(geom_list, record)
+        if result is None:
+            return False
+
+        group, all_layers = result
+        group.setPos(record.x, record.y)
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
+        group.setData(2, all_layers)
+        group.setData(5, _raw_geom)  # raw pre-transform geom for cache
+        # Dirty when healed so the next save rewrites the cache filtered.
+        group.setData(6, _healed)
+        if source_mtime is None:
+            group.setData(3, "source_missing")
+
+        self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, geom_list, record)
+        self.items.append((record, group))
+
+        return True
+
+    def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
+                              page: int = 0,
+                              selected_layers: list[str] | None = None,
+                              layout: str = "",
+                              import_bounds: list[float] | None = None,
+                              ) -> bool:
+        """Write geometry dicts to the project cache directory.
+
+        No-op if the project has not been saved yet (no project path).
+
+        Returns:
+            True if the cache entry was written — callers use this to
+            decide whether the group's dirty flag (``data(6)``) is set.
+        """
+        project_path = getattr(self._scene, "_project_path", None)
+        if not project_path:
+            return False
+        try:
+            source_mtime = os.path.getmtime(source_path)
+        except OSError:
+            return False
+        from .underlay_cache import cache_dir_for_project, compute_cache_key, write_cache
+        cache_dir = cache_dir_for_project(project_path)
+        # PDF sources: fold the current bézier flatten tolerance into the key so
+        # the write matches Underlay.cache_key()'s read key (which does the same
+        # for type=="pdf"). DXF/DWG pass None → key unchanged.
+        flatten_tol = None
+        if source_path.lower().endswith(".pdf"):
+            from .pdf_import_worker import current_pdf_flatten_tol
+            flatten_tol = current_pdf_flatten_tol()
+        key = compute_cache_key(source_path, page=page,
+                                selected_layers=selected_layers,
+                                layout=layout,
+                                import_bounds=import_bounds,
+                                flatten_tol=flatten_tol)
+        try:
+            write_cache(cache_dir, key, geom_list, source_mtime=source_mtime)
+        except OSError:
+            return False  # non-fatal — cache is an optimisation
+        return True
