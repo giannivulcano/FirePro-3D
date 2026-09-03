@@ -425,8 +425,8 @@ class TestPickHighlights:
         ms.set_mode("design_area")
         pos = sprs[0].node.scenePos()
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
-        assert len(ms._da_highlights) == 1
-        ring = ms._da_highlights[0]
+        assert len(ms._spr_ctl._da_highlights) == 1
+        ring = ms._spr_ctl._da_highlights[0]
         assert ring.scene() is ms
         assert ring.pos() == sprs[0].node.scenePos()
 
@@ -437,7 +437,7 @@ class TestPickHighlights:
         pos = sprs[0].node.scenePos()
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
-        assert ms._da_highlights == []
+        assert ms._spr_ctl._da_highlights == []
 
     def test_mode_exit_clears_rings(self, qapp):
         ms = _model_scene(qapp)
@@ -446,7 +446,7 @@ class TestPickHighlights:
         pos = sprs[0].node.scenePos()
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
         ms.set_mode("select")
-        assert ms._da_highlights == []
+        assert ms._spr_ctl._da_highlights == []
 
     def test_rings_ignore_mouse(self, qapp):
         ms = _model_scene(qapp)
@@ -454,7 +454,7 @@ class TestPickHighlights:
         ms.set_mode("design_area")
         pos = sprs[0].node.scenePos()
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
-        ring = ms._da_highlights[0]
+        ring = ms._spr_ctl._da_highlights[0]
         assert ring.acceptedMouseButtons() == Qt.MouseButton.NoButton
 
 
@@ -816,7 +816,7 @@ class TestMultipleDesignAreas:
         ms._press_design_area(_fake_press(), p0, p0, None, None, None)
         _confirm(ms)
         assert ms.mode == "design_area"          # stays in the mode
-        assert ms._da_editing is None
+        assert ms._spr_ctl._da_editing is None
         p8 = sprs[8].node.scenePos()
         ms._press_design_area(_fake_press(), p8, p8, None, None, None)
         assert len(ms.design_areas) == 2
@@ -836,7 +836,7 @@ class TestMultipleDesignAreas:
         # (toggle removes the sprinkler), no new area created
         ms._press_design_area(_fake_press(), p0, p0, None, None, None)
         assert len(ms.design_areas) == 1
-        assert ms._da_editing is ms.design_areas[0]
+        assert ms._spr_ctl._da_editing is ms.design_areas[0]
         assert sprs[0] not in ms.design_areas[0].sprinklers
 
     def test_status_includes_live_area_tally(self, qapp, monkeypatch):
@@ -848,7 +848,7 @@ class TestMultipleDesignAreas:
                             lambda msg, *a, **k: messages.append(msg))
         p0 = sprs[0].node.scenePos()
         ms._press_design_area(_fake_press(), p0, p0, None, None, None)
-        area = ms._da_editing._properties["Area"]["value"]
+        area = ms._spr_ctl._da_editing._properties["Area"]["value"]
         assert area != "0"
         assert area in messages[-1]
 
