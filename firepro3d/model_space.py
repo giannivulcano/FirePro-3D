@@ -1285,19 +1285,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if mode != "opening":
             self._clear_opening_ghost()
 
-        # Clean up place_import ghost and params
+        # Clean up place_import transient state (owned by the controller).
         if mode != "place_import":
-            if self._place_import_ghost is not None:
-                if self._place_import_ghost.scene() is self:
-                    self.removeItem(self._place_import_ghost)
-                self._place_import_ghost = None
-            self._place_import_params = None
-            self._place_import_bounds = QRectF(-50, -50, 100, 100)
-            # Cancelled Modify "Pick new position": the destructive removal of
-            # the old underlay is deferred to commit, so a cancel simply drops
-            # the payloads — the original underlay was never touched.
-            self._place_import_preserve_mgmt = None
-            self._place_import_remove_old = None
+            self._underlay_ctl.clear()
 
         # Clean up interactive transforms
         def _remove_preview(attr):

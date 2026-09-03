@@ -47,6 +47,22 @@ class UnderlayController:
         """Clear the underlay list in place (routes the former `underlays = []`)."""
         self.items = []
 
+    def clear(self) -> None:
+        """Idempotent teardown of place_import transient state (was Model_Space.set_mode).
+
+        Removes the ghost if present, nulls the transient payloads, resets bounds.
+        Preserves cancel-safety: the deferred remove-old is simply dropped, so a
+        cancelled "Pick new position" never destroys the original underlay.
+        """
+        if self._place_import_ghost is not None:
+            if self._place_import_ghost.scene() is self._scene:
+                self._scene.removeItem(self._place_import_ghost)
+            self._place_import_ghost = None
+        self._place_import_params = None
+        self._place_import_bounds = QRectF(-50, -50, 100, 100)
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
+
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
                    x=0.0, y=0.0, layers=None, _record: Underlay = None,
                    layout: str = "", skip_sanitize: bool = False):
