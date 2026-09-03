@@ -61,6 +61,7 @@ import os
 from .scene_io import SceneIOMixin
 from .scene_tools import SceneTools
 from .underlay_controller import UnderlayController
+from .pipe_network_controller import PipeNetworkController
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -162,6 +163,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # culled incorrectly by the spatial index at high zoom levels.
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         self.sprinkler_system = SprinklerSystem()
+        self._pipe_ctl = PipeNetworkController(self)   # pipe/node concern (slice 5)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
