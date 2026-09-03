@@ -1524,69 +1524,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
 
     def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True):
-        pipe = Pipe(n1, n2)
-        # Apply template first so non-level properties are copied
-        if template:
-            pipe.set_properties(template)
-        # Only override the visibility level (Level) with the active level.
-        # Ceiling Level comes from the template — it controls 3D elevation.
-        pipe.level = self.active_level
-        self.sprinkler_system.add_pipe(pipe)
-        self.addItem(pipe)
-        apply_category_defaults(pipe)
-        pipe.update_label()   # re-run now that pipe.scene() is valid
-        pipe.update_geometry()
-        # Ensure visibility — level filtering may not have run yet
-        pipe.setVisible(True)
-        pipe.setOpacity(1.0)
-        pipe.update()
-        # Update fittings at both endpoints immediately so they reflect
-        # the new connection angle before anything else renders.
-        # Collect all affected nodes first, then update + apply colours.
-        affected_nodes = {n1, n2}
-        for p in n1.pipes:
-            affected_nodes.add(p.node2 if p.node1 is n1 else p.node1)
-        for p in n2.pipes:
-            affected_nodes.add(p.node2 if p.node1 is n2 else p.node1)
-        for node in affected_nodes:
-            node.fitting.update()
-            self._apply_fitting_dm_colors(node.fitting)
-        for v in self.views():
-            v.viewport().update()
-
-        # Propagate the pipe's ceiling properties to both endpoint nodes
-        # so their 3D elevation matches what the user set on the template.
-        # Skip during load — nodes already have authoritative ceiling data.
-        if _propagate_ceiling and template is not None:
-            # Use per-node ceiling values from template; fall back to defaults
-            for node, lvl_attr, off_attr in (
-                (n1, "node1_ceiling_level", "node1_ceiling_offset"),
-                (n2, "node2_ceiling_level", "node2_ceiling_offset"),
-            ):
-                if node is None:
-                    continue
-                c_lvl = getattr(template, lvl_attr, None)
-                c_off = getattr(template, off_attr, None)
-                if c_lvl is None:
-                    c_lvl = DEFAULT_LEVEL
-                if c_off is None:
-                    c_off = DEFAULT_CEILING_OFFSET_MM
-                node.ceiling_level = c_lvl
-                node._properties["Ceiling Level"]["value"] = c_lvl
-                node.ceiling_offset = c_off
-                node._properties["Ceiling Offset"]["value"] = str(c_off)
-                node._recompute_z_pos()
-        elif _propagate_ceiling:
-            # No template — apply defaults to both endpoint nodes
-            for node in (n1, n2):
-                if node is not None:
-                    node.ceiling_level = DEFAULT_LEVEL
-                    node._properties["Ceiling Level"]["value"] = DEFAULT_LEVEL
-                    node.ceiling_offset = DEFAULT_CEILING_OFFSET_MM
-                    node._properties["Ceiling Offset"]["value"] = str(DEFAULT_CEILING_OFFSET_MM)
-                    node._recompute_z_pos()
-
-        return pipe
+        return self._pipe_ctl.add_pipe(n1, n2, template=template,
+                                       _propagate_ceiling=_propagate_ceiling)
 
     def _validate_4th_branch(self, node, new_pt: QPointF) -> str | None:
         """Check whether adding a 4th coplanar branch at *node* toward *new_pt* is valid.
@@ -1984,105 +1923,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 return self._split_vertical_pipe(pipe, target_z, template)
         return None
 
-    def _split_vertical_pipe(self, pipe, target_z: float, template) -> "Node":
-        """Split a vertical pipe at *target_z*, returning the new mid-node.
-
-        Creates a new node at the pipe's XY with the template's ceiling
-        properties (so z_pos == target_z), then replaces the original pipe
-        with two shorter vertical pipes.
-        """
-        xy = pipe.node1.scenePos()
-        mid = Node(xy.x(), xy.y())
-        mid.level = self.active_level
-
-        ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
-        ceiling_off = getattr(template, "node1_ceiling_offset", None)
-        if ceiling_off is None:
-            ceiling_off = DEFAULT_CEILING_OFFSET_MM
-        mid.ceiling_level = ceiling_lvl
-        mid._properties["Ceiling Level"]["value"] = ceiling_lvl
-        mid.ceiling_offset = ceiling_off
-        mid._properties["Ceiling Offset"]["value"] = str(ceiling_off)
-        mid.z_pos = target_z
-
-        self.addItem(mid)
-        self.sprinkler_system.add_node(mid)
-
-        # Create two replacement vertical pipes preserving the original's properties
-        node_a = pipe.node1
-        node_b = pipe.node2
-        for (na, nb) in ((node_a, mid), (mid, node_b)):
-            seg = Pipe(na, nb)
-            seg.level = pipe.level
-            for key in ("Diameter", "Schedule", "C-Factor",
-                        "Material", "Colour", "Phase", "Line Type"):
-                seg._properties[key]["value"] = pipe._properties[key]["value"]
-            self.sprinkler_system.add_pipe(seg)
-            self.addItem(seg)
-            seg.set_pipe_display()
-
-        self.delete_pipe(pipe)
-        mid.fitting.update()
-        node_a.fitting.update()
-        node_b.fitting.update()
-        return mid
+    def _split_vertical_pipe(self, pipe, target_z, template):
+        return self._pipe_ctl._split_vertical_pipe(pipe, target_z, template)
 
     # ── End vertical pipe helpers ─────────────────────────────────────────
 
-    def split_pipe(self, pipe, split_point: QPointF):
-        # If split point is near an existing endpoint, return that node
-        # instead of creating a tiny degenerate split.
-        for end_node in (pipe.node1, pipe.node2):
-            if end_node is not None:
-                dx = end_node.scenePos().x() - split_point.x()
-                dy = end_node.scenePos().y() - split_point.y()
-                if (dx * dx + dy * dy) < self.SNAP_RADIUS * self.SNAP_RADIUS:
-                    return end_node
-        new_node = self.add_node(split_point.x(), split_point.y())
-        node_a = pipe.node1
-        node_b = pipe.node2
-        # Use _propagate_ceiling=False — pipe attributes can be stale.
-        # Copy ceiling from the authoritative source (endpoint nodes).
-        self.add_pipe(node_a, new_node, pipe, _propagate_ceiling=False)
-        self.add_pipe(new_node, node_b, pipe, _propagate_ceiling=False)
-        self.delete_pipe(pipe)
-        # Set new_node's ceiling from node_a (authoritative endpoint)
-        new_node.ceiling_level = node_a.ceiling_level
-        new_node._properties["Ceiling Level"]["value"] = node_a.ceiling_level
-        new_node.ceiling_offset = node_a.ceiling_offset
-        new_node._properties["Ceiling Offset"]["value"] = str(node_a.ceiling_offset)
-        new_node._recompute_z_pos()
-        new_node.fitting.update()
-        node_a.fitting.update()
-        node_b.fitting.update()
-        return new_node
+    def split_pipe(self, pipe, split_point):
+        return self._pipe_ctl.split_pipe(pipe, split_point)
 
     def delete_pipe(self, pipe):
-        for node in (pipe.node1, pipe.node2):
-            if node is not None:
-                node.remove_pipe(pipe)
-                if not node.has_sprinkler() and not node.pipes:
-                    self.remove_node(node)
-        pipe.node1 = None
-        pipe.node2 = None
-        # Remove top-level label from scene
-        if hasattr(pipe, "label") and pipe.label is not None:
-            try:
-                self.removeItem(pipe.label)
-            except (RuntimeError, ValueError):
-                pass
-        # Remove top-level riser symbol from scene
-        if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
-            try:
-                self.removeItem(pipe._riser_symbol)
-            except (RuntimeError, ValueError):
-                pass
-        try:
-            self.removeItem(pipe)
-        except (RuntimeError, ValueError):
-            pass  # item may already be removed from scene
-        if pipe in self.sprinkler_system.pipes:
-            self.sprinkler_system.remove_pipe(pipe)
+        return self._pipe_ctl.delete_pipe(pipe)
 
     def add_sprinkler(self, n, template=None):
         if n.has_sprinkler():
