@@ -71,6 +71,10 @@ class _StubScene(QGraphicsScene):
         self._level_manager = level_manager
         self._plan_view_manager = plan_view_manager
         self.active_level = active_level
+        # Node CRUD moved to PipeNetworkController (pipe slice C2a); the bound
+        # scene shells delegate to it, so the stub needs the controller too.
+        from firepro3d.pipe_network_controller import PipeNetworkController
+        self._pipe_ctl = PipeNetworkController(self)
         for n in (nodes or []):
             self.addItem(n)
             self.sprinkler_system.add_node(n)
