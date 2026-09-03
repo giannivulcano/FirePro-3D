@@ -423,11 +423,20 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     item.update()
 
 
-def _apply_pipe(pipe, cat, color_mode, lw_mm):
-    """Apply paper overrides to a Pipe — uses _paper_pen_width hook."""
+def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
+    """Apply paper overrides to a Pipe — uses _paper_pen_width hook.
+
+    The pen width is normalised to true ON-PAPER mm (§9.9.1, matching
+    ``_apply_construction`` / gridlines): ``Pipe.paint`` applies
+    ``_paper_pen_width`` as a **non-cosmetic** pen in model (scene) units, so the
+    viewport plots it at ``width × paper_scale``. A raw ``lw_mm`` would therefore
+    plot at ``lw_mm × paper_scale`` — a sub-pixel hairline at architectural
+    scales (the line reads as invisible on the sheet). Dividing by ``paper_scale``
+    makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
+    """
     if color_mode != PaperColorMode.FULL_COLOR:
         pipe._display_color = cat["color"]
-    pipe._paper_pen_width = lw_mm
+    pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
 
@@ -628,7 +637,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             lw_mm = resolve_line_weight_mm(cat["line_weight"])
 
             if isinstance(item, Pipe):
-                _apply_pipe(item, cat, color_mode, lw_mm)
+                _apply_pipe(item, cat, color_mode, lw_mm, paper_scale)
             elif isinstance(item, GridlineItem):
                 _apply_gridline(item, cat, color_mode, lw_mm, paper_scale)
             elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):

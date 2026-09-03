@@ -234,6 +234,26 @@ class TestApplyRestore:
         assert pipe._display_color == original_color
         assert pipe.opacity() == original_opacity
 
+    def test_pipe_pen_width_normalized_by_paper_scale(self, scene_with_pipe):
+        # Pipe.paint applies _paper_pen_width as a NON-cosmetic pen in model
+        # units, so the viewport plots it at width × paper_scale.  The override
+        # must pre-divide by paper_scale (§9.9.1) or the line plots as a
+        # sub-pixel hairline at plot scale and reads as invisible on the sheet.
+        scene, pipe = scene_with_pipe
+        save_paper_color_mode(PaperColorMode.BW)
+        rect = QRectF(0, 0, 200, 200)
+        saved = apply_paper_overrides(scene, rect, paper_scale=1.0)
+        w_full = pipe._paper_pen_width
+        restore_model_display(saved)
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.01)  # 1:100
+        w_plot = pipe._paper_pen_width
+        restore_model_display(saved)
+        # Constant ON-PAPER width ⇒ model-unit pen scales inversely with
+        # paper_scale.  A reverted fix would leave both equal (ratio 1).
+        assert w_plot == pytest.approx(w_full / 0.01)
+        assert w_plot > w_full
+        assert getattr(pipe, "_paper_pen_width", None) is None  # restored to model
+
 
 class TestRoomPaperNoFill:
     """Rooms plot as boundary + tag only — no fill — in paper viewports (#1)."""
