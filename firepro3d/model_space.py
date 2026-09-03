@@ -2329,8 +2329,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _import_pdf_vectors(self, *args, **kwargs):
         return self._underlay_ctl._import_pdf_vectors(*args, **kwargs)
 
-    def _append_geom_to_path(self, *args, **kwargs):
-        return self._underlay_ctl._append_geom_to_path(*args, **kwargs)
+    @staticmethod
+    def _append_geom_to_path(path, g):
+        # Static shell: the original was a @staticmethod called as
+        # Model_Space._append_geom_to_path(path, g); delegate to the controller's.
+        return UnderlayController._append_geom_to_path(path, g)
 
     # -------------------------------------------------------------------------
     # UNDERLAYS — MANAGEMENT (moved to UnderlayController C2b; thin shells)
