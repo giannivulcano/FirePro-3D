@@ -238,29 +238,40 @@ class TestPipeTabCycling:
         scene = _StubScene([n], plan_view_manager=_FakePlanViewManager(pv))
         assert scene.find_nearby_candidates(0, 0) == []
 
+    # Tab-cycle state now lives on PipeNetworkController (pipe slice C2d).
+    # These drive the REAL ``cycle_tab()`` on a real Model_Space so they guard
+    # the relocated controller logic (not a hand-copied modulo formula).
+    def _pipe_scene(self):
+        from firepro3d.model_space import Model_Space
+        scene = Model_Space()
+        scene.mode = "pipe"
+        return scene
+
     def test_pipe_tab_state_advances(self, qapp):
-        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
-        scene._pipe_tab_candidates = [n1, n2, n3]
-        scene._pipe_tab_index = 0
-        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
-            scene._pipe_tab_candidates)
-        assert scene._pipe_tab_index == 1
-        assert scene._pipe_tab_candidates[scene._pipe_tab_index] is n2
+        scene = self._pipe_scene()
+        n1 = _make_node(0, 0, z_pos=0.0)
+        n2 = _make_node(0, 0, z_pos=3000.0)
+        n3 = _make_node(0, 0, z_pos=6000.0)
+        scene._pipe_ctl._tab_candidates = [n1, n2, n3]
+        scene._pipe_ctl._tab_index = 0
+        scene._pipe_ctl.cycle_tab()
+        assert scene._pipe_ctl._tab_index == 1
+        assert scene._pipe_ctl._tab_candidates[scene._pipe_ctl._tab_index] is n2
 
     def test_pipe_tab_wraps_around(self, qapp):
-        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
-        scene._pipe_tab_candidates = [n1, n2, n3]
-        scene._pipe_tab_index = 2
-        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
-            scene._pipe_tab_candidates)
-        assert scene._pipe_tab_index == 0
+        scene = self._pipe_scene()
+        n1 = _make_node(0, 0, z_pos=0.0)
+        n2 = _make_node(0, 0, z_pos=3000.0)
+        n3 = _make_node(0, 0, z_pos=6000.0)
+        scene._pipe_ctl._tab_candidates = [n1, n2, n3]
+        scene._pipe_ctl._tab_index = 2
+        scene._pipe_ctl.cycle_tab()
+        assert scene._pipe_ctl._tab_index == 0
 
     def test_single_node_no_cycle(self, qapp):
+        scene = self._pipe_scene()
         n = _make_node(0, 0, z_pos=0.0)
-        pv = _FakePlanView(view_depth=-1000.0, view_height=5000.0)
-        scene = _StubScene([n], plan_view_manager=_FakePlanViewManager(pv))
-        scene._pipe_tab_candidates = [n]
-        scene._pipe_tab_index = 0
-        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
-            scene._pipe_tab_candidates)
-        assert scene._pipe_tab_index == 0
+        scene._pipe_ctl._tab_candidates = [n]
+        scene._pipe_ctl._tab_index = 0
+        scene._pipe_ctl.cycle_tab()
+        assert scene._pipe_ctl._tab_index == 0
