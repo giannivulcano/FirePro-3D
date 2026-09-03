@@ -5,6 +5,7 @@
 > **Date:** 2026-04-04
 > **Revision:** 2 (post grill session)
 > **§4.1 verified 2026-08-20** (`25c7edb`): B5 fixed — contextual coplanar-pipe 45° reference. Other sections still describe required fixes, not shipped code.
+> **§4.1 typed-entry verified 2026-09-03** (`b5ddacf`): T19 — pipe is a Dynamic Input HUD client (relative/absolute Angle; `pipe_network_controller.py:_commit_pipe_at`). See `align-placement.md §4a`.
 
 ---
 
@@ -282,6 +283,18 @@ placement falls through to free movement with a soft snap within 7.5° of a 45°
 multiple — rather than anchoring the grid to a riser's meaningless plan angle.
 With exactly one coplanar pipe this is identical to the old behaviour; the
 change only affects branching nodes and riser-only nodes.
+
+**Typed relative-angle entry (Dynamic Input HUD, T19).** The same 45° grid is
+reachable by typing Length + Angle in the HUD (governed by `align-placement.md
+§4a`). From a **connected** node the Angle is **relative** to the reference pipe
+(field labelled **"Rel A"**) and accepted **only at 45° multiples** — an off-grid
+value is **rejected, never rounded** (rounding would silently choose a fitting
+the user did not). From a **free** node the Angle is **absolute** and taken
+**exactly** (no ±7.5° soft-snap — a typed value is intentional). The reference is
+chosen at HUD-engage from the live preview direction and held for the session;
+the typed endpoint is computed in `snap_point_45`'s own frame so typed and mouse
+placement are byte-identical, and commit reuses the mouse's post-snap body
+(`PipeNetworkController._commit_pipe_at`).
 
 ### 4.2 Collinear Extension
 

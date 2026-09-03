@@ -1,13 +1,14 @@
 ---
 status: partial
-last-verified: 2026-08-26
-verified-commit: d235ab6
+last-verified: 2026-09-03
+verified-commit: b5ddacf
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
   - firepro3d/snap_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
+  - firepro3d/pipe_network_controller.py
   - firepro3d/model_view.py
   - firepro3d/preferences_dialog.py
   - firepro3d/main.py
@@ -301,7 +302,7 @@ asserted. A **transform** schema resolves to a plain dict handled by its own app
 
 | Schema | Fields | `resolve` → | Built clients (`_APPLIER_FOR_MODE`) |
 |---|---|---|---|
-| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2**, **`wall` (line/polyline)** |
+| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2**, **`wall` (line/polyline)**, **`pipe` (relative/absolute Angle — see §4a)** |
 | `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` (sizing step), **`wall` (rect sizing)** |
 | `circle` | Radius | `QPointF` | `draw_circle` |
 | `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 |
@@ -394,10 +395,36 @@ primitive schema stays live).
 - **Single-key tool shortcuts** — L/R/C/A/G (+ K placeholder for polyline),
   scene-focus-gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the
   visible view so step-0 keys reach the scene.
-- **Wall / arc / rectangle** are full step-aware HUD clients; **pipe** is
-  schema-mapped to `line` but has **no applier** (still places through its own
-  handlers) — a parked proposal. `construction_line` is deliberately out of scope
-  (its Length field was a visual no-op).
+- **Wall / arc / rectangle / pipe** are full HUD clients. `construction_line` is
+  deliberately out of scope (its Length field was a visual no-op).
+
+### 4a. Pipe: relative-vs-absolute Angle (T19)
+
+Pipe is a `line`-schema client whose **Angle field switches frame on context**,
+because the mouse's 45° fitting grid (`Node.snap_point_45`) is *relative to a
+coplanar reference pipe*:
+
+- **Connected** — the start node has a coplanar pipe: Angle is **relative** to a
+  reference pipe (label **"Rel A"**) and valid **only at 45° multiples**. An
+  off-grid value is **rejected, never rounded** (`hud.mark_field_invalid("Angle")`
+  + status message; HUD stays open) — rounding would silently pick a fitting
+  classification (45elbow/wye vs tee) the user did not choose. The typed endpoint
+  is built in `snap_point_45`'s own frame — `start + L·(cos(base+R), sin(base+R))`,
+  `base = get_vector_angle(ref.node1, ref.node2)` — so it is byte-identical to a
+  mouse drag onto that grid line (parity is structural, not asserted).
+- **Free** — no coplanar reference: Angle is **absolute** Y-up (label **"A"**) and
+  taken **exactly** via `resolve_line`. This is a deliberate divergence from the
+  mouse's no-reference branch, which soft-snaps within ±7.5° of a 45° multiple;
+  a *typed* value is intentional and must not be silently altered.
+
+The reference pipe is chosen at **HUD-engage** from the live preview direction
+(`_pipe_reference_pipe` → `Node._nearest_coplanar_pipe`) and **held stable**
+(`_pipe_hud_reference`) for the whole typing session so the frame cannot drift
+mid-edit. The seam (`_commit_pipe_typed`) special-cases pipe **before** the generic
+`schema.resolve`, since the connected frame is not `resolve_line`'s Y-up frame.
+Commit routes through the shared `PipeNetworkController._commit_pipe_at` (the
+post-snap body extracted from `press_pipe`), so all validation / collinear-merge /
+45→wye / elevation-confirm / polyline-continuation behaviour is reused.
 
 ---
 
