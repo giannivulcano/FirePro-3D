@@ -132,6 +132,26 @@ def seed_line(anchor: QPointF, point: QPointF) -> dict:
             "Angle": math.degrees(math.atan2(-dy, dx))}
 
 
+# Tolerance absorbing the float dust a preview-seeded relative angle carries
+# (get_vector_angle → subtraction → atan2 round-trip is ~1e-9°); tight enough
+# that a real typo (44°, off by 1°) is still rejected.
+_REL_ANGLE_TOL_DEG = 0.01
+
+
+def is_valid_relative_angle(deg: float) -> bool:
+    """Whether *deg* is a 45° multiple within seed-dust tolerance.
+
+    The relative pipe angle must land on the 45° fitting grid (0/45/90/…).
+    A value off the grid is **rejected, never rounded** — rounding would hand
+    the user a fitting classification (45elbow/wye vs tee) they did not choose.
+    The tolerance exists only to accept a preview-seeded value the user did not
+    retype, not to snap a genuinely off-grid typed value.
+    """
+    if not math.isfinite(deg):
+        return False
+    return abs(deg - round(deg / 45.0) * 45.0) < _REL_ANGLE_TOL_DEG
+
+
 # ── Rectangle ─────────────────────────────────────────────────────────────
 
 def resolve_rectangle(anchor: QPointF, values: dict) -> QPointF:
@@ -632,6 +652,7 @@ class DynamicInputHud(QWidget):
         self._schema = schema
         self._sm = scale_manager
         self._editors: dict[str, DimensionEdit] = {}
+        self._labels: dict[str, QLabel] = {}
         self._specs: dict[str, FieldSpec] = {f.name: f for f in schema.fields}
         self._invalid: set[str] = set()
         self._focused_name: str | None = None
@@ -678,6 +699,7 @@ class DynamicInputHud(QWidget):
 
         for spec in schema.fields:
             label = QLabel(spec.label, self)
+            self._labels[spec.name] = label
             layout.addWidget(label)
             editor = self._build_editor(spec)
             layout.addWidget(editor)
@@ -829,6 +851,35 @@ class DynamicInputHud(QWidget):
             KeyError: If *name* is not a field of this schema.
         """
         return self._editors[name]
+
+    def set_field_label(self, name: str, text: str) -> None:
+        """Re-caption field *name*'s label (e.g. "A" → "Rel A").
+
+        The label is a plain QLabel built in ``__init__``; this is the only
+        supported way to change it after construction so callers never reach
+        into ``_labels`` directly.
+
+        Raises:
+            KeyError: If *name* is not a field of this schema.
+        """
+        self._labels[name].setText(text)
+
+    def field_label_text(self, name: str) -> str:
+        """Return field *name*'s current label caption (for tests/introspection)."""
+        return self._labels[name].text()
+
+    def mark_field_invalid(self, name: str) -> None:
+        """Flag field *name* as holding rejected input and restyle it red.
+
+        Public counterpart to :meth:`reject_commit` for the case where the
+        offending field is known and is *not* a DIMENSION field (the pipe
+        relative-angle rejection flags the Angle field, which ``reject_commit``
+        leaves clean by design).
+
+        Raises:
+            KeyError: If *name* is not a field of this schema.
+        """
+        self._mark_invalid(name)
 
     def set_coupling_radius(self, radius_mm: float) -> None:
         """Arm the Span°↔Arc-length coupling with the sweep *radius* in mm.
