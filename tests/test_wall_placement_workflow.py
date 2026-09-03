@@ -160,9 +160,18 @@ def test_spacebar_cycles_wall_alignment(qapp, shown_model_view):
 
 
 def test_left_shift_no_longer_cycles_wall_alignment(scene):
+    # The Left-Shift *tap* that once cycled placement ambiguity was removed;
+    # Left-Shift is now a pure modifier.  A clean left-Shift press/release must
+    # leave wall alignment untouched.  (Wall alignment now cycles on Space via
+    # cycle_placement_ambiguity — covered in test_placement_cycle_shift.py.)
     scene.set_mode("wall")
     a0 = scene._wall_alignment
-    assert scene.cycle_placement_ambiguity() is False
+    press = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Shift,
+                      Qt.KeyboardModifier.ShiftModifier, 42, 0xA0, 0, "", False, 1)
+    release = QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Shift,
+                        Qt.KeyboardModifier.NoModifier, 42, 0xA0, 0, "", False, 1)
+    scene.keyPressEvent(press)
+    scene.keyReleaseEvent(release)
     assert scene._wall_alignment == a0
 
 
