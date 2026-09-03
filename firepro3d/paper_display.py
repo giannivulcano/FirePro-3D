@@ -435,7 +435,16 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
     makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
     """
     if color_mode != PaperColorMode.FULL_COLOR:
+        from PyQt6.QtGui import QColor
         pipe._display_color = cat["color"]
+        # The label text has no authored colour, so it follows the (dark-theme)
+        # palette default — white, readable on the model canvas but invisible on
+        # white paper. Force the paper category colour so the label reads on the
+        # sheet; restore_model_display puts the original back (mirrors rooms /
+        # gridline bubble labels). FULL_COLOR keeps the authored/model colour.
+        _lbl = getattr(pipe, "label", None)
+        if _lbl is not None:
+            _lbl.setDefaultTextColor(QColor(cat["color"]))
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
@@ -616,6 +625,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             # Type-specific extra state
             if isinstance(item, Pipe):
                 entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
+                _lbl = getattr(item, "label", None)
+                entry["pipe_label_color"] = (
+                    _lbl.defaultTextColor() if _lbl is not None else None)
             elif isinstance(item, GridlineItem):
                 entry["gridline"] = _save_gridline_state(item)
             elif cat_key == "Elevation Marker":
@@ -787,6 +799,10 @@ def restore_model_display(saved: list[dict]):
         if isinstance(item, Pipe):
             item._display_color = entry["display_color"]
             item._paper_pen_width = entry.get("paper_pen_width")
+            _lbl = getattr(item, "label", None)
+            _lc = entry.get("pipe_label_color")
+            if _lbl is not None and _lc is not None:
+                _lbl.setDefaultTextColor(_lc)
             item.update()
 
         elif isinstance(item, GridlineItem):
