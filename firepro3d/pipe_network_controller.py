@@ -741,7 +741,8 @@ class PipeNetworkController:
         level_str = getattr(node, "ceiling_level", "?")
         total = len(candidates)
         if total > 1:
-            text = f"Node @ {elev_str} ({level_str}) [{idx + 1}/{total}]"
+            text = (f"Node @ {elev_str} ({level_str}) "
+                    f"[{idx + 1}/{total}]  ·  Space = cycle")
         else:
             text = f"Node @ {elev_str} ({level_str})"
         self._scene.pipeNodeHighlight.emit(text)

@@ -1324,7 +1324,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
         # Emit initial step instruction for this mode
         _initial_steps = {
-            "select":         "Select items to edit",
+            "select":         "Select items to edit  ·  Space = cycle similar",
             "pipe":           "Pick start node",
             "sprinkler":      "Click a node or pipe to place sprinkler",
             "draw_line":      "Pick first point",
@@ -1357,11 +1357,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "fillet":          "Click first object",
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
-            "wall":            "Pick wall start point",
+            "wall":            "Pick wall start point  ·  Space = alignment",
             "floor":           "Pick first point",
             "room":            "Click inside a closed wall region",
             "room_manual":     "Pick first room boundary point",
-            "opening":         "Click on a wall to place an opening",
+            "opening":         "Click on a wall to place an opening  ·  Space = alignment",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
             "detail":          "Pick first corner for detail view boundary",
