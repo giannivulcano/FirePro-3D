@@ -3,7 +3,8 @@ import math
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d.dynamic_input import is_valid_relative_angle
+from firepro3d.dynamic_input import (is_valid_relative_angle,
+                                     DynamicInputHud, SCHEMAS)
 
 
 class TestRelativeAngleValidation:
@@ -21,3 +22,17 @@ class TestRelativeAngleValidation:
         # A value seeded from the live preview carries sub-degree float dust
         # from get_vector_angle/subtraction; it must still validate.
         assert is_valid_relative_angle(float(deg)) is True
+
+
+class TestHudFieldLabelAndInvalid:
+    def test_set_field_label_changes_caption(self, qapp):
+        hud = DynamicInputHud(SCHEMAS["line"])
+        hud.set_field_label("Angle", "Rel A")
+        assert hud.field_label_text("Angle") == "Rel A"
+
+    def test_mark_field_invalid_flags_named_field(self, qapp):
+        hud = DynamicInputHud(SCHEMAS["line"])
+        assert hud.has_invalid_field() is False
+        hud.mark_field_invalid("Angle")
+        assert hud.has_invalid_field() is True
+        assert hud.editor("Angle").property("invalid") == "true"
