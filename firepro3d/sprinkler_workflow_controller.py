@@ -155,12 +155,232 @@ class SprinklerWorkflowController:
         room_name = room.name or room._tag or "room"
         self._scene._show_status(f"Placed {count} sprinkler(s) in {room_name}.")
 
+    # ── Design-area picks lifecycle ────────────────────────────────────────────
+
+    @property
+    def design_area_sprinklers(self) -> list:
+        """Sprinklers from the active design area (backward compat)."""
+        if self._scene.active_design_area:
+            return list(self._scene.active_design_area.sprinklers)
+        return []
+
+    def _refresh_da_highlights(self):
+        """Rebuild the per-sprinkler highlight rings for design_area mode.
+
+        One fixed-screen-size ring per selected sprinkler of the active
+        design area.  Self-clearing: outside design_area mode (or with no
+        active area) it just removes existing rings.
+        """
+        sc = self._scene
+        for it in self._da_highlights:
+            if it.scene() is sc:
+                sc.removeItem(it)
+        self._da_highlights.clear()
+
+        if sc.mode != "design_area" or not self._da_editing:
+            return
+
+        r = DESIGN_AREA_HL_RADIUS_PX
+        for spr in self._da_editing.sprinklers:
+            if not spr.node:
+                continue
+            ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
+            ring.setPos(spr.node.scenePos())
+            pen = QPen(QColor(255, 140, 0), 2)
+            pen.setCosmetic(True)
+            ring.setPen(pen)
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            ring.setZValue(Z_OVERLAY)
+            ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            sc.addItem(ring)
+            self._da_highlights.append(ring)
+
+    def _ensure_editing_da(self, resume_spr=None):
+        """Return the design area picks modify, creating or resuming one.
+
+        With no working area: if *resume_spr* already belongs to a design
+        area, editing resumes on that one; otherwise a new area starts.
+        Confirming (right-click) clears the working area so the next pick
+        starts a fresh one — this is how multiple design areas are made.
+        """
+        sc = self._scene
+        if self._da_editing is not None:
+            return self._da_editing
+        da = None
+        if resume_spr is not None:
+            da = next((d for d in sc.design_areas
+                       if resume_spr in d.sprinklers), None)
+        if da is None:
+            da = DesignArea()
+            da.level = getattr(sc, "active_level", DEFAULT_LEVEL)
+            sc.addItem(da)
+            apply_category_defaults(da)
+            da.sync_z_for_mode(editing=True)
+            sc.design_areas.append(da)
+        self._da_editing = da
+        sc.active_design_area = da
+        return da
+
+    def _da_change_committed(self, da, confirmed=False):
+        """Shared tail for every design-area mutation: recompute, refresh
+        rings, live property panel, browser/dirty signal, status tally."""
+        sc = self._scene
+        da.compute_area(sc.scale_manager)
+        self._refresh_da_highlights()
+        sc.requestPropertyUpdate.emit(da)
+        sc.sceneModified.emit()
+        count = len(da.sprinklers)
+        area = da._properties.get("Area", {}).get("value", "0")
+        if confirmed:
+            sc._show_status(
+                f"Design area confirmed: {count} sprinkler(s), {area}. "
+                f"Click a sprinkler to start a new design area.")
+        else:
+            sc._show_status(
+                f"Design area: {count} sprinkler(s), {area}. "
+                f"Click more or right-click to confirm.")
+
+    def confirm_design_area(self) -> bool:
+        """Right-click confirm: lock the working area; next pick starts a new one.
+        Returns True if an area was confirmed."""
+        sc = self._scene
+        da = self._da_editing or sc.active_design_area
+        if da and da.sprinklers:
+            sc.active_design_area = da
+            self._da_editing = None
+            self._da_change_committed(da, confirmed=True)
+            return True
+        return False
+
+    # ── Water-supply placement ─────────────────────────────────────────────────
+
+    def press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
+        sc = self._scene
+        # Require direct click on a node or pipe (no proximity fallback)
+        if isinstance(item_under, Node):
+            target_node = item_under
+        elif isinstance(item_under, Pipe):
+            target_node = sc.split_pipe(
+                item_under,
+                sc.project_click_onto_pipe_segment(snapped, item_under),
+            )
+        else:
+            sc._show_status("Click on a node or pipe to place water supply")
+            return
+
+        if target_node is None:
+            sc._show_status("Click on a node or pipe to place water supply")
+            return
+
+        if sc.water_supply_node is not None:
+            sc.removeItem(sc.water_supply_node)
+        ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
+        sc.addItem(ws)
+        sc.water_supply_node = ws
+        sc.sprinkler_system.supply_node = ws
+        sc.requestPropertyUpdate.emit(ws)
+        sc.push_undo_state()
+        sc.set_mode(None)
+
+    # ── Design-area click handlers ─────────────────────────────────────────────
+
+    def press_design_area(self, event, pos, snapped, item_under, node_under, pipe_under):
+        sc = self._scene
+        modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+        if shift:
+            # Shift+click: rectangle selection mode
+            if self._design_area_corner1 is None:
+                self._design_area_corner1 = snapped
+                rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
+                rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
+                rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
+                rect_item.setZValue(2)
+                sc.addItem(rect_item)
+                self._design_area_rect_item = rect_item
+                sc._show_status("Shift+click second corner to complete rectangle.")
+            else:
+                c1 = self._design_area_corner1
+                selection_rect = QRectF(c1, snapped).normalized()
+                active = getattr(sc, "active_level", DEFAULT_LEVEL)
+                selected_sprs = [
+                    s for s in sc.sprinkler_system.sprinklers
+                    if s.node and selection_rect.contains(s.node.scenePos())
+                    and getattr(s.node, "level", DEFAULT_LEVEL) == active
+                ]
+                # Remove the temporary preview rect
+                if self._design_area_rect_item and self._design_area_rect_item.scene() is sc:
+                    sc.removeItem(self._design_area_rect_item)
+                self._design_area_rect_item = None
+                self._design_area_corner1 = None
+                # Add to the working design area (create/resume as needed)
+                da = self._ensure_editing_da()
+                for s in selected_sprs:
+                    da.add_sprinkler(s)
+                self._da_change_committed(da)
+        else:
+            # Normal click: toggle the nearest sprinkler on the active level.
+            # Routes through SnapEngine (center-only whitelist, sprinkler nodes
+            # only) so the pick aperture stays zoom-invariant and consistent
+            # with the rest of the snap system.  OSNAP toggle is overridden so
+            # design-area picking always works regardless of the F3 setting.
+            active = getattr(sc, "active_level", DEFAULT_LEVEL)
+            _view = sc._snap_view()
+            xform = _view.transform() if _view is not None else QTransform()
+            node_to_spr = {spr.node: spr for spr in sc.sprinkler_system.sprinklers
+                           if spr.node is not None
+                           and getattr(spr.node, "level", DEFAULT_LEVEL) == active}
+            target_spr = None
+            _was_enabled = sc._snap_engine.enabled
+            _was_center = sc._snap_engine.snap_center
+            sc._snap_engine.enabled = True
+            sc._snap_engine.snap_center = True
+            try:
+                result = sc._snap_engine.find(
+                    pos, sc, xform,
+                    only_types={"center"},
+                    item_filter=lambda it: it in node_to_spr)
+            finally:
+                sc._snap_engine.enabled = _was_enabled
+                sc._snap_engine.snap_center = _was_center
+            if result is not None:
+                target_spr = node_to_spr.get(result.source_item)
+            if target_spr:
+                da = self._ensure_editing_da(resume_spr=target_spr)
+                da.toggle_sprinkler(target_spr)
+                self._da_change_committed(da)
+            else:
+                sc._show_status("No sprinkler found. Click on a sprinkler to add/remove it.")
+
+    def move_design_area(self, event, snapped):
+        sc = self._scene
+        sc.preview_node.hide()
+        sc.preview_pipe.hide()
+        if self._design_area_corner1 is not None and self._design_area_rect_item is not None:
+            c1 = self._design_area_corner1
+            rect = QRectF(c1, snapped).normalized()
+            self._design_area_rect_item.setRect(rect)
+
+    # ── Mode z/style resync + idempotent teardown ──────────────────────────────
+
+    def sync_design_area_z(self, entering_da_mode: bool):
+        """Mode-dependent DA z/style resync (was set_mode Site A)."""
+        for _da in self._scene.design_areas:
+            _da.sync_z_for_mode(entering_da_mode)
+            _da.update()
+
     def clear(self):
-        """Idempotent teardown of design-area edit transient state.
-        Called from Model_Space.set_mode on every mode change (safe when
-        nothing is in progress)."""
-        # Filled in Task 5.
-        pass
+        """Idempotent design-area edit teardown (was set_mode Site B)."""
+        self._da_editing = None
+        self._refresh_da_highlights()      # self-clearing outside design_area mode
+        self._design_area_corner1 = None
+        if self._design_area_rect_item is not None:
+            if self._design_area_rect_item.scene() is self._scene:
+                self._scene.removeItem(self._design_area_rect_item)
+            self._design_area_rect_item = None
 
     # ── Hydraulics ─────────────────────────────────────────────────────────────
 

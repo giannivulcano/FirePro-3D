@@ -146,3 +146,25 @@ class TestCoverageOverlay:
         assert Node._coverage_visible is True
         scene.set_coverage_overlay(False)
         assert Node._coverage_visible is False
+
+
+class TestClearHookIsReal:
+    def test_leaving_design_area_mode_tears_down_transient(self, shown_model_view):
+        view, scene = shown_model_view
+        _add_sprinkler_at(scene, 0.0, 0.0)
+        _add_sprinkler_at(scene, 1000.0, 0.0)
+        scene.set_mode("design_area")
+        # Begin a Shift+rect selection (first corner) — leaves a live rect item
+        _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(-200, -200),
+                    button=Qt.MouseButton.LeftButton,
+                    modifiers=Qt.KeyboardModifier.ShiftModifier)
+        _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(-200, -200),
+                    button=Qt.MouseButton.LeftButton,
+                    modifiers=Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+        assert scene._spr_ctl._design_area_rect_item is not None, \
+            "precondition: an in-progress rubber-band rect should exist"
+        scene.set_mode(None)
+        assert scene._spr_ctl._design_area_rect_item is None, \
+            "clear() did not remove the in-progress rect on mode change"
+        assert scene._spr_ctl._da_editing is None
