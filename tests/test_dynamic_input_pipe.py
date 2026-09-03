@@ -36,3 +36,31 @@ class TestHudFieldLabelAndInvalid:
         hud.mark_field_invalid("Angle")
         assert hud.has_invalid_field() is True
         assert hud.editor("Angle").property("invalid") == "true"
+
+
+from firepro3d.node import Node
+from firepro3d.pipe import Pipe
+
+
+def _make_pipe_scene(shown_model_view):
+    """Return (view, scene) in pipe mode with a fresh sprinkler system."""
+    view, scene = shown_model_view
+    scene.set_mode("pipe")
+    return view, scene
+
+
+class TestCommitPipeAtExtraction:
+    def test_commit_pipe_at_places_a_segment(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        # Arm a start node by a first press at the origin.
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
+                                   None, None, None)
+        assert isinstance(scene.node_start_pos, Node)
+        n0 = scene.node_start_pos
+        before = len(scene.sprinkler_system.pipes)
+        ok = scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)
+        assert ok is True
+        assert len(scene.sprinkler_system.pipes) == before + 1
+        # Polyline continuation: node_start_pos advanced to the new end node.
+        assert scene.node_start_pos is not n0
+        assert scene.node_start_pos.scenePos() == QPointF(1000, 0)

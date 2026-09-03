@@ -903,138 +903,155 @@ class PipeNetworkController:
         else:
             start_pos   = self._scene.node_start_pos.scenePos()
             snapped_end = self._scene.node_start_pos.snap_point_45(start_pos, snapped)
-            template = getattr(self._scene, "current_template", None)
+            return self._commit_pipe_at(snapped_end, item_under)
 
-            # ── Backtrack check (before creating/splitting nodes) ─────
-            if self._would_backtrack_at(self._scene.node_start_pos, snapped_end):
-                self._scene.warningIssued.emit(
-                    "Pipe Overlap",
-                    "Cannot place a pipe back over an existing pipe segment.")
-                return
+    def _commit_pipe_at(self, snapped_end, item_under) -> bool:
+        """Commit the second-click pipe body at an already-final *snapped_end*.
 
-            # ── Node connection-limit & angle validation ─────────────
-            # Only count coplanar pipes — risers don't consume branch slots
-            _sz = self._scene.node_start_pos.z_pos
-            start_pipes = sum(1 for p in self._scene.node_start_pos.pipes
-                              if abs((p.node2 if p.node1 is self._scene.node_start_pos
-                                      else p.node1).z_pos - _sz) <= Z_COPLANAR_TOL)
-            if start_pipes >= 4:
+        Shared post-snap commit path for both mouse (which snaps via
+        ``snap_point_45`` first) and typed input (which computes the exact
+        endpoint and MUST NOT be re-snapped). ``item_under`` is the item under
+        a mouse click for split-on-pipe; None for typed input.
+
+        Returns:
+            True on success (pipe placed) or when an elevation-mismatch
+            confirmation is pending (the async dialog completes the commit).
+            False on a hard rejection (backtrack / connection limit / invalid
+            4th branch / zero-length), leaving the placement armed.
+        """
+        template = getattr(self._scene, "current_template", None)
+
+        # ── Backtrack check (before creating/splitting nodes) ─────
+        if self._would_backtrack_at(self._scene.node_start_pos, snapped_end):
+            self._scene.warningIssued.emit(
+                "Pipe Overlap",
+                "Cannot place a pipe back over an existing pipe segment.")
+            return False
+
+        # ── Node connection-limit & angle validation ─────────────
+        # Only count coplanar pipes — risers don't consume branch slots
+        _sz = self._scene.node_start_pos.z_pos
+        start_pipes = sum(1 for p in self._scene.node_start_pos.pipes
+                          if abs((p.node2 if p.node1 is self._scene.node_start_pos
+                                  else p.node1).z_pos - _sz) <= Z_COPLANAR_TOL)
+        if start_pipes >= 4:
+            self._scene.warningIssued.emit(
+                "Connection Limit",
+                f"Start node already has {start_pipes} coplanar connections (max 4).")
+            return False
+        # Adding a 4th branch is only valid to turn a tee into a cross
+        if start_pipes == 3:
+            err = self._validate_4th_branch(self._scene.node_start_pos, snapped_end)
+            if err:
+                self._scene.warningIssued.emit("Invalid Connection", err)
+                return False
+        # Use Tab-selected candidate if available
+        tab_node = None
+        if (self._tab_candidates
+                and self._tab_index < len(self._tab_candidates)):
+            tab_node = self._tab_candidates[self._tab_index]
+
+        template_z2 = (self._compute_template_z_pos(template, node_idx=2)
+                       if template is not None else None)
+        existing_end_check = (tab_node if tab_node is not None
+                              else self.find_nearby_node(
+                                  snapped_end.x(), snapped_end.y(), z_hint=template_z2))
+        if existing_end_check is not None:
+            _ez = existing_end_check.z_pos
+            end_pipes = sum(1 for p in existing_end_check.pipes
+                            if abs((p.node2 if p.node1 is existing_end_check
+                                    else p.node1).z_pos - _ez) <= Z_COPLANAR_TOL)
+            if end_pipes >= 4:
                 self._scene.warningIssued.emit(
                     "Connection Limit",
-                    f"Start node already has {start_pipes} coplanar connections (max 4).")
-                return
-            # Adding a 4th branch is only valid to turn a tee into a cross
-            if start_pipes == 3:
-                err = self._validate_4th_branch(self._scene.node_start_pos, snapped_end)
+                    f"Target node already has {end_pipes} coplanar connections (max 4).")
+                return False
+            if end_pipes == 3:
+                err = self._validate_4th_branch(
+                    existing_end_check,
+                    self._scene.node_start_pos.scenePos())
                 if err:
                     self._scene.warningIssued.emit("Invalid Connection", err)
-                    return
-            # Use Tab-selected candidate if available
-            tab_node = None
-            if (self._tab_candidates
-                    and self._tab_index < len(self._tab_candidates)):
-                tab_node = self._tab_candidates[self._tab_index]
+                    return False
 
-            template_z2 = (self._compute_template_z_pos(template, node_idx=2)
-                           if template is not None else None)
-            existing_end_check = (tab_node if tab_node is not None
-                                  else self.find_nearby_node(
-                                      snapped_end.x(), snapped_end.y(), z_hint=template_z2))
-            if existing_end_check is not None:
-                _ez = existing_end_check.z_pos
-                end_pipes = sum(1 for p in existing_end_check.pipes
-                                if abs((p.node2 if p.node1 is existing_end_check
-                                        else p.node1).z_pos - _ez) <= Z_COPLANAR_TOL)
-                if end_pipes >= 4:
-                    self._scene.warningIssued.emit(
-                        "Connection Limit",
-                        f"Target node already has {end_pipes} coplanar connections (max 4).")
-                    return
-                if end_pipes == 3:
-                    err = self._validate_4th_branch(
-                        existing_end_check,
-                        self._scene.node_start_pos.scenePos())
-                    if err:
-                        self._scene.warningIssued.emit("Invalid Connection", err)
-                        return
+        # Check for existing node BEFORE find_or_create_node
+        existing_end = (tab_node if tab_node is not None
+                        else self.find_nearby_node(
+                            snapped_end.x(), snapped_end.y(), z_hint=template_z2))
 
-            # Check for existing node BEFORE find_or_create_node
-            existing_end = (tab_node if tab_node is not None
-                            else self.find_nearby_node(
-                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
+        if isinstance(item_under, Pipe):
+            end_node = self.split_pipe(item_under, self._scene.project_click_onto_pipe_segment(snapped_end, item_under))
+            _check_end_elev = True  # split node inherits pipe's Z
+        else:
+            end_node = (tab_node if tab_node is not None
+                        else self.find_or_create_node(
+                            snapped_end.x(), snapped_end.y(), z_hint=template_z2))
+            _check_end_elev = (existing_end is not None)
 
-            if isinstance(item_under, Pipe):
-                end_node = self.split_pipe(item_under, self._scene.project_click_onto_pipe_segment(snapped_end, item_under))
-                _check_end_elev = True  # split node inherits pipe's Z
-            else:
-                end_node = (tab_node if tab_node is not None
-                            else self.find_or_create_node(
-                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
-                _check_end_elev = (existing_end is not None)
-
-            # Block zero-length same-node pipe — unless template specifies
-            # a different elevation for Node 2 (vertical pipe placement)
-            if end_node is self._scene.node_start_pos:
-                if template is not None:
-                    z1 = self._compute_template_z_pos(template, node_idx=1)
-                    z2 = self._compute_template_z_pos(template, node_idx=2)
-                    if z1 is not None and z2 is not None and abs(z1 - z2) > 0.5:
-                        # Create a new node at same XY with Node 2's elevation
-                        end_node = self._make_intermediate_node_for_n2(
-                            self._scene.node_start_pos, template)
-                    else:
-                        return  # truly same position — wait for valid click
-                else:
-                    return
-
-            # Detect elevation mismatch on an existing or pipe-split end node
-            if _check_end_elev and template is not None:
-                template_z = self._compute_template_z_pos(template, node_idx=2)
-                if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
-                    if not hasattr(self._scene, "_pending_confirm_data"):
-                        self._scene._pending_confirm_data = {}
-                    self._scene._pending_confirm_data["elev_end"] = {
-                        "start_node": self._scene.node_start_pos,
-                        "end_node": end_node, "template": template}
-                    sm = self._scene.scale_manager
-                    _fz = sm.format_length if sm else (lambda v: f"{v:.1f} mm")
-                    self._scene.confirmRequested.emit(
-                        "elev_mismatch_end",
-                        "Elevation Mismatch",
-                        f"The target node is at elevation {_fz(end_node.z_pos)} "
-                        f"but the template targets {_fz(template_z)}.")
-                    return
-
-            # ── Collinear extension check ─────────────────────────────
-            extended = self._try_extend_collinear(
-                self._scene.node_start_pos, end_node, template)
-
-            if not extended:
-                new_pipe = self.add_pipe(
-                    self._scene.node_start_pos, end_node, template)
-                self._scene.node_start_pos.fitting.update()
-                end_node.fitting.update()
-                # ── 45° elbow → wye + stub ────────────────────────────
-                self._convert_45_elbow_to_wye(
-                    self._scene.node_start_pos, template)
-
-            # Continuous polyline: end node becomes the next start node
-            self._scene.node_start_pos = end_node
-            self._scene._pipe_node_was_new = False
-            # Reset Tab cycling after committing end node
-            self._tab_candidates = []
-            self._tab_index = 0
-            self._scene.push_undo_state()
-            # Update template: Node 1 adopts end node's elevation for next segment
+        # Block zero-length same-node pipe — unless template specifies
+        # a different elevation for Node 2 (vertical pipe placement)
+        if end_node is self._scene.node_start_pos:
             if template is not None:
-                template.node1_ceiling_level = end_node.ceiling_level
-                template.node1_ceiling_offset = end_node.ceiling_offset
-                # Default Node 2 to match for horizontal continuation
-                template.node2_ceiling_level = end_node.ceiling_level
-                template.node2_ceiling_offset = end_node.ceiling_offset
-                template._placement_phase = 1
-                self._scene.requestPropertyUpdate.emit(template)
-            self._scene.instructionChanged.emit("Pick next node (Esc/double-click to finish)")
+                z1 = self._compute_template_z_pos(template, node_idx=1)
+                z2 = self._compute_template_z_pos(template, node_idx=2)
+                if z1 is not None and z2 is not None and abs(z1 - z2) > 0.5:
+                    # Create a new node at same XY with Node 2's elevation
+                    end_node = self._make_intermediate_node_for_n2(
+                        self._scene.node_start_pos, template)
+                else:
+                    return False  # truly same position — wait for valid click
+            else:
+                return False
+
+        # Detect elevation mismatch on an existing or pipe-split end node
+        if _check_end_elev and template is not None:
+            template_z = self._compute_template_z_pos(template, node_idx=2)
+            if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
+                if not hasattr(self._scene, "_pending_confirm_data"):
+                    self._scene._pending_confirm_data = {}
+                self._scene._pending_confirm_data["elev_end"] = {
+                    "start_node": self._scene.node_start_pos,
+                    "end_node": end_node, "template": template}
+                sm = self._scene.scale_manager
+                _fz = sm.format_length if sm else (lambda v: f"{v:.1f} mm")
+                self._scene.confirmRequested.emit(
+                    "elev_mismatch_end",
+                    "Elevation Mismatch",
+                    f"The target node is at elevation {_fz(end_node.z_pos)} "
+                    f"but the template targets {_fz(template_z)}.")
+                return True  # pending: the async dialog completes the commit
+
+        # ── Collinear extension check ─────────────────────────────
+        extended = self._try_extend_collinear(
+            self._scene.node_start_pos, end_node, template)
+
+        if not extended:
+            new_pipe = self.add_pipe(
+                self._scene.node_start_pos, end_node, template)
+            self._scene.node_start_pos.fitting.update()
+            end_node.fitting.update()
+            # ── 45° elbow → wye + stub ────────────────────────────
+            self._convert_45_elbow_to_wye(
+                self._scene.node_start_pos, template)
+
+        # Continuous polyline: end node becomes the next start node
+        self._scene.node_start_pos = end_node
+        self._scene._pipe_node_was_new = False
+        # Reset Tab cycling after committing end node
+        self._tab_candidates = []
+        self._tab_index = 0
+        self._scene.push_undo_state()
+        # Update template: Node 1 adopts end node's elevation for next segment
+        if template is not None:
+            template.node1_ceiling_level = end_node.ceiling_level
+            template.node1_ceiling_offset = end_node.ceiling_offset
+            # Default Node 2 to match for horizontal continuation
+            template.node2_ceiling_level = end_node.ceiling_level
+            template.node2_ceiling_offset = end_node.ceiling_offset
+            template._placement_phase = 1
+            self._scene.requestPropertyUpdate.emit(template)
+        self._scene.instructionChanged.emit("Pick next node (Esc/double-click to finish)")
+        return True
 
     # ── Elevation-mismatch confirmation resume ────────────────────────────
 
