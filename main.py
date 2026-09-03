@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
                               QTabWidget, QMenu, QWidget, QMessageBox,
                               QComboBox, QDoubleSpinBox, QFormLayout,
-                              QProgressBar, QToolButton, QProgressDialog)
+                              QToolButton, QProgressDialog)
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
@@ -41,6 +41,8 @@ from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
+from firepro3d.splash import FireProSplash
+from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
 
 
@@ -78,117 +80,6 @@ def _log_unhandled_exception(exc_type, exc_value, exc_tb):
 def install_excepthook():
     """Install the global exception guard (call before the event loop)."""
     sys.excepthook = _log_unhandled_exception
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Splash / Loading Screen
-# ─────────────────────────────────────────────────────────────────────────────
-
-class _SplashScreen(QWidget):
-    """Frameless loading screen with logo and blue progress bar."""
-
-    def __init__(self):
-        super().__init__(None)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.SplashScreen
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self._splash_w = 480
-        self._splash_h = 320
-        self.setFixedSize(self._splash_w, self._splash_h)
-
-        # Centre on screen
-        from PyQt6.QtGui import QGuiApplication
-        screen = QGuiApplication.primaryScreen()
-        if screen:
-            geo = screen.availableGeometry()
-            self.move(
-                geo.x() + (geo.width() - self._splash_w) // 2,
-                geo.y() + (geo.height() - self._splash_h) // 2,
-            )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 8)
-        layout.setSpacing(6)
-
-        # Logo
-        logo_lbl = QLabel()
-        logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_lbl.setStyleSheet(
-            "background: #f1f7f7; border-radius: 6px; padding: 8px;"
-        )
-        from firepro3d.assets import asset_path as _asset_path
-        logo_path = _asset_path("Program Icon", "Logo.png")
-        if os.path.isfile(logo_path):
-            from PyQt6.QtCore import QSize
-            logo_pm = QPixmap(logo_path).scaled(
-                QSize(464, 240),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            logo_lbl.setPixmap(logo_pm)
-        else:
-            # Fallback text if logo file is missing
-            logo_lbl.setText("FirePro 3D")
-            f = QFont("Segoe UI", 22)
-            f.setBold(True)
-            logo_lbl.setFont(f)
-        layout.addWidget(logo_lbl)
-
-        layout.addStretch()
-
-        # Combined progress bar with overlaid status text
-        from PyQt6.QtWidgets import QStackedLayout
-
-        bar_container = QWidget()
-        bar_container.setFixedHeight(28)
-        bar_container.setStyleSheet("background: #ffffff; border-radius: 4px;")
-        stack = QStackedLayout(bar_container)
-        stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        stack.setContentsMargins(0, 0, 0, 0)
-
-        from firepro3d.loading_bar import _bar_style
-        from firepro3d.theme import detect
-        self._bar = QProgressBar()
-        self._bar.setRange(0, 100)
-        self._bar.setValue(0)
-        self._bar.setTextVisible(False)
-        self._bar.setStyleSheet(_bar_style(detect()))
-
-        self._status = QLabel("Loading...")
-        self._status.setFont(QFont("Segoe UI", 8))
-        self._status.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
-        self._status.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._status.setObjectName("splashStatus")
-        self._status.setStyleSheet(
-            "#splashStatus { color: #555555; background: transparent;"
-            " padding-left: 8px; border: none; outline: none; }"
-        )
-
-        # Bar first (bottom of stack), then text on top
-        stack.addWidget(self._bar)
-        stack.addWidget(self._status)
-        self._status.raise_()
-
-        layout.addWidget(bar_container)
-
-        # Scope stylesheet to _SplashScreen only so it doesn't cascade
-        self.setObjectName("splashRoot")
-        self.setStyleSheet(
-            "#splashRoot { background: #ffffff; border: 1px solid #cccccc; border-radius: 8px; }"
-        )
-
-    # ── Public helpers ─────────────────────────────────────────────────────────
-
-    def set_progress(self, value: int, message: str = ""):
-        self._bar.setValue(value)
-        if message:
-            self._status.setText(message)
-        QApplication.processEvents()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -402,9 +293,9 @@ class MainWindow(QMainWindow):
         "mixed":        "Modify",
     }
 
-    def __init__(self, splash: _SplashScreen | None = None):
+    def __init__(self, splash: FireProSplash | None = None):
         super().__init__()
-        self.setWindowTitle("FirePro 3D \u2014 Untitled")
+        self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 Untitled")
         # Window icon from logo
         from firepro3d.assets import asset_path as _asset_path
         _logo = _asset_path("Program Icon", "Logo.png")
@@ -430,7 +321,7 @@ class MainWindow(QMainWindow):
         self._autosave_timer.start()
 
         # Scene + View
-        self._splash_progress(10, "Initialising scene...")
+        self._splash_progress(30, "Initialising scene...")
         # One shared sprinkler database, owned here and injected into every
         # consumer (scene/auto-populate, property panel, manager dialog).
         self._sprinkler_db = SprinklerDatabase()
@@ -459,7 +350,7 @@ class MainWindow(QMainWindow):
         self.scene._plan_view_manager = self.plan_view_mgr
 
         # Central tab widget: Model Space | 3D View | Paper Space
-        self._splash_progress(35, "Building 3D viewport...")
+        self._splash_progress(45, "Building 3D viewport...")
         # Paper space widget created after managers are initialised (see below)
         self.paper_space_widget = None  # placeholder — set after ViewResolver
         self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
@@ -475,7 +366,7 @@ class MainWindow(QMainWindow):
                 i, self.central_tabs.tabBar().ButtonPosition.RightSide, None)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
-        self._splash_progress(55, "Building ribbon toolbar...")
+        self._splash_progress(60, "Building ribbon toolbar...")
         self.ribbon = RibbonBar()
         self.setMenuWidget(self.ribbon)
         self.setCentralWidget(self.central_tabs)
@@ -487,7 +378,7 @@ class MainWindow(QMainWindow):
             self._on_tab_context_menu)
 
         # Property manager (will be added as tab in browser dock)
-        self._splash_progress(65, "Setting up panels...")
+        self._splash_progress(70, "Setting up panels...")
         self.prop_manager = PropertyManager()
         self.prop_manager.set_sprinkler_db(self._sprinkler_db)
         self.prop_manager.set_level_manager(self.level_mgr)
@@ -712,7 +603,7 @@ class MainWindow(QMainWindow):
         self.scene.warningIssued.connect(self._on_warning_issued)
         self.scene.confirmRequested.connect(self._on_confirm_requested)
 
-        self._splash_progress(80, "Wiring up controls...")
+        self._splash_progress(85, "Wiring up controls...")
         self.init_ribbon()
 
         # SNAP toolbar — per-type snap toggles (snap-toolbar spec).
@@ -761,7 +652,7 @@ class MainWindow(QMainWindow):
                   lambda: self.scene.set_mode("align"))
 
         # Restore settings
-        self._splash_progress(90, "Restoring settings...")
+        self._splash_progress(95, "Restoring settings...")
         self.restore_settings()
         self._splash_progress(100, "Ready")
 
@@ -4007,7 +3898,7 @@ class MainWindow(QMainWindow):
     def _update_title(self):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
         star = " *" if self._modified else ""
-        self.setWindowTitle(f"FirePro 3D \u2014 {name}{star}")
+        self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 {name}{star}")
 
     def _on_paper_modified(self):
         """A paper mutation dirties the project (save prompt + autosave)."""
@@ -4598,7 +4489,7 @@ def main():
     th.apply_app_font(app)          # house UI font (Arial) app-wide
 
     # Show splash IMMEDIATELY — before heavy 3D imports
-    splash = _SplashScreen()
+    splash = FireProSplash(version=APP_VERSION)
     splash.show()
     splash.set_progress(5, "Applying theme...")
     QApplication.processEvents()
@@ -4612,7 +4503,7 @@ def main():
     global View3D
     from firepro3d.view_3d import View3D
 
-    splash.set_progress(50, "Building UI...")
+    splash.set_progress(25, "Building UI...")
     window = MainWindow(splash=splash)
     window.resize(800, 600)
     splash.close()
