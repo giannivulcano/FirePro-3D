@@ -8,7 +8,7 @@
 
 | Subsystem | Governing spec | Primary modules (`firepro3d/`) | Status |
 |---|---|---|---|
-| **Model_Space composition / decomposition** (structural) | `specs/model-space-architecture.md` | `model_space.py` (composition/seams — behavior slices governed by the per-subsystem specs below), `scene_tools.py`, `scene_io.py` | partial (as-built composition current; target decomposition proposal — forged 2026-08-28) |
+| **Model_Space composition / decomposition** (structural) | `specs/model-space-architecture.md` | `model_space.py` (composition/seams — behavior slices governed by the per-subsystem specs below), `scene_tools.py`, `scene_io.py`, `underlay_controller.py`, `pipe_network_controller.py` (extracted domain collaborators) | partial (as-built composition current; target decomposition proposal — forged 2026-08-28) |
 | Snapping / OSNAP engine | `specs/snapping-engine.md` | `snap_engine.py`, `model_view.py` | current |
 | SNAP toolbar / per-type toggles | `specs/snap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
 | Ribbon bar (tabs/groups/buttons, mode-button sync, contextual tabs) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `icons.py`, `preferences_dialog.py`, `main.py` (`init_ribbon` + `_init_*_tab` + contextual-tab mechanism) | current |
@@ -18,7 +18,7 @@
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `align_engine.py` | current |
 | 2D geometry / drawing items | `specs/2d-geometry.md` | `construction_geometry.py`, `model_space.py` (2D-geometry placement + dispatch), `snap_engine.py` (2D snap) | current |
 | Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py`, `model_space.py` (floor placement dispatch + template §11), `level_manager.py` (floor pure-z-range visibility + rename remap §11.3) | current |
-| Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `model_space.py` (placement) | current |
+| Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `pipe_network_controller.py` (placement/creation/geometry-correction concern — extracted from `model_space.py` slice 5), `model_space.py` (dispatch forwarders + shells) | current |
 | Sprinkler system components | `specs/sprinkler-system-components.md` | `sprinkler.py`, `sprinkler_db.py`, `sprinkler_system.py`, `fitting.py`, `water_supply.py`, `design_area.py`, `nfpa_curves.py`, `design_point_dialog.py` | current |
 | Parametric constraints / align | `specs/parametric-constraint-system.md` | `constraints.py`, `scene_tools.py` | current |
 | Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py` (consumes the floor two-boundary z-model via `slab._z_range_with_lm` — still governed here; §7.1 plan view-range upper bound), `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py`, `view_range_dialog.py` | current |

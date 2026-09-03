@@ -46,8 +46,10 @@ class TestWouldBacktrackAt:
     def _call(self, scene, start_node, target_pt):
         """Call _would_backtrack_at via a minimal Model_Space."""
         from firepro3d.model_space import Model_Space
+        from firepro3d.pipe_network_controller import PipeNetworkController
         ms = Model_Space.__new__(Model_Space)
-        return ms._would_backtrack_at(start_node, target_pt)
+        ctl = PipeNetworkController(ms)
+        return ctl._would_backtrack_at(start_node, target_pt)
 
     def test_coplanar_overlap_detected(self, scene):
         """Pipe in same direction at same Z → backtrack detected."""
@@ -119,8 +121,10 @@ class TestWouldBacktrack:
 
     def _call(self, scene, start_node, end_node):
         from firepro3d.model_space import Model_Space
+        from firepro3d.pipe_network_controller import PipeNetworkController
         ms = Model_Space.__new__(Model_Space)
-        return ms._would_backtrack(start_node, end_node)
+        ctl = PipeNetworkController(ms)
+        return ctl._would_backtrack(start_node, end_node)
 
     def test_coplanar_duplicate_detected(self, scene):
         """Direct duplicate at same Z → backtrack."""
@@ -159,8 +163,10 @@ class TestValidate4thBranch:
 
     def _call(self, scene, node, new_pt):
         from firepro3d.model_space import Model_Space
+        from firepro3d.pipe_network_controller import PipeNetworkController
         ms = Model_Space.__new__(Model_Space)
-        return ms._validate_4th_branch(node, new_pt)
+        ctl = PipeNetworkController(ms)
+        return ctl._validate_4th_branch(node, new_pt)
 
     def test_3_coplanar_pipes_is_tee_check(self, scene):
         """Node with 3 coplanar pipes → normal tee validation applies."""

@@ -76,14 +76,14 @@ class TestCyclePlacementAmbiguity:
         # Candidates need a z_pos: _emit_pipe_tab_readout formats their elevation.
         cand = [type("N", (), {"z_pos": float(i)})() for i in range(3)]
         scene.set_mode("pipe")
-        scene._pipe_tab_candidates = cand
-        scene._pipe_tab_index = 0
+        scene._pipe_ctl._tab_candidates = cand
+        scene._pipe_ctl._tab_index = 0
         assert scene.cycle_placement_ambiguity() is True
-        assert scene._pipe_tab_index == 1
+        assert scene._pipe_ctl._tab_index == 1
 
     def test_pipe_mode_no_cycle_with_one_candidate(self, scene):
         scene.set_mode("pipe")
-        scene._pipe_tab_candidates = [type("N", (), {"z_pos": 0.0})()]
+        scene._pipe_ctl._tab_candidates = [type("N", (), {"z_pos": 0.0})()]
         assert scene.cycle_placement_ambiguity() is False
 
     def test_select_mode_cycles_similar(self, scene):

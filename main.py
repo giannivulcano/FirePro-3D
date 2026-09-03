@@ -4051,17 +4051,7 @@ class MainWindow(QMainWindow):
             self.update_paper_property_manager()
             return
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
-        if self.scene.mode == "pipe" and self.scene.node_start_pos is not None:
-            # Remove the orphan start node if it was newly created and has no pipes
-            if (self.scene._pipe_node_was_new
-                    and self.scene.node_start_pos is not None
-                    and not self.scene.node_start_pos.pipes):
-                self.scene.remove_node(self.scene.node_start_pos)
-            self.scene.node_start_pos = None
-            self.scene._pipe_node_was_new = False
-            self.scene.preview_pipe.hide()
-            self.scene.preview_node.hide()
-            self.scene.instructionChanged.emit("Pick start node")
+        if self.scene.mode == "pipe" and self.scene.cancel_pipe_placement():
             return
         self.scene.set_mode("select")
         self.scene.clearSelection()
