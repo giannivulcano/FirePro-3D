@@ -14,10 +14,11 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt, QRectF, QSize
-from PyQt6.QtGui import QBrush, QColor, QImage, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPixmapItem,
-    QGraphicsScene, QProgressDialog,
+    QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
+    QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
+    QGraphicsSimpleTextItem, QProgressDialog,
 )
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 
@@ -162,8 +163,8 @@ class UnderlayController:
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
         group.setData(6, not _cache_written)  # dirty until cached on save
 
-        self._scene._apply_underlay_display(group, record)
-        self._scene._apply_underlay_hidden_layers(group, record)
+        self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
         self._attach_snap_index(group, geom_list, record)
         group.setData(2, all_layers)
 
@@ -463,7 +464,7 @@ class UnderlayController:
         )
 
         # Apply saved display settings
-        self._scene._apply_underlay_display(item, record)
+        self._apply_underlay_display(item, record)
 
         self.items.append((record, item))
         self._scene.underlaysChanged.emit()
@@ -539,8 +540,8 @@ class UnderlayController:
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
         group.setData(6, not _cache_written)  # dirty until cached on save
 
-        self._scene._apply_underlay_display(group, record)
-        self._scene._apply_underlay_hidden_layers(group, record)
+        self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
         self._attach_snap_index(group, geom_list, record)
         group.setData(2, all_layers)
 
@@ -550,3 +551,413 @@ class UnderlayController:
 
         self._scene._show_status(
             f"Imported PDF '{file_path}' page {page} as vectors")
+
+    # -------------------------------------------------------------------------
+    # UNDERLAYS — MANAGEMENT
+
+    def _apply_underlay_display(self, item: QGraphicsItem, record: Underlay):
+        """Apply transform origin, scale, rotation, opacity, visibility, and lock state."""
+        self._scene._underlay_freeze.abort()   # spec §18: edits apply instantly
+        # Pivot: vector underlays must rotate about the *base point*, matching
+        # the import-dialog preview (which does setTransformOriginPoint(bx, by)).
+        # apply_import_transform bakes ``coord -> (coord-base)*scale`` into the
+        # geometry, so the base point sits at group-local (0, 0). Rotating about
+        # the centroid instead swung the base point away from the insert point,
+        # flinging "Insert at origin" imports far from the preview (and subtly
+        # mis-placing off-centre-base non-origin imports too). Raster pixmaps
+        # have no base point — they are centred on the origin at import — so they
+        # keep the centroid pivot.
+        if isinstance(item, QGraphicsItemGroup):
+            item.setTransformOriginPoint(0.0, 0.0)
+        else:
+            item.setTransformOriginPoint(item.boundingRect().center())
+        item.setScale(record.scale)
+        item.setRotation(record.rotation)
+        item.setOpacity(record.opacity)
+        if not record.visible:
+            item.setVisible(False)
+        if record.locked:
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+
+    def _apply_underlay_hidden_layers(self, item: QGraphicsItem,
+                                       data: Underlay):
+        """Hide child items whose source layer is in data.hidden_layers.
+
+        Stale layer names (no longer in the file) are silently dropped.
+        """
+        if not data.hidden_layers or not hasattr(item, "childItems"):
+            return
+        actual_layers = set()
+        for child in item.childItems():
+            layer_name = child.data(1)
+            if layer_name is not None:
+                actual_layers.add(layer_name)
+        data.hidden_layers = [
+            ln for ln in data.hidden_layers if ln in actual_layers
+        ]
+        hidden_set = set(data.hidden_layers)
+        for child in item.childItems():
+            layer_name = child.data(1)
+            if layer_name in hidden_set:
+                child.setVisible(False)
+
+    def _create_underlay_placeholder(self, data: Underlay) -> QGraphicsItem:
+        """Create a placeholder rect for a missing underlay file."""
+        rect = QGraphicsRectItem(0, 0, 200, 150)
+        pen = QPen(QColor("#ff0000"), 2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        rect.setPen(pen)
+        rect.setBrush(QBrush(QColor(255, 0, 0, 30)))
+        rect.setPos(data.x, data.y)
+        rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        rect.setData(0, "missing_underlay")
+
+        filename = os.path.basename(data.path)
+        label = QGraphicsSimpleTextItem(
+            f"{filename}\nMissing — right-click to relink", rect)
+        font = QFont()
+        font.setPointSize(8)
+        label.setFont(font)
+        label.setBrush(QBrush(QColor("#ff0000")))
+
+        self._scene.addItem(rect)
+        self.items.append((data, rect))
+        self._scene.underlaysChanged.emit()
+        return rect
+
+    def find_underlay_for_item(self, item: QGraphicsItem):
+        """Return the (Underlay, QGraphicsItem) tuple for a scene item, or None."""
+        for data, scene_item in self.items:
+            if scene_item is item:
+                return data, scene_item
+        return None
+
+    def remove_underlay(self, data: Underlay, item: QGraphicsItem):
+        """Remove an underlay from the scene and the tracking list."""
+        self._scene._underlay_freeze.abort()
+        pair = (data, item)
+        if pair in self.items:
+            self.items.remove(pair)
+        if item.scene() is self._scene:
+            if isinstance(item, QGraphicsItemGroup):
+                # destroyItemGroup re-parents children back to the scene rather
+                # than deleting them, so we must remove each child first.
+                for child in item.childItems():
+                    self._scene.removeItem(child)
+                self._scene.destroyItemGroup(item)
+            else:
+                self._scene.removeItem(item)
+        self._scene.underlaysChanged.emit()
+        self._scene._show_status(f"Removed underlay: {data.path}")
+
+    def refresh_underlay(self, data: Underlay, item: QGraphicsItem,
+                         sync_from_item: bool = True):
+        """Re-import an underlay from disk, preserving position/scale/rotation/opacity.
+
+        Args:
+            sync_from_item: When True (default, refresh-from-disk), the item's
+                current transform is written back to the record before rebuild.
+                The Modify flow passes False so the NEW scale/rotation already
+                on the record (from import params) survive the rebuild.
+        """
+        self._scene._underlay_freeze.abort()
+        # Sync current transform state back to record
+        if sync_from_item:
+            data.x = item.scenePos().x()
+            data.y = item.scenePos().y()
+            data.scale = item.scale()
+            data.rotation = item.rotation()
+            data.opacity = item.opacity()
+
+        # Check file exists before re-import
+        if not os.path.exists(data.path):
+            # Replace with placeholder
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            # Remove old entry from underlays list
+            old_entries = [(i, d) for i, (d, it) in enumerate(self.items) if d is data]
+            for i, _ in reversed(old_entries):
+                self.items.pop(i)
+            self._create_underlay_placeholder(data)
+            self._scene._show_status(f"Missing underlay: {data.path}")
+            return
+
+        # Remove old entry from underlays list BEFORE re-import.
+        # DXF import is async (worker thread) — if we clean up after,
+        # the duplicate check races with _on_dxf_finished appending.
+        self.items = [(d, it) for d, it in self.items if d is not data]
+        if item.scene() is self._scene:
+            self._scene.removeItem(item)
+
+        # Re-import (appends a fresh entry to self.items)
+        if data.type == "pdf":
+            self.import_pdf(
+                data.path, dpi=data.dpi, page=data.page,
+                x=data.x, y=data.y, _record=data,
+                import_mode=data.import_mode,
+            )
+        elif data.type in ("dxf", "dwg"):
+            dxf_path = data.path
+            if data.type == "dwg":
+                from .dwg_converter import (
+                    find_oda_converter, convert_dwg_to_dxf,
+                )
+                oda = find_oda_converter()
+                if oda is None:
+                    self._create_underlay_placeholder(data)
+                    self._scene._show_status("DWG refresh failed: ODA File Converter not found")
+                    return
+                proj = getattr(self._scene, "_project_path", None)
+                proj_dir = os.path.dirname(proj) if proj else None
+                converted = convert_dwg_to_dxf(oda, data.path, project_dir=proj_dir)
+                if converted is None:
+                    self._create_underlay_placeholder(data)
+                    self._scene._show_status(f"DWG refresh failed: conversion error for {data.path}")
+                    return
+                dxf_path = converted
+
+            self.import_dxf(
+                dxf_path, color=QColor(data.colour),
+                line_weight=data.line_weight,
+                x=data.x, y=data.y, layers=data.selected_layers,
+                _record=data,
+                layout=data.layout,
+                skip_sanitize=(data.type == "dwg"),  # ODA output is clean
+            )
+
+            # Store DWG metadata on import params for async cleanup
+            if data.type == "dwg" and self._dxf_import_params:
+                self._dxf_import_params["_dwg_source_path"] = data.path
+                self._dxf_import_params["_dwg_cleanup_path"] = dxf_path
+                self._dxf_import_params["layout"] = data.layout
+
+        self._scene._show_status(f"Refreshed underlay: {data.path}")
+
+    def refresh_all_underlays(self):
+        """Re-import every underlay from disk."""
+        # Take a snapshot since refresh modifies the list
+        snapshot = list(self.items)
+        for data, item in snapshot:
+            self.refresh_underlay(data, item)
+
+    def replace_underlay(self, record: Underlay, params, position=None):
+        """Re-place an underlay's geometry from new import params, preserving
+        the record's identity, draw position, list index, and management fields.
+
+        Args:
+            position: Optional ``QPointF`` overriding the on-canvas anchor. When
+                ``None`` (default) the underlay keeps its current position
+                (in-situ Modify). When a point is given, the rebuilt group and
+                record are anchored there instead (used by the Modify
+                "Insert at origin" mode → ``QPointF(0, 0)``).
+
+        The Modify flow re-opens the import dialog pre-filled, lets the user
+        change scale/placement/layers, and re-places the geometry WHILE
+        preserving manager-owned fields (levels, colour, line_weight_name,
+        layer_overrides, hidden_layers, visible, snap, locked, opacity).
+
+        Geometry+placement fields are overwritten via
+        ``apply_import_params_preserving_management`` BEFORE rebuild, so even
+        the async DXF path rebuilds from the preserved+updated record.
+
+        Note (async DXF): DXF import runs on a worker thread, so the rebuilt
+        group lands later in ``_on_dxf_finished``. Field preservation and the
+        record's path update happen synchronously here; list-index preservation
+        is applied synchronously for the sync (PDF) path and is best-effort
+        (the fresh entry appends at the end) for the async DXF path.
+        """
+        self._scene._underlay_freeze.abort()
+        from .underlay import apply_import_params_preserving_management
+        from .model_space import _record_levels
+
+        # 1. Locate the current (record, item) pair and its list index.
+        original_index = None
+        item = None
+        for i, (d, it) in enumerate(self.items):
+            if d is record:
+                original_index = i
+                item = it
+                break
+        if item is None:
+            log.warning("replace_underlay: record not found in underlays list")
+            return
+
+        # Preserve the on-canvas anchor — Modify changes geometry/scale, not
+        # where the underlay sits in the scene. A caller-supplied `position`
+        # overrides this (Modify "Insert at origin" passes QPointF(0, 0)).
+        if position is not None:
+            old_x, old_y = position.x(), position.y()
+        else:
+            try:
+                old_x = item.scenePos().x()
+                old_y = item.scenePos().y()
+            except RuntimeError:
+                old_x, old_y = record.x, record.y
+
+        # 2. Build an `incoming` Underlay carrying ONLY geometry+placement.
+        #    Mirror _commit_place_import: params.scale bakes into the geometry
+        #    via import_scale/import_base_*, NOT the display transform. The
+        #    display `scale` is preserved (no-op overwrite from the record).
+        incoming = Underlay(
+            type=params.file_type,
+            path=params.file_path,
+            page=getattr(params, "pdf_page", record.page),
+            dpi=getattr(params, "pdf_dpi", record.dpi),
+            scale=record.scale,                 # preserve display transform
+            rotation=getattr(params, "rotation", record.rotation),
+            x=old_x, y=old_y,
+            import_scale=getattr(params, "scale", record.import_scale),
+            import_base_x=getattr(params, "base_x", record.import_base_x),
+            import_base_y=getattr(params, "base_y", record.import_base_y),
+            selected_layers=getattr(params, "selected_layers", None),
+            layout=getattr(params, "layout", record.layout),
+            import_bounds=getattr(params, "import_bounds", None),
+            import_mode=getattr(params, "import_mode", record.import_mode),
+            levels=_record_levels(params, self._scene.active_level),
+            scale_verified=getattr(params, "scale_verified", False),
+            name=getattr(params, "name", record.name),
+        )
+
+        # 3. Derive the authoritative layer set from the new geometry.
+        layers = None
+        geom_list = getattr(params, "geom_list", None)
+        if geom_list:
+            layers = sorted({g.get("layer", "0") for g in geom_list})
+        elif params.selected_layers is not None:
+            layers = list(params.selected_layers)
+
+        # 4. Overwrite geometry+placement, preserve management, prune overrides.
+        apply_import_params_preserving_management(
+            record, incoming, new_layer_names=layers)
+
+        # 5. Rebuild the group in place WITHOUT syncing the old item's
+        #    transform back (that would clobber the new scale/rotation).
+        self.refresh_underlay(record, item, sync_from_item=False)
+
+        # 6. Restore the original list index for the sync (PDF) path.
+        #    refresh_underlay appends the fresh entry at the end; underlay
+        #    ordering influences z-stacking among underlays, so keep it stable.
+        if original_index is not None:
+            new_entry = None
+            for entry in self.items:
+                if entry[0] is record:
+                    new_entry = entry
+                    break
+            if new_entry is not None:
+                cur = self.items.index(new_entry)
+                if cur != original_index and original_index < len(self.items):
+                    self.items.pop(cur)
+                    self.items.insert(original_index, new_entry)
+                    self._scene.underlaysChanged.emit()
+
+    # Management fields NOT owned by the import dialog (everything outside
+    # _GEOMETRY_PLACEMENT_FIELDS). Carried across a Modify "Pick new position"
+    # re-placement so colour/opacity/locked/snap/visible/overrides survive.
+    _UNDERLAY_MGMT_FIELDS = (
+        "opacity", "locked", "colour", "line_weight", "snap", "visible",
+        "hidden_layers", "layer_overrides", "line_weight_name",
+    )
+
+    def begin_replace_underlay_placement(self, record: Underlay, params):
+        """Modify "Pick new position": re-place an underlay interactively.
+
+        Starts the same cursor-follow placement a fresh import uses
+        (``begin_place_import``), but stashes the old record's MANAGEMENT fields
+        (colour, opacity, locked, snap, visibility, hidden layers, per-layer
+        overrides, line-weight name) plus a reference to the OLD underlay so the
+        eventual ``_commit_place_import`` can, on the click:
+          1. remove the old underlay, then
+          2. apply the carried-over management fields onto the fresh record.
+
+        Cancel behaviour (non-destructive by construction): the destructive
+        removal is DEFERRED to commit — a cancelled pick (Esc / mode change)
+        never removed the old underlay, so it stays exactly where it was. The
+        trade-off is the original underlay remains visible under the ghost while
+        the user picks the new point; the swap happens atomically on click.
+        """
+        # Locate the (record, item) pair to remove on commit.
+        old_item = None
+        for d, it in self.items:
+            if d is record:
+                old_item = it
+                break
+        if old_item is None:
+            log.warning(
+                "begin_replace_underlay_placement: record not in underlays list")
+            # Fall back to a straight in-situ replace so nothing is lost.
+            self.replace_underlay(record, params)
+            return
+
+        # Snapshot management fields to carry across the re-placement.
+        preserve_mgmt = {
+            f: getattr(record, f) for f in self._UNDERLAY_MGMT_FIELDS
+            if hasattr(record, f)
+        }
+
+        # Start the fresh-import interactive placement, then stash the
+        # management payload + the old underlay to remove on commit.
+        # (begin_place_import clears these, so set them AFTER it.)
+        self._scene.begin_place_import(params)
+        self._place_import_preserve_mgmt = preserve_mgmt
+        self._place_import_remove_old = (record, old_item)
+
+    def repen_underlay(self, record: Underlay):
+        """Re-apply effective per-layer pens/brushes + opacity in place (§16.3).
+
+        Never rebuilds the group (callable from any context, incl. DM live
+        preview). Guards deleted C++ objects like the §7.2 pass.
+        """
+        from .model_space import underlay_layer_pen, _pdf_width_to_px
+        self._scene._underlay_freeze.abort()
+        for data, group in self.items:
+            if data is not record or group is None:
+                continue
+            try:
+                children = group.childItems()
+            except RuntimeError:
+                return
+            for child in children:
+                layer = child.data(1)
+                if layer is None or not isinstance(child, QGraphicsPathItem):
+                    continue
+                if child.pen().style() == Qt.PenStyle.NoPen:
+                    # text batch: colour rides the brush fill
+                    child.setBrush(QBrush(QColor(
+                        record.effective_layer_colour(layer))))
+                elif record.effective_layer_weight(layer):
+                    # override wins: flat weight for the whole layer
+                    child.setPen(underlay_layer_pen(record, layer))
+                else:
+                    # no override: preserve the child's source PDF width, recolour
+                    src_w = child.data(7)
+                    if src_w is None:
+                        child.setPen(underlay_layer_pen(record, layer))
+                    else:
+                        p = QPen(QColor(record.effective_layer_colour(layer)),
+                                 _pdf_width_to_px(float(src_w)))
+                        p.setCosmetic(True)
+                        child.setPen(p)
+            group.setOpacity(record.opacity)
+            return
+
+    def set_underlay_layer_hidden(self, record: Underlay, group,
+                                  layer_name: str, hidden: bool):
+        """Single choke point for hidden_layers edits (§16.6 — one state,
+        two surfaces: browser tree and DM tab both route through here).
+        No push_undo_state here — callers decide (browser pushes, DM never)."""
+        self._scene._underlay_freeze.abort()
+        if hidden and layer_name not in record.hidden_layers:
+            record.hidden_layers.append(layer_name)
+        elif not hidden and layer_name in record.hidden_layers:
+            record.hidden_layers.remove(layer_name)
+        else:
+            return
+        try:
+            for child in group.childItems():
+                if child.data(1) == layer_name:
+                    child.setVisible(not hidden)
+        except RuntimeError:
+            return
+        self._scene.underlaysChanged.emit()
