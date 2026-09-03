@@ -184,10 +184,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
         # presence *is* input mode — see is_input_mode.
         self.dynamic_input = None
-        # Left-Shift tap tracking (cycle_placement_ambiguity). Armed on a clean
-        # left-Shift press, broken by any other key or a click, consumed on the
-        # matching release — so Shift-as-modifier never cycles.
-        self._lshift_tap_armed = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -3574,27 +3570,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     # ─────────────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _is_left_shift(event) -> bool:
-        """Whether *event* is the **left** Shift key specifically.
-
-        Qt reports both Shift keys as ``Key_Shift``; the left one is told apart
-        by its native code so the right Shift stays a pure modifier.  On Windows
-        left Shift carries scan code ``0x2A`` (42) / virtual key ``VK_LSHIFT``
-        (``0xA0``); either match is accepted so a platform that fills only one
-        of the two still works.
-        """
-        if event.key() != Qt.Key.Key_Shift:
-            return False
-        return event.nativeScanCode() == 42 or event.nativeVirtualKey() == 0xA0
-
     def cycle_placement_ambiguity(self) -> bool:
-        """Left-Shift tap: cycle whatever is ambiguous about the placement.
+        """Spacebar: cycle whatever is ambiguous about the current placement.
 
         Select mode cycles similar elements, pipe mode cycles Z-stacked node
-        candidates, wall mode cycles alignment.  These were Tab until Dynamic
-        Input claimed Tab for the on-canvas HUD in every mode; a clean left-Shift
-        tap now carries them (see :meth:`keyReleaseEvent`).
+        candidates, wall and opening modes cycle alignment.  One router so a
+        single ``Key_Space`` branch in :meth:`keyPressEvent` covers every mode.
 
         Returns:
             True when something was cycled, False when the current mode has
@@ -3604,6 +3585,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return self._cycle_similar_selection()
         if self.mode == "pipe" and len(self._pipe_ctl._tab_candidates) > 1:
             self._pipe_ctl.cycle_tab()
+            return True
+        if self.mode == "wall":
+            self._cycle_wall_alignment()
             return True
         if self.mode == "opening":
             self._cycle_opening_alignment()
@@ -3673,8 +3657,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _cycle_wall_alignment(self) -> None:
         """Advance wall alignment Center → Left → Right and refresh the preview.
 
-        Triggered by Spacebar during wall placement (sole binding since Task 7).
-        Previously bound to Left-Shift via ``cycle_placement_ambiguity``.
+        Triggered by Spacebar via ``cycle_placement_ambiguity`` during wall
+        placement.
         """
         _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
         self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
@@ -5295,9 +5279,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self._pipe_ctl.resume_elev_mismatch("end", result)
 
     def mousePressEvent(self, event):
-        # A click ends any pending left-Shift tap: Shift+click is a modifier
-        # use (multi-select), not a tap, so it must not cycle on release.
-        self._lshift_tap_armed = False
         # Inert in input mode (see mouseMoveEvent): a click must not commit
         # geometry behind an open HUD.
         if self.is_input_mode():
@@ -8647,11 +8628,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # KEY EVENTS
 
     def keyPressEvent(self, event):
-        # Left-Shift tap tracking: a clean left-Shift press arms the cycle;
-        # any other key breaks it, so Shift held as a modifier never cycles.
-        # Autorepeat (a held key) is neither an arm nor a break.
-        if not event.isAutoRepeat():
-            self._lshift_tap_armed = self._is_left_shift(event)
         # ←/→ cycle the placement variant at step 0 (arc, rectangle, …).
         # Consume only when a variant actually cycles; otherwise fall through
         # so the view's default arrow-scroll still works.
@@ -8669,11 +8645,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._cycle_polygon_sides(-1); event.accept(); return
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 self._toggle_polygon_inscribed(); event.accept(); return
-        # ── Wall placement: Spacebar cycles alignment ─────────────────────────
+        # ── Spacebar cycles whatever is ambiguous about the placement ─────────
+        # Uniform across select/pipe/wall/opening via cycle_placement_ambiguity.
+        # Gated off while a HUD field holds focus so Space types into the field
+        # (e.g. 12' 3"); autorepeat ignored so a held key cycles at most once;
+        # consumed only when something actually cycled (else fall through, the
+        # same convention the ←/→ variant cycle uses).
         if (event.key() == Qt.Key.Key_Space
-                and self.mode == "wall"
-                and not self.is_input_mode()):
-            self._cycle_wall_alignment()
+                and not event.isAutoRepeat()
+                and not self.is_input_mode()
+                and self.cycle_placement_ambiguity()):
             event.accept()
             return
         # ── Opening placement cycle keys (§7.6) ──────────────────────────────
@@ -8681,10 +8662,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # facing mirror.  All gated on not-input-mode so a focused HUD field
         # keeps these keys for typing.
         if self.mode == "opening" and not self.is_input_mode():
-            if event.key() == Qt.Key.Key_Space:
-                self.cycle_placement_ambiguity()
-                event.accept()
-                return
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 self._opening_mirror_hinge = not self._opening_mirror_hinge
                 self._sync_opening_state_to_template()
@@ -8940,22 +8917,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return
         else:
             super().keyPressEvent(event)
-
-    def keyReleaseEvent(self, event):
-        """Fire the placement-cycle on a clean left-Shift tap.
-
-        The tap stays armed only if nothing happened between the left-Shift
-        press and this release (see ``keyPressEvent`` and ``mousePressEvent``),
-        so Shift+click, Shift+drag and Shift+key never cycle.  A HUD field
-        having focus suppresses it too — Shift is an ordinary modifier there.
-        """
-        if (self._is_left_shift(event) and self._lshift_tap_armed
-                and not event.isAutoRepeat()):
-            self._lshift_tap_armed = False
-            if not self.is_input_mode() and self.cycle_placement_ambiguity():
-                event.accept()
-                return
-        super().keyReleaseEvent(event)
 
     # -------------------------------------------------------------------------
     # COPY / PASTE / MOVE

@@ -153,14 +153,31 @@ class TestLeftShiftNoLongerCycles:
         scene.keyReleaseEvent(_lshift(QEvent.Type.KeyRelease))
         assert scene._wall_alignment == "Center"
 
-    def test_shift_click_still_multiselects(self, scene, view):
-        # Two selectable gridlines; Shift+click the second adds it to the
-        # selection instead of replacing (Left-Shift-as-modifier preserved).
-        g1 = GridlineItem(QPointF(0, 0), QPointF(1000, 0), label="1")
-        g2 = GridlineItem(QPointF(0, 500), QPointF(1000, 500), label="2")
-        for g in (g1, g2):
-            scene.addItem(g); scene._gridlines.append(g)
-        g1.setSelected(True)
+    def test_shift_is_a_pure_modifier_not_a_cycle_key(self, scene, view):
+        # REWRITTEN (was ``test_shift_click_still_multiselects``): the original
+        # drove a Shift+click through the shown view and asserted two thin
+        # gridlines ended up multi-selected.  That premise was doubly invalid
+        # here: (a) Model_Space's gridline body-click path only treats *Ctrl* as
+        # additive (see mousePressEvent §"Gridline body click") — Shift is not an
+        # add-to-selection modifier for gridlines, so the assertion never
+        # matched real behavior; and (b) offscreen, ``mapFromScene`` rounds to an
+        # integer viewport pixel that maps back ~4.6 scene-units off a 0-width
+        # gridline, so ``items(snapped)`` misses the line entirely and the click
+        # falls through — the hit was never reliable.  We instead assert the
+        # actual acceptance criterion with deterministic ground truth (no
+        # inspect.getsource): the Left-Shift *tap* machinery is gone and
+        # Left-Shift is once again a pure modifier, contrasted against Space
+        # which now carries the cycle.
+        scene.set_mode("wall")
+        scene._wall_alignment = "Center"
+        view.setFocus()
+
+        # A clean Left-Shift tap — even with a Shift+click in the middle, which
+        # the deleted keyReleaseEvent/mousePressEvent-reset used to treat as a
+        # tap-break — cycles nothing.  If the tap machinery still existed a bare
+        # Left-Shift tap would advance alignment to "Left".
+        press = _lshift(QEvent.Type.KeyPress)
+        scene.keyPressEvent(press)
         vp = view.viewport()
         view_pt = view.mapFromScene(QPointF(500, 500))
         gp = vp.mapToGlobal(view_pt)
@@ -169,8 +186,19 @@ class TestLeftShiftNoLongerCycles:
                 et, QPointF(view_pt), QPointF(gp),
                 Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
                 Qt.KeyboardModifier.ShiftModifier))
+        scene.keyReleaseEvent(_lshift(QEvent.Type.KeyRelease))
         QApplication.processEvents()
-        assert g1.isSelected() and g2.isSelected()
+        assert scene._wall_alignment == "Center"   # tap gone; Shift never cycles
+        # Left-Shift is inert as a cycle key: the press is not consumed as one.
+        assert press.isAccepted() is False
+
+        # Contrast: Space in the same mode IS the cycle key now — it advances the
+        # alignment and is consumed.  This proves the mechanism moved off Shift
+        # (which is left as an ordinary modifier) and onto Space.
+        space = _space()
+        scene.keyPressEvent(space)
+        assert scene._wall_alignment == "Left"
+        assert space.isAccepted() is True
 
 
 class TestNoCycleFallsThrough:
