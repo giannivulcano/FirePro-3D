@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-08-28
-verified-commit: 579e841
+last-verified: 2026-09-03
+verified-commit: cd27d77
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -396,7 +396,7 @@ Placement is an **active placement mode** (no literal drag-drop). Entered from e
 - The same keys + the **property panel** edit a **selected** placed opening (undoable), matching how walls expose alignment via both the cycle key and the panel.
 - **Keyboard gating:** these keys are gated **off while a Dynamic Input HUD field is focused** (typing a dimension must not cycle) — same rule as the wall-alignment Spacebar change.
 
-**Dependencies to record:** (a) Spacebar-for-alignment is the *target* convention of the pending P1 task *"Cycle key: Left-Shift tap → Spacebar"* (walls); openings adopt the target. (b) In opening-placement mode, **←/→ rebinds** from the generic "placement-variant" cycle to the hinge mirror.
+**Dependencies to record:** (a) Spacebar-for-alignment: the P1 task *"Cycle key: Left-Shift tap → Spacebar"* **landed 2026-09-03** — Spacebar is now the uniform cycle key across **select/pipe/wall/opening**, all routed through `cycle_placement_ambiguity` from a single `Key_Space` branch in `keyPressEvent`; the Left-Shift tap machinery was deleted outright; gated `not is_input_mode()` and ignores autorepeat. (b) In opening-placement mode, **←/→ rebinds** from the generic "placement-variant" cycle to the hinge mirror.
 
 ### 7.7 The Wall Cut (Host Behavior — Distinct From the Symbol)
 
