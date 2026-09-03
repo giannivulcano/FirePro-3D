@@ -534,7 +534,7 @@ class SceneIOMixin:
         self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
-        self.underlays = []
+        self._underlay_ctl.reset()
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None

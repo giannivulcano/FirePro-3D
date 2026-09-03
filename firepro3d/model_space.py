@@ -60,6 +60,7 @@ import os
 
 from .scene_io import SceneIOMixin
 from .scene_tools import SceneTools
+from .underlay_controller import UnderlayController
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -163,7 +164,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
-        self.underlays: list[tuple[Underlay, QGraphicsItem]] = []  # (data, scene_item)
+        self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
@@ -385,14 +386,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._stretch_base: "QPointF | None" = None
         self._stretch_preview_line = None
         # Place-import mode (Sprint L)
-        self._place_import_params = None
-        self._place_import_ghost = None
-        self._place_import_bounds = QRectF(-50, -50, 100, 100)
         # Modify "Pick new position" payloads (None for a fresh import):
         # management fields to re-apply on commit + the old underlay to remove
         # on commit (removal deferred so a cancelled pick is non-destructive).
-        self._place_import_preserve_mgmt = None
-        self._place_import_remove_old = None
+        # (transient state now owned by self._underlay_ctl — slice C1)
         # Walls, Floors, Openings (Phase B/C/D)
         self._walls: list[WallSegment] = []
         self._floor_slabs: list[FloorSlab] = []
@@ -466,6 +463,77 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # per baked gesture via push_undo_state.
         self._manipulator = None
         self._create_manipulator()
+
+    @property
+    def underlays(self):
+        """Back-compat read view of the underlay list (owned by the controller)."""
+        return self._underlay_ctl.items
+
+    # --- place_import transient state: forwarded so in-file references resolve (C1 bridge) ---
+    @property
+    def _place_import_params(self):
+        return self._underlay_ctl._place_import_params
+
+    @_place_import_params.setter
+    def _place_import_params(self, v):
+        self._underlay_ctl._place_import_params = v
+
+    @property
+    def _place_import_ghost(self):
+        return self._underlay_ctl._place_import_ghost
+
+    @_place_import_ghost.setter
+    def _place_import_ghost(self, v):
+        self._underlay_ctl._place_import_ghost = v
+
+    @property
+    def _place_import_bounds(self):
+        return self._underlay_ctl._place_import_bounds
+
+    @_place_import_bounds.setter
+    def _place_import_bounds(self, v):
+        self._underlay_ctl._place_import_bounds = v
+
+    @property
+    def _place_import_preserve_mgmt(self):
+        return self._underlay_ctl._place_import_preserve_mgmt
+
+    @_place_import_preserve_mgmt.setter
+    def _place_import_preserve_mgmt(self, v):
+        self._underlay_ctl._place_import_preserve_mgmt = v
+
+    @property
+    def _place_import_remove_old(self):
+        return self._underlay_ctl._place_import_remove_old
+
+    @_place_import_remove_old.setter
+    def _place_import_remove_old(self, v):
+        self._underlay_ctl._place_import_remove_old = v
+
+    # --- async DXF worker bridge: forwarded so in-file references resolve (C1 bridge) ---
+    @property
+    def _dxf_worker(self):
+        return self._underlay_ctl._dxf_worker
+
+    @_dxf_worker.setter
+    def _dxf_worker(self, v):
+        self._underlay_ctl._dxf_worker = v
+
+    @property
+    def _dxf_progress(self):
+        return self._underlay_ctl._dxf_progress
+
+    @_dxf_progress.setter
+    def _dxf_progress(self, v):
+        self._underlay_ctl._dxf_progress = v
+
+    @property
+    def _dxf_import_params(self):
+        return self._underlay_ctl._dxf_import_params
+
+    @_dxf_import_params.setter
+    def _dxf_import_params(self, v):
+        self._underlay_ctl._dxf_import_params = v
 
     def _create_manipulator(self):
         """(Re)create the scene's selection manipulator and stash it."""
@@ -3091,7 +3159,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Remove old entry from underlays list BEFORE re-import.
         # DXF import is async (worker thread) — if we clean up after,
         # the duplicate check races with _on_dxf_finished appending.
-        self.underlays = [(d, it) for d, it in self.underlays if d is not data]
+        self._underlay_ctl.items = [(d, it) for d, it in self.underlays if d is not data]
         if item.scene() is self:
             self.removeItem(item)
 
