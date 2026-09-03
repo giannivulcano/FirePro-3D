@@ -759,6 +759,10 @@ class PipeNetworkController:
             start = self._scene.node_start_pos.scenePos()
             snapped_end = self._scene.node_start_pos.snap_point_45(start, snapped)
 
+            # Seed the Dynamic Input HUD readout with the constrained endpoint
+            # (no-op while a HUD field is engaged — see publish_placement_state).
+            self._scene.publish_placement_state(start, snapped_end)
+
             # Update Tab cycling candidates at cursor position
             template = getattr(self._scene, "current_template", None)
             template_z2 = (self._compute_template_z_pos(template, node_idx=2)

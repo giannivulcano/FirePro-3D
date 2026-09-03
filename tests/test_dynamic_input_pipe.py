@@ -64,3 +64,13 @@ class TestCommitPipeAtExtraction:
         # Polyline continuation: node_start_pos advanced to the new end node.
         assert scene.node_start_pos is not n0
         assert scene.node_start_pos.scenePos() == QPointF(1000, 0)
+
+
+class TestPipePublishesResolvedPoint:
+    def test_move_pipe_publishes_snapped_endpoint(self, qapp, shown_model_view):
+        view, scene = _make_pipe_scene(shown_model_view)
+        scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
+                                   None, None, None)
+        assert scene.get_resolved_point() is None  # nothing published yet
+        scene._pipe_ctl.move_pipe(None, QPointF(1000, 0))
+        assert scene.get_resolved_point() == QPointF(1000, 0)
