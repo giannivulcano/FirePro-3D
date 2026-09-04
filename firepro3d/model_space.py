@@ -7883,6 +7883,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._draw_polygons.append(item)
 
+            elif obj_type == "block_instance":
+                _p = obj.get("pos", [0.0, 0.0])
+                if obj.get("block_id") in self._block_definitions:
+                    inst = self.place_block_instance(
+                        obj["block_id"],
+                        (_p[0] + offset.x(), _p[1] + offset.y()),
+                        rotation=obj.get("rotation", 0.0),
+                        level=obj.get("level", self.active_level),
+                    )
+                    inst.attributes = dict(obj.get("attributes", {}))
+                    inst.setSelected(True)
+                # else: definition absent (cross-project paste) — skip silently
+
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
                 gl = GridlineItem.from_dict(obj)

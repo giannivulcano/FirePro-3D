@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
 
+_PLACEHOLDER_MM = 200.0
+
 
 class BlockInstance(QGraphicsObject):
     """A placed instance of a BlockDefinition (flyweight consumer)."""
@@ -50,10 +52,22 @@ class BlockInstance(QGraphicsObject):
     def block_rotation(self) -> float:
         return -self.rotation()
 
+    def translate(self, dx: float, dy: float) -> None:
+        """Move this instance by (dx, dy) in scene millimetres (move/manipulator contract)."""
+        self.moveBy(dx, dy)
+
     # ── Geometry ─────────────────────────────────────────────────────────
     def _shared_path(self) -> QPainterPath:
+        ops = self.render_ops()
         combined = QPainterPath()
-        for _pen, path in self.render_ops():
+        if not ops:
+            if self.definition() is None:
+                h = _PLACEHOLDER_MM / 2.0
+                combined.addRect(-h, -h, _PLACEHOLDER_MM, _PLACEHOLDER_MM)
+                combined.moveTo(-h, -h)
+                combined.lineTo(h, h)
+            return combined
+        for _pen, path in ops:
             combined.addPath(path)
         return combined
 
@@ -69,6 +83,12 @@ class BlockInstance(QGraphicsObject):
     def paint(self, painter, option, widget=None):
         ops = self.render_ops()
         if not ops:
+            if self.definition() is None:
+                p = QPen(QColor("#c0392b"))
+                p.setCosmetic(True)
+                painter.setPen(p)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(self._shared_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
         for pen, path in ops:
@@ -93,6 +113,7 @@ class BlockInstance(QGraphicsObject):
     # ── Serialization ────────────────────────────────────────────────────
     def to_dict(self) -> dict:
         return {
+            "type": "block_instance",
             "block_id": self.block_id,
             "pos": [self.pos().x(), self.pos().y()],
             "rotation": self.block_rotation(),
