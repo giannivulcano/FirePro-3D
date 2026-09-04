@@ -38,6 +38,23 @@ def test_place_block_exit_clears_ghost(model_space):
     assert model_space._place_block_id is None
 
 
+def test_place_block_reentry_clears_stale_ghost(model_space):
+    # Seam-review blocker: activating a DIFFERENT block mid-placement must drop
+    # the previous block's ghost (else it previews the wrong block).
+    a = _def(model_space, "A")
+    b = _def(model_space, "B")
+    model_space.set_mode("place_block", template=a.id)
+    model_space._place_block_set_position(QPointF(0.0, 0.0))
+    old_ghost = model_space._place_block_ghost
+    assert old_ghost is not None
+    model_space.set_mode("place_block", template=b.id)   # re-enter for block B
+    assert model_space._place_block_id == b.id
+    assert model_space._place_block_ghost is None         # stale ghost cleared
+    assert old_ghost.scene() is None                      # removed from the scene
+    assert model_space._place_block_anchor is None
+    assert model_space._place_block_step == 0
+
+
 def test_make_block_from_selection_consumes_and_places(model_space):
     from firepro3d.construction_geometry import LineItem
     from PyQt6.QtCore import QPointF

@@ -1251,19 +1251,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
         # ── Block placement (Block S2 T3) ────────────────────────────────────
         # Entering "place_block" adopts the template block-id and resets the
-        # 2-step machine; leaving tears the low-opacity ghost down so it never
-        # strands on the canvas.
+        # 2-step machine; the low-opacity ghost is torn down on BOTH leave and
+        # same-mode re-entry (activating a different block mid-placement) so a
+        # stale ghost never strands on the canvas or previews the wrong block.
         if mode == "place_block":
             self._place_block_id = template if isinstance(template, str) else None
-            self._place_block_step = 0
-        if mode != "place_block":
+        else:
             self._place_block_id = None
-            self._place_block_anchor = None
-            self._place_block_step = 0
-            if self._place_block_ghost is not None:
-                if self._place_block_ghost.scene() is self:
-                    self.removeItem(self._place_block_ghost)
-                self._place_block_ghost = None
+        self._place_block_anchor = None
+        self._place_block_step = 0
+        if self._place_block_ghost is not None:
+            if self._place_block_ghost.scene() is self:
+                self.removeItem(self._place_block_ghost)
+            self._place_block_ghost = None
 
         # Clean up place_import transient state (owned by the controller).
         if mode != "place_import":
