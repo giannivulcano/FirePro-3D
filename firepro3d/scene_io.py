@@ -552,6 +552,11 @@ class SceneIOMixin:
         self._draw_circles = []
         self._draw_arcs = []
         self._draw_polygons = []
+        for inst in list(getattr(self, "_block_instances", [])):
+            if inst.scene() is self:
+                self.removeItem(inst)
+        self._block_instances = []
+        self._block_definitions = {}
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
         self._draw_circle_center = None

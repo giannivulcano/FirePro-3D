@@ -202,6 +202,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # close-cue ring
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
+        self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
+        self._block_instances: list = []     # placed BlockInstance items
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
@@ -1448,6 +1450,40 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def remove_node(self, n):
         return self._pipe_ctl.remove_node(n)
+
+    # ── Block registry / lifecycle (S1) ──────────────────────────────────
+    def register_block_definition(self, definition) -> None:
+        """Add/replace a BlockDefinition in the project-scoped registry."""
+        self._block_definitions[definition.id] = definition
+
+    def get_block_definition(self, block_id: str):
+        """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
+        return self._block_definitions.get(block_id)
+
+    def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
+                             level: str | None = None):
+        """Create + add a BlockInstance referencing an existing definition."""
+        from .block_instance import BlockInstance
+        inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
+                             level=level or self.active_level)
+        inst.setPos(pos[0], pos[1])
+        inst.set_block_rotation(rotation)
+        self.addItem(inst)
+        self._block_instances.append(inst)
+        d = self.get_block_definition(block_id)
+        if d is not None:
+            d._instances.append(inst)   # backref for edit-propagation
+        return inst
+
+    def remove_block_instance(self, inst) -> None:
+        """Remove a BlockInstance from the scene and registry backref."""
+        if inst.scene() is self:
+            self.removeItem(inst)
+        if inst in self._block_instances:
+            self._block_instances.remove(inst)
+        d = self.get_block_definition(inst.block_id)
+        if d is not None and inst in d._instances:
+            d._instances.remove(inst)
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
