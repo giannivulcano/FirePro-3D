@@ -23,9 +23,11 @@ import math
 
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush
-from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsEllipseItem
+from PyQt6.QtWidgets import (QGraphicsRectItem, QGraphicsEllipseItem,
+                             QGraphicsItem)
 
-from .construction_geometry import CircleItem
+from .construction_geometry import CircleItem, PolylineItem
+from .constants import SELECTION_OUTLINE_COLOR
 
 
 class GeometryDrawingController:
@@ -213,4 +215,150 @@ class GeometryDrawingController:
         self._scene.clear_placement_state()
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Pick center point")
+        return True
+
+    # ── Polyline (the dual-concern Delete-pop helper
+    #    _delete_or_pop_polyline_vertex stays scene-side — it also handles floor) ─
+
+    _POLYLINE_CLOSE_RING_PX = 14  # half-side of the bounding square, screen px
+
+    def _preview_from_polyline(self, tip) -> None:
+        """Extend the active polyline's rubber-band to ``tip`` (already resolved).
+
+        A no-op before the first vertex exists.  Polyline draws its preview
+        through the item's own ``update_preview`` rather than ``preview_pipe``,
+        so it does not share ``_preview_from_line``.
+        """
+        if self._scene._polyline_active is None:
+            return
+        self._scene._polyline_active.update_preview(tip)
+
+    def _show_polyline_close_indicator(self, pt) -> None:
+        """Show (lazily-create) the hollow ring on *pt* signalling close-cue.
+
+        A fixed screen-size QGraphicsEllipseItem with ItemIgnoresTransformations
+        (stays 14 px regardless of zoom), coloured with ``SELECTION_OUTLINE_COLOR``.
+        """
+        r = self._POLYLINE_CLOSE_RING_PX
+        if self._scene._polyline_close_indicator is None:
+            ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
+            pen = QPen(QColor(SELECTION_OUTLINE_COLOR), 2)
+            pen.setCosmetic(True)
+            ring.setPen(pen)
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            ring.setZValue(201)  # above Z_OVERLAY (200)
+            self._scene.addItem(ring)
+            self._scene._polyline_close_indicator = ring
+        self._scene._polyline_close_indicator.setPos(pt)
+        self._scene._polyline_close_indicator.show()
+
+    def _hide_polyline_close_indicator(self) -> None:
+        """Hide the close-cue ring (keeps the item alive for reuse)."""
+        if self._scene._polyline_close_indicator is not None:
+            self._scene._polyline_close_indicator.hide()
+
+    def _move_polyline(self, event, snapped):
+        if self._scene._polyline_active is None:
+            self._scene.update_preview_node(snapped)   # cursor preview before first click
+        else:
+            self._scene.preview_node.hide()
+        self._scene.preview_pipe.hide()
+        if self._scene._polyline_active is not None:
+            pl = self._scene._polyline_active
+            pts = pl._points
+            if len(pts) >= 3:
+                scale = self._scene._active_view_scale()
+                tol = 8.0 / max(scale, 1e-6)
+                if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
+                    self._scene.update_preview_node(pts[0])
+                    self._show_polyline_close_indicator(pts[0])
+                    self._preview_from_polyline(pts[0])
+                    # Keep the HUD readout live on the closing segment.
+                    self._scene.publish_placement_state(pts[-1], pts[0])
+                    return
+            self._hide_polyline_close_indicator()
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and len(self._scene._polyline_active._points) >= 1):
+                tip = self._scene._constrain_angle(
+                    self._scene._polyline_active._points[-1], snapped
+                )
+            self._preview_from_polyline(tip)
+            # Publishing here — after the Ctrl constraint — is what keeps the
+            # readout and the HUD's seed from disagreeing with the preview.
+            self._scene.publish_placement_state(
+                self._scene._polyline_active._points[-1], tip)
+
+    def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._scene._polyline_active is None:
+            # First click — create the polyline item
+            tmpl = self._scene._get_geometry_template()
+            _c, _lw = self._scene._geom_color_lw()
+            pl = PolylineItem(snapped, _c, _lw)
+            pl.level = tmpl.level
+            pl._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+            self._scene.addItem(pl)
+            self._scene._polylines.append(pl)
+            self._scene._polyline_active = pl
+            self._scene.update_preview_node(snapped)
+            self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
+        else:
+            pts = self._scene._polyline_active._points
+            # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
+            if len(pts) >= 3:
+                scale = self._scene._active_view_scale()
+                tol = 8.0 / max(scale, 1e-6)
+                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
+                if d0 <= tol:
+                    pl = self._scene._polyline_active
+                    pl.close()
+                    pl.finalize()
+                    self._scene._polyline_active = None
+                    self._hide_polyline_close_indicator()
+                    pl.setSelected(True)
+                    self._scene.preview_pipe.hide()
+                    for v in self._scene.views(): v.viewport().update()
+                    self._scene.push_undo_state()
+                    self._scene.instructionChanged.emit("Pick first point")
+                    return
+            # Subsequent clicks — append vertex (apply Ctrl constraint if held)
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and len(self._scene._polyline_active._points) >= 1):
+                tip = self._scene._constrain_angle(
+                    self._scene._polyline_active._points[-1], snapped
+                )
+            self._commit_polyline_at(tip)
+        # don't let super() deselect items mid-draw
+
+    def _commit_polyline_at(self, tip):
+        """Append one vertex to the active polyline at ``tip``.
+
+        The commit half of :meth:`_press_polyline`, split out so that Dynamic
+        Input is an alternative *point source* rather than an alternative
+        *commit path*: a typed exact point and a mouse click land here, so they
+        cannot drift apart.
+
+        Deliberately does **not** push an undo state — polyline undo is pushed
+        once when the chain is finalized, not per vertex. Unlike the line commit
+        the placement stays live afterwards: the new vertex becomes the next
+        anchor, so the HUD is reseeded for the following segment.
+
+        Returns:
+            True when a vertex was appended, False when no polyline is active.
+        """
+        pl = self._scene._polyline_active
+        if pl is None:
+            return False
+        pl.append_point(tip)
+        # The published point described the segment just committed; the next
+        # frame republishes from the new anchor.
+        self._scene.clear_placement_state()
         return True
