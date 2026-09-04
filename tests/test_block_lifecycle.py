@@ -46,7 +46,7 @@ def test_project_round_trip_blocks(model_space, tmp_path):
     assert d.id in ms2._block_definitions
     assert len(ms2._block_instances) == 1
     inst = ms2._block_instances[0]
-    assert (inst.pos().x(), inst.pos().y()) == (12.0, 34.0)
+    assert inst.block_pos() == (12.0, 34.0)
     assert inst.block_rotation() == 45.0
     assert inst.level == "Level 3"
     assert inst.definition().id == d.id

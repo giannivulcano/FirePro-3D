@@ -16,9 +16,9 @@ def _def(name="A"):
 def test_instance_translate_moves_by_delta(qapp):
     d = _def()
     inst = BlockInstance(block_id=d.id, resolver={d.id: d}.get)
-    inst.setPos(10.0, 20.0)
+    inst.set_block_pos(10.0, 20.0)
     inst.translate(5.0, -3.0)
-    assert (inst.pos().x(), inst.pos().y()) == (15.0, 17.0)
+    assert inst.block_pos() == (15.0, 17.0)
 
 
 def test_instance_movable_capability(qapp):
@@ -44,7 +44,7 @@ def test_copy_paste_round_trips_a_block(model_space):
     model_space.paste_items(QPointF(5.0, 5.0))
     assert len(model_space._block_instances) == 2
     pasted = model_space._block_instances[1]
-    assert (pasted.pos().x(), pasted.pos().y()) == (15.0, 25.0)
+    assert pasted.block_pos() == (15.0, 25.0)
     assert pasted.block_rotation() == 30.0
 
 

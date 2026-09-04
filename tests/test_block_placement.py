@@ -22,7 +22,7 @@ def test_place_block_mode_two_step_commits_instance(model_space):
     model_space._place_block_commit(90.0)
     assert len(model_space._block_instances) == 1
     inst = model_space._block_instances[0]
-    assert (inst.pos().x(), inst.pos().y()) == (50.0, 60.0)
+    assert inst.block_pos() == (50.0, 60.0)
     assert inst.block_rotation() == 90.0
     assert model_space.mode == "place_block"
     assert model_space._place_block_step == 0

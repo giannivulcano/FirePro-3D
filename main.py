@@ -2658,10 +2658,10 @@ class MainWindow(QMainWindow):
         PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
         if not items:
-            # Themed status line rather than an unthemed native QMessageBox.
-            # MainWindow's own status bar — scene._show_status routes through the
-            # vestigial orphan view (views()[0]) and never reaches the screen.
-            self.statusBar().showMessage("Select 2D drafting geometry to make a block", 3000)
+            # Themed popup (house shell), not a native QMessageBox / status line.
+            from firepro3d.themed_message import themed_info
+            themed_info(self, "Make Block",
+                        "Select 2D drafting geometry first, then click Make Block.")
             return
         dlg = MakeBlockDialog(self)
         if not dlg.exec():

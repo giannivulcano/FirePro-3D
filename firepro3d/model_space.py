@@ -1493,7 +1493,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         from .block_instance import BlockInstance
         inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
                              level=level or self.active_level)
-        inst.setPos(pos[0], pos[1])
+        inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         self.addItem(inst)
         self._block_instances.append(inst)
@@ -6355,7 +6355,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if self._place_block_ghost is None:
             self._place_block_make_ghost()
         if self._place_block_ghost is not None:
-            self._place_block_ghost.setPos(snapped.x(), snapped.y())
+            self._place_block_ghost.set_block_pos(snapped.x(), snapped.y())
             self._place_block_ghost.set_block_rotation(0.0)
         self._place_block_step = 1
         # Protractor guides (0° datum + live sweep), mirroring wall_rect rotate.
@@ -6434,7 +6434,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self._place_block_ghost is None:
                 self._place_block_make_ghost()
             if self._place_block_ghost is not None:
-                self._place_block_ghost.setPos(snapped.x(), snapped.y())
+                self._place_block_ghost.set_block_pos(snapped.x(), snapped.y())
         elif self._place_block_ghost is not None:
             self._place_block_ghost.set_block_rotation(self._place_block_angle_to(snapped))
             # Seed the HUD with the locked anchor + cursor so the Angle field

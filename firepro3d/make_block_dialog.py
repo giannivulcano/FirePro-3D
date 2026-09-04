@@ -52,8 +52,8 @@ class MakeBlockDialog(FramelessShellMixin, QDialog):
         ok.setProperty("variant", "primary")
         ok.setDefault(True)
         ok.clicked.connect(self.accept)
-        fb.addWidget(cancel)
         fb.addWidget(ok)
+        fb.addWidget(cancel)
         root.addWidget(footer)
 
     def values(self) -> tuple[str, str, str]:

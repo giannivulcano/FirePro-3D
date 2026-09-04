@@ -68,6 +68,21 @@ def test_make_block_dialog_is_frameless_themed(qapp):
     dlg.deleteLater()
 
 
+def test_place_block_hud_live_angle_seed(model_space):
+    # HUD Angle live-updates from the anchor→cursor heading (place_block pivot)
+    from PyQt6.QtCore import QPointF
+    from firepro3d.dynamic_input import SCHEMAS
+    d = _def()
+    model_space.register_block_definition(d)
+    model_space.set_mode("place_block", template=d.id)
+    model_space._place_block_step = 1
+    model_space._place_block_anchor = QPointF(0.0, 0.0)
+    model_space.publish_placement_state(QPointF(0.0, 0.0), QPointF(0.0, -100.0))
+    vals = model_space._plc._seed_values_for(
+        SCHEMAS.get("rotation"), model_space._plc.get_placement_anchor())
+    assert abs(vals["Angle"] - 90.0) < 1e-6   # cursor straight up = +90° Y-up
+
+
 def test_place_block_rotate_ref_lines_appear_and_clear(model_space):
     # rotate step draws protractor guides (wall_rect parity); cleared on exit
     from PyQt6.QtCore import QPointF

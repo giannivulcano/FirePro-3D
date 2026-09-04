@@ -968,6 +968,8 @@ class PlacementInputCoordinator:
                 return {"Angle": self._scene._wall_rect_rotation_angle_to(point)}
             if self._scene.mode == "floor":
                 return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
+            if self._scene.mode == "place_block":
+                return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": self._scene._rect_rotation_angle_to(point)}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click
