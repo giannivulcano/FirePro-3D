@@ -38,6 +38,20 @@ from firepro3d.model_view import Model_View
 # ── local copy of the _drag_to helper (mirrors test_dynamic_input_lifecycle) ──
 
 
+def _pi(scene):
+    """The placement-input owner.
+
+    Before Slice 7 lands, the HUD/variant state lives on the scene; after the
+    ``PlacementInputCoordinator`` extraction it lives on ``scene._plc``.  This
+    net asserts *behaviour*, not *home*, so it routes every white-box read of a
+    RELOCATING private attr (``dynamic_input`` / ``_variant_index`` /
+    ``_PLACEMENT_VARIANTS``) through here and stays green across the whole
+    refactor without per-task edits.  Public methods (``active_schema`` etc.)
+    keep their scene shells, so those calls stay ``scene.<method>()``.
+    """
+    return getattr(scene, "_plc", scene)
+
+
 class _MoveEventStub:
     """Stand-in for the mouse-move event."""
 
@@ -60,7 +74,7 @@ def _drag_to(scene: Model_Space, point: QPointF,
         scene._draw_line_anchor = QPointF(anchor)
     scene._move_draw_line(_MoveEventStub(), point)
     scene._sync_dynamic_input()
-    return scene.dynamic_input
+    return _pi(scene).dynamic_input
 
 
 def _press_at(view: Model_View, scene_pt: QPointF) -> None:
@@ -156,13 +170,13 @@ def test_variant_cycle_step_zero(shown_model_view):
     _view, scene = shown_model_view
 
     scene.set_mode("draw_rectangle")
-    before = scene._variant_index["draw_rectangle"]
+    before = _pi(scene)._variant_index["draw_rectangle"]
 
     result = scene.cycle_placement_variant(+1)
     assert result is True, "cycle_placement_variant must return True at step 0"
 
-    after = scene._variant_index["draw_rectangle"]
-    expected = (before + 1) % len(scene._PLACEMENT_VARIANTS["draw_rectangle"])
+    after = _pi(scene)._variant_index["draw_rectangle"]
+    expected = (before + 1) % len(_pi(scene)._PLACEMENT_VARIANTS["draw_rectangle"])
     assert after == expected, (
         f"variant index after cycle: {after}, expected {expected}"
     )
@@ -178,9 +192,9 @@ def test_wall_corner_rect_alias_variant(shown_model_view):
     _view, scene = shown_model_view
 
     scene.set_mode("wall_rect")
-    assert scene._variant_index["wall"] == 2, (
+    assert _pi(scene)._variant_index["wall"] == 2, (
         f"wall_rect must set _variant_index['wall'] to 2, got "
-        f"{scene._variant_index['wall']}"
+        f"{_pi(scene)._variant_index['wall']}"
     )
 
 
@@ -275,7 +289,7 @@ def test_clear_teardown_red_demo(shown_model_view):
     view, scene = shown_model_view
 
     _drag_to(scene, QPointF(1000, 0))
-    assert scene.dynamic_input is not None, "HUD must be up before mode switch"
+    assert _pi(scene).dynamic_input is not None, "HUD must be up before mode switch"
 
     scene.set_mode("select")
     QApplication.processEvents()
@@ -284,6 +298,6 @@ def test_clear_teardown_red_demo(shown_model_view):
         "Resolved point must be cleared after set_mode('select')"
     )
     assert (
-        scene.dynamic_input is None
-        or not scene.dynamic_input.isVisible()
+        _pi(scene).dynamic_input is None
+        or not _pi(scene).dynamic_input.isVisible()
     ), "HUD must be torn down (or hidden) after set_mode('select')"
