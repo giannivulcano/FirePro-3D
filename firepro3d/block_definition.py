@@ -9,6 +9,48 @@ from __future__ import annotations
 
 import uuid
 
+from PyQt6.QtGui import QPainterPath, QPen
+
+from .construction_geometry import (
+    LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
+)
+
+# Primitive-type key -> reconstruction class (same keys as the legacy factory)
+_PRIMITIVE_FACTORY = {
+    "draw_line": LineItem,
+    "draw_rectangle": RectangleItem,
+    "draw_circle": CircleItem,
+    "arc": ArcItem,
+    "polyline": PolylineItem,
+    "polygon": RegularPolygonItem,
+}
+
+
+def _local_path(item) -> QPainterPath:
+    """Return the primitive's geometry as a QPainterPath in the item's own coords.
+
+    Args:
+        item: A construction-geometry primitive (QGraphicsItem subclass).
+
+    Returns:
+        A ``QPainterPath`` describing the primitive in its local coordinate frame.
+    """
+    from PyQt6.QtWidgets import (
+        QGraphicsLineItem, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsPathItem,
+    )
+    path = QPainterPath()
+    if isinstance(item, QGraphicsLineItem):
+        ln = item.line()
+        path.moveTo(ln.p1())
+        path.lineTo(ln.p2())
+    elif isinstance(item, QGraphicsEllipseItem):
+        path.addEllipse(item.rect())
+    elif isinstance(item, QGraphicsRectItem):
+        path.addRect(item.rect())
+    elif isinstance(item, QGraphicsPathItem):
+        path = QPainterPath(item.path())
+    return path
+
 
 class BlockDefinition:
     """A named, reusable 2D block definition.
@@ -35,6 +77,8 @@ class BlockDefinition:
         self.origin = (float(origin[0]), float(origin[1]))
         self.attributes = list(attributes)
         self.primitives = list(primitives)
+        self._render_ops: list[tuple[QPen, QPainterPath]] | None = None
+        self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
 
     @classmethod
     def new(cls, *, name: str, library: str, series: str,
@@ -43,6 +87,45 @@ class BlockDefinition:
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
                    attributes=[], primitives=primitives)
+
+    def set_primitives(self, primitives: list[dict]) -> None:
+        """Replace captured primitives, bump version, invalidate + notify instances.
+
+        Args:
+            primitives: The new list of 2D-primitive dicts (construction_geometry
+                to_dict form) that replaces the definition's geometry.
+        """
+        self.primitives = list(primitives)
+        self.version += 1
+        self._render_ops = None
+        for inst in list(self._instances):
+            inst.on_definition_changed()
+
+    def render_ops(self) -> list[tuple[QPen, QPainterPath]]:
+        """Return the cached, shared (pen, path) render-op list (compiled once).
+
+        Returns:
+            A list of ``(QPen, QPainterPath)`` tuples in definition-local,
+            origin-relative coordinates. The same list identity is returned on
+            every call until :meth:`set_primitives` invalidates the cache.
+        """
+        if self._render_ops is None:
+            self._render_ops = self._compile()
+        return self._render_ops
+
+    def _compile(self) -> list[tuple[QPen, QPainterPath]]:
+        """Compile captured primitive dicts into origin-relative render ops."""
+        ox, oy = self.origin
+        ops: list[tuple[QPen, QPainterPath]] = []
+        for prim in self.primitives:
+            cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
+            if cls is None:
+                continue
+            item = cls.from_dict(prim)
+            path = item.mapToParent(_local_path(item))   # honor prim pos/rotation
+            path.translate(-ox, -oy)                       # origin-relative
+            ops.append((QPen(item.pen()), path))
+        return ops
 
     def to_dict(self) -> dict:
         return {
