@@ -211,6 +211,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._place_block_anchor = None      # QPointF pivot (position step result)
         self._place_block_ghost = None       # BlockInstance preview
         self._place_block_step = 0           # 0=awaiting position, 1=awaiting rotation
+        self._place_block_ref_line0 = None   # rotate-step 0° datum guide
+        self._place_block_ref_lineA = None   # rotate-step live sweep guide
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
@@ -1264,6 +1266,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self._place_block_ghost.scene() is self:
                 self.removeItem(self._place_block_ghost)
             self._place_block_ghost = None
+        self._clear_place_block_ref_lines()
 
         # Clean up place_import transient state (owned by the controller).
         if mode != "place_import":
@@ -6355,6 +6358,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self._place_block_ghost.setPos(snapped.x(), snapped.y())
             self._place_block_ghost.set_block_rotation(0.0)
         self._place_block_step = 1
+        # Protractor guides (0° datum + live sweep), mirroring wall_rect rotate.
+        self._place_block_ref_line0 = self._make_ref_line()
+        self._place_block_ref_lineA = self._make_ref_line()
+        self._update_place_block_ref_lines(snapped)
         self.instructionChanged.emit("Pick rotation / type angle (Enter = 0deg)")
 
     def _place_block_commit(self, angle_deg: float) -> None:
@@ -6373,6 +6380,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self._place_block_ghost.scene() is self:
                 self.removeItem(self._place_block_ghost)
             self._place_block_ghost = None
+        self._clear_place_block_ref_lines()
         self._place_block_anchor = None
         self._place_block_step = 0
 
@@ -6384,6 +6392,34 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return 0.0
         return math.degrees(math.atan2(-(cursor.y() - anc.y()),
                                        cursor.x() - anc.x()))
+
+    def _update_place_block_ref_lines(self, cursor) -> None:
+        """Point the two rotate-step guides from the locked anchor.
+
+        A 0° datum (horizontal from the anchor) plus a live sweep line to the
+        cursor, so the angle between them reads like a protractor — mirrors
+        ``_update_wall_rect_ref_lines``. No-op until both guides exist.
+        """
+        piv = self._place_block_anchor
+        if (piv is None or self._place_block_ref_line0 is None
+                or self._place_block_ref_lineA is None):
+            return
+        length = math.hypot(cursor.x() - piv.x(), cursor.y() - piv.y())
+        if length < 1.0:
+            length = 1.0
+        self._place_block_ref_line0.setLine(piv.x(), piv.y(),
+                                            piv.x() + length, piv.y())
+        self._place_block_ref_lineA.setLine(piv.x(), piv.y(),
+                                            cursor.x(), cursor.y())
+
+    def _clear_place_block_ref_lines(self) -> None:
+        """Remove place_block rotate-step reference guides from the scene."""
+        for attr in ("_place_block_ref_line0", "_place_block_ref_lineA"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
 
     def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
         """place_block press: step 0 locks position, step 1 commits rotation."""
@@ -6404,6 +6440,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # Seed the HUD with the locked anchor + cursor so the Angle field
             # surfaces and pre-fills the live rotation (rotate step only).
             self.publish_placement_state(self._place_block_anchor, snapped)
+            self._update_place_block_ref_lines(snapped)
 
     def _apply_place_block_dynamic_input(self, geometry) -> bool:
         """HUD applier: commit the rotate step at the typed angle (Y-up degrees)."""

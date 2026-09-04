@@ -56,9 +56,28 @@ def test_snap_collects_block_origin_and_vertices(model_space):
 
 
 def test_make_block_dialog_is_frameless_themed(qapp):
-    # #2: dialog adopts the house frameless shell (themed header, scoped objectName)
+    # dialog adopts the house frameless shell (themed header, scoped objectName)
+    # + a #footerBar button rail (round-3 feedback)
+    from PyQt6.QtWidgets import QFrame
     from firepro3d.make_block_dialog import MakeBlockDialog
     dlg = MakeBlockDialog()
     assert dlg.objectName() == "MakeBlockDialog"
     assert hasattr(dlg, "_titlebar")
+    names = {c.objectName() for c in dlg.findChildren(QFrame)}
+    assert "dialogBody" in names and "footerBar" in names
     dlg.deleteLater()
+
+
+def test_place_block_rotate_ref_lines_appear_and_clear(model_space):
+    # rotate step draws protractor guides (wall_rect parity); cleared on exit
+    from PyQt6.QtCore import QPointF
+    d = _def()
+    model_space.register_block_definition(d)
+    model_space.set_mode("place_block", template=d.id)
+    model_space._place_block_set_position(QPointF(0.0, 0.0))
+    assert model_space._place_block_ref_line0 is not None
+    assert model_space._place_block_ref_line0.scene() is model_space
+    assert model_space._place_block_ref_lineA is not None
+    model_space.set_mode(None)
+    assert model_space._place_block_ref_line0 is None
+    assert model_space._place_block_ref_lineA is None

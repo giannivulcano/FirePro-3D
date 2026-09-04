@@ -2659,7 +2659,9 @@ class MainWindow(QMainWindow):
         items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
         if not items:
             # Themed status line rather than an unthemed native QMessageBox.
-            self.scene._show_status("Select 2D drafting geometry to make a block", 3000)
+            # MainWindow's own status bar — scene._show_status routes through the
+            # vestigial orphan view (views()[0]) and never reaches the screen.
+            self.statusBar().showMessage("Select 2D drafting geometry to make a block", 3000)
             return
         dlg = MakeBlockDialog(self)
         if not dlg.exec():
@@ -2679,7 +2681,7 @@ class MainWindow(QMainWindow):
 
     def _open_block_manager(self):
         """Ribbon handler: placeholder for the S4 Block Manager."""
-        self.scene._show_status("Block Manager arrives in a later slice (S4)", 3000)
+        self.statusBar().showMessage("Block Manager arrives in a later slice (S4)", 3000)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
