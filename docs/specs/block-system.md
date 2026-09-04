@@ -1,7 +1,7 @@
 ---
 status: partial           # S1 + S2 built (data model + create/place loop); S3–S5 pending
 last-verified: 2026-09-04
-verified-commit: 061a838
+verified-commit: 3a3ee36
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
