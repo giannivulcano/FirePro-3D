@@ -62,3 +62,17 @@ def test_corrupt_fpdb_skipped(tmp_path):
     assert len(entries) == 1
     assert bl.load_block(entries[0]["library"], entries[0]["series"],
                          entries[0]["filename"], root=str(tmp_path)) is None
+
+
+def test_make_then_save_to_library(model_space, tmp_path):
+    from firepro3d.construction_geometry import LineItem
+    from PyQt6.QtCore import QPointF
+    li = LineItem.from_dict({"type": "draw_line", "pt1": [0, 0], "pt2": [100, 0],
+                             "color": "#ffffff", "lineweight": 1.0})
+    model_space.addItem(li)
+    model_space._draw_lines.append(li)
+    inst = model_space.make_block_from_selection(
+        [li], origin=QPointF(0, 0), name="Corner", library="Detail", series="Joints")
+    defn = model_space.get_block_definition(inst.block_id)
+    bl.save_to_library(defn, root=str(tmp_path))
+    assert bl.source_status(defn, root=str(tmp_path)) == "library"

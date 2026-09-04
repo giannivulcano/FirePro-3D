@@ -2673,7 +2673,19 @@ class MainWindow(QMainWindow):
         for it in items[1:]:
             rect = rect.united(it.sceneBoundingRect())
         origin = QPointF(rect.left(), rect.top())
-        self.scene.make_block_from_selection(items, origin, name, library, series)
+        inst = self.scene.make_block_from_selection(items, origin, name, library, series)
+        if inst is None:
+            return
+        from firepro3d.themed_message import themed_confirm, themed_info
+        from firepro3d import block_library
+        defn = self.scene.get_block_definition(inst.block_id)
+        if defn is not None and themed_confirm(
+                self, "Make Block",
+                f"Save “{name}” to the block library so other projects can use it?"):
+            try:
+                block_library.save_to_library(defn)
+            except OSError as exc:
+                themed_info(self, "Make Block", f"Could not save to library:\n{exc}")
 
     def _focus_blocks_browser(self):
         """Ribbon handler: reveal the Blocks browser tab for insert/place."""
