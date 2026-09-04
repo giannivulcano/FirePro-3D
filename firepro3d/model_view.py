@@ -76,6 +76,7 @@ class Model_View(QGraphicsView):
             "constraint_concentric":  _C.CrossCursor,
             "constraint_dimensional": _C.CrossCursor,
             "design_area":            _C.CrossCursor,
+            "place_block":            _C.CrossCursor,
             "move":                   _C.SizeAllCursor,
             "paste":                  _C.SizeAllCursor,
             "offset":                 _C.PointingHandCursor,

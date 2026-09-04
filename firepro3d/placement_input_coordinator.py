@@ -641,6 +641,14 @@ class PlacementInputCoordinator:
             # scenePos() is already a fresh point; the raw QPointF is stored.
             from .node import Node
             return nsp.scenePos() if isinstance(nsp, Node) else QPointF(nsp)
+        if self._scene.mode == "place_block":
+            # Rotate step (1): the locked insertion point is the pivot the angle
+            # turns about — this is what gates the HUD open (_hud_available).
+            # Step 0 has no anchor (nothing typeable before the first click).
+            if self._scene._place_block_step == 1:
+                a = self._scene._place_block_anchor
+                return QPointF(a) if a is not None else None
+            return None
         return None
 
     # -------------------------------------------------------------------------
@@ -693,8 +701,20 @@ class PlacementInputCoordinator:
             return self._wall_schema_for_primitive()
         if self._scene.mode == "floor":
             return self._floor_schema_for_primitive()
+        if self._scene.mode == "place_block":
+            return self._place_block_schema_for_step()
         key = self._scene._SCHEMA_FOR_MODE.get(self._scene.mode)
         return SCHEMAS.get(key) if key else None
+
+    def _place_block_schema_for_step(self):
+        """Return the place_block schema for the current step.
+
+        Step 0 (position) has no anchor before the first click, so no HUD. Step 1
+        (rotate) types the absolute orientation via the ``rotation`` schema.
+        """
+        if self._scene._place_block_step == 1:
+            return SCHEMAS.get("rotation")
+        return None
 
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.
@@ -948,6 +968,8 @@ class PlacementInputCoordinator:
                 return {"Angle": self._scene._wall_rect_rotation_angle_to(point)}
             if self._scene.mode == "floor":
                 return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
+            if self._scene.mode == "place_block":
+                return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": self._scene._rect_rotation_angle_to(point)}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click

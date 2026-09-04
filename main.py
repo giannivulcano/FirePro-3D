@@ -38,6 +38,7 @@ from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
+from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
@@ -477,12 +478,15 @@ class MainWindow(QMainWindow):
 
         self.feature_browser = FeatureBrowser()
         self.feature_browser.featureActivated.connect(self._on_feature_activated)
+        self.blocks_browser = BlocksBrowser(self.scene)
+        self.blocks_browser.blockActivated.connect(self._on_block_activated)
 
         self._left_tabs = QTabWidget()
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
         self._left_tabs.addTab(self.feature_browser, "Features")
+        self._left_tabs.addTab(self.blocks_browser, "Blocks")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -1537,6 +1541,12 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
+        _btn(g_blocks, "Make\nBlock", _I("placeholder_icon.svg"),
+             self._make_block_from_selection, tip="Create a block from selected 2D geometry")
+        _btn(g_blocks, "Insert\nBlock", _I("placeholder_icon.svg"),
+             self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
+        _btn(g_blocks, "Block\nManager", _I("placeholder_icon.svg"),
+             self._open_block_manager, tip="Manage blocks (coming in S4)")
 
     def _init_architecture_tab(self, _I, _btn, _mode_btn):
         """Build Tab 4: Architecture — building elements + datums."""
@@ -2634,6 +2644,44 @@ class MainWindow(QMainWindow):
         if tmpl.feature_id != feature_id:
             tmpl.apply_feature(feature_id)
         self.scene.set_mode("opening", template=tmpl)
+
+    def _on_block_activated(self, block_id: str) -> None:
+        """Enter place_block mode carrying the activated block id."""
+        self.scene.set_mode("place_block", template=block_id)
+
+    def _make_block_from_selection(self):
+        """Ribbon handler: turn the selected 2D drafting geometry into a block."""
+        from firepro3d.construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        from firepro3d.make_block_dialog import MakeBlockDialog
+        from PyQt6.QtCore import QPointF
+        PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
+        if not items:
+            # Themed popup (house shell), not a native QMessageBox / status line.
+            from firepro3d.themed_message import themed_info
+            themed_info(self, "Make Block",
+                        "Select 2D drafting geometry first, then click Make Block.")
+            return
+        dlg = MakeBlockDialog(self)
+        if not dlg.exec():
+            return
+        name, library, series = dlg.values()
+        if not name:
+            return
+        rect = items[0].sceneBoundingRect()
+        for it in items[1:]:
+            rect = rect.united(it.sceneBoundingRect())
+        origin = QPointF(rect.left(), rect.top())
+        self.scene.make_block_from_selection(items, origin, name, library, series)
+
+    def _focus_blocks_browser(self):
+        """Ribbon handler: reveal the Blocks browser tab for insert/place."""
+        self._left_tabs.setCurrentWidget(self.blocks_browser)
+
+    def _open_block_manager(self):
+        """Ribbon handler: placeholder for the S4 Block Manager."""
+        self.statusBar().showMessage("Block Manager arrives in a later slice (S4)", 3000)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""

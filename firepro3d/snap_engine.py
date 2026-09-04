@@ -42,6 +42,7 @@ from .geometry_intersect import _angle_in_arc
 from .gridline import GridlineItem
 from .pipe import Pipe
 from .wall import WallSegment
+from .block_instance import BlockInstance
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -1105,6 +1106,28 @@ class SnapEngine:
         # ── Generic QGraphicsLineItem (Pipe, origin axes) ─────────────────
         elif isinstance(item, QGraphicsLineItem):
             pts.extend(self._line_snaps(item))
+
+        # ── BlockInstance (insertion origin + transformed geometry vertices) ─
+        elif isinstance(item, BlockInstance):
+            # Pose is baked into geometry (item transform is identity), so map
+            # local points through pose_transform() to reach scene coordinates.
+            _pose = item.pose_transform()
+            if self.snap_center:
+                # definition origin is local (0,0) — the instance's insertion point
+                pts.append(("center", _pose.map(QPointF(0.0, 0.0)), None))
+            if self.snap_endpoint:
+                # ON-CURVE vertices only. addEllipse/addPath emit cubic-bezier
+                # CONTROL points (CurveTo/CurveToData) that sit OFF the visible
+                # outline — emitting those snapped the cursor to empty space.
+                from PyQt6.QtGui import QPainterPath as _QPP
+                _on_curve = (_QPP.ElementType.MoveToElement,
+                             _QPP.ElementType.LineToElement)
+                for _pen, path in item.render_ops():
+                    for i in range(path.elementCount()):
+                        el = path.elementAt(i)
+                        if el.type in _on_curve:
+                            pts.append(("endpoint",
+                                        _pose.map(QPointF(el.x, el.y)), None))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):

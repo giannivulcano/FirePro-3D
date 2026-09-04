@@ -32,15 +32,16 @@ def test_to_dict_from_dict_round_trip(qapp):
     d = _def()
     reg = {d.id: d}
     inst = BlockInstance(block_id=d.id, resolver=reg.get)
-    inst.setPos(30.0, 40.0)
+    inst.set_block_pos(30.0, 40.0)
     inst.set_block_rotation(90.0)
     inst.level = "Level 2"
     data = inst.to_dict()
-    assert data == {"block_id": d.id, "pos": [30.0, 40.0], "rotation": 90.0,
+    assert data == {"type": "block_instance", "block_id": d.id,
+                    "pos": [30.0, 40.0], "rotation": 90.0,
                     "level": "Level 2", "attributes": {}}
     inst2 = BlockInstance.from_dict(data, resolver=reg.get)
     assert inst2.block_id == d.id
-    assert (inst2.pos().x(), inst2.pos().y()) == (30.0, 40.0)
+    assert inst2.block_pos() == (30.0, 40.0)
     assert inst2.block_rotation() == 90.0
     assert inst2.level == "Level 2"
 

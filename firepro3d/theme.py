@@ -829,6 +829,22 @@ QToolTip {
     background: $surface2; color: $ink;
     border: 1px solid $line_strong; padding: 4px 7px;
 }
+
+/* ── Make Block dialog (reuses the house shell chrome) ──────────────────── */
+QDialog#MakeBlockDialog { background: $surface2; color: $ink; font-size: 13px; }
+#MakeBlockDialog QFrame#dialogBody { background: $surface; border-top: 1px solid $line; }
+#MakeBlockDialog QLabel { background: transparent; color: $ink; }
+#MakeBlockDialog QLineEdit {
+    background: $table; color: $ink;
+    border: 1px solid $line_strong; border-radius: 6px; padding: 6px 9px;
+    selection-background-color: $accent_soft2;
+}
+#MakeBlockDialog QLineEdit:focus { border-color: $accent; }
+#MakeBlockDialog QPushButton {
+    background: $table; color: $ink;
+    border: 1px solid $line_strong; border-radius: 6px; padding: 6px 14px; font-weight: 500;
+}
+#MakeBlockDialog QPushButton:hover:enabled { background: $accent_soft; border-color: $accent; }
 """
 
 

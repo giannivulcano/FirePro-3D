@@ -155,6 +155,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
     alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
+    blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
 
     def __init__(self):
         super().__init__()
@@ -204,6 +205,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._draw_lines: list[LineItem] = []
         self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
         self._block_instances: list = []     # placed BlockInstance items
+        # place_block placement mode state (Block S2 T3): 2-step position→rotate
+        # machine mirroring wall_rect.  A low-opacity BlockInstance is the ghost.
+        self._place_block_id = None          # active block definition id
+        self._place_block_anchor = None      # QPointF pivot (position step result)
+        self._place_block_ghost = None       # BlockInstance preview
+        self._place_block_step = 0           # 0=awaiting position, 1=awaiting rotation
+        self._place_block_ref_line0 = None   # rotate-step 0° datum guide
+        self._place_block_ref_lineA = None   # rotate-step live sweep guide
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
@@ -1242,6 +1251,23 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if mode != "opening":
             self._clear_opening_ghost()
 
+        # ── Block placement (Block S2 T3) ────────────────────────────────────
+        # Entering "place_block" adopts the template block-id and resets the
+        # 2-step machine; the low-opacity ghost is torn down on BOTH leave and
+        # same-mode re-entry (activating a different block mid-placement) so a
+        # stale ghost never strands on the canvas or previews the wrong block.
+        if mode == "place_block":
+            self._place_block_id = template if isinstance(template, str) else None
+        else:
+            self._place_block_id = None
+        self._place_block_anchor = None
+        self._place_block_step = 0
+        if self._place_block_ghost is not None:
+            if self._place_block_ghost.scene() is self:
+                self.removeItem(self._place_block_ghost)
+            self._place_block_ghost = None
+        self._clear_place_block_ref_lines()
+
         # Clean up place_import transient state (owned by the controller).
         if mode != "place_import":
             self._underlay_ctl.clear()
@@ -1455,6 +1481,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def register_block_definition(self, definition) -> None:
         """Add/replace a BlockDefinition in the project-scoped registry."""
         self._block_definitions[definition.id] = definition
+        self.blockDefinitionsChanged.emit()
 
     def get_block_definition(self, block_id: str):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
@@ -1466,7 +1493,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         from .block_instance import BlockInstance
         inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
                              level=level or self.active_level)
-        inst.setPos(pos[0], pos[1])
+        inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         self.addItem(inst)
         self._block_instances.append(inst)
@@ -1484,6 +1511,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         d = self.get_block_definition(inst.block_id)
         if d is not None and inst in d._instances:
             d._instances.remove(inst)
+
+    def make_block_from_selection(self, items, origin, name, library, series):
+        """Consume construction primitives into a new block definition + one instance.
+
+        Captures each primitive's to_dict, removes it from the scene + tracking list,
+        registers a BlockDefinition (origin-relative), places one instance at origin,
+        and pushes a single undo state. Returns the BlockInstance, or None if no
+        capturable primitive was supplied.
+        """
+        from .block_definition import BlockDefinition
+        prims = []
+        for it in items:
+            if hasattr(it, "to_dict") and self._remove_item_from_lists(it):
+                prims.append(it.to_dict())
+        if not prims:
+            return None
+        defn = BlockDefinition.new(name=name, library=library, series=series,
+                                   primitives=prims, origin=(origin.x(), origin.y()))
+        self.register_block_definition(defn)
+        inst = self.place_block_instance(defn.id, (origin.x(), origin.y()), rotation=0.0)
+        self.push_undo_state()
+        return inst
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
@@ -1925,6 +1974,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     level=bdict.get("level", "Level 1"),
                 )
                 inst.attributes = dict(bdict.get("attributes", {}))
+            self.blockDefinitionsChanged.emit()
 
             # Recompute auto-name counters (parity with load_from_file) so the
             # next auto-name doesn't skip a number after an undo.
@@ -2449,6 +2499,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # only satisfies the _hud_available gate; _apply_pipe_dynamic_input is a
         # backstop the pipe branch makes unreachable.
         "pipe": "_apply_pipe_dynamic_input",
+        # place_block is step-aware: the applier commits only at the rotate step
+        # (step 1); step 0 has no typed input.
+        "place_block": "_apply_place_block_dynamic_input",
     }
 
     def _at_placement_step_zero(self) -> bool:
@@ -3237,6 +3290,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "align":                    "_move_align",
         "gridline_array":           "_move_gridline_replicate",
         "gridline_offset":          "_move_gridline_replicate",
+        "place_block":              "_move_place_block",
     }
 
     # Mode -> name of the method that redraws the placement preview from an
@@ -4240,6 +4294,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "detail":                   "_press_detail",
         "gridline_array":           "_press_gridline_replicate",
         "gridline_offset":          "_press_gridline_replicate",
+        "place_block":              "_press_place_block",
     }
 
     # ------------------------------------------------------------------
@@ -6270,6 +6325,130 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.instructionChanged.emit("Pick rotation / type angle")
         return True
 
+    # ── Block placement (Block S2 T3) ────────────────────────────────────────
+    # A 2-step position→rotate machine mirroring wall_rect.  Step 0 locks the
+    # insertion point (and arms a low-opacity BlockInstance ghost); step 1 spins
+    # the ghost to the pivot→cursor heading and commits the real instance,
+    # re-arming for the next placement (mode stays live until Esc).
+
+    def _place_block_make_ghost(self) -> None:
+        """Create the low-opacity BlockInstance preview for the active block."""
+        from .block_instance import BlockInstance
+        if self._place_block_id is None:
+            return
+        g = BlockInstance(block_id=self._place_block_id,
+                          resolver=self.get_block_definition, level=self.active_level)
+        g.setOpacity(0.5)
+        g.setFlag(g.GraphicsItemFlag.ItemIsSelectable, False)
+        self.addItem(g)
+        self._place_block_ghost = g
+
+    def _place_block_set_position(self, snapped) -> None:
+        """Step 0 -> 1: lock the insertion point, arm the rotation step.
+
+        Args:
+            snapped: The fully snapped insertion point (QPointF).
+        """
+        if self._place_block_id is None:
+            return
+        self._place_block_anchor = QPointF(snapped)
+        if self._place_block_ghost is None:
+            self._place_block_make_ghost()
+        if self._place_block_ghost is not None:
+            self._place_block_ghost.set_block_pos(snapped.x(), snapped.y())
+            self._place_block_ghost.set_block_rotation(0.0)
+        self._place_block_step = 1
+        # Protractor guides (0° datum + live sweep), mirroring wall_rect rotate.
+        self._place_block_ref_line0 = self._make_ref_line()
+        self._place_block_ref_lineA = self._make_ref_line()
+        self._update_place_block_ref_lines(snapped)
+        self.instructionChanged.emit("Pick rotation / type angle (Enter = 0deg)")
+
+    def _place_block_commit(self, angle_deg: float) -> None:
+        """Step 1: place the real instance and re-arm for the next placement.
+
+        Args:
+            angle_deg: Y-up CCW degrees from +x (BlockInstance negates for Qt).
+        """
+        anc = self._place_block_anchor
+        if self._place_block_id is None or anc is None:
+            return
+        self.place_block_instance(self._place_block_id, (anc.x(), anc.y()),
+                                  rotation=angle_deg, level=self.active_level)
+        self.push_undo_state()
+        if self._place_block_ghost is not None:
+            if self._place_block_ghost.scene() is self:
+                self.removeItem(self._place_block_ghost)
+            self._place_block_ghost = None
+        self._clear_place_block_ref_lines()
+        self._place_block_anchor = None
+        self._place_block_step = 0
+
+    def _place_block_angle_to(self, cursor) -> float:
+        """Return Y-up degrees from +x (anchor → cursor).  Falls back to 0°."""
+        import math
+        anc = self._place_block_anchor
+        if anc is None:
+            return 0.0
+        return math.degrees(math.atan2(-(cursor.y() - anc.y()),
+                                       cursor.x() - anc.x()))
+
+    def _update_place_block_ref_lines(self, cursor) -> None:
+        """Point the two rotate-step guides from the locked anchor.
+
+        A 0° datum (horizontal from the anchor) plus a live sweep line to the
+        cursor, so the angle between them reads like a protractor — mirrors
+        ``_update_wall_rect_ref_lines``. No-op until both guides exist.
+        """
+        piv = self._place_block_anchor
+        if (piv is None or self._place_block_ref_line0 is None
+                or self._place_block_ref_lineA is None):
+            return
+        length = math.hypot(cursor.x() - piv.x(), cursor.y() - piv.y())
+        if length < 1.0:
+            length = 1.0
+        self._place_block_ref_line0.setLine(piv.x(), piv.y(),
+                                            piv.x() + length, piv.y())
+        self._place_block_ref_lineA.setLine(piv.x(), piv.y(),
+                                            cursor.x(), cursor.y())
+
+    def _clear_place_block_ref_lines(self) -> None:
+        """Remove place_block rotate-step reference guides from the scene."""
+        for attr in ("_place_block_ref_line0", "_place_block_ref_lineA"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
+
+    def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """place_block press: step 0 locks position, step 1 commits rotation."""
+        if self._place_block_step == 0:
+            self._place_block_set_position(snapped)
+        else:
+            self._place_block_commit(self._place_block_angle_to(snapped))
+
+    def _move_place_block(self, event, snapped):
+        """place_block mouse-move: track the cursor (step 0) or spin (step 1)."""
+        if self._place_block_step == 0:
+            if self._place_block_ghost is None:
+                self._place_block_make_ghost()
+            if self._place_block_ghost is not None:
+                self._place_block_ghost.set_block_pos(snapped.x(), snapped.y())
+        elif self._place_block_ghost is not None:
+            self._place_block_ghost.set_block_rotation(self._place_block_angle_to(snapped))
+            # Seed the HUD with the locked anchor + cursor so the Angle field
+            # surfaces and pre-fills the live rotation (rotate step only).
+            self.publish_placement_state(self._place_block_anchor, snapped)
+            self._update_place_block_ref_lines(snapped)
+
+    def _apply_place_block_dynamic_input(self, geometry) -> bool:
+        """HUD applier: commit the rotate step at the typed angle (Y-up degrees)."""
+        if self._place_block_step == 1:
+            self._place_block_commit(float(geometry.get("angle_deg", 0.0)))
+            return True
+        return False
+
     def _commit_wall_rect_rotated(self, angle_deg) -> bool:
         """Commit the sized wall rectangle rotated to ``angle_deg`` about its pivot.
 
@@ -7592,6 +7771,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # place_block: Enter at the rotate step commits upright (0deg)
+            if self.mode == "place_block" and self._place_block_step == 1:
+                self._place_block_commit(0.0)
+                return
             # Commit gridline replicate on Enter
             if self.mode in ("gridline_array", "gridline_offset"):
                 self._commit_gridline_replicate()
@@ -7882,6 +8065,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_polygons.append(item)
+
+            elif obj_type == "block_instance":
+                _p = obj.get("pos", [0.0, 0.0])
+                if obj.get("block_id") in self._block_definitions:
+                    inst = self.place_block_instance(
+                        obj["block_id"],
+                        (_p[0] + offset.x(), _p[1] + offset.y()),
+                        rotation=obj.get("rotation", 0.0),
+                        level=obj.get("level", self.active_level),
+                    )
+                    inst.attributes = dict(obj.get("attributes", {}))
+                    inst.setSelected(True)
+                # else: definition absent (cross-project paste) — skip silently
 
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
