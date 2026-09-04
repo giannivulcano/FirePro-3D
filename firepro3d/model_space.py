@@ -458,6 +458,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Back-compat read view of the underlay list (owned by the controller)."""
         return self._underlay_ctl.items
 
+    @property
+    def dynamic_input(self):
+        """Back-compat view of the Dynamic-Input HUD (owned by the placement-input
+        coordinator, slice 7). Read/written by model_view + the HUD test suite."""
+        return self._plc.dynamic_input
+
+    @dynamic_input.setter
+    def dynamic_input(self, v):
+        self._plc.dynamic_input = v
+
     # --- place_import transient state: forwarded so in-file references resolve (C1 bridge) ---
     @property
     def _place_import_params(self):
