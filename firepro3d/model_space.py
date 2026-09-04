@@ -972,13 +972,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # that answers "is a field focused", and the HUD spends most of a
         # placement unfocused.  Gating here would strand exactly the common case
         # — a passive readout for a mode the user has just left.
-        # ``end_dynamic_input`` is a no-op when nothing is open.
-        self.end_dynamic_input()
-        # The resolved point and the readout derived from it belong to the
-        # placement being torn down, not to the mode being entered; leaving
-        # them set outlives every anchor cleared below and strands the live
-        # readout on screen.
-        self.clear_placement_state()
+        # Placement-input teardown (HUD close + drop the resolved point/readout
+        # that belong to the placement being left) is the coordinator's idempotent
+        # clear() hook (slice 7 §3.4). No-op when nothing is open. ALIGN teardown
+        # stays inline below (ALIGN is core snap-plumbing, not the coordinator).
+        self._plc.clear()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -2326,6 +2324,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
         self.alignToggled.emit(self._align_enabled)
+
+    def get_align_enabled(self) -> bool:
+        """Whether ALIGN soft-snap is on. Public accessor for the flag (§5.1);
+        the flag stays scene-side (ALIGN tracking is core snap-plumbing)."""
+        return self._align_enabled
 
     def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """

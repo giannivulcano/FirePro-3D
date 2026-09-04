@@ -96,11 +96,8 @@ def _press_at(view: Model_View, scene_pt: QPointF) -> None:
 
 
 def test_backcompat_shells_present(shown_model_view):
-    """All public methods that will be delegated must be callable on the scene.
-
-    ``get_align_enabled`` is NOT listed — it does not exist yet (added in a
-    later task).  ``set_align_enabled`` IS listed — it exists today.
-    """
+    """All public methods delegated to the coordinator must be callable on the
+    scene. ``get_align_enabled`` is the §5.1 accessor added in C3."""
     _view, scene = shown_model_view
 
     expected_callables = [
@@ -115,6 +112,7 @@ def test_backcompat_shells_present(shown_model_view):
         "begin_dynamic_input",
         "end_dynamic_input",
         "set_align_enabled",
+        "get_align_enabled",
     ]
     missing = [name for name in expected_callables
                if not callable(getattr(scene, name, None))]
@@ -260,9 +258,11 @@ def test_align_enabled_toggle(shown_model_view):
 
     scene.set_align_enabled(False)
     assert scene._align_enabled is False
+    assert scene.get_align_enabled() is False        # §5.1 accessor tracks the flag
 
     scene.set_align_enabled(True)
     assert scene._align_enabled is True
+    assert scene.get_align_enabled() is True
 
     # Toggle (None) must flip.
     scene.set_align_enabled(False)
@@ -278,7 +278,6 @@ def test_align_enabled_toggle(shown_model_view):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skip(reason="RED-demo: un-skipped in C3 to prove clear() teardown")
 def test_clear_teardown_red_demo(shown_model_view):
     """Mode switch to 'select' must clear placement state and tear down the HUD.
 

@@ -795,6 +795,14 @@ class PlacementInputCoordinator:
         self._scene._draw_dim_hint = None
         self._pipe_hud_reference = None
 
+    def clear(self) -> None:
+        """Idempotent placement-input teardown, called from ``set_mode`` on every
+        mode change (the §3.4 decomposition hook). Tears the HUD down and drops
+        the published readout so neither outlives the placement being left. ALIGN
+        teardown stays inline in ``set_mode`` (ALIGN is core snap-plumbing)."""
+        self.end_dynamic_input()
+        self.clear_placement_state()
+
     def publish_placement_state(self, anchor, point) -> None:
         """Record the resolved placement point and derive the HUD readout.
 
