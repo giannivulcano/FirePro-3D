@@ -121,6 +121,11 @@ class SceneIOMixin:
         roofs_data = [r.to_dict() for r in self._roofs]
         rooms_data = [r.to_dict() for r in self._rooms]
 
+        # --- Blocks (definitions embedded; instances reference by id) ---
+        block_definitions_data = {bid: d.to_dict()
+                                  for bid, d in self._block_definitions.items()}
+        blocks_data = [inst.to_dict() for inst in self._block_instances]
+
         # --- Display settings (per-project) ---
         display_settings_data = get_display_settings_for_save()
         from .paper_display import get_paper_display_for_save
@@ -154,6 +159,8 @@ class SceneIOMixin:
             "floor_slabs":         floor_slabs_data,
             "roofs":               roofs_data,
             "rooms":               rooms_data,
+            "block_definitions":   block_definitions_data,
+            "blocks":              blocks_data,
             "constraints":         constraints_data,
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
@@ -196,6 +203,7 @@ class SceneIOMixin:
         )
         from .gridline import GridlineItem
         from .wall import WallSegment
+        from .block_definition import BlockDefinition
         from .floor_slab import FloorSlab
         from .roof import RoofItem
         from .room import Room
@@ -454,6 +462,18 @@ class SceneIOMixin:
             room._scale_manager_ref = self.scale_manager
             self.addItem(room)
             self._rooms.append(room)
+
+        # --- Blocks: definitions first (registry), then instances ---
+        for bid, ddict in payload.get("block_definitions", {}).items():
+            self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+        for bdict in payload.get("blocks", []):
+            _pos = bdict.get("pos", [0.0, 0.0])
+            inst = self.place_block_instance(
+                bdict["block_id"], (_pos[0], _pos[1]),
+                rotation=bdict.get("rotation", 0.0),
+                level=bdict.get("level", "Level 1"),
+            )
+            inst.attributes = dict(bdict.get("attributes", {}))
 
         # --- Design-area tiles (now that walls & rooms exist) ---
         for da in self.design_areas:

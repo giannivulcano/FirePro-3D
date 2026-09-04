@@ -31,3 +31,34 @@ def test_definition_edit_propagates_to_instances(model_space):
                        "color": "#ffffff", "lineweight": 1.0}])
     assert a.boundingRect().width() > w_before
     assert abs(a.boundingRect().width() - b.boundingRect().width()) < 1e-6
+
+
+def test_project_round_trip_blocks(model_space, tmp_path):
+    d = _def("RoundTrip")
+    model_space.register_block_definition(d)
+    model_space.place_block_instance(d.id, (12.0, 34.0), rotation=45.0, level="Level 3")
+    fpath = str(tmp_path / "proj.fpd")
+    assert model_space.save_to_file(fpath)
+
+    from firepro3d.model_space import Model_Space
+    ms2 = Model_Space()
+    ms2.load_from_file(fpath)
+    assert d.id in ms2._block_definitions
+    assert len(ms2._block_instances) == 1
+    inst = ms2._block_instances[0]
+    assert (inst.pos().x(), inst.pos().y()) == (12.0, 34.0)
+    assert inst.block_rotation() == 45.0
+    assert inst.level == "Level 3"
+    assert inst.definition().id == d.id
+
+
+def test_portability_library_absent(model_space, tmp_path):
+    d = _def("Portable")
+    model_space.register_block_definition(d)
+    model_space.place_block_instance(d.id, (0.0, 0.0))
+    fpath = str(tmp_path / "p.fpd")
+    model_space.save_to_file(fpath)
+    from firepro3d.model_space import Model_Space
+    ms2 = Model_Space()
+    ms2.load_from_file(fpath)
+    assert ms2._block_instances[0].definition() is not None
