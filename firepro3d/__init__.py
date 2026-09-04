@@ -16,7 +16,7 @@ from __future__ import annotations
 # Single source of truth for the application version (semantic versioning:
 # MAJOR.MINOR.PATCH). Everything that displays a version — the splash screen,
 # the main-window title — reads this. Bump here on release.
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 # Lazy-import registry: name -> (module, attribute)
 # Avoids circular imports while allowing ``from firepro3d import Node``.
