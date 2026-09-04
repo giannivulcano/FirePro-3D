@@ -6401,6 +6401,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._place_block_ghost.setPos(snapped.x(), snapped.y())
         elif self._place_block_ghost is not None:
             self._place_block_ghost.set_block_rotation(self._place_block_angle_to(snapped))
+            # Seed the HUD with the locked anchor + cursor so the Angle field
+            # surfaces and pre-fills the live rotation (rotate step only).
+            self.publish_placement_state(self._place_block_anchor, snapped)
 
     def _apply_place_block_dynamic_input(self, geometry) -> bool:
         """HUD applier: commit the rotate step at the typed angle (Y-up degrees)."""

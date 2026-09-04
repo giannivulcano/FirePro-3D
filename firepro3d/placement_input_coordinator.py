@@ -693,8 +693,20 @@ class PlacementInputCoordinator:
             return self._wall_schema_for_primitive()
         if self._scene.mode == "floor":
             return self._floor_schema_for_primitive()
+        if self._scene.mode == "place_block":
+            return self._place_block_schema_for_step()
         key = self._scene._SCHEMA_FOR_MODE.get(self._scene.mode)
         return SCHEMAS.get(key) if key else None
+
+    def _place_block_schema_for_step(self):
+        """Return the place_block schema for the current step.
+
+        Step 0 (position) has no anchor before the first click, so no HUD. Step 1
+        (rotate) types the absolute orientation via the ``rotation`` schema.
+        """
+        if self._scene._place_block_step == 1:
+            return SCHEMAS.get("rotation")
+        return None
 
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.

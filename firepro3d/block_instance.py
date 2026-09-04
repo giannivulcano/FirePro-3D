@@ -30,7 +30,11 @@ class BlockInstance(QGraphicsObject):
         self.level = level
         self.attributes: dict = {}
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        # ItemIsMovable stays OFF: native Qt drag is dead in plan view and fights
+        # the SelectionManipulator's live held-transform preview (the block would
+        # lag the frame and jump on release). Movement is driven by the
+        # manipulator via translate() — see selection_manipulator.bake_translate.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
 
     # ── Definition access ────────────────────────────────────────────────
     def definition(self) -> Optional[BlockDefinition]:

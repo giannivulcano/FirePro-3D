@@ -42,6 +42,7 @@ from .geometry_intersect import _angle_in_arc
 from .gridline import GridlineItem
 from .pipe import Pipe
 from .wall import WallSegment
+from .block_instance import BlockInstance
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -1105,6 +1106,18 @@ class SnapEngine:
         # ── Generic QGraphicsLineItem (Pipe, origin axes) ─────────────────
         elif isinstance(item, QGraphicsLineItem):
             pts.extend(self._line_snaps(item))
+
+        # ── BlockInstance (insertion origin + transformed geometry vertices) ─
+        elif isinstance(item, BlockInstance):
+            if self.snap_center:
+                # definition origin is local (0,0) — the instance's insertion point
+                pts.append(("center", item.mapToScene(QPointF(0.0, 0.0)), None))
+            if self.snap_endpoint:
+                for _pen, path in item.render_ops():
+                    for i in range(path.elementCount()):
+                        el = path.elementAt(i)
+                        pts.append(("endpoint",
+                                    item.mapToScene(QPointF(el.x, el.y)), None))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):
