@@ -62,3 +62,16 @@ def test_portability_library_absent(model_space, tmp_path):
     ms2 = Model_Space()
     ms2.load_from_file(fpath)
     assert ms2._block_instances[0].definition() is not None
+
+
+def test_place_then_undo_removes_instance(model_space):
+    d = _def("Undoable")
+    model_space.register_block_definition(d)
+    model_space.push_undo_state()            # baseline: def present, no instances
+    model_space.place_block_instance(d.id, (0.0, 0.0))
+    model_space.push_undo_state()            # after placing the instance
+    assert len(model_space._block_instances) == 1
+    model_space.undo()
+    assert len(model_space._block_instances) == 0
+    model_space.redo()
+    assert len(model_space._block_instances) == 1

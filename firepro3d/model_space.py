@@ -1678,6 +1678,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],  # two-boundary schema via to_dict (parity w/ scene_io)
             "roofs":              [r.to_dict()  for r in self._roofs],
             "rooms":              [r.to_dict()  for r in self._rooms],
+            "block_definitions":  {bid: d.to_dict()
+                                   for bid, d in self._block_definitions.items()},
+            "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self._capture_constraints(),
         }
 
@@ -1833,6 +1836,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(rm)
             self._rooms.clear()
 
+            for inst in list(self._block_instances):
+                if inst.scene() is self:
+                    self.removeItem(inst)
+            self._block_instances.clear()
+            self._block_definitions.clear()
+
             # Clear padlocks
             for p in self._align_padlocks:
                 if p.scene() is self:
@@ -1904,6 +1913,18 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 room._scale_manager_ref = self.scale_manager
                 self.addItem(room)
                 self._rooms.append(room)
+
+            from .block_definition import BlockDefinition
+            for bid, ddict in state.get("block_definitions", {}).items():
+                self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+            for bdict in state.get("blocks", []):
+                _pos = bdict.get("pos", [0.0, 0.0])
+                inst = self.place_block_instance(
+                    bdict["block_id"], (_pos[0], _pos[1]),
+                    rotation=bdict.get("rotation", 0.0),
+                    level=bdict.get("level", "Level 1"),
+                )
+                inst.attributes = dict(bdict.get("attributes", {}))
 
             # Recompute auto-name counters (parity with load_from_file) so the
             # next auto-name doesn't skip a number after an undo.
