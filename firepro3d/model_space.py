@@ -155,6 +155,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
     alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
+    blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
 
     def __init__(self):
         super().__init__()
@@ -1455,6 +1456,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def register_block_definition(self, definition) -> None:
         """Add/replace a BlockDefinition in the project-scoped registry."""
         self._block_definitions[definition.id] = definition
+        self.blockDefinitionsChanged.emit()
 
     def get_block_definition(self, block_id: str):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
@@ -1925,6 +1927,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     level=bdict.get("level", "Level 1"),
                 )
                 inst.attributes = dict(bdict.get("attributes", {}))
+            self.blockDefinitionsChanged.emit()
 
             # Recompute auto-name counters (parity with load_from_file) so the
             # next auto-name doesn't skip a number after an undo.

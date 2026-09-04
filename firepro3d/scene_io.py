@@ -474,6 +474,7 @@ class SceneIOMixin:
                 level=bdict.get("level", "Level 1"),
             )
             inst.attributes = dict(bdict.get("attributes", {}))
+        self.blockDefinitionsChanged.emit()
 
         # --- Design-area tiles (now that walls & rooms exist) ---
         for da in self.design_areas:

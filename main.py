@@ -38,6 +38,7 @@ from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
+from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
@@ -477,12 +478,15 @@ class MainWindow(QMainWindow):
 
         self.feature_browser = FeatureBrowser()
         self.feature_browser.featureActivated.connect(self._on_feature_activated)
+        self.blocks_browser = BlocksBrowser(self.scene)
+        self.blocks_browser.blockActivated.connect(self._on_block_activated)
 
         self._left_tabs = QTabWidget()
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
         self._left_tabs.addTab(self.feature_browser, "Features")
+        self._left_tabs.addTab(self.blocks_browser, "Blocks")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -2634,6 +2638,10 @@ class MainWindow(QMainWindow):
         if tmpl.feature_id != feature_id:
             tmpl.apply_feature(feature_id)
         self.scene.set_mode("opening", template=tmpl)
+
+    def _on_block_activated(self, block_id: str) -> None:
+        """Enter place_block mode carrying the activated block id."""
+        self.scene.set_mode("place_block", template=block_id)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
