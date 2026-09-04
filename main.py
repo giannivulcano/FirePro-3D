@@ -1537,10 +1537,6 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
-        g_blocks.add_small_button(
-            "Insert\nBlock", _I("placeholder_icon.svg"), self._insert_block)
-        g_blocks.add_small_button(
-            "Create\nBlock", _I("placeholder_icon.svg"), self._create_block)
 
     def _init_architecture_tab(self, _I, _btn, _mode_btn):
         """Build Tab 4: Architecture — building elements + datums."""
@@ -2499,91 +2495,6 @@ class MainWindow(QMainWindow):
     # ── Stub actions (filled in by later sprints) ─────────────────────────────
 
     # ── Draw tool helpers ─────────────────────────────────────────────────────
-
-    # ── Block helpers ──────────────────────────────────────────────────────────
-
-    def _insert_block(self):
-        """Open a file dialog to select a saved block JSON, then place it."""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from firepro3d.block_item import BlockItem
-        from firepro3d.construction_geometry import (
-            LineItem, RectangleItem, CircleItem, PolylineItem, ArcItem,
-        )
-        import json
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Insert Block", "", "Block Files (*.json)")
-        if not path:
-            return
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-        except Exception as e:
-            QMessageBox.warning(self, "Insert Block", f"Failed to load block:\n{e}")
-            return
-
-        def _factory(d):
-            t = d.get("type", "")
-            if t == "draw_line":
-                return LineItem.from_dict(d)
-            elif t == "draw_rectangle":
-                return RectangleItem.from_dict(d)
-            elif t == "draw_circle":
-                return CircleItem.from_dict(d)
-            elif t == "polyline":
-                return PolylineItem.from_dict(d)
-            elif t == "arc":
-                return ArcItem.from_dict(d)
-            elif t == "block_item":
-                return BlockItem.from_dict(d, _factory)
-            return None
-
-        blk = BlockItem.from_dict(data, _factory)
-        self.scene.addItem(blk)
-        blk.setSelected(True)
-        self.scene.sceneModified.emit()
-
-    def _create_block(self):
-        """Group selected items into a BlockItem and optionally save to file."""
-        from PyQt6.QtWidgets import QInputDialog, QFileDialog, QMessageBox
-        from firepro3d.block_item import BlockItem
-        import json
-
-        selected = list(self.scene.selectedItems())
-        if not selected:
-            QMessageBox.information(self, "Create Block",
-                                    "Select items first, then click Create Block.")
-            return
-
-        name, ok = QInputDialog.getText(self, "Create Block", "Block name:")
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-
-        # Remove items from scene, wrap in BlockItem, re-add
-        for item in selected:
-            self.scene.removeItem(item)
-        blk = BlockItem(selected, block_name=name)
-        self.scene.addItem(blk)
-        blk.setSelected(True)
-
-        # Offer to save to file
-        reply = QMessageBox.question(
-            self, "Save Block",
-            f"Save block '{name}' to file for reuse?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            path, _ = QFileDialog.getSaveFileName(
-                self, "Save Block", f"{name}.json", "Block Files (*.json)")
-            if path:
-                try:
-                    with open(path, "w") as f:
-                        json.dump(blk.to_dict(), f, indent=2)
-                except Exception as e:
-                    QMessageBox.warning(self, "Save Block",
-                                        f"Failed to save block:\n{e}")
-
-        self.scene.sceneModified.emit()
 
     # ── Level helpers ──────────────────────────────────────────────────────────
 

@@ -338,7 +338,7 @@ Walls participate in the unified section-cut protocol:
 
 ### 7.2 The Feature Model
 
-A **Feature** is a saved, parametric, placeable *definition* — the 3D/parametric cousin of a `BlockItem` (which groups static 2D geometry). Taxonomy:
+A **Feature** is a saved, parametric, placeable *definition* — the 3D/parametric cousin of a **Block** (a reusable static-2D definition; see `block-system.md`). Taxonomy:
 
 > **Feature** (definition) → **Category** (Openings, Furniture, Fixtures, …) → **Type** (Door, Window, Blank Opening, …), placed in the scene as **instances**.
 

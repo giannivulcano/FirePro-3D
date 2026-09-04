@@ -13,7 +13,7 @@ TIERS = {
     "Entities": [
         "node", "pipe", "sprinkler", "room", "wall", "fitting", "roof",
         "floor_slab", "wall_opening", "annotations", "construction_geometry",
-        "gridline", "grid_line", "view_marker", "underlay", "block_item",
+        "gridline", "grid_line", "view_marker", "underlay",
         "water_supply", "design_area",
     ],
     "Managers": [

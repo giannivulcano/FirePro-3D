@@ -40,7 +40,6 @@ _LAZY: dict[str, tuple[str, str]] = {
     "DetailMarker":      (".detail_view",       "DetailMarker"),
     "DesignArea":        (".design_area",       "DesignArea"),
     "Underlay":          (".underlay",          "Underlay"),
-    "BlockItem":         (".block_item",        "BlockItem"),
     "Fitting":           (".fitting",           "Fitting"),
     # Construction geometry
     "LineItem":          (".construction_geometry", "LineItem"),

@@ -202,6 +202,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # close-cue ring
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
+        self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
+        self._block_instances: list = []     # placed BlockInstance items
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
@@ -1449,6 +1451,40 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def remove_node(self, n):
         return self._pipe_ctl.remove_node(n)
 
+    # ── Block registry / lifecycle (S1) ──────────────────────────────────
+    def register_block_definition(self, definition) -> None:
+        """Add/replace a BlockDefinition in the project-scoped registry."""
+        self._block_definitions[definition.id] = definition
+
+    def get_block_definition(self, block_id: str):
+        """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
+        return self._block_definitions.get(block_id)
+
+    def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
+                             level: str | None = None):
+        """Create + add a BlockInstance referencing an existing definition."""
+        from .block_instance import BlockInstance
+        inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
+                             level=level or self.active_level)
+        inst.setPos(pos[0], pos[1])
+        inst.set_block_rotation(rotation)
+        self.addItem(inst)
+        self._block_instances.append(inst)
+        d = self.get_block_definition(block_id)
+        if d is not None:
+            d._instances.append(inst)   # backref for edit-propagation
+        return inst
+
+    def remove_block_instance(self, inst) -> None:
+        """Remove a BlockInstance from the scene and registry backref."""
+        if inst.scene() is self:
+            self.removeItem(inst)
+        if inst in self._block_instances:
+            self._block_instances.remove(inst)
+        d = self.get_block_definition(inst.block_id)
+        if d is not None and inst in d._instances:
+            d._instances.remove(inst)
+
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
@@ -1642,6 +1678,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],  # two-boundary schema via to_dict (parity w/ scene_io)
             "roofs":              [r.to_dict()  for r in self._roofs],
             "rooms":              [r.to_dict()  for r in self._rooms],
+            "block_definitions":  {bid: d.to_dict()
+                                   for bid, d in self._block_definitions.items()},
+            "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self._capture_constraints(),
         }
 
@@ -1797,6 +1836,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(rm)
             self._rooms.clear()
 
+            for inst in list(self._block_instances):
+                if inst.scene() is self:
+                    self.removeItem(inst)
+            self._block_instances.clear()
+            self._block_definitions.clear()
+
             # Clear padlocks
             for p in self._align_padlocks:
                 if p.scene() is self:
@@ -1868,6 +1913,18 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 room._scale_manager_ref = self.scale_manager
                 self.addItem(room)
                 self._rooms.append(room)
+
+            from .block_definition import BlockDefinition
+            for bid, ddict in state.get("block_definitions", {}).items():
+                self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+            for bdict in state.get("blocks", []):
+                _pos = bdict.get("pos", [0.0, 0.0])
+                inst = self.place_block_instance(
+                    bdict["block_id"], (_pos[0], _pos[1]),
+                    rotation=bdict.get("rotation", 0.0),
+                    level=bdict.get("level", "Level 1"),
+                )
+                inst.attributes = dict(bdict.get("attributes", {}))
 
             # Recompute auto-name counters (parity with load_from_file) so the
             # next auto-name doesn't skip a number after an undo.
@@ -7825,30 +7882,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_polygons.append(item)
-
-            elif obj_type == "block_item":
-                from .block_item import BlockItem
-                def _item_factory(d):
-                    t = d.get("type", "")
-                    if t == "draw_line":
-                        return LineItem.from_dict(d)
-                    elif t == "draw_rectangle":
-                        return RectangleItem.from_dict(d)
-                    elif t == "draw_circle":
-                        return CircleItem.from_dict(d)
-                    elif t == "polyline":
-                        return PolylineItem.from_dict(d)
-                    elif t == "arc":
-                        return ArcItem.from_dict(d)
-                    elif t == "polygon":
-                        return RegularPolygonItem.from_dict(d)
-                    elif t == "block_item":
-                        return BlockItem.from_dict(d, _item_factory)
-                    return None
-                item = BlockItem.from_dict(obj, _item_factory)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                # BlockItems live in the scene but aren't tracked in a dedicated list
 
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
