@@ -64,6 +64,7 @@ from .underlay_controller import UnderlayController
 from .pipe_network_controller import PipeNetworkController
 from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
+from .geometry_drawing_controller import GeometryDrawingController
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -168,6 +169,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._pipe_ctl = PipeNetworkController(self)   # pipe/node concern (slice 5)
         self._spr_ctl = SprinklerWorkflowController(self)  # sprinkler/DA/hydraulic concern (slice 6)
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
+        self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -1031,37 +1033,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Pipe placement teardown (orphan-delete + Tab-cycle reset) — owned by
         # the pipe controller (slice 5). Idempotent; safe on every mode change.
         self._pipe_ctl.clear()
-        # Cancel in-progress construction geometry
-        if mode != "polyline" and self._polyline_active is not None:
-            # Cancel: always discard the in-progress polyline
-            # (Enter commits via finalize() and sets _polyline_active=None
-            #  before reaching here, so this path is only hit by Escape/mode-change)
-            if self._polyline_active.scene() is self:
-                self.removeItem(self._polyline_active)
-            if self._polyline_active in self._polylines:
-                self._polylines.remove(self._polyline_active)
-            self._polyline_active = None
-        self._hide_polyline_close_indicator()
-        # Cancel in-progress draw geometry
-        if mode not in ("draw_line", "draw_gridline"):
-            self._draw_line_anchor = None
-        if mode != "draw_rectangle":
-            self._draw_rect_anchor = None
-            self._draw_rect_rotating = False
-            self._draw_rect_sized_pt1 = None
-            self._draw_rect_sized_pt2 = None
-            self._draw_rect_pivot = None
-            self._clear_rect_ref_lines()
-            if self._draw_rect_preview is not None:
-                if self._draw_rect_preview.scene() is self:
-                    self.removeItem(self._draw_rect_preview)
-                self._draw_rect_preview = None
-        if mode != "draw_circle":
-            self._draw_circle_center = None
-            if self._draw_circle_preview is not None:
-                if self._draw_circle_preview.scene() is self:
-                    self.removeItem(self._draw_circle_preview)
-                self._draw_circle_preview = None
+        # 2D-geometry drawing teardown (line/rect/circle/polyline) — owned by the
+        # geometry drawing controller (slice 8). Idempotent; the per-primitive
+        # "keep if staying in that mode" guards live inside clear(). Polygon/arc/
+        # text teardown stays inline below (Slice 9 / other concerns).
+        self._geom_ctl.clear(mode)
         if mode != "polygon":
             self._polygon_center = None
             self._polygon_rotating = False
@@ -3256,151 +3232,26 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _move_design_area(self, *a):
         return self._spr_ctl.move_design_area(*a)
 
-    def _preview_from_polyline(self, tip) -> None:
-        """Extend the active polyline's rubber-band to ``tip``.
+    def _preview_from_polyline(self, tip) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_polyline(tip)
 
-        ``tip`` is already constrained/resolved.  A no-op before the first
-        vertex exists.  Polyline draws its preview through the item's own
-        ``update_preview`` rather than ``preview_pipe``, so it does not share
-        ``_preview_from_line``.
-        """
-        if self._polyline_active is None:
-            return
-        self._polyline_active.update_preview(tip)
+    def _hide_polyline_close_indicator(self) -> None:  # shell (slice 8); _show_ moved (internal-only)
+        return self._geom_ctl._hide_polyline_close_indicator()
 
-    # ── Polyline close-indicator ring ────────────────────────────────────────
+    def _move_polyline(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_polyline(event, snapped)
 
-    _POLYLINE_CLOSE_RING_PX = 14  # half-side of the bounding square, screen px
+    def _preview_from_line(self, tip) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_line(tip)
 
-    def _show_polyline_close_indicator(self, pt: QPointF) -> None:
-        """Show (lazily-create) the hollow ring on *pt* signalling close-cue.
+    def _move_draw_line(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_draw_line(event, snapped)
 
-        The ring is a fixed screen-size QGraphicsEllipseItem with
-        ItemIgnoresTransformations — it stays 14 px radius regardless of zoom,
-        exactly like the design-area highlight rings in ``_refresh_da_highlights``.
-        Coloured with ``SELECTION_OUTLINE_COLOR`` so it reads as a selection
-        action, clearly distinct from the yellow/green snap dot.
-        """
-        r = self._POLYLINE_CLOSE_RING_PX
-        if self._polyline_close_indicator is None:
-            ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
-            pen = QPen(QColor(SELECTION_OUTLINE_COLOR), 2)
-            pen.setCosmetic(True)
-            ring.setPen(pen)
-            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            ring.setFlag(
-                QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-            ring.setFlag(
-                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-            ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-            ring.setZValue(201)  # above Z_OVERLAY (200)
-            self.addItem(ring)
-            self._polyline_close_indicator = ring
-        self._polyline_close_indicator.setPos(pt)
-        self._polyline_close_indicator.show()
+    def _preview_from_rectangle(self, corner) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_rectangle(corner)
 
-    def _hide_polyline_close_indicator(self) -> None:
-        """Hide the close-cue ring (keeps the item alive for reuse)."""
-        if self._polyline_close_indicator is not None:
-            self._polyline_close_indicator.hide()
-
-    def _move_polyline(self, event, snapped):
-        if self._polyline_active is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        else:
-            self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._polyline_active is not None:
-            pl = self._polyline_active
-            pts = pl._points
-            if len(pts) >= 3:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
-                    self.update_preview_node(pts[0])
-                    self._show_polyline_close_indicator(pts[0])
-                    self._preview_from_polyline(pts[0])
-                    # Keep the HUD readout live on the closing segment.
-                    self.publish_placement_state(pts[-1], pts[0])
-                    return
-            self._hide_polyline_close_indicator()
-            tip = snapped
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and len(self._polyline_active._points) >= 1):
-                tip = self._constrain_angle(
-                    self._polyline_active._points[-1], snapped
-                )
-            self._preview_from_polyline(tip)
-            # Publishing here — after the Ctrl constraint — is what keeps the
-            # readout and the HUD's seed from disagreeing with the preview.
-            self.publish_placement_state(
-                self._polyline_active._points[-1], tip)
-
-    def _preview_from_line(self, tip) -> None:
-        """Point the rubber-band line at ``tip`` (already constrained/resolved).
-
-        Anchored at ``_draw_line_anchor`` — the ``draw_line``/``draw_gridline``
-        first-click point.  A no-op before the anchor is armed.
-        """
-        anchor = self._draw_line_anchor
-        if anchor is None:
-            return
-        self.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
-        self.preview_pipe.show()
-
-    def _move_draw_line(self, event, snapped):
-        _anchor = self._draw_line_anchor
-        if _anchor is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        if _anchor is not None:
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(_anchor, snapped)
-            self._preview_from_line(tip)
-            # Publishing here — after the Ctrl constraint — is what keeps
-            # the readout and the HUD's seed from disagreeing.
-            self.publish_placement_state(_anchor, tip)
-        else:
-            self.preview_pipe.hide()
-
-    def _preview_from_rectangle(self, corner) -> None:
-        """Redraw the rectangle preview to the resolved far ``corner``.
-
-        Honours the from-centre branch (symmetric half-extents) and, in corner
-        mode, the ``normalized()`` corner logic.  A no-op until both the anchor
-        and the preview item exist.
-        """
-        if self._draw_rect_anchor is None or self._draw_rect_preview is None:
-            return
-        if self._draw_rect_from_center:
-            # Center mode: anchor is center, rect extends symmetrically
-            hw = abs(corner.x() - self._draw_rect_anchor.x())
-            hh = abs(corner.y() - self._draw_rect_anchor.y())
-            rect = QRectF(
-                self._draw_rect_anchor.x() - hw,
-                self._draw_rect_anchor.y() - hh,
-                2 * hw, 2 * hh,
-            )
-        else:
-            rect = QRectF(self._draw_rect_anchor, corner).normalized()
-        self._draw_rect_preview.setRect(rect)
-
-    def _preview_rectangle_rotation(self, angle_deg) -> None:
-        """Spin the sized preview rect to ``angle_deg`` about the stored pivot.
-
-        The rotate-step preview is **angle-driven**, not point-driven: the sized
-        rect is fixed, only its orientation follows the cursor/typed angle.  Uses
-        the same Qt transform ``RectangleItem.set_angle`` will — origin at the
-        pivot, and the Y-up angle negated for Qt's CW-positive ``setRotation`` —
-        so the ghost matches the committed item.  A no-op until the preview rect
-        and the pivot both exist.
-        """
-        if self._draw_rect_preview is None or self._draw_rect_pivot is None:
-            return
-        self._draw_rect_preview.setTransformOriginPoint(self._draw_rect_pivot)
-        self._draw_rect_preview.setRotation(-angle_deg)   # Y-up CCW → Qt CW negate
-        self._update_rect_ref_lines(angle_deg)
+    def _preview_rectangle_rotation(self, angle_deg) -> None:  # shell (slice 8)
+        return self._geom_ctl._preview_rectangle_rotation(angle_deg)
 
     def _make_ref_line(self):
         """Create a dashed cosmetic angle-reference guide line, added to scene."""
@@ -3482,38 +3333,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(line)
                 setattr(self, attr, None)
 
-    def _update_rect_ref_lines(self, angle_deg) -> None:
-        """Point the two rotate-step guides from the pivot (protractor).
-
-        ``_draw_rect_ref_line0`` is the horizontal 0° datum; ``_draw_rect_ref_lineA``
-        is the current sweep at ``angle_deg`` (Y-up).  Both run the sized rect's
-        diagonal length so they frame the rectangle.  A no-op until both guides
-        and the sized rect exist.
-        """
-        piv = self._draw_rect_pivot
-        if (piv is None or self._draw_rect_ref_line0 is None
-                or self._draw_rect_ref_lineA is None
-                or self._draw_rect_sized_pt1 is None
-                or self._draw_rect_sized_pt2 is None):
-            return
-        p1, p2 = self._draw_rect_sized_pt1, self._draw_rect_sized_pt2
-        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
-        rad = math.radians(angle_deg)
-        self._draw_rect_ref_line0.setLine(piv.x(), piv.y(),
-                                          piv.x() + length, piv.y())
-        self._draw_rect_ref_lineA.setLine(
-            piv.x(), piv.y(),
-            piv.x() + length * math.cos(rad),
-            piv.y() - length * math.sin(rad))   # Y-up: subtract sin
-
-    def _clear_rect_ref_lines(self) -> None:
-        """Remove both rotate-step guides from the scene."""
-        for attr in ("_draw_rect_ref_line0", "_draw_rect_ref_lineA"):
-            line = getattr(self, attr, None)
-            if line is not None:
-                if line.scene() is self:
-                    self.removeItem(line)
-                setattr(self, attr, None)
+    def _clear_rect_ref_lines(self) -> None:  # shell (slice 8); _update_rect_ref_lines moved (internal-only)
+        return self._geom_ctl._clear_rect_ref_lines()
 
     def _clear_wall_rect_ref_lines(self) -> None:
         """Remove wall-rect rotate-step reference guides from the scene."""
@@ -3547,56 +3368,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             piv.x() + length * math.cos(rad),
             piv.y() - length * math.sin(rad))   # Y-up: subtract sin
 
-    def _move_draw_rectangle(self, event, snapped):
-        if self._draw_rect_rotating:
-            # Rotate step: the sized rect is fixed; spin the ghost to the pivot→
-            # cursor heading and publish so the HUD reads out the orientation.
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            # Ctrl angle-snaps the rotation to ``_snap_angle_deg`` increments.
-            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._draw_rect_pivot is not None):
-                snapped = self._constrain_angle(self._draw_rect_pivot, snapped)
-            angle = self._rect_rotation_angle_to(snapped)
-            self._preview_rectangle_rotation(angle)
-            self.publish_placement_state(self._draw_rect_pivot, snapped)
-            return
-        if self._draw_rect_anchor is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        else:
-            self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._draw_rect_anchor is not None and self._draw_rect_preview is not None:
-            self._preview_from_rectangle(snapped)
-            # The HUD widget is the readout (S1).  Published unnormalised so the
-            # signed extents reach the schema — normalising here would seed
-            # from-centre-looking magnitudes and lose the dragged quadrant.
-            self.publish_placement_state(self._draw_rect_anchor, snapped)
+    def _move_draw_rectangle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_draw_rectangle(event, snapped)
 
-    def _preview_from_circle(self, rim) -> None:
-        """Redraw the circle preview so ``rim`` lands on its circumference.
+    def _preview_from_circle(self, rim) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_circle(rim)
 
-        The radius is the distance from ``_draw_circle_center`` to ``rim``.  A
-        no-op until both the centre and the preview item exist.
-        """
-        if self._draw_circle_center is None or self._draw_circle_preview is None:
-            return
-        r = math.hypot(rim.x() - self._draw_circle_center.x(),
-                       rim.y() - self._draw_circle_center.y())
-        cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
-        self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
-
-    def _move_draw_circle(self, event, snapped):
-        if self._draw_circle_center is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        else:
-            self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._draw_circle_center is not None and self._draw_circle_preview is not None:
-            self._preview_from_circle(snapped)
-            # The HUD widget is the readout (S1); the rim point carries the
-            # radius, since the commit takes the hypot.
-            self.publish_placement_state(self._draw_circle_center, snapped)
+    def _move_draw_circle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_draw_circle(event, snapped)
 
     def _move_polygon(self, event, snapped):
         if self._polygon_rotating:
@@ -5714,48 +5493,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         elif self.mode == "constraint_dimensional":
             self._tools._handle_constraint_dimensional_click(snapped)
 
-    def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._polyline_active is None:
-            # First click — create the polyline item
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            pl = PolylineItem(snapped, _c, _lw)
-            pl.level = tmpl.level
-            pl._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
-            self.addItem(pl)
-            self._polylines.append(pl)
-            self._polyline_active = pl
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick next point (Enter to finish)")
-        else:
-            pts = self._polyline_active._points
-            # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
-            if len(pts) >= 3:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                if d0 <= tol:
-                    pl = self._polyline_active
-                    pl.close()
-                    pl.finalize()
-                    self._polyline_active = None
-                    self._hide_polyline_close_indicator()
-                    pl.setSelected(True)
-                    self.preview_pipe.hide()
-                    for v in self.views(): v.viewport().update()
-                    self.push_undo_state()
-                    self.instructionChanged.emit("Pick first point")
-                    return
-            # Subsequent clicks — append vertex (apply Ctrl constraint if held)
-            tip = snapped
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and len(self._polyline_active._points) >= 1):
-                tip = self._constrain_angle(
-                    self._polyline_active._points[-1], snapped
-                )
-            self._commit_polyline_at(tip)
-        # don't let super() deselect items mid-draw
+    def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_polyline(event, pos, snapped, item_under, node_under, pipe_under)
 
     def _commit_polyline_at(self, tip):
         """Append one vertex to the active polyline at ``tip``.
@@ -5787,14 +5526,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             Polyline has no magnitude floor of its own, so False here only ever
             means "nothing to append to" (decision D2).
         """
-        pl = self._polyline_active
-        if pl is None:
-            return False
-        pl.append_point(tip)
-        # The published point described the segment just committed; the next
-        # frame republishes from the new anchor.
-        self.clear_placement_state()
-        return True
+        return self._geom_ctl._commit_polyline_at(tip)
 
     def _delete_or_pop_polyline_vertex(self) -> bool:
         """Delete key during polyline placement pops the last vertex.
@@ -5895,18 +5627,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         item.setSelected(True)
         return item
 
-    def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):
-        _is_grid = self.mode == "draw_gridline"
-        if self._draw_line_anchor is None:
-            self._draw_line_anchor = snapped
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
-        else:
-            # Place the item (apply Ctrl constraint if held)
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(self._draw_line_anchor, snapped)
-            self._commit_draw_line_at(tip)
+    def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_draw_line(event, pos, snapped, item_under, node_under, pipe_under)
 
     def _commit_draw_line_at(self, tip):
         """Commit the armed line-like placement, ending at ``tip``.
@@ -5930,142 +5652,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             turns a False into a flagged HUD field rather than the placement
             silently evaporating into a status-bar message the user never sees.
         """
-        anchor = self._draw_line_anchor
-        if anchor is None:
-            return False
-        _is_grid = self.mode == "draw_gridline"
-        # Reject zero-length lines
-        if math.hypot(tip.x() - anchor.x(),
-                      tip.y() - anchor.y()) < 0.5:
-            self._show_status(
-                "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
-                timeout=2000)
-            return False
-        self._make_line_like(anchor, tip)
-        for v in self.views(): v.viewport().update()
-        self._draw_line_anchor = None
-        self.clear_placement_state()
-        self.preview_pipe.hide()
-        self.push_undo_state()
-        self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
-        return True
+        return self._geom_ctl._commit_draw_line_at(tip)
 
-    def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._draw_rect_rotating:
-            # Third click: commit at the orientation from the pivot to the click.
-            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._draw_rect_pivot is not None):
-                snapped = self._constrain_angle(self._draw_rect_pivot, snapped)
-            self._commit_rectangle_rotated(
-                self._rect_rotation_angle_to(snapped))
-        elif self._draw_rect_anchor is None:
-            self._draw_rect_anchor = snapped
-            self.update_preview_node(snapped)
-            _instr = "Pick opposite corner" if not self._draw_rect_from_center else "Pick corner (from center)"
-            self.instructionChanged.emit(_instr)
-            # Create preview rect
-            preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-            _prev_pen.setCosmetic(True)
-            preview.setPen(_prev_pen)
-            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            preview.setZValue(200)
-            self.addItem(preview)
-            self._draw_rect_preview = preview
-        else:
-            # Second click: size the axis-aligned rect and enter the rotate step
-            # (no longer commits — the third click/typed angle does).
-            self._advance_rectangle_to_rotate_step(snapped)
+    def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_draw_rectangle(event, pos, snapped, item_under, node_under, pipe_under)
 
-    def _rect_rotation_angle_to(self, cursor) -> float:
-        """Return the absolute orientation (Y-up degrees from +x) pivot→``cursor``.
+    def _rect_rotation_angle_to(self, cursor) -> float:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._rect_rotation_angle_to(cursor)
 
-        0° when the cursor is due-east of the pivot, i.e. axis-aligned.  Shared
-        by the third mouse click and the rotate preview so both read the same
-        heading.  Falls back to 0° when the pivot is unset (a guard; the rotate
-        step always has one).
-        """
-        piv = self._draw_rect_pivot
-        if piv is None:
-            return 0.0
-        return math.degrees(math.atan2(-(cursor.y() - piv.y()),
-                                       cursor.x() - piv.x()))
+    def _advance_rectangle_to_rotate_step(self, corner) -> bool:  # shell (slice 8)
+        return self._geom_ctl._advance_rectangle_to_rotate_step(corner)
 
-    def _rect_sizing_points(self, corner):
-        """Return the axis-aligned ``(pt1, pt2)`` the sizing step produces.
-
-        Delegates to ``rect_sizing_points`` (shared with wall-rect placement) so
-        the 2D-geo rect and wall rect use identical sizing math.  Returns
-        ``(None, None)`` when unarmed.
-        """
-        from .construction_geometry import rect_sizing_points
-        anc = self._draw_rect_anchor
-        if anc is None:
-            return None, None
-        return rect_sizing_points(anc, corner, self._draw_rect_from_center)
-
-    def _advance_rectangle_to_rotate_step(self, corner) -> bool:
-        """Advance an armed rectangle from the sizing step to the rotate step.
-
-        Stores the sized axis-aligned rect (``_draw_rect_sized_pt1/_pt2``) and
-        its pivot (the first-click anchor — one of the rect's corners — in
-        corner mode, the rect centre, which equals the anchor, in centre mode),
-        sets
-        ``_draw_rect_rotating``, and re-fits the preview rect to the sized
-        extents.  Shared verbatim by the mouse second click and the sizing
-        Dynamic Input applier, so both hand off to the rotate step identically.
-
-        Args:
-            corner: The second point, fully constrained already.
-
-        Returns:
-            True when the rect advanced to the rotate step, False when it was
-            refused (no anchor, or an extent under the too-small floor).
-        """
-        pt1, pt2 = self._rect_sizing_points(corner)
-        if pt1 is None:
-            return False
-        # Reject zero-size rectangles (decision D2 — the floor lives here, the
-        # same threshold the old 2-click commit used).
-        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
-            self._show_status("Rectangle too small — skipped", timeout=2000)
-            return False
-        self._draw_rect_sized_pt1 = pt1
-        self._draw_rect_sized_pt2 = pt2
-        # Pivot: corner mode turns about the first-click anchor (one of the
-        # rect's corners); centre mode turns about the rect centre = the anchor.
-        self._draw_rect_pivot = QPointF(self._draw_rect_anchor)
-        self._draw_rect_rotating = True
-        # Snap the preview to the final sized rect; the rotate preview spins it.
-        if self._draw_rect_preview is not None:
-            self._draw_rect_preview.setRect(QRectF(pt1, pt2).normalized())
-        # Rotation reference guides (0° datum + live sweep), drawn from the pivot.
-        self._clear_rect_ref_lines()
-        self._draw_rect_ref_line0 = self._make_ref_line()
-        self._draw_rect_ref_lineA = self._make_ref_line()
-        self._update_rect_ref_lines(0.0)
-        self.clear_placement_state()
-        self.instructionChanged.emit("Pick rotation / type angle")
-        return True
-
-    def _apply_rectangle_dynamic_input(self, geometry) -> bool:
-        """Route a resolved rectangle value to the right step's applier.
-
-        Rectangle's schema is step-dependent, so its applier is too: at the
-        sizing step the ``rectangle`` schema resolves to a far-corner QPointF
-        (advance to the rotate step), at the rotate step the ``rotation`` schema
-        resolves to a ``{"angle_deg": …}`` dict (commit).
-
-        Returns:
-            The step applier's verdict.
-        """
-        if self._draw_rect_rotating:
-            return self._apply_rectangle_rotation(geometry)         # dict
-        return self._advance_rectangle_to_rotate_step(geometry)      # QPointF
-
-    def _apply_rectangle_rotation(self, geometry) -> bool:
-        """Rotate-step applier: commit the sized rect at the typed angle."""
-        return self._commit_rectangle_rotated(geometry["angle_deg"])
+    def _apply_rectangle_dynamic_input(self, geometry) -> bool:  # shell (slice 8)
+        return self._geom_ctl._apply_rectangle_dynamic_input(geometry)
 
     def _commit_rectangle_rotated(self, angle_deg) -> bool:
         """Commit the sized rectangle rotated to ``angle_deg`` about its pivot.
@@ -6089,58 +5688,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             state is missing or the sized rect is degenerate (a guard — the
             floor already gated at the sizing step).
         """
-        pt1 = self._draw_rect_sized_pt1
-        pt2 = self._draw_rect_sized_pt2
-        if pt1 is None or pt2 is None:
-            return False
-        # Guard: the sizing step already rejected sub-floor extents, but keep it
-        # so a direct call can never build a degenerate item.
-        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
-            return False
-        tmpl = self._get_geometry_template()
-        _c, _lw = self._geom_color_lw()
-        item = RectangleItem(pt1, pt2, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
-        item.set_angle(angle_deg, self._draw_rect_pivot)
-        self.addItem(item)
-        self._draw_rects.append(item)
-        item.setSelected(True)
-        for v in self.views(): v.viewport().update()
-        # Remove preview
-        if self._draw_rect_preview is not None:
-            self.removeItem(self._draw_rect_preview)
-            self._draw_rect_preview = None
-        _from_centre = self._draw_rect_from_center
-        # Reset the full rect state (anchor + rotate step + sized rect + pivot).
-        self._draw_rect_anchor = None
-        self._draw_rect_rotating = False
-        self._draw_rect_sized_pt1 = None
-        self._draw_rect_sized_pt2 = None
-        self._draw_rect_pivot = None
-        self._clear_rect_ref_lines()
-        self.clear_placement_state()
-        self.push_undo_state()
-        self.instructionChanged.emit(
-            "Pick center point" if _from_centre else "Pick first corner")
-        return True
+        return self._geom_ctl._commit_rectangle_rotated(angle_deg)
 
-    def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._draw_circle_center is None:
-            self._draw_circle_center = snapped
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick radius point")
-            # Create preview circle
-            preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-            _prev_pen.setCosmetic(True)
-            preview.setPen(_prev_pen)
-            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            preview.setZValue(200)
-            self.addItem(preview)
-            self._draw_circle_preview = preview
-        else:
-            self._commit_draw_circle_at(snapped)
+    def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_draw_circle(event, pos, snapped, item_under, node_under, pipe_under)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.
@@ -6164,31 +5715,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         line and rectangle commits; this path used to tear the placement down
         and push an undo state even for a circle it never created.
         """
-        centre = self._draw_circle_center
-        if centre is None:
-            return False
-        r = math.hypot(rim.x() - centre.x(), rim.y() - centre.y())
-        if r < 0.5:
-            self._show_status("Circle radius too small — skipped", timeout=2000)
-            return False
-        tmpl = self._get_geometry_template()
-        _c, _lw = self._geom_color_lw()
-        item = CircleItem(centre, r, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
-        self.addItem(item)
-        self._draw_circles.append(item)
-        item.setSelected(True)
-        for v in self.views(): v.viewport().update()
-        # Remove preview
-        if self._draw_circle_preview is not None:
-            self.removeItem(self._draw_circle_preview)
-            self._draw_circle_preview = None
-        self._draw_circle_center = None
-        self.clear_placement_state()
-        self.push_undo_state()
-        self.instructionChanged.emit("Pick center point")
-        return True
+        return self._geom_ctl._commit_draw_circle_at(rim)
 
     # ── Polygon drawing ───────────────────────────────────────────────
 
