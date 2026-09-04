@@ -287,7 +287,7 @@ class SnappingPane(SettingsPane):
             eng = self._scene._snap_engine
             grip_px = int(getattr(self._scene, "_grip_tolerance_px", 200))
             angle_deg = int(self._scene._snap_angle_deg)
-            align_on = bool(self._scene._align_enabled)
+            align_on = bool(self._scene.get_align_enabled())
             # ALIGN tunables come from the live controller when present; a
             # partial scene (test double) falls back to the factory defaults.
             ctrl = getattr(self._scene, "_align_controller", None)
