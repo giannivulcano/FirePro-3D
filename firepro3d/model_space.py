@@ -2248,23 +2248,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return SCHEMAS.get("track")
 
     def _base_schema(self):
-        """The mode's normal (non-track) schema — the primitive readout.
-
-        Split out of :meth:`active_schema` so the track-swap gate can consult
-        the primitive schema without recursing through the swap itself.
-        """
-        if self.mode == "draw_arc":
-            return self._arc_schema_for_step()
-        if self.mode == "draw_rectangle":
-            return self._rectangle_schema_for_step()
-        if self.mode == "polygon":
-            return self._polygon_schema_for_step()
-        if self.mode == "wall":
-            return self._wall_schema_for_primitive()
-        if self.mode == "floor":
-            return self._floor_schema_for_primitive()
-        key = self._SCHEMA_FOR_MODE.get(self.mode)
-        return SCHEMAS.get(key) if key else None
+        """Shell → PlacementInputCoordinator._base_schema."""
+        return self._plc._base_schema()
 
     def _align_snap_dict(self, res):
         """Map an ``OsnapResult`` → the dict the AlignController's dwell eats.
@@ -2360,106 +2345,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                        anchor.y() + dist * math.sin(snapped))
 
     def get_placement_anchor(self) -> "QPointF | None":
-        """Return the active placement's anchor point in scene coordinates.
-
-        One accessor for what were six per-mode anchor variables.
-
-        ``None`` means no placement anchor exists. Placement schemas must not
-        engage without one, and callers must not paper over ``None`` by
-        substituting a fallback point — doing so defeats the gate. Transform
-        schemas have no anchor by nature and are gated separately.
-
-        The returned point is always a fresh copy, so callers are free to
-        mutate it; it never aliases the scene's or an item's internal state.
-
-        Returns:
-            A copy of the anchor point, or None when no anchor exists.
-        """
-        # On-path Navigate: the ``track`` schema measures Distance from the
-        # tracking path's ORIGIN (D4), not the mode's own placement anchor, so
-        # while the track swap is live the anchor is the winning ray's origin.
-        # ``resolve_track(origin, {Distance, __dir__})`` then lands
-        # ``origin + Distance·direction``.
-        if self._align_track_schema() is not None:
-            ox, oy = self._align_track_ray.origin
-            return QPointF(ox, oy)
-        return self._mode_placement_anchor()
+        """Shell → PlacementInputCoordinator.get_placement_anchor."""
+        return self._plc.get_placement_anchor()
 
     def _mode_placement_anchor(self) -> "QPointF | None":
-        """The mode's *own* placement anchor, ignoring any on-path track swap.
-
-        Split out of :meth:`get_placement_anchor` so the commit path can ask
-        "does the current mode already have a first-point anchor armed?" without
-        the ``track`` schema substituting the tracking ray's origin (which is
-        non-None even at the first-point step, and is exactly what would mask a
-        first point as a second point — BUG A).  ``get_placement_anchor``
-        returns the track-ray origin while the swap is live; this returns the
-        real per-mode anchor (``None`` at the first-point step).
-        """
-        if self.mode in ("draw_line", "draw_gridline"):
-            a = self._draw_line_anchor
-            return QPointF(a) if a is not None else None
-        if self.mode == "draw_rectangle":
-            # Sizing step: the first-click anchor.  Rotate step: the pivot the
-            # rotation turns about (the first-click anchor — one of the rect's
-            # corners — in corner mode, the centre in centre mode).  Both
-            # variants store it in ``_draw_rect_pivot``.
-            if self._draw_rect_rotating:
-                p = self._draw_rect_pivot
-                return QPointF(p) if p is not None else None
-            a = self._draw_rect_anchor
-            return QPointF(a) if a is not None else None
-        if self.mode == "draw_circle":
-            a = self._draw_circle_center
-            return QPointF(a) if a is not None else None
-        if self.mode == "polygon":
-            # Both sizing and rotate steps pivot about _polygon_center.
-            a = self._polygon_center
-            return QPointF(a) if a is not None else None
-        if self.mode == "draw_arc":
-            # The anchor is the FIRST click, stored in ``_draw_arc_center`` for
-            # both variants (the centre in center-first, the start point in
-            # start-first).  None at step 0, before that first click.
-            a = self._draw_arc_center
-            return QPointF(a) if (self._draw_arc_step in (1, 2)
-                                  and a is not None) else None
-        if self.mode == "wall":
-            if self._wall_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._wall_rect_rotating:
-                    p = self._wall_rect_pivot
-                    return QPointF(p) if p is not None else None
-                a = self._wall_rect_anchor
-                return QPointF(a) if a is not None else None
-            a = self._wall_anchor
-            return QPointF(a) if a is not None else None
-        if self.mode == "floor":
-            if self._floor_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._floor_rect_rotating:
-                    p = self._floor_rect_pivot
-                    return QPointF(p) if p is not None else None
-                a = self._floor_rect_anchor
-                return QPointF(a) if a is not None else None
-            # Polygon: anchor is the last placed vertex (rubber-band from it).
-            fa = self._floor_active
-            if fa is not None and fa._points:
-                return QPointF(fa._points[-1])
-            return None
-        if self.mode == "polyline":
-            pl = self._polyline_active
-            if pl is not None and pl._points:
-                return QPointF(pl._points[-1])
-            return None
-        if self.mode in ("pipe", "move"):
-            # node_start_pos holds a Node in pipe mode but a raw QPointF in
-            # move mode (set_mode's cleanup relies on the same distinction).
-            nsp = self.node_start_pos
-            if nsp is None:
-                return None
-            # scenePos() is already a fresh point; the raw QPointF is stored.
-            return nsp.scenePos() if isinstance(nsp, Node) else QPointF(nsp)
-        return None
+        """Shell → PlacementInputCoordinator._mode_placement_anchor."""
+        return self._plc._mode_placement_anchor()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Published placement state (dynamic input)
@@ -2582,160 +2473,40 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return True
 
     def active_schema(self):
-        """Return the Schema for the current mode, or None.
-
-        Warning:
-            A non-None schema implies neither a published point nor an
-            applier.  ``_SCHEMA_FOR_MODE`` is a forward declaration — it
-            describes the migration's end state, while the
-            ``publish_placement_state`` call sites and the appliers land one
-            task at a time, so a mapped mode may still return a schema while
-            ``get_resolved_point()`` stays None and no applier exists.  A
-            caller that needs a seeded position must gate on
-            ``get_resolved_point() is not None``, and a caller that intends to
-            commit must gate on ``_APPLIER_FOR_MODE`` — never on this returning
-            a schema, or it will open a HUD that can only dead-end.  Read the
-            tables for the current state rather than trusting a count written
-            here, which goes stale every time a mode is migrated.
-
-        Returns:
-            The registered ``Schema`` for ``self.mode``, or None when the mode
-            has no dynamic-input schema.
-        """
-        # On-path Navigate (D4) overrides the primitive readout while the cursor
-        # is soft-snapped to a single ALIGN path: the ``track`` schema replaces
-        # the mode's Length/Angle (or X/Y, R, …) with one signed Distance field.
-        # Refused for transform modes / rotate steps and for modes that cannot
-        # commit a typed point — see ``_align_track_schema``.
-        track = self._align_track_schema()
-        if track is not None:
-            return track
-        return self._base_schema()
+        """Shell → PlacementInputCoordinator.active_schema."""
+        return self._plc.active_schema()
 
     def _rectangle_schema_for_step(self):
-        """Return the rectangle schema for the current step.
-
-        Rectangle placement is 3-step (Task 12): the two-click **sizing** step
-        types the far corner (the ``rectangle`` X/Y schema), then the
-        **rotate** step types the absolute orientation (the ``rotation``
-        transform).  ``_draw_rect_rotating`` picks which one is live.  Unlike
-        arc there is no anchorless step 0 — the sizing schema has an anchor from
-        the first click, and before that first click the anchor gate keeps the
-        HUD shut anyway.
-        """
-        if self._draw_rect_rotating:
-            return SCHEMAS.get("rotation")
-        return SCHEMAS.get("rectangle")
+        """Shell → PlacementInputCoordinator._rectangle_schema_for_step."""
+        return self._plc._rectangle_schema_for_step()
 
     def _polygon_schema_for_step(self):
-        """Return the polygon schema for the current step.
-
-        Polygon placement is 3-step: the sizing step types the radius (the
-        ``polygon`` schema), then the rotate step types the orientation (the
-        ``rotation`` schema).  ``_polygon_rotating`` picks which one is live.
-        Step 0 has no anchor before the first click, so the anchor gate keeps
-        the HUD shut then — exactly like draw_rectangle.
-        """
-        if self._polygon_rotating:
-            return SCHEMAS.get("rotation")
-        return SCHEMAS.get("polygon")
+        """Shell → PlacementInputCoordinator._polygon_schema_for_step."""
+        return self._plc._polygon_schema_for_step()
 
     def _arc_schema_for_step(self):
-        """Return the arc schema for the current step, or None.
-
-        Arc is the one mode whose schema changes mid-placement: step 1 types the
-        radius + start angle (the ``line`` schema, Length=radius, Angle=start°),
-        step 2 types the sweep (``arc_span``).  Step 0 has no HUD — there is no
-        anchor before the first click, so nothing to read out or seed from.
-        """
-        if self._draw_arc_step == 1:
-            return SCHEMAS.get("line")
-        if self._draw_arc_step == 2:
-            return SCHEMAS.get("arc_span")
-        return None
+        """Shell → PlacementInputCoordinator._arc_schema_for_step."""
+        return self._plc._arc_schema_for_step()
 
     def _wall_schema_for_primitive(self):
-        """HUD schema for the active wall primitive.
-
-        Line/polyline → ``line`` schema.  Rect → step-aware: sizing step uses
-        ``rectangle`` schema; rotate step uses ``rotation`` schema (mirrors
-        ``_rectangle_schema_for_step``).
-        """
-        if self._wall_primitive == "rect":
-            if self._wall_rect_rotating:
-                return SCHEMAS.get("rotation")
-            return SCHEMAS.get("rectangle")
-        return SCHEMAS.get("line")
+        """Shell → PlacementInputCoordinator._wall_schema_for_primitive."""
+        return self._plc._wall_schema_for_primitive()
 
     def _floor_schema_for_primitive(self):
-        """HUD schema for the active floor primitive.
-
-        Rect → step-aware: sizing step uses ``rectangle`` schema, rotate step
-        uses ``rotation`` schema.  Polygon → ``line`` schema (per-segment
-        length/angle readout, same as the wall line/polyline).  Mirrors
-        ``_wall_schema_for_primitive``.
-        """
-        if self._floor_primitive == "rect":
-            if self._floor_rect_rotating:
-                return SCHEMAS.get("rotation")
-            return SCHEMAS.get("rectangle")
-        return SCHEMAS.get("line")
+        """Shell → PlacementInputCoordinator._floor_schema_for_primitive."""
+        return self._plc._floor_schema_for_primitive()
 
     def get_resolved_point(self) -> "QPointF | None":
-        """Return the last point published by ``publish_placement_state``.
-
-        This is the *constrained* position actually shown on screen, which is
-        what the HUD seeds from.  Distinct from ``_last_scene_pos``, which
-        holds the raw cursor and so can disagree with the preview whenever a
-        constraint (Ctrl, 45° snap, ALIGN) is active.
-
-        This — not ``active_schema()`` — is the gate for "is there a live
-        placement to seed from".  Most modes that ``active_schema()`` answers
-        for do not publish yet (see its warning), so None here is the normal
-        state in eight of the ten mapped modes.
-
-        The returned point is always a fresh copy; callers may mutate it.
-
-        Returns:
-            A copy of the resolved point, or None when nothing is published.
-        """
-        p = self._plc._resolved_point
-        return QPointF(p) if p is not None else None
+        """Shell → PlacementInputCoordinator.get_resolved_point."""
+        return self._plc.get_resolved_point()
 
     def clear_placement_state(self) -> None:
-        """Drop the published point and readout (placement finished/cancelled)."""
-        self._plc._resolved_point = None
-        self._draw_dim_hint = None
-        self._plc._pipe_hud_reference = None
+        """Shell → PlacementInputCoordinator.clear_placement_state."""
+        return self._plc.clear_placement_state()
 
     def publish_placement_state(self, anchor, point) -> None:
-        """Record the resolved placement point and derive the HUD readout.
-
-        Call once per frame per mode, at the point where the mode has finished
-        constraining its position (OSNAP → ALIGN → Ctrl → 45° snap).  This
-        is the single source for both the live read-only readout and the
-        values the HUD seeds with, so the two cannot disagree.
-
-        A schema-driven mode's readout is the ``DynamicInputHud`` widget itself
-        (decision S1), which ``_sync_dynamic_input`` reseeds from the point
-        recorded here.  There is no painted string to build — ``_draw_dim_hint``
-        is only cleared, so a stale hint from a mode that hand-builds its own
-        cannot survive into one that does not.  One HUD, not two, enforced at
-        the single site that assigns the string rather than by a second test in
-        ``Model_View.drawForeground``.
-
-        Args:
-            anchor: The placement anchor, or None when the mode has not
-                established one yet.
-            point: The fully constrained point under the cursor.
-        """
-        # No-op in input mode. The HUD seeded from the point published at
-        # engage time, and the user is now editing those numbers; a late
-        # publish would move the seed under them.
-        if self.is_input_mode():
-            return
-        self._plc._resolved_point = QPointF(point) if point is not None else None
-        self._draw_dim_hint = None
+        """Shell → PlacementInputCoordinator.publish_placement_state."""
+        return self._plc.publish_placement_state(anchor, point)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Dynamic input (on-canvas HUD)
@@ -2853,194 +2624,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return coplanar[0] if len(coplanar) == 1 else None
 
     def _arm_pipe_relative(self, schema) -> None:
-        """Hold the reference pipe and set the Angle label for the pipe HUD.
-
-        Called from ``begin_dynamic_input`` BEFORE ``set_values`` so the seed
-        can read ``_pipe_hud_reference``.  No-op unless this is the pipe mode's
-        ``line`` schema.
-        """
-        hud = self._plc.dynamic_input
-        if self.mode != "pipe" or hud is None or schema.name != "line":
-            self._plc._pipe_hud_reference = None
-            return
-        ref = self._pipe_reference_pipe()
-        self._plc._pipe_hud_reference = ref
-        hud.set_field_label("Angle", "Rel A" if ref is not None else "A")
-        hud.editor("Angle").setProperty("relative", ref is not None)
+        """Shell → PlacementInputCoordinator._arm_pipe_relative."""
+        return self._plc._arm_pipe_relative(schema)
 
     def _seed_pipe_line(self, anchor) -> dict:
-        """Seed the pipe HUD's Length + (relative|absolute) Angle.
-
-        Connected: Angle is the relative angle in ``snap_point_45``'s frame,
-        ``(get_vector_angle(start, preview) - 90) - base`` — the same quantity
-        the mouse snaps, so accepting the seed round-trips to the mouse output.
-        Free: seed the absolute Y-up angle via ``seed_line``.
-        """
-        point = self.get_resolved_point()
-        start = anchor
-        end = anchor if point is None else point
-        ref = self._plc._pipe_hud_reference
-        if ref is None:
-            return seed_line(start, end)
-        length = CAD_Math.get_vector_length(start, end)
-        base = CAD_Math.get_vector_angle(ref.node1.scenePos(),
-                                         ref.node2.scenePos())
-        abs_ang = CAD_Math.get_vector_angle(start, end) - 90.0
-        rel = ((abs_ang - base) + 180.0) % 360.0 - 180.0   # → (-180, 180]
-        return {"Length": length, "Angle": rel}
+        """Shell → PlacementInputCoordinator._seed_pipe_line."""
+        return self._plc._seed_pipe_line(anchor)
 
     def _seed_values_for(self, schema, anchor) -> dict:
-        """Return the values *schema*'s HUD should open with.
-
-        WYSIWYG: a placement seeds from the **resolved** point — the
-        constrained position actually drawn on screen — never from the raw
-        cursor, so the numbers in the HUD are the ones the user is looking at.
-        The anchor stands in when nothing has been published yet, which seeds a
-        zero-length placement rather than an empty HUD.
-
-        Args:
-            schema: The active ``Schema``.
-            anchor: The placement anchor, or None for a transform schema.
-
-        Returns:
-            Values keyed by field name, in schema (scene) units.
-        """
-        if schema.name == "track":
-            # The track schema has no cursor-derived inverse (``seed`` is None):
-            # its one Distance field is the signed distance-along-ray the seam
-            # already measured when it recovered the winning ray.  Seeding it
-            # keeps the readout showing how far along the path the cursor sits.
-            return {"Distance": self._align_track_dist}
-        if self.mode == "pipe" and schema.name == "line":
-            # Pipe's Angle is relative (connected) or absolute (free); the frame
-            # must match _commit_pipe_typed's, so seed via the dedicated helper.
-            return self._seed_pipe_line(anchor)
-        if schema.is_placement:
-            # Explicit None test, never truthiness: PyQt gives QPointF a
-            # __bool__ that is False at the origin, so ``point or anchor`` would
-            # silently discard a resolved point of exactly (0, 0) and read out a
-            # zero-length placement.  Snapping to the origin is ordinary in CAD,
-            # and the readout is now rebuilt every frame, so that would be
-            # visible whenever the cursor crossed it.
-            point = self.get_resolved_point()
-            return schema.seed(anchor, anchor if point is None else point)
-        return self._transform_seed_values(schema)
+        """Shell → PlacementInputCoordinator._seed_values_for."""
+        return self._plc._seed_values_for(schema, anchor)
 
     def _transform_seed_values(self, schema) -> dict:
-        """Return seed values for a transform schema, read from scene state.
-
-        Transforms have no anchor and no cursor-derived inverse, so each reads
-        the state its own commit path already uses — the replicate spacing and
-        count for the gridline modes, the live displacement for a move.
-
-        Args:
-            schema: A transform ``Schema`` (``returns_point`` False).
-
-        Returns:
-            Values keyed by field name; empty for an unrecognised schema, which
-            leaves the HUD's editors at their own defaults.
-        """
-        if schema.name == "displacement":
-            anchor = self.get_placement_anchor()
-            point = self.get_resolved_point()
-            if anchor is None or point is None:
-                return {"dX": 0.0, "dY": 0.0}
-            # Y-up, matching resolve_displacement's negation.
-            return {"dX": point.x() - anchor.x(),
-                    "dY": -(point.y() - anchor.y())}
-        if schema.name == "rotation":
-            # Seed the live orientation: the pivot→resolved-point heading, the
-            # same absolute angle the mouse and ``resolve_rotation`` use.  0°
-            # (axis-aligned) before anything is published.  The pivot differs by
-            # mode — the polygon rotate step pivots about its centre, the
-            # rectangle about its stored pivot, the wall-rectangle about its
-            # own stored pivot — so dispatch to the matching angle helper (all
-            # share the same Y-up formula).
-            point = self.get_resolved_point()
-            if point is None:
-                return {"Angle": 0.0}
-            if self.mode == "polygon":
-                return {"Angle": self._polygon_rotation_angle_to(point)}
-            if self.mode == "wall":
-                return {"Angle": self._wall_rect_rotation_angle_to(point)}
-            if self.mode == "floor":
-                return {"Angle": self._floor_rect_rotation_angle_to(point)}
-            return {"Angle": self._rect_rotation_angle_to(point)}
-        if schema.name == "arc_span":
-            # Live span from the resolved point — the same sweep the third click
-            # or a typed Span commits.  Without this the readout sits at 0 the
-            # whole span step (a transform has no cursor-derived inverse).
-            # ArcLength stays in scene units; ``set_values`` converts it to mm.
-            point = self.get_resolved_point()
-            if point is None or self._draw_arc_center is None:
-                return {"Span": 0.0, "ArcLength": 0.0}
-            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
-            end_deg = math.degrees(math.atan2(-(point.y() - cy),
-                                              point.x() - cx))
-            span = end_deg - self._draw_arc_start_deg
-            if span <= 0:
-                span += 360.0
-            return {"Span": span,
-                    "ArcLength": math.radians(span) * self._draw_arc_radius}
-        # ``_replicate_spacing`` is a *signed* perpendicular projection, so it
-        # passes through 0.0 as the cursor crosses the source gridline — 0.0 is
-        # not reliably "never set".  Treating it as unset is still correct
-        # because the commit path rejects ``abs(dist) < 0.5`` anyway, so a
-        # seeded zero could never be placed.  Explicit ``!= 0.0`` (matching the
-        # comparison the modal path already uses) rather than truthiness, since
-        # every other value here is a legitimate signed distance.
-        #
-        # Seeded as a **magnitude**: ``Distance`` and ``Spacing`` carry
-        # ``minimum=0.0``, so the raw signed projection would seed text the
-        # field itself rejects on the very next read.  The side stays with the
-        # cursor and is reapplied by the appliers
-        # (:meth:`_replicate_side_sign`) — offsetting by a typed magnitude onto
-        # the side you are pointing at, rather than by a signed quantity whose
-        # sign is invisible in the geometry.
-        spacing = abs(self._replicate_spacing
-                      if self._replicate_spacing != 0.0 else 1000.0)
-        if schema.name == "distance":
-            return {"Distance": spacing}
-        if schema.name == "spacing_count":
-            return {"Spacing": spacing,
-                    "Count": max(1, int(self._replicate_count))}
-        return {}
+        """Shell → PlacementInputCoordinator._transform_seed_values."""
+        return self._plc._transform_seed_values(schema)
 
     def _arm_arc_coupling(self, hud, schema) -> None:
-        """Arm the HUD's Span-to-ArcLength coupling for the ``arc_span`` schema.
-
-        The coupling recomputes ``ArcLength = radius * radians(Span)`` as the
-        user edits, so it needs the sweep radius in the millimetres the
-        ``ArcLength`` DIMENSION editor stores.  The radius is fixed once step 2
-        is reached, so arming it at seed time (before or at engage) is enough.
-
-        ``_draw_arc_radius`` is in scene units; it is converted through the same
-        DIMENSION scene->mm path the HUD's dimension editors use
-        (``DynamicInputHud.scene_to_mm``, guarded on calibration: an
-        uncalibrated scene treats one unit as one mm, a calibrated one routes
-        through ``ScaleManager.scene_to_mm``), so the coupling and the editor
-        agree.  A no-op for every other schema; ``set_coupling_radius`` is
-        harmlessly ignored by non-arc HUDs, but the guard keeps intent clear.
-        """
-        if schema is None or schema.name != "arc_span":
-            return
-        hud.set_coupling_radius(hud.scene_to_mm(self._draw_arc_radius))
+        """Shell → PlacementInputCoordinator._arm_arc_coupling."""
+        return self._plc._arm_arc_coupling(hud, schema)
 
     def _arm_track_direction(self, hud, schema) -> None:
-        """Inject the winning path's unit direction into a ``track`` HUD.
-
-        ``resolve_track`` reads the direction from the values dict under the
-        reserved ``"__dir__"`` key, injected by ``DynamicInputHud.values`` from
-        whatever ``set_track_direction`` last armed.  The direction is fixed for
-        as long as the cursor stays on one path, so arming it at seed time (each
-        sync and at engage) keeps it current as the swap turns on and off.  A
-        no-op for every other schema; other HUDs ignore the armed direction.
-        """
-        if schema is None or schema.name != "track":
-            return
-        direction = (self._align_track_ray.direction
-                     if self._align_track_ray is not None else None)
-        hud.set_track_direction(direction)
+        """Shell → PlacementInputCoordinator._arm_track_direction."""
+        return self._plc._arm_track_direction(hud, schema)
 
     def end_dynamic_input(self) -> None:
         """Shell → PlacementInputCoordinator.end_dynamic_input."""
@@ -3105,33 +2710,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _get_wall_template(self) -> "WallSegment":
-        """Return (lazily-created) wall template for pre-placement editing."""
-        if self._wall_template is None:
-            self._wall_template = WallSegment(QPointF(0, 0), QPointF(100, 0))
-            self._wall_template.name = "(Template)"
-            self._wall_template._alignment = self._wall_alignment
-            self._wall_template._scale_manager_ref = self.scale_manager
-        # Always sync levels with current active level
-        self._wall_template.level = self.active_level
-        self._wall_template._base_level = self.active_level
-        if self._level_manager is not None:
-            levels = self._level_manager.levels
-            active_idx = next(
-                (i for i, l in enumerate(levels)
-                 if l.name == self.active_level), 0)
-            if active_idx + 1 < len(levels):
-                self._wall_template._top_level = levels[active_idx + 1].name
-        return self._wall_template
+        """Shell → PlacementInputCoordinator._get_wall_template."""
+        return self._plc._get_wall_template()
 
     def _get_floor_template(self) -> "FloorSlab":
-        """Return (lazily-created) floor slab template for pre-placement editing."""
-        if self._floor_template is None:
-            self._floor_template = FloorSlab(color="#8888cc")
-            self._floor_template.name = "(Template)"
-            self._floor_template._scale_manager_ref = self.scale_manager
-        # Always sync level with current active level
-        self._floor_template.level = self.active_level
-        return self._floor_template
+        """Shell → PlacementInputCoordinator._get_floor_template."""
+        return self._plc._get_floor_template()
 
     # QSettings key for the persisted floor placement template (mirrors the
     # pipe/sprinkler/text template keys owned by MainWindow).
@@ -3207,38 +2791,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             tmpl._bottom_abs_z_mm = active_elev
 
     def _get_roof_template(self) -> "RoofItem":
-        """Return (lazily-created) roof template for pre-placement editing."""
-        if self._roof_template is None:
-            self._roof_template = RoofItem(color="#D2B48C")
-            self._roof_template.name = "(Template)"
-            self._roof_template._scale_manager_ref = self.scale_manager
-        self._roof_template.level = self.active_level
-        return self._roof_template
+        """Shell → PlacementInputCoordinator._get_roof_template."""
+        return self._plc._get_roof_template()
 
     def _get_gridline_template(self) -> "GridlineItem":
-        """Return (lazily-created) gridline template for pre-placement editing.
-
-        The template is NOT added to the scene and NOT appended to
-        ``_gridlines``, so editing it via the property panel never triggers
-        ``push_undo_state()`` (``GridlineItem.set_property`` guards the undo
-        push with ``self.scene() is not None``).
-        """
-        if self._gridline_template is None:
-            from .gridline import GridlineItem as _GLItem
-            tmpl = _GLItem(QPointF(0, 0), QPointF(0, 1000))
-            tmpl._label_text = "(Template)"
-            tmpl._is_template = True
-            self._gridline_template = tmpl
-        return self._gridline_template
+        """Shell → PlacementInputCoordinator._get_gridline_template."""
+        return self._plc._get_gridline_template()
 
     def _get_geometry_template(self):
-        """Return (lazily-created) geometry template for line/rect/circle/polyline."""
-        from .construction_geometry import GeometryTemplate
-        if self._geometry_template is None:
-            self._geometry_template = GeometryTemplate()
-        # Sync with active level
-        self._geometry_template.level = self.active_level
-        return self._geometry_template
+        """Shell → PlacementInputCoordinator._get_geometry_template."""
+        return self._plc._get_geometry_template()
 
     def _geom_color_lw(self):
         """Return (color, lineweight) for new geometry."""
