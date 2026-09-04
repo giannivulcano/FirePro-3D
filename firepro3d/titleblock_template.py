@@ -25,6 +25,7 @@ from .constants import (
     TB_STRIP_MIN_MM, TB_AREA_MIN_MM, TEXT_METRIC_REF_PX,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM,
 )
+from .app_data import app_data_dir
 
 KINDS = ("field", "revision_table")
 
@@ -942,8 +943,7 @@ def validate(layout: TemplateLayout, paper_w_mm: float,
 # ── User-library I/O ─────────────────────────────────────────────────────────
 
 def _library_dir() -> str:
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "FirePro3D", "titleblocks")
+    return app_data_dir("titleblocks")
 
 
 def _library_path(uuid: str) -> str:
