@@ -1,7 +1,7 @@
 ---
-status: partial           # S1 (data model + lifecycle) built; S2–S5 pending
+status: partial           # S1 + S2 built (data model + create/place loop); S3–S5 pending
 last-verified: 2026-09-04
-verified-commit: 795286e
+verified-commit: 061a838
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -261,9 +261,13 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 1. **S1 — Data model & lifecycle.** `BlockDefinition` + `BlockInstance` + registry; retire
    `BlockItem`; `scene_io` embed + `_capture_network` undo. No UI (tested programmatically). Gates:
    round-trip, undo, propagation, perf, clean retirement.
-2. **S2 — Create & place loop (project-only).** Blocks browser dock + `place_block` mode (2-step) +
-   make-from-selection (consume, origin pick, name/Library/Series dialog; "save to library?" stubbed
-   to project-only). First user-visible, end-to-end usable slice.
+2. **S2 — Create & place loop (project-only). BUILT 2026-09-04.** `BlocksBrowser` dock +
+   `blockDefinitionsChanged` signal; `place_block` 2-step mode (position→rotation, ghost, Enter=0°,
+   HUD `angle_deg`, repeat-until-Esc); `make_block_from_selection` (consume → def + instance, one
+   undo); the three seam fixes (`translate` movability, `block_instance` copy/paste branch, orphan
+   placeholder); ribbon Make/Insert/Manager buttons. Origin = selection bbox top-left in v1
+   (interactive snapped origin-pick deferred to a smoke follow-up); "save to library?" not wired
+   until S3. Seam-reviewed (one blocker fixed: ghost teardown on same-mode re-entry).
 3. **S3 — Library layer.** `.fpdb` schema + `app_data.py` helper + per-folder `index.json` +
    embed/divergence + Save/Reload-from-Library; wire the real "save to library?" prompt into S2.
 4. **S4 — Block Manager + thumbnails.** Underlay-manager-style MVC + frameless shell;
