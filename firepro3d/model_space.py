@@ -2416,61 +2416,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     }
 
     def _at_placement_step_zero(self) -> bool:
-        """True while the current tool has not placed its first point.
-
-        Cycling the variant only makes sense before the first click; once a
-        point is down the geometry is committed to a variant.
-        """
-        if self.mode == "draw_arc":
-            return self._draw_arc_step == 0
-        if self.mode == "draw_rectangle":
-            return self._draw_rect_anchor is None and not self._draw_rect_rotating
-        if self.mode == "wall":
-            return (self._wall_anchor is None
-                    and self._wall_rect_anchor is None
-                    and not self._wall_rect_rotating)
-        if self.mode == "floor":
-            return (self._floor_active is None
-                    and self._floor_rect_anchor is None
-                    and not self._floor_rect_rotating)
-        return False
+        """Shell → PlacementInputCoordinator._at_placement_step_zero."""
+        return self._plc._at_placement_step_zero()
 
     def _apply_current_variant(self) -> None:
-        """Apply the sticky variant's state and emit the hinted step-0 readout.
-
-        No-op for a mode with no variants.  Emits ``"<label> (←/→ to change):
-        <instr>"`` so the readout advertises the cycle while it is still live.
-        """
-        variants = self._plc._PLACEMENT_VARIANTS.get(self.mode)
-        if not variants:
-            return
-        label, instr, apply_fn = variants[self._plc._variant_index[self.mode]]
-        apply_fn(self)
-        self.instructionChanged.emit(f"{label} (←/→ to change): {instr}")
+        """Shell → PlacementInputCoordinator._apply_current_variant."""
+        return self._plc._apply_current_variant()
 
     def cycle_placement_variant(self, direction: int) -> bool:
-        """←/→ cycle the placement variant; return False to fall through.
-
-        Only cycles at step 0 of a multi-variant tool while no HUD field holds
-        focus.  Returns False otherwise so the arrow key reaches the view's
-        default scroll.
-
-        Args:
-            direction: +1 for the next variant, -1 for the previous.
-
-        Returns:
-            True when a variant was cycled (and the arrow key is consumed),
-            False when cycling is not applicable.
-        """
-        if (self.mode not in self._plc._PLACEMENT_VARIANTS
-                or not self._at_placement_step_zero()
-                or self.is_input_mode()):
-            return False
-        n = len(self._plc._PLACEMENT_VARIANTS[self.mode])
-        self._plc._variant_index[self.mode] = (
-            self._plc._variant_index[self.mode] + direction) % n
-        self._apply_current_variant()
-        return True
+        """Shell → PlacementInputCoordinator.cycle_placement_variant."""
+        return self._plc.cycle_placement_variant(direction)
 
     def active_schema(self):
         """Shell → PlacementInputCoordinator.active_schema."""

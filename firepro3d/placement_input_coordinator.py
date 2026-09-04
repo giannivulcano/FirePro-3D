@@ -77,6 +77,67 @@ class PlacementInputCoordinator:
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
 
     # -------------------------------------------------------------------------
+    # Placement-variant cycling (moved from Model_Space — C2c)
+
+    def _at_placement_step_zero(self) -> bool:
+        """True while the current tool has not placed its first point.
+
+        Cycling the variant only makes sense before the first click; once a
+        point is down the geometry is committed to a variant.
+        """
+        s = self._scene
+        if s.mode == "draw_arc":
+            return s._draw_arc_step == 0
+        if s.mode == "draw_rectangle":
+            return s._draw_rect_anchor is None and not s._draw_rect_rotating
+        if s.mode == "wall":
+            return (s._wall_anchor is None
+                    and s._wall_rect_anchor is None
+                    and not s._wall_rect_rotating)
+        if s.mode == "floor":
+            return (s._floor_active is None
+                    and s._floor_rect_anchor is None
+                    and not s._floor_rect_rotating)
+        return False
+
+    def _apply_current_variant(self) -> None:
+        """Apply the sticky variant's state and emit the hinted step-0 readout.
+
+        No-op for a mode with no variants.  Emits ``"<label> (←/→ to change):
+        <instr>"`` so the readout advertises the cycle while it is still live.
+        """
+        variants = self._PLACEMENT_VARIANTS.get(self._scene.mode)
+        if not variants:
+            return
+        label, instr, apply_fn = variants[self._variant_index[self._scene.mode]]
+        apply_fn(self._scene)
+        self._scene.instructionChanged.emit(f"{label} (←/→ to change): {instr}")
+
+    def cycle_placement_variant(self, direction: int) -> bool:
+        """←/→ cycle the placement variant; return False to fall through.
+
+        Only cycles at step 0 of a multi-variant tool while no HUD field holds
+        focus.  Returns False otherwise so the arrow key reaches the view's
+        default scroll.
+
+        Args:
+            direction: +1 for the next variant, -1 for the previous.
+
+        Returns:
+            True when a variant was cycled (and the arrow key is consumed),
+            False when cycling is not applicable.
+        """
+        if (self._scene.mode not in self._PLACEMENT_VARIANTS
+                or not self._at_placement_step_zero()
+                or self._scene.is_input_mode()):
+            return False
+        n = len(self._PLACEMENT_VARIANTS[self._scene.mode])
+        self._variant_index[self._scene.mode] = (
+            self._variant_index[self._scene.mode] + direction) % n
+        self._apply_current_variant()
+        return True
+
+    # -------------------------------------------------------------------------
     # HUD lifecycle + commit dispatch (moved from Model_Space — C2a)
 
     def is_input_mode(self) -> bool:
