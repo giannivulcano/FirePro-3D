@@ -1541,6 +1541,12 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
+        _btn(g_blocks, "Make\nBlock", _I("placeholder_icon.svg"),
+             self._make_block_from_selection, tip="Create a block from selected 2D geometry")
+        _btn(g_blocks, "Insert\nBlock", _I("placeholder_icon.svg"),
+             self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
+        _btn(g_blocks, "Block\nManager", _I("placeholder_icon.svg"),
+             self._open_block_manager, tip="Manage blocks (coming in S4)")
 
     def _init_architecture_tab(self, _I, _btn, _mode_btn):
         """Build Tab 4: Architecture — building elements + datums."""
@@ -2642,6 +2648,39 @@ class MainWindow(QMainWindow):
     def _on_block_activated(self, block_id: str) -> None:
         """Enter place_block mode carrying the activated block id."""
         self.scene.set_mode("place_block", template=block_id)
+
+    def _make_block_from_selection(self):
+        """Ribbon handler: turn the selected 2D drafting geometry into a block."""
+        from firepro3d.construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        from firepro3d.make_block_dialog import MakeBlockDialog
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtCore import QPointF
+        PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
+        if not items:
+            QMessageBox.information(self, "Make Block", "Select 2D drafting geometry first.")
+            return
+        dlg = MakeBlockDialog(self)
+        if not dlg.exec():
+            return
+        name, library, series = dlg.values()
+        if not name:
+            return
+        rect = items[0].sceneBoundingRect()
+        for it in items[1:]:
+            rect = rect.united(it.sceneBoundingRect())
+        origin = QPointF(rect.left(), rect.top())
+        self.scene.make_block_from_selection(items, origin, name, library, series)
+
+    def _focus_blocks_browser(self):
+        """Ribbon handler: reveal the Blocks browser tab for insert/place."""
+        self._left_tabs.setCurrentWidget(self.blocks_browser)
+
+    def _open_block_manager(self):
+        """Ribbon handler: placeholder for the S4 Block Manager."""
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(self, "Block Manager", "Block Manager arrives in S4.")
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""

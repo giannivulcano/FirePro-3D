@@ -1509,6 +1509,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if d is not None and inst in d._instances:
             d._instances.remove(inst)
 
+    def make_block_from_selection(self, items, origin, name, library, series):
+        """Consume construction primitives into a new block definition + one instance.
+
+        Captures each primitive's to_dict, removes it from the scene + tracking list,
+        registers a BlockDefinition (origin-relative), places one instance at origin,
+        and pushes a single undo state. Returns the BlockInstance, or None if no
+        capturable primitive was supplied.
+        """
+        from .block_definition import BlockDefinition
+        prims = []
+        for it in items:
+            if hasattr(it, "to_dict") and self._remove_item_from_lists(it):
+                prims.append(it.to_dict())
+        if not prims:
+            return None
+        defn = BlockDefinition.new(name=name, library=library, series=series,
+                                   primitives=prims, origin=(origin.x(), origin.y()))
+        self.register_block_definition(defn)
+        inst = self.place_block_instance(defn.id, (origin.x(), origin.y()), rotation=0.0)
+        self.push_undo_state()
+        return inst
+
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
