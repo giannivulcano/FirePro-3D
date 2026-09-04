@@ -1033,37 +1033,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Pipe placement teardown (orphan-delete + Tab-cycle reset) — owned by
         # the pipe controller (slice 5). Idempotent; safe on every mode change.
         self._pipe_ctl.clear()
-        # Cancel in-progress construction geometry
-        if mode != "polyline" and self._polyline_active is not None:
-            # Cancel: always discard the in-progress polyline
-            # (Enter commits via finalize() and sets _polyline_active=None
-            #  before reaching here, so this path is only hit by Escape/mode-change)
-            if self._polyline_active.scene() is self:
-                self.removeItem(self._polyline_active)
-            if self._polyline_active in self._polylines:
-                self._polylines.remove(self._polyline_active)
-            self._polyline_active = None
-        self._hide_polyline_close_indicator()
-        # Cancel in-progress draw geometry
-        if mode not in ("draw_line", "draw_gridline"):
-            self._draw_line_anchor = None
-        if mode != "draw_rectangle":
-            self._draw_rect_anchor = None
-            self._draw_rect_rotating = False
-            self._draw_rect_sized_pt1 = None
-            self._draw_rect_sized_pt2 = None
-            self._draw_rect_pivot = None
-            self._clear_rect_ref_lines()
-            if self._draw_rect_preview is not None:
-                if self._draw_rect_preview.scene() is self:
-                    self.removeItem(self._draw_rect_preview)
-                self._draw_rect_preview = None
-        if mode != "draw_circle":
-            self._draw_circle_center = None
-            if self._draw_circle_preview is not None:
-                if self._draw_circle_preview.scene() is self:
-                    self.removeItem(self._draw_circle_preview)
-                self._draw_circle_preview = None
+        # 2D-geometry drawing teardown (line/rect/circle/polyline) — owned by the
+        # geometry drawing controller (slice 8). Idempotent; the per-primitive
+        # "keep if staying in that mode" guards live inside clear(). Polygon/arc/
+        # text teardown stays inline below (Slice 9 / other concerns).
+        self._geom_ctl.clear(mode)
         if mode != "polygon":
             self._polygon_center = None
             self._polygon_rotating = False

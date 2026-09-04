@@ -41,9 +41,41 @@ class GeometryDrawingController:
         cascade. Each per-primitive guard is preserved verbatim (``if new_mode !=
         "<mode>": …``) so staying in a mode mid-placement still preserves that
         primitive's in-progress state. Operates on scene-side state via
-        ``self._scene`` (behavior-home model). Populated in C3.
+        ``self._scene`` (behavior-home model). Polygon/arc/text teardown stays
+        inline in ``set_mode`` (Slice 9 / other concerns).
         """
-        # Wired in C3 (set_mode teardown relocation).
+        s = self._scene
+        # Cancel in-progress polyline
+        if new_mode != "polyline" and s._polyline_active is not None:
+            # Cancel: always discard the in-progress polyline
+            # (Enter commits via finalize() and sets _polyline_active=None
+            #  before reaching here, so this path is only hit by Escape/mode-change)
+            if s._polyline_active.scene() is s:
+                s.removeItem(s._polyline_active)
+            if s._polyline_active in s._polylines:
+                s._polylines.remove(s._polyline_active)
+            s._polyline_active = None
+        self._hide_polyline_close_indicator()
+        # Cancel in-progress draw geometry
+        if new_mode not in ("draw_line", "draw_gridline"):
+            s._draw_line_anchor = None
+        if new_mode != "draw_rectangle":
+            s._draw_rect_anchor = None
+            s._draw_rect_rotating = False
+            s._draw_rect_sized_pt1 = None
+            s._draw_rect_sized_pt2 = None
+            s._draw_rect_pivot = None
+            self._clear_rect_ref_lines()
+            if s._draw_rect_preview is not None:
+                if s._draw_rect_preview.scene() is s:
+                    s.removeItem(s._draw_rect_preview)
+                s._draw_rect_preview = None
+        if new_mode != "draw_circle":
+            s._draw_circle_center = None
+            if s._draw_circle_preview is not None:
+                if s._draw_circle_preview.scene() is s:
+                    s.removeItem(s._draw_circle_preview)
+                s._draw_circle_preview = None
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
     #    stays scene-side because it builds a GridlineItem in gridline mode) ────
