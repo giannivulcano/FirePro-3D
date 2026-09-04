@@ -75,3 +75,17 @@ def test_place_then_undo_removes_instance(model_space):
     assert len(model_space._block_instances) == 0
     model_space.redo()
     assert len(model_space._block_instances) == 1
+
+
+def test_blockitem_symbol_retired():
+    import firepro3d
+    with pytest.raises(AttributeError):
+        _ = firepro3d.BlockItem
+
+
+def test_app_imports_clean():
+    import subprocess, sys, os
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    r = subprocess.run([sys.executable, "-c", "import main"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, f"import main failed:\n{r.stderr}"

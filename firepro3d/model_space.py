@@ -7883,30 +7883,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._draw_polygons.append(item)
 
-            elif obj_type == "block_item":
-                from .block_item import BlockItem
-                def _item_factory(d):
-                    t = d.get("type", "")
-                    if t == "draw_line":
-                        return LineItem.from_dict(d)
-                    elif t == "draw_rectangle":
-                        return RectangleItem.from_dict(d)
-                    elif t == "draw_circle":
-                        return CircleItem.from_dict(d)
-                    elif t == "polyline":
-                        return PolylineItem.from_dict(d)
-                    elif t == "arc":
-                        return ArcItem.from_dict(d)
-                    elif t == "polygon":
-                        return RegularPolygonItem.from_dict(d)
-                    elif t == "block_item":
-                        return BlockItem.from_dict(d, _item_factory)
-                    return None
-                item = BlockItem.from_dict(obj, _item_factory)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                # BlockItems live in the scene but aren't tracked in a dedicated list
-
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
                 gl = GridlineItem.from_dict(obj)
