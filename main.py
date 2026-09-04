@@ -564,7 +564,7 @@ class MainWindow(QMainWindow):
         self.guides_indicator.clicked.connect(self.scene.set_align_enabled)
         status_bar.addPermanentWidget(self.guides_indicator)
         self.scene.alignToggled.connect(self._update_guides_indicator)
-        self._update_guides_indicator(self.scene._align_enabled)
+        self._update_guides_indicator(self.scene.get_align_enabled())
         # Pipe-mode node snap readout (between SNAP and coordinates)
         self.node_snap_label = QLabel("")
         self.node_snap_label.setStyleSheet(
@@ -2352,7 +2352,7 @@ class MainWindow(QMainWindow):
 
         align_cb = QCheckBox("ALIGN")
         align_cb.setObjectName("align_enabled")
-        align_cb.setChecked(self.scene._align_enabled)
+        align_cb.setChecked(self.scene.get_align_enabled())
         align_cb.toggled.connect(
             lambda checked: (
                 self.scene.set_align_enabled(checked),
@@ -2387,7 +2387,7 @@ class MainWindow(QMainWindow):
         old_tol = snap_engine.SNAP_TOLERANCE_PX
         old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
         old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        old_align_enabled = self.scene._align_enabled
+        old_align_enabled = self.scene.get_align_enabled()
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # Persist SNAP settings

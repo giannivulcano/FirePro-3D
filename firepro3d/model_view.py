@@ -439,7 +439,7 @@ class Model_View(QGraphicsView):
         # screen until the next mode change.  The gate also cheaply short-circuits
         # the (already-empty) vectors path.
         ctrl = getattr(scene, "_align_controller", None)
-        if ctrl is not None and getattr(scene, "_align_enabled", True):
+        if ctrl is not None and scene.get_align_enabled():
             from .constants import (ALIGN_GUIDE_COLOR, ALIGN_GUIDE_DASH,
                                     ALIGN_GLYPH_PX, ALIGN_ACQUIRE_COLOR)
             align_res = getattr(scene, "_align_result", None)
