@@ -641,6 +641,14 @@ class PlacementInputCoordinator:
             # scenePos() is already a fresh point; the raw QPointF is stored.
             from .node import Node
             return nsp.scenePos() if isinstance(nsp, Node) else QPointF(nsp)
+        if self._scene.mode == "place_block":
+            # Rotate step (1): the locked insertion point is the pivot the angle
+            # turns about — this is what gates the HUD open (_hud_available).
+            # Step 0 has no anchor (nothing typeable before the first click).
+            if self._scene._place_block_step == 1:
+                a = self._scene._place_block_anchor
+                return QPointF(a) if a is not None else None
+            return None
         return None
 
     # -------------------------------------------------------------------------

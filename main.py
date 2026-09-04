@@ -2654,12 +2654,12 @@ class MainWindow(QMainWindow):
         from firepro3d.construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         from firepro3d.make_block_dialog import MakeBlockDialog
-        from PyQt6.QtWidgets import QMessageBox
         from PyQt6.QtCore import QPointF
         PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
         if not items:
-            QMessageBox.information(self, "Make Block", "Select 2D drafting geometry first.")
+            # Themed status line rather than an unthemed native QMessageBox.
+            self.scene._show_status("Select 2D drafting geometry to make a block", 3000)
             return
         dlg = MakeBlockDialog(self)
         if not dlg.exec():
@@ -2679,8 +2679,7 @@ class MainWindow(QMainWindow):
 
     def _open_block_manager(self):
         """Ribbon handler: placeholder for the S4 Block Manager."""
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Block Manager", "Block Manager arrives in S4.")
+        self.scene._show_status("Block Manager arrives in a later slice (S4)", 3000)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""

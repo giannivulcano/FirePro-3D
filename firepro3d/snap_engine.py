@@ -1113,11 +1113,18 @@ class SnapEngine:
                 # definition origin is local (0,0) — the instance's insertion point
                 pts.append(("center", item.mapToScene(QPointF(0.0, 0.0)), None))
             if self.snap_endpoint:
+                # ON-CURVE vertices only. addEllipse/addPath emit cubic-bezier
+                # CONTROL points (CurveTo/CurveToData) that sit OFF the visible
+                # outline — emitting those snapped the cursor to empty space.
+                from PyQt6.QtGui import QPainterPath as _QPP
+                _on_curve = (_QPP.ElementType.MoveToElement,
+                             _QPP.ElementType.LineToElement)
                 for _pen, path in item.render_ops():
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
-                        pts.append(("endpoint",
-                                    item.mapToScene(QPointF(el.x, el.y)), None))
+                        if el.type in _on_curve:
+                            pts.append(("endpoint",
+                                        item.mapToScene(QPointF(el.x, el.y)), None))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):

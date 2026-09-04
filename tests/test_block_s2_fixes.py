@@ -20,12 +20,26 @@ def test_block_instance_not_native_movable(qapp):
 
 
 def test_place_block_hud_schema_only_at_rotate_step(model_space):
-    # #3: the rotation schema surfaces at step 1, nothing at step 0
+    # #2: the rotation schema surfaces at step 1, nothing at step 0
     from firepro3d.dynamic_input import SCHEMAS
     model_space._place_block_step = 0
     assert model_space._plc._place_block_schema_for_step() is None
     model_space._place_block_step = 1
     assert model_space._plc._place_block_schema_for_step() is SCHEMAS.get("rotation")
+
+
+def test_place_block_hud_available_at_rotate_step(model_space):
+    # #2 (real gate): the HUD was refused because get_placement_anchor() knew no
+    # _place_block_anchor, so _hud_available() returned False despite the schema.
+    from PyQt6.QtCore import QPointF
+    d = _def()
+    model_space.register_block_definition(d)
+    model_space.set_mode("place_block", template=d.id)
+    model_space._place_block_step = 1
+    model_space._place_block_anchor = QPointF(5.0, 7.0)
+    anc = model_space._plc.get_placement_anchor()
+    assert anc is not None and (anc.x(), anc.y()) == (5.0, 7.0)
+    assert model_space._plc._hud_available() is True
 
 
 def test_snap_collects_block_origin_and_vertices(model_space):
