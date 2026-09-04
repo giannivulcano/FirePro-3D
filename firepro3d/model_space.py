@@ -63,6 +63,7 @@ from .scene_tools import SceneTools
 from .underlay_controller import UnderlayController
 from .pipe_network_controller import PipeNetworkController
 from .sprinkler_workflow_controller import SprinklerWorkflowController
+from .placement_input_coordinator import PlacementInputCoordinator
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -166,6 +167,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.sprinkler_system = SprinklerSystem()
         self._pipe_ctl = PipeNetworkController(self)   # pipe/node concern (slice 5)
         self._spr_ctl = SprinklerWorkflowController(self)  # sprinkler/DA/hydraulic concern (slice 6)
+        self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -180,15 +182,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
-        # Held reference pipe for the pipe HUD's relative-angle frame (T19).
-        # Chosen at HUD-engage from the live preview direction and held stable
-        # for the whole typing session so the frame cannot drift mid-edit.
-        self._pipe_hud_reference = None
         self._pipe_node_was_new = False
         self._selected_items = None
-        # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
-        # presence *is* input mode — see is_input_mode.
-        self.dynamic_input = None
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -241,7 +236,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._polygon_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_polygons: list[RegularPolygonItem] = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
-        self._resolved_point: "QPointF | None" = None  # constrained point published each frame
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
         # Holds the first click point.  In centre-first this is the arc centre
@@ -264,8 +258,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._draw_arc_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_arc_ref_start: "QGraphicsLineItem | None" = None
         self._draw_arc_ref_sweep: "QGraphicsLineItem | None" = None
-        # Placement-variant registry + session-sticky per-mode index (Task 13).
-        self._init_placement_variants()
         # Text rubber-band (Sprint Q)
         self._text_anchor: "QPointF | None" = None
         self._text_preview: "QGraphicsRectItem | None" = None
@@ -951,8 +943,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if mode == "wall_rect":
             self._wall_primitive = "rect"
             self._wall_rect_from_center = False
-            if hasattr(self, "_variant_index"):
-                self._variant_index["wall"] = 2  # "Wall (Corner Rectangle)" slot
+            self._plc._variant_index["wall"] = 2  # "Wall (Corner Rectangle)" slot
             mode = "wall"
         # Backward-compat alias: the old ribbon menu calls set_mode("floor_rect").
         # Fold into unified "floor" mode with the corner-rect primitive selected
@@ -960,8 +951,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if mode == "floor_rect":
             self._floor_primitive = "rect"
             self._floor_rect_from_center = False
-            if hasattr(self, "_variant_index"):
-                self._variant_index["floor"] = 0  # "Floor (Corner Rectangle)" slot
+            self._plc._variant_index["floor"] = 0  # "Floor (Corner Rectangle)" slot
             mode = "floor"
         # A HUD outlives neither its schema nor its anchor: leaving one open
         # across a mode switch would strand a widget whose applier belongs to
@@ -1388,7 +1378,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # this mode's state reset (above) so the variant flag it sets is not
         # clobbered.  No-op for non-variant modes, so their plain instruction
         # stands.
-        if mode in self._PLACEMENT_VARIANTS:
+        if mode in self._plc._PLACEMENT_VARIANTS:
             self._apply_current_variant()
 
         # Populate the Properties dock with the gridline placement template so
@@ -2524,52 +2514,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "pipe": "_apply_pipe_dynamic_input",
     }
 
-    # Mode -> ordered placement variants: (label, first-point instruction,
-    # apply_fn(self)).  ←/→ cycles them at step 0 only; the chosen index is
-    # session-sticky per mode.  Adding a multi-variant tool is one row here
-    # plus a step-0 predicate branch in ``_at_placement_step_zero``.
-    def _init_placement_variants(self):
-        """Build the placement-variant registry + the sticky per-mode index.
-
-        Called from ``__init__``.  Each variant is
-        ``(label, first-point instruction, apply_fn(self))``; ``apply_fn`` sets
-        the tool's variant flag so entry and ←/→ both drive geometry through the
-        same state.
-        """
-        self._PLACEMENT_VARIANTS = {
-            "draw_arc": [
-                ("Center Point Arc", "Select center point to begin",
-                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
-                ("Start Point Arc", "Select start point to begin",
-                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_START)),
-            ],
-            "draw_rectangle": [
-                ("Corner Rectangle", "Pick first corner",
-                 lambda s: setattr(s, "_draw_rect_from_center", False)),
-                ("Center Rectangle", "Pick center point",
-                 lambda s: setattr(s, "_draw_rect_from_center", True)),
-            ],
-            "wall": [
-                ("Wall (Line)", "Pick wall start point",
-                 lambda s: s._set_wall_primitive("line")),
-                ("Wall (Polyline)", "Pick wall start point",
-                 lambda s: s._set_wall_primitive("polyline")),
-                ("Wall (Corner Rectangle)", "Pick first corner",
-                 lambda s: s._set_wall_primitive("rect", from_center=False)),
-                ("Wall (Center Rectangle)", "Pick centre point",
-                 lambda s: s._set_wall_primitive("rect", from_center=True)),
-            ],
-            "floor": [
-                ("Floor (Corner Rectangle)", "Pick first corner",
-                 lambda s: s._set_floor_primitive("rect", from_center=False)),
-                ("Floor (Center Rectangle)", "Pick centre point",
-                 lambda s: s._set_floor_primitive("rect", from_center=True)),
-                ("Floor (Polygon)", "Pick first boundary point",
-                 lambda s: s._set_floor_primitive("polygon")),
-            ],
-        }
-        self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
-
     def _at_placement_step_zero(self) -> bool:
         """True while the current tool has not placed its first point.
 
@@ -2596,10 +2540,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         No-op for a mode with no variants.  Emits ``"<label> (←/→ to change):
         <instr>"`` so the readout advertises the cycle while it is still live.
         """
-        variants = self._PLACEMENT_VARIANTS.get(self.mode)
+        variants = self._plc._PLACEMENT_VARIANTS.get(self.mode)
         if not variants:
             return
-        label, instr, apply_fn = variants[self._variant_index[self.mode]]
+        label, instr, apply_fn = variants[self._plc._variant_index[self.mode]]
         apply_fn(self)
         self.instructionChanged.emit(f"{label} (←/→ to change): {instr}")
 
@@ -2617,13 +2561,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             True when a variant was cycled (and the arrow key is consumed),
             False when cycling is not applicable.
         """
-        if (self.mode not in self._PLACEMENT_VARIANTS
+        if (self.mode not in self._plc._PLACEMENT_VARIANTS
                 or not self._at_placement_step_zero()
                 or self.is_input_mode()):
             return False
-        n = len(self._PLACEMENT_VARIANTS[self.mode])
-        self._variant_index[self.mode] = (
-            self._variant_index[self.mode] + direction) % n
+        n = len(self._plc._PLACEMENT_VARIANTS[self.mode])
+        self._plc._variant_index[self.mode] = (
+            self._plc._variant_index[self.mode] + direction) % n
         self._apply_current_variant()
         return True
 
@@ -2745,14 +2689,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         Returns:
             A copy of the resolved point, or None when nothing is published.
         """
-        p = self._resolved_point
+        p = self._plc._resolved_point
         return QPointF(p) if p is not None else None
 
     def clear_placement_state(self) -> None:
         """Drop the published point and readout (placement finished/cancelled)."""
-        self._resolved_point = None
+        self._plc._resolved_point = None
         self._draw_dim_hint = None
-        self._pipe_hud_reference = None
+        self._plc._pipe_hud_reference = None
 
     def publish_placement_state(self, anchor, point) -> None:
         """Record the resolved placement point and derive the HUD readout.
@@ -2780,7 +2724,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # publish would move the seed under them.
         if self.is_input_mode():
             return
-        self._resolved_point = QPointF(point) if point is not None else None
+        self._plc._resolved_point = QPointF(point) if point is not None else None
         self._draw_dim_hint = None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -2811,7 +2755,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         Returns:
             True while a ``DynamicInputHud`` field holds focus.
         """
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         return hud is not None and hud.is_engaged()
 
     def _hud_available(self) -> bool:
@@ -2870,7 +2814,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         hud.committed.connect(self._on_dynamic_input_committed)
         hud.cancelled.connect(self._on_dynamic_input_cancelled)
         hud.fieldCommitted.connect(self._on_dynamic_input_field_committed)
-        self.dynamic_input = hud
+        self._plc.dynamic_input = hud
         if hasattr(view, "place_dynamic_input"):
             # No scene latch while it is only a readout: passing None puts it
             # back on the cursor, which it now tracks frame by frame.  The latch
@@ -2905,7 +2849,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         alone does not fix, so their preview-on-commit lands with their
         applier.  A no-op if the HUD closed between signal and slot.
         """
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         schema = self.active_schema()
         if hud is None or schema is None:
             return
@@ -2979,11 +2923,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if self.is_input_mode():
             return
         if not self._hud_available():
-            if self.dynamic_input is not None:
+            if self._plc.dynamic_input is not None:
                 self.end_dynamic_input()
             return
         schema = self.active_schema()
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         if hud is not None and hud.schema is not schema:
             # Mode changed under a live HUD without passing through set_mode.
             # Its editors belong to the old schema, so it cannot be reused.
@@ -3029,7 +2973,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if not self._hud_available():
             return False
         schema = self.active_schema()
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         if hud is None or hud.schema is not schema:
             if hud is not None:
                 self.end_dynamic_input()
@@ -3122,12 +3066,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         can read ``_pipe_hud_reference``.  No-op unless this is the pipe mode's
         ``line`` schema.
         """
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         if self.mode != "pipe" or hud is None or schema.name != "line":
-            self._pipe_hud_reference = None
+            self._plc._pipe_hud_reference = None
             return
         ref = self._pipe_reference_pipe()
-        self._pipe_hud_reference = ref
+        self._plc._pipe_hud_reference = ref
         hud.set_field_label("Angle", "Rel A" if ref is not None else "A")
         hud.editor("Angle").setProperty("relative", ref is not None)
 
@@ -3142,7 +3086,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         point = self.get_resolved_point()
         start = anchor
         end = anchor if point is None else point
-        ref = self._pipe_hud_reference
+        ref = self._plc._pipe_hud_reference
         if ref is None:
             return seed_line(start, end)
         length = CAD_Math.get_vector_length(start, end)
@@ -3321,10 +3265,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         being retired must not yank focus away from whatever the user is really
         working in, such as the property panel.
         """
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         # Cleared first: the tear-down below can re-enter through focus and
         # paint events, which must already see cursor mode.
-        self.dynamic_input = None
+        self._plc.dynamic_input = None
         if hud is None:
             return
         was_engaged = hud.is_engaged()
@@ -3362,7 +3306,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         view explicitly — the HUD is now transparent to the mouse but still
         holds the keyboard until someone takes it.
         """
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         if hud is None:
             return
         hud.disengage()
@@ -3398,7 +3342,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if schema is None or (schema.requires_anchor and anchor is None):
             self.end_dynamic_input()
             return
-        hud = self.dynamic_input
+        hud = self._plc.dynamic_input
         if self.mode == "pipe" and schema.name == "line":
             if self._commit_pipe_typed(values):
                 self.end_dynamic_input()
@@ -3427,7 +3371,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # An applier may have torn the HUD down itself (e.g. by calling
             # set_mode); end_dynamic_input is a no-op in that case.
             self.end_dynamic_input()
-        elif hud is not None and hud is self.dynamic_input:
+        elif hud is not None and hud is self._plc.dynamic_input:
             hud.reject_commit()
 
     def _commit_track_first_point(self, point) -> bool:
@@ -7362,11 +7306,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         start = self.node_start_pos.scenePos()
         length = values["Length"]
         angle = values["Angle"]
-        ref = self._pipe_hud_reference
+        ref = self._plc._pipe_hud_reference
         if ref is not None:
             if not is_valid_relative_angle(angle):
-                if self.dynamic_input is not None:
-                    self.dynamic_input.mark_field_invalid("Angle")
+                if self._plc.dynamic_input is not None:
+                    self._plc.dynamic_input.mark_field_invalid("Angle")
                 self._show_status(
                     "Pipe angle must be a 45° multiple off the reference pipe",
                     timeout=2500)
