@@ -1,7 +1,7 @@
 ---
-status: proposal          # unbuilt v1; flip to partial/current as slices land
+status: partial           # S1 (data model + lifecycle) built; S2–S5 pending
 last-verified: 2026-09-04
-verified-commit: c295979
+verified-commit: 795286e
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
