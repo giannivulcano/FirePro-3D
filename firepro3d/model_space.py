@@ -3339,32 +3339,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self.publish_placement_state(
                 self._polyline_active._points[-1], tip)
 
-    def _preview_from_line(self, tip) -> None:
-        """Point the rubber-band line at ``tip`` (already constrained/resolved).
+    def _preview_from_line(self, tip) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_line(tip)
 
-        Anchored at ``_draw_line_anchor`` — the ``draw_line``/``draw_gridline``
-        first-click point.  A no-op before the anchor is armed.
-        """
-        anchor = self._draw_line_anchor
-        if anchor is None:
-            return
-        self.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
-        self.preview_pipe.show()
-
-    def _move_draw_line(self, event, snapped):
-        _anchor = self._draw_line_anchor
-        if _anchor is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        if _anchor is not None:
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(_anchor, snapped)
-            self._preview_from_line(tip)
-            # Publishing here — after the Ctrl constraint — is what keeps
-            # the readout and the HUD's seed from disagreeing.
-            self.publish_placement_state(_anchor, tip)
-        else:
-            self.preview_pipe.hide()
+    def _move_draw_line(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_draw_line(event, snapped)
 
     def _preview_from_rectangle(self, corner) -> None:
         """Redraw the rectangle preview to the resolved far ``corner``.
@@ -3575,30 +3554,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # from-centre-looking magnitudes and lose the dragged quadrant.
             self.publish_placement_state(self._draw_rect_anchor, snapped)
 
-    def _preview_from_circle(self, rim) -> None:
-        """Redraw the circle preview so ``rim`` lands on its circumference.
+    def _preview_from_circle(self, rim) -> None:  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._preview_from_circle(rim)
 
-        The radius is the distance from ``_draw_circle_center`` to ``rim``.  A
-        no-op until both the centre and the preview item exist.
-        """
-        if self._draw_circle_center is None or self._draw_circle_preview is None:
-            return
-        r = math.hypot(rim.x() - self._draw_circle_center.x(),
-                       rim.y() - self._draw_circle_center.y())
-        cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
-        self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
-
-    def _move_draw_circle(self, event, snapped):
-        if self._draw_circle_center is None:
-            self.update_preview_node(snapped)   # cursor preview before first click
-        else:
-            self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._draw_circle_center is not None and self._draw_circle_preview is not None:
-            self._preview_from_circle(snapped)
-            # The HUD widget is the readout (S1); the rim point carries the
-            # radius, since the commit takes the hypot.
-            self.publish_placement_state(self._draw_circle_center, snapped)
+    def _move_draw_circle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
+        return self._geom_ctl._move_draw_circle(event, snapped)
 
     def _move_polygon(self, event, snapped):
         if self._polygon_rotating:
@@ -5897,18 +5857,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         item.setSelected(True)
         return item
 
-    def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):
-        _is_grid = self.mode == "draw_gridline"
-        if self._draw_line_anchor is None:
-            self._draw_line_anchor = snapped
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
-        else:
-            # Place the item (apply Ctrl constraint if held)
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(self._draw_line_anchor, snapped)
-            self._commit_draw_line_at(tip)
+    def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_draw_line(event, pos, snapped, item_under, node_under, pipe_under)
 
     def _commit_draw_line_at(self, tip):
         """Commit the armed line-like placement, ending at ``tip``.
@@ -5932,25 +5882,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             turns a False into a flagged HUD field rather than the placement
             silently evaporating into a status-bar message the user never sees.
         """
-        anchor = self._draw_line_anchor
-        if anchor is None:
-            return False
-        _is_grid = self.mode == "draw_gridline"
-        # Reject zero-length lines
-        if math.hypot(tip.x() - anchor.x(),
-                      tip.y() - anchor.y()) < 0.5:
-            self._show_status(
-                "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
-                timeout=2000)
-            return False
-        self._make_line_like(anchor, tip)
-        for v in self.views(): v.viewport().update()
-        self._draw_line_anchor = None
-        self.clear_placement_state()
-        self.preview_pipe.hide()
-        self.push_undo_state()
-        self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
-        return True
+        return self._geom_ctl._commit_draw_line_at(tip)
 
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._draw_rect_rotating:
@@ -6127,22 +6059,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "Pick center point" if _from_centre else "Pick first corner")
         return True
 
-    def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._draw_circle_center is None:
-            self._draw_circle_center = snapped
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick radius point")
-            # Create preview circle
-            preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-            _prev_pen.setCosmetic(True)
-            preview.setPen(_prev_pen)
-            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            preview.setZValue(200)
-            self.addItem(preview)
-            self._draw_circle_preview = preview
-        else:
-            self._commit_draw_circle_at(snapped)
+    def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
+        return self._geom_ctl._press_draw_circle(event, pos, snapped, item_under, node_under, pipe_under)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.
@@ -6166,31 +6084,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         line and rectangle commits; this path used to tear the placement down
         and push an undo state even for a circle it never created.
         """
-        centre = self._draw_circle_center
-        if centre is None:
-            return False
-        r = math.hypot(rim.x() - centre.x(), rim.y() - centre.y())
-        if r < 0.5:
-            self._show_status("Circle radius too small — skipped", timeout=2000)
-            return False
-        tmpl = self._get_geometry_template()
-        _c, _lw = self._geom_color_lw()
-        item = CircleItem(centre, r, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
-        self.addItem(item)
-        self._draw_circles.append(item)
-        item.setSelected(True)
-        for v in self.views(): v.viewport().update()
-        # Remove preview
-        if self._draw_circle_preview is not None:
-            self.removeItem(self._draw_circle_preview)
-            self._draw_circle_preview = None
-        self._draw_circle_center = None
-        self.clear_placement_state()
-        self.push_undo_state()
-        self.instructionChanged.emit("Pick center point")
-        return True
+        return self._geom_ctl._commit_draw_circle_at(rim)
 
     # ── Polygon drawing ───────────────────────────────────────────────
 
