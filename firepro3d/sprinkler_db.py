@@ -40,6 +40,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
+from .app_data import app_data_dir
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data model
@@ -148,8 +150,7 @@ def _default_db_path() -> str:
     Mirrors ``titleblock_template._library_dir()``: roaming ``%APPDATA%`` on
     Windows, falling back to the home directory elsewhere / when unset.
     """
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "FirePro3D", "sprinklers.json")
+    return app_data_dir("sprinklers.json")
 
 
 def _migrate_legacy_db(target: str) -> None:
