@@ -1508,15 +1508,24 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def _swap_block_definition(self, block_id: str, new_defn) -> None:
+        """Replace the registry entry for *block_id* with *new_defn*, rebuild the
+        new definition's instance backrefs, and repaint every referencing
+        instance. Pure registry mutation — does NOT push undo or emit (callers
+        batch those). Shared by reload-from-library and load-from-file replace."""
+        self._block_definitions[block_id] = new_defn
+        new_defn._instances = []
+        for inst in self._block_instances:
+            if inst.block_id == block_id:
+                new_defn._instances.append(inst)
+                inst.on_definition_changed()
+
     def reload_block_definition(self, block_id: str, root: str | None = None) -> bool:
         """Pull the library copy of *block_id* into the embedded registry.
 
-        Replaces the registry entry with the on-disk `.fpdb` copy, rebuilds the
-        new definition's instance backrefs, repaints every referencing instance,
+        Fetches the on-disk `.fpdb` copy, swaps it in (backref rebuild + repaint),
         pushes an undo state, and emits ``blockDefinitionsChanged``. Returns False
-        when the block is not in the library. ``root`` overrides the library root
-        (production passes None → ``app_data_dir('blocks')``); tests inject a temp
-        root.
+        when the block is not in the library. ``root`` overrides the library root.
         """
         from . import block_library
         current = self._block_definitions.get(block_id)
@@ -1525,12 +1534,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         lib_def = block_library.reload_from_library(current, root=root)
         if lib_def is None:
             return False
-        self._block_definitions[block_id] = lib_def
-        lib_def._instances = []
-        for inst in self._block_instances:
-            if inst.block_id == block_id:
-                lib_def._instances.append(inst)
-                inst.on_definition_changed()
+        self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
         return True
