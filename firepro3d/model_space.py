@@ -156,6 +156,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
+    blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
 
     def __init__(self):
         super().__init__()
@@ -1487,6 +1488,128 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
         return self._block_definitions.get(block_id)
 
+    def instance_count(self, block_id: str) -> int:
+        """Number of placed BlockInstances referencing *block_id*."""
+        return sum(1 for i in self._block_instances if i.block_id == block_id)
+
+    def delete_block_definition(self, block_id: str) -> bool:
+        """Remove a definition from the project registry.
+
+        Refused (returns False) while any instance references it. On success the
+        definition is popped, an undo state is pushed (``_capture_network`` already
+        serializes definitions), and ``blockDefinitionsChanged`` is emitted.
+        """
+        if self.instance_count(block_id) > 0:
+            return False
+        if block_id not in self._block_definitions:
+            return False
+        del self._block_definitions[block_id]
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
+    def _swap_block_definition(self, block_id: str, new_defn) -> None:
+        """Replace the registry entry for *block_id* with *new_defn*, rebuild the
+        new definition's instance backrefs, and repaint every referencing
+        instance. Pure registry mutation — does NOT push undo or emit (callers
+        batch those). Shared by reload-from-library and load-from-file replace."""
+        self._block_definitions[block_id] = new_defn
+        new_defn._instances = []
+        for inst in self._block_instances:
+            if inst.block_id == block_id:
+                new_defn._instances.append(inst)
+                inst.on_definition_changed()
+
+    def reload_block_definition(self, block_id: str, root: str | None = None) -> bool:
+        """Pull the library copy of *block_id* into the embedded registry.
+
+        Fetches the on-disk `.fpdb` copy, swaps it in (backref rebuild + repaint),
+        pushes an undo state, and emits ``blockDefinitionsChanged``. Returns False
+        when the block is not in the library. ``root`` overrides the library root.
+        """
+        from . import block_library
+        current = self._block_definitions.get(block_id)
+        if current is None:
+            return False
+        lib_def = block_library.reload_from_library(current, root=root)
+        if lib_def is None:
+            return False
+        self._swap_block_definition(block_id, lib_def)
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
+    def load_blocks_from_files(self, paths, root: str | None = None) -> dict:
+        """Embed block definitions from a list of `.fpdb` file paths.
+
+        Per-file collision rules vs the project registry:
+          - same id, same version   -> skip
+          - same id, diff version    -> replace (swap + backref rebuild + repaint)
+          - id absent, but (library, series, name) already used -> refuse
+          - else                     -> embed
+        The whole batch is ONE undo state and ONE ``blockDefinitionsChanged``
+        emit (guards against N model resets). Returns name lists:
+        ``{loaded, replaced, skipped, refused, failed}``.
+        """
+        from . import block_library
+        summary = {"loaded": [], "replaced": [], "skipped": [],
+                   "refused": [], "failed": []}
+        changed = False
+        for path in paths:
+            defn = block_library.load_block_file(path)
+            if defn is None:
+                summary["failed"].append(path)
+                continue
+            existing = self._block_definitions.get(defn.id)
+            if existing is not None:
+                if existing.version == defn.version:
+                    summary["skipped"].append(defn.name)
+                else:
+                    self._swap_block_definition(defn.id, defn)
+                    summary["replaced"].append(defn.name)
+                    changed = True
+                continue
+            # id not present: refuse a (library, series, name) clash
+            clash = any(
+                (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
+                for o in self._block_definitions.values())
+            if clash:
+                summary["refused"].append(defn.name)
+                continue
+            self._block_definitions[defn.id] = defn
+            summary["loaded"].append(defn.name)
+            changed = True
+        if changed:
+            self.push_undo_state()
+            self.blockDefinitionsChanged.emit()
+        return summary
+
+    def set_block_metadata(self, block_id: str, name: str, library: str,
+                           series: str) -> bool:
+        """Edit a definition's name/library/series (embedded copy only).
+
+        All three are required (non-blank after trim). The (library, series, name)
+        triple must be unique across the registry excluding this definition. On
+        success mutates in place (``id``/``version`` untouched), pushes an undo
+        state, and emits ``blockDefinitionsChanged``. Returns False on any
+        validation failure (caller reverts the field).
+        """
+        defn = self._block_definitions.get(block_id)
+        if defn is None:
+            return False
+        name, library, series = name.strip(), library.strip(), series.strip()
+        if not (name and library and series):
+            return False
+        for other in self._block_definitions.values():
+            if other.id == block_id:
+                continue
+            if (other.library, other.series, other.name) == (library, series, name):
+                return False
+        defn.name, defn.library, defn.series = name, library, series
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None):
         """Create + add a BlockInstance referencing an existing definition."""
@@ -1500,6 +1623,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         d = self.get_block_definition(block_id)
         if d is not None:
             d._instances.append(inst)   # backref for edit-propagation
+        self.blockInstancesChanged.emit()
         return inst
 
     def remove_block_instance(self, inst) -> None:
@@ -1511,6 +1635,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         d = self.get_block_definition(inst.block_id)
         if d is not None and inst in d._instances:
             d._instances.remove(inst)
+        self.blockInstancesChanged.emit()
 
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.

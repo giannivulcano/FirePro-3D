@@ -1,13 +1,13 @@
 ---
-status: partial           # S1 + S2 + S3 built (model + create/place + library); S4–S5 pending
-last-verified: 2026-09-04
-verified-commit: 71cdf6a
+status: partial           # S1–S4.6 built (Manager + load-from-library + Excel autofilter; details panel read-only); S5 (icons) pending; thumbnails deferred
+last-verified: 2026-09-05
+verified-commit: bd1d2db
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
   - firepro3d/block_library.py      # new — .fpdb I/O, per-folder index, divergence
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
-  - firepro3d/block_browser.py      # new — Blocks browser dock (mirrors feature_browser)
+  - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser)
   - firepro3d/app_data.py           # new — shared _app_data_dir() helper (GENERALIZE)
   - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection
   - firepro3d/scene_io.py           # .fpd embed of definitions + instances
@@ -119,9 +119,11 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 4. **Embedded copy authoritative; library advisory.** Projects open standalone with the library
    folder **absent** (hard portability gate). Save-to-Library pushes embedded→disk; Reload-from-Library
    pulls disk→embedded (bumping the embedded `version`).
-5. **Thumbnails:** in-memory render (from the already-cached render-ops) for project-only blocks;
-   PNG-next-to-`.fpdb` for library blocks; keyed `(id, version)`. No project-sidecar thumbnail cache
-   subsystem in v1.
+5. **Thumbnails — DEFERRED (cut from S4, 2026-09-04).** Intended design: in-memory render (from the
+   already-cached render-ops) for project-only blocks; PNG-next-to-`.fpdb` for library blocks; keyed
+   `(id, version)`. Cut from the S4 Manager to keep it pure assembly of existing parts; the `(id,
+   version)` key stays reserved for the v2 Editor (which makes geometry mutable and gives thumbnails
+   their reason to exist). Tracked as a follow-up (see `todo_open.md`).
 6. **Capture = 2D drafting primitives only** (`LineItem`/`RectangleItem`/`CircleItem`/`ArcItem`/
    `PolylineItem`/`RegularPolygonItem`). Walls/pipes/features/text/dimensions are refused. Text +
    attributes are a coupled v2 concern.
@@ -133,8 +135,29 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 9. **`scale_mode` enum in schema, `Real-size` the only v1 value** (`Annotative` reserved for v2 with
    paper-space). Instances render at the definition's real size; **no rescale/mirror in plan views**
    (that is Editor-only, v2). **Attributes structure reserved in schema, no UI in v1.**
-10. **v1 definitions are geometry-immutable** (no Editor yet); the Manager edits **metadata only**
-    (name/library/series/thumbnail-refresh/delete). To change geometry, make a new block.
+10. **v1 definitions are geometry-immutable** (no Editor yet). **The Manager is view-only**
+    (2026-09-05): its details panel shows name/library/series read-only; the Manager's verbs are
+    Load-from-Library / Save-to-Library / Reload / Delete / place. **All metadata editing
+    (name/library/series) is reserved for the Block Editor (v2)** — `Model_Space.set_block_metadata`
+    exists and is tested for that consumer but is not wired to any inline UI. To change geometry, make
+    a new block.
+11. **Manager = MVC view over an arm's-length scene API (S4, 2026-09-04).** The block-management logic
+    lives as `Model_Space` methods (`instance_count`, `delete_block_definition`,
+    `reload_block_definition`, `set_block_metadata`, + a `blockInstancesChanged` signal); the dialog is
+    a thin `QAbstractTableModel` + delegate view mirroring the Underlay Manager
+    (`underlay_manager*.py` + `FramelessShellMixin`). Chosen over embedding logic in the Qt model so
+    guard tests target real scene methods with no dialog machinery. Metadata edits, Delete, and
+    Reload-from-Library are undoable via `push_undo_state()` (no new undo plumbing —
+    `_capture_network` already serializes definitions); Save-to-Library is a pure disk write (not
+    undoable). Full HOW in `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+12. **Load = browse-anywhere file dialog, not an in-app library mirror (S4.5, 2026-09-04).** The
+    S4-grill "union/library view" was un-deferred as a Revit "Load Family" flow: a multi-select
+    `QFileDialog` embeds picked `.fpdb` definitions into the project (a `.fpdb` IS `to_dict()` JSON, so
+    an arbitrary path loads via `block_library.load_block_file`). Chosen over an in-app tree mirroring
+    the on-disk library because a file dialog also loads one-off blocks from anywhere and needs no live
+    library-tree widget. The batch is one undoable registry mutation with per-file collision rules
+    (skip / replace-via-`_swap_block_definition` / refuse). The project table becomes a
+    Library→Series→block tree at the same time.
 
 ## Tech Context
 
@@ -236,11 +259,20 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
       Reload-from-Library updates the embedded copy; divergence detected on `version` mismatch.
 - [ ] **Make-from-selection:** captures 2D primitives with correct origin, **consumes** the selection,
       refuses non-primitives.
-- [ ] **Manager:** Delete refused while instances exist; instance-count reflects the scene;
-      source-status (project-only / library / modified) correct.
+- [ ] **Manager:** Delete refused while instances exist (project-registry-only, undoable);
+      instance-count reflects the scene **live** (updates as instances are placed/deleted with the
+      Manager open); source-status (project-only / library / modified) correct; Save-to-Library /
+      Reload-from-Library resolve divergence (Reload rebuilds instance backrefs + repaints, undoable);
+      metadata edits validate (blank/collision revert) with `id` stable across rename.
+- [ ] **Load from Library (S4.5):** a browse-anywhere multi-select `*.fpdb` file dialog embeds picked
+      definitions into the project (placeable, portable), applying per-file collision rules (skip same
+      `id` / replace diff `version` with instance repaint / refuse `(library,series,name)` clash) in one
+      undoable batch with a summary; the project view is a Library→Series→block tree; unload = Delete;
+      "Open in Editor" is a stub.
 - [ ] **Placement:** browser double-click → `place_block` mode; 2-step (position → rotation, Enter=0°),
       snapped, level-aware, repeat until Esc.
-- [ ] **Thumbnail:** non-blank pixmap; library PNG cached and referenced in `index.json`.
+- [ ] ~~**Thumbnail:** non-blank pixmap; library PNG cached and referenced in `index.json`.~~
+      **DEFERRED (cut from S4, 2026-09-04)** — tracked as a follow-up in `todo_open.md`.
 - [ ] **`BlockItem` retired:** repo-wide grep shows no live importers; app launch-smoke passes.
 - [ ] **Perf:** many instances of one block stay responsive (shared-definition rendering; no
       per-instance geometry copies).
@@ -270,7 +302,33 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
    until S3. Seam-reviewed (one blocker fixed: ghost teardown on same-mode re-entry).
 3. **S3 — Library layer.** `.fpdb` schema + `app_data.py` helper + per-folder `index.json` +
    embed/divergence + Save/Reload-from-Library; wire the real "save to library?" prompt into S2.
-4. **S4 — Block Manager + thumbnails.** Underlay-manager-style MVC + frameless shell;
-   instance-count/source-status columns; thumbnail pipeline.
+4. **S4 — Block Manager (thumbnails DEFERRED).** Underlay-manager-style MVC + frameless shell
+   (toolbar + flat table + details panel + footer). Columns: name / library / series /
+   **instance-count (live)** / source-status. Details-panel metadata editing (name/library/series,
+   embedded-only, required-non-blank, revert-on-invalid, registry-level (library,series,name)
+   uniqueness). Actions gated by selection + source-status: **Delete** (project-registry-only,
+   undoable, refused when instance-count > 0 with a count-naming message), **Save-to-Library**
+   (project-only | modified), **Reload-from-Library** (modified, undoable, rebuilds instance backrefs).
+   Live count via a new `blockInstancesChanged` signal (place/remove instance does **not** fire
+   `blockDefinitionsChanged`). Logic lives as arm's-length `Model_Space` methods; the dialog is a thin
+   view. **Thumbnail pipeline cut → follow-up.** Replaces the `_open_block_manager` stub. Design:
+   `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+4.5. **S4.5 — Load from Library ("Load Family") + tree reshape.** A "Load from Library…" toolbar
+   button opens a browse-anywhere multi-select `QFileDialog` (`*.fpdb`, starts at `app_data_dir(
+   "blocks")`); each picked file embeds its definition into the project (Revit Load-Family), applying
+   per-file collision rules (same `id` → skip; same `id` diff `version` → replace via the shared
+   `_swap_block_definition` backref-rebuild; diff `id` same `(library,series,name)` → refuse) in **one
+   undoable batch** with a summary message. The S4 flat table is **reshaped into a Library→Series→block
+   expandable tree** (`BlockTreeModel`; leaves keep instance-count + source-status; edit/delete/Save/
+   Reload resolve to the selected leaf). Unload = the existing Delete. A stubbed **"Open in Editor"**
+   button reserves the v2 Editor entry point. New: `block_library.load_block_file(path)`,
+   `Model_Space.load_blocks_from_files(paths, root=None)`. Design:
+   `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+4.6. **S4.6 — Excel-style flat autofilter table (supersedes the S4.5 tree).** The project view is a
+   flat sortable `QTableView` with a per-column **autofilter** (funnel per header → popup: Sort A→Z/
+   Z→A + search + (Select All) + multi-select checkboxes; OK/Cancel; active funnel highlighted), over a
+   `BlockFilterProxy(QSortFilterProxyModel)` holding per-column accepted-value sets + a `FilterHeader`.
+   Mockup-gated (`tools/block_autofilter_mockup.html`). Replaces `BlockTreeModel` (built in S4.5, then
+   superseded); the S4.5 loader / `_swap_block_definition` / buttons / Open-in-Editor stub are kept.
 5. **S5 — Icons & polish.** Author themed ribbon icons (mockup-gated, `icon-style-guide.md`); S2–S4
    run on the placeholder-icon fallback until then. Final smoke pass.
