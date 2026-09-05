@@ -1,5 +1,5 @@
 ---
-status: partial           # S1+S2+S3+S4 built; S4.5 (load-from-library + tree reshape) designed, in build; S5 (icons) pending; thumbnails deferred
+status: partial           # S1+S2+S3+S4+S4.5 built (Manager + load-from-library); S4.6 (flat Excel-autofilter, supersedes S4.5 tree) in build; S5 (icons) pending; thumbnails deferred
 last-verified: 2026-09-04
 verified-commit: 3d0691d
 applies-to:
@@ -320,5 +320,11 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
    button reserves the v2 Editor entry point. New: `block_library.load_block_file(path)`,
    `Model_Space.load_blocks_from_files(paths, root=None)`. Design:
    `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+4.6. **S4.6 — Excel-style flat autofilter table (supersedes the S4.5 tree).** The project view is a
+   flat sortable `QTableView` with a per-column **autofilter** (funnel per header → popup: Sort A→Z/
+   Z→A + search + (Select All) + multi-select checkboxes; OK/Cancel; active funnel highlighted), over a
+   `BlockFilterProxy(QSortFilterProxyModel)` holding per-column accepted-value sets + a `FilterHeader`.
+   Mockup-gated (`tools/block_autofilter_mockup.html`). Replaces `BlockTreeModel` (built in S4.5, then
+   superseded); the S4.5 loader / `_swap_block_definition` / buttons / Open-in-Editor stub are kept.
 5. **S5 — Icons & polish.** Author themed ribbon icons (mockup-gated, `icon-style-guide.md`); S2–S4
    run on the placeholder-icon fallback until then. Final smoke pass.

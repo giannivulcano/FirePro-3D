@@ -161,7 +161,13 @@ project opens with `blocks/` absent.
   existing `reload_block_definition` (which becomes: fetch library copy →
   `_swap_block_definition` → push_undo + emit). One backref-rebuild, two callers.
 
-### Tree reshape (replaces the flat table)
+> **SUPERSEDED by S4.6 (2026-09-05).** The Library→Series→block tree below was built and
+> smoke-passed, but on review the user chose a **flat table with Excel-style per-column autofilter**
+> instead (see "S4.6 — Excel autofilter" below). The tree (`BlockTreeModel`) is replaced by a flat
+> model + filter proxy. The `load_blocks_from_files` loader, `_swap_block_definition`, buttons, and
+> Open-in-Editor stub from S4.5 are unchanged.
+
+### Tree reshape (replaces the flat table) — SUPERSEDED, see S4.6
 
 - **`BlockTreeModel(QAbstractItemModel)` replaces `BlockTableModel`** in
   `block_manager.py`, mirroring `UnderlayTreeModel`: Library group → Series group →
@@ -210,6 +216,68 @@ leaf; leaf COUNT/STATUS; `BlockDefRole` None on groups; `_current_def` resolves 
 leaf). Live smoke: file dialog at blocks folder / browse elsewhere / `*.fpdb` /
 multi-select; loaded blocks in tree + browser + placeable; mixed-batch summary;
 corrupt-file grace; undo unloads; Open-in-Editor stub message.
+
+## S4.6 — Excel-style flat autofilter table (supersedes the S4.5 tree)
+
+> Added 2026-09-05 (mockup-gated design; `tools/block_autofilter_mockup.html` approved). The project
+> view is a **flat 5-column table** (name/library/series/instance-count/source-status), **sortable**
+> by clicking column labels, with an **Excel-style per-column autofilter**: each header has a funnel
+> that opens a popup with **Sort A→Z / Z→A**, a **search box**, **(Select All)**, and per-value
+> **multi-select checkboxes**; **OK/Cancel** apply timing; active-filter columns show a highlighted
+> funnel. Locked defaults: funnel on **all** columns; **OK/Cancel** (not apply-live).
+
+### Components (`block_manager.py`)
+
+- **`BlockTableModel(QAbstractTableModel)`** — flat, restored/rebuilt from `_block_definitions`
+  (same 5 `Col`s + `BlockDefRole` on each row; live reset on `blockDefinitionsChanged` +
+  `blockInstancesChanged`). Provides `distinct_values(col) -> list[str]` (sorted distinct display
+  strings for a column, used to populate a funnel's checkbox list).
+- **`BlockFilterProxy(QSortFilterProxyModel)`** — holds `_accepted: dict[int, set[str]]` (column →
+  accepted display strings; absent column = accept all). `filterAcceptsRow` accepts a source row iff
+  every filtered column's display string ∈ its accepted set. `set_column_filter(col, accepted|None)`;
+  `is_filtered(col) -> bool`; `clear_all()`. Sorting via `QSortFilterProxyModel.sort` with a numeric
+  `SortRole` for the COUNT column (so "10" > "2"). The view's `setSortingEnabled(True)` drives header
+  sort; the proxy `lessThan` uses `SortRole` when present.
+- **`FilterHeader(QHeaderView)`** — paints a funnel glyph per section (highlighted when
+  `proxy.is_filtered(col)`), and on a funnel-region click emits `filterClicked(col)`; a label-region
+  click falls through to the normal sort. (Alternatively a per-section corner button — the header
+  paint+hit-test is the house-consistent path, mirroring the delegate-painted chevrons.)
+- **`_FilterPopup(QFrame)`** — a frameless popup at the funnel: **Sort A→Z / Z→A** rows, a search
+  `QLineEdit` (filters the visible checkbox list), **(Select All)** tristate check, a scrollable
+  checkable list of `distinct_values(col)` (pre-checked = currently accepted), **OK/Cancel**. OK →
+  `proxy.set_column_filter(col, chosen)` (or None if all chosen); Cancel → discard. Themed via the
+  manager QSS.
+
+### Dialog wiring
+
+- `self.view` is a `QTableView` again (was S4.5 `QTreeView`): `setSortingEnabled(True)`,
+  `setHeader(FilterHeader(...))`, model = `BlockFilterProxy` over `BlockTableModel`,
+  `SourceStatusDelegate` on the (proxy) STATUS column.
+- `header.filterClicked` → `_open_filter_popup(col)` builds `_FilterPopup` seeded from
+  `model.distinct_values(col)` + `proxy` current accepted set; OK applies via the proxy.
+- `_current_def` maps the selected proxy index → source → `BlockDefRole`. Selection-preservation
+  keyed by definition id survives proxy resorts/filters (map id → source row → proxy index).
+- A **footer count** reads "showing X of N blocks · M instances" (X = proxy row count).
+- Everything else (toolbar Load/Save/Reload/Delete/Open-in-Editor, details-panel edit, undo) is
+  unchanged from S4/S4.5.
+
+### Theme
+
+- The manager QSS already targets `QTreeView#underlayTable`; add parallel `QTableView#underlayTable`
+  rules in `build_block_manager_qss` (the S4 rewrite trick, but **additive** — keep BOTH selectors so
+  the flat table is styled). The funnel + popup use theme tokens (`accent` for active funnel,
+  `chip`/`surface`/`line` for the popup), painted like the existing chip delegates.
+
+### Testing (S4.6)
+
+Headless guards (target the proxy + model, RED-first): (1) `distinct_values(col)` returns sorted
+distinct display strings; (2) `set_column_filter(col, {subset})` → proxy shows only matching rows;
+`None` clears; multi-column filters AND together; (3) `is_filtered` true only when a column's accepted
+set omits some value; (4) numeric sort on COUNT via `SortRole` ("10" after "9", not lexicographic);
+(5) selection-preservation: after a filter/sort reset the same definition id stays selected + panel
+populated; (6) `_current_def` maps proxy→source correctly. Live smoke: funnel opens popup, search
+narrows checkboxes, (Select All), OK applies + funnel highlights, Cancel discards, label-click sorts
+both directions, filtered footer count, dark+light styled.
 
 ## Follow-ups (filed, out of S4)
 

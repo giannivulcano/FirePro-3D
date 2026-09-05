@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Block Manager — Excel-style autofilter mockup</title>
+<style>
+  :root{
+    --ground:#f4f5f6; --surface:#ffffff; --table:#ffffff; --ink:#1c2024;
+    --muted:#5a636c; --faint:#98a1aa; --accent:#2f9e63; --accent-soft:#e4f3ea;
+    --line:#d4d8dc; --line-strong:#b4bac0; --warn:#b46500; --ok:#2f9e63; --chip:#eceef0;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#3a3f45;font:13px/1.4 "Segoe UI",system-ui,sans-serif;color:var(--ink);
+       display:flex;justify-content:center;padding:28px;}
+  .dialog{width:860px;background:var(--ground);border:1px solid var(--line-strong);border-radius:10px;
+          overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4);}
+  .titlebar{height:40px;background:var(--surface);border-bottom:1px solid var(--line);
+            display:flex;align-items:center;padding:0 14px;font-weight:600;}
+  .dot{width:11px;height:11px;border-radius:50%;margin-left:7px;}
+  .toolbar{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--ground);}
+  button.tb{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);
+            border-radius:6px;padding:6px 11px;cursor:pointer;font-size:12px;}
+  button.tb.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  button.tb.danger{color:#c0392b;border-color:#e0b4ae;}
+  button.tb:disabled{opacity:.45;cursor:default;}
+  .body{display:flex;}
+  .tablewrap{flex:1;background:var(--table);}
+  table{width:100%;border-collapse:collapse;}
+  th{position:relative;text-align:left;font-weight:600;font-size:12px;color:var(--muted);
+     background:var(--surface);border-bottom:1px solid var(--line-strong);padding:0;user-select:none;}
+  th .hcell{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 10px;}
+  th .label{cursor:pointer;flex:1;display:flex;align-items:center;gap:5px;}
+  th .sortmark{color:var(--accent);font-size:11px;width:10px;}
+  .funnel{cursor:pointer;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;
+          justify-content:center;color:var(--faint);}
+  .funnel:hover{background:var(--chip);color:var(--muted);}
+  .funnel.active{color:var(--accent);background:var(--accent-soft);}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);}
+  tr:hover td{background:var(--accent-soft);}
+  tr.sel td{background:#d7ebe0;}
+  .pill{display:inline-block;padding:2px 9px;border-radius:9px;font-size:11px;}
+  .pill.project-only{background:var(--chip);color:var(--muted);}
+  .pill.library{background:var(--accent-soft);color:var(--accent);}
+  .pill.modified{background:#f6e6cf;color:var(--warn);}
+  .details{width:250px;border-left:1px solid var(--line);background:var(--ground);padding:14px;}
+  .details h4{margin:0 0 10px;font-size:11px;letter-spacing:.06em;color:var(--faint);}
+  .details label{display:block;font-size:11px;color:var(--muted);margin:8px 0 3px;}
+  .details input{width:100%;padding:5px 7px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface);}
+  .footer{padding:8px 12px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;
+          display:flex;justify-content:space-between;align-items:center;}
+  /* filter popup */
+  .pop{position:absolute;top:34px;right:2px;width:230px;background:var(--surface);border:1px solid var(--line-strong);
+       border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.25);z-index:20;padding:8px;display:none;}
+  .pop.open{display:block;}
+  .pop .sortrow{display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px;}
+  .pop .sortrow div{padding:5px 7px;border-radius:5px;cursor:pointer;font-size:12px;}
+  .pop .sortrow div:hover{background:var(--chip);}
+  .pop .search{width:100%;padding:5px 7px;border:1px solid var(--line-strong);border-radius:5px;margin-bottom:6px;}
+  .pop .list{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:4px;}
+  .pop .opt{display:flex;align-items:center;gap:7px;padding:4px 5px;border-radius:4px;cursor:pointer;font-size:12px;}
+  .pop .opt:hover{background:var(--chip);}
+  .pop .opt.all{font-weight:600;border-bottom:1px solid var(--line);margin-bottom:3px;padding-bottom:6px;}
+  .pop .btns{display:flex;justify-content:flex-end;gap:6px;margin-top:8px;}
+  .pop .btns button{border-radius:5px;padding:5px 12px;cursor:pointer;border:1px solid var(--line-strong);background:var(--surface);}
+  .pop .btns button.ok{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .note{color:#cfe8db;max-width:860px;margin:0 auto 14px;font-size:13px;}
+</style>
+</head>
+<body>
+<div style="max-width:860px;">
+  <p class="note"><b>Block Manager — Excel-style autofilter mockup.</b> Click a column <b>label</b> to sort;
+  click the <b>▾ funnel</b> to open a per-column filter (search + multi-select checkboxes + Sort A→Z/Z→A).
+  Active filters show a green funnel. Try: filter Library to just “Details”, or type in a funnel’s search box.</p>
+<div class="dialog">
+  <div class="titlebar">Block Manager
+    <span style="flex:1"></span>
+    <span class="dot" style="background:#f0b429"></span>
+    <span class="dot" style="background:#3ea655"></span>
+    <span class="dot" style="background:#e0564b"></span>
+  </div>
+  <div class="toolbar">
+    <button class="tb primary">Load from Library…</button>
+    <button class="tb" id="b-save">Save to Library</button>
+    <button class="tb" id="b-reload" disabled>Reload from Library</button>
+    <button class="tb danger" id="b-del">Delete</button>
+    <button class="tb" id="b-ed">Open in Editor</button>
+  </div>
+  <div class="body">
+    <div class="tablewrap">
+      <table id="tbl">
+        <thead><tr id="hrow"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="details">
+      <h4>DETAILS</h4>
+      <label>Name</label><input id="d-name" value="">
+      <label>Library</label><input id="d-lib" value="">
+      <label>Series</label><input id="d-ser" value="">
+      <label>Source</label><div id="d-src" style="margin-top:3px"></div>
+      <label>Instances</label><div id="d-cnt" style="margin-top:3px"></div>
+    </div>
+  </div>
+  <div class="footer"><span id="count"></span><span>Changes apply immediately</span></div>
+</div>
+</div>
+
+<script>
+const COLS = [
+  {key:"name",   label:"Name"},
+  {key:"library",label:"Library"},
+  {key:"series", label:"Series"},
+  {key:"count",  label:"Instances", num:true},
+  {key:"status", label:"Source"},
+];
+const DATA = [
+  {name:"Corner Joint", library:"Typical Detail", series:"Wall Joints", count:3, status:"library"},
+  {name:"Tee Joint",    library:"Typical Detail", series:"Wall Joints", count:0, status:"project-only"},
+  {name:"Cross Joint",  library:"Typical Detail", series:"Wall Joints", count:1, status:"modified"},
+  {name:"Column Bubble",library:"Datums",         series:"Gridlines",   count:8, status:"library"},
+  {name:"Section Head", library:"Datums",         series:"Markers",     count:2, status:"library"},
+  {name:"Pendent",      library:"Sprinklers",     series:"Heads",       count:12,status:"project-only"},
+  {name:"Upright",      library:"Sprinklers",     series:"Heads",       count:5, status:"library"},
+  {name:"Sidewall",     library:"Sprinklers",     series:"Heads",       count:0, status:"modified"},
+  {name:"Alarm Valve",  library:"Sprinklers",     series:"Valves",      count:1, status:"library"},
+];
+let sortKey=null, sortAsc=true;
+const filters={};   // key -> Set of accepted values (absent = all)
+let selName=null;
+
+function distinct(key){return [...new Set(DATA.map(r=>String(r[key])))];}
+
+function buildHeader(){
+  const hrow=document.getElementById("hrow"); hrow.innerHTML="";
+  COLS.forEach(c=>{
+    const th=document.createElement("th");
+    const active = filters[c.key] && filters[c.key].size < distinct(c.key).length;
+    const mark = sortKey===c.key ? (sortAsc?"▲":"▼") : "";
+    th.innerHTML=`<div class="hcell">
+        <span class="label"><span>${c.label}</span><span class="sortmark">${mark}</span></span>
+        <span class="funnel ${active?'active':''}" title="Filter">▾</span>
+      </div>`;
+    th.querySelector(".label").onclick=()=>{ if(sortKey===c.key)sortAsc=!sortAsc; else {sortKey=c.key;sortAsc=true;} render(); };
+    th.querySelector(".funnel").onclick=(e)=>{ e.stopPropagation(); openPop(th,c); };
+    hrow.appendChild(th);
+  });
+}
+
+function openPop(th,c){
+  document.querySelectorAll(".pop").forEach(p=>p.remove());
+  const vals=distinct(c.key).sort();
+  const accepted=filters[c.key]||new Set(vals);
+  const pop=document.createElement("div"); pop.className="pop open";
+  pop.innerHTML=`
+    <div class="sortrow">
+      <div data-s="asc">▲ Sort A → Z</div>
+      <div data-s="desc">▼ Sort Z → A</div>
+    </div>
+    <input class="search" placeholder="Search ${c.label.toLowerCase()}…">
+    <div class="list">
+      <label class="opt all"><input type="checkbox" id="all"> (Select All)</label>
+      ${vals.map(v=>`<label class="opt"><input type="checkbox" value="${v}" ${accepted.has(v)?'checked':''}> ${v}</label>`).join("")}
+    </div>
+    <div class="btns"><button class="cancel">Cancel</button><button class="ok">OK</button></div>`;
+  th.appendChild(pop);
+  const boxes=[...pop.querySelectorAll('.list input[type=checkbox]:not(#all)')];
+  const all=pop.querySelector("#all");
+  const syncAll=()=>{all.checked=boxes.every(b=>b.checked);all.indeterminate=!all.checked&&boxes.some(b=>b.checked);};
+  syncAll();
+  all.onclick=()=>boxes.forEach(b=>b.checked=all.checked);
+  boxes.forEach(b=>b.onchange=syncAll);
+  pop.querySelector(".search").oninput=(e)=>{
+    const q=e.target.value.toLowerCase();
+    boxes.forEach(b=>b.closest(".opt").style.display=b.value.toLowerCase().includes(q)?"":"none");
+  };
+  pop.querySelectorAll(".sortrow div").forEach(d=>d.onclick=()=>{
+    sortKey=c.key; sortAsc=d.dataset.s==="asc"; pop.remove(); render();
+  });
+  pop.querySelector(".cancel").onclick=()=>pop.remove();
+  pop.querySelector(".ok").onclick=()=>{
+    const chosen=boxes.filter(b=>b.checked).map(b=>b.value);
+    if(chosen.length===vals.length) delete filters[c.key];
+    else filters[c.key]=new Set(chosen);
+    pop.remove(); render();
+  };
+}
+document.body.addEventListener("click",()=>document.querySelectorAll(".pop").forEach(p=>p.remove()),true);
+
+function rowsView(){
+  let rs=DATA.filter(r=>COLS.every(c=>!filters[c.key]||filters[c.key].has(String(r[c.key]))));
+  if(sortKey){
+    const c=COLS.find(x=>x.key===sortKey);
+    rs=[...rs].sort((a,b)=>{
+      let x=a[sortKey],y=b[sortKey]; if(c.num){x=+x;y=+y;}
+      return (x<y?-1:x>y?1:0)*(sortAsc?1:-1);
+    });
+  }
+  return rs;
+}
+
+function render(){
+  buildHeader();
+  const tb=document.getElementById("rows"); tb.innerHTML="";
+  const rs=rowsView();
+  rs.forEach(r=>{
+    const tr=document.createElement("tr"); if(r.name===selName)tr.className="sel";
+    tr.innerHTML=`<td>${r.name}</td><td>${r.library}</td><td>${r.series}</td>
+      <td>${r.count}</td><td><span class="pill ${r.status}">${r.status}</span></td>`;
+    tr.onclick=()=>{selName=r.name;syncDetails(r);render();};
+    tb.appendChild(tr);
+  });
+  document.getElementById("count").textContent=
+    `${rs.length} of ${DATA.length} blocks · ${DATA.reduce((s,r)=>s+r.count,0)} instances`;
+}
+function syncDetails(r){
+  d_name.value=r.name; d_lib.value=r.library; d_ser.value=r.series;
+  d_src.innerHTML=`<span class="pill ${r.status}">${r.status}</span>`; d_cnt.textContent=r.count;
+  b_save.disabled=!(r.status==="project-only"||r.status==="modified");
+  b_reload.disabled=r.status!=="modified"; b_del.disabled=false; b_ed.disabled=false;
+}
+render();
+</script>
+</body>
+</html>
