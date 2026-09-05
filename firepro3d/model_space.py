@@ -156,6 +156,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
+    blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
 
     def __init__(self):
         super().__init__()
@@ -1487,6 +1488,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
         return self._block_definitions.get(block_id)
 
+    def instance_count(self, block_id: str) -> int:
+        """Number of placed BlockInstances referencing *block_id*."""
+        return sum(1 for i in self._block_instances if i.block_id == block_id)
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None):
         """Create + add a BlockInstance referencing an existing definition."""
@@ -1500,6 +1505,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         d = self.get_block_definition(block_id)
         if d is not None:
             d._instances.append(inst)   # backref for edit-propagation
+        self.blockInstancesChanged.emit()
         return inst
 
     def remove_block_instance(self, inst) -> None:
@@ -1511,6 +1517,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         d = self.get_block_definition(inst.block_id)
         if d is not None and inst in d._instances:
             d._instances.remove(inst)
+        self.blockInstancesChanged.emit()
 
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
