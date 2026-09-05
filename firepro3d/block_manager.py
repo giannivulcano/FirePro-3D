@@ -146,6 +146,47 @@ class BlockTableModel(QAbstractTableModel):
 
 
 # ---------------------------------------------------------------------------
+# BlockFilterProxy — per-column multi-select autofilter + numeric-aware sort
+# ---------------------------------------------------------------------------
+
+class BlockFilterProxy(QSortFilterProxyModel):
+    """Per-column multi-select autofilter + numeric-aware sort.
+
+    ``_accepted[col]`` is the set of accepted DisplayRole strings for that column;
+    a column absent from the dict accepts everything. A row is shown iff every
+    filtered column's display string is in its accepted set (AND across columns).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._accepted: dict = {}
+        self.setSortRole(SortRole)
+
+    def set_column_filter(self, col, accepted):
+        """accepted: a set of DisplayRole strings, or None to clear the column."""
+        if accepted is None:
+            self._accepted.pop(col, None)
+        else:
+            self._accepted[col] = set(accepted)
+        self.invalidateFilter()
+
+    def is_filtered(self, col) -> bool:
+        return col in self._accepted
+
+    def clear_all(self):
+        self._accepted.clear()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        m = self.sourceModel()
+        for col, accepted in self._accepted.items():
+            idx = m.index(source_row, col, source_parent)
+            if m.data(idx, Qt.ItemDataRole.DisplayRole) not in accepted:
+                return False
+        return True
+
+
+# ---------------------------------------------------------------------------
 # SourceStatusDelegate — status badge
 # ---------------------------------------------------------------------------
 
