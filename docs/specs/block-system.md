@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S4.6 built (Manager + load-from-library + Excel autofilter; details panel read-only); S5 (icons) pending; thumbnails deferred
+status: partial           # S1–S5 built (Manager + load-from-library + Excel autofilter + themed ribbon icons; details panel read-only); thumbnails + Open-in-Editor deferred
 last-verified: 2026-09-05
-verified-commit: c0c2696
+verified-commit: 74bc7bb
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -289,7 +289,8 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - [ ] **`BlockItem` retired:** repo-wide grep shows no live importers; app launch-smoke passes.
 - [ ] **Perf:** many instances of one block stay responsive (shared-definition rendering; no
       per-instance geometry copies).
-- [ ] **Icons:** themed Blocks-group icons pass the two-token guard tests (`icon-style-guide.md`).
+- [x] **Icons:** themed Blocks-group icons pass the two-token guard tests (`icon-style-guide.md`).
+      *(S5 shipped: `make_block_icon.svg` / `insert_block_icon.svg` / `block_manager_icon.svg`; 17 green.)*
 
 ## Verification Checklist
 
@@ -343,5 +344,8 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
    `BlockFilterProxy(QSortFilterProxyModel)` holding per-column accepted-value sets + a `FilterHeader`.
    Mockup-gated (`tools/block_autofilter_mockup.html`). Replaces `BlockTreeModel` (built in S4.5, then
    superseded); the S4.5 loader / `_swap_block_definition` / buttons / Open-in-Editor stub are kept.
-5. **S5 — Icons & polish.** Author themed ribbon icons (mockup-gated, `icon-style-guide.md`); S2–S4
-   run on the placeholder-icon fallback until then. Final smoke pass.
+5. **S5 — Icons & polish. ✅ SHIPPED 2026-09-05.** Themed ribbon icons authored mockup-gated
+   (`icon-style-guide.md`): `make_block_icon.svg` (plus) / `insert_block_icon.svg` (arrow) /
+   `block_manager_icon.svg` (grid), two-token compliant, wired into the Create▸Blocks group
+   (`main.py`) + the Block Manager title bar (`block_manager.py`); guard tests in
+   `test_icon_theming.py` (17 green). Replaced the placeholder-icon fallback S2–S4 ran on.
