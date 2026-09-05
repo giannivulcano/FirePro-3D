@@ -20,6 +20,7 @@ from .constants import (
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
 )
+from .app_data import default_root, ROOT_KEY as _DATA_ROOT_KEY
 
 
 class SettingsPane(QWidget):
@@ -845,7 +846,37 @@ class GeneralPane(SettingsPane):
             self._dock_checks[short_key] = cb
 
         outer.addWidget(dock_group)
+
+        # ── Data folder (block / sprinkler / title-block libraries) ──────────
+        data_group = QGroupBox("Data folder")
+        dv = QVBoxLayout(data_group)
+        hint = QLabel(
+            "Where FirePro3D stores your block, sprinkler and title-block "
+            "libraries. Leave blank for the default. Changing this does not move "
+            "existing content — copy it over yourself if needed.")
+        hint.setWordWrap(True)
+        dv.addWidget(hint)
+        row = QHBoxLayout()
+        self._data_folder_edit = QLineEdit()
+        self._data_folder_edit.setPlaceholderText(default_root())
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._pick_data_folder)
+        reset = QPushButton("Reset")
+        reset.clicked.connect(self._data_folder_edit.clear)
+        row.addWidget(self._data_folder_edit, 1)
+        row.addWidget(browse)
+        row.addWidget(reset)
+        dv.addLayout(row)
+        outer.addWidget(data_group)
+
         outer.addStretch()
+
+    def _pick_data_folder(self) -> None:
+        start = self._data_folder_edit.text().strip() or default_root()
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose FirePro3D data folder", start)
+        if chosen:
+            self._data_folder_edit.setText(chosen)
 
     # ── SettingsPane protocol ─────────────────────────────────────────────────
 
@@ -866,23 +897,27 @@ class GeneralPane(SettingsPane):
             self._dock_checks[short_key].setChecked(val)
 
         self._snapshot = snapshot
+        df = s.value(_DATA_ROOT_KEY, "", type=str) or ""
+        self._data_folder_snapshot = df
+        self._data_folder_edit.setText(df)
 
     def apply(self) -> None:
-        """Write checkbox states to QSettings."""
+        """Write checkbox states + the data-folder override to QSettings."""
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         for _label, qkey, _default in _DOCK_ITEMS:
             short_key = qkey.split("/", 1)[1]
             s.setValue(qkey, self._dock_checks[short_key].isChecked())
 
-    def revert(self) -> None:
-        """Restore snapshot values to checkboxes."""
-        if not self._snapshot:
-            return
+        # Blank clears the override (falls back to the default root).
+        s.setValue(_DATA_ROOT_KEY, self._data_folder_edit.text().strip())
 
-        for short_key, val in self._snapshot.items():
+    def revert(self) -> None:
+        """Restore snapshot values to checkboxes + the data-folder field."""
+        for short_key, val in (self._snapshot or {}).items():
             if short_key in self._dock_checks:
                 self._dock_checks[short_key].setChecked(val)
+        self._data_folder_edit.setText(getattr(self, "_data_folder_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.
