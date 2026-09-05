@@ -372,20 +372,38 @@ class FilterHeader(QHeaderView):
         self.t = theme
         self._is_filtered = is_filtered      # callable(col) -> bool
         self.setSectionsClickable(True)
-        self.setSortIndicatorShown(True)
+        # Suppress Qt's native sort arrow — it paints at the section's right edge,
+        # colliding with our funnel there. We draw our own caret (left of the
+        # funnel) instead so sort direction and filter state never overlap.
+        self.setSortIndicatorShown(False)
 
     def paintSection(self, painter, rect, index):
         super().paintSection(painter, rect, index)
-        active = bool(self._is_filtered(index))
+        from PyQt6.QtGui import QPolygon
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx = rect.right() - self._FUNNEL_W + 4
         cy = rect.center().y()
+
+        # Sort caret on the sort column, seated just left of the funnel band.
+        if index == self.sortIndicatorSection():
+            sx = rect.right() - self._FUNNEL_W - 9
+            faint = self.t.color("faint")
+            painter.setPen(faint)
+            painter.setBrush(faint)
+            if self.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder:
+                caret = QPolygon([QPoint(sx, cy + 2), QPoint(sx + 6, cy + 2),
+                                  QPoint(sx + 3, cy - 3)])
+            else:
+                caret = QPolygon([QPoint(sx, cy - 2), QPoint(sx + 6, cy - 2),
+                                  QPoint(sx + 3, cy + 3)])
+            painter.drawPolygon(caret)
+
+        # Filter funnel: accent-filled when this column is filtered, else outline.
+        active = bool(self._is_filtered(index))
+        cx = rect.right() - self._FUNNEL_W + 4
         color = self.t.color("accent") if active else self.t.color("faint")
         painter.setPen(color)
         painter.setBrush(color if active else Qt.BrushStyle.NoBrush)
-        # simple funnel: trapezoid + stem via a small polygon
-        from PyQt6.QtGui import QPolygon
         pts = QPolygon([QPoint(cx, cy - 4), QPoint(cx + 10, cy - 4),
                         QPoint(cx + 6, cy), QPoint(cx + 6, cy + 4),
                         QPoint(cx + 4, cy + 4), QPoint(cx + 4, cy)])
@@ -435,6 +453,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.proxy.setSourceModel(self.model)
         self._build_ui()
         self._wire()
+        self._restore_header_state()
         self._sync_ui()
 
     # ------------------------------------------------------------------ UI
@@ -535,6 +554,32 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset: str | None = None
         self.model.modelAboutToBeReset.connect(self._before_reset)
         self.model.modelReset.connect(self._after_reset)
+        # Persist column widths / order / sort across sessions (QSettings blob).
+        header = self.view.horizontalHeader()
+        header.sortIndicatorChanged.connect(self._save_header_state)
+        header.sectionResized.connect(self._save_header_state)
+
+    # ------------------------------------------- header-state persistence
+    _HEADER_STATE_KEY = "BlockManager/headerState"
+
+    def _settings(self):
+        """The app QSettings, or None (e.g. under test stubs) — callers guard."""
+        return getattr(self.main_window, "settings", None)
+
+    def _restore_header_state(self) -> None:
+        s = self._settings()
+        if s is None:
+            return
+        blob = s.value(self._HEADER_STATE_KEY)
+        if blob:
+            self.view.horizontalHeader().restoreState(blob)
+
+    def _save_header_state(self, *_args) -> None:
+        s = self._settings()
+        if s is None:
+            return
+        s.setValue(self._HEADER_STATE_KEY,
+                   self.view.horizontalHeader().saveState())
 
     # ------------------------------------------------- reset guard (selection)
     def _before_reset(self) -> None:

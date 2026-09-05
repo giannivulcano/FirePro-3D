@@ -330,3 +330,46 @@ def test_manager_save_collision_cancelled_preserves_existing(model_space, qapp,
     dlg._save_to_library()
     assert _read_index(tmp_path)["Corner.fpdb"]["id"] == existing.id  # untouched
     dlg.close()
+
+
+# ---------------------------------------------------------------------------
+# Autofilter polish: column width + sort persistence across dialog sessions
+# ---------------------------------------------------------------------------
+
+def test_manager_persists_column_width_and_sort(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog, Col
+    from PyQt6.QtCore import QSettings
+    for n, lib in (("A", "L1"), ("B", "L2")):
+        model_space.register_block_definition(_def(name=n, library=lib))
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    class _MW:
+        pass
+    mw = _MW()
+    mw.settings = settings
+
+    dlg1 = BlockManagerDialog(model_space, mw, apply_stylesheet=False,
+                              root=str(tmp_path))
+    dlg1.view.setColumnWidth(Col.NAME, 305)          # -> sectionResized -> persist
+    dlg1.view.sortByColumn(Col.LIBRARY, Qt.SortOrder.DescendingOrder)  # -> persist
+    dlg1.close()
+
+    # A fresh dialog with the same settings restores the persisted header state.
+    dlg2 = BlockManagerDialog(model_space, mw, apply_stylesheet=False,
+                              root=str(tmp_path))
+    hdr = dlg2.view.horizontalHeader()
+    assert dlg2.view.columnWidth(Col.NAME) == 305
+    assert hdr.sortIndicatorSection() == Col.LIBRARY
+    assert hdr.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+    dlg2.close()
+
+
+def test_manager_no_settings_stub_is_safe(model_space, qapp, tmp_path):
+    # The None-settings stub must not raise when header persistence fires.
+    from firepro3d.block_manager import BlockManagerDialog, Col
+    class _MW: settings = None
+    model_space.register_block_definition(_def(name="A"))
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    dlg.view.setColumnWidth(Col.NAME, 250)           # fires _save_header_state
+    dlg._save_header_state()                          # explicit: no-op, no raise
+    dlg.close()
