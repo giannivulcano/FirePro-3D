@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex,
-                          QRectF, QSize)
+from PyQt6.QtCore import (Qt, QAbstractTableModel, QAbstractItemModel,
+                          QModelIndex, QRectF, QSize)
 from PyQt6.QtGui import QPainter, QFontMetrics
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
                              QPushButton, QLabel, QLineEdit, QTableView,
-                             QAbstractItemView, QHeaderView, QFormLayout,
-                             QWidget, QStyledItemDelegate)
+                             QTreeView, QAbstractItemView, QHeaderView,
+                             QFormLayout, QWidget, QStyledItemDelegate)
 
 from . import block_library
 from .frameless_shell import FramelessShellMixin
@@ -34,21 +34,35 @@ class Col(IntEnum):
 _HEADERS = {Col.NAME: "Name", Col.LIBRARY: "Library", Col.SERIES: "Series",
             Col.COUNT: "Instances", Col.STATUS: "Source"}
 
+BlockDefRole = Qt.ItemDataRole.UserRole + 1   # leaf -> BlockDefinition; group -> None
 
-class BlockTableModel(QAbstractTableModel):
-    """Flat, live table over ``scene._block_definitions``.
 
-    Resets on both ``blockDefinitionsChanged`` (registry add/remove/rename) and
-    ``blockInstancesChanged`` (instance place/remove → count changes). ``root``
-    overrides the library root for ``source_status`` (tests inject a temp dir;
-    production passes None).
+class _Node:
+    """Explicit tree node. kind: 'library' | 'series' | 'block'."""
+    __slots__ = ("kind", "label", "defn", "parent", "children", "row")
+
+    def __init__(self, kind, label, defn, parent, row):
+        self.kind = kind
+        self.label = label        # display text for group rows
+        self.defn = defn          # BlockDefinition on a 'block' leaf, else None
+        self.parent = parent
+        self.row = row
+        self.children = []
+
+
+class BlockTreeModel(QAbstractItemModel):
+    """Library -> Series -> block tree over ``scene._block_definitions``.
+
+    Live: resets on both ``blockDefinitionsChanged`` and ``blockInstancesChanged``
+    (place/remove changes leaf counts). ``root`` overrides the library root for
+    ``source_status`` (tests inject a temp dir; production passes None).
     """
 
     def __init__(self, scene, root: str | None = None, parent=None):
         super().__init__(parent)
         self._scene = scene
         self._root = root
-        self._defs: list = []
+        self._root_node = _Node("root", "", None, None, 0)
         self._counts: dict = {}
         self._rebuild()
         for signame in ("blockDefinitionsChanged", "blockInstancesChanged"):
@@ -58,39 +72,70 @@ class BlockTableModel(QAbstractTableModel):
 
     # -- snapshot ----------------------------------------------------------
     def _rebuild(self) -> None:
-        self._defs = list(self._scene._block_definitions.values())
         self._counts = {}
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
+        self._root_node = _Node("root", "", None, None, 0)
+        grouped: dict = {}
+        for d in self._scene._block_definitions.values():
+            grouped.setdefault(d.library, {}).setdefault(d.series, []).append(d)
+        for li, lib in enumerate(sorted(grouped)):
+            lib_node = _Node("library", lib, None, self._root_node, li)
+            self._root_node.children.append(lib_node)
+            for si, ser in enumerate(sorted(grouped[lib])):
+                ser_node = _Node("series", ser, None, lib_node, si)
+                lib_node.children.append(ser_node)
+                for bi, d in enumerate(sorted(grouped[lib][ser], key=lambda x: x.name)):
+                    ser_node.children.append(_Node("block", d.name, d, ser_node, bi))
 
     def _on_changed(self) -> None:
         self.beginResetModel()
         self._rebuild()
         self.endResetModel()
 
-    def definition_at(self, row: int):
-        """Return the BlockDefinition at the given row, or None."""
-        if 0 <= row < len(self._defs):
-            return self._defs[row]
-        return None
-
-    def row_for_id(self, block_id: str) -> int:
-        """Return the row index of the definition with *block_id*, or -1 if absent."""
-        for row, defn in enumerate(self._defs):
-            if defn.id == block_id:
-                return row
-        return -1
-
     def refresh(self) -> None:
         """Re-read the definitions snapshot (e.g. after a library write that
         changed source-status but did not mutate the registry)."""
         self._on_changed()
 
-    # -- Qt model ----------------------------------------------------------
-    def rowCount(self, parent=QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._defs)
+    def _node(self, index) -> _Node:
+        return index.internalPointer() if index.isValid() else self._root_node
 
-    def columnCount(self, parent=QModelIndex()) -> int:
+    def definition_at_index(self, index):
+        node = self._node(index)
+        return node.defn if node.kind == "block" else None
+
+    def index_for_id(self, block_id):
+        """QModelIndex of the leaf whose definition id == block_id (else invalid)."""
+        for lib in self._root_node.children:
+            for ser in lib.children:
+                for leaf in ser.children:
+                    if leaf.defn is not None and leaf.defn.id == block_id:
+                        return self.createIndex(leaf.row, 0, leaf)
+        return QModelIndex()
+
+    # -- tree structure ----------------------------------------------------
+    def index(self, row, column, parent=QModelIndex()):
+        if row < 0 or column < 0 or column >= len(Col):
+            return QModelIndex()
+        parent_node = self._node(parent)
+        if row >= len(parent_node.children):
+            return QModelIndex()
+        return self.createIndex(row, column, parent_node.children[row])
+
+    def parent(self, index):
+        if not index.isValid():
+            return QModelIndex()
+        node = index.internalPointer()
+        p = node.parent
+        if p is None or p is self._root_node:
+            return QModelIndex()
+        return self.createIndex(p.row, 0, p)
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._node(parent).children)
+
+    def columnCount(self, parent=QModelIndex()):
         return len(Col)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -99,22 +144,35 @@ class BlockTableModel(QAbstractTableModel):
             return _HEADERS.get(Col(section), "")
         return None
 
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+    # -- data --------------------------------------------------------------
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        defn = self._defs[index.row()]
+        node = index.internalPointer()
+        if role == BlockDefRole:
+            return node.defn if node.kind == "block" else None
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
         col = index.column()
-        if role == Qt.ItemDataRole.DisplayRole:
-            if col == Col.NAME:
-                return defn.name
-            if col == Col.LIBRARY:
-                return defn.library
-            if col == Col.SERIES:
-                return defn.series
-            if col == Col.COUNT:
-                return str(self._counts.get(defn.id, 0))
-            if col == Col.STATUS:
-                return block_library.source_status(defn, root=self._root)
+        if node.kind != "block":
+            # group rows: only the NAME column shows the label
+            return node.label if col == Col.NAME else None
+        d = node.defn
+        if col == Col.NAME:
+            return d.name
+        if col == Col.LIBRARY:
+            return d.library
+        if col == Col.SERIES:
+            return d.series
+        if col == Col.COUNT:
+            return str(self._counts.get(d.id, 0))
+        if col == Col.STATUS:
+            return block_library.source_status(d, root=self._root)
         return None
 
 

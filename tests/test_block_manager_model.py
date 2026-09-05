@@ -1,7 +1,7 @@
-"""BlockTableModel — flat live view over the project's block definitions (S4)."""
+"""BlockTreeModel — Library/Series/block tree over the project's block definitions (S4.5)."""
 from PyQt6.QtCore import Qt, QModelIndex
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.block_manager import BlockTableModel, Col
+from firepro3d.block_manager import BlockTreeModel, Col, BlockDefRole
 
 
 def _def(name="A", library="L", series="S"):
@@ -12,36 +12,73 @@ def _def(name="A", library="L", series="S"):
                                origin=(0.0, 0.0))
 
 
-def test_columns_and_live_count(model_space, tmp_path):
+def _leaf_index(model, lib_name, ser_name, block_name):
+    """Return the QModelIndex of a block leaf by walking Library->Series->block."""
+    root = QModelIndex()
+    for i in range(model.rowCount(root)):
+        lib = model.index(i, 0, root)
+        if model.data(lib, Qt.ItemDataRole.DisplayRole) != lib_name:
+            continue
+        for j in range(model.rowCount(lib)):
+            ser = model.index(j, 0, lib)
+            if model.data(ser, Qt.ItemDataRole.DisplayRole) != ser_name:
+                continue
+            for k in range(model.rowCount(ser)):
+                leaf = model.index(k, 0, ser)
+                if model.data(leaf, Qt.ItemDataRole.DisplayRole) == block_name:
+                    return leaf
+    return QModelIndex()
+
+
+def test_tree_groups_library_series_block(model_space, tmp_path):
     d = _def(name="Corner", library="Details", series="Joints")
     model_space.register_block_definition(d)
-    model = BlockTableModel(model_space, root=str(tmp_path))
+    model = BlockTreeModel(model_space, root=str(tmp_path))
 
-    assert model.rowCount(QModelIndex()) == 1
-    assert model.columnCount(QModelIndex()) == len(Col)
-
-    def cell(row, col):
-        return model.data(model.index(row, col), Qt.ItemDataRole.DisplayRole)
-
-    assert cell(0, Col.NAME) == "Corner"
-    assert cell(0, Col.LIBRARY) == "Details"
-    assert cell(0, Col.SERIES) == "Joints"
-    assert cell(0, Col.COUNT) == "0"
-    # source-status text is exposed via DisplayRole on the STATUS column
-    assert cell(0, Col.STATUS) == "project-only"
-
-    # live: placing an instance updates the COUNT cell (model reset on signal)
-    model_space.place_block_instance(d.id, (0.0, 0.0))
-    assert cell(0, Col.COUNT) == "1"
+    root = QModelIndex()
+    assert model.rowCount(root) == 1                         # one Library
+    lib = model.index(0, 0, root)
+    assert model.data(lib, Qt.ItemDataRole.DisplayRole) == "Details"
+    assert model.rowCount(lib) == 1                          # one Series
+    ser = model.index(0, 0, lib)
+    assert model.data(ser, Qt.ItemDataRole.DisplayRole) == "Joints"
+    assert model.rowCount(ser) == 1                          # one block leaf
+    leaf = model.index(0, 0, ser)
+    assert model.data(leaf, Qt.ItemDataRole.DisplayRole) == "Corner"
 
 
-def test_definition_for_row(model_space, tmp_path):
-    d = _def()
+def test_leaf_columns_and_defrole(model_space, tmp_path):
+    d = _def(name="Corner", library="Details", series="Joints")
     model_space.register_block_definition(d)
-    model = BlockTableModel(model_space, root=str(tmp_path))
-    assert model.definition_at(0) is d
+    model = BlockTreeModel(model_space, root=str(tmp_path))
+    leaf = _leaf_index(model, "Details", "Joints", "Corner")
+    assert leaf.isValid()
+
+    def cell(col):
+        return model.data(model.index(leaf.row(), col, leaf.parent()),
+                          Qt.ItemDataRole.DisplayRole)
+    assert cell(Col.COUNT) == "0"
+    assert cell(Col.STATUS) == "project-only"
+    # BlockDefRole resolves the definition on a leaf, None on a group row
+    assert model.data(leaf, BlockDefRole) is d
+    lib = model.index(0, 0, QModelIndex())
+    assert model.data(lib, BlockDefRole) is None
 
 
+def test_live_count_updates_on_place(model_space, tmp_path):
+    d = _def(name="Corner", library="Details", series="Joints")
+    model_space.register_block_definition(d)
+    model = BlockTreeModel(model_space, root=str(tmp_path))
+    model_space.place_block_instance(d.id, (0.0, 0.0))
+    leaf = _leaf_index(model, "Details", "Joints", "Corner")
+    cnt = model.data(model.index(leaf.row(), Col.COUNT, leaf.parent()),
+                     Qt.ItemDataRole.DisplayRole)
+    assert cnt == "1"
+
+
+# ---------------------------------------------------------------------------
+# SourceStatusDelegate — keep the colour-map test (delegate is unchanged)
+# ---------------------------------------------------------------------------
 from firepro3d.theme import detect
 from firepro3d.block_manager import SourceStatusDelegate
 
@@ -54,63 +91,91 @@ def test_status_delegate_colour_map():
     assert d.token_for("modified") == "warn"
 
 
+# ---------------------------------------------------------------------------
+# BlockManagerDialog — tree-aware tests (Task 5)
+# ---------------------------------------------------------------------------
+
+def _select_block(dlg, block_id):
+    idx = dlg.model.index_for_id(block_id)
+    assert idx.isValid()
+    dlg.view.setCurrentIndex(idx)
+    return idx
+
+
 def test_dialog_constructs_and_reflects_scene(model_space, qapp, tmp_path):
     from firepro3d.block_manager import BlockManagerDialog
-
-    class _MW:
-        settings = None
+    class _MW: settings = None
     d = _def(name="Corner")
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
                              root=str(tmp_path))
-    assert dlg.model.rowCount() == 1
-    # select the row and confirm the details panel populates
-    dlg.view.selectRow(0)
+    _select_block(dlg, d.id)
     assert dlg.ed_name.text() == "Corner"
-    assert dlg.btn_save.isEnabled()       # project-only -> Save enabled
-    assert not dlg.btn_reload.isEnabled() # project-only -> Reload disabled
+    assert dlg.btn_save.isEnabled()          # project-only -> Save enabled
+    assert not dlg.btn_reload.isEnabled()    # project-only -> Reload disabled
+    assert dlg.btn_editor.isEnabled()        # leaf selected -> Open in Editor enabled
+    dlg.close()
+
+
+def test_group_row_selection_blanks_panel(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog
+    from PyQt6.QtCore import QModelIndex
+    class _MW: settings = None
+    d = _def(name="Corner", library="Details", series="Joints")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    lib_index = dlg.model.index(0, 0, QModelIndex())     # a Library group row
+    dlg.view.setCurrentIndex(lib_index)
+    assert dlg._current_def() is None
+    assert not dlg.btn_delete.isEnabled()
+    assert not dlg.btn_editor.isEnabled()
     dlg.close()
 
 
 def test_selection_survives_metadata_edit_reset(model_space, qapp, tmp_path):
     from firepro3d.block_manager import BlockManagerDialog
-
-    class _MW:
-        settings = None
-
+    class _MW: settings = None
     d = _def(name="Old")
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
                              root=str(tmp_path))
-    dlg.view.selectRow(0)
+    _select_block(dlg, d.id)
     assert dlg.ed_name.text() == "Old"
-    # simulate a committed rename -> emits blockDefinitionsChanged -> model reset
     dlg.ed_name.setText("New")
     dlg._commit_metadata()
-    # after the reset, the same block is still selected and the panel still shows it
     assert dlg._current_def() is not None and dlg._current_def().id == d.id
     assert dlg.ed_name.text() == "New"
     dlg.close()
 
 
-def test_save_to_library_updates_table_status_cell(model_space, qapp, tmp_path):
-    from firepro3d.block_manager import BlockManagerDialog, Col
+def test_save_to_library_updates_status_after_reset(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog, Col, BlockDefRole
     from PyQt6.QtCore import Qt
-
-    class _MW:
-        settings = None
-
+    class _MW: settings = None
     d = _def(name="Corner")
     model_space.register_block_definition(d)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
-    dlg.view.selectRow(0)
-
-    def status_cell():
-        return dlg.model.data(dlg.model.index(0, Col.STATUS), Qt.ItemDataRole.DisplayRole)
-
-    assert status_cell() == "project-only"
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    leaf = _select_block(dlg, d.id)
+    def status():
+        return dlg.model.data(dlg.model.index(leaf.row(), Col.STATUS, leaf.parent()),
+                              Qt.ItemDataRole.DisplayRole)
+    assert status() == "project-only"
     dlg._save_to_library()
-    assert status_cell() == "library"      # table cell, not just the panel
-    # selection preserved through the refresh reset
-    assert dlg._current_def() is not None and dlg._current_def().id == d.id
+    # after refresh() reset, re-fetch the leaf (indices are rebuilt)
+    leaf2 = dlg.model.index_for_id(d.id)
+    assert dlg.model.data(dlg.model.index(leaf2.row(), Col.STATUS, leaf2.parent()),
+                          Qt.ItemDataRole.DisplayRole) == "library"
     dlg.close()
+
+
+def test_format_load_summary_omits_zero_categories():
+    from firepro3d.block_manager import _format_load_summary
+    s = {"loaded": ["A", "B"], "replaced": [], "skipped": ["C"],
+         "refused": [], "failed": ["x.fpdb"]}
+    msg = _format_load_summary(s)
+    assert "Loaded 2" in msg and "skipped 1" in msg and "unreadable" in msg
+    assert "replaced" not in msg and "refused" not in msg
+    empty = {"loaded": [], "replaced": [], "skipped": [], "refused": [], "failed": []}
+    assert _format_load_summary(empty) == "Nothing to load."
