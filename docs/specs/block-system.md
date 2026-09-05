@@ -1,7 +1,7 @@
 ---
 status: partial           # S1–S4.6 built (Manager + load-from-library + Excel autofilter; details panel read-only); S5 (icons) pending; thumbnails deferred
 last-verified: 2026-09-05
-verified-commit: bd1d2db
+verified-commit: c0c2696
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
