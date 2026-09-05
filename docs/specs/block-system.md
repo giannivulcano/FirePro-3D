@@ -1,7 +1,7 @@
 ---
-status: partial           # S1+S2+S3+S4+S4.5 built (Manager + load-from-library); S4.6 (flat Excel-autofilter, supersedes S4.5 tree) in build; S5 (icons) pending; thumbnails deferred
-last-verified: 2026-09-04
-verified-commit: 3d0691d
+status: partial           # S1–S4.6 built (Manager + load-from-library + Excel autofilter; details panel read-only); S5 (icons) pending; thumbnails deferred
+last-verified: 2026-09-05
+verified-commit: bd1d2db
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
