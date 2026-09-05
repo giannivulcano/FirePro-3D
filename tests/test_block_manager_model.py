@@ -227,3 +227,40 @@ def test_group_no_longer_applies_but_empty_selection_blanks(model_space, qapp, t
     assert dlg._current_def() is None
     assert not dlg.btn_delete.isEnabled() and not dlg.btn_editor.isEnabled()
     dlg.close()
+
+
+# ---------------------------------------------------------------------------
+# S4.6 Bug fixes: tristate trap (I1) + search scope (I2)
+# ---------------------------------------------------------------------------
+
+def test_select_all_from_partial_selects_all(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockTableModel, _FilterPopup, Col
+    from firepro3d.theme import detect
+    for n in ("A", "B", "C"):
+        model_space.register_block_definition(_def(name=n))
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    vals = m.distinct_values(Col.NAME)                    # ["A","B","C"]
+    pop = _FilterPopup(detect(), "Name", vals, accepted={"A"})   # partial state
+    pop._toggle_all()                                     # simulate the (Select All) action
+    assert pop.chosen_values() == {"A", "B", "C"}         # selects all, not clears
+    pop._toggle_all()                                     # again -> clears all
+    assert pop.chosen_values() == set()
+    pop.close()
+
+
+def test_select_all_scoped_to_search(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockTableModel, _FilterPopup, Col
+    from firepro3d.theme import detect
+    for n in ("Alpha", "Able", "Beta"):
+        model_space.register_block_definition(_def(name=n))
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    vals = m.distinct_values(Col.NAME)                    # ["Able","Alpha","Beta"]
+    pop = _FilterPopup(detect(), "Name", vals, accepted=set())   # none checked
+    pop._search.setText("Al")                             # _filtered -> ["Alpha"] only ("al" in "alpha"; "al" not in "able" nor "beta")
+    # (Select All) must only affect the search-filtered set, not all boxes
+    pop._toggle_all()
+    chosen = pop.chosen_values()
+    # Use the implementation's own _filtered list (the authoritative visible set)
+    filtered_names = {cb.text() for cb in pop._filtered}
+    assert chosen == filtered_names and len(chosen) < 3     # not all 3
+    pop.close()

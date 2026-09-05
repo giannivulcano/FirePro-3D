@@ -260,7 +260,8 @@ class _FilterPopup(QFrame):
         lay.addWidget(self._search)
         # (Select All)
         self._all = QCheckBox("(Select All)")
-        self._all.setTristate(True)
+        self._all.setTristate(False)   # user clicks only cycle Unchecked↔Checked;
+        # _sync_all may still push PartiallyChecked programmatically (allowed).
         self._all.clicked.connect(self._toggle_all)
         lay.addWidget(self._all)
         # value list (scroll)
@@ -276,6 +277,8 @@ class _FilterPopup(QFrame):
             self._boxes.append(cb)
             ilay.addWidget(cb)
         ilay.addStretch(1)
+        # Initially all boxes are in the filtered set (no search active).
+        self._filtered = list(self._boxes)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(inner)
@@ -290,6 +293,7 @@ class _FilterPopup(QFrame):
         row.addWidget(b_cancel); row.addWidget(b_ok)
         lay.addLayout(row)
         self.resize(240, 320)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._sync_all()
 
     # -- test/support API --
@@ -304,21 +308,42 @@ class _FilterPopup(QFrame):
     # -- internals --
     def _apply_search(self, q):
         q = q.lower()
+        self._filtered = []   # boxes matching the current search
         for cb in self._boxes:
-            cb.setVisible(q in cb.text().lower())
+            match = q in cb.text().lower()
+            cb.setVisible(match)
+            if match:
+                self._filtered.append(cb)
+        self._sync_all()
+
+    def _visible_boxes(self):
+        """Boxes currently passing the search filter (all boxes when no search)."""
+        return self._filtered
 
     def _toggle_all(self):
-        want = self._all.checkState() != Qt.CheckState.Checked
-        for cb in self._boxes:
+        boxes = self._visible_boxes()
+        if not boxes:
+            return
+        # Derive toggle direction from current visible checked state, not from
+        # the checkbox's post-click state (avoids the Qt tristate trap where a
+        # PartiallyChecked user-click cycles to Checked so want = False).
+        want = not all(cb.isChecked() for cb in boxes)
+        for cb in boxes:
             cb.setChecked(want)
         self._sync_all()
 
     def _sync_all(self):
-        checked = sum(cb.isChecked() for cb in self._boxes)
+        boxes = self._visible_boxes()
+        if not boxes:
+            self._all.blockSignals(True)
+            self._all.setCheckState(Qt.CheckState.Unchecked)
+            self._all.blockSignals(False)
+            return
+        checked = sum(cb.isChecked() for cb in boxes)
         self._all.blockSignals(True)
         if checked == 0:
             self._all.setCheckState(Qt.CheckState.Unchecked)
-        elif checked == len(self._boxes):
+        elif checked == len(boxes):
             self._all.setCheckState(Qt.CheckState.Checked)
         else:
             self._all.setCheckState(Qt.CheckState.PartiallyChecked)
