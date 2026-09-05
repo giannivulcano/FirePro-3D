@@ -2692,8 +2692,15 @@ class MainWindow(QMainWindow):
         self._left_tabs.setCurrentWidget(self.blocks_browser)
 
     def _open_block_manager(self):
-        """Ribbon handler: placeholder for the S4 Block Manager."""
-        self.statusBar().showMessage("Block Manager arrives in a later slice (S4)", 3000)
+        """Open the modeless Block Manager (lazy singleton)."""
+        from firepro3d.block_manager import BlockManagerDialog
+        mgr = getattr(self, "_block_manager", None)
+        if mgr is None:
+            mgr = BlockManagerDialog(self.scene, self, parent=self)
+            self._block_manager = mgr
+        mgr.show()
+        mgr.raise_()
+        mgr.activateWindow()
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
