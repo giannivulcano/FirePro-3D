@@ -373,3 +373,17 @@ def test_manager_no_settings_stub_is_safe(model_space, qapp, tmp_path):
     dlg.view.setColumnWidth(Col.NAME, 250)           # fires _save_header_state
     dlg._save_header_state()                          # explicit: no-op, no raise
     dlg.close()
+
+
+def test_manager_titlebar_shows_block_icon(model_space, qapp, tmp_path):
+    # The frameless header carries the block_manager_icon glyph (non-null pixmap).
+    from firepro3d.block_manager import BlockManagerDialog
+    from PyQt6.QtWidgets import QLabel
+    class _MW: settings = None
+    model_space.register_block_definition(_def(name="A"))
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    glyphs = [lbl for lbl in dlg._titlebar.findChildren(QLabel)
+              if not lbl.pixmap().isNull()]
+    assert glyphs, "title bar has no icon glyph"
+    dlg.close()

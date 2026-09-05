@@ -435,7 +435,8 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         super().__init__(parent)
         self.init_frameless_shell(title="Block Manager",
                                   controls=("min", "max", "close"),
-                                  resizable=True)
+                                  resizable=True,
+                                  icon="block_manager_icon.svg")
         self.scene = scene
         self.main_window = main_window
         self.t = theme
