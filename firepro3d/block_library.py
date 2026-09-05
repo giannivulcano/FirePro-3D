@@ -104,6 +104,21 @@ def load_block(library: str, series: str, filename: str,
         return None
 
 
+def load_block_file(path: str) -> BlockDefinition | None:
+    """Load a BlockDefinition from an arbitrary .fpdb path (a .fpdb IS a
+    ``to_dict()`` JSON). None if missing/unreadable/corrupt (logged). Used by
+    the browse-anywhere 'Load from Library' file dialog, which is not restricted
+    to the library tree."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return BlockDefinition.from_dict(json.load(fh))
+    except Exception as exc:
+        _log.warning("Unreadable block .fpdb %s: %s", path, exc)
+        return None
+
+
 def _index_entry_for(definition: BlockDefinition, root: str | None) -> dict | None:
     """Find the library index entry with the same id in the def's Library/Series."""
     series_dir = _series_dir(root, definition.library, definition.series)

@@ -76,3 +76,25 @@ def test_make_then_save_to_library(model_space, tmp_path):
     defn = model_space.get_block_definition(inst.block_id)
     bl.save_to_library(defn, root=str(tmp_path))
     assert bl.source_status(defn, root=str(tmp_path)) == "library"
+
+
+def test_load_block_file_reads_arbitrary_path(tmp_path):
+    from firepro3d import block_library as bl2
+    d = _def(name="Loose")
+    # write a .fpdb anywhere (NOT in the library tree)
+    p = tmp_path / "somewhere" / "Loose.fpdb"
+    p.parent.mkdir(parents=True)
+    import json
+    p.write_text(json.dumps(d.to_dict()), encoding="utf-8")
+    loaded = bl2.load_block_file(str(p))
+    assert loaded is not None
+    assert loaded.id == d.id and loaded.name == "Loose"
+    assert loaded.primitives == d.primitives
+
+
+def test_load_block_file_missing_and_corrupt(tmp_path):
+    from firepro3d import block_library as bl2
+    assert bl2.load_block_file(str(tmp_path / "nope.fpdb")) is None
+    bad = tmp_path / "bad.fpdb"
+    bad.write_text("{not json", encoding="utf-8")
+    assert bl2.load_block_file(str(bad)) is None
