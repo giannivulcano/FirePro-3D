@@ -886,13 +886,12 @@ def build_block_manager_qss(t: "Theme") -> str:
     """QSS for the Block Manager — same chrome as the Underlay Manager.
 
     The Block Manager reuses the shared object names (#shellHeader, #toolbarBar,
-    #footerBar, #detailsPanel) and its tree view uses objectName "underlayTable" so
-    it inherits the same ``QTreeView#underlayTable`` styling (rows, hover/selection,
-    branch chevrons). The dialog's objectName is "BlockManagerDialog", so we
-    generate a parallel rule set by aliasing #UnderlayManagerDialog →
-    #BlockManagerDialog. The Block Manager's project view is a QTreeView (S4.5,
-    Library→Series→block), matching the Underlay Manager — so the base
-    QTreeView#underlayTable rules apply directly (no table-selector rewrite).
+    #footerBar, #detailsPanel) and its table view uses objectName "underlayTable".
+    The dialog's objectName is "BlockManagerDialog", so we generate a parallel rule
+    set by aliasing #UnderlayManagerDialog → #BlockManagerDialog. The Block Manager
+    uses a QTableView (S4.6 flat autofilter), so we also mirror the
+    ``QTreeView#underlayTable`` rules onto ``QTableView#underlayTable`` — additive,
+    so both selectors are styled (keeps Underlay Manager tree rules intact).
 
     Args:
         t: The active house theme.
@@ -903,5 +902,10 @@ def build_block_manager_qss(t: "Theme") -> str:
     base = build_underlay_manager_qss(t)
     # Alias every UnderlayManagerDialog scope to BlockManagerDialog as well.
     block_rules = base.replace("#UnderlayManagerDialog", "#BlockManagerDialog")
+    # Additive: mirror QTreeView#underlayTable rules onto QTableView#underlayTable
+    # so the flat autofilter table gets the same row/hover/selection styling.
+    table_rules = block_rules.replace(
+        "QTreeView#underlayTable", "QTableView#underlayTable")
     ground = t.color("ground").name()
-    return base + block_rules + f"\n#BlockManagerDialog {{ background: {ground}; }}\n"
+    return (base + block_rules + table_rules
+            + f"\n#BlockManagerDialog {{ background: {ground}; }}\n")
