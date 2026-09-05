@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- Regular pentagon matching the 2D-geometry icon family metrics (40-unit
+       canvas, stroke-width 2, r=1.5 accent ring vertices, gapped edges). Colour
+       on-contract: #1A1A1A ink (themeable) + #004CFF accent. -->
+  <path d="M 17.57 5.76 L 6.26 13.98" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 4.76 18.60 L 9.08 31.90" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 13.01 34.75 L 26.99 34.75" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 30.92 31.90 L 35.24 18.60" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 33.74 13.98 L 22.43 5.76" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="20.00" cy="4.00" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="3.83" cy="15.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="10.01" cy="34.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="29.99" cy="34.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="36.17" cy="15.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+</svg>
