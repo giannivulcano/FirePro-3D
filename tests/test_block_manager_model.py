@@ -91,3 +91,26 @@ def test_selection_survives_metadata_edit_reset(model_space, qapp, tmp_path):
     assert dlg._current_def() is not None and dlg._current_def().id == d.id
     assert dlg.ed_name.text() == "New"
     dlg.close()
+
+
+def test_save_to_library_updates_table_status_cell(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog, Col
+    from PyQt6.QtCore import Qt
+
+    class _MW:
+        settings = None
+
+    d = _def(name="Corner")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    dlg.view.selectRow(0)
+
+    def status_cell():
+        return dlg.model.data(dlg.model.index(0, Col.STATUS), Qt.ItemDataRole.DisplayRole)
+
+    assert status_cell() == "project-only"
+    dlg._save_to_library()
+    assert status_cell() == "library"      # table cell, not just the panel
+    # selection preserved through the refresh reset
+    assert dlg._current_def() is not None and dlg._current_def().id == d.id
+    dlg.close()

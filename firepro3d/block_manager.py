@@ -81,6 +81,11 @@ class BlockTableModel(QAbstractTableModel):
                 return row
         return -1
 
+    def refresh(self) -> None:
+        """Re-read the definitions snapshot (e.g. after a library write that
+        changed source-status but did not mutate the registry)."""
+        self._on_changed()
+
     # -- Qt model ----------------------------------------------------------
     def rowCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._defs)
@@ -365,9 +370,10 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
             return
         try:
             block_library.save_to_library(defn, root=self._root)
+            self.model.refresh()  # force table cell repaint (status col)
         except OSError as exc:
             themed_info(self, "Save to Library", f"Could not save:\n{exc}")
-        self._sync_ui()
+            self._sync_ui()
 
     def _reload(self) -> None:
         defn = self._current_def()
