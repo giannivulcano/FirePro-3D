@@ -406,6 +406,8 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.setModal(False)
 
         self.model = BlockTableModel(scene, root=root, parent=self)
+        self.proxy = BlockFilterProxy(self)
+        self.proxy.setSourceModel(self.model)
         self._build_ui()
         self._wire()
         self._sync_ui()
@@ -438,20 +440,22 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
 
-        self.view = QTreeView(objectName="underlayTable")
-        self.view.setModel(self.model)
+        self.view = QTableView(objectName="underlayTable")
+        self.view.setModel(self.proxy)
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.view.setRootIsDecorated(True)
+        self.view.setSortingEnabled(True)
+        self.view.verticalHeader().setVisible(False)
+        header = FilterHeader(self.t, self.proxy.is_filtered, self.view)
+        self.view.setHorizontalHeader(header)
+        header.setStretchLastSection(True)
+        header.filterClicked.connect(self._open_filter_popup)
         self.view.setItemDelegateForColumn(
             Col.STATUS, SourceStatusDelegate(self.t, self.view))
-        header = self.view.header()
-        header.setStretchLastSection(True)
-        for col, width in ((Col.NAME, 220), (Col.LIBRARY, 120),
-                           (Col.SERIES, 120), (Col.COUNT, 70), (Col.STATUS, 110)):
+        for col, width in ((Col.NAME, 200), (Col.LIBRARY, 130),
+                           (Col.SERIES, 130), (Col.COUNT, 80), (Col.STATUS, 120)):
             self.view.setColumnWidth(col, width)
-        self.view.expandAll()
         body.addWidget(self.view, 1)
 
         self.details = self._build_details_panel()
@@ -514,15 +518,14 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset = defn.id if defn is not None else None
 
     def _after_reset(self) -> None:
-        """After a model reset, re-select the previously-selected row (by id).
-
-        NOTE: Minimal stub for T1-T3 compatibility — full rewire in Task 4.
-        """
+        """After a model reset, re-select the previously-selected row (by id)."""
         block_id = getattr(self, "_selected_id_before_reset", None)
         if block_id is not None:
             src_row = self.model.row_for_id(block_id)
             if src_row >= 0:
-                self.view.setCurrentIndex(self.model.index(src_row, 0))
+                proxy_idx = self.proxy.mapFromSource(self.model.index(src_row, 0))
+                if proxy_idx.isValid():
+                    self.view.setCurrentIndex(proxy_idx)
         self._sync_ui()
 
     # ------------------------------------------------------------- selection
@@ -530,16 +533,16 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         idxs = self.view.selectionModel().selectedRows()
         if not idxs:
             return None
-        # NOTE: stub for T1-T3 — view is still QTreeView; full rewire in Task 4.
-        # For the tree, internalPointer is a _Node — but that class is gone.
-        # Return None safely so import and _sync_ui don't crash.
-        return None
+        src = self.proxy.mapToSource(idxs[0])
+        return self.model.definition_at_row(src.row())
 
     def _sync_ui(self) -> None:
         defn = self._current_def()
-        n_def = len(self.scene._block_definitions)
+        n_shown = self.proxy.rowCount()
+        n_total = len(self.scene._block_definitions)
         n_inst = len(self.scene._block_instances)
-        self.count_label.setText(f"{n_def} blocks · {n_inst} instances")
+        self.count_label.setText(
+            f"{n_shown} of {n_total} blocks · {n_inst} instances")
         has = defn is not None
         for ed in (self.ed_name, self.ed_library, self.ed_series):
             ed.setEnabled(has)
@@ -566,6 +569,24 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.btn_editor.setEnabled(True)
         self.btn_save.setEnabled(status in ("project-only", "modified"))
         self.btn_reload.setEnabled(status == "modified")
+
+    # ------------------------------------------------------- filter popup
+    def _open_filter_popup(self, col: int) -> None:
+        values = self.model.distinct_values(col)
+        accepted = self.proxy._accepted.get(col, set(values))
+        pop = _FilterPopup(self.t, _HEADERS.get(Col(col), ""), values, accepted, self)
+        pop.applied.connect(lambda chosen, c=col: self.proxy.set_column_filter(c, chosen))
+        pop.applied.connect(lambda *_: (
+            self.view.horizontalHeader().viewport().update(),
+            self._sync_ui()))
+        pop.sortRequested.connect(
+            lambda asc, c=col: self.view.sortByColumn(
+                c, Qt.SortOrder.AscendingOrder if asc else Qt.SortOrder.DescendingOrder))
+        header = self.view.horizontalHeader()
+        x = header.sectionViewportPosition(col) + header.sectionSize(col) - pop.width()
+        gp = header.mapToGlobal(QPoint(max(0, x), header.height()))
+        pop.move(gp)
+        pop.show()
 
     # -------------------------------------------------------------- actions
     def _commit_metadata(self) -> None:
