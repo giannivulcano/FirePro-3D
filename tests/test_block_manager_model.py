@@ -52,3 +52,21 @@ def test_status_delegate_colour_map():
     assert d.token_for("project-only") == "muted"
     assert d.token_for("library") == "ok"
     assert d.token_for("modified") == "warn"
+
+
+def test_dialog_constructs_and_reflects_scene(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog
+
+    class _MW:
+        settings = None
+    d = _def(name="Corner")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    assert dlg.model.rowCount() == 1
+    # select the row and confirm the details panel populates
+    dlg.view.selectRow(0)
+    assert dlg.ed_name.text() == "Corner"
+    assert dlg.btn_save.isEnabled()       # project-only -> Save enabled
+    assert not dlg.btn_reload.isEnabled() # project-only -> Reload disabled
+    dlg.close()
