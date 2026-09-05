@@ -284,3 +284,49 @@ def test_select_all_scoped_to_search(model_space, qapp, tmp_path):
     filtered_names = {cb.text() for cb in pop._filtered}
     assert chosen == filtered_names and len(chosen) < 3     # not all 3
     pop.close()
+
+
+# ---------------------------------------------------------------------------
+# Save-to-Library cross-id name collision: warn + confirm overwrite (fix batch)
+# ---------------------------------------------------------------------------
+
+def _read_index(tmp_path, library="L", series="S"):
+    import json
+    return json.loads((tmp_path / library / series / "index.json").read_text())
+
+
+def test_manager_save_collision_confirmed_overwrites(model_space, qapp, tmp_path,
+                                                     monkeypatch):
+    from firepro3d.block_manager import BlockManagerDialog
+    from firepro3d import block_library as bl2, themed_message
+    class _MW: settings = None
+    root = str(tmp_path)
+    existing = _def(name="Corner", library="L", series="S")   # already on disk
+    bl2.save_to_library(existing, root=root)
+    d = _def(name="Corner", library="L", series="S")          # different id, same name
+    assert d.id != existing.id
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=root)
+    _select_block(dlg, d.id)
+    monkeypatch.setattr(themed_message, "themed_confirm", lambda *a, **k: True)
+    dlg._save_to_library()
+    assert _read_index(tmp_path)["Corner.fpdb"]["id"] == d.id   # overwritten
+    dlg.close()
+
+
+def test_manager_save_collision_cancelled_preserves_existing(model_space, qapp,
+                                                             tmp_path, monkeypatch):
+    from firepro3d.block_manager import BlockManagerDialog
+    from firepro3d import block_library as bl2, themed_message
+    class _MW: settings = None
+    root = str(tmp_path)
+    existing = _def(name="Corner", library="L", series="S")
+    bl2.save_to_library(existing, root=root)
+    d = _def(name="Corner", library="L", series="S")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=root)
+    _select_block(dlg, d.id)
+    monkeypatch.setattr(themed_message, "themed_confirm", lambda *a, **k: False)
+    dlg._save_to_library()
+    assert _read_index(tmp_path)["Corner.fpdb"]["id"] == existing.id  # untouched
+    dlg.close()

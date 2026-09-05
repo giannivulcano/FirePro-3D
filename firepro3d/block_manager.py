@@ -522,7 +522,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.btn_close.clicked.connect(self.close)
         self.btn_load.clicked.connect(self._load_from_library)
         self.btn_delete.clicked.connect(self._delete)
-        self.btn_save.clicked.connect(self._save_to_library)
+        self.btn_save.clicked.connect(lambda: self._save_to_library())
         self.btn_reload.clicked.connect(self._reload)
         self.btn_editor.clicked.connect(self._open_in_editor)
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._sync_ui())
@@ -621,14 +621,20 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
             return
         self.scene.delete_block_definition(defn.id)
 
-    def _save_to_library(self) -> None:
-        from .themed_message import themed_info
+    def _save_to_library(self, overwrite: bool = False) -> None:
+        from .themed_message import themed_confirm, themed_info
         defn = self._current_def()
         if defn is None:
             return
         try:
-            block_library.save_to_library(defn, root=self._root)
+            block_library.save_to_library(defn, root=self._root, overwrite=overwrite)
             self.model.refresh()  # force table cell repaint (status col)
+        except block_library.BlockNameCollision as exc:
+            if themed_confirm(
+                    self, "Save to Library",
+                    f"A different block already uses the name “{exc.existing_name}”"
+                    " in the library. Overwrite it?"):
+                self._save_to_library(overwrite=True)
         except OSError as exc:
             themed_info(self, "Save to Library", f"Could not save:\n{exc}")
             self._sync_ui()

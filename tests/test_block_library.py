@@ -1,4 +1,8 @@
 """Block library I/O: .fpdb tree + index.json + divergence (Block system S3)."""
+import json
+
+import pytest
+
 from firepro3d.block_definition import BlockDefinition
 from firepro3d import block_library as bl
 
@@ -98,3 +102,80 @@ def test_load_block_file_missing_and_corrupt(tmp_path):
     bad = tmp_path / "bad.fpdb"
     bad.write_text("{not json", encoding="utf-8")
     assert bl2.load_block_file(str(bad)) is None
+
+
+# --- Identity-based lookups: scan-by-id, re-file, collision (fix batch) ---------
+
+def test_save_re_files_stale_copy_on_relocation(tmp_path):
+    """Saving a block whose library/series changed removes the old .fpdb + entry."""
+    d = _def(library="LibA", series="SerX")
+    bl.save_to_library(d, root=str(tmp_path))
+    assert (tmp_path / "LibA" / "SerX" / "Corner.fpdb").is_file()
+    # relocate (as the future editor / metadata edit would) and re-save
+    d.library, d.series = "LibB", "SerY"
+    bl.save_to_library(d, root=str(tmp_path))
+    assert (tmp_path / "LibB" / "SerY" / "Corner.fpdb").is_file()
+    # old copy + its index entry are gone (re-filed, not duplicated)
+    assert not (tmp_path / "LibA" / "SerX" / "Corner.fpdb").exists()
+    old_idx = tmp_path / "LibA" / "SerX" / "index.json"
+    old = json.loads(old_idx.read_text()) if old_idx.is_file() else {}
+    assert "Corner.fpdb" not in old
+    # exactly one library entry for this id, correctly resolved
+    entries = [e for e in bl.list_library(root=str(tmp_path)) if e["id"] == d.id]
+    assert len(entries) == 1
+    assert bl.source_status(d, root=str(tmp_path)) == "library"
+
+
+def test_source_status_scans_by_id_across_tree(tmp_path):
+    """A block whose in-memory series diverges from disk still reads 'library'."""
+    d = _def(library="LibA", series="SerX")
+    bl.save_to_library(d, root=str(tmp_path))
+    # in-memory metadata drifts (not yet re-saved); disk copy is under SerX
+    d.series = "SerY"
+    # old code scanned only LibA/SerY (empty) -> 'project-only' (the bug)
+    assert bl.source_status(d, root=str(tmp_path)) == "library"
+
+
+def test_reload_from_library_finds_relocated_by_id(tmp_path):
+    d = _def(library="LibA", series="SerX")
+    bl.save_to_library(d, root=str(tmp_path))
+    d.series = "SerY"                 # in-memory drift; disk copy still under SerX
+    d.set_primitives(d.primitives)    # version -> 2 (locally modified)
+    lib_def = bl.reload_from_library(d, root=str(tmp_path))
+    assert lib_def is not None
+    assert lib_def.id == d.id and lib_def.version == 1
+
+
+def test_cross_id_name_collision_raises_and_preserves_existing(tmp_path):
+    d1 = _def(name="Corner")
+    bl.save_to_library(d1, root=str(tmp_path))
+    d2 = _def(name="Corner")          # different id, same library/series/name
+    assert d2.id != d1.id
+    with pytest.raises(bl.BlockNameCollision):
+        bl.save_to_library(d2, root=str(tmp_path))
+    # the existing block is untouched
+    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
+    assert json.loads(idx.read_text())["Corner.fpdb"]["id"] == d1.id
+
+
+def test_cross_id_collision_overwrite_replaces(tmp_path):
+    d1 = _def(name="Corner")
+    bl.save_to_library(d1, root=str(tmp_path))
+    d2 = _def(name="Corner")
+    bl.save_to_library(d2, root=str(tmp_path), overwrite=True)
+    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
+    assert json.loads(idx.read_text())["Corner.fpdb"]["id"] == d2.id
+    entries = bl.list_library(root=str(tmp_path))
+    assert len(entries) == 1 and entries[0]["id"] == d2.id
+
+
+def test_same_id_re_save_updates_no_collision(tmp_path):
+    """Re-saving the SAME block (same id) at the same location is a clean update."""
+    d = _def(name="Corner")
+    bl.save_to_library(d, root=str(tmp_path))
+    d.set_primitives(d.primitives)    # version -> 2
+    bl.save_to_library(d, root=str(tmp_path))   # must NOT raise
+    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
+    e = json.loads(idx.read_text())["Corner.fpdb"]
+    assert e["id"] == d.id and e["version"] == 2
+    assert len(bl.list_library(root=str(tmp_path))) == 1

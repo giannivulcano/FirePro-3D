@@ -226,6 +226,19 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - **Delete definition with live instances:** refused in the Manager (instance-count > 0).
 - **Divergence:** embedded `version` ≠ library `version` for same `id` → Manager marks "modified";
   Save-to-Library / Reload-from-Library resolve it (embedded stays authoritative until the user acts).
+- **Library lookups resolve by `id`, not folder location (2026-09-05).** `source_status` /
+  `reload_from_library` scan the *whole* tree for the definition's `id` (a single `_iter_index_entries`
+  walk → `_find_by_id`), so a block whose metadata (Library/Series/name) has drifted from its on-disk
+  folder still reads its true status instead of falsely `project-only`. `save_to_library` **re-files**:
+  a stale same-`id` `.fpdb` + index entry parked at a prior location is deleted before the new write,
+  so a relocated/renamed block never duplicates on disk.
+- **Cross-`id` filename collision on Save (2026-09-05).** If the target `<sanitized-name>.fpdb` is
+  already held by a *different* `id`, `save_to_library` raises `BlockNameCollision(existing_name)`
+  *without touching disk* (collision check precedes re-file/write, so a refused save is inert). The
+  callers (Manager Save button, Make-Block flow) prompt overwrite/cancel (`themed_confirm`); overwrite
+  passes `overwrite=True`. Prevents the earlier silent-overwrite data loss where two blocks named the
+  same string clobbered each other's library entry. *(True rename-on-collision is deferred — overwrite
+  metadata is read-only outside the v2 Editor; see `todo_open.md`.)*
 - **Make-from-selection with non-primitives selected:** non-primitive items ignored/refused with a
   message; an all-non-primitive selection makes no block.
 - **Corrupt `.fpdb` / stale `index.json`:** tolerant load — skip + log, like the title-block library.

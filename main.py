@@ -2684,6 +2684,18 @@ class MainWindow(QMainWindow):
                 f"Save “{name}” to the block library so other projects can use it?"):
             try:
                 block_library.save_to_library(defn)
+            except block_library.BlockNameCollision as exc:
+                # The block is already made in the project; only the library push
+                # is at stake. Confirm before clobbering a different block's file.
+                if themed_confirm(
+                        self, "Make Block",
+                        f"A different block already uses the name “{exc.existing_name}”"
+                        " in the library. Overwrite it?"):
+                    try:
+                        block_library.save_to_library(defn, overwrite=True)
+                    except OSError as exc2:
+                        themed_info(self, "Make Block",
+                                    f"Could not save to library:\n{exc2}")
             except OSError as exc:
                 themed_info(self, "Make Block", f"Could not save to library:\n{exc}")
 

@@ -92,12 +92,13 @@ metadata edits each push one undo state. Save-to-Library is a pure disk write �
 - **Library folder absent (portability):** `source_status` → `project-only`; Save/Reload operate
   against `app_data_dir("blocks")` and fail gracefully (themed `OSError`), never crash. Opening a
   project with `blocks/` absent is unaffected (embedded copy authoritative).
-- **Rename / re-file doesn't reconcile disk:** editing `name` keeps the version-based `source_status`
-  (on-disk name silently diverges from the embedded name); editing `library`/`series` re-points the
-  library lookup to a *different* (empty) folder, so `source_status` flips to `project-only` and
-  Reload can't find the on-disk copy until re-saved (seam review, 2026-09-04). Both are **accepted for
-  S4** (metadata edit is embedded-only by design; stale-`.fpdb` cleanup + scan-by-`id` is a filed
-  follow-up). `id` never changes → instances never break, and neither path crashes.
+- **Rename / re-file reconciles disk (FIXED 2026-09-05).** `source_status`/`reload_from_library` now
+  resolve the library copy by `id` across the whole tree (`_find_by_id`), and `save_to_library`
+  re-files any stale same-`id` `.fpdb`+entry at a prior location. So editing `library`/`series`/`name`
+  no longer flips a still-in-library block to `project-only`, and Reload finds the relocated copy.
+  A cross-`id` filename collision on Save raises `BlockNameCollision` → caller prompts overwrite/cancel
+  (was a silent overwrite). See `block-system.md` Edge Cases. *(Original S4 note kept for history: this
+  was accepted-for-S4 as a stale-`.fpdb` + scan-by-`id` follow-up.)*
 - **Metadata validation:** blank name/library/series → revert; a (library,series,name) triple already
   used by another definition → revert. Whitespace trimmed.
 - **Modeless staleness:** the two signals keep the table live against edits made elsewhere.
