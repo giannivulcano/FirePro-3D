@@ -880,3 +880,32 @@ def build_underlay_manager_qss(t: Theme) -> str:
         "$chevron_down", asset_path("chevron_down.svg").replace("\\", "/")
     )
     return qss
+
+
+def build_block_manager_qss(t: "Theme") -> str:
+    """QSS for the Block Manager — same chrome as the Underlay Manager.
+
+    The Block Manager reuses the shared object names (#shellHeader, #toolbarBar,
+    #footerBar, #detailsPanel) and its table uses objectName "underlayTable" so it
+    inherits the same styling. The dialog's objectName is "BlockManagerDialog", so
+    we generate a parallel set of rules by aliasing #UnderlayManagerDialog →
+    #BlockManagerDialog.  We also add a QTableView#underlayTable selector because
+    the Block Manager uses a QTableView (flat) rather than the Underlay Manager's
+    QTreeView.
+
+    Args:
+        t: The active house theme.
+
+    Returns:
+        The manager stylesheet with every ``$token`` substituted.
+    """
+    base = build_underlay_manager_qss(t)
+    # Alias every UnderlayManagerDialog scope to BlockManagerDialog as well.
+    block_rules = base.replace("#UnderlayManagerDialog", "#BlockManagerDialog")
+    # QTableView#underlayTable mirrors the QTreeView#underlayTable rules so the
+    # flat block table gets the same background/selection/border styling.
+    block_rules = block_rules.replace(
+        "QTreeView#underlayTable", "QTableView#underlayTable"
+    )
+    ground = t.color("ground").name()
+    return base + block_rules + f"\n#BlockManagerDialog {{ background: {ground}; }}\n"
