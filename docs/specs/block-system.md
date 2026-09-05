@@ -1,5 +1,5 @@
 ---
-status: partial           # S1+S2+S3+S4 built (model + create/place + library + Manager); S5 (icons) pending; thumbnails deferred
+status: partial           # S1+S2+S3+S4 built; S4.5 (load-from-library + tree reshape) designed, in build; S5 (icons) pending; thumbnails deferred
 last-verified: 2026-09-04
 verified-commit: 3d0691d
 applies-to:
@@ -146,6 +146,14 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
     Reload-from-Library are undoable via `push_undo_state()` (no new undo plumbing —
     `_capture_network` already serializes definitions); Save-to-Library is a pure disk write (not
     undoable). Full HOW in `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+12. **Load = browse-anywhere file dialog, not an in-app library mirror (S4.5, 2026-09-04).** The
+    S4-grill "union/library view" was un-deferred as a Revit "Load Family" flow: a multi-select
+    `QFileDialog` embeds picked `.fpdb` definitions into the project (a `.fpdb` IS `to_dict()` JSON, so
+    an arbitrary path loads via `block_library.load_block_file`). Chosen over an in-app tree mirroring
+    the on-disk library because a file dialog also loads one-off blocks from anywhere and needs no live
+    library-tree widget. The batch is one undoable registry mutation with per-file collision rules
+    (skip / replace-via-`_swap_block_definition` / refuse). The project table becomes a
+    Library→Series→block tree at the same time.
 
 ## Tech Context
 
@@ -252,6 +260,11 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
       Manager open); source-status (project-only / library / modified) correct; Save-to-Library /
       Reload-from-Library resolve divergence (Reload rebuilds instance backrefs + repaints, undoable);
       metadata edits validate (blank/collision revert) with `id` stable across rename.
+- [ ] **Load from Library (S4.5):** a browse-anywhere multi-select `*.fpdb` file dialog embeds picked
+      definitions into the project (placeable, portable), applying per-file collision rules (skip same
+      `id` / replace diff `version` with instance repaint / refuse `(library,series,name)` clash) in one
+      undoable batch with a summary; the project view is a Library→Series→block tree; unload = Delete;
+      "Open in Editor" is a stub.
 - [ ] **Placement:** browser double-click → `place_block` mode; 2-step (position → rotation, Enter=0°),
       snapped, level-aware, repeat until Esc.
 - [ ] ~~**Thumbnail:** non-blank pixmap; library PNG cached and referenced in `index.json`.~~
@@ -295,6 +308,17 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
    Live count via a new `blockInstancesChanged` signal (place/remove instance does **not** fire
    `blockDefinitionsChanged`). Logic lives as arm's-length `Model_Space` methods; the dialog is a thin
    view. **Thumbnail pipeline cut → follow-up.** Replaces the `_open_block_manager` stub. Design:
+   `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
+4.5. **S4.5 — Load from Library ("Load Family") + tree reshape.** A "Load from Library…" toolbar
+   button opens a browse-anywhere multi-select `QFileDialog` (`*.fpdb`, starts at `app_data_dir(
+   "blocks")`); each picked file embeds its definition into the project (Revit Load-Family), applying
+   per-file collision rules (same `id` → skip; same `id` diff `version` → replace via the shared
+   `_swap_block_definition` backref-rebuild; diff `id` same `(library,series,name)` → refuse) in **one
+   undoable batch** with a summary message. The S4 flat table is **reshaped into a Library→Series→block
+   expandable tree** (`BlockTreeModel`; leaves keep instance-count + source-status; edit/delete/Save/
+   Reload resolve to the selected leaf). Unload = the existing Delete. A stubbed **"Open in Editor"**
+   button reserves the v2 Editor entry point. New: `block_library.load_block_file(path)`,
+   `Model_Space.load_blocks_from_files(paths, root=None)`. Design:
    `docs/superpowers/specs/2026-09-04-block-manager-s4-design.md`.
 5. **S5 — Icons & polish.** Author themed ribbon icons (mockup-gated, `icon-style-guide.md`); S2–S4
    run on the placeholder-icon fallback until then. Final smoke pass.
