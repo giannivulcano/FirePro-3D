@@ -1,0 +1,137 @@
+# Block Manager (S4) — Design (HOW)
+
+> Slice **S4** of the Block System. Governed by `docs/specs/block-system.md` (this design updates
+> that spec's Manager sections in place). The **WHAT** was locked in a Phase-2 grill; this doc is the
+> **HOW** only. **Thumbnails are cut from S4** (Design-Decision-5 + the thumbnail acceptance criterion
+> are deferred — see Follow-ups).
+
+## Goal
+
+Replace the `_open_block_manager` stub (`main.py`) with a real, modeless **Block Manager** dialog that
+manages the project's embedded block definitions (`Model_Space._block_definitions`): edit metadata,
+see live instance counts + library source-status, delete unused definitions, and resolve
+library divergence (Save-to-Library / Reload-from-Library). Mirrors the Underlay Manager
+(MVC + `FramelessShellMixin`).
+
+## Architecture & Components
+
+### New module `firepro3d/block_manager.py` (thin Qt view over the scene API)
+
+- **`BlockManagerDialog(FramelessShellMixin, QDialog)`** — singleton, modeless. Constructor
+  `(scene, main_window, theme=None, parent=None, apply_stylesheet=True)`. Layout mirrors the Underlay
+  Manager: mixin titlebar → **toolbar** (Save to Library · Reload from Library · Delete[danger]) →
+  body split (**flat table** left / **details panel** right ~268px) → **footer**
+  ("N blocks · M instances" + Close). Launched from `MainWindow._open_block_manager` via the
+  lazy-singleton `show()/raise_()/activateWindow()` pattern (cache on `self._block_manager`).
+- **`BlockTableModel(QAbstractTableModel)`** — flat (no child rows). Five columns via a `Col`
+  IntEnum: `NAME / LIBRARY / SERIES / COUNT / STATUS`. On reset, snapshots
+  `list(scene._block_definitions.values())` and builds a `{id: instance_count}` map by iterating
+  `scene._block_instances` once. All columns **read-only for display** — metadata editing happens in
+  the details panel (Fork 2 = full-mirror layout).
+- **`SourceStatusDelegate(QStyledItemDelegate)`** — colored status badge, reusing the level-chip
+  painting pattern + theme tokens: `project-only` → `muted`, `library` → `ok`/`accent`,
+  `modified` → `warn`.
+- **`build_block_manager_qss(theme)`** added to `theme.py` — clone of `build_underlay_manager_qss`
+  (same `#shellHeader`/toolbar/footer/table/detailsPanel object names + tokens).
+
+### `Model_Space` block-management API (net-new; the arm's-length logic home)
+
+The Qt view calls these; guard tests target them directly (no dialog machinery).
+
+- `blockInstancesChanged` — new `pyqtSignal()`; emitted from `place_block_instance` /
+  `remove_block_instance` (and the clear/restore paths where instances are bulk-added/removed).
+- `instance_count(block_id) -> int` — count of `_block_instances` whose `block_id` matches.
+- `delete_block_definition(block_id) -> bool` — returns **False** (refuses) when
+  `instance_count(block_id) > 0`; else pops the definition from `_block_definitions`,
+  `push_undo_state()`, emits `blockDefinitionsChanged`.
+- `reload_block_definition(block_id) -> bool` — fetches the library copy
+  (`block_library.reload_from_library`); if absent returns False. Else replaces the registry entry,
+  **rebuilds `new_defn._instances` backrefs** for every matching instance and calls
+  `on_definition_changed()` on each (repaint + edit-propagation survive the swap), `push_undo_state()`,
+  emits `blockDefinitionsChanged`.
+- `set_block_metadata(block_id, name, library, series) -> bool` — validates non-blank (trimmed) and
+  (library, series, name) uniqueness across the registry excluding self; on failure returns False; on
+  success mutates the definition in place (`id`/`version` untouched), `push_undo_state()`, emits
+  `blockDefinitionsChanged`.
+
+**Save-to-Library** is not a model mutation: the dialog calls `block_library.save_to_library(defn)`
+directly (disk write), then re-queries `source_status` to refresh the badge.
+
+### Undo (no new plumbing)
+
+`_capture_network` already serializes `block_definitions` via `to_dict()` and `blocks` (instances), so
+every registry mutation is undoable simply by calling `push_undo_state()` after it. Delete, Reload, and
+metadata edits each push one undo state. Save-to-Library is a pure disk write → **not** undoable.
+
+## Data Flow
+
+- **Live count:** the model connects to **both** `blockDefinitionsChanged` (registry add/remove/rename)
+  **and** `blockInstancesChanged` (instance place/remove). Either → `beginResetModel`/`endResetModel`
+  (recompute snapshot + count map). Full reset per event is fine (few definitions; user-paced).
+- **Edit:** panel `QLineEdit` `editingFinished` → `scene.set_block_metadata(...)`. `False` → revert the
+  field to the definition's current value. `True` → scene already pushed undo + emitted → model resets
+  → panel re-syncs.
+- **Actions (gated by selection + source-status):**
+  - **Save to Library** — enabled when `project-only | modified` → `save_to_library`; `OSError` →
+    themed error; refresh status.
+  - **Reload from Library** — enabled when `modified` → `reload_block_definition`.
+  - **Delete** — on click, if `instance_count > 0` show themed message *"Can't delete '{name}' —
+    {n} instance(s) in the model"* and abort; else `delete_block_definition` (undoable).
+- **Selection → panel sync:** `selectionChanged` → populate Name/Library/Series fields, status badge,
+  instance-count label; enable/disable actions by status + count.
+
+## Edge Cases & Error Handling
+
+- **Empty project:** empty table, blank/disabled panel, disabled actions, footer "0 blocks ·
+  0 instances". No error.
+- **Delete refused (count > 0):** themed message names the count; definition untouched. The guard
+  re-checks the **live** count at click time (display staleness can never cause a wrong delete).
+- **Reload backref rebuild:** replacing the registry entry orphans the old `defn._instances`;
+  `reload_block_definition` re-appends every matching instance to the new defn and calls
+  `on_definition_changed()`. Covered by a guard test.
+- **Library folder absent (portability):** `source_status` → `project-only`; Save/Reload operate
+  against `app_data_dir("blocks")` and fail gracefully (themed `OSError`), never crash. Opening a
+  project with `blocks/` absent is unaffected (embedded copy authoritative).
+- **Rename doesn't bump version:** a renamed `library`/`modified` block keeps its version-based
+  `source_status`, so the on-disk name can silently diverge from the embedded name — **accepted for
+  S4** (stale-`.fpdb` cleanup is a filed follow-up). `id` never changes → instances never break.
+- **Metadata validation:** blank name/library/series → revert; a (library,series,name) triple already
+  used by another definition → revert. Whitespace trimmed.
+- **Modeless staleness:** the two signals keep the table live against edits made elsewhere.
+
+## Testing
+
+**Headless guards** (target the scene API + a light `BlockTableModel` test), each shown RED with the
+fix reverted:
+
+1. `instance_count` accurate; `blockInstancesChanged` fires on place/remove; model count updates.
+2. `delete_block_definition` refuses at count > 0 (defn stays); succeeds + undo restores at count 0.
+3. `source_status` mapping (project-only / library / modified) on a temp-root library (reuse the S3
+   temp-root fixture pattern).
+4. `save_to_library` writes `.fpdb` + index entry; `reload_block_definition` pulls a diverged copy,
+   rebuilds backrefs, repaints, undoable.
+5. `set_block_metadata` validation (blank → False, collision → False, legal rename mutates metadata,
+   `id` stable).
+
+**Live smoke checklist** (headless-green is not "done"): ribbon opens the real dialog (stub replaced);
+frameless drag/resize; dark + light theme; live count while placing/deleting with the Manager open;
+delete-refusal message names the count; Ctrl+Z restores a delete; Save/Reload flip the status badge;
+project opens with `blocks/` absent.
+
+## Spec impact (`docs/specs/block-system.md`, updated in place)
+
+- Design-Decision-10 / S4 build-order line rewritten to this design (metadata panel edit + live count +
+  divergence actions; five columns, no thumbnail column).
+- **Design-Decision-5 (thumbnails) and the thumbnail acceptance criterion marked DEFERRED** (cut from
+  S4). The `(id, version)` thumbnail key stays reserved for the v2 Editor.
+- Frontmatter `last-verified` / `verified-commit` stamped when S4 lands.
+
+## Follow-ups (filed, out of S4)
+
+- **Thumbnail pipeline** — render-ops → `QPixmap`; PNG-next-to-`.fpdb`; populate the `index.json`
+  `thumbnail` field; keyed `(id, version)`; browser + Manager preview. (Was S4's "+ thumbnails".)
+- **Stale-`.fpdb` cleanup** — on rename / tier-change + Save-to-Library, delete/relocate the old
+  library file instead of leaving it (the S3.x `scan-by-id` / re-file follow-up).
+- **Full library-file browser** — import library-only `.fpdb` blocks into a project; delete `.fpdb`
+  files from disk (`block_library.delete_from_library` already exists).
+- **Optional manual thumbnail-refresh** button (only meaningful once geometry is mutable in v2).
