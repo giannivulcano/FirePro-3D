@@ -228,6 +228,158 @@ class SourceStatusDelegate(QStyledItemDelegate):
 
 
 # ---------------------------------------------------------------------------
+# _FilterPopup — Excel-style per-column filter popup
+# ---------------------------------------------------------------------------
+
+class _FilterPopup(QFrame):
+    """Excel-style per-column filter popup: Sort A→Z/Z→A, search, (Select All),
+    multi-select checkboxes, OK/Cancel. Emits ``applied(set|None)`` (None = all →
+    clear) and ``sortRequested(bool ascending)``."""
+
+    applied = pyqtSignal(object)          # set[str] chosen, or None when all chosen
+    sortRequested = pyqtSignal(bool)
+
+    def __init__(self, theme, label, values, accepted, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup)
+        self.t = theme
+        self._all_values = list(values)
+        self.setObjectName("detailsPanel")     # reuse themed surface styling
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(6)
+        # sort rows
+        b_az = QPushButton("Sort A → Z")
+        b_za = QPushButton("Sort Z → A")
+        b_az.clicked.connect(lambda: (self.sortRequested.emit(True), self.close()))
+        b_za.clicked.connect(lambda: (self.sortRequested.emit(False), self.close()))
+        lay.addWidget(b_az)
+        lay.addWidget(b_za)
+        # search
+        self._search = QLineEdit(placeholderText=f"Search {label.lower()}…")
+        self._search.textChanged.connect(self._apply_search)
+        lay.addWidget(self._search)
+        # (Select All)
+        self._all = QCheckBox("(Select All)")
+        self._all.setTristate(True)
+        self._all.clicked.connect(self._toggle_all)
+        lay.addWidget(self._all)
+        # value list (scroll)
+        self._boxes = []
+        inner = QWidget()
+        ilay = QVBoxLayout(inner)
+        ilay.setContentsMargins(0, 0, 0, 0)
+        ilay.setSpacing(2)
+        for v in self._all_values:
+            cb = QCheckBox(v)
+            cb.setChecked(v in accepted)
+            cb.stateChanged.connect(self._sync_all)
+            self._boxes.append(cb)
+            ilay.addWidget(cb)
+        ilay.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        scroll.setFixedHeight(180)
+        lay.addWidget(scroll)
+        # OK/Cancel
+        row = QHBoxLayout()
+        row.addStretch(1)
+        b_cancel = QPushButton("Cancel"); b_cancel.clicked.connect(self.close)
+        b_ok = QPushButton("OK"); b_ok.setProperty("variant", "primary")
+        b_ok.clicked.connect(self._emit_ok)
+        row.addWidget(b_cancel); row.addWidget(b_ok)
+        lay.addLayout(row)
+        self.resize(240, 320)
+        self._sync_all()
+
+    # -- test/support API --
+    def chosen_values(self):
+        return {cb.text() for cb in self._boxes if cb.isChecked()}
+
+    def set_checked(self, values):
+        for cb in self._boxes:
+            cb.setChecked(cb.text() in values)
+        self._sync_all()
+
+    # -- internals --
+    def _apply_search(self, q):
+        q = q.lower()
+        for cb in self._boxes:
+            cb.setVisible(q in cb.text().lower())
+
+    def _toggle_all(self):
+        want = self._all.checkState() != Qt.CheckState.Checked
+        for cb in self._boxes:
+            cb.setChecked(want)
+        self._sync_all()
+
+    def _sync_all(self):
+        checked = sum(cb.isChecked() for cb in self._boxes)
+        self._all.blockSignals(True)
+        if checked == 0:
+            self._all.setCheckState(Qt.CheckState.Unchecked)
+        elif checked == len(self._boxes):
+            self._all.setCheckState(Qt.CheckState.Checked)
+        else:
+            self._all.setCheckState(Qt.CheckState.PartiallyChecked)
+        self._all.blockSignals(False)
+
+    def _emit_ok(self):
+        chosen = self.chosen_values()
+        self.applied.emit(None if len(chosen) == len(self._all_values) else chosen)
+        self.close()
+
+
+# ---------------------------------------------------------------------------
+# FilterHeader — paints funnel glyphs + emits filterClicked
+# ---------------------------------------------------------------------------
+
+class FilterHeader(QHeaderView):
+    """Horizontal header that paints a funnel glyph per section (highlighted when
+    that column is filtered) and emits ``filterClicked(col)`` when the funnel
+    region is clicked; other clicks fall through to normal sort."""
+
+    filterClicked = pyqtSignal(int)
+    _FUNNEL_W = 18
+
+    def __init__(self, theme, is_filtered, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.t = theme
+        self._is_filtered = is_filtered      # callable(col) -> bool
+        self.setSectionsClickable(True)
+        self.setSortIndicatorShown(True)
+
+    def paintSection(self, painter, rect, index):
+        super().paintSection(painter, rect, index)
+        active = bool(self._is_filtered(index))
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = rect.right() - self._FUNNEL_W + 4
+        cy = rect.center().y()
+        color = self.t.color("accent") if active else self.t.color("faint")
+        painter.setPen(color)
+        painter.setBrush(color if active else Qt.BrushStyle.NoBrush)
+        # simple funnel: trapezoid + stem via a small polygon
+        from PyQt6.QtGui import QPolygon
+        pts = QPolygon([QPoint(cx, cy - 4), QPoint(cx + 10, cy - 4),
+                        QPoint(cx + 6, cy), QPoint(cx + 6, cy + 4),
+                        QPoint(cx + 4, cy + 4), QPoint(cx + 4, cy)])
+        painter.drawPolygon(pts)
+        painter.restore()
+
+    def _funnel_rect(self, logical):
+        x = self.sectionViewportPosition(logical) + self.sectionSize(logical) - self._FUNNEL_W
+        return QRect(x, 0, self._FUNNEL_W, self.height())
+
+    def mousePressEvent(self, event):
+        logical = self.logicalIndexAt(event.pos())
+        if logical >= 0 and self._funnel_rect(logical).contains(event.pos()):
+            self.filterClicked.emit(logical)
+            return                                   # don't also sort
+        super().mousePressEvent(event)
+
+
+# ---------------------------------------------------------------------------
 # BlockManagerDialog — modeless chrome + table + details panel
 # ---------------------------------------------------------------------------
 
