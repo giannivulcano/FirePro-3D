@@ -1508,6 +1508,59 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def reload_block_definition(self, block_id: str, root: str | None = None) -> bool:
+        """Pull the library copy of *block_id* into the embedded registry.
+
+        Replaces the registry entry with the on-disk `.fpdb` copy, rebuilds the
+        new definition's instance backrefs, repaints every referencing instance,
+        pushes an undo state, and emits ``blockDefinitionsChanged``. Returns False
+        when the block is not in the library. ``root`` overrides the library root
+        (production passes None → ``app_data_dir('blocks')``); tests inject a temp
+        root.
+        """
+        from . import block_library
+        current = self._block_definitions.get(block_id)
+        if current is None:
+            return False
+        lib_def = block_library.reload_from_library(current, root=root)
+        if lib_def is None:
+            return False
+        self._block_definitions[block_id] = lib_def
+        lib_def._instances = []
+        for inst in self._block_instances:
+            if inst.block_id == block_id:
+                lib_def._instances.append(inst)
+                inst.on_definition_changed()
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
+    def set_block_metadata(self, block_id: str, name: str, library: str,
+                           series: str) -> bool:
+        """Edit a definition's name/library/series (embedded copy only).
+
+        All three are required (non-blank after trim). The (library, series, name)
+        triple must be unique across the registry excluding this definition. On
+        success mutates in place (``id``/``version`` untouched), pushes an undo
+        state, and emits ``blockDefinitionsChanged``. Returns False on any
+        validation failure (caller reverts the field).
+        """
+        defn = self._block_definitions.get(block_id)
+        if defn is None:
+            return False
+        name, library, series = name.strip(), library.strip(), series.strip()
+        if not (name and library and series):
+            return False
+        for other in self._block_definitions.values():
+            if other.id == block_id:
+                continue
+            if (other.library, other.series, other.name) == (library, series, name):
+                return False
+        defn.name, defn.library, defn.series = name, library, series
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None):
         """Create + add a BlockInstance referencing an existing definition."""

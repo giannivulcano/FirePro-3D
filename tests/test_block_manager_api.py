@@ -1,5 +1,6 @@
 """Model_Space block-management API (Block system S4)."""
 from firepro3d.block_definition import BlockDefinition
+from firepro3d import block_library as bl
 
 
 def _def(name="A", library="L", series="S"):
@@ -46,3 +47,36 @@ def test_delete_removes_and_is_undoable(model_space):
     model_space.undo()                                   # restore baseline
     restored = model_space.get_block_definition(d.id)
     assert restored is not None and restored.id == d.id
+
+
+def test_reload_from_library_rebuilds_backrefs_and_repaints(model_space, tmp_path):
+    root = str(tmp_path)
+    d = _def()
+    model_space.register_block_definition(d)
+    inst = model_space.place_block_instance(d.id, (0.0, 0.0))
+    bl.save_to_library(d, root=root)                     # library == embedded (v1)
+
+    # Diverge the embedded copy: longer line -> wider bound, version bumps to 2.
+    d.set_primitives([{"type": "draw_line", "pt1": [0, 0], "pt2": [400, 0],
+                       "color": "#ffffff", "lineweight": 1.0}])
+    assert bl.source_status(d, root=root) == "modified"
+    wide = inst.boundingRect().width()
+
+    model_space.push_undo_state()                        # baseline (modified state)
+    assert model_space.reload_block_definition(d.id, root=root) is True
+
+    reloaded = model_space.get_block_definition(d.id)
+    assert reloaded is not None and reloaded.version == 1
+    # instance now resolves to the library geometry (narrower) and repainted
+    assert inst.boundingRect().width() < wide
+    # backref rebuilt so future edits still propagate
+    assert inst in reloaded._instances
+
+    model_space.undo()                                   # back to modified copy
+    assert model_space.get_block_definition(d.id).version == 2
+
+
+def test_reload_absent_returns_false(model_space, tmp_path):
+    d = _def()
+    model_space.register_block_definition(d)
+    assert model_space.reload_block_definition(d.id, root=str(tmp_path)) is False
