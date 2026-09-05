@@ -509,3 +509,7 @@
   - **Follow-ups (from the 2026-08-05..07 build + reviews):**
 
 - [x] Consolidate the two `PaperSpaceWidget` instances — **stale entry, closed 2026-08-05**: already shipped with the 2026-07-02 sheet-annotations prereq (§17.6 "one canonical PaperScene"); `_activate_paper_sheet` reuses the single authoritative widget, one construction site. This item was never checked off. [type:Task] [P2] [subject:Architecture] [done:2026-07-02]
+
+## Ribbon / Icons
+
+- [x] **Author the `polygon_icon.svg`** — shipped on `refactor/model-space-arc-polygon-slice` (authored alongside slice 9; mockup-gated per the icon style-guide → `tools/polygon_icon_mockup.html` interactive gallery, user picked pentagon). Pentagon outline + accent vertex markers matching the 2D-geometry icon family; re-authored after a metrics review against the siblings (line/rect/circle/arc/polyline) to match **exactly**: 40-unit canvas, `stroke-width=2` (→2.70px at the 54px button), `r=1.5` accent **ring** vertices, ~32-unit span. Colour stays on-contract (`#1A1A1A` ink + `#004CFF` accent, two-token) — a deliberate deviation from style-guide §3's 48-unit canvas to match the legacy family, and the one member not white-on-white in light theme. The Polygon ribbon button (`main.py:1537`) already requested it and was hitting the `_missing_icon` fallback; now resolves. Render-through-loader verified both themes; `_GEOM2D_ICONS` guards added to `test_icon_theming.py` (17 green). `firepro3d/graphics/Ribbon/polygon_icon.svg`, `tests/test_icon_theming.py` [type:Task] [P3] [subject:UX] [done:2026-09-05]
