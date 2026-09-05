@@ -23,6 +23,22 @@ from .frameless_shell import FramelessShellMixin
 from .theme import detect, build_block_manager_qss
 
 
+def _format_load_summary(summary: dict) -> str:
+    """Human summary of a load batch, omitting zero categories."""
+    parts = []
+    if summary["loaded"]:
+        parts.append(f"Loaded {len(summary['loaded'])}")
+    if summary["replaced"]:
+        parts.append(f"replaced {len(summary['replaced'])}")
+    if summary["skipped"]:
+        parts.append(f"skipped {len(summary['skipped'])} (already present)")
+    if summary["refused"]:
+        parts.append(f"refused {len(summary['refused'])} (name in use)")
+    if summary["failed"]:
+        parts.append(f"{len(summary['failed'])} unreadable")
+    return " · ".join(parts) if parts else "Nothing to load."
+
+
 class Col(IntEnum):
     NAME = 0
     LIBRARY = 1
@@ -243,7 +259,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.resize(980, 520)
         self.setModal(False)
 
-        self.model = BlockTableModel(scene, root=root, parent=self)
+        self.model = BlockTreeModel(scene, root=root, parent=self)
         self._build_ui()
         self._wire()
         self._sync_ui()
@@ -259,11 +275,15 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         bar = QHBoxLayout(toolbar)
         bar.setContentsMargins(12, 9, 12, 9)
         bar.setSpacing(8)
+        self.btn_load = QPushButton("Load from Library…")
+        self.btn_load.setProperty("variant", "primary")
         self.btn_save = QPushButton("Save to Library")
         self.btn_reload = QPushButton("Reload from Library")
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setProperty("variant", "danger")
-        for w in (self.btn_save, self.btn_reload, self.btn_delete):
+        self.btn_editor = QPushButton("Open in Editor")
+        for w in (self.btn_load, self.btn_save, self.btn_reload,
+                  self.btn_delete, self.btn_editor):
             bar.addWidget(w)
         bar.addStretch(1)
         root.addWidget(toolbar)
@@ -272,20 +292,20 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
 
-        self.view = QTableView(objectName="underlayTable")
+        self.view = QTreeView(objectName="underlayTable")
         self.view.setModel(self.model)
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.view.verticalHeader().setVisible(False)
+        self.view.setRootIsDecorated(True)
         self.view.setItemDelegateForColumn(
             Col.STATUS, SourceStatusDelegate(self.t, self.view))
-        # QTableView exposes horizontalHeader(), not header()
-        header = self.view.horizontalHeader()
+        header = self.view.header()
         header.setStretchLastSection(True)
-        for col, width in ((Col.NAME, 200), (Col.LIBRARY, 160),
-                           (Col.SERIES, 160), (Col.COUNT, 80), (Col.STATUS, 120)):
+        for col, width in ((Col.NAME, 220), (Col.LIBRARY, 120),
+                           (Col.SERIES, 120), (Col.COUNT, 70), (Col.STATUS, 110)):
             self.view.setColumnWidth(col, width)
+        self.view.expandAll()
         body.addWidget(self.view, 1)
 
         self.details = self._build_details_panel()
@@ -323,9 +343,11 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
     # ---------------------------------------------------------------- wiring
     def _wire(self) -> None:
         self.btn_close.clicked.connect(self.close)
+        self.btn_load.clicked.connect(self._load_from_library)
         self.btn_delete.clicked.connect(self._delete)
         self.btn_save.clicked.connect(self._save_to_library)
         self.btn_reload.clicked.connect(self._reload)
+        self.btn_editor.clicked.connect(self._open_in_editor)
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._sync_ui())
         # Preserve the selected row across model resets (e.g. after a metadata
         # edit emits blockDefinitionsChanged → beginResetModel/endResetModel
@@ -346,17 +368,17 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset = defn.id if defn is not None else None
 
     def _after_reset(self) -> None:
-        """After a model reset, re-select the previously-selected row (by id).
+        """After a model reset, re-select the previously-selected leaf (by id).
 
         If the id no longer exists (e.g. after Delete), selects nothing —
         the panel blanks, which is the correct post-delete state. Calls
         _sync_ui so the details panel repopulates in either case.
         """
-        saved_id = self._selected_id_before_reset
-        if saved_id is not None:
-            row = self.model.row_for_id(saved_id)
-            if row >= 0:
-                self.view.selectRow(row)
+        block_id = getattr(self, "_selected_id_before_reset", None)
+        if block_id is not None:
+            idx = self.model.index_for_id(block_id)
+            if idx.isValid():
+                self.view.setCurrentIndex(idx)
         self._sync_ui()
 
     # ------------------------------------------------------------- selection
@@ -364,11 +386,11 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         idxs = self.view.selectionModel().selectedRows()
         if not idxs:
             return None
-        return self.model.definition_at(idxs[0].row())
+        return self.model.definition_at_index(idxs[0])
 
     def _sync_ui(self) -> None:
         defn = self._current_def()
-        n_def = self.model.rowCount()
+        n_def = len(self.scene._block_definitions)
         n_inst = len(self.scene._block_instances)
         self.count_label.setText(f"{n_def} blocks · {n_inst} instances")
         has = defn is not None
@@ -380,7 +402,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
             self.ed_series.clear()
             self.lbl_status.clear()
             self.lbl_count.clear()
-            for b in (self.btn_save, self.btn_reload, self.btn_delete):
+            for b in (self.btn_save, self.btn_reload, self.btn_delete, self.btn_editor):
                 b.setEnabled(False)
             return
         # block signals so setText doesn't retrigger editingFinished commits
@@ -394,6 +416,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.lbl_status.setText(status)
         self.lbl_count.setText(str(count))
         self.btn_delete.setEnabled(True)
+        self.btn_editor.setEnabled(True)
         self.btn_save.setEnabled(status in ("project-only", "modified"))
         self.btn_reload.setEnabled(status == "modified")
 
@@ -438,3 +461,22 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         if defn is None:
             return
         self.scene.reload_block_definition(defn.id, root=self._root)
+
+    def _load_from_library(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+        from .app_data import app_data_dir
+        from .themed_message import themed_info
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Load Blocks", app_data_dir("blocks"),
+            "FirePro3D Blocks (*.fpdb)")
+        if not paths:
+            return
+        summary = self.scene.load_blocks_from_files(paths, root=self._root)
+        themed_info(self, "Load from Library", _format_load_summary(summary))
+
+    def _open_in_editor(self) -> None:
+        from .themed_message import themed_info
+        if self._current_def() is None:
+            return
+        themed_info(self, "Block Editor",
+                    "The Block Editor arrives in a later slice.")
