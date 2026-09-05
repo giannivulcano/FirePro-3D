@@ -1,0 +1,341 @@
+"""Block Manager — modeless MVC dialog over the project's block definitions.
+
+Slice S4 of the Block system (see docs/specs/block-system.md and
+docs/superpowers/specs/2026-09-04-block-manager-s4-design.md). Thin Qt view over
+the Model_Space block-management API (instance_count / delete_block_definition /
+reload_block_definition / set_block_metadata + blockInstancesChanged). Thumbnails
+are DEFERRED.
+"""
+from __future__ import annotations
+
+from enum import IntEnum
+
+from PyQt6.QtCore import (Qt, QAbstractTableModel, QModelIndex,
+                          QRectF, QSize)
+from PyQt6.QtGui import QPainter, QFontMetrics
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
+                             QPushButton, QLabel, QLineEdit, QTableView,
+                             QAbstractItemView, QHeaderView, QFormLayout,
+                             QWidget, QStyledItemDelegate)
+
+from . import block_library
+from .frameless_shell import FramelessShellMixin
+from .theme import detect, build_block_manager_qss
+
+
+class Col(IntEnum):
+    NAME = 0
+    LIBRARY = 1
+    SERIES = 2
+    COUNT = 3
+    STATUS = 4
+
+
+_HEADERS = {Col.NAME: "Name", Col.LIBRARY: "Library", Col.SERIES: "Series",
+            Col.COUNT: "Instances", Col.STATUS: "Source"}
+
+
+class BlockTableModel(QAbstractTableModel):
+    """Flat, live table over ``scene._block_definitions``.
+
+    Resets on both ``blockDefinitionsChanged`` (registry add/remove/rename) and
+    ``blockInstancesChanged`` (instance place/remove → count changes). ``root``
+    overrides the library root for ``source_status`` (tests inject a temp dir;
+    production passes None).
+    """
+
+    def __init__(self, scene, root: str | None = None, parent=None):
+        super().__init__(parent)
+        self._scene = scene
+        self._root = root
+        self._defs: list = []
+        self._counts: dict = {}
+        self._rebuild()
+        for signame in ("blockDefinitionsChanged", "blockInstancesChanged"):
+            sig = getattr(scene, signame, None)
+            if sig is not None:
+                sig.connect(self._on_changed)
+
+    # -- snapshot ----------------------------------------------------------
+    def _rebuild(self) -> None:
+        self._defs = list(self._scene._block_definitions.values())
+        self._counts = {}
+        for inst in self._scene._block_instances:
+            self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
+
+    def _on_changed(self) -> None:
+        self.beginResetModel()
+        self._rebuild()
+        self.endResetModel()
+
+    def definition_at(self, row: int):
+        """Return the BlockDefinition at the given row, or None."""
+        if 0 <= row < len(self._defs):
+            return self._defs[row]
+        return None
+
+    # -- Qt model ----------------------------------------------------------
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._defs)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(Col)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if (orientation == Qt.Orientation.Horizontal
+                and role == Qt.ItemDataRole.DisplayRole):
+            return _HEADERS.get(Col(section), "")
+        return None
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        defn = self._defs[index.row()]
+        col = index.column()
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == Col.NAME:
+                return defn.name
+            if col == Col.LIBRARY:
+                return defn.library
+            if col == Col.SERIES:
+                return defn.series
+            if col == Col.COUNT:
+                return str(self._counts.get(defn.id, 0))
+            if col == Col.STATUS:
+                return block_library.source_status(defn, root=self._root)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# SourceStatusDelegate — status badge
+# ---------------------------------------------------------------------------
+
+_STATUS_TOKEN = {"project-only": "muted", "library": "ok", "modified": "warn"}
+
+
+class SourceStatusDelegate(QStyledItemDelegate):
+    """Paint the source-status column as a rounded pill (level-chip pattern).
+
+    Falls back to a plain text draw if the theme lacks the mapped token.
+    """
+
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self.t = theme
+
+    def token_for(self, status: str) -> str:
+        """Return the theme token name for *status*."""
+        return _STATUS_TOKEN.get(status, "muted")
+
+    def paint(self, painter, option, index):
+        status = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        token = self.token_for(status)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        fm = QFontMetrics(option.font)
+        text = status
+        w = fm.horizontalAdvance(text) + 16
+        r = QRectF(option.rect.x() + 6, option.rect.center().y() - 9, w, 18)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.t.color(token, 40))
+        painter.drawRoundedRect(r, 9, 9)
+        painter.setPen(self.t.color(token))
+        painter.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
+
+    def sizeHint(self, option, index) -> QSize:
+        return QSize(110, 34)
+
+
+# ---------------------------------------------------------------------------
+# BlockManagerDialog — modeless chrome + table + details panel
+# ---------------------------------------------------------------------------
+
+class BlockManagerDialog(FramelessShellMixin, QDialog):
+    """Modeless Block Manager — instant apply, no OK/Apply. Open with ``.show()``."""
+
+    def __init__(self, scene, main_window, theme=None, parent=None,
+                 apply_stylesheet: bool = True, root: str | None = None):
+        theme = theme or detect()
+        super().__init__(parent)
+        self.init_frameless_shell(title="Block Manager",
+                                  controls=("min", "max", "close"),
+                                  resizable=True)
+        self.scene = scene
+        self.main_window = main_window
+        self.t = theme
+        self._root = root
+        self.setObjectName("BlockManagerDialog")
+        self.setWindowTitle("Block Manager")
+        if apply_stylesheet:
+            self.setStyleSheet(build_block_manager_qss(theme))
+        self.setMinimumSize(720, 420)
+        self.resize(980, 520)
+        self.setModal(False)
+
+        self.model = BlockTableModel(scene, root=root, parent=self)
+        self._build_ui()
+        self._wire()
+        self._sync_ui()
+
+    # ------------------------------------------------------------------ UI
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._titlebar)
+
+        toolbar = QFrame(objectName="toolbarBar")
+        bar = QHBoxLayout(toolbar)
+        bar.setContentsMargins(12, 9, 12, 9)
+        bar.setSpacing(8)
+        self.btn_save = QPushButton("Save to Library")
+        self.btn_reload = QPushButton("Reload from Library")
+        self.btn_delete = QPushButton("Delete")
+        self.btn_delete.setProperty("variant", "danger")
+        for w in (self.btn_save, self.btn_reload, self.btn_delete):
+            bar.addWidget(w)
+        bar.addStretch(1)
+        root.addWidget(toolbar)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+
+        self.view = QTableView(objectName="underlayTable")
+        self.view.setModel(self.model)
+        self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.view.verticalHeader().setVisible(False)
+        self.view.setItemDelegateForColumn(
+            Col.STATUS, SourceStatusDelegate(self.t, self.view))
+        # QTableView exposes horizontalHeader(), not header()
+        header = self.view.horizontalHeader()
+        header.setStretchLastSection(True)
+        for col, width in ((Col.NAME, 200), (Col.LIBRARY, 160),
+                           (Col.SERIES, 160), (Col.COUNT, 80), (Col.STATUS, 120)):
+            self.view.setColumnWidth(col, width)
+        body.addWidget(self.view, 1)
+
+        self.details = self._build_details_panel()
+        body.addWidget(self.details)
+        root.addLayout(body, 1)
+
+        footer = QFrame(objectName="footerBar")
+        foot = QHBoxLayout(footer)
+        foot.setContentsMargins(12, 8, 12, 8)
+        self.count_label = QLabel()
+        self.count_label.setProperty("role", "muted")
+        self.btn_close = QPushButton("Close")
+        foot.addWidget(self.count_label)
+        foot.addStretch(1)
+        foot.addWidget(self.btn_close)
+        root.addWidget(footer)
+
+    def _build_details_panel(self) -> QWidget:
+        panel = QFrame(objectName="detailsPanel")
+        panel.setFixedWidth(268)
+        form = QFormLayout(panel)
+        form.setContentsMargins(14, 14, 14, 14)
+        self.ed_name = QLineEdit()
+        self.ed_library = QLineEdit()
+        self.ed_series = QLineEdit()
+        self.lbl_status = QLabel()
+        self.lbl_count = QLabel()
+        form.addRow("Name", self.ed_name)
+        form.addRow("Library", self.ed_library)
+        form.addRow("Series", self.ed_series)
+        form.addRow("Source", self.lbl_status)
+        form.addRow("Instances", self.lbl_count)
+        return panel
+
+    # ---------------------------------------------------------------- wiring
+    def _wire(self) -> None:
+        self.btn_close.clicked.connect(self.close)
+        self.btn_delete.clicked.connect(self._delete)
+        self.btn_save.clicked.connect(self._save_to_library)
+        self.btn_reload.clicked.connect(self._reload)
+        self.view.selectionModel().selectionChanged.connect(lambda *_: self._sync_ui())
+        self.model.modelReset.connect(self._sync_ui)
+        for ed in (self.ed_name, self.ed_library, self.ed_series):
+            ed.editingFinished.connect(self._commit_metadata)
+
+    # ------------------------------------------------------------- selection
+    def _current_def(self):
+        idxs = self.view.selectionModel().selectedRows()
+        if not idxs:
+            return None
+        return self.model.definition_at(idxs[0].row())
+
+    def _sync_ui(self) -> None:
+        defn = self._current_def()
+        n_def = self.model.rowCount()
+        n_inst = len(self.scene._block_instances)
+        self.count_label.setText(f"{n_def} blocks · {n_inst} instances")
+        has = defn is not None
+        for ed in (self.ed_name, self.ed_library, self.ed_series):
+            ed.setEnabled(has)
+        if not has:
+            self.ed_name.clear()
+            self.ed_library.clear()
+            self.ed_series.clear()
+            self.lbl_status.clear()
+            self.lbl_count.clear()
+            for b in (self.btn_save, self.btn_reload, self.btn_delete):
+                b.setEnabled(False)
+            return
+        # block signals so setText doesn't retrigger editingFinished commits
+        for ed, val in ((self.ed_name, defn.name), (self.ed_library, defn.library),
+                        (self.ed_series, defn.series)):
+            ed.blockSignals(True)
+            ed.setText(val)
+            ed.blockSignals(False)
+        status = block_library.source_status(defn, root=self._root)
+        count = self.scene.instance_count(defn.id)
+        self.lbl_status.setText(status)
+        self.lbl_count.setText(str(count))
+        self.btn_delete.setEnabled(True)
+        self.btn_save.setEnabled(status in ("project-only", "modified"))
+        self.btn_reload.setEnabled(status == "modified")
+
+    # -------------------------------------------------------------- actions
+    def _commit_metadata(self) -> None:
+        defn = self._current_def()
+        if defn is None:
+            return
+        ok = self.scene.set_block_metadata(
+            defn.id, self.ed_name.text(), self.ed_library.text(),
+            self.ed_series.text())
+        if not ok:
+            # revert-on-invalid
+            self._sync_ui()
+
+    def _delete(self) -> None:
+        from .themed_message import themed_info
+        defn = self._current_def()
+        if defn is None:
+            return
+        n = self.scene.instance_count(defn.id)
+        if n > 0:
+            themed_info(self, "Delete Block",
+                        f"Can’t delete “{defn.name}” — {n} instance(s) in the model.")
+            return
+        self.scene.delete_block_definition(defn.id)
+
+    def _save_to_library(self) -> None:
+        from .themed_message import themed_info
+        defn = self._current_def()
+        if defn is None:
+            return
+        try:
+            block_library.save_to_library(defn, root=self._root)
+        except OSError as exc:
+            themed_info(self, "Save to Library", f"Could not save:\n{exc}")
+        self._sync_ui()
+
+    def _reload(self) -> None:
+        defn = self._current_def()
+        if defn is None:
+            return
+        self.scene.reload_block_definition(defn.id, root=self._root)
