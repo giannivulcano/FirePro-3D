@@ -1541,12 +1541,12 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
-        _btn(g_blocks, "Make\nBlock", _I("placeholder_icon.svg"),
+        _btn(g_blocks, "Make\nBlock", _I("make_block_icon.svg"),
              self._make_block_from_selection, tip="Create a block from selected 2D geometry")
-        _btn(g_blocks, "Insert\nBlock", _I("placeholder_icon.svg"),
+        _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
              self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
-        _btn(g_blocks, "Block\nManager", _I("placeholder_icon.svg"),
-             self._open_block_manager, tip="Manage blocks (coming in S4)")
+        _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
+             self._open_block_manager, tip="Manage blocks")
 
     def _init_architecture_tab(self, _I, _btn, _mode_btn):
         """Build Tab 4: Architecture — building elements + datums."""
