@@ -74,6 +74,13 @@ class BlockTableModel(QAbstractTableModel):
             return self._defs[row]
         return None
 
+    def row_for_id(self, block_id: str) -> int:
+        """Return the row index of the definition with *block_id*, or -1 if absent."""
+        for row, defn in enumerate(self._defs):
+            if defn.id == block_id:
+                return row
+        return -1
+
     # -- Qt model ----------------------------------------------------------
     def rowCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._defs)
@@ -257,9 +264,37 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.btn_save.clicked.connect(self._save_to_library)
         self.btn_reload.clicked.connect(self._reload)
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._sync_ui())
-        self.model.modelReset.connect(self._sync_ui)
+        # Preserve the selected row across model resets (e.g. after a metadata
+        # edit emits blockDefinitionsChanged → beginResetModel/endResetModel
+        # clears the selection). Snapshot the id before the reset, then
+        # re-select by id after. _after_reset calls _sync_ui itself so the
+        # panel repopulates; we do NOT also connect modelReset→_sync_ui
+        # directly to avoid double-calling.
+        self._selected_id_before_reset: str | None = None
+        self.model.modelAboutToBeReset.connect(self._before_reset)
+        self.model.modelReset.connect(self._after_reset)
         for ed in (self.ed_name, self.ed_library, self.ed_series):
             ed.editingFinished.connect(self._commit_metadata)
+
+    # ------------------------------------------------- reset guard (selection)
+    def _before_reset(self) -> None:
+        """Snapshot the currently-selected definition's id before a model reset."""
+        defn = self._current_def()
+        self._selected_id_before_reset = defn.id if defn is not None else None
+
+    def _after_reset(self) -> None:
+        """After a model reset, re-select the previously-selected row (by id).
+
+        If the id no longer exists (e.g. after Delete), selects nothing —
+        the panel blanks, which is the correct post-delete state. Calls
+        _sync_ui so the details panel repopulates in either case.
+        """
+        saved_id = self._selected_id_before_reset
+        if saved_id is not None:
+            row = self.model.row_for_id(saved_id)
+            if row >= 0:
+                self.view.selectRow(row)
+        self._sync_ui()
 
     # ------------------------------------------------------------- selection
     def _current_def(self):

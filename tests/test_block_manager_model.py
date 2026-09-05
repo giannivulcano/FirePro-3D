@@ -70,3 +70,24 @@ def test_dialog_constructs_and_reflects_scene(model_space, qapp, tmp_path):
     assert dlg.btn_save.isEnabled()       # project-only -> Save enabled
     assert not dlg.btn_reload.isEnabled() # project-only -> Reload disabled
     dlg.close()
+
+
+def test_selection_survives_metadata_edit_reset(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog
+
+    class _MW:
+        settings = None
+
+    d = _def(name="Old")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    dlg.view.selectRow(0)
+    assert dlg.ed_name.text() == "Old"
+    # simulate a committed rename -> emits blockDefinitionsChanged -> model reset
+    dlg.ed_name.setText("New")
+    dlg._commit_metadata()
+    # after the reset, the same block is still selected and the panel still shows it
+    assert dlg._current_def() is not None and dlg._current_def().id == d.id
+    assert dlg.ed_name.text() == "New"
+    dlg.close()
