@@ -13,6 +13,10 @@ _ARCH_ICONS = [
     "detail_icon.svg", "levels_icon.svg", "gridline_icon.svg",
     "underlay_icon.svg",
 ]
+# Blocks-group icons authored for S5 (make / insert / manager).
+_BLOCK_ICONS = [
+    "make_block_icon.svg", "insert_block_icon.svg", "block_manager_icon.svg",
+]
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{6,8}")
@@ -106,6 +110,31 @@ def test_architecture_icons_render_nonblank_both_themes_no_fallback(qapp, caplog
     """Each icon resolves to a real file (no _missing_icon fallback warning)."""
     icons._cache.clear()
     for name in _ARCH_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
+def test_block_icons_exist_and_are_two_token_compliant():
+    """S5 Blocks-group icons use only the two authoring sentinels (§4.1)."""
+    import os
+    for name in _BLOCK_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing from graphics/Ribbon"
+        raw = open(path, "r", encoding="utf-8").read()
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval} is forbidden (§4.1)"
+            assert hexval.lower() in _ALLOWED_HEX, \
+                f"{name}: non-sentinel colour {hexval} will not retheme (§4.1)"
+
+
+def test_block_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
+    """Each S5 Blocks icon resolves to a real file (no _missing_icon fallback)."""
+    icons._cache.clear()
+    for name in _BLOCK_ICONS:
         for theme in (icons.LIGHT, icons.DARK):
             with caplog.at_level("WARNING", logger="firepro3d.icons"):
                 caplog.clear()
