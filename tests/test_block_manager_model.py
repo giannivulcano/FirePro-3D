@@ -40,3 +40,15 @@ def test_definition_for_row(model_space, tmp_path):
     model_space.register_block_definition(d)
     model = BlockTableModel(model_space, root=str(tmp_path))
     assert model.definition_at(0) is d
+
+
+from firepro3d.theme import detect
+from firepro3d.block_manager import SourceStatusDelegate
+
+
+def test_status_delegate_colour_map():
+    d = SourceStatusDelegate(detect())
+    # observable ground truth: each status maps to a distinct theme token name
+    assert d.token_for("project-only") == "muted"
+    assert d.token_for("library") == "ok"
+    assert d.token_for("modified") == "warn"
