@@ -179,3 +179,34 @@ def test_format_load_summary_omits_zero_categories():
     assert "replaced" not in msg and "refused" not in msg
     empty = {"loaded": [], "replaced": [], "skipped": [], "refused": [], "failed": []}
     assert _format_load_summary(empty) == "Nothing to load."
+
+
+def test_tree_stays_expanded_after_load_reset(model_space, qapp, tmp_path):
+    """Tree must stay fully expanded after a model reset triggered by a new block
+    in a brand-new library (never previously selected, so the re-select logic does
+    not auto-expand it).  Regression for the S4.5 headline flow.
+    """
+    from firepro3d.block_manager import BlockManagerDialog
+    from PyQt6.QtCore import QModelIndex
+
+    class _MW:
+        settings = None
+
+    d1 = _def(name="First", library="LibA", series="Ser1")
+    model_space.register_block_definition(d1)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
+                             root=str(tmp_path))
+    # Embed a NEW block in a NEW library — fires blockDefinitionsChanged → model reset
+    d2 = _def(name="Second", library="LibB", series="Ser2")
+    model_space.register_block_definition(d2)
+    # After the reset BOTH library group rows must be expanded (leaves visible)
+    root = QModelIndex()
+    assert dlg.model.rowCount(root) == 2, "expected two library rows"
+    for i in range(dlg.model.rowCount(root)):
+        lib_idx = dlg.model.index(i, 0, root)
+        assert dlg.view.isExpanded(lib_idx), (
+            f"library row {i} collapsed after reset")
+        ser_idx = dlg.model.index(0, 0, lib_idx)
+        assert dlg.view.isExpanded(ser_idx), (
+            f"series row under library {i} collapsed after reset")
+    dlg.close()

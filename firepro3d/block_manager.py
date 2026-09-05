@@ -368,12 +368,18 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset = defn.id if defn is not None else None
 
     def _after_reset(self) -> None:
-        """After a model reset, re-select the previously-selected leaf (by id).
+        """After a model reset, re-expand the whole tree then re-select the
+        previously-selected leaf (by id).
+
+        expandAll() runs first so that newly-loaded groups (never selected, thus
+        not auto-expanded by setCurrentIndex) are immediately visible — the block
+        tree has no user-collapse feature, so always-expanded is the intended state.
 
         If the id no longer exists (e.g. after Delete), selects nothing —
         the panel blanks, which is the correct post-delete state. Calls
         _sync_ui so the details panel repopulates in either case.
         """
+        self.view.expandAll()
         block_id = getattr(self, "_selected_id_before_reset", None)
         if block_id is not None:
             idx = self.model.index_for_id(block_id)
@@ -463,11 +469,14 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.scene.reload_block_definition(defn.id, root=self._root)
 
     def _load_from_library(self) -> None:
+        import os
         from PyQt6.QtWidgets import QFileDialog
         from .app_data import app_data_dir
         from .themed_message import themed_info
+        blocks_dir = app_data_dir("blocks")
+        os.makedirs(blocks_dir, exist_ok=True)
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Load Blocks", app_data_dir("blocks"),
+            self, "Load Blocks", blocks_dir,
             "FirePro3D Blocks (*.fpdb)")
         if not paths:
             return
