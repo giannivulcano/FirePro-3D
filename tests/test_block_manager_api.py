@@ -80,3 +80,38 @@ def test_reload_absent_returns_false(model_space, tmp_path):
     d = _def()
     model_space.register_block_definition(d)
     assert model_space.reload_block_definition(d.id, root=str(tmp_path)) is False
+
+
+def test_set_metadata_valid_rename_keeps_id_and_is_undoable(model_space):
+    d = _def(name="Old")
+    model_space.register_block_definition(d)
+    old_id = d.id
+    model_space.push_undo_state()                        # baseline (name "Old")
+
+    assert model_space.set_block_metadata(d.id, "New", "Lib2", "Ser2") is True
+    assert d.name == "New" and d.library == "Lib2" and d.series == "Ser2"
+    assert d.id == old_id                                # identity stable
+
+    model_space.undo()
+    assert model_space.get_block_definition(old_id).name == "Old"
+
+
+def test_set_metadata_blank_rejected(model_space):
+    d = _def(name="Keep")
+    model_space.register_block_definition(d)
+    assert model_space.set_block_metadata(d.id, "   ", "L", "S") is False
+    assert model_space.set_block_metadata(d.id, "X", "", "S") is False
+    assert model_space.set_block_metadata(d.id, "X", "L", "") is False
+    assert d.name == "Keep" and d.library == "L" and d.series == "S"
+
+
+def test_set_metadata_collision_rejected(model_space):
+    a = _def(name="A", library="L", series="S")
+    b = _def(name="B", library="L", series="S")
+    model_space.register_block_definition(a)
+    model_space.register_block_definition(b)
+    # renaming B onto A's (library, series, name) collides
+    assert model_space.set_block_metadata(b.id, "A", "L", "S") is False
+    assert b.name == "B"
+    # a no-op "rename" of A to its own identity is allowed (excludes self)
+    assert model_space.set_block_metadata(a.id, "A", "L", "S") is True
