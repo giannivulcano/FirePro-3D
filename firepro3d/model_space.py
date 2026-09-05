@@ -1492,6 +1492,22 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Number of placed BlockInstances referencing *block_id*."""
         return sum(1 for i in self._block_instances if i.block_id == block_id)
 
+    def delete_block_definition(self, block_id: str) -> bool:
+        """Remove a definition from the project registry.
+
+        Refused (returns False) while any instance references it. On success the
+        definition is popped, an undo state is pushed (``_capture_network`` already
+        serializes definitions), and ``blockDefinitionsChanged`` is emitted.
+        """
+        if self.instance_count(block_id) > 0:
+            return False
+        if block_id not in self._block_definitions:
+            return False
+        del self._block_definitions[block_id]
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return True
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None):
         """Create + add a BlockInstance referencing an existing definition."""

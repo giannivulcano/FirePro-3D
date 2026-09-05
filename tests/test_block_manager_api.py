@@ -25,3 +25,24 @@ def test_instance_count_and_signal(model_space):
     assert model_space.instance_count(d.id) == 1
     # signal fired on each place (2) and each remove (1)
     assert len(fired) == 3
+
+
+def test_delete_refused_while_instances_exist(model_space):
+    d = _def()
+    model_space.register_block_definition(d)
+    model_space.place_block_instance(d.id, (0.0, 0.0))
+    assert model_space.delete_block_definition(d.id) is False
+    assert model_space.get_block_definition(d.id) is d   # still registered
+
+
+def test_delete_removes_and_is_undoable(model_space):
+    d = _def()
+    model_space.register_block_definition(d)
+    model_space.push_undo_state()                        # baseline snapshot (with defn)
+
+    assert model_space.delete_block_definition(d.id) is True
+    assert model_space.get_block_definition(d.id) is None
+
+    model_space.undo()                                   # restore baseline
+    restored = model_space.get_block_definition(d.id)
+    assert restored is not None and restored.id == d.id
