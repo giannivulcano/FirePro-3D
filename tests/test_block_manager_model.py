@@ -1,7 +1,7 @@
-"""BlockTreeModel — Library/Series/block tree over the project's block definitions (S4.5)."""
+"""Block Manager flat table model + proxy + popup + dialog (S4.6)."""
 from PyQt6.QtCore import Qt, QModelIndex
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.block_manager import BlockTreeModel, Col, BlockDefRole
+from firepro3d.block_manager import BlockTableModel, Col, BlockDefRole, SortRole
 
 
 def _def(name="A", library="L", series="S"):
@@ -12,68 +12,58 @@ def _def(name="A", library="L", series="S"):
                                origin=(0.0, 0.0))
 
 
-def _leaf_index(model, lib_name, ser_name, block_name):
-    """Return the QModelIndex of a block leaf by walking Library->Series->block."""
-    root = QModelIndex()
-    for i in range(model.rowCount(root)):
-        lib = model.index(i, 0, root)
-        if model.data(lib, Qt.ItemDataRole.DisplayRole) != lib_name:
-            continue
-        for j in range(model.rowCount(lib)):
-            ser = model.index(j, 0, lib)
-            if model.data(ser, Qt.ItemDataRole.DisplayRole) != ser_name:
-                continue
-            for k in range(model.rowCount(ser)):
-                leaf = model.index(k, 0, ser)
-                if model.data(leaf, Qt.ItemDataRole.DisplayRole) == block_name:
-                    return leaf
-    return QModelIndex()
+def _row_for_name(model, name):
+    for r in range(model.rowCount()):
+        if model.data(model.index(r, Col.NAME), Qt.ItemDataRole.DisplayRole) == name:
+            return r
+    return -1
 
 
-def test_tree_groups_library_series_block(model_space, tmp_path):
+# ---------------------------------------------------------------------------
+# Task 1: BlockTableModel
+# ---------------------------------------------------------------------------
+
+def test_flat_columns_and_defrole(model_space, tmp_path):
     d = _def(name="Corner", library="Details", series="Joints")
     model_space.register_block_definition(d)
-    model = BlockTreeModel(model_space, root=str(tmp_path))
-
-    root = QModelIndex()
-    assert model.rowCount(root) == 1                         # one Library
-    lib = model.index(0, 0, root)
-    assert model.data(lib, Qt.ItemDataRole.DisplayRole) == "Details"
-    assert model.rowCount(lib) == 1                          # one Series
-    ser = model.index(0, 0, lib)
-    assert model.data(ser, Qt.ItemDataRole.DisplayRole) == "Joints"
-    assert model.rowCount(ser) == 1                          # one block leaf
-    leaf = model.index(0, 0, ser)
-    assert model.data(leaf, Qt.ItemDataRole.DisplayRole) == "Corner"
-
-
-def test_leaf_columns_and_defrole(model_space, tmp_path):
-    d = _def(name="Corner", library="Details", series="Joints")
-    model_space.register_block_definition(d)
-    model = BlockTreeModel(model_space, root=str(tmp_path))
-    leaf = _leaf_index(model, "Details", "Joints", "Corner")
-    assert leaf.isValid()
-
-    def cell(col):
-        return model.data(model.index(leaf.row(), col, leaf.parent()),
-                          Qt.ItemDataRole.DisplayRole)
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    assert m.rowCount() == 1
+    assert m.columnCount() == len(Col)
+    r = 0
+    def cell(c): return m.data(m.index(r, c), Qt.ItemDataRole.DisplayRole)
+    assert cell(Col.NAME) == "Corner"
+    assert cell(Col.LIBRARY) == "Details"
+    assert cell(Col.SERIES) == "Joints"
     assert cell(Col.COUNT) == "0"
     assert cell(Col.STATUS) == "project-only"
-    # BlockDefRole resolves the definition on a leaf, None on a group row
-    assert model.data(leaf, BlockDefRole) is d
-    lib = model.index(0, 0, QModelIndex())
-    assert model.data(lib, BlockDefRole) is None
+    assert m.data(m.index(r, Col.NAME), BlockDefRole) is d
 
 
-def test_live_count_updates_on_place(model_space, tmp_path):
-    d = _def(name="Corner", library="Details", series="Joints")
+def test_live_count(model_space, tmp_path):
+    d = _def(name="Corner")
     model_space.register_block_definition(d)
-    model = BlockTreeModel(model_space, root=str(tmp_path))
+    m = BlockTableModel(model_space, root=str(tmp_path))
     model_space.place_block_instance(d.id, (0.0, 0.0))
-    leaf = _leaf_index(model, "Details", "Joints", "Corner")
-    cnt = model.data(model.index(leaf.row(), Col.COUNT, leaf.parent()),
-                     Qt.ItemDataRole.DisplayRole)
-    assert cnt == "1"
+    r = _row_for_name(m, "Corner")
+    assert m.data(m.index(r, Col.COUNT), Qt.ItemDataRole.DisplayRole) == "1"
+
+
+def test_distinct_values(model_space, tmp_path):
+    for n, lib in (("A", "L1"), ("B", "L1"), ("C", "L2")):
+        model_space.register_block_definition(_def(name=n, library=lib))
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    assert m.distinct_values(Col.LIBRARY) == ["L1", "L2"]
+    assert m.distinct_values(Col.NAME) == ["A", "B", "C"]
+
+
+def test_count_sortrole_is_numeric(model_space, tmp_path):
+    d = _def(name="Big")
+    model_space.register_block_definition(d)
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    for _ in range(10):
+        model_space.place_block_instance(d.id, (0.0, 0.0))
+    r = _row_for_name(m, "Big")
+    assert m.data(m.index(r, Col.COUNT), SortRole) == 10        # int, not "10"
 
 
 # ---------------------------------------------------------------------------
@@ -85,90 +75,14 @@ from firepro3d.block_manager import SourceStatusDelegate
 
 def test_status_delegate_colour_map():
     d = SourceStatusDelegate(detect())
-    # observable ground truth: each status maps to a distinct theme token name
     assert d.token_for("project-only") == "muted"
     assert d.token_for("library") == "ok"
     assert d.token_for("modified") == "warn"
 
 
 # ---------------------------------------------------------------------------
-# BlockManagerDialog — tree-aware tests (Task 5)
+# _format_load_summary (unchanged helper)
 # ---------------------------------------------------------------------------
-
-def _select_block(dlg, block_id):
-    idx = dlg.model.index_for_id(block_id)
-    assert idx.isValid()
-    dlg.view.setCurrentIndex(idx)
-    return idx
-
-
-def test_dialog_constructs_and_reflects_scene(model_space, qapp, tmp_path):
-    from firepro3d.block_manager import BlockManagerDialog
-    class _MW: settings = None
-    d = _def(name="Corner")
-    model_space.register_block_definition(d)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
-                             root=str(tmp_path))
-    _select_block(dlg, d.id)
-    assert dlg.ed_name.text() == "Corner"
-    assert dlg.btn_save.isEnabled()          # project-only -> Save enabled
-    assert not dlg.btn_reload.isEnabled()    # project-only -> Reload disabled
-    assert dlg.btn_editor.isEnabled()        # leaf selected -> Open in Editor enabled
-    dlg.close()
-
-
-def test_group_row_selection_blanks_panel(model_space, qapp, tmp_path):
-    from firepro3d.block_manager import BlockManagerDialog
-    from PyQt6.QtCore import QModelIndex
-    class _MW: settings = None
-    d = _def(name="Corner", library="Details", series="Joints")
-    model_space.register_block_definition(d)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
-                             root=str(tmp_path))
-    lib_index = dlg.model.index(0, 0, QModelIndex())     # a Library group row
-    dlg.view.setCurrentIndex(lib_index)
-    assert dlg._current_def() is None
-    assert not dlg.btn_delete.isEnabled()
-    assert not dlg.btn_editor.isEnabled()
-    dlg.close()
-
-
-def test_selection_survives_metadata_edit_reset(model_space, qapp, tmp_path):
-    from firepro3d.block_manager import BlockManagerDialog
-    class _MW: settings = None
-    d = _def(name="Old")
-    model_space.register_block_definition(d)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
-                             root=str(tmp_path))
-    _select_block(dlg, d.id)
-    assert dlg.ed_name.text() == "Old"
-    dlg.ed_name.setText("New")
-    dlg._commit_metadata()
-    assert dlg._current_def() is not None and dlg._current_def().id == d.id
-    assert dlg.ed_name.text() == "New"
-    dlg.close()
-
-
-def test_save_to_library_updates_status_after_reset(model_space, qapp, tmp_path):
-    from firepro3d.block_manager import BlockManagerDialog, Col, BlockDefRole
-    from PyQt6.QtCore import Qt
-    class _MW: settings = None
-    d = _def(name="Corner")
-    model_space.register_block_definition(d)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
-                             root=str(tmp_path))
-    leaf = _select_block(dlg, d.id)
-    def status():
-        return dlg.model.data(dlg.model.index(leaf.row(), Col.STATUS, leaf.parent()),
-                              Qt.ItemDataRole.DisplayRole)
-    assert status() == "project-only"
-    dlg._save_to_library()
-    # after refresh() reset, re-fetch the leaf (indices are rebuilt)
-    leaf2 = dlg.model.index_for_id(d.id)
-    assert dlg.model.data(dlg.model.index(leaf2.row(), Col.STATUS, leaf2.parent()),
-                          Qt.ItemDataRole.DisplayRole) == "library"
-    dlg.close()
-
 
 def test_format_load_summary_omits_zero_categories():
     from firepro3d.block_manager import _format_load_summary
@@ -181,32 +95,135 @@ def test_format_load_summary_omits_zero_categories():
     assert _format_load_summary(empty) == "Nothing to load."
 
 
-def test_tree_stays_expanded_after_load_reset(model_space, qapp, tmp_path):
-    """Tree must stay fully expanded after a model reset triggered by a new block
-    in a brand-new library (never previously selected, so the re-select logic does
-    not auto-expand it).  Regression for the S4.5 headline flow.
-    """
+# ---------------------------------------------------------------------------
+# Task 2: BlockFilterProxy
+# ---------------------------------------------------------------------------
+
+def _make_proxy(model_space, tmp_path, specs):
+    from firepro3d.block_manager import BlockTableModel, BlockFilterProxy
+    for n, lib, ser in specs:
+        model_space.register_block_definition(_def(name=n, library=lib, series=ser))
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    p = BlockFilterProxy()
+    p.setSourceModel(m)
+    return m, p
+
+
+def test_proxy_column_filter(model_space, tmp_path):
+    from firepro3d.block_manager import Col
+    m, p = _make_proxy(model_space, tmp_path,
+                       [("A", "L1", "S1"), ("B", "L1", "S2"), ("C", "L2", "S1")])
+    assert p.rowCount() == 3
+    p.set_column_filter(Col.LIBRARY, {"L1"})
+    assert p.rowCount() == 2
+    assert p.is_filtered(Col.LIBRARY) is True
+    # AND across columns
+    p.set_column_filter(Col.SERIES, {"S2"})
+    assert p.rowCount() == 1
+    # clearing one restores
+    p.set_column_filter(Col.LIBRARY, None)
+    assert p.is_filtered(Col.LIBRARY) is False
+    assert p.rowCount() == 1                       # still filtered by SERIES=S2
+    p.clear_all()
+    assert p.rowCount() == 3
+
+
+def test_proxy_numeric_sort_on_count(model_space, tmp_path):
+    from firepro3d.block_manager import Col, BlockTableModel, BlockFilterProxy, SortRole
+    d_big = _def(name="Big"); d_small = _def(name="Small")
+    model_space.register_block_definition(d_small)
+    model_space.register_block_definition(d_big)
+    for _ in range(10):
+        model_space.place_block_instance(d_big.id, (0.0, 0.0))
+    model_space.place_block_instance(d_small.id, (0.0, 0.0))   # count 1
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    p = BlockFilterProxy(); p.setSourceModel(m)
+    p.setSortRole(SortRole)
+    p.sort(Col.COUNT, Qt.SortOrder.AscendingOrder)
+    # ascending numeric: 1 (Small) before 10 (Big) — lexicographic would reverse
+    first = p.data(p.index(0, Col.NAME), Qt.ItemDataRole.DisplayRole)
+    assert first == "Small"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: _FilterPopup headless test
+# ---------------------------------------------------------------------------
+
+def test_filter_popup_seeds_and_returns_selection(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import (BlockTableModel, BlockFilterProxy,
+                                         _FilterPopup, Col)
+    from firepro3d.theme import detect
+    for n, lib in (("A", "L1"), ("B", "L1"), ("C", "L2")):
+        model_space.register_block_definition(_def(name=n, library=lib))
+    m = BlockTableModel(model_space, root=str(tmp_path))
+    values = m.distinct_values(Col.LIBRARY)          # ["L1","L2"]
+    pop = _FilterPopup(detect(), "Library", values, accepted=set(values))
+    # all checked initially
+    assert pop.chosen_values() == {"L1", "L2"}
+    # simulate unchecking L2 via the API the popup exposes for tests
+    pop.set_checked({"L1"})
+    assert pop.chosen_values() == {"L1"}
+    pop.close()
+
+
+# ---------------------------------------------------------------------------
+# Task 4 dialog tests (expected RED until Task 4 is implemented)
+# ---------------------------------------------------------------------------
+
+def _select_block(dlg, block_id):
+    src_row = dlg.model.row_for_id(block_id)
+    assert src_row >= 0
+    proxy_idx = dlg.proxy.mapFromSource(dlg.model.index(src_row, 0))
+    dlg.view.setCurrentIndex(proxy_idx)
+    return proxy_idx
+
+
+def test_dialog_constructs_and_selects(model_space, qapp, tmp_path):
     from firepro3d.block_manager import BlockManagerDialog
-    from PyQt6.QtCore import QModelIndex
+    class _MW: settings = None
+    d = _def(name="Corner")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    _select_block(dlg, d.id)
+    assert dlg.ed_name.text() == "Corner"
+    assert dlg.btn_save.isEnabled() and not dlg.btn_reload.isEnabled()
+    assert dlg.btn_editor.isEnabled()
+    dlg.close()
 
-    class _MW:
-        settings = None
 
-    d1 = _def(name="First", library="LibA", series="Ser1")
-    model_space.register_block_definition(d1)
-    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False,
-                             root=str(tmp_path))
-    # Embed a NEW block in a NEW library — fires blockDefinitionsChanged → model reset
-    d2 = _def(name="Second", library="LibB", series="Ser2")
-    model_space.register_block_definition(d2)
-    # After the reset BOTH library group rows must be expanded (leaves visible)
-    root = QModelIndex()
-    assert dlg.model.rowCount(root) == 2, "expected two library rows"
-    for i in range(dlg.model.rowCount(root)):
-        lib_idx = dlg.model.index(i, 0, root)
-        assert dlg.view.isExpanded(lib_idx), (
-            f"library row {i} collapsed after reset")
-        ser_idx = dlg.model.index(0, 0, lib_idx)
-        assert dlg.view.isExpanded(ser_idx), (
-            f"series row under library {i} collapsed after reset")
+def test_dialog_applies_column_filter(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog, Col
+    class _MW: settings = None
+    for n, lib in (("A", "L1"), ("B", "L2")):
+        model_space.register_block_definition(_def(name=n, library=lib))
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    assert dlg.proxy.rowCount() == 2
+    dlg.proxy.set_column_filter(Col.LIBRARY, {"L1"})
+    assert dlg.proxy.rowCount() == 1
+    dlg.close()
+
+
+def test_selection_survives_metadata_edit(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog
+    class _MW: settings = None
+    d = _def(name="Old")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    _select_block(dlg, d.id)
+    dlg.ed_name.setText("New"); dlg._commit_metadata()
+    assert dlg._current_def() is not None and dlg._current_def().id == d.id
+    assert dlg.ed_name.text() == "New"
+    dlg.close()
+
+
+def test_group_no_longer_applies_but_empty_selection_blanks(model_space, qapp, tmp_path):
+    from firepro3d.block_manager import BlockManagerDialog
+    class _MW: settings = None
+    d = _def(name="Corner")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    dlg.view.clearSelection()
+    dlg._sync_ui()
+    assert dlg._current_def() is None
+    assert not dlg.btn_delete.isEnabled() and not dlg.btn_editor.isEnabled()
     dlg.close()

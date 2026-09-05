@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-from PyQt6.QtCore import (Qt, QAbstractTableModel, QAbstractItemModel,
-                          QModelIndex, QRectF, QSize)
-from PyQt6.QtGui import QPainter, QFontMetrics
+from PyQt6.QtCore import (Qt, QAbstractTableModel, QSortFilterProxyModel,
+                          QModelIndex, QRectF, QSize, pyqtSignal, QRect, QPoint)
+
+from PyQt6.QtGui import QPainter, QFontMetrics, QColor
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
                              QPushButton, QLabel, QLineEdit, QTableView,
                              QTreeView, QAbstractItemView, QHeaderView,
-                             QFormLayout, QWidget, QStyledItemDelegate)
+                             QFormLayout, QWidget, QStyledItemDelegate,
+                             QCheckBox, QScrollArea)
 
 from . import block_library
 from .frameless_shell import FramelessShellMixin
@@ -50,106 +52,60 @@ class Col(IntEnum):
 _HEADERS = {Col.NAME: "Name", Col.LIBRARY: "Library", Col.SERIES: "Series",
             Col.COUNT: "Instances", Col.STATUS: "Source"}
 
-BlockDefRole = Qt.ItemDataRole.UserRole + 1   # leaf -> BlockDefinition; group -> None
+BlockDefRole = Qt.ItemDataRole.UserRole + 1   # any cell -> its row's BlockDefinition
+SortRole = Qt.ItemDataRole.UserRole + 2       # per-column sort key (numeric for COUNT)
 
 
-class _Node:
-    """Explicit tree node. kind: 'library' | 'series' | 'block'."""
-    __slots__ = ("kind", "label", "defn", "parent", "children", "row")
-
-    def __init__(self, kind, label, defn, parent, row):
-        self.kind = kind
-        self.label = label        # display text for group rows
-        self.defn = defn          # BlockDefinition on a 'block' leaf, else None
-        self.parent = parent
-        self.row = row
-        self.children = []
-
-
-class BlockTreeModel(QAbstractItemModel):
-    """Library -> Series -> block tree over ``scene._block_definitions``.
-
-    Live: resets on both ``blockDefinitionsChanged`` and ``blockInstancesChanged``
-    (place/remove changes leaf counts). ``root`` overrides the library root for
-    ``source_status`` (tests inject a temp dir; production passes None).
-    """
+class BlockTableModel(QAbstractTableModel):
+    """Flat table over ``scene._block_definitions``. Live: resets on both
+    ``blockDefinitionsChanged`` and ``blockInstancesChanged``. ``root`` overrides
+    the library root for ``source_status`` (tests inject a temp dir)."""
 
     def __init__(self, scene, root: str | None = None, parent=None):
         super().__init__(parent)
         self._scene = scene
         self._root = root
-        self._root_node = _Node("root", "", None, None, 0)
-        self._counts: dict = {}
+        self._defs = []
+        self._counts = {}
         self._rebuild()
         for signame in ("blockDefinitionsChanged", "blockInstancesChanged"):
             sig = getattr(scene, signame, None)
             if sig is not None:
                 sig.connect(self._on_changed)
 
-    # -- snapshot ----------------------------------------------------------
-    def _rebuild(self) -> None:
+    def _rebuild(self):
+        self._defs = list(self._scene._block_definitions.values())
         self._counts = {}
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
-        self._root_node = _Node("root", "", None, None, 0)
-        grouped: dict = {}
-        for d in self._scene._block_definitions.values():
-            grouped.setdefault(d.library, {}).setdefault(d.series, []).append(d)
-        for li, lib in enumerate(sorted(grouped)):
-            lib_node = _Node("library", lib, None, self._root_node, li)
-            self._root_node.children.append(lib_node)
-            for si, ser in enumerate(sorted(grouped[lib])):
-                ser_node = _Node("series", ser, None, lib_node, si)
-                lib_node.children.append(ser_node)
-                for bi, d in enumerate(sorted(grouped[lib][ser], key=lambda x: x.name)):
-                    ser_node.children.append(_Node("block", d.name, d, ser_node, bi))
 
-    def _on_changed(self) -> None:
+    def _on_changed(self):
         self.beginResetModel()
         self._rebuild()
         self.endResetModel()
 
-    def refresh(self) -> None:
-        """Re-read the definitions snapshot (e.g. after a library write that
-        changed source-status but did not mutate the registry)."""
+    def refresh(self):
+        """Re-read the snapshot after a non-signalling change (e.g. Save-to-Library
+        changes source-status without a registry mutation)."""
         self._on_changed()
 
-    def _node(self, index) -> _Node:
-        return index.internalPointer() if index.isValid() else self._root_node
+    def definition_at_row(self, row):
+        return self._defs[row] if 0 <= row < len(self._defs) else None
 
-    def definition_at_index(self, index):
-        node = self._node(index)
-        return node.defn if node.kind == "block" else None
+    def row_for_id(self, block_id):
+        for r, d in enumerate(self._defs):
+            if d.id == block_id:
+                return r
+        return -1
 
-    def index_for_id(self, block_id):
-        """QModelIndex of the leaf whose definition id == block_id (else invalid)."""
-        for lib in self._root_node.children:
-            for ser in lib.children:
-                for leaf in ser.children:
-                    if leaf.defn is not None and leaf.defn.id == block_id:
-                        return self.createIndex(leaf.row, 0, leaf)
-        return QModelIndex()
+    def distinct_values(self, col):
+        """Sorted distinct DisplayRole strings for *col* (funnel checkbox list)."""
+        vals = {self._display(d, col) for d in self._defs}
+        return sorted(vals)
 
-    # -- tree structure ----------------------------------------------------
-    def index(self, row, column, parent=QModelIndex()):
-        if row < 0 or column < 0 or column >= len(Col):
-            return QModelIndex()
-        parent_node = self._node(parent)
-        if row >= len(parent_node.children):
-            return QModelIndex()
-        return self.createIndex(row, column, parent_node.children[row])
-
-    def parent(self, index):
-        if not index.isValid():
-            return QModelIndex()
-        node = index.internalPointer()
-        p = node.parent
-        if p is None or p is self._root_node:
-            return QModelIndex()
-        return self.createIndex(p.row, 0, p)
-
+    # -- Qt --
     def rowCount(self, parent=QModelIndex()):
-        return len(self._node(parent).children)
+        return 0 if parent.isValid() else len(self._defs)
 
     def columnCount(self, parent=QModelIndex()):
         return len(Col)
@@ -160,25 +116,7 @@ class BlockTreeModel(QAbstractItemModel):
             return _HEADERS.get(Col(section), "")
         return None
 
-    def flags(self, index):
-        if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
-        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-
-    # -- data --------------------------------------------------------------
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-        node = index.internalPointer()
-        if role == BlockDefRole:
-            return node.defn if node.kind == "block" else None
-        if role != Qt.ItemDataRole.DisplayRole:
-            return None
-        col = index.column()
-        if node.kind != "block":
-            # group rows: only the NAME column shows the label
-            return node.label if col == Col.NAME else None
-        d = node.defn
+    def _display(self, d, col):
         if col == Col.NAME:
             return d.name
         if col == Col.LIBRARY:
@@ -189,6 +127,21 @@ class BlockTreeModel(QAbstractItemModel):
             return str(self._counts.get(d.id, 0))
         if col == Col.STATUS:
             return block_library.source_status(d, root=self._root)
+        return ""
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        d = self._defs[index.row()]
+        col = index.column()
+        if role == BlockDefRole:
+            return d
+        if role == SortRole:
+            if col == Col.COUNT:
+                return self._counts.get(d.id, 0)          # numeric sort key
+            return self._display(d, col)
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self._display(d, col)
         return None
 
 
@@ -259,7 +212,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.resize(980, 520)
         self.setModal(False)
 
-        self.model = BlockTreeModel(scene, root=root, parent=self)
+        self.model = BlockTableModel(scene, root=root, parent=self)
         self._build_ui()
         self._wire()
         self._sync_ui()
@@ -368,23 +321,15 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset = defn.id if defn is not None else None
 
     def _after_reset(self) -> None:
-        """After a model reset, re-expand the whole tree then re-select the
-        previously-selected leaf (by id).
+        """After a model reset, re-select the previously-selected row (by id).
 
-        expandAll() runs first so that newly-loaded groups (never selected, thus
-        not auto-expanded by setCurrentIndex) are immediately visible — the block
-        tree has no user-collapse feature, so always-expanded is the intended state.
-
-        If the id no longer exists (e.g. after Delete), selects nothing —
-        the panel blanks, which is the correct post-delete state. Calls
-        _sync_ui so the details panel repopulates in either case.
+        NOTE: Minimal stub for T1-T3 compatibility — full rewire in Task 4.
         """
-        self.view.expandAll()
         block_id = getattr(self, "_selected_id_before_reset", None)
         if block_id is not None:
-            idx = self.model.index_for_id(block_id)
-            if idx.isValid():
-                self.view.setCurrentIndex(idx)
+            src_row = self.model.row_for_id(block_id)
+            if src_row >= 0:
+                self.view.setCurrentIndex(self.model.index(src_row, 0))
         self._sync_ui()
 
     # ------------------------------------------------------------- selection
@@ -392,7 +337,10 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         idxs = self.view.selectionModel().selectedRows()
         if not idxs:
             return None
-        return self.model.definition_at_index(idxs[0])
+        # NOTE: stub for T1-T3 — view is still QTreeView; full rewire in Task 4.
+        # For the tree, internalPointer is a _Node — but that class is gone.
+        # Return None safely so import and _sync_ui don't crash.
+        return None
 
     def _sync_ui(self) -> None:
         defn = self._current_def()
