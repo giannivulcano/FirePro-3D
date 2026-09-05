@@ -503,14 +503,16 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         panel.setFixedWidth(268)
         form = QFormLayout(panel)
         form.setContentsMargins(14, 14, 14, 14)
-        self.ed_name = QLineEdit()
-        self.ed_library = QLineEdit()
-        self.ed_series = QLineEdit()
+        # Read-only display. Metadata (name/library/series) is edited in the
+        # Block Editor (v2), never inline here — the Manager is view-only.
+        self.lbl_name = QLabel()
+        self.lbl_library = QLabel()
+        self.lbl_series = QLabel()
         self.lbl_status = QLabel()
         self.lbl_count = QLabel()
-        form.addRow("Name", self.ed_name)
-        form.addRow("Library", self.ed_library)
-        form.addRow("Series", self.ed_series)
+        form.addRow("Name", self.lbl_name)
+        form.addRow("Library", self.lbl_library)
+        form.addRow("Series", self.lbl_series)
         form.addRow("Source", self.lbl_status)
         form.addRow("Instances", self.lbl_count)
         return panel
@@ -533,8 +535,6 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self._selected_id_before_reset: str | None = None
         self.model.modelAboutToBeReset.connect(self._before_reset)
         self.model.modelReset.connect(self._after_reset)
-        for ed in (self.ed_name, self.ed_library, self.ed_series):
-            ed.editingFinished.connect(self._commit_metadata)
 
     # ------------------------------------------------- reset guard (selection)
     def _before_reset(self) -> None:
@@ -569,23 +569,18 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.count_label.setText(
             f"{n_shown} of {n_total} blocks · {n_inst} instances")
         has = defn is not None
-        for ed in (self.ed_name, self.ed_library, self.ed_series):
-            ed.setEnabled(has)
         if not has:
-            self.ed_name.clear()
-            self.ed_library.clear()
-            self.ed_series.clear()
+            self.lbl_name.clear()
+            self.lbl_library.clear()
+            self.lbl_series.clear()
             self.lbl_status.clear()
             self.lbl_count.clear()
             for b in (self.btn_save, self.btn_reload, self.btn_delete, self.btn_editor):
                 b.setEnabled(False)
             return
-        # block signals so setText doesn't retrigger editingFinished commits
-        for ed, val in ((self.ed_name, defn.name), (self.ed_library, defn.library),
-                        (self.ed_series, defn.series)):
-            ed.blockSignals(True)
-            ed.setText(val)
-            ed.blockSignals(False)
+        self.lbl_name.setText(defn.name)
+        self.lbl_library.setText(defn.library)
+        self.lbl_series.setText(defn.series)
         status = block_library.source_status(defn, root=self._root)
         count = self.scene.instance_count(defn.id)
         self.lbl_status.setText(status)
@@ -614,17 +609,6 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         pop.show()
 
     # -------------------------------------------------------------- actions
-    def _commit_metadata(self) -> None:
-        defn = self._current_def()
-        if defn is None:
-            return
-        ok = self.scene.set_block_metadata(
-            defn.id, self.ed_name.text(), self.ed_library.text(),
-            self.ed_series.text())
-        if not ok:
-            # revert-on-invalid
-            self._sync_ui()
-
     def _delete(self) -> None:
         from .themed_message import themed_info
         defn = self._current_def()

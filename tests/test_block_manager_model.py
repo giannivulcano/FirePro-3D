@@ -185,7 +185,7 @@ def test_dialog_constructs_and_selects(model_space, qapp, tmp_path):
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
     _select_block(dlg, d.id)
-    assert dlg.ed_name.text() == "Corner"
+    assert dlg.lbl_name.text() == "Corner"       # read-only display
     assert dlg.btn_save.isEnabled() and not dlg.btn_reload.isEnabled()
     assert dlg.btn_editor.isEnabled()
     dlg.close()
@@ -203,16 +203,36 @@ def test_dialog_applies_column_filter(model_space, qapp, tmp_path):
     dlg.close()
 
 
-def test_selection_survives_metadata_edit(model_space, qapp, tmp_path):
+def test_details_panel_is_read_only(model_space, qapp, tmp_path):
+    # Metadata is edited in the Block Editor (v2), not inline in the Manager.
     from firepro3d.block_manager import BlockManagerDialog
+    from PyQt6.QtWidgets import QLabel
     class _MW: settings = None
-    d = _def(name="Old")
+    d = _def(name="Corner", library="Details", series="Joints")
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
     _select_block(dlg, d.id)
-    dlg.ed_name.setText("New"); dlg._commit_metadata()
+    # the detail fields are display-only QLabels (no inline commit path)
+    assert isinstance(dlg.lbl_name, QLabel)
+    assert dlg.lbl_name.text() == "Corner"
+    assert dlg.lbl_library.text() == "Details"
+    assert dlg.lbl_series.text() == "Joints"
+    assert not hasattr(dlg, "_commit_metadata")
+    dlg.close()
+
+
+def test_selection_survives_model_reset(model_space, qapp, tmp_path):
+    # Selection + panel survive a reset (e.g. a new block loaded) via id re-select.
+    from firepro3d.block_manager import BlockManagerDialog
+    class _MW: settings = None
+    d = _def(name="Keep")
+    model_space.register_block_definition(d)
+    dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    _select_block(dlg, d.id)
+    # a new block registration fires blockDefinitionsChanged -> model reset
+    model_space.register_block_definition(_def(name="Other", library="L2"))
     assert dlg._current_def() is not None and dlg._current_def().id == d.id
-    assert dlg.ed_name.text() == "New"
+    assert dlg.lbl_name.text() == "Keep"
     dlg.close()
 
 

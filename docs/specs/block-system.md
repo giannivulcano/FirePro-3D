@@ -135,8 +135,12 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 9. **`scale_mode` enum in schema, `Real-size` the only v1 value** (`Annotative` reserved for v2 with
    paper-space). Instances render at the definition's real size; **no rescale/mirror in plan views**
    (that is Editor-only, v2). **Attributes structure reserved in schema, no UI in v1.**
-10. **v1 definitions are geometry-immutable** (no Editor yet); the Manager edits **metadata only**
-    (name/library/series/delete). To change geometry, make a new block.
+10. **v1 definitions are geometry-immutable** (no Editor yet). **The Manager is view-only**
+    (2026-09-05): its details panel shows name/library/series read-only; the Manager's verbs are
+    Load-from-Library / Save-to-Library / Reload / Delete / place. **All metadata editing
+    (name/library/series) is reserved for the Block Editor (v2)** — `Model_Space.set_block_metadata`
+    exists and is tested for that consumer but is not wired to any inline UI. To change geometry, make
+    a new block.
 11. **Manager = MVC view over an arm's-length scene API (S4, 2026-09-04).** The block-management logic
     lives as `Model_Space` methods (`instance_count`, `delete_block_definition`,
     `reload_block_definition`, `set_block_metadata`, + a `blockInstancesChanged` signal); the dialog is
