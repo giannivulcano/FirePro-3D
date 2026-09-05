@@ -1,6 +1,14 @@
-"""app_data_dir helper + call-site parity (Block system S3)."""
+"""app_data_dir helper + call-site parity + configurable override."""
 import os
-from firepro3d.app_data import app_data_dir
+import pytest
+from firepro3d import app_data
+from firepro3d.app_data import app_data_dir, user_data_root
+
+
+@pytest.fixture(autouse=True)
+def _no_override(monkeypatch):
+    # Isolate from any real QSettings data-folder override on the test machine.
+    monkeypatch.setattr(app_data, "_configured_root", lambda: None)
 
 
 def test_app_data_dir_roots_under_firepro3d(monkeypatch):
@@ -22,3 +30,16 @@ def test_call_sites_use_helper(monkeypatch):
         r"C:\Roam", "FirePro3D", "sprinklers.json")
     assert titleblock_template._library_dir() == os.path.join(
         r"C:\Roam", "FirePro3D", "titleblocks")
+
+
+def test_configured_override_wins(monkeypatch, tmp_path):
+    # A configured data-folder override relocates the whole root.
+    monkeypatch.setattr(app_data, "_configured_root", lambda: str(tmp_path))
+    assert user_data_root() == str(tmp_path)
+    assert app_data_dir("blocks") == os.path.join(str(tmp_path), "blocks")
+
+
+def test_blank_override_uses_default(monkeypatch):
+    monkeypatch.setenv("APPDATA", r"C:\Roam")
+    monkeypatch.setattr(app_data, "_configured_root", lambda: None)
+    assert app_data_dir() == os.path.join(r"C:\Roam", "FirePro3D")
