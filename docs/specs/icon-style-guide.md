@@ -1,12 +1,12 @@
 ---
 status: current
-last-verified: 2026-09-01
-verified-commit: cfcb6d6
+last-verified: 2026-09-05
+verified-commit: 5d6206a
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
   - firepro3d/graphics/Ribbon/
-source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg authored + import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign); underlay_manager_icon.svg (family-matched Manager icon) + graphics/chevron_{right,down}.svg tree decorations 2026-09-01 (feat/underlay-manager-chrome-match)"
+source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg authored + import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign); underlay_manager_icon.svg (family-matched Manager icon) + graphics/chevron_{right,down}.svg tree decorations 2026-09-01 (feat/underlay-manager-chrome-match); Blocks-group icons make/insert/block_manager authored 2026-09-05 (feat/block-ribbon-icons — block-system S5; two-token guards in test_icon_theming.py)"
 ---
 
 # Ribbon Icon Style Guide — Governing Spec
