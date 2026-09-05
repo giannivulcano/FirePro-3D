@@ -1,7 +1,7 @@
 ---
-status: partial           # S1 + S2 + S3 built (model + create/place + library); S4–S5 pending
+status: partial           # S1+S2+S3+S4 built (model + create/place + library + Manager); S5 (icons) pending; thumbnails deferred
 last-verified: 2026-09-04
-verified-commit: 71cdf6a
+verified-commit: 3d0691d
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity

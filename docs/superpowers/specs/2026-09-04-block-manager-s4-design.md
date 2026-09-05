@@ -92,9 +92,12 @@ metadata edits each push one undo state. Save-to-Library is a pure disk write �
 - **Library folder absent (portability):** `source_status` → `project-only`; Save/Reload operate
   against `app_data_dir("blocks")` and fail gracefully (themed `OSError`), never crash. Opening a
   project with `blocks/` absent is unaffected (embedded copy authoritative).
-- **Rename doesn't bump version:** a renamed `library`/`modified` block keeps its version-based
-  `source_status`, so the on-disk name can silently diverge from the embedded name — **accepted for
-  S4** (stale-`.fpdb` cleanup is a filed follow-up). `id` never changes → instances never break.
+- **Rename / re-file doesn't reconcile disk:** editing `name` keeps the version-based `source_status`
+  (on-disk name silently diverges from the embedded name); editing `library`/`series` re-points the
+  library lookup to a *different* (empty) folder, so `source_status` flips to `project-only` and
+  Reload can't find the on-disk copy until re-saved (seam review, 2026-09-04). Both are **accepted for
+  S4** (metadata edit is embedded-only by design; stale-`.fpdb` cleanup + scan-by-`id` is a filed
+  follow-up). `id` never changes → instances never break, and neither path crashes.
 - **Metadata validation:** blank name/library/series → revert; a (library,series,name) triple already
   used by another definition → revert. Whitespace trimmed.
 - **Modeless staleness:** the two signals keep the table live against edits made elsewhere.
