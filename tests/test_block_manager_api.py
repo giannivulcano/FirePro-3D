@@ -115,3 +115,84 @@ def test_set_metadata_collision_rejected(model_space):
     assert b.name == "B"
     # a no-op "rename" of A to its own identity is allowed (excludes self)
     assert model_space.set_block_metadata(a.id, "A", "L", "S") is True
+
+
+def _write_fpdb(tmp_path, defn, name=None):
+    """Write defn.to_dict() to a .fpdb file, return its path."""
+    import json
+    p = tmp_path / f"{name or defn.name}.fpdb"
+    p.write_text(json.dumps(defn.to_dict()), encoding="utf-8")
+    return str(p)
+
+
+def test_load_embeds_and_is_placeable_and_undoable(model_space, tmp_path):
+    d = _def(name="Corner")
+    path = _write_fpdb(tmp_path, d)
+    model_space.push_undo_state()                       # baseline (empty)
+
+    summary = model_space.load_blocks_from_files([path])
+    assert summary["loaded"] == ["Corner"]
+    assert model_space.get_block_definition(d.id) is not None
+    # placeable
+    inst = model_space.place_block_instance(d.id, (0.0, 0.0))
+    assert inst in model_space._block_instances
+
+    model_space.remove_block_instance(inst)
+    model_space.undo()                                  # unloads the batch
+    assert model_space.get_block_definition(d.id) is None
+
+
+def test_load_collision_rules(model_space, tmp_path):
+    # already-loaded id -> skip
+    a = _def(name="A")
+    model_space.register_block_definition(a)
+    same = _write_fpdb(tmp_path, a, name="A_again")
+    s1 = model_space.load_blocks_from_files([same])
+    assert s1["skipped"] == ["A"] and s1["loaded"] == []
+
+    # same id, higher version -> replace (backref rebuilt + repaint)
+    inst = model_space.place_block_instance(a.id, (0.0, 0.0))
+    newer = _def(name="A")
+    newer.id = a.id                                     # same identity
+    newer.set_primitives([{"type": "draw_line", "pt1": [0, 0], "pt2": [400, 0],
+                           "color": "#ffffff", "lineweight": 1.0}])  # version 2, wider
+    wide_before = inst.boundingRect().width()
+    pth = _write_fpdb(tmp_path, newer, name="A_v2")
+    s2 = model_space.load_blocks_from_files([pth])
+    assert s2["replaced"] == ["A"]
+    assert model_space.get_block_definition(a.id).version == newer.version
+    assert inst.boundingRect().width() > wide_before    # repainted to new geometry
+    assert inst in model_space.get_block_definition(a.id)._instances
+
+    # different id, same (library, series, name) -> refuse
+    clash = _def(name="A")                              # fresh uuid, same L/S/name
+    pth2 = _write_fpdb(tmp_path, clash, name="A_clash")
+    s3 = model_space.load_blocks_from_files([pth2])
+    assert s3["refused"] == ["A"] and s3["loaded"] == []
+
+
+def test_load_batch_single_undo(model_space, tmp_path):
+    d1 = _def(name="One")
+    d2 = _def(name="Two")
+    p1, p2 = _write_fpdb(tmp_path, d1), _write_fpdb(tmp_path, d2)
+    model_space.push_undo_state()                       # baseline (empty)
+    depth_before = len(model_space._undo_stack)
+
+    summary = model_space.load_blocks_from_files([p1, p2])
+    assert set(summary["loaded"]) == {"One", "Two"}
+    assert len(model_space._undo_stack) == depth_before + 1   # exactly ONE push
+
+    model_space.undo()                                  # reverts whole batch
+    assert model_space.get_block_definition(d1.id) is None
+    assert model_space.get_block_definition(d2.id) is None
+
+
+def test_load_unreadable_file_counts_failed(model_space, tmp_path):
+    bad = tmp_path / "bad.fpdb"
+    bad.write_text("{broken", encoding="utf-8")
+    good = _def(name="Good")
+    gp = _write_fpdb(tmp_path, good)
+    summary = model_space.load_blocks_from_files([str(bad), gp])
+    assert summary["failed"] == [str(bad)]
+    assert summary["loaded"] == ["Good"]
+    assert model_space.get_block_definition(good.id) is not None

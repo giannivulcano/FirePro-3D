@@ -1539,6 +1539,51 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def load_blocks_from_files(self, paths, root: str | None = None) -> dict:
+        """Embed block definitions from a list of `.fpdb` file paths.
+
+        Per-file collision rules vs the project registry:
+          - same id, same version   -> skip
+          - same id, diff version    -> replace (swap + backref rebuild + repaint)
+          - id absent, but (library, series, name) already used -> refuse
+          - else                     -> embed
+        The whole batch is ONE undo state and ONE ``blockDefinitionsChanged``
+        emit (guards against N model resets). Returns name lists:
+        ``{loaded, replaced, skipped, refused, failed}``.
+        """
+        from . import block_library
+        summary = {"loaded": [], "replaced": [], "skipped": [],
+                   "refused": [], "failed": []}
+        changed = False
+        for path in paths:
+            defn = block_library.load_block_file(path)
+            if defn is None:
+                summary["failed"].append(path)
+                continue
+            existing = self._block_definitions.get(defn.id)
+            if existing is not None:
+                if existing.version == defn.version:
+                    summary["skipped"].append(defn.name)
+                else:
+                    self._swap_block_definition(defn.id, defn)
+                    summary["replaced"].append(defn.name)
+                    changed = True
+                continue
+            # id not present: refuse a (library, series, name) clash
+            clash = any(
+                (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
+                for o in self._block_definitions.values())
+            if clash:
+                summary["refused"].append(defn.name)
+                continue
+            self._block_definitions[defn.id] = defn
+            summary["loaded"].append(defn.name)
+            changed = True
+        if changed:
+            self.push_undo_state()
+            self.blockDefinitionsChanged.emit()
+        return summary
+
     def set_block_metadata(self, block_id: str, name: str, library: str,
                            series: str) -> bool:
         """Edit a definition's name/library/series (embedded copy only).
