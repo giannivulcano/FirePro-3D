@@ -47,3 +47,13 @@ def test_crosshair_renders_accent_lines(qapp):
     )
     assert found, "no accent crosshair pixels rendered on the cursor row"
     view.close()
+
+
+def test_preview_node_suppressed_when_flag_set(qapp):
+    scene = Model_Space()
+    scene._suppress_preview_node = True
+    scene.update_preview_node(QPointF(10, 10))
+    assert not scene.preview_node.isVisible()
+    scene._suppress_preview_node = False
+    scene.update_preview_node(QPointF(10, 10))
+    assert scene.preview_node.isVisible()

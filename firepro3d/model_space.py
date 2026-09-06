@@ -460,6 +460,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._in_undo_restore: bool = False
         self.init_preview_node()
         self.init_preview_pipe()
+        self._suppress_preview_node = False  # True while the crosshair owns the cursor
         self.draw_origin()
         self.push_undo_state()   # initial empty state
         self.selectionChanged.connect(self._on_selection_changed)
@@ -3114,7 +3115,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def update_preview_node(self, pos: QPointF):
         self.preview_node.setPos(pos)
-        self.preview_node.show()
+        if getattr(self, "_suppress_preview_node", False):
+            self.preview_node.hide()
+        else:
+            self.preview_node.show()
 
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
