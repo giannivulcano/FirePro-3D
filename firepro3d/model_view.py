@@ -92,12 +92,30 @@ class Model_View(QGraphicsView):
         # One-time flag for initial zoom on first show
         self._first_show = True
 
+        # Accent crosshair cursor (MainWindow flips this on from ui/crosshair).
+        self._crosshair_enabled = False
+
     def _on_mode_changed(self, mode: str):
         """Update viewport cursor to match the active scene mode."""
         if self._panning:
             return
-        cursor = self._mode_cursors.get(mode, Qt.CursorShape.ArrowCursor)
+        cursor = self._resolve_cursor(mode)
         self.setCursor(cursor)
+
+    def _resolve_cursor(self, mode):
+        """Cursor for *mode*: blank while the crosshair owns the pointer."""
+        if getattr(self, "_crosshair_enabled", False):
+            return Qt.CursorShape.BlankCursor
+        return self._mode_cursors.get(mode, Qt.CursorShape.ArrowCursor)
+
+    def set_crosshair_enabled(self, enabled: bool):
+        """Enable/disable the accent crosshair (hides the OS cursor when on)."""
+        self._crosshair_enabled = bool(enabled)
+        sc = self.scene()
+        mode = getattr(sc, "mode", None) if sc is not None else None
+        if not self._panning:
+            self.setCursor(self._resolve_cursor(mode))
+        self.viewport().update()
 
     # ─────────────────────────────
     # Grid overlay
@@ -504,6 +522,28 @@ class Model_View(QGraphicsView):
                 painter.drawPath(path)
             painter.restore()
 
+        # ── 9. Crosshair cursor (viewport coords; accent read live) ───────────
+        if getattr(self, "_crosshair_enabled", False) and not self._panning:
+            vp = getattr(self, "_last_vp_pos", None)
+            if vp is not None:
+                painter.save()
+                painter.resetTransform()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+                pen = QPen(QColor(th.detect().accent))
+                pen.setWidthF(1.0)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                w = self.viewport().width()
+                h = self.viewport().height()
+                cx, cy = int(vp.x()), int(vp.y())
+                gap = 6  # center pick-box half-size (px)
+                painter.drawLine(0, cy, cx - gap, cy)
+                painter.drawLine(cx + gap, cy, w, cy)
+                painter.drawLine(cx, 0, cx, cy - gap)
+                painter.drawLine(cx, cy + gap, cx, h)
+                painter.drawRect(cx - gap, cy - gap, 2 * gap, 2 * gap)
+                painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────
@@ -662,6 +702,8 @@ class Model_View(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
         else:
             super().mouseMoveEvent(event)
+            if getattr(self, "_crosshair_enabled", False):
+                self.viewport().update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -672,8 +714,7 @@ class Model_View(QGraphicsView):
             if sc is not None and hasattr(sc, "_underlay_freeze"):
                 sc._underlay_freeze.end()
             mode = getattr(sc, "mode", None) if sc else None
-            self.setCursor(self._mode_cursors.get(
-                mode, Qt.CursorShape.ArrowCursor))
+            self.setCursor(self._resolve_cursor(mode))
         elif event.button() == Qt.MouseButton.LeftButton:
             if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
