@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-28
-verified-commit: 579e841
+last-verified: 2026-09-05
+verified-commit: 928faba
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -26,7 +26,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 **Contract vs as-built (grilled 2026-07-16):** the *principle* — a workflow-ordered ribbon as sole command surface — is the contract. The specific tab split is as-built, open to reshaping with a coherent workflow story.
 
-**Target taxonomy (decided 2026-07-16, executed 2026-08-22):** the old six-tab split (Manage / Draw / Build / Modify / Analyze / Draft) is superseded. The as-built structure is **7 base tabs** (Manage → View → Create → Architecture → Sprinkler Systems → Analyze → Draft) plus on-demand contextual tabs (§3.8). The always-visible Modify tab was **removed** (D2, D8 resolved); contextual tabs now carry selection-specific commands. Draft = annotations (model + sheet) + page setup + plot (Draw/annotation merge executed). The previously deferred "Draw → Draft annotation migration" has landed.
+**Target taxonomy (decided 2026-07-16, executed 2026-08-22; View tab retired 2026-09-05):** the old six-tab split (Manage / Draw / Build / Modify / Analyze / Draft) is superseded. The as-built structure is **6 base tabs** (Manage → Create → Architecture → Sprinkler Systems → Analyze → Draft) plus on-demand contextual tabs (§3.8). The always-visible Modify tab was **removed** (D2, D8 resolved); contextual tabs now carry selection-specific commands. Draft = annotations (model + sheet) + page setup + plot (Draw/annotation merge executed). The previously deferred "Draw → Draft annotation migration" has landed. The **View tab was retired** (2026-09-05, `feat/ui-ribbon-cleanup`): Underlay Manager + Display Manager moved to Manage; Fit-to-Screen replaced by the **Home** key + middle-mouse double-click; the Properties/Browser dock toggles removed (docks reached via the `B` / `/` shortcuts); the Hydraulic/Radiation report toggles removed (those docks auto-show on Run and start hidden).
 
 ## 3. Architecture & Constraints
 
@@ -54,23 +54,22 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 ### 3.4 Content ownership (`main.py`)
 
-`init_ribbon()` builds **7 base tabs** in order via private `_init_<tab>_tab` helpers, then calls `_init_contextual_tabs()` to build the contextual-tab registry. It must run **after** the dock widgets exist (Panels toggles bind to them). Ribbon widgets wired to signals connected in `__init__` (pre-`init_ribbon`) must be reached through `getattr(self, ..., None)` guards — those signals can fire before the ribbon exists.
+`init_ribbon()` builds **6 base tabs** in order via private `_init_<tab>_tab` helpers, then calls `_init_contextual_tabs()` to build the contextual-tab registry. Ribbon widgets wired to signals connected in `__init__` (pre-`init_ribbon`) must be reached through `getattr(self, ..., None)` guards — those signals can fire before the ribbon exists.
 
 **Base-tab content overview:**
 
 | # | Tab | Groups |
 |---|-----|--------|
-| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) |
-| 2 | **View** | Navigate (Fit to Screen) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) · Panels (Properties/Browser/Hydraulic Report/Radiation Report dock toggles) |
-| 3 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
-| 4 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) |
-| 5 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
-| 6 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
-| 7 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Text/Hatch + sheet Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
+| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) |
+| 2 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
+| 3 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) |
+| 4 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
+| 5 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
+| 6 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Text/Hatch + sheet Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
 
-The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was removed (D6 resolved).
+The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was removed (D6 resolved). The **View tab was retired** (2026-09-05): Underlay + Display moved to Manage (above); Fit-to-Screen is now the **Home** key + middle-mouse double-click (`Model_View.keyPressEvent` / `mouseDoubleClickEvent`, no ribbon button); the Panels dock toggles were deleted (Browser/Properties reached via the `B` / `/` window shortcuts; the Hydraulic/Radiation report docks auto-show on their Run action and start hidden — GeneralPane no longer lists them as startup panels).
 
-**Preferences button (Manage → Settings):** opens `firepro3d.preferences_dialog.PreferencesDialog` — a `QTabWidget`-based dialog with 5 panes: Snapping / Units & Precision / Import & Conversion / General / Project Info. Each pane implements a `load()`/`apply()`/`revert()` protocol; OK = apply-all + close, Apply = apply-all + stay, Cancel = revert-all + close. A dedicated governing spec for `PreferencesDialog` is a filed follow-up; for design-of-record see `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`.
+**Preferences button (Manage → Settings):** opens `firepro3d.preferences_dialog.PreferencesDialog` — a `QTabWidget`-based dialog with 6 panes: Snapping / Units & Precision / Import & Conversion / General / UI / Project Info. Each pane implements a `load()`/`apply()`/`revert()` protocol; OK = apply-all + close, Apply = apply-all + stay, Cancel = revert-all + close. The **UI pane** persists `ui/theme`, `ui/crosshair` (accent crosshair cursor, default ON), and `ui/immersive` (borderless fullscreen); crosshair/immersive apply via MainWindow callbacks (`_apply_crosshair`/`_apply_immersive`) and are re-applied on startup in `restore_settings`. A dedicated governing spec for `PreferencesDialog` is a filed follow-up; for design-of-record see `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`.
 
 ### 3.5 Mode-button protocol
 
@@ -78,7 +77,7 @@ Checkable tool buttons that enter a scene mode register in `self._mode_buttons[m
 
 > **As-built (2026-08-25):** the Wall button (Architecture → Building) is a **single checkable button** calling `set_mode("wall")`. It registers under the key `"wall"` only. The old split-button `wall` / `wall_rect` pair is retired; `set_mode("wall_rect")` remains as a backward-compat alias in `Model_Space.set_mode` (folds to `wall + rect primitive`) but is no longer used by the ribbon. The **W** shortcut is a scene-focus-gated window-level binding in `Model_View._TOOL_SHORTCUTS` — not a `shortcut=` ribbon param (§3.3). ←/→ cycles the wall primitive (Line/Polyline/Corner Rect/Center Rect) at step 0; Spacebar cycles alignment; see `wall-room-floor-system.md §4.4`.
 
-> **As-built (2026-08-28):** the Floor button (Architecture → Building) is likewise a **single checkable button** calling `set_mode("floor")`, registered under `"floor"` only, with `floor_icon.svg` wired. The old split menu-button (Floor Rectangle / Floor Polygon dropdown) is retired; `set_mode("floor_rect")` remains a back-compat alias in `Model_Space.set_mode`. The **F** shortcut is a scene-focus-gated `Model_View._TOOL_SHORTCUTS` binding — it **displaced** the old bare-`F` Fit-to-Screen (Fit is now the View-tab button). ←/→ cycles the floor primitive (Corner Rect / Center Rect / Polygon) at step 0; see `wall-room-floor-system.md §11.4`.
+> **As-built (2026-08-28):** the Floor button (Architecture → Building) is likewise a **single checkable button** calling `set_mode("floor")`, registered under `"floor"` only, with `floor_icon.svg` wired. The old split menu-button (Floor Rectangle / Floor Polygon dropdown) is retired; `set_mode("floor_rect")` remains a back-compat alias in `Model_Space.set_mode`. The **F** shortcut is a scene-focus-gated `Model_View._TOOL_SHORTCUTS` binding — it **displaced** the old bare-`F` Fit-to-Screen (Fit is now the **Home** key + middle-mouse double-click). ←/→ cycles the floor primitive (Corner Rect / Center Rect / Polygon) at step 0; see `wall-room-floor-system.md §11.4`.
 
 ### 3.6 Tab behaviors
 
