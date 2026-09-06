@@ -65,7 +65,7 @@ except ImportError:
 from .dxf_import_worker import _sanitize_dxf
 from .loading import LoadingOverlay
 from .theme import (detect, build_app_qss, build_underlay_manager_qss,
-                    FONT_UI, FONT_VALUE)
+                    build_dialog_qss, FONT_UI, FONT_VALUE)
 from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
@@ -1260,10 +1260,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         # Pin it: the window keeps its explicit size, content fits inside.
         outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
-        # Shared chrome QSS is dual-homed in theme.py to both #UnderlayManagerDialog
-        # and #UnderlayImportDialog; this dialog's own id-scoped overrides follow.
+        # build_dialog_qss scopes all rules to QDialog[houseDialog="true"]; the
+        # previewView rule is folded into build_dialog_qss (task 2.1).
         self.setObjectName("UnderlayImportDialog")
-        self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
+        self.setProperty("houseDialog", True)
+        self.setStyleSheet(build_dialog_qss(t))
 
         # ── Header bar (single custom header; styled like the footer) ────────
         self._titlebar = QFrame(objectName="shellHeader")

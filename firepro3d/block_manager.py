@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
 
 from . import block_library
 from .frameless_shell import FramelessShellMixin
-from .theme import detect, build_block_manager_qss
+from .theme import detect, build_block_manager_qss, build_dialog_qss
 
 
 def _format_load_summary(summary: dict) -> str:
@@ -444,7 +444,9 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.setObjectName("BlockManagerDialog")
         self.setWindowTitle("Block Manager")
         if apply_stylesheet:
-            self.setStyleSheet(build_block_manager_qss(theme))
+            self.setProperty("houseDialog", True)
+            self.setStyleSheet(build_dialog_qss(theme)
+                               + f"\n#BlockManagerDialog {{ background: {theme.color('ground').name()}; }}\n")
         self.setMinimumSize(720, 420)
         self.resize(980, 520)
         self.setModal(False)

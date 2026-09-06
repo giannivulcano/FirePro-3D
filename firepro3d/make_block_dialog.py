@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QLineEdit, QPushButton, QFrame)
 
 from .frameless_shell import FramelessShellMixin
-from .theme import build_underlay_manager_qss, detect
+from .theme import build_dialog_qss, detect
 
 
 class MakeBlockDialog(FramelessShellMixin, QDialog):
@@ -18,7 +18,8 @@ class MakeBlockDialog(FramelessShellMixin, QDialog):
         self.init_frameless_shell(title="Make Block", controls=("close",),
                                   icon="insert_block_icon.svg")
         self.setObjectName("MakeBlockDialog")
-        self.setStyleSheet(build_underlay_manager_qss(theme))
+        self.setProperty("houseDialog", True)
+        self.setStyleSheet(build_dialog_qss(theme))
         self.setMinimumWidth(380)
 
         root = QVBoxLayout(self)

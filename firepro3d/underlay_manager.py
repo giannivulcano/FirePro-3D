@@ -37,7 +37,7 @@ from .underlay_manager_delegates import (
 from .underlay_manager_model import (
     Col, LayerRole, UnderlayFilterProxy, UnderlayRole, UnderlayTreeModel,
 )
-from .theme import Theme, detect, build_underlay_manager_qss
+from .theme import Theme, detect, build_dialog_qss
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,8 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         self.setObjectName("UnderlayManagerDialog")
         self.setWindowTitle("Underlay Manager")
         if apply_stylesheet:
-            self.setStyleSheet(build_underlay_manager_qss(theme))
+            self.setProperty("houseDialog", True)
+            self.setStyleSheet(build_dialog_qss(theme))
         self.setMinimumSize(720, 420)
         self.resize(1080, 560)  # restore baseline (size after un-maximize)
         self.setModal(False)
