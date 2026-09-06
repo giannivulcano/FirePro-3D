@@ -65,6 +65,7 @@ from .pipe_network_controller import PipeNetworkController
 from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController
+from .wall_placement_controller import WallPlacementController
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -172,6 +173,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._spr_ctl = SprinklerWorkflowController(self)  # sprinkler/DA/hydraulic concern (slice 6)
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
+        self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -3046,48 +3048,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 return True
         return False
 
-    def _cycle_wall_alignment(self) -> None:
-        """Advance wall alignment Center → Left → Right and refresh the preview.
-
-        Triggered by Spacebar via ``cycle_placement_ambiguity`` during wall
-        placement.
-        """
-        _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
-        self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
-        if self._wall_primitive == "rect":
-            if self._wall_rect_anchor is None:
-                self.instructionChanged.emit(
-                    f"Pick first corner [{self._wall_alignment}]")
-            else:
-                self.instructionChanged.emit(
-                    f"Pick opposite corner [{self._wall_alignment}]")
-        elif self._wall_anchor is None:
-            self.instructionChanged.emit(
-                f"Pick wall start point [{self._wall_alignment}]  Space=align")
-        else:
-            self.instructionChanged.emit(
-                f"Pick wall end point [{self._wall_alignment}]  Space=align")
-        if self._wall_template is not None:
-            self._wall_template._alignment = self._wall_alignment
-            self.requestPropertyUpdate.emit(self._wall_template)
-        # Force preview rect to update without requiring mouse movement
-        if (self._wall_anchor is not None
-                and self._last_scene_pos is not None
-                and self._wall_preview_rect is not None):
-            _wtmpl = self._get_wall_template()
-            p1l, p1r, p2r, p2l = compute_wall_quad(
-                self._wall_anchor, self._last_scene_pos,
-                _wtmpl._thickness_mm, _wtmpl._alignment,
-                self.scale_manager)
-            _pp = QPainterPath()
-            _pp.moveTo(p1l)
-            _pp.lineTo(p2l)
-            _pp.lineTo(p2r)
-            _pp.lineTo(p1r)
-            _pp.closeSubpath()
-            self._wall_preview_rect.setPath(_pp)
-            for v in self.views():
-                v.viewport().update()
+    def _cycle_wall_alignment(self, *args, **kwargs):
+        return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Grid Lines
@@ -3217,27 +3179,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
 
-    def _propagate_wall_endpoint(self, moved, old_pt, new_pt) -> None:
-        """Move every OTHER wall endpoint coincident with *old_pt* to *new_pt*.
-
-        Polyline-drawn (or snapped-together) walls behave as joined: dragging a
-        shared corner drags all its walls.  Proximity-based (no stored
-        connectivity, no serialization change).  WallSegment endpoints only.
-
-        Args:
-            moved: The wall whose grip was directly dragged (excluded from scan).
-            old_pt: The grip position before the drag move.
-            new_pt: The grip position after the drag move.
-        """
-        eps = 0.5   # scene-unit anti-degeneracy tolerance (same family as snap)
-        for w in self._walls:
-            if w is moved:
-                continue
-            for idx in (0, 1):
-                gp = w.grip_points()[idx]
-                if (abs(gp.x() - old_pt.x()) <= eps
-                        and abs(gp.y() - old_pt.y()) <= eps):
-                    w.apply_grip(idx, QPointF(new_pt))
+    def _propagate_wall_endpoint(self, *args, **kwargs):
+        return self._wall_ctl._propagate_wall_endpoint(*args, **kwargs)
 
     def _format_cursor_readout(self, scene_pos) -> str:
         """Render *scene_pos* as the status-bar coordinate string.
@@ -3748,55 +3691,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         dy = snapped.y() - self._stretch_base.y()
         self._show_status(f"Stretch: dx={dx:.1f}  dy={dy:.1f}", timeout=0)
 
-    def _move_wall(self, event, snapped):
-        sm = self.scale_manager
-        if self._wall_anchor is None:
-            self.update_preview_node(snapped)
-            if self._wall_preview_rect is not None:
-                self._wall_preview_rect.hide()
-        else:
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(self._wall_anchor, snapped)
-            self.preview_pipe.setLine(
-                self._wall_anchor.x(), self._wall_anchor.y(),
-                tip.x(), tip.y()
-            )
-            self.preview_pipe.show()
-            self.preview_node.hide()
-            _dx = tip.x() - self._wall_anchor.x()
-            _dy = tip.y() - self._wall_anchor.y()
-            _len = math.hypot(_dx, _dy)
-            self._draw_dim_hint = (
-                f"L: {sm.scene_to_display(_len)}"
-                if sm.is_calibrated else
-                f"L: {_len:.0f}mm"
-            )
-            self.publish_placement_state(self._wall_anchor, tip)
-            # -- Wall thickness preview rectangle --
-            if _len > 1.0:  # avoid degenerate preview
-                if self._wall_preview_rect is None:
-                    self._wall_preview_rect = QGraphicsPathItem()
-                    _ppn = QPen(QColor("#aaaaaa"), 1, Qt.PenStyle.DashLine)
-                    _ppn.setCosmetic(True)
-                    self._wall_preview_rect.setPen(_ppn)
-                    _fill = QColor("#cccccc")
-                    _fill.setAlpha(30)
-                    self._wall_preview_rect.setBrush(QBrush(_fill))
-                    self._wall_preview_rect.setZValue(199)
-                    self.addItem(self._wall_preview_rect)
-                _wtmpl = self._get_wall_template()
-                p1l, p1r, p2r, p2l = compute_wall_quad(
-                    self._wall_anchor, tip, _wtmpl._thickness_mm,
-                    _wtmpl._alignment, self.scale_manager)
-                _pp = QPainterPath()
-                _pp.moveTo(p1l)
-                _pp.lineTo(p2l)
-                _pp.lineTo(p2r)
-                _pp.lineTo(p1r)
-                _pp.closeSubpath()
-                self._wall_preview_rect.setPath(_pp)
-                self._wall_preview_rect.show()
+    def _move_wall(self, *args, **kwargs):
+        return self._wall_ctl._move_wall(*args, **kwargs)
 
     def _move_floor(self, event, snapped):
         if self._floor_active is None:
@@ -5669,17 +5565,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if prim == "rect":
             self._wall_rect_from_center = from_center
 
-    def _press_wall_router(self, *args):
-        """Dispatch a wall click to the active primitive's builder."""
-        if self._wall_primitive == "rect":
-            return self._press_wall_rect(*args)
-        return self._press_wall(*args)
+    def _press_wall_router(self, *args, **kwargs):
+        return self._wall_ctl._press_wall_router(*args, **kwargs)
 
-    def _move_wall_router(self, *args):
-        """Dispatch a wall mouse-move to the active primitive's preview builder."""
-        if self._wall_primitive == "rect":
-            return self._move_wall_rect(*args)
-        return self._move_wall(*args)
+    def _move_wall_router(self, *args, **kwargs):
+        return self._wall_ctl._move_wall_router(*args, **kwargs)
 
     def _commit_pipe_typed(self, values: dict) -> bool:
         """Validate + resolve a typed pipe placement and commit it (T19).
@@ -5753,63 +5643,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return True
 
     # ── Wall drawing ──────────────────────────────────────────────────
-    def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._wall_anchor is None:
-            self._wall_anchor = snapped
-            self._wall_chain_start = QPointF(snapped)
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Space=align")
-        else:
-            tip = snapped
-            if event is not None and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                tip = self._constrain_angle(self._wall_anchor, snapped)
-            # Close wall loop: if clicking near chain start → snap tip to start
-            _close_loop = False
-            if self._wall_chain_start is not None:
-                scale = self._active_view_scale()
-                tol = 15.0 / max(scale, 1e-6)
-                d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
-                                     tip.y() - self._wall_chain_start.y())
-                if d_start <= tol:
-                    tip = QPointF(self._wall_chain_start)
-                    _close_loop = True
-            _tmpl = self._get_wall_template()
-            wall = WallSegment(self._wall_anchor, tip,
-                               thickness_mm=_tmpl._thickness_mm,
-                               color=_tmpl._color.name())
-            wall.name = f"Wall {self._next_wall_num}"
-            self._next_wall_num += 1
-            wall._alignment = _tmpl._alignment
-            wall._fill_mode = _tmpl._fill_mode
-            wall.level = _tmpl.level if _tmpl.level else self.active_level
-            wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
-            wall._top_level = getattr(_tmpl, "_top_level", "")
-            wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
-            # Keep scene alignment in sync with template
-            self._wall_alignment = _tmpl._alignment
-            self.addItem(wall)
-            self._walls.append(wall)
-            apply_category_defaults(wall)
-            # Auto-join: snap endpoints to nearby walls
-            self._auto_join_wall(wall)
-            wall.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            self.preview_pipe.hide()
-            if self._wall_preview_rect is not None:
-                self._wall_preview_rect.hide()
-            self.push_undo_state()
-            if _close_loop or self._wall_primitive == "line":
-                # Line variant: one segment then re-arm fresh.
-                # Polyline: an explicit loop-close also stops the chain.
-                self._wall_anchor = None
-                self._wall_chain_start = None
-                self.instructionChanged.emit(
-                    f"Pick wall start point [{self._wall_alignment}]")
-            else:
-                # Polyline: end of this wall becomes start of next.
-                self._wall_anchor = QPointF(tip)
-                self.instructionChanged.emit(
-                    f"Pick next wall end [{self._wall_alignment}]  Space=align  Esc=stop")
+    def _press_wall(self, *args, **kwargs):
+        return self._wall_ctl._press_wall(*args, **kwargs)
 
     # ── Wall rectangle drawing ──────────────────────────────────────────
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -7117,47 +6952,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     pass
         self._next_roof_num = (max(roof_nums) + 1) if roof_nums else 1
 
-    def _auto_join_wall(self, wall: WallSegment,
-                        tolerance: float = AUTO_JOIN_TOLERANCE):
-        """Snap wall endpoints to nearby existing wall endpoints (miter join)
-        and to mid-wall faces (tee join)."""
-
-        # Track which endpoints have already been snapped (0=pt1, 1=pt2)
-        snapped = set()
-
-        # Pass 1: endpoint-to-endpoint (miter / corner join)
-        for other in self._walls:
-            if other is wall:
-                continue
-            for my_idx in (0, 1):
-                if my_idx in snapped:
-                    continue
-                my_pt = wall.pt1 if my_idx == 0 else wall.pt2
-                hit = other.endpoint_near(my_pt, tolerance)
-                if hit is not None:
-                    target = other.pt1 if hit == 0 else other.pt2
-                    wall.snap_endpoint_to(my_idx, target)
-                    snapped.add(my_idx)
-                    # Rebuild connected wall so its miter updates too
-                    other._rebuild_path()
-                    other.update()
-
-        # Pass 2: tee join — snap unsnapped endpoints onto the host
-        # wall's CENTERLINE (the point the user picked stays put; the
-        # drawn body is coped back to the host face at render time by
-        # WallSegment._tee_cope_corners).  The old face snap made the
-        # picked point visibly "jump" off the centerline.
-        for other in self._walls:
-            if other is wall:
-                continue
-            for my_idx in (0, 1):
-                if my_idx in snapped:
-                    continue
-                my_pt = wall.pt1 if my_idx == 0 else wall.pt2
-                cl_pt = other.nearest_centerline_point(my_pt, TEE_TOLERANCE)
-                if cl_pt is not None:
-                    wall.snap_endpoint_to(my_idx, cl_pt)
-                    snapped.add(my_idx)
+    def _auto_join_wall(self, *args, **kwargs):
+        return self._wall_ctl._auto_join_wall(*args, **kwargs)
 
     def _find_wall_at(self, pos: QPointF) -> "WallSegment | None":
         """Return the first wall whose shape contains pos."""

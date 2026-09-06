@@ -73,10 +73,12 @@ def scene(qapp):
 
 # --- Back-compat shell presence + state-home (fast, no live events) -----------
 
+# C1-moved methods (line/polyline primitive). The rect / HUD-applier / variant
+# shells (_move_wall_rect, _apply_wall_dynamic_input, _set_wall_primitive) join
+# this list as C2/C3 relocate them into the controller.
 SHELL_METHODS = [
     "_press_wall", "_press_wall_router", "_move_wall", "_move_wall_router",
-    "_move_wall_rect", "_apply_wall_dynamic_input", "_set_wall_primitive",
-    "_cycle_wall_alignment", "_propagate_wall_endpoint",
+    "_cycle_wall_alignment", "_propagate_wall_endpoint", "_auto_join_wall",
 ]
 
 
@@ -97,19 +99,67 @@ def test_wall_state_stays_scene_side(scene):
 
 # --- Live behavior (filled in as each primitive relocates) --------------------
 
-@pytest.mark.skip(reason="filled in C1")
 def test_wall_line_draw_live(shown_model_view):
-    ...
+    """Line primitive: two clicks commit exactly one wall with the clicked endpoints."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")                 # default primitive is "line"
+    assert scene._wall_primitive == "line"
+    n0 = len(scene._walls)
+    _click(view, QPointF(0, 0))
+    _click(view, QPointF(1000, 0))         # commits ONE wall
+    assert len(scene._walls) == n0 + 1
+    # Line variant re-arms fresh (not chained).
+    assert scene._wall_anchor is None
+    w = scene._walls[-1]
+    # Viewport pixel rounding in an empty scene can shift the snapped point a
+    # few mm off the requested integer point — 20 mm tolerance (per the
+    # existing workflow test's note).
+    assert abs(w.pt1.x() - 0) < 20 and abs(w.pt1.y() - 0) < 20
+    assert abs(w.pt2.x() - 1000) < 20 and abs(w.pt2.y() - 0) < 20
 
 
-@pytest.mark.skip(reason="filled in C1")
 def test_wall_polyline_chain_live(shown_model_view):
-    ...
+    """Polyline primitive: a 3-point chain closing near the start closes the loop."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)      # line -> polyline
+    assert scene._wall_primitive == "polyline"
+    n0 = len(scene._walls)
+    start = QPointF(0, 0)
+    _click(view, start)
+    _click(view, QPointF(1000, 0))         # wall 1
+    _click(view, QPointF(1000, 1000))      # wall 2 from shared endpoint
+    _click(view, QPointF(0, 0))            # close near chain start -> wall 3, closes loop
+    # Three segments landed.
+    assert len(scene._walls) == n0 + 3
+    # Loop closed -> chain re-armed fresh.
+    assert scene._wall_anchor is None
+    # Some committed wall endpoint coincides with the chain start.
+    assert any(_has_endpoint(w, start, tol=20) for w in scene._walls[n0:]), (
+        "closing the chain should leave a wall endpoint on the chain start"
+    )
 
 
-@pytest.mark.skip(reason="filled in C1")
 def test_wall_endpoint_propagation_live(shown_model_view):
-    ...
+    """Grip-drag propagation: moving a shared corner drags the OTHER wall's endpoint."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)      # line -> polyline
+    n0 = len(scene._walls)
+    _click(view, QPointF(0, 0))
+    _click(view, QPointF(1000, 0))         # wall 1
+    _click(view, QPointF(1000, 1000))      # wall 2 shares the (1000, 0) corner
+    assert len(scene._walls) == n0 + 2
+    wall1, wall2 = scene._walls[n0], scene._walls[n0 + 1]
+    # The shared corner is wall1.pt2 ≈ wall2.pt1 ≈ (1000, 0).
+    shared_pt = wall1.pt2
+    new_pt = QPointF(shared_pt.x() + 300, shared_pt.y() - 200)
+    # Drive the propagation the way the core grip handler does: wall1 is the
+    # directly-dragged wall; wall2's coincident endpoint must follow.
+    scene._propagate_wall_endpoint(wall1, shared_pt, new_pt)
+    assert _has_endpoint(wall2, new_pt, tol=1.0), (
+        "the coincident endpoint on the other wall must follow the grip drag"
+    )
 
 
 @pytest.mark.skip(reason="filled in C2")
