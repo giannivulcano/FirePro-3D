@@ -723,6 +723,8 @@ class MainWindow(QMainWindow):
         self.browser_dock.setVisible(True)
         self.prop_dock.setVisible(True)
         self.hydro_dock.setVisible(False)
+        # Accent crosshair cursor (default ON) + blue preview-node suppression.
+        self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -2192,7 +2194,8 @@ class MainWindow(QMainWindow):
             ),
             ImportPane(),
             GeneralPane(),
-            UIPane(on_theme_changed=self._apply_theme),
+            UIPane(on_theme_changed=self._apply_theme,
+                   on_crosshair_changed=self._apply_crosshair),
             ProjectInfoPane(
                 get_info=self._get_project_info,
                 set_info=self._set_project_info,
@@ -2218,6 +2221,17 @@ class MainWindow(QMainWindow):
                 self.ribbon.setStyleSheet(_th.build_ribbon_qss(t))
         if getattr(self, "view", None) is not None:
             self.view.viewport().update()
+
+    def _apply_crosshair(self, enabled=None) -> None:
+        """Toggle the accent crosshair across plan views + suppress the blue
+        preview-node while it is on. Reads QSettings when *enabled* is None."""
+        if enabled is None:
+            enabled = self.settings.value("ui/crosshair", True, type=bool)
+        enabled = bool(enabled)
+        for v in self.scene.views():
+            if hasattr(v, "set_crosshair_enabled"):
+                v.set_crosshair_enabled(enabled)
+        self.scene._suppress_preview_node = enabled
 
     def _open_preferences(self) -> None:
         """Open the unified Preferences dialog and block until closed."""

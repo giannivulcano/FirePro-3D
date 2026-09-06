@@ -57,3 +57,30 @@ def test_preview_node_suppressed_when_flag_set(qapp):
     scene._suppress_preview_node = False
     scene.update_preview_node(QPointF(10, 10))
     assert scene.preview_node.isVisible()
+
+
+def test_uipane_crosshair_persists_and_calls_back(qapp):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.preferences_dialog import (
+        UIPane, _QSETTINGS_ORG, _QSETTINGS_APP,
+    )
+    s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+    saved = s.value("ui/crosshair", None)
+    try:
+        s.setValue("ui/crosshair", True)
+        s.sync()
+        calls = []
+        pane = UIPane(on_crosshair_changed=lambda v: calls.append(v))
+        pane.load()
+        assert pane._crosshair_cb.isChecked() is True
+        pane._crosshair_cb.setChecked(False)
+        pane.apply()
+        assert QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(
+            "ui/crosshair", type=bool) is False
+        assert calls == [False]
+    finally:
+        if saved is None:
+            s.remove("ui/crosshair")
+        else:
+            s.setValue("ui/crosshair", saved)
+        s.sync()
