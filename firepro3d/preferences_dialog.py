@@ -971,7 +971,7 @@ class UIPane(SettingsPane):
         self._crosshair_cb = QCheckBox("Show crosshair cursor")
         form.addRow(self._crosshair_cb)
 
-        self._immersive_cb = QCheckBox("Fullscreen (immersive)")
+        self._immersive_cb = QCheckBox("Maximize window on startup")
         form.addRow(self._immersive_cb)
 
         hint = QLabel(

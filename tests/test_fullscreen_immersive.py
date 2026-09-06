@@ -1,4 +1,4 @@
-"""Guards for borderless fullscreen/immersive mode."""
+"""Guards for the maximized-window (immersive) mode."""
 from __future__ import annotations
 
 import pytest
@@ -26,13 +26,19 @@ def win(qapp):
     snap_engine.SNAP_TOLERANCE_PX = saved
 
 
-def test_apply_immersive_toggles_window(win):
+def test_apply_immersive_calls_show_methods(win, monkeypatch):
+    # Assert the enabled->showMaximized / disabled->showNormal wiring.
+    # NOTE: we monkeypatch the show* methods rather than driving the real
+    # window-state change: maximizing a real MainWindow triggers a View3D/VTK
+    # resize that native-crashes the headless test process (the documented
+    # "MainWindow test mode without View3D" crash class). The actual maximize
+    # behaviour is covered by the mandatory live-smoke checklist.
+    calls = []
+    monkeypatch.setattr(win, "showMaximized", lambda: calls.append("max"))
+    monkeypatch.setattr(win, "showNormal", lambda: calls.append("normal"))
     win._apply_immersive(True)
-    QTest.qWait(50)
-    assert win.isFullScreen()
     win._apply_immersive(False)
-    QTest.qWait(50)
-    assert not win.isFullScreen()
+    assert calls == ["max", "normal"]
 
 
 def test_uipane_immersive_persists_and_calls_back(qapp):

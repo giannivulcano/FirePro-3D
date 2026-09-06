@@ -726,9 +726,9 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
-        # Borderless fullscreen — after restoreGeometry/State so it wins.
+        # Maximized window — after restoreGeometry/State so it wins.
         if self.settings.value("ui/immersive", False, type=bool):
-            self.showFullScreen()
+            self.showMaximized()
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -2194,11 +2194,12 @@ class MainWindow(QMainWindow):
         self.scene._suppress_preview_node = enabled
 
     def _apply_immersive(self, enabled=None) -> None:
-        """Toggle borderless fullscreen. Reads QSettings when *enabled* is None."""
+        """Toggle a maximized window (fills the screen, keeps the OS title bar).
+        Reads QSettings when *enabled* is None."""
         if enabled is None:
             enabled = self.settings.value("ui/immersive", False, type=bool)
         if bool(enabled):
-            self.showFullScreen()
+            self.showMaximized()
         else:
             self.showNormal()
 
