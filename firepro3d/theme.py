@@ -51,6 +51,54 @@ def apply_app_font(app: QApplication) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Layout metrics (variant-INDEPENDENT; semantic-first — see docs/specs/ui-design-system.md).
+#   Base ramp (reference only, NOT a master multiplier): xs=4 sm=8 md=12 lg=16 xl=20.
+#   Margins are (left, top, right, bottom); consume via `layout.setContentsMargins(*M.X)`
+#   in Python and `{M.X}` interpolation in build_dialog_qss.
+# ─────────────────────────────────────────────────────────────────────────────
+class _Metrics:
+    # base ramp (reference)
+    XS, SM, MD, LG, XL = 4, 8, 12, 16, 20
+    # header / titlebar
+    HEADER_H = 40
+    HEADER_MARGIN = (14, 7, 10, 7)
+    HEADER_ICON = 22
+    HEADER_ICON_GAP = 8
+    HEADER_TITLE_GAP = 10
+    WINCTL_DOT = 20
+    WINCTL_ICON = 18
+    # body / panels
+    DIALOG_BODY_MARGIN = (20, 18, 20, 18)   # simple form dialogs (content-driven)
+    PANEL_PAGE_MARGIN = (14, 14, 14, 14)    # dense panel pages
+    PANEL_W = 268
+    PANEL_W_WIDE = 324
+    SEAM = 1
+    SECTION_GAP = 8
+    # footer
+    FOOTER_MARGIN = (14, 9, 14, 9)
+    FOOTER_BTN_GAP = 8
+    # toolbar
+    TOOLBAR_MARGIN = (12, 9, 12, 9)
+    TOOLBAR_GAP = 8
+    # side-rail (SideTabs)
+    SIDE_RAIL_W = 188
+    SIDE_RAIL_MARGIN = (6, 12, 6, 12)
+    SIDE_RAIL_ROW_GAP = 4
+    STEP_ROW_MARGIN = (10, 6, 8, 6)
+    STEP_ROW_GAP = 8
+    STEP_CHIP = 16
+    # radii / pill
+    RADIUS_INPUT = 6
+    RADIUS_CARD = 7
+    RADIUS_PILL = 11
+    RADIUS_CHIP = 8
+    PILL_PADDING = (3, 10)                  # (vertical, horizontal)
+
+
+M = _Metrics()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Colour helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
