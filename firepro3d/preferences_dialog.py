@@ -947,16 +947,20 @@ class UIPane(SettingsPane):
 
     _THEME_KEY = "ui/theme"
     _CROSSHAIR_KEY = "ui/crosshair"
+    _IMMERSIVE_KEY = "ui/immersive"
     _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
 
     def __init__(self, on_theme_changed: Callable[[], None] | None = None,
                  on_crosshair_changed: Callable[[bool], None] | None = None,
+                 on_immersive_changed: Callable[[bool], None] | None = None,
                  parent=None):
         super().__init__("UI", parent)
         self._on_theme_changed = on_theme_changed
         self._on_crosshair_changed = on_crosshair_changed
+        self._on_immersive_changed = on_immersive_changed
         self._snapshot = "system"
         self._crosshair_snapshot = True
+        self._immersive_snapshot = False
 
         form = QFormLayout(self)
         self._theme_combo = QComboBox()
@@ -966,6 +970,9 @@ class UIPane(SettingsPane):
 
         self._crosshair_cb = QCheckBox("Show crosshair cursor")
         form.addRow(self._crosshair_cb)
+
+        self._immersive_cb = QCheckBox("Fullscreen (immersive)")
+        form.addRow(self._immersive_cb)
 
         hint = QLabel(
             "System follows your OS light/dark setting. Changes apply to the "
@@ -983,6 +990,9 @@ class UIPane(SettingsPane):
         cx = s.value(self._CROSSHAIR_KEY, True, type=bool)
         self._crosshair_snapshot = cx
         self._crosshair_cb.setChecked(cx)
+        im = s.value(self._IMMERSIVE_KEY, False, type=bool)
+        self._immersive_snapshot = im
+        self._immersive_cb.setChecked(im)
 
     def apply(self):
         val = self._CHOICES[self._theme_combo.currentIndex()][1]
@@ -1004,11 +1014,19 @@ class UIPane(SettingsPane):
             self._on_crosshair_changed(cx)
         self._crosshair_snapshot = cx
 
+        im = self._immersive_cb.isChecked()
+        s.setValue(self._IMMERSIVE_KEY, im)
+        s.sync()
+        if im != self._immersive_snapshot and self._on_immersive_changed is not None:
+            self._on_immersive_changed(im)
+        self._immersive_snapshot = im
+
     def revert(self):
         idx = next(
             (i for i, (_, v) in enumerate(self._CHOICES) if v == self._snapshot), 0)
         self._theme_combo.setCurrentIndex(idx)
         self._crosshair_cb.setChecked(self._crosshair_snapshot)
+        self._immersive_cb.setChecked(self._immersive_snapshot)
 
 
 class ProjectInfoPane(SettingsPane):

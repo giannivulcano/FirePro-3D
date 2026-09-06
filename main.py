@@ -726,6 +726,9 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
+        # Borderless fullscreen — after restoreGeometry/State so it wins.
+        if self.settings.value("ui/immersive", False, type=bool):
+            self.showFullScreen()
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -2151,7 +2154,8 @@ class MainWindow(QMainWindow):
             ImportPane(),
             GeneralPane(),
             UIPane(on_theme_changed=self._apply_theme,
-                   on_crosshair_changed=self._apply_crosshair),
+                   on_crosshair_changed=self._apply_crosshair,
+                   on_immersive_changed=self._apply_immersive),
             ProjectInfoPane(
                 get_info=self._get_project_info,
                 set_info=self._set_project_info,
@@ -2188,6 +2192,15 @@ class MainWindow(QMainWindow):
             if hasattr(v, "set_crosshair_enabled"):
                 v.set_crosshair_enabled(enabled)
         self.scene._suppress_preview_node = enabled
+
+    def _apply_immersive(self, enabled=None) -> None:
+        """Toggle borderless fullscreen. Reads QSettings when *enabled* is None."""
+        if enabled is None:
+            enabled = self.settings.value("ui/immersive", False, type=bool)
+        if bool(enabled):
+            self.showFullScreen()
+        else:
+            self.showNormal()
 
     def _open_preferences(self) -> None:
         """Open the unified Preferences dialog and block until closed."""
