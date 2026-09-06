@@ -855,6 +855,11 @@ QDialog[houseDialog="true"] QPushButton[switch="true"]:checked {{ background: {t
 QDialog[houseDialog="true"] QPushButton[pill="true"] {{ padding: {M.PILL_PADDING[0]}px {M.PILL_PADDING[1]}px; border-radius: {M.RADIUS_PILL}px; }}
 QDialog[houseDialog="true"] QPushButton[pill="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
 
+/* ── Kit: ToggleSwitch ──────────────────────────────────────────────────── */
+QDialog[houseDialog="true"] QPushButton[toggleSwitch="true"] {{
+    background: {t.line_strong}; border: none; border-radius: 9px; }}
+QDialog[houseDialog="true"] QPushButton[toggleSwitch="true"]:checked {{ background: {t.accent}; }}
+
 /* ── Kit: cards / pills / drop hint (folded out of _import_extra_qss) ───── */
 QDialog[houseDialog="true"] QFrame#scaleCard, QDialog[houseDialog="true"] QFrame#srcCard {{
     background: {t.raised}; border: 1px solid {t.line_strong}; border-radius: {M.RADIUS_CARD}px; }}

@@ -101,3 +101,116 @@ class SideTabs(QFrame):
 
     def set_status(self, key, text, state):
         self._rows[key].set_status(text, state)
+
+
+class DetailsPanel(QFrame):
+    def __init__(self, *, width=M.PANEL_W, title=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("detailsPanel")
+        self.setFixedWidth(width)
+        self._v = QVBoxLayout(self)
+        self._v.setContentsMargins(*M.PANEL_PAGE_MARGIN)
+        self._v.setSpacing(M.SECTION_GAP)
+        if title is not None:
+            hdr = QLabel(title.upper())
+            hdr.setProperty("role", "header")
+            self._v.addWidget(hdr)
+
+    def content_layout(self):
+        return self._v
+
+
+class Section(QWidget):
+    def __init__(self, title, content=None, parent=None):
+        super().__init__(parent)
+        self._v = QVBoxLayout(self)
+        self._v.setContentsMargins(0, 0, 0, 0)
+        self._v.setSpacing(M.SECTION_GAP)
+        self._hdr = QLabel(title.upper())
+        self._hdr.setProperty("role", "header")
+        self._v.addWidget(self._hdr)
+        if content is not None:
+            self._v.addWidget(content)
+
+    def set_content(self, widget):
+        self._v.addWidget(widget)
+
+
+class SwitchBar(QWidget):
+    changed = pyqtSignal(str)
+
+    def __init__(self, options, parent=None):
+        super().__init__(parent)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        self._grp = QButtonGroup(self)
+        self._grp.setExclusive(True)
+        self._btns = {}
+        self._current = None
+        n = len(options)
+        for i, (key, label) in enumerate(options):
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setProperty("switch", "true")
+            b.setProperty("segpos", "left" if i == 0 else "right" if i == n - 1 else "mid")
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.clicked.connect(lambda _=False, k=key: self._select(k))
+            self._grp.addButton(b, i)
+            h.addWidget(b)
+            self._btns[key] = b
+        if options:
+            self.set_current(options[0][0])
+
+    def _select(self, key):
+        self.set_current(key)
+        self.changed.emit(key)
+
+    def set_current(self, key):
+        for k, b in self._btns.items():
+            b.setChecked(k == key)
+        self._current = key
+
+    def current(self):
+        return self._current
+
+
+class ToggleSwitch(QWidget):
+    """Binary on/off: accent when on, label to the right. Rendered via a
+    checkable QPushButton styled as a switch (build_dialog_qss toggleSwitch
+    rule); net-new per theming.md 'binary on/off -> toggle switch' mandate."""
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, label, checked=False, parent=None):
+        super().__init__(parent)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(M.SM)
+        self._sw = QPushButton()
+        self._sw.setCheckable(True)
+        self._sw.setChecked(checked)
+        self._sw.setProperty("toggleSwitch", "true")
+        self._sw.setFixedSize(34, 18)
+        self._sw.toggled.connect(self.toggled)
+        h.addWidget(self._sw)
+        h.addWidget(QLabel(label))
+        h.addStretch(1)
+
+    def isChecked(self):
+        return self._sw.isChecked()
+
+    def setChecked(self, on):
+        self._sw.setChecked(on)
+
+
+class Pill(QPushButton):
+    def __init__(self, text="", *, icon=None, checkable=False, expanding=False, parent=None):
+        super().__init__(text, parent)
+        self.setProperty("pill", "true")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if icon is not None:
+            self.setIcon(icon)
+        self.setCheckable(checkable)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding if expanding else QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed)
