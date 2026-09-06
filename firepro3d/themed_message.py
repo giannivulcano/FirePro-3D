@@ -1,67 +1,37 @@
 """Small themed modal message dialog (house frameless shell)."""
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFrame)
+from PyQt6.QtWidgets import QDialog, QLabel, QWidget, QVBoxLayout, QPushButton
 
-from .frameless_shell import FramelessShellMixin
-from .theme import build_dialog_qss, detect
+from .house_dialog import HouseDialog
 
 
-class ThemedMessageDialog(FramelessShellMixin, QDialog):
-    """An OK-only info modal matching the house shell (tokenized header +
-    ``#dialogBody`` rail + ``#footerBar``). Reuses the ``#MakeBlockDialog`` QSS
-    scope so no extra theme rules are needed.
+class ThemedMessageDialog(HouseDialog):
+    """An OK-only info modal on the house shell.
+
+    ``_make_yes_no`` switches to a Yes/No pair (No left, Yes right/primary).
     """
 
     def __init__(self, title, message, parent=None, theme=None, icon=None):
-        super().__init__(parent)
-        theme = theme or detect()
-        self.init_frameless_shell(title=title, controls=("close",), icon=icon)
+        super().__init__(parent, title=title, icon=icon, min_width=340,
+                         theme=theme)
         self.setObjectName("ThemedMessageDialog")
-        self.setProperty("houseDialog", True)
-        self.setStyleSheet(build_dialog_qss(theme))
-        self.setMinimumWidth(340)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(self._titlebar)
-
-        body = QFrame(objectName="dialogBody")
+        body = QWidget()
         col = QVBoxLayout(body)
-        col.setContentsMargins(20, 18, 20, 18)
+        col.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel(message)
         lbl.setWordWrap(True)
         col.addWidget(lbl)
-        root.addWidget(body)
-
-        footer = QFrame(objectName="footerBar")
-        fb = QHBoxLayout(footer)
-        fb.setContentsMargins(16, 10, 16, 10)
-        self._footer_layout = fb
-        fb.addStretch(1)
-        ok = QPushButton("OK")
-        ok.setProperty("variant", "primary")
-        ok.setDefault(True)
-        ok.clicked.connect(self.accept)
-        fb.addWidget(ok)
-        root.addWidget(footer)
+        self.set_body(body)
+        self.set_footer_buttons(primary=("OK", self.accept), cancel=False)
 
     def _make_yes_no(self):
-        """Swap the OK-only footer for a right-aligned Yes/No button pair."""
-        while self._footer_layout.count():
-            item = self._footer_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-        self._footer_layout.addStretch(1)
-        yes = QPushButton("Yes")
-        yes.setProperty("variant", "primary")
-        yes.setDefault(True)
-        yes.clicked.connect(self.accept)
-        self._footer_layout.addWidget(yes)
+        """Rebuild the footer as a Yes/No pair (No left, Yes right/primary)."""
+        if self._footer is not None:
+            self._footer.setParent(None)
+            self._footer = None
         no = QPushButton("No")
         no.clicked.connect(self.reject)
-        self._footer_layout.addWidget(no)
+        self.set_footer_buttons(primary=("Yes", self.accept), cancel=False,
+                                extra_left=no)
 
 
 def themed_info(parent, title, message, icon=None) -> None:
@@ -71,7 +41,6 @@ def themed_info(parent, title, message, icon=None) -> None:
 
 def themed_confirm(parent, title, message) -> bool:
     """Show a themed Yes/No modal; return True on Yes."""
-    from PyQt6.QtWidgets import QDialog
     dlg = ThemedMessageDialog(title, message, parent=parent)
     dlg._make_yes_no()
     return dlg.exec() == QDialog.DialogCode.Accepted
