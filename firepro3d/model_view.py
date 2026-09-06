@@ -851,6 +851,10 @@ class Model_View(QGraphicsView):
         return super().event(ev)
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Home:
+            self.fit_to_screen()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Tab:
             sc = self.scene()
             # Tab engages the on-canvas HUD.  The event is accepted only when
@@ -868,8 +872,8 @@ class Model_View(QGraphicsView):
                 sc.set_mode(self._TOOL_SHORTCUTS[event.key()])
                 event.accept()
                 return
-        # Note: bare F is a tool shortcut (floor) handled above; Fit-to-Screen
-        # is reached via the ribbon "Fit to Screen" button.
+        # Note: bare F is a tool shortcut (floor); Fit-to-Screen is reached via
+        # the Home key (above) and middle-mouse double-click (mouseDoubleClickEvent).
         super().keyPressEvent(event)
 
     def scrollContentsBy(self, dx, dy):  # noqa: N802 (Qt naming)

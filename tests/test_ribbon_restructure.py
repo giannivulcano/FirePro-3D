@@ -54,7 +54,7 @@ def test_open_preferences_has_six_tabs(main_window):
     dlg.deleteLater()
 
 
-EXPECTED_TABS = ["Manage", "View", "Create", "Architecture",
+EXPECTED_TABS = ["Manage", "Create", "Architecture",
                  "Sprinkler Systems", "Analyze", "Draft"]
 
 

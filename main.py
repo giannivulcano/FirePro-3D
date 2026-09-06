@@ -1346,19 +1346,18 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build the seven base workflow ribbon tabs and wire every button.
+        """Build the six base workflow ribbon tabs and wire every button.
 
         Tabs:
-          1. Manage             — file I/O, import, preferences, undo/redo, snap
-          2. View               — fit, display manager, dock panels
-          3. Create             — geometry tools, blocks
-          4. Architecture       — walls/floors/roofs/rooms, datums (levels, gridlines)
-          5. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
-          6. Analyze            — thermal radiation
-          7. Draft              — annotate, font, page, plot
+          1. Manage             — file I/O, import, preferences, undo/redo, snap,
+                                  underlay + display managers
+          2. Create             — geometry tools, blocks
+          3. Architecture       — walls/floors/roofs/rooms, datums (levels, gridlines)
+          4. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
+          5. Analyze            — thermal radiation
+          6. Draft              — annotate, font, page, plot
 
-        Must be called *after* all dock widgets are created so that dock
-        visibility toggles can be wired correctly.
+        Must be called *after* all dock widgets are created.
         """
         from firepro3d.icons import themed_icon, LIGHT, DARK
         from firepro3d import theme as _th
@@ -1389,7 +1388,6 @@ class MainWindow(QMainWindow):
             return b
 
         self._init_manage_tab(_I, _btn)
-        self._init_view_tab(_I, _btn)
         self._init_create_tab(_I, _btn, _mode_btn)
         self._init_architecture_tab(_I, _btn, _mode_btn)
         self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
@@ -1462,62 +1460,19 @@ class MainWindow(QMainWindow):
             self._toggle_snap_bar, checkable=True)
         self._snap_bar_btn.setToolTip("Show/hide the SNAP snap-type toolbar")
 
-    def _init_view_tab(self, _I, _btn):
-        """Build Tab 2: View — fit, display manager, dock panels."""
-        view_page = self.ribbon.add_page("View")
-
-        # --- Navigate ---
-        g_nav = view_page.add_group("Navigate")
-        _btn = g_nav.add_large_button(
-            "Fit to\nScreen", _I("placeholder_icon.svg"),
-            self._fit_active_plan_view)
-        _btn.setToolTip("Zoom to fit all content [F]")
-
-        # --- Underlay (moved from Manage → Import) ---
-        g_ul = view_page.add_group("Underlay")
-        _btn = g_ul.add_large_button(
+        # --- Underlay (moved from the retired View tab) ---
+        g_ul = manage_page.add_group("Underlay")
+        _b = g_ul.add_large_button(
             "Underlay\nManager", _I("underlay_manager_icon.svg"),
             self.open_underlay_manager)
-        _btn.setToolTip("Import/manage PDF, DXF, or DWG underlays")
+        _b.setToolTip("Import/manage PDF, DXF, or DWG underlays")
 
-        # --- Display ---
-        g_disp = view_page.add_group("Display")
-        _btn = g_disp.add_large_button(
+        # --- Display (moved from the retired View tab) ---
+        g_disp = manage_page.add_group("Display")
+        _b = g_disp.add_large_button(
             "Display\nManager", _I("placeholder_icon.svg"),
             self._open_display_manager)
-        _btn.setToolTip("Configure visibility, colour, scale and opacity for model items")
-
-        # --- Panels (dock toggles) ---
-        g_pan = view_page.add_group("Panels")
-        prop_btn = g_pan.add_small_button(
-            "Properties", _I("info_icon.svg"),
-            None, checkable=True)
-        prop_btn.setToolTip("Show/hide Properties dock (/)")
-        prop_btn.setChecked(True)  # visible by default
-        prop_btn.toggled.connect(self.prop_dock.setVisible)
-        self.prop_dock.visibilityChanged.connect(prop_btn.setChecked)
-
-        browser_btn = g_pan.add_small_button(
-            "Browser",
-            _I("placeholder_icon.svg"),
-            None, checkable=True)
-        browser_btn.setToolTip("Toggle Browser panel")
-        browser_btn.toggled.connect(self.browser_dock.setVisible)
-        self.browser_dock.visibilityChanged.connect(browser_btn.setChecked)
-
-        report_btn = g_pan.add_small_button(
-            "Hydraulic\nReport", _I("report_icon.svg"), None, checkable=True)
-        report_btn.setToolTip("Toggle Hydraulic Report panel")
-        report_btn.toggled.connect(
-            lambda on: self.hydro_dock.show() if on else self.hydro_dock.hide())
-        self.hydro_dock.visibilityChanged.connect(report_btn.setChecked)
-
-        rad_report_btn = g_pan.add_small_button(
-            "Radiation\nReport", _I("report_icon.svg"), None, checkable=True)
-        rad_report_btn.setToolTip("Toggle Thermal Radiation Report panel")
-        rad_report_btn.toggled.connect(
-            lambda on: self.radiation_dock.show() if on else self.radiation_dock.hide())
-        self.radiation_dock.visibilityChanged.connect(rad_report_btn.setChecked)
+        _b.setToolTip("Configure visibility, colour, scale and opacity for model items")
 
     def _init_create_tab(self, _I, _btn, _mode_btn):
         """Build Tab 3: Create — geometry tools, blocks."""
