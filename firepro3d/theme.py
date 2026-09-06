@@ -320,7 +320,8 @@ def build_app_qss(t: Theme) -> str:
 QMainWindow, QDialog, QWidget {{
     background: {t.bg_base};
     color: {t.text_primary};
-    font-size: 13px;
+    font-size: 9.75pt;   /* 13px @ 96dpi — pt (not px) so QComboBox popups don't
+                            hit QFont::setPointSize(-1). See ui-design-system.md. */
 }}
 
 /* ── Dock widgets ───────────────────────────────────────────────────────── */
