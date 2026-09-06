@@ -71,3 +71,18 @@ def test_middle_double_click_fits(win, monkeypatch):
                      Qt.KeyboardModifier.NoModifier)
     QApplication.sendEvent(v.viewport(), ev)
     assert calls == [1]
+
+
+def test_report_docks_start_hidden(win):
+    assert not win.hydro_dock.isVisible()
+    assert not win.radiation_dock.isVisible()
+
+
+def test_generalpane_drops_report_dock_defaults(qapp):
+    from firepro3d.preferences_dialog import GeneralPane
+    pane = GeneralPane()
+    pane.load()
+    labels = {cb.text() for cb in pane._dock_checks.values()}
+    assert "Radiation Report" not in labels
+    assert "Hydraulic Report" not in labels
+    assert "Browser" in labels and "Properties" in labels

@@ -723,6 +723,7 @@ class MainWindow(QMainWindow):
         self.browser_dock.setVisible(True)
         self.prop_dock.setVisible(True)
         self.hydro_dock.setVisible(False)
+        self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
         # Restore snap settings

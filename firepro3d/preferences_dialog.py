@@ -669,11 +669,11 @@ class UnitsPane(SettingsPane):
 
 
 # Dock defaults as used in MainWindow.restore_settings.
+# Report docks (hydraulics/radiation) are transient run-results, force-hidden
+# on startup by restore_settings, so they are intentionally NOT listed here.
 _DOCK_ITEMS: list[tuple[str, str, bool]] = [
     ("Browser",          "dock/browser",     True),
     ("Properties",       "dock/properties",  True),
-    ("Hydraulic Report", "dock/hydraulics",  False),
-    ("Radiation Report", "dock/radiation",   False),
 ]
 
 
