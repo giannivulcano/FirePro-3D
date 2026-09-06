@@ -24,7 +24,8 @@
 | Parametric constraints / align | `specs/parametric-constraint-system.md` | `constraints.py`, `scene_tools.py` | current |
 | Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py` (consumes the floor two-boundary z-model via `slab._z_range_with_lm` — still governed here; §7.1 plan view-range upper bound), `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py`, `view_range_dialog.py` | current |
 | Display / visibility | `architecture/display-system.md` (Z-order owned by `view-relationships.md §7.3` + `constants.py`) | `display_manager.py`, `displayable_item.py` | current |
-| Theming / UI tokens | `architecture/theming.md` | `theme.py`, `frameless_shell.py` (FramelessShellMixin house shell) | current |
+| Theming / UI tokens (colour + metrics + typography *language*) | `architecture/theming.md` | `theme.py` (token language; links to `ui-design-system.md` for dialog/shell contracts) | current |
+| **UI design-system** (dialog shell/header/footer + component kit + themed message boxes) | `specs/ui-design-system.md` | `house_dialog.py`, `ui_kit.py`, `themed_message.py`, `frameless_shell.py` (FramelessShellMixin house shell), `theme.py` (`M` metrics + `build_dialog_qss`), `underlay_manager.py`, `underlay_import_dialog.py`, `make_block_dialog.py`, `block_manager.py` (dialog chrome — I/O behaviour stays under `underlay-workflow.md`/`block-system.md`) | **proposal** (unbuilt — forged 2026-09-06; closes the `frameless_shell.py` orphan) |
 | Property panel / templates | `specs/property-panel.md` | `property_manager.py`, `dimension_edit.py` | current |
 | Units & formatting conventions | `specs/units-and-formatting.md` | `scale_manager.py` (conventions consumed app-wide) | current |
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |
