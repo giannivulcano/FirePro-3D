@@ -1130,18 +1130,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(self._align_ghost)
                 self._align_ghost = None
 
-        # Clean up wall drawing state
-        if mode != "wall":
-            self._wall_anchor = None
-            self._wall_chain_start = None
-            if self._wall_preview_line is not None:
-                if self._wall_preview_line.scene() is self:
-                    self.removeItem(self._wall_preview_line)
-                self._wall_preview_line = None
-            if self._wall_preview_rect is not None:
-                if self._wall_preview_rect.scene() is self:
-                    self.removeItem(self._wall_preview_rect)
-                self._wall_preview_rect = None
+        # Wall placement teardown (line/polyline + rect) — owned by the wall
+        # controller (slice 10). Idempotent; guarded on new_mode inside clear().
+        self._wall_ctl.clear(mode)
         # Clean up floor drawing state (unified: polygon + rect share "floor")
         if mode != "floor":
             if self._floor_active is not None:
@@ -1162,21 +1153,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 if self._floor_rect_preview.scene() is self:
                     self.removeItem(self._floor_rect_preview)
                 self._floor_rect_preview = None
-        if mode != "wall":
-            self._wall_rect_anchor = None
-            self._wall_rect_rotating = False
-            self._wall_rect_sized_pt1 = None
-            self._wall_rect_sized_pt2 = None
-            self._wall_rect_pivot = None
-            self._clear_wall_rect_ref_lines()
-            if self._wall_rect_preview is not None:
-                if self._wall_rect_preview.scene() is self:
-                    self.removeItem(self._wall_rect_preview)
-                self._wall_rect_preview = None
-            if self._wall_rect_thickness_preview is not None:
-                if self._wall_rect_thickness_preview.scene() is self:
-                    self.removeItem(self._wall_rect_thickness_preview)
-                self._wall_rect_thickness_preview = None
         # Clean up roof drawing state
         if mode != "roof":
             if self._roof_active is not None:
@@ -3439,9 +3415,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _clear_rect_ref_lines(self) -> None:  # shell (slice 8); _update_rect_ref_lines moved (internal-only)
         return self._geom_ctl._clear_rect_ref_lines()
 
-    def _clear_wall_rect_ref_lines(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
-        return self._wall_ctl._clear_wall_rect_ref_lines(*args, **kwargs)
-
     def _move_draw_rectangle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._move_draw_rectangle(event, snapped)
 
@@ -5455,15 +5428,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return self._geom_ctl._toggle_polygon_inscribed()
 
     # ── Wall primitive routers (variant dispatch) ─────────────────────
-    def _set_wall_primitive(self, prim, from_center=False):
-        """Apply the wall primitive variant (called by _PLACEMENT_VARIANTS apply_fn).
-
-        Sets ``_wall_primitive`` and, for the rect primitives, also sets
-        ``_wall_rect_from_center`` so corner and center variants are distinct.
-        """
-        self._wall_primitive = prim
-        if prim == "rect":
-            self._wall_rect_from_center = from_center
+    def _set_wall_primitive(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C3)
+        return self._wall_ctl._set_wall_primitive(*args, **kwargs)
 
     def _press_wall_router(self, *args, **kwargs):
         return self._wall_ctl._press_wall_router(*args, **kwargs)
@@ -5517,30 +5483,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """
         return self._pipe_ctl._commit_pipe_at(geometry, None)
 
-    def _apply_wall_dynamic_input(self, geometry) -> bool:
-        """Commit a typed wall placement via the same builders the mouse uses.
-
-        ``geometry`` is the resolved QPointF (the line/rectangle placement
-        schemas resolve to the point a click would produce), routed through the
-        primitive's press handler for structural commit parity.
-
-        Args:
-            geometry: The scene-space target point resolved by the active schema.
-
-        Returns:
-            True always (the press handlers do not return a refusal; a too-short
-            wall emits a status message and the anchor remains armed, matching
-            mouse behaviour).
-        """
-        if self._wall_primitive == "rect":
-            if self._wall_rect_rotating:
-                # Rotate step: geometry is a dict {"angle_deg": …}
-                return self._commit_wall_rect_rotated(geometry["angle_deg"])
-            # Sizing step: geometry is a QPointF (the far corner / second point)
-            return self._advance_wall_rect_to_rotate_step(geometry)
-        else:
-            self._press_wall(None, geometry, geometry, None, None, None)
-        return True
+    def _apply_wall_dynamic_input(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C3)
+        return self._wall_ctl._apply_wall_dynamic_input(*args, **kwargs)
 
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, *args, **kwargs):

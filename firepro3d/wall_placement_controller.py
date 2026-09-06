@@ -9,11 +9,11 @@ home**: it owns NO state. Every ``_wall*`` transient AND the persisted
 wall state and ``_walls`` is dual-serialized. This controller owns the wall
 line/polyline placement *methods* only.
 
-Scope note (C1): the rect-primitive handlers, the HUD applier
+Scope note (C3): the rect-primitive handlers (C2), the HUD applier
 (``_apply_wall_dynamic_input``), the variant setter (``_set_wall_primitive``),
-and ``clear()``/``set_mode`` wiring are deferred to later sub-commits (C2/C3);
-their scene-side callers keep resolving through the class-level dispatch tables
-+ scene shells unchanged.
+and ``clear()``/``set_mode`` teardown now all live here. Scene-side callers keep
+resolving through the class-level dispatch tables + scene shells; the two
+non-contiguous ``set_mode`` wall blocks fold into idempotent ``clear(new_mode)``.
 
 Design: docs/superpowers/specs/2026-09-05-wall-placement-slice-design.md (§5, C1)
 Behavior (Rule A): docs/specs/wall-room-floor-system.md +
@@ -541,3 +541,79 @@ class WallPlacementController:
         self._scene.instructionChanged.emit(
             "Pick centre point" if _from_centre else "Pick first corner")
         return True
+
+    # ── Variant setter ──────────────────────────────────────────────────────
+
+    def _set_wall_primitive(self, prim, from_center=False):
+        """Apply the wall primitive variant (called by _PLACEMENT_VARIANTS apply_fn).
+
+        Sets ``_wall_primitive`` and, for the rect primitives, also sets
+        ``_wall_rect_from_center`` so corner and center variants are distinct.
+        """
+        self._scene._wall_primitive = prim
+        if prim == "rect":
+            self._scene._wall_rect_from_center = from_center
+
+    # ── HUD applier (typed commit) ──────────────────────────────────────────
+
+    def _apply_wall_dynamic_input(self, geometry) -> bool:
+        """Commit a typed wall placement via the same builders the mouse uses.
+
+        ``geometry`` is the resolved QPointF (the line/rectangle placement
+        schemas resolve to the point a click would produce), routed through the
+        primitive's press handler for structural commit parity.
+
+        Args:
+            geometry: The scene-space target point resolved by the active schema.
+
+        Returns:
+            True always (the press handlers do not return a refusal; a too-short
+            wall emits a status message and the anchor remains armed, matching
+            mouse behaviour).
+        """
+        if self._scene._wall_primitive == "rect":
+            if self._scene._wall_rect_rotating:
+                # Rotate step: geometry is a dict {"angle_deg": …}
+                return self._commit_wall_rect_rotated(geometry["angle_deg"])
+            # Sizing step: geometry is a QPointF (the far corner / second point)
+            return self._advance_wall_rect_to_rotate_step(geometry)
+        else:
+            self._press_wall(None, geometry, geometry, None, None, None)
+        return True
+
+    # ── set_mode teardown ───────────────────────────────────────────────────
+
+    def clear(self, new_mode):
+        """Tear down wall-placement transient state when leaving 'wall' mode.
+
+        Idempotent. _wall_alignment / _wall_primitive are session-sticky and NOT
+        cleared (preserved exactly as the old set_mode did). Absorbs both
+        non-contiguous set_mode wall blocks verbatim.
+        """
+        s = self._scene
+        if new_mode != "wall":
+            s._wall_anchor = None
+            s._wall_chain_start = None
+            if s._wall_preview_line is not None:
+                if s._wall_preview_line.scene() is s:
+                    s.removeItem(s._wall_preview_line)
+                s._wall_preview_line = None
+            if s._wall_preview_rect is not None:
+                if s._wall_preview_rect.scene() is s:
+                    s.removeItem(s._wall_preview_rect)
+                s._wall_preview_rect = None
+        if new_mode != "wall":
+            s._wall_rect_anchor = None
+            s._wall_rect_rotating = False
+            s._wall_rect_sized_pt1 = None
+            s._wall_rect_sized_pt2 = None
+            s._wall_rect_pivot = None
+            self._clear_wall_rect_ref_lines()
+            if s._wall_rect_preview is not None:
+                if s._wall_rect_preview.scene() is s:
+                    s.removeItem(s._wall_rect_preview)
+                s._wall_rect_preview = None
+            if s._wall_rect_thickness_preview is not None:
+                if s._wall_rect_thickness_preview.scene() is s:
+                    s.removeItem(s._wall_rect_thickness_preview)
+                s._wall_rect_thickness_preview = None

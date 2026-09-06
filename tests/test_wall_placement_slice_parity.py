@@ -73,12 +73,12 @@ def scene(qapp):
 
 # --- Back-compat shell presence + state-home (fast, no live events) -----------
 
-# C1-moved methods (line/polyline primitive). The rect / HUD-applier / variant
-# shells (_move_wall_rect, _apply_wall_dynamic_input, _set_wall_primitive) join
-# this list as C2/C3 relocate them into the controller.
+# Full end-state shell list: C1 (line/polyline) + C2 (rect) + C3 (HUD applier /
+# variant setter). Every scene shell must delegate to the controller sibling.
 SHELL_METHODS = [
     "_press_wall", "_press_wall_router", "_move_wall", "_move_wall_router",
     "_cycle_wall_alignment", "_propagate_wall_endpoint", "_auto_join_wall",
+    "_move_wall_rect", "_apply_wall_dynamic_input", "_set_wall_primitive",
 ]
 
 
@@ -185,11 +185,48 @@ def test_wall_rect_draw_live(shown_model_view):
     assert scene._wall_rect_anchor is None
 
 
-@pytest.mark.skip(reason="filled in C3")
 def test_wall_hud_typed_commit_live(shown_model_view):
-    ...
+    """Typed HUD commit routes through the controller applier for both primitives.
+
+    Line: click an anchor then feed the resolved point via _apply_wall_dynamic_input
+    (mirrors test_wall_placement_workflow.test_typed_line_wall_matches_mouse).
+    Rect: the 3-step typed path (anchor click → sized point → typed angle) builds 4.
+    """
+    view, scene = shown_model_view
+    # -- Line variant --
+    scene.set_mode("wall")                       # default primitive is "line"
+    assert scene._wall_primitive == "line"
+    _click(view, QPointF(0, 0))                  # anchor via real event
+    ok = scene._apply_wall_dynamic_input(QPointF(1000, 0))
+    assert ok is not False
+    assert len(scene._walls) == 1
+    assert scene._walls[-1].pt2 == QPointF(1000, 0)
+
+    # -- Rect variant (3-step typed) --
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)            # line -> polyline
+    scene.cycle_placement_variant(+1)            # polyline -> corner rect
+    assert scene._wall_primitive == "rect"
+    n0 = len(scene._walls)
+    _click(view, QPointF(0, 0))                  # step 1: anchor
+    ok = scene._apply_wall_dynamic_input(QPointF(1000, 800))   # step 2: size -> rotate
+    assert ok is not False
+    assert scene._wall_rect_rotating is True
+    ok2 = scene._apply_wall_dynamic_input({"angle_deg": 0.0})  # step 3: commit at 0°
+    assert ok2 is not False
+    assert len(scene._walls) == n0 + 4
 
 
-@pytest.mark.skip(reason="filled in C3 — clear() RED-demo")
 def test_clear_tears_down_wall_state(shown_model_view):
-    ...
+    """Leaving 'wall' mode via WallPlacementController.clear() nulls transient state.
+
+    RED-demo target: stubbing clear()'s body to `pass` leaves _wall_anchor set and
+    fails this test.
+    """
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    _click(view, QPointF(0, 0))                  # arms the line anchor
+    assert scene._wall_anchor is not None
+    scene.set_mode("select")                     # triggers _wall_ctl.clear("select")
+    assert scene._wall_anchor is None
+    assert scene._wall_preview_rect is None
