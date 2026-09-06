@@ -64,8 +64,7 @@ except ImportError:
 
 from .dxf_import_worker import _sanitize_dxf
 from .loading import LoadingOverlay
-from .theme import (detect, build_app_qss, build_underlay_manager_qss,
-                    build_dialog_qss, FONT_UI, FONT_VALUE)
+from .theme import detect, build_app_qss, build_dialog_qss, FONT_UI, FONT_VALUE
 from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
@@ -922,80 +921,6 @@ def build_commit_sentence(
         sentence += " — kept in its current position."
 
     return sentence
-
-
-def _import_extra_qss(t) -> str:
-    """Import-specific selectors layered on the shared manager QSS (ported from
-    the prototype's _extra_qss, mapped to the app's house tokens)."""
-    # Contrast model: header + footer = raised (lighter) with darker buttons;
-    # the in-between panels (rail / canvas / detail) are darker; the canvas is
-    # darkest. A thin light outer edge frames the frameless window. Active rail
-    # tab = rounded accent-soft highlight (no left bar), matching the prototype.
-    return f"""
-    QDialog#UnderlayImportDialog {{ background:{t.surface};
-        border:1px solid {t.muted}; }}
-    /* The app-wide `QWidget {{ font-size:13px }}` rule gives inheriting combos a
-       pixel-size font whose pointSize() is -1; Qt then emits
-       `QFont::setPointSize: Point size <= 0` when it measures the popup. This
-       point-based override (9.75pt == 13px @96dpi) restores a valid pointSize
-       while keeping the rendered size identical. */
-    #UnderlayImportDialog QComboBox {{ font-size:9.75pt; }}
-    #UnderlayImportDialog QListWidget {{ background:{t.raised}; color:{t.ink};
-        border:1px solid {t.line_strong}; border-radius:6px; }}
-    #UnderlayImportDialog QListWidget::item {{ padding:3px 6px; }}
-    #UnderlayImportDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
-    #UnderlayImportDialog QListWidget::item:selected {{
-        background:{t.accent_soft}; color:{t.ink}; }}
-    QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
-    #UnderlayImportDialog QPushButton[switch="true"] {{ background:{t.raised};
-        color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
-        padding:5px 14px; font-weight:600; }}
-    #UnderlayImportDialog QPushButton[switch="true"][segpos="left"] {{
-        border-top-left-radius:7px; border-bottom-left-radius:7px; }}
-    #UnderlayImportDialog QPushButton[switch="true"][segpos="right"] {{
-        border-top-right-radius:7px; border-bottom-right-radius:7px;
-        border-left:none; }}
-    #UnderlayImportDialog QPushButton[switch="true"][segpos="mid"] {{
-        border-left:none; }}
-    #UnderlayImportDialog QPushButton[switch="true"]:checked {{
-        background:{t.accent}; color:{t.on_accent}; border-color:{t.accent}; }}
-    QGraphicsView#previewView {{ background:{t.ground};
-        border:1px solid {t.line}; }}
-    QFrame#stepRail {{ background:{t.surface};
-        border-right:1px solid {t.line_strong}; }}
-    #UnderlayImportDialog QFrame#stepRailInner {{ background:transparent; }}
-    #UnderlayImportDialog QFrame[stepRow="true"] {{ border-radius:6px;
-        border-left:2px solid transparent; background:transparent; }}
-    #UnderlayImportDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
-    #UnderlayImportDialog QFrame[stepRow="true"][current="true"] {{
-        background:{t.accent_soft}; border-left:2px solid {t.accent}; }}
-    #UnderlayImportDialog QLabel[stepNo="true"] {{ background:{t.raised};
-        color:{t.muted}; border-radius:8px; font-size:9px; font-weight:700; }}
-    #UnderlayImportDialog QLabel[stepNo="true"][current="true"],
-    #UnderlayImportDialog QLabel[stepNo="true"][done="true"] {{
-        background:{t.accent}; color:{t.accent_ink}; }}
-    #UnderlayImportDialog QLabel[stepNo="true"][warn="true"] {{
-        background:{t.warn_soft}; color:{t.warn}; }}
-    #UnderlayImportDialog QLabel[stepName="true"] {{ font-size:12px;
-        font-weight:700; background:transparent; color:{t.ink}; }}
-    #UnderlayImportDialog QLabel[stepStatus="true"] {{ font-size:10px;
-        color:{t.faint}; background:transparent; }}
-    #UnderlayImportDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
-    #UnderlayImportDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
-    QStackedWidget#detailsPanel {{ background:{t.surface};
-        border-left:1px solid {t.line_strong}; }}
-    #UnderlayImportDialog QWidget#panelPage {{ background:{t.surface}; }}
-    QFrame#scaleCard, QFrame#srcCard {{ background:{t.raised};
-        border:1px solid {t.line_strong}; border-radius:7px; }}
-    #UnderlayImportDialog QCheckBox {{ background:transparent; }}
-    #UnderlayImportDialog QWidget#pdfOpts {{ background:transparent; }}
-    QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
-    QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
-        border-radius:9px; border:1px solid transparent; }}
-    QLabel#scalePill[state="warn"] {{ color:{t.warn}; border-color:{t.warn}; }}
-    QLabel#scalePill[state="ok"] {{ color:{t.ok}; border-color:{t.ok}; }}
-    QLabel#dropHint {{ color:{t.muted}; font-size:13px; background:transparent; }}
-    """
 
 
 class UnderlayImportDialog(FramelessShellMixin, QDialog):

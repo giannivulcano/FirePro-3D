@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
 
 from . import block_library
 from .frameless_shell import FramelessShellMixin
-from .theme import detect, build_block_manager_qss, build_dialog_qss
+from .theme import detect, build_dialog_qss
 
 
 def _format_load_summary(summary: dict) -> str:

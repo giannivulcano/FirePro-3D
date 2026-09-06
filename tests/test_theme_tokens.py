@@ -81,7 +81,7 @@ def test_app_qss_contains_token_values_and_density():
     assert th.DARK.accent in qss
     assert th.DARK.raised in qss
     assert "border-radius: 6px" in qss
-    assert "font-size: 13px" in qss or "font-size:13px" in qss
+    assert "font-size: 9.75pt" in qss or "9.75pt" in qss  # pt-based (13px @96dpi)
 
 
 def test_app_qss_has_variant_and_role_selectors():
@@ -93,12 +93,12 @@ def test_app_qss_has_variant_and_role_selectors():
 
 
 def test_underlay_manager_qss_builds_from_house_theme():
-    qss = th.build_underlay_manager_qss(th.DARK)
-    assert "#UnderlayManagerDialog" in qss
+    qss = th.build_dialog_qss(th.DARK)
+    assert 'houseDialog="true"' in qss    # unified scope marker present
     assert "underlayTable" in qss
-    assert th.DARK.accent in qss          # accent substituted
-    assert th.DARK.sunken in qss          # 'table' token -> sunken
-    assert "$" not in qss                  # every placeholder substituted
+    assert th.DARK.accent in qss          # accent token present
+    assert th.DARK.table in qss           # table surface token substituted
+    assert "$" not in qss                  # every placeholder substituted (f-string builder)
 
 
 def test_on_accent_is_white_for_both_presets():
@@ -108,13 +108,13 @@ def test_on_accent_is_white_for_both_presets():
 
 
 def test_primary_button_text_resolves_to_white_for_both_dialog_ids():
-    """The shared primary-button rule uses $on_accent (white), not $accent_ink."""
+    """The unified primary-button rule uses on_accent (white), not accent_ink."""
     for preset in (th.DARK, th.LIGHT):
-        qss = th.build_underlay_manager_qss(preset)
-        # both dialog ids share one primary-button rule; color must be white
+        qss = th.build_dialog_qss(preset)
+        # the unified house-dialog primary-button rule; color must be white
         rule = qss.split('QPushButton[variant="primary"] {', 1)[1].split("}", 1)[0]
         assert "color: #ffffff" in rule, rule
-        assert "$" not in qss  # every placeholder substituted
+        assert "$" not in qss  # f-string builder — no unresolved $tokens
     import importlib
     import pathlib
     src = pathlib.Path(th.__file__).parent
