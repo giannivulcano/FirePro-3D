@@ -162,9 +162,27 @@ def test_wall_endpoint_propagation_live(shown_model_view):
     )
 
 
-@pytest.mark.skip(reason="filled in C2")
 def test_wall_rect_draw_live(shown_model_view):
-    ...
+    """Rect primitive: anchor → size → rotate(~0°) commits 4 walls and re-arms.
+
+    Mirrors test_wall_placement_workflow.test_corner_rect_wall_builds_four_walls_
+    with_rotate, plus the C2 re-arm assertion (_wall_rect_rotating back to False).
+    """
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)      # line -> polyline
+    scene.cycle_placement_variant(+1)      # polyline -> corner rect
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is False
+    n0 = len(scene._walls)
+    _click(view, QPointF(0, 0))            # anchor (first corner)
+    _click(view, QPointF(1000, 800))       # opposite corner → enters rotate step
+    assert scene._wall_rect_rotating is True, "After 2nd click, must be in rotate step"
+    _click(view, QPointF(1200, 0))         # third click: rotate commit ~0°
+    assert len(scene._walls) == n0 + 4, f"Expected {n0 + 4} walls, got {len(scene._walls)}"
+    # Continuous placement re-arms fresh (rotate step cleared, anchor reset).
+    assert scene._wall_rect_rotating is False
+    assert scene._wall_rect_anchor is None
 
 
 @pytest.mark.skip(reason="filled in C3")
