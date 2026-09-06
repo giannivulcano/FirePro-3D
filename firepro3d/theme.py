@@ -759,6 +759,133 @@ RibbonSmallButton:disabled {{
 """
 
 
+def build_dialog_qss(t: "Theme") -> str:
+    """Unified house-dialog stylesheet (replaces build_underlay_manager_qss /
+    build_block_manager_qss / _import_extra_qss). Scoped to the
+    QDialog[houseDialog="true"] marker + shared child objectNames — never a
+    per-dialog objectName. See docs/specs/ui-design-system.md."""
+    chev_r = asset_path("chevron_right.svg").replace("\\", "/")
+    chev_d = asset_path("chevron_down.svg").replace("\\", "/")
+    return f"""
+/* ── House dialog root ──────────────────────────────────────────────────── */
+QDialog[houseDialog="true"] {{ background: {t.surface}; color: {t.ink}; font-size: 9.75pt; }}
+QDialog[houseDialog="true"] QLabel {{ background: transparent; color: {t.ink}; }}
+QDialog[houseDialog="true"] QLabel[role="muted"] {{ color: {t.muted}; }}
+QDialog[houseDialog="true"] QLabel[role="faint"] {{ color: {t.faint}; font-size: 12px; }}
+QDialog[houseDialog="true"] QLabel[role="header"] {{ color: {t.muted}; font-size: 10px; font-weight: 600; }}
+QDialog[houseDialog="true"] QLabel[role="title"] {{ color: {t.ink}; font-size: 14px; font-weight: 700; }}
+QDialog[houseDialog="true"] QLabel[role="name"]  {{ color: {t.ink}; font-size: 14px; font-weight: 600; }}
+QDialog[houseDialog="true"] QLabel[state="warn"] {{
+    color: {t.warn}; background: {t.warn_soft}; border-radius: {M.RADIUS_INPUT}px; padding: 6px 8px; }}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+QDialog[houseDialog="true"] QPushButton {{
+    background: {t.table}; color: {t.ink}; border: 1px solid {t.line_strong};
+    border-radius: {M.RADIUS_INPUT}px; padding: 5px 12px; font-weight: 500; }}
+QDialog[houseDialog="true"] QPushButton:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
+QDialog[houseDialog="true"] QPushButton:disabled {{ color: {t.faint}; border-color: {t.line}; }}
+QDialog[houseDialog="true"] QPushButton[variant="primary"] {{
+    background: {t.accent}; color: {t.on_accent}; border-color: {t.accent}; font-weight: 600; }}
+QDialog[houseDialog="true"] QPushButton[variant="primary"]:hover:enabled {{ background: {t.ok}; }}
+QDialog[houseDialog="true"] QPushButton[variant="danger"]:hover:enabled {{
+    background: {t.danger_soft}; color: {t.danger}; border-color: {t.danger}; }}
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+QDialog[houseDialog="true"] QLineEdit {{
+    background: {t.table}; color: {t.ink}; border: 1px solid {t.line_strong};
+    border-radius: {M.RADIUS_INPUT}px; padding: 5px 9px; selection-background-color: {t.accent_soft2}; }}
+QDialog[houseDialog="true"] QLineEdit:focus {{ border-color: {t.accent}; }}
+QDialog[houseDialog="true"] QComboBox {{ font-size: 9.75pt; }}
+QDialog[houseDialog="true"] QCheckBox {{ background: transparent; }}
+QDialog[houseDialog="true"] QWidget#pdfOpts {{ background: transparent; }}
+QDialog[houseDialog="true"] QListWidget {{
+    background: {t.raised}; color: {t.ink}; border: 1px solid {t.line_strong}; border-radius: {M.RADIUS_INPUT}px; }}
+QDialog[houseDialog="true"] QListWidget::item {{ padding: 3px 6px; }}
+QDialog[houseDialog="true"] QListWidget::item:hover {{ background: {t.accent_soft}; }}
+QDialog[houseDialog="true"] QListWidget::item:selected {{ background: {t.accent_soft}; color: {t.ink}; }}
+QGraphicsView#previewView {{ background: {t.ground}; border: 1px solid {t.line}; }}
+
+/* ── Structural regions (child objectNames) ─────────────────────────────── */
+QFrame#shellHeader {{ background: {t.surface2}; border-bottom: 1px solid {t.line}; }}
+QFrame#footerBar   {{ background: {t.surface2}; border-top: 1px solid {t.line}; }}
+QFrame#toolbarBar  {{ background: {t.surface}; border-bottom: 1px solid {t.line}; }}
+QFrame#dialogBody  {{ background: {t.surface}; border-top: 1px solid {t.line}; }}
+QFrame#detailsPanel {{ background: {t.surface}; border-left: 1px solid {t.line}; }}
+QStackedWidget#detailsPanel {{ background: {t.surface}; border-left: 1px solid {t.line_strong}; }}
+
+/* ── Underlay/Block table (tree AND flat view share rules) ──────────────── */
+QTreeView#underlayTable, QTableView#underlayTable {{
+    background: {t.table}; alternate-background-color: {t.table}; color: {t.ink};
+    border: none; gridline-color: transparent; selection-background-color: {t.accent_soft2};
+    selection-color: {t.ink}; outline: none; }}
+QTreeView#underlayTable::item, QTableView#underlayTable::item {{ border-bottom: 1px solid {t.line}; padding: 0 4px; }}
+QTreeView#underlayTable::item:hover, QTableView#underlayTable::item:hover {{ background: {t.accent_soft}; }}
+QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected {{ background: {t.accent_soft2}; color: {t.ink}; }}
+QTreeView#underlayTable::branch {{ background: {t.table}; }}
+QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
+QTreeView#underlayTable::branch:closed:has-children:has-siblings {{ background: {t.table}; image: url("{chev_r}"); }}
+QTreeView#underlayTable::branch:open:has-children:!has-siblings,
+QTreeView#underlayTable::branch:open:has-children:has-siblings {{ background: {t.table}; image: url("{chev_d}"); }}
+
+/* ── Kit: SideTabs / step rows ──────────────────────────────────────────── */
+QDialog[houseDialog="true"] QFrame#stepRail {{ background: {t.surface}; border-right: 1px solid {t.line_strong}; }}
+QDialog[houseDialog="true"] QFrame#stepRailInner {{ background: transparent; }}
+QDialog[houseDialog="true"] QFrame[stepRow="true"] {{
+    border-radius: {M.RADIUS_INPUT}px; border-left: 2px solid transparent; background: transparent; }}
+QDialog[houseDialog="true"] QFrame[stepRow="true"]:hover {{ background: {t.accent_soft}; }}
+QDialog[houseDialog="true"] QFrame[stepRow="true"][current="true"] {{ background: {t.accent_soft}; border-left: 2px solid {t.accent}; }}
+QDialog[houseDialog="true"] QLabel[stepNo="true"] {{
+    background: {t.raised}; color: {t.muted}; border-radius: {M.RADIUS_CHIP}px; font-size: 9px; font-weight: 700; }}
+QDialog[houseDialog="true"] QLabel[stepNo="true"][current="true"], QDialog[houseDialog="true"] QLabel[stepNo="true"][done="true"] {{
+    background: {t.accent}; color: {t.accent_ink}; }}
+QDialog[houseDialog="true"] QLabel[stepNo="true"][warn="true"] {{ background: {t.warn_soft}; color: {t.warn}; }}
+QDialog[houseDialog="true"] QLabel[stepName="true"] {{ font-size: 12px; font-weight: 700; background: transparent; color: {t.ink}; }}
+QDialog[houseDialog="true"] QLabel[stepStatus="true"] {{ font-size: 10px; color: {t.faint}; background: transparent; }}
+QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="warn"] {{ color: {t.warn}; }}
+QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"] {{ color: {t.ok}; }}
+
+/* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
+QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}
+QDialog[houseDialog="true"] QPushButton[switch="true"][segpos="left"] {{ border-top-left-radius: 7px; border-bottom-left-radius: 7px; }}
+QDialog[houseDialog="true"] QPushButton[switch="true"][segpos="right"] {{ border-top-right-radius: 7px; border-bottom-right-radius: 7px; border-left: none; }}
+QDialog[houseDialog="true"] QPushButton[switch="true"][segpos="mid"] {{ border-left: none; }}
+QDialog[houseDialog="true"] QPushButton[switch="true"]:checked {{ background: {t.accent}; color: {t.on_accent}; }}
+
+/* ── Kit: Pill ──────────────────────────────────────────────────────────── */
+QDialog[houseDialog="true"] QPushButton[pill="true"] {{ padding: {M.PILL_PADDING[0]}px {M.PILL_PADDING[1]}px; border-radius: {M.RADIUS_PILL}px; }}
+QDialog[houseDialog="true"] QPushButton[pill="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
+
+/* ── Kit: cards / pills / drop hint (folded out of _import_extra_qss) ───── */
+QDialog[houseDialog="true"] QFrame#scaleCard, QDialog[houseDialog="true"] QFrame#srcCard {{
+    background: {t.raised}; border: 1px solid {t.line_strong}; border-radius: {M.RADIUS_CARD}px; }}
+QDialog[houseDialog="true"] QWidget#panelPage {{ background: {t.surface}; }}
+QDialog[houseDialog="true"] QLabel#scaleVal {{ font-size: 17px; font-weight: 700; background: transparent; }}
+QDialog[houseDialog="true"] QLabel#scalePill {{ font-size: 10px; font-weight: 600; padding: 2px 9px; border-radius: 9px; border: 1px solid transparent; }}
+QDialog[houseDialog="true"] QLabel#scalePill[state="warn"] {{ color: {t.warn}; border-color: {t.warn}; }}
+QDialog[houseDialog="true"] QLabel#scalePill[state="ok"] {{ color: {t.ok}; border-color: {t.ok}; }}
+QDialog[houseDialog="true"] QLabel#dropHint {{ color: {t.muted}; font-size: 13px; background: transparent; }}
+
+/* ── Scrollbars / menu / tooltip ────────────────────────────────────────── */
+QDialog[houseDialog="true"] QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
+QDialog[houseDialog="true"] QScrollBar::handle:vertical {{ background: {t.line_strong}; border-radius: 5px; min-height: 30px; }}
+QDialog[houseDialog="true"] QScrollBar::handle:vertical:hover {{ background: {t.faint}; }}
+QDialog[houseDialog="true"] QScrollBar::add-line, QDialog[houseDialog="true"] QScrollBar::sub-line {{ height: 0; width: 0; }}
+QDialog[houseDialog="true"] QScrollBar:horizontal {{ background: transparent; height: 10px; }}
+QDialog[houseDialog="true"] QScrollBar::handle:horizontal {{ background: {t.line_strong}; border-radius: 5px; min-width: 30px; }}
+QMenu#uwMenu {{ background: {t.surface}; color: {t.ink}; border: 1px solid {t.line_strong}; border-radius: 8px; padding: 5px; }}
+QMenu#uwMenu::item {{ padding: 6px 22px 6px 10px; border-radius: 5px; }}
+QMenu#uwMenu::item:selected {{ background: {t.accent_soft}; }}
+QMenu#uwMenu::item:disabled {{ color: {t.faint}; }}
+QMenu#uwMenu::separator {{ height: 1px; background: {t.line}; margin: 5px 4px; }}
+QMenu#uwMenu::indicator {{ width: 14px; height: 14px; margin-left: 4px; }}
+QHeaderView::section {{
+    background: {t.table}; color: {t.muted}; border: none; border-bottom: 1px solid {t.line_strong};
+    padding: 7px 8px; font-size: 10px; font-weight: 600; }}
+QToolTip {{
+    background: {t.surface2}; color: {t.ink}; border: 1px solid {t.line_strong}; padding: 4px 7px; }}
+"""
+
+
 # ---------------------------------------------------------------------------
 # Underlay Manager dialog stylesheet
 #
