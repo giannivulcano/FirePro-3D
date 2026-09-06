@@ -14,14 +14,14 @@ from PyQt6.QtCore import (Qt, QAbstractTableModel, QSortFilterProxyModel,
                           QModelIndex, QRectF, QSize, pyqtSignal, QRect, QPoint)
 
 from PyQt6.QtGui import QPainter, QFontMetrics, QColor
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFrame,
+from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QFrame,
                              QPushButton, QLabel, QLineEdit, QTableView,
                              QTreeView, QAbstractItemView, QHeaderView,
                              QFormLayout, QWidget, QStyledItemDelegate,
                              QCheckBox, QScrollArea)
 
 from . import block_library
-from .frameless_shell import FramelessShellMixin
+from .house_dialog import HouseDialog
 from .theme import detect, build_dialog_qss
 
 
@@ -426,32 +426,32 @@ class FilterHeader(QHeaderView):
 # BlockManagerDialog — modeless chrome + table + details panel
 # ---------------------------------------------------------------------------
 
-class BlockManagerDialog(FramelessShellMixin, QDialog):
+class BlockManagerDialog(HouseDialog):
     """Modeless Block Manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
     def __init__(self, scene, main_window, theme=None, parent=None,
                  apply_stylesheet: bool = True, root: str | None = None):
         theme = theme or detect()
-        super().__init__(parent)
-        self.init_frameless_shell(title="Block Manager",
-                                  controls=("min", "max", "close"),
-                                  resizable=True,
-                                  icon="block_manager_icon.svg")
+        super().__init__(parent, title="Block Manager",
+                         icon="block_manager_icon.svg",
+                         controls=("min", "max", "close"),
+                         resizable=True, theme=theme)
+        if not apply_stylesheet:
+            self.setStyleSheet("")
+        else:
+            self.setStyleSheet(build_dialog_qss(theme)
+                               + f"\n#BlockManagerDialog {{ background: {theme.color('ground').name()}; }}\n")
         self.scene = scene
         self.main_window = main_window
         self.t = theme
-        self._root = root
+        self._lib_root = root
         self.setObjectName("BlockManagerDialog")
         self.setWindowTitle("Block Manager")
-        if apply_stylesheet:
-            self.setProperty("houseDialog", True)
-            self.setStyleSheet(build_dialog_qss(theme)
-                               + f"\n#BlockManagerDialog {{ background: {theme.color('ground').name()}; }}\n")
         self.setMinimumSize(720, 420)
         self.resize(980, 520)
         self.setModal(False)
 
-        self.model = BlockTableModel(scene, root=root, parent=self)
+        self.model = BlockTableModel(scene, root=self._lib_root, parent=self)
         self.proxy = BlockFilterProxy(self)
         self.proxy.setSourceModel(self.model)
         self._build_ui()
@@ -461,11 +461,6 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(self._titlebar)
-
         toolbar = QFrame(objectName="toolbarBar")
         bar = QHBoxLayout(toolbar)
         bar.setContentsMargins(12, 9, 12, 9)
@@ -481,7 +476,6 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
                   self.btn_delete, self.btn_editor):
             bar.addWidget(w)
         bar.addStretch(1)
-        root.addWidget(toolbar)
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -507,8 +501,20 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
 
         self.details = self._build_details_panel()
         body.addWidget(self.details)
-        root.addLayout(body, 1)
 
+        # ── body container (toolbar + table/details) → HouseDialog body ──
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(toolbar)
+        container_layout.addLayout(body, 1)
+        self.set_body(container, margin=(0, 0, 0, 0))
+
+        # ── footer (count left, Close right) ─────────────────────────────
+        # Built manually and added to self._root so we can replicate
+        # count_label + spacing on the left and Close on the right,
+        # with #footerBar objectName for QSS — matching the original exactly.
         footer = QFrame(objectName="footerBar")
         foot = QHBoxLayout(footer)
         foot.setContentsMargins(12, 8, 12, 8)
@@ -518,7 +524,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         foot.addWidget(self.count_label)
         foot.addStretch(1)
         foot.addWidget(self.btn_close)
-        root.addWidget(footer)
+        self._root.addWidget(footer)
 
     def _build_details_panel(self) -> QWidget:
         panel = QFrame(objectName="detailsPanel")
@@ -629,7 +635,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         self.lbl_name.setText(defn.name)
         self.lbl_library.setText(defn.library)
         self.lbl_series.setText(defn.series)
-        status = block_library.source_status(defn, root=self._root)
+        status = block_library.source_status(defn, root=self._lib_root)
         count = self.scene.instance_count(defn.id)
         self.lbl_status.setText(status)
         self.lbl_count.setText(str(count))
@@ -675,7 +681,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         if defn is None:
             return
         try:
-            block_library.save_to_library(defn, root=self._root, overwrite=overwrite)
+            block_library.save_to_library(defn, root=self._lib_root, overwrite=overwrite)
             self.model.refresh()  # force table cell repaint (status col)
         except block_library.BlockNameCollision as exc:
             if themed_confirm(
@@ -691,7 +697,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
         defn = self._current_def()
         if defn is None:
             return
-        self.scene.reload_block_definition(defn.id, root=self._root)
+        self.scene.reload_block_definition(defn.id, root=self._lib_root)
 
     def _load_from_library(self) -> None:
         import os
@@ -705,7 +711,7 @@ class BlockManagerDialog(FramelessShellMixin, QDialog):
             "FirePro3D Blocks (*.fpdb)")
         if not paths:
             return
-        summary = self.scene.load_blocks_from_files(paths, root=self._root)
+        summary = self.scene.load_blocks_from_files(paths, root=self._lib_root)
         themed_info(self, "Load from Library", _format_load_summary(summary))
 
     def _open_in_editor(self) -> None:
