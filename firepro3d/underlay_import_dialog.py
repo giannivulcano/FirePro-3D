@@ -66,6 +66,8 @@ from .dxf_import_worker import _sanitize_dxf
 from .loading import LoadingOverlay
 from .theme import detect, build_app_qss, build_dialog_qss, FONT_UI, FONT_VALUE
 from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
+from .house_dialog import HouseDialog
+from .ui_kit import SideTabs
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
@@ -622,100 +624,11 @@ class _DialogPdfExtractWorker(QThread):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shell primitives — step-rail / levels picker / commit-sentence
+# Shell primitives — levels picker / commit-sentence
 # (used by the redesigned import shell; do not depend on UnderlayImportDialog)
+# The step-rail is now the house SideTabs (firepro3d.ui_kit); the hand-rolled
+# _StepRow/_StepRail were retired in the HouseDialog migration.
 # ─────────────────────────────────────────────────────────────────────────────
-
-class _StepRow(QFrame):
-    """One rail row (ported from the prototype): number chip + name + status.
-
-    Carries ``stepRow`` + ``current``/``done``/``warn`` dynamic properties for
-    QSS (rounded highlight, left accent bar, chip colours). ``clicked`` fires on
-    press; ``click()`` is a test/convenience helper.
-    """
-    clicked = pyqtSignal()
-
-    def __init__(self, number: int, name: str, parent=None):
-        super().__init__(parent)
-        self.setProperty("stepRow", True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 6, 8, 6)
-        lay.setSpacing(8)
-        self.no = QLabel(str(number))
-        self.no.setProperty("stepNo", True)
-        self.no.setFixedSize(16, 16)
-        self.no.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        col = QVBoxLayout(); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(0)
-        self.name = QLabel(name)
-        self.name.setProperty("stepName", True)
-        self.status = QLabel("")
-        self.status.setProperty("stepStatus", True)
-        col.addWidget(self.name); col.addWidget(self.status)
-        lay.addWidget(self.no, 0, Qt.AlignmentFlag.AlignTop)
-        lay.addLayout(col, 1)
-
-    def set_state(self, current: bool, done: bool, warn: bool, status: str) -> None:
-        fm = self.status.fontMetrics()
-        self.status.setText(fm.elidedText(status, Qt.TextElideMode.ElideRight, 122))
-        self.status.setToolTip(status)
-        for prop, val in (("current", current), ("done", done), ("warn", warn)):
-            self.setProperty(prop, val)
-            self.no.setProperty(prop, val)
-            self.status.setProperty(prop, val)
-        for widget in (self, self.no, self.status):
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
-
-    def mousePressEvent(self, _event) -> None:
-        self.clicked.emit()
-
-    def click(self) -> None:                 # convenience/test hook
-        self.clicked.emit()
-
-
-class _StepRail(QFrame):
-    """Vertical step-rail of three ``_StepRow``s: source / content / place.
-    Clicking a row emits ``stepClicked(key)``."""
-
-    stepClicked = pyqtSignal(str)
-
-    _KEYS = ("source", "content", "place")
-    _LABELS = {"source": "Source", "content": "Content", "place": "Placement"}
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("stepRailInner")   # transparent bg (matches the rail)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
-
-        self._rows: dict[str, _StepRow] = {}
-        self._states: dict[str, str] = {}
-
-        for i, key in enumerate(self._KEYS, start=1):
-            row = _StepRow(i, self._LABELS[key])
-            row.clicked.connect(lambda k=key: self.stepClicked.emit(k))
-            lay.addWidget(row)
-            self._rows[key] = row
-            self._states[key] = "done"
-
-    def set_step(self, key: str, status: str, state: str) -> None:
-        """state ∈ {active, done, warn, todo} → current/done/warn props.
-        active = highlighted + green chip; done = green chip; warn = warn chip;
-        todo = grey chip, no highlight."""
-        self._states[key] = state
-        self._rows[key].set_state(
-            current=(state == "active"),
-            done=(state in ("active", "done")),
-            warn=(state == "warn"),
-            status=status)
-
-    def row(self, key: str) -> "_StepRow":
-        return self._rows[key]
-
-    def state(self, key: str) -> str:
-        return self._states[key]
 
 
 class _LevelsPicker(QWidget):
@@ -923,7 +836,43 @@ def build_commit_sentence(
     return sentence
 
 
-class UnderlayImportDialog(FramelessShellMixin, QDialog):
+class _FooterBox:
+    """Thin QDialogButtonBox-shaped adapter over HouseDialog's plain footer.
+
+    HouseDialog places bare ``QPushButton``s in the footer (Cancel-left /
+    primary-right) instead of a ``QDialogButtonBox``. Legacy import-dialog code
+    reaches the footer via ``box.button(StandardButton.Ok/Cancel)`` and toggles
+    it during extraction (``box.setEnabled(...)``); this shim preserves that
+    contract without reintroducing a real button box.
+    """
+
+    def __init__(self, ok_btn, cancel_btn, footer_frame):
+        self._ok = ok_btn
+        self._cancel = cancel_btn
+        self._frame = footer_frame
+
+    def button(self, std):
+        if std == QDialogButtonBox.StandardButton.Ok:
+            return self._ok
+        if std == QDialogButtonBox.StandardButton.Cancel:
+            return self._cancel
+        return None
+
+    def setEnabled(self, enabled: bool) -> None:
+        # Disable the whole footer frame so both buttons go inert together.
+        if self._frame is not None:
+            self._frame.setEnabled(enabled)
+        else:
+            self._ok.setEnabled(enabled)
+            self._cancel.setEnabled(enabled)
+
+    def isEnabled(self) -> bool:
+        if self._frame is not None:
+            return self._frame.isEnabled()
+        return self._ok.isEnabled()
+
+
+class UnderlayImportDialog(HouseDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
     _SCALE_OPTIONS = [
@@ -944,20 +893,21 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                  scale_manager=None, default_dir: str = "",
                  levels: list[str] | None = None, current_level: str = "",
                  modify_record=None):
-        super().__init__(parent)
-        # Frameless: a single custom header (styled like the footer) replaces
-        # the OS title bar, so there is exactly one header.
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
-        # Frameless chrome (flags, drag, maximize toggle, DWM rounded corners)
-        # comes from FramelessShellMixin. This dialog is modal and not resizable,
-        # and builds its own richer titlebar (icon + title + file label + dots)
-        # in _build_ui, so we skip the mixin's plain titlebar builder.
-        self.init_frameless_shell(
-            title=f"Import Underlay — {self._project_name}",
-            controls=("min", "max", "close"), resizable=False,
-            build_titlebar=False)
+        # HouseDialog owns the frameless shell + standard header (icon + title +
+        # window-control dots). The header shows a static "Import Underlay" name;
+        # the loaded file / "(no file loaded)" rides in the header context slot.
+        super().__init__(parent, title="Import Underlay",
+                         icon="underlay_import_icon.svg",
+                         controls=("min", "max", "close"), resizable=False)
+        # Window title still carries the project name (used by callers / OS).
+        self.setWindowTitle(f"Import Underlay — {self._project_name}")
+        # The header name label is HouseDialog's shell title; alias it so the
+        # Modify flow can retitle it to "Modify Underlay — …".
+        self._title_lbl = self._shell_title_lbl
+        self.set_header_context("(no file loaded)")
         self._did_initial_max = False
         self.resize(1150, 660)
         # Never let content (e.g. the PDF filmstrip/layer list on load) grow the
@@ -1177,55 +1127,21 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         contextual panel] · commit-sentence footer. All the heavy controls are
         the same widgets as before — only re-homed into the new containers."""
         t = detect()
-        outer = QVBoxLayout(self)
+        # HouseDialog owns self._root / self._body / the header (icon + title +
+        # window-control dots) + the styling (houseDialog property, dialog QSS).
+        # This method now builds only the body composite [thumb filmstrip +
+        # (rail | preview | seam | panel_stack)] and hands it to set_body().
+        self.setObjectName("UnderlayImportDialog")
+
+        # Body composite container — replaces the old top-level 'outer' layout.
+        # QDialog's default layout constraint would resize the window to content
+        # sizeHint (a large drawing grew the dialog); pin it so the window keeps
+        # its explicit size and content fits inside.
+        _body_container = QWidget()
+        outer = QVBoxLayout(_body_container)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        # QDialog's default layout constraint resizes the window to its content's
-        # sizeHint — so loading a large drawing into the canvas grew the dialog.
-        # Pin it: the window keeps its explicit size, content fits inside.
         outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-
-        # build_dialog_qss scopes all rules to QDialog[houseDialog="true"]; the
-        # previewView rule is folded into build_dialog_qss (task 2.1).
-        self.setObjectName("UnderlayImportDialog")
-        self.setProperty("houseDialog", True)
-        self.setStyleSheet(build_dialog_qss(t))
-
-        # ── Header bar (single custom header; styled like the footer) ────────
-        self._titlebar = QFrame(objectName="shellHeader")
-        self._titlebar.setFixedHeight(40)
-        hb = QHBoxLayout(self._titlebar)
-        hb.setContentsMargins(14, 7, 10, 7)
-        glyph = QLabel()
-        try:
-            glyph.setPixmap(themed_icon(
-                "underlay_import_icon.svg",
-                "light" if t.name == "light" else "dark").pixmap(22, 22))
-        except Exception:
-            pass
-        name_lbl = QLabel("Import Underlay")
-        name_lbl.setProperty("role", "title")
-        self._title_lbl = name_lbl        # so _apply_modify_prefill can retitle to "Modify Underlay — …"
-        self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
-        self._header_file_lbl.setProperty("role", "faint")
-        hb.addWidget(glyph)
-        hb.addSpacing(8)
-        hb.addWidget(name_lbl)
-        hb.addSpacing(10)
-        hb.addWidget(self._header_file_lbl)
-        hb.addStretch(1)
-
-        # Window controls — circular icons (grey circle + accent inlay):
-        # minimize (–) · expand (+) · close (×); circle brightens on hover.
-        # Added directly to the header row, vertically centred on its midline.
-        _vc = Qt.AlignmentFlag.AlignVCenter
-        for _k, _slot in (("min", self.showMinimized),
-                          ("max", self._toggle_max),
-                          ("close", self.reject)):
-            _dot = _WinDot(_k, _slot, t)
-            self._win_controls[_k] = _dot     # FramelessShellMixin contract
-            hb.addWidget(_dot, 0, _vc)
-        outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
@@ -1307,16 +1223,13 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
 
-        # Step rail
-        rail_wrap = QFrame(objectName="stepRail")
-        rail_wrap.setFixedWidth(188)
-        rw = QVBoxLayout(rail_wrap)
-        rw.setContentsMargins(6, 12, 6, 12)
-        self._rail = _StepRail()
-        self._rail.stepClicked.connect(self._on_rail_clicked)
-        rw.addWidget(self._rail)
-        rw.addStretch(1)
-        body.addWidget(rail_wrap)
+        # Step rail — house SideTabs (numbered vertical step rail).
+        self._rail = SideTabs()
+        self._rail.add_tab("source", "Source", step_no=1)
+        self._rail.add_tab("content", "Content", step_no=2)
+        self._rail.add_tab("place", "Placement", step_no=3)
+        self._rail.tabSelected.connect(self._on_rail_clicked)
+        body.addWidget(self._rail)
 
         # Preview workspace column: toolbar (mode pills + Fit readout) · view · chip
         prev_wrap = QWidget()
@@ -1640,12 +1553,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         body.addWidget(seam)
         body.addWidget(self._panel_stack)
         outer.addLayout(body, 1)
+
+        # Hand the body composite to HouseDialog (it owns its own inner margins).
+        self.set_body(_body_container, margin=(0, 0, 0, 0))
         self._switch_step("source")
 
-        # ── Commit footer: sentence + Cancel / Import ───────────────────────
-        footer = QFrame(objectName="footerBar")
-        fl = QHBoxLayout(footer)
-        fl.setContentsMargins(14, 9, 14, 9)
+        # ── Commit footer: sentence (far left) + Cancel / Import → ──────────
+        # HouseDialog's set_footer_buttons places Cancel-left / primary-right and
+        # takes the commit sentence as extra_left. Preserve the retained
+        # (invisible) _status_lbl and the commit-sentence styling.
         self._status_lbl = QLabel("")          # retained (some code sets it)
         self._status_lbl.setVisible(False)
         self._commit_label = QLabel("")
@@ -1653,18 +1569,19 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._commit_label.setWordWrap(True)
         self._commit_label.setStyleSheet(
             f"color:{t.muted}; font-size:11.5px; background:transparent;")
-        fl.addWidget(self._commit_label, 1)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
+        _footer_btns = self.set_footer_buttons(
+            primary=("Import →", self._on_accept), cancel=True,
+            extra_left=self._commit_label)
+        self._import_btn = _footer_btns["primary"]
+        self._import_btn.setProperty("variant", "primary")  # solid accent (house primary)
+        self._cancel_btn = self._footer_box.button(
             QDialogButtonBox.StandardButton.Cancel)
-        _ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        _ok.setText("Import →")
-        _ok.setProperty("variant", "primary")   # solid accent (house primary)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        self._button_box = buttons
-        fl.addWidget(buttons)
-        outer.addWidget(footer)
+        # Back-compat shim: legacy code/tests reach the footer via
+        # ``self._button_box.button(QDialogButtonBox.StandardButton.Ok/Cancel)``
+        # and toggle it during extraction. HouseDialog builds the footer from
+        # plain QPushButtons, so expose a thin QDialogButtonBox-shaped adapter.
+        self._button_box = _FooterBox(self._import_btn, self._cancel_btn,
+                                      self._footer)
 
         # Scale edits invalidate a verified scale (calibration excepted).
         self._scale_combo.currentIndexChanged.connect(
@@ -1694,7 +1611,27 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             return
         self._panel_stack.setCurrentIndex(idx)
         self._active_step = key
+        self._rail.set_current(key)
         self._update_all()
+
+    def _rail_set_step(self, key: str, status: str, state: str) -> None:
+        """Adapter: map the legacy 4-state model onto house SideTabs.
+
+        The legacy rail took ``state ∈ {active, done, warn, todo}`` in a single
+        ``set_step`` call. SideTabs splits selection (``set_current``) from chip
+        status (``set_status`` with ``"" | "done" | "warn"``). Map:
+          active → current row + green "done" chip; done → "done" chip;
+          warn → "warn" chip; todo → cleared chip.
+        """
+        if state == "active":
+            self._rail.set_current(key)
+            self._rail.set_status(key, status, "done")
+        elif state == "done":
+            self._rail.set_status(key, status, "done")
+        elif state == "warn":
+            self._rail.set_status(key, status, "warn")
+        else:  # "todo"
+            self._rail.set_status(key, status, "")
 
     # Frameless chrome (_toggle_max / mouse*Event drag / showEvent rounded
     # corners / _enable_rounded_corners) is provided by FramelessShellMixin.
@@ -1869,9 +1806,9 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
         path = self._file_edit.text().strip()
         name = os.path.splitext(os.path.basename(path))[0] if path else "(no file)"
-        if hasattr(self, "_header_file_lbl"):
-            self._header_file_lbl.setText(
-                os.path.basename(path) if path else "(no file loaded)")
+        # Header context slot shows the active file (or "(no file loaded)").
+        self.set_header_context(
+            os.path.basename(path) if path else "(no file loaded)")
         pages = getattr(self, "_pdf_page_count", 0) or 1
         page = (getattr(self, "_pdf_page", 0) or 0) + 1
         layers_hidden = sum(
@@ -1908,12 +1845,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             if done[k]:
                 return "done"
             return "warn" if k == "place" else "todo"
-        self._rail.set_step(
+        self._rail_set_step(
             "source", (os.path.basename(path) or "Drop a file or paste a URL"),
             _st("source"))
-        self._rail.set_step(
+        self._rail_set_step(
             "content", ("cropped" if cropped else "whole sheet"), _st("content"))
-        self._rail.set_step(
+        self._rail_set_step(
             "place",
             f"{len(levels)} level{'s' if len(levels) != 1 else ''} · "
             f"{'verified' if verified else 'unverified'}",

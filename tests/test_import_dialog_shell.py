@@ -8,20 +8,28 @@ from __future__ import annotations
 
 
 # ---------------------------------------------------------------------------
-# CYCLE 1 — _StepRail
+# CYCLE 1 — step rail (house SideTabs; migrated off the retired _StepRail)
 # ---------------------------------------------------------------------------
 
 def test_step_rail_states_and_click(qapp):
-    from firepro3d.underlay_import_dialog import _StepRail
+    # The hand-rolled _StepRail/_StepRow were retired in the HouseDialog
+    # migration; the import dialog now builds its rail from ui_kit.SideTabs with
+    # the same source/content/place steps. This guards the same intent — set a
+    # per-step status/state, then a row click emits the step key.
+    from firepro3d.ui_kit import SideTabs
     seen = []
-    rail = _StepRail()
-    rail.stepClicked.connect(seen.append)
-    rail.set_step("source",  "site.pdf . PDF . 6 pages", "done")
-    rail.set_step("content", "whole sheet",              "done")
-    rail.set_step("place",   "0 levels . unverified",    "warn")
-    assert rail.state("place") == "warn"
-    rail.row("content").click()          # QPushButton row
+    rail = SideTabs()
+    rail.add_tab("source", "Source", step_no=1)
+    rail.add_tab("content", "Content", step_no=2)
+    rail.add_tab("place", "Placement", step_no=3)
+    rail.tabSelected.connect(seen.append)
+    rail.set_status("source",  "site.pdf . PDF . 6 pages", "done")
+    rail.set_status("content", "whole sheet",              "done")
+    rail.set_status("place",   "0 levels . unverified",    "warn")
+    # Click the "content" row → tabSelected("content") and it becomes current.
+    rail._rows["content"].mousePressEvent(None)
     assert seen == ["content"]
+    assert rail.current() == "content"
 
 
 # ---------------------------------------------------------------------------
