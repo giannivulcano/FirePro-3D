@@ -267,18 +267,19 @@ def test_general_pane_roundtrips_dock_default(qapp):
 
 
 def test_general_pane_roundtrips_all_docks(qapp):
+    # Report docks (hydraulics/radiation) were removed from GeneralPane on the
+    # UI-cleanup branch (transient run-results, force-hidden on startup); only
+    # the persistent panels (browser/properties) remain here.
     pane = GeneralPane()
     pane.load()
+    assert "hydraulics" not in pane._dock_checks
+    assert "radiation" not in pane._dock_checks
     pane._dock_checks["browser"].setChecked(True)
     pane._dock_checks["properties"].setChecked(False)
-    pane._dock_checks["hydraulics"].setChecked(True)
-    pane._dock_checks["radiation"].setChecked(False)
     pane.apply()
     s = QSettings("GV", "FirePro3D")
     assert str(s.value("dock/browser")).lower() in ("true", "1")
     assert str(s.value("dock/properties")).lower() in ("false", "0")
-    assert str(s.value("dock/hydraulics")).lower() in ("true", "1")
-    assert str(s.value("dock/radiation")).lower() in ("false", "0")
 
 
 def test_general_pane_revert_restores(qapp):
