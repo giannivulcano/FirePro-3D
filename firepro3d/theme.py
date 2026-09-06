@@ -841,8 +841,8 @@ QDialog[houseDialog="true"] QLabel[stepNo="true"][current="true"], QDialog[house
 QDialog[houseDialog="true"] QLabel[stepNo="true"][warn="true"] {{ background: {t.warn_soft}; color: {t.warn}; }}
 QDialog[houseDialog="true"] QLabel[stepName="true"] {{ font-size: 12px; font-weight: 700; background: transparent; color: {t.ink}; }}
 QDialog[houseDialog="true"] QLabel[stepStatus="true"] {{ font-size: 10px; color: {t.faint}; background: transparent; }}
-QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="warn"] {{ color: {t.warn}; }}
-QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"] {{ color: {t.ok}; }}
+QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="warn"], QDialog[houseDialog="true"] QLabel[stepStatus="true"][warn="true"] {{ color: {t.warn}; }}
+QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[houseDialog="true"] QLabel[stepStatus="true"][done="true"] {{ color: {t.muted}; }}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}
