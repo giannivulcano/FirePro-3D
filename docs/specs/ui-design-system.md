@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed, unbuilt — do NOT read as current behavior
-last-verified: 2026-09-06  # date the CODE-CONTEXT claims (existing dialogs) were checked
-verified-commit: a91e35b   # HEAD the design was authored against
+status: partial           # core system BUILT + code-verified; "Deferred waves" section is future/unbuilt
+last-verified: 2026-09-06  # metrics + build_dialog_qss + HouseDialog + ui_kit + ThemedMessageDialog + 5 migrations + 39-site sweep all landed
+verified-commit: 241106f   # branch feat/ui-design-system (P1–P6 built)
 applies-to:
   - firepro3d/theme.py
   - firepro3d/frameless_shell.py
