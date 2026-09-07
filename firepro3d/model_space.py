@@ -1581,24 +1581,25 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
 
-        Captures each primitive's to_dict, removes it from the scene + tracking list,
-        registers a BlockDefinition (origin-relative), places one instance at origin,
-        and pushes a single undo state. Returns the BlockInstance, or None if no
-        capturable primitive was supplied.
+        Thin caller of ``commit_block_definition`` (the shared linework->definition
+        core): captures each capturable item's ``to_dict``, then commits a new
+        definition, consuming the source items and placing one instance. Returns
+        the placed BlockInstance, or None if nothing capturable was supplied.
         """
-        from .block_definition import BlockDefinition
-        prims = []
+        prims, captured = [], []
         for it in items:
-            if hasattr(it, "to_dict") and self._remove_item_from_lists(it):
+            if hasattr(it, "to_dict"):
                 prims.append(it.to_dict())
+                captured.append(it)
         if not prims:
             return None
-        defn = BlockDefinition.new(name=name, library=library, series=series,
-                                   primitives=prims, origin=(origin.x(), origin.y()))
-        self.register_block_definition(defn)
-        inst = self.place_block_instance(defn.id, (origin.x(), origin.y()), rotation=0.0)
-        self.push_undo_state()
-        return inst
+        defn = self.commit_block_definition(
+            block_id=None, name=name, library=library, series=series,
+            primitives=prims, origin=(origin.x(), origin.y()),
+            place_instance=True, source_items=captured)
+        if defn is None:
+            return None
+        return self._block_instances[-1]
 
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
