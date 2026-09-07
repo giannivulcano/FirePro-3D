@@ -34,9 +34,10 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QLabel, QLineEdit, QPushButton, QComboBox, QDoubleSpinBox,
-    QSpinBox, QDialogButtonBox, QGroupBox, QFormLayout, QMessageBox,
+    QSpinBox, QDialogButtonBox, QGroupBox, QFormLayout,
     QSizePolicy,
 )
+from .themed_message import themed_confirm, themed_info
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
@@ -502,12 +503,11 @@ class SprinklerManagerDialog(QDialog):
         if result is None:
             return
         idx, record = result
-        reply = QMessageBox.question(
+        if themed_confirm(
             self, "Delete Sprinkler",
             f"Delete '{record.manufacturer} {record.model}' from the library?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+            danger=True, ok_label="Delete",
+        ):
             self._db.delete_from_library(idx)
             self._refresh_library()
 
@@ -538,8 +538,8 @@ class SprinklerManagerDialog(QDialog):
 
         row = table.currentRow()
         if row < 0:
-            QMessageBox.information(self, "No Selection",
-                                    "Please select a sprinkler first.")
+            themed_info(self, "No Selection",
+                        "Please select a sprinkler first.")
             return
         item = table.item(row, 0)
         if item is None:

@@ -24,12 +24,13 @@ import os
 from PyQt6.QtCore import QModelIndex, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeView,
-    QVBoxLayout,
+    QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QPushButton, QTreeView,
+    QVBoxLayout, QWidget,
 )
+from .themed_message import themed_confirm
 
-from .frameless_shell import FramelessShellMixin
+from .house_dialog import HouseDialog
 from .underlay_manager_delegates import (
     ColourDelegate, LevelsDelegate, ToggleDelegate, WeightDelegate,
     make_menu,
@@ -37,7 +38,7 @@ from .underlay_manager_delegates import (
 from .underlay_manager_model import (
     Col, LayerRole, UnderlayFilterProxy, UnderlayRole, UnderlayTreeModel,
 )
-from .theme import Theme, detect, build_underlay_manager_qss
+from .theme import Theme, detect
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +186,7 @@ class _DetailsPanel(QFrame):
 # ---------------------------------------------------------------------------
 # The dialog
 # ---------------------------------------------------------------------------
-class UnderlayManagerDialog(FramelessShellMixin, QDialog):
+class UnderlayManagerDialog(HouseDialog):
     """Modeless manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
     #: QSettings key for the tree header's saved column layout (widths/order).
@@ -194,20 +195,17 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
     def __init__(self, scene, main_window, theme: Theme | None = None, parent=None,
                  apply_stylesheet: bool = True):
         theme = theme or detect()
-        super().__init__(parent)
-        self.init_frameless_shell(
-            title="Underlay Manager",
-            controls=("min", "max", "close"),
-            resizable=True,
-            icon="underlay_manager_icon.svg",
-        )
+        super().__init__(parent, title="Underlay Manager",
+                         icon="underlay_manager_icon.svg",
+                         controls=("min", "max", "close"),
+                         resizable=True, theme=theme)
+        if not apply_stylesheet:
+            self.setStyleSheet("")
         self.scene = scene
         self.main_window = main_window
         self.t = theme
         self.setObjectName("UnderlayManagerDialog")
         self.setWindowTitle("Underlay Manager")
-        if apply_stylesheet:
-            self.setStyleSheet(build_underlay_manager_qss(theme))
         self.setMinimumSize(720, 420)
         self.resize(1080, 560)  # restore baseline (size after un-maximize)
         self.setModal(False)
@@ -226,12 +224,7 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        root.addWidget(self._titlebar)
-
+        # ── toolbar ──────────────────────────────────────────────────────
         toolbar = QFrame(objectName="toolbarBar")
         bar = QHBoxLayout(toolbar)
         bar.setContentsMargins(12, 9, 12, 9)
@@ -252,8 +245,8 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
             bar.addWidget(w)
         bar.addStretch(1)
         bar.addWidget(self.filter_edit)
-        root.addWidget(toolbar)
 
+        # ── tree view ────────────────────────────────────────────────────
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
@@ -307,8 +300,20 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
 
         self.details = _DetailsPanel(self.t)
         body.addWidget(self.details)
-        root.addLayout(body, 1)
 
+        # ── body container (toolbar + tree/details) → HouseDialog body ──
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(toolbar)
+        container_layout.addLayout(body, 1)
+        self.set_body(container, margin=(0, 0, 0, 0))
+
+        # ── footer (count + hint left, Close right) ──────────────────────
+        # Built manually and added to self._root so we can replicate
+        # count_label + spacing + hint on the left and Close on the right,
+        # with #footerBar objectName for QSS — matching the original exactly.
         footer = QFrame(objectName="footerBar")
         foot = QHBoxLayout(footer)
         foot.setContentsMargins(12, 8, 12, 8)
@@ -322,7 +327,7 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         foot.addWidget(hint)
         foot.addStretch(1)
         foot.addWidget(self.btn_close)
-        root.addWidget(footer)
+        self._root.addWidget(footer)
 
         # Underlays default to COLLAPSED (Bug 2). Expansion state is then
         # preserved across model resets by the _before_reset/_after_reset pair
@@ -521,16 +526,11 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
             title = f'Delete "{name}"?'
         else:
             title = f"Delete {len(records)} underlays?"
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Delete underlay")
-        box.setText(title)
-        box.setInformativeText("The source file on disk is not affected.")
-        delete_button = box.addButton(
-            "Delete", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
-        return box.clickedButton() is delete_button
+        return themed_confirm(
+            self, "Delete underlay",
+            title + "\n\nThe source file on disk is not affected.",
+            danger=True, ok_label="Delete", cancel_label="Cancel",
+        )
 
     def _reload(self) -> None:
         records = self._selected_records()

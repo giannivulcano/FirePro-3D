@@ -2,6 +2,18 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## UI Design-System (kit + dialog system) — 2026-09-06
+
+Shipped on `feat/ui-design-system` (Large tier: grill→brainstorm→writing-plans→subagent-driven build; 6 phases P1–P6, per-dialog live parity smoke, P4 + P5 whole-branch seam reviews both **SHIP**). Governing spec **forged**: `docs/specs/ui-design-system.md` (`status: partial`) + SPEC-INDEX row (closes the `frameless_shell.py` orphan). 152 headless tests green across touched areas; all live-smoked (both themes) + swept dialogs confirmed.
+
+- [x] **Metrics token layer** (`theme.M`) — variant-independent flat `_Metrics` namespace (semantic-first names + `XS/SM/MD/LG/XL` reference ramp; margins as `(l,t,r,b)` tuples), consumed via `setContentsMargins(*M.X)` and `{M.X}` QSS interpolation. Bundled the **global font px→pt fix** (`QWidget{font-size:13px→9.75pt}`, fixes `QFont::setPointSize<=0` on combos — closes the "App-wide combo font warning" item). `theme.py`; `tests/test_metrics_tokens.py` [done:2026-09-06]
+- [x] **Unified `build_dialog_qss(t)`** — one builder scoped to `QDialog[houseDialog="true"]` marker + child objectNames; **deleted** `build_underlay_manager_qss`/`build_block_manager_qss`/`_import_extra_qss` (kills the `str.replace` view-class aliasing anti-pattern). `theme.py`; `tests/test_dialog_qss.py` [done:2026-09-06]
+- [x] **`HouseDialog` base** (`house_dialog.py`) — shell+header (icon+title + `set_header_context` slot) + `set_body(margin=)`/`body_layout()` + `set_footer_buttons` (canonical `QDialogButtonBox`, **Cancel-left/primary-right** — enforced via a manual-order proxy since Windows `QDialogButtonBox` defaults the other way) + `restyle()` seam. `tests/test_house_dialog.py` [done:2026-09-06]
+- [x] **Component kit** (`ui_kit.py`) — `SideTabs` (extracted from the import dialog's `_StepRow`/`_StepRail`, general + optional `step_no` numbering), `DetailsPanel`, `Section`, `SwitchBar`, `ToggleSwitch` (net-new per theming.md), `Pill`. `tests/test_ui_kit.py` [done:2026-09-06]
+- [x] **5 frameless dialogs migrated** onto HouseDialog+kit (pure parity): MakeBlock, ThemedMessage, UnderlayManager, BlockManager, UnderlayImport (SideTabs + header-context + `_FooterBox`/`_rail_set_step` shims). Smoke-fix round: bare-QWidget body inherited dark canvas fill → add content via `body_layout()`; `_WinDot` control dots skewed low (app-QSS `padding` bled into the fixed-size button) → reset padding; header items uniformly `AlignVCenter` + tokenized. Closes the **`FramelessShellMixin` governing-spec** orphan. [done:2026-09-06]
+- [x] **39-site native-dialog sweep** — grew `ThemedMessageDialog` (subclasses HouseDialog) + **8 helpers** (`themed_info`/`warn`/`error`/`confirm` + `input_text`/`input_number`(DimensionEdit, min/max)/`input_choice` + `themed_choice` N-button for the 2 three-way dialogs). All 33 `QMessageBox` + 6 `QInputDialog` replaced 1:1 (matching return semantics; getDouble bounds restored); `QFileDialog`/`QColorDialog` stay native. `main.py` + 11 modules; `tests/test_themed_message.py` [done:2026-09-06]
+- [x] **Guards + docs** — extended `test_theme_chrome_hexguard.py` to kit+dialogs; new `test_metrics_drift_guard.py`; `theming.md` gains a Layout-metrics section + link to the spec (Rule A); spec stamped `partial`. [done:2026-09-06]
+
 ## UI cleanup batch (2026-09-05)
 
 Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD build; commits `7b11b31`…`bbcac6f`). 141 headless guards + non-VTK regression green; live-smoke passed. Governing spec `docs/specs/ribbon-bar.md` stamped to the 6-tab taxonomy.

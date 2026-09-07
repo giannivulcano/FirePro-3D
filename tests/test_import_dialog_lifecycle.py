@@ -30,7 +30,10 @@ class TestExtractionControlsDisabled:
         # a child of a disabled parent — disabling the view would make Cancel
         # un-clickable. The card visually covers the preview instead.
         assert not dlg._controls_panel.isEnabled()
-        btns = dlg.findChild(QDialogButtonBox)
+        # HouseDialog builds the footer from plain QPushButtons (no real
+        # QDialogButtonBox); the dialog exposes a QDialogButtonBox-shaped shim
+        # as ``_button_box`` that toggles the whole footer frame together.
+        btns = dlg._button_box
         assert btns is not None
         assert not btns.isEnabled(), (
             "Import/Cancel must be disabled during extraction")

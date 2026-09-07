@@ -13,6 +13,9 @@ GUARDED = [
     "loading_bar.py", "loading.py", "wall_dialog.py", "roof_dialog.py",
     "titleblock_arrange.py", "titleblock_editor.py",
     "auto_populate_dialog.py", "underlay_import_dialog.py", "view_3d.py",
+    # UI design-system: base + kit + migrated dialogs (ui-design-system.md)
+    "house_dialog.py", "ui_kit.py", "themed_message.py", "frameless_shell.py",
+    "make_block_dialog.py", "underlay_manager.py", "block_manager.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")

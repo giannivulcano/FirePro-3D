@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
@@ -102,9 +102,8 @@ def _silence_missing_underlay_modal(monkeypatch):
     modal-hang trap). Suppressing it does NOT touch the behavior under test —
     the placeholder is still created and re-serialized.
     """
-    monkeypatch.setattr(
-        QMessageBox, "warning",
-        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok))
+    import firepro3d.themed_message as _tm
+    monkeypatch.setattr(_tm, "themed_warn", lambda *a, **k: None)
 
 
 def _post_mouse(view, etype, scene_pt, button=Qt.MouseButton.NoButton):

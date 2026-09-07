@@ -3,12 +3,16 @@ import tempfile
 import traceback
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
-                              QFileDialog, QDockWidget, QInputDialog,
+                              QFileDialog, QDockWidget,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTabWidget, QMenu, QWidget, QMessageBox,
+                              QTabWidget, QMenu, QWidget,
                               QComboBox, QDoubleSpinBox, QFormLayout,
                               QToolButton, QProgressDialog)
+from firepro3d.themed_message import (
+    themed_info, themed_warn, themed_error, themed_confirm, themed_choice,
+    themed_input_number, themed_input_choice,
+)
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
@@ -898,14 +902,13 @@ class MainWindow(QMainWindow):
         if len(self.sheet_mgr.sheets) <= 1:
             self.statusBar().showMessage("Cannot delete the last sheet.", 4000)
             return
-        resp = QMessageBox.question(
+        if not themed_confirm(
             self, "Delete Sheet",
             f"Delete sheet {sheet.number} - {sheet.name}?\n"
             f"{len(sheet.sheet_views)} view(s) and {len(sheet.annotations)} "
             f"annotation(s) will be removed.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if resp != QMessageBox.StandardButton.Yes:
+            danger=True, ok_label="Delete",
+        ):
             return
         neighbor = self.sheet_mgr.delete(sheet)
         if sheet is self._sheet:
@@ -1306,11 +1309,12 @@ class MainWindow(QMainWindow):
 
     def _on_numeric_input_requested(self, mode: str, title: str, label: str,
                                      default: float, min_val: float, max_val: float):
-        val, ok = QInputDialog.getDouble(self, title, label, default, min_val, max_val, 3)
+        val, ok = themed_input_number(self, title, label, initial=default, dimension=True,
+                                      minimum=min_val, maximum=max_val)
         self.scene.complete_numeric_input(mode, val, ok)
 
     def _on_warning_issued(self, title: str, message: str):
-        QMessageBox.warning(self, title, message)
+        themed_warn(self, title, message)
 
     def _on_confirm_requested(self, action_id: str, title: str, message: str):
         if action_id.startswith("elev_mismatch"):
@@ -1338,11 +1342,7 @@ class MainWindow(QMainWindow):
             result = _result[0]
             self.scene.complete_confirmation(action_id, result)
         else:
-            reply = QMessageBox.question(
-                self, title, message,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes)
-            result = "accepted" if reply == QMessageBox.StandardButton.Yes else "rejected"
+            result = "accepted" if themed_confirm(self, title, message) else "rejected"
             self.scene.complete_confirmation(action_id, result)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1742,7 +1742,7 @@ class MainWindow(QMainWindow):
 
     def _export_paper_pdf(self):
         """Export selected sheets to PDF (batch — spec §19.6)."""
-        from PyQt6.QtWidgets import QDialog, QMessageBox
+        from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
         from firepro3d.paper_export_dialog import PaperExportDialog
 
@@ -1757,15 +1757,12 @@ class MainWindow(QMainWindow):
                         if os.path.exists(os.path.join(
                             sel.path, paper_export.default_pdf_filename(s)))]
             if existing:
-                resp = QMessageBox.question(
+                if not themed_confirm(
                     self, "Overwrite Files?",
                     f"{len(existing)} file(s) already exist and will be "
                     "overwritten:\n" + "\n".join(existing[:8])
                     + ("\n…" if len(existing) > 8 else ""),
-                    QMessageBox.StandardButton.Yes
-                    | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No)
-                if resp != QMessageBox.StandardButton.Yes:
+                ):
                     return
             for sheet in sel.sheets:
                 fname = paper_export.default_pdf_filename(sheet)
@@ -1775,7 +1772,7 @@ class MainWindow(QMainWindow):
                         [sheet], self._view_resolver, out, sel.dpi,
                         template=tmpl, project_info=proj_info)
                 except (OSError, ValueError) as exc:
-                    QMessageBox.critical(
+                    themed_error(
                         self, "Export Failed",
                         f"Could not write {fname}:\n{exc}\n"
                         "Files exported before this one remain on disk.")
@@ -1790,7 +1787,7 @@ class MainWindow(QMainWindow):
                     sel.sheets, self._view_resolver, path, sel.dpi,
                     template=tmpl, project_info=proj_info)
             except (OSError, ValueError) as exc:
-                QMessageBox.critical(
+                themed_error(
                     self, "Export Failed",
                     f"Could not write {os.path.basename(path)}:\n{exc}")
                 return
@@ -1800,7 +1797,7 @@ class MainWindow(QMainWindow):
     def _print_paper(self):
         """Print selected sheets via the system print dialog (batch)."""
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt6.QtWidgets import QDialog, QMessageBox
+        from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
         from firepro3d.paper_export_dialog import PaperExportDialog
 
@@ -1817,7 +1814,7 @@ class MainWindow(QMainWindow):
             paper_export.print_sheets(sel.sheets, self._view_resolver, printer,
                                       template=tmpl, project_info=proj_info)
         except (OSError, ValueError) as exc:
-            QMessageBox.critical(self, "Print Failed", str(exc))
+            themed_error(self, "Print Failed", str(exc))
             return
         self.statusBar().showMessage("Sent to printer", 5000)
 
@@ -1978,27 +1975,25 @@ class MainWindow(QMainWindow):
             return
         if not diverges:
             return
-        resp = QMessageBox.question(
+        choice = themed_choice(
             self, "Title Block Template",
-            f"The library copy of '{embedded.name}' differs from this "
-            "project's embedded copy.\n\n"
-            "Yes = Push to Library (overwrite library with project version)\n"
-            "No  = Pull from Library (replace project copy with library version)\n"
-            "Cancel = Keep Both (project continues to render its own embedded copy)",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        if resp == QMessageBox.StandardButton.Yes:
-            # Push: write embedded copy to library.
+            f"The library copy of '{embedded.name}' differs from this project's "
+            "embedded copy.\n\n"
+            "Push to Library = overwrite the library with the project version.\n"
+            "Pull from Library = replace the project copy with the library version.\n"
+            "Keep Both = the project keeps rendering its own embedded copy.",
+            [("Keep Both", "keep", None),
+             ("Pull from Library", "pull", None),
+             ("Push to Library", "push", "primary")])
+        if choice == "push":
             save_to_library(embedded)
-        elif resp == QMessageBox.StandardButton.No:
-            # Pull: find the library copy and install it as the embedded template.
+        elif choice == "pull":
             lib_copies = [t for t in load_library() if t.uuid == embedded.uuid]
             if lib_copies:
                 self.scene._titleblock_template = lib_copies[0].to_dict()
                 self._push_titleblock_template()
                 self._on_paper_modified()   # pulling changes project bytes → dirty (§17.7)
+        # "keep"/None → do nothing (Keep Both)
 
     # ── Project Information dialog ────────────────────────────────────────────
 
@@ -3549,20 +3544,19 @@ class MainWindow(QMainWindow):
         if not rooms:
             # No room selected — prompt user to pick one
             if not self.scene._rooms:
-                QMessageBox.information(self, "No Rooms",
-                                        "No rooms exist. Create a room first.")
+                themed_info(self, "No Rooms",
+                            "No rooms exist. Create a room first.")
                 return
             if len(self.scene._rooms) == 1:
                 # Only one room — use it automatically
                 room = self.scene._rooms[0]
             else:
                 # Multiple rooms — show a picker dialog
-                from PyQt6.QtWidgets import QInputDialog
                 names = [r.name or f"Room {i+1}" for i, r in enumerate(self.scene._rooms)]
-                choice, ok = QInputDialog.getItem(
+                choice, ok = themed_input_choice(
                     self, "Select Room",
                     "Choose a room to auto-populate with sprinklers:",
-                    names, 0, False)
+                    names, current=0)
                 if not ok:
                     return
                 room = self.scene._rooms[names.index(choice)]
@@ -3725,7 +3719,7 @@ class MainWindow(QMainWindow):
 
     def _open_recent(self, path: str):
         if not os.path.isfile(path):
-            QMessageBox.warning(self, "File Not Found", f"Cannot find:\n{path}")
+            themed_warn(self, "File Not Found", f"Cannot find:\n{path}")
             if path in self._recent_files:
                 self._recent_files.remove(path)
             self.settings.setValue("recent_files", self._recent_files)
@@ -3751,12 +3745,11 @@ class MainWindow(QMainWindow):
         path = self._autosave_path()
         if not os.path.isfile(path):
             return
-        reply = QMessageBox.question(
+        if themed_confirm(
             self, "Recover Unsaved Work",
             "An auto-save recovery file was found.\n"
             "Would you like to restore it?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
+        ):
             # Full open parity (grill 2026-07-20): recovery differs from
             # File→Open only in _current_file (None → first Save prompts
             # Save-As), _modified (True — unsaved by definition), and no
@@ -3775,18 +3768,18 @@ class MainWindow(QMainWindow):
         """Show unsaved-changes dialog. Returns True to proceed, False to cancel."""
         if not self._modified:
             return True
-        reply = QMessageBox.question(
+        choice = themed_choice(
             self, "Unsaved Changes",
             f"You have unsaved changes. Save before {action}?",
-            QMessageBox.StandardButton.Save |
-            QMessageBox.StandardButton.Discard |
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Save:
+            [("Cancel", "cancel", None),
+             ("Discard", "discard", None),
+             ("Save", "save", "primary")])
+        if choice == "save":
             self.save_file()
-        elif reply == QMessageBox.StandardButton.Cancel:
-            return False
-        return True
+            return True
+        if choice == "discard":
+            return True
+        return False   # "cancel" or closed (None) → do not proceed
 
     def _dispatch_undo(self):
         """Route undo to the active tab's undo stack.

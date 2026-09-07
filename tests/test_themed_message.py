@@ -1,0 +1,98 @@
+"""ThemedMessageDialog helpers: return-semantics parity with native dialogs.
+exec() is monkeypatched to return Accepted/Rejected so no modal blocks."""
+from firepro3d import themed_message as tm
+
+
+def test_confirm_returns_bool(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    assert tm.themed_confirm(None, "T", "Sure?") is True
+
+
+def test_confirm_cancel_returns_false(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Rejected, raising=False)
+    assert tm.themed_confirm(None, "T", "?") is False
+
+
+def test_info_warn_error_return_none(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    assert tm.themed_info(None, "T", "i") is None
+    assert tm.themed_warn(None, "T", "w") is None
+    assert tm.themed_error(None, "T", "e") is None
+
+
+def test_input_text_returns_tuple(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    val, ok = tm.themed_input_text(None, "T", "Name", initial="abc")
+    assert ok is True and val == "abc"
+
+
+def test_input_text_cancel(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Rejected, raising=False)
+    val, ok = tm.themed_input_text(None, "T", "Name", initial="abc")
+    assert ok is False
+
+
+def test_input_number_dimension(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    val, ok = tm.themed_input_number(None, "T", "Len", initial=100.0, dimension=True)
+    assert ok is True and isinstance(val, float)
+
+
+def test_input_number_plain(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    val, ok = tm.themed_input_number(None, "T", "Factor", initial=2.5, dimension=False)
+    assert ok is True and abs(val - 2.5) < 1e-9
+
+
+def test_input_choice_returns_current(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    val, ok = tm.themed_input_choice(None, "T", "Pick", ["x", "y", "z"], current=1)
+    assert ok is True and val == "y"
+
+
+def test_confirm_custom_labels_and_danger(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    assert tm.themed_confirm(None, "T", "Delete?", danger=True,
+                             ok_label="Delete", cancel_label="Cancel") is True
+
+
+def test_choice_returns_selected_key(qapp, monkeypatch):
+    # Simulate the user clicking the button whose key is "push":
+    def fake_exec(self):
+        self._choice_result["key"] = "push"
+        return tm.QDialog.DialogCode.Accepted
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec", fake_exec, raising=False)
+    key = tm.themed_choice(None, "T", "msg",
+                           [("Keep", "keep", None), ("Pull", "pull", None),
+                            ("Push", "push", "primary")])
+    assert key == "push"
+
+
+def test_choice_none_on_close(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Rejected, raising=False)
+    key = tm.themed_choice(None, "T", "msg",
+                           [("A", "a", None), ("B", "b", "primary")])
+    assert key is None
+
+
+def test_input_number_clamps_to_bounds(qapp, monkeypatch):
+    # value below minimum is clamped up; above maximum clamped down
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    # seed below min → returned value respects the minimum
+    val, ok = tm.themed_input_number(None, "T", "Scale", initial=0.0005,
+                                     dimension=False, minimum=0.001, maximum=1000.0)
+    assert ok is True and val >= 0.001
+    val2, ok2 = tm.themed_input_number(None, "T", "Scale", initial=5000.0,
+                                      dimension=False, minimum=0.001, maximum=1000.0)
+    assert ok2 is True and val2 <= 1000.0

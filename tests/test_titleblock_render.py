@@ -1123,11 +1123,12 @@ class TestMainWindowWiring:
         )
 
     def test_maybe_offer_push_to_library_on_yes(self, _mw, tmp_path, monkeypatch):
-        """When library diverges and user answers Yes, save_to_library is called
-        and the library file is updated to match the embedded template's modified stamp.
+        """When library diverges and user chooses Push to Library, save_to_library
+        is called and the library file is updated to match the embedded template's
+        modified stamp.
         """
         import firepro3d.titleblock_template as tbt
-        from PyQt6.QtWidgets import QMessageBox
+        import main as _main
 
         _fresh(_mw)
         # Build a template with a known stable uuid and modified stamp.
@@ -1155,11 +1156,9 @@ class TestMainWindowWiring:
         _mw._current_file = path
         _mw.save_file()
 
-        # User answers Yes to the divergence prompt.
-        monkeypatch.setattr(
-            QMessageBox, "question",
-            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes),
-        )
+        # User chooses "Push to Library" (key "push").
+        monkeypatch.setattr(_main, "themed_choice",
+                            lambda *a, **kw: "push")
         _mw._modified = False
         _mw._load_project(path)
 
@@ -1198,11 +1197,11 @@ class TestMainWindowWiring:
         _mw._maybe_offer_template_push()
 
     def test_maybe_offer_pull_from_library_on_no(self, _mw, tmp_path, monkeypatch):
-        """When library diverges and user answers No (Pull), the scene gets the
-        library copy and the project is dirtied (§17.7).
+        """When library diverges and user chooses Pull from Library, the scene gets
+        the library copy and the project is dirtied (§17.7).
         """
         import firepro3d.titleblock_template as tbt
-        from PyQt6.QtWidgets import QMessageBox
+        import main as _main
 
         _fresh(_mw)
         tpl = make_default_template()
@@ -1230,11 +1229,9 @@ class TestMainWindowWiring:
         _mw._current_file = path
         _mw.save_file()
 
-        # User answers No (Pull) → library copy replaces embedded.
-        monkeypatch.setattr(
-            QMessageBox, "question",
-            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.No),
-        )
+        # User chooses "Pull from Library" (key "pull") → library copy replaces embedded.
+        monkeypatch.setattr(_main, "themed_choice",
+                            lambda *a, **kw: "pull")
         _mw._modified = False
         _mw._load_project(path)
 

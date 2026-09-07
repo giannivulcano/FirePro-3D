@@ -246,17 +246,15 @@ def test_undo_stack_clears_on_sheet_switch(mw):
 
 
 def test_delete_confirms_and_activates_neighbor(mw, monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
+    import main as _main
     s2 = mw.sheet_mgr.create()
     mw._switch_sheet(s2)
     # Decline → nothing happens
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    monkeypatch.setattr(_main, "themed_confirm", lambda *a, **k: False)
     mw._delete_sheet(s2.number)
     assert len(mw.sheet_mgr.sheets) == 2
     # Accept → deleted, neighbor active
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(_main, "themed_confirm", lambda *a, **k: True)
     mw._delete_sheet(s2.number)
     assert len(mw.sheet_mgr.sheets) == 1
     assert mw._sheet is mw.sheet_mgr.sheets[0]
@@ -356,15 +354,14 @@ def test_renumber_refreshes_tab_title_and_browser(mw):
 def test_delete_nonactive_sheet_resets_stale_panel_adapter(mw, monkeypatch):
     """Deleting a browser-selected non-active sheet must not leave its
     adapter live in the panel (edits would write to a detached Sheet)."""
-    from PyQt6.QtWidgets import QMessageBox
+    import main as _main
     from firepro3d.paper_space import SheetProperties
     s2 = mw.sheet_mgr.create()          # active = s2 after create
     mw._switch_sheet(mw.sheet_mgr.sheets[0])   # make FP-1.0 active
     mw._activate_paper_sheet()          # paper tab current
     mw._on_browser_sheet_selected(s2.number)   # panel shows s2 (non-active)
     assert mw.prop_manager._targets[0]._sheet is s2
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(_main, "themed_confirm", lambda *a, **k: True)
     mw._delete_sheet(s2.number)
     t = mw.prop_manager._targets[0]
     assert isinstance(t, SheetProperties) and t._sheet is mw._sheet, \
@@ -448,9 +445,8 @@ def test_recovery_restores_all_sheets(mw, tmp_path):
 
 
 def test_dirty_per_sheet_op(mw, monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    import main as _main
+    monkeypatch.setattr(_main, "themed_confirm", lambda *a, **k: True)
     mw._modified = False
     mw._create_sheet()
     assert mw._modified, "create dirties"

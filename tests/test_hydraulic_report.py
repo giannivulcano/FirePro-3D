@@ -404,13 +404,13 @@ class TestExports:
         from firepro3d.hydraulic_report import _PRINTER_AVAILABLE
         if not _PRINTER_AVAILABLE:
             pytest.skip("QtPrintSupport unavailable")
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import firepro3d.hydraulic_report as _hr
+        from PyQt6.QtWidgets import QFileDialog
         w = self._populated(qapp)
         out = tmp_path / "report.pdf"
         monkeypatch.setattr(QFileDialog, "getSaveFileName",
                             staticmethod(lambda *a, **k: (str(out), "")))
-        monkeypatch.setattr(QMessageBox, "information",
-                            staticmethod(lambda *a, **k: None))
+        monkeypatch.setattr(_hr, "themed_info", lambda *a, **k: None)
         w._export_pdf()
         # The embedded 1000×620 graph image dominates the file size — a low
         # size means the ImageResource silently failed to resolve.

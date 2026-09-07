@@ -1,7 +1,7 @@
 def test_theme_tokens_and_qss(qapp):
     # The manager now reads the house theme (underlay_manager_theme.py retired);
-    # DARK / Theme / the manager QSS builder all live in firepro3d.theme.
-    from firepro3d.theme import DARK, Theme, build_underlay_manager_qss
+    # DARK / Theme / the unified dialog QSS builder all live in firepro3d.theme.
+    from firepro3d.theme import DARK, Theme, build_dialog_qss
     assert isinstance(DARK, Theme)
     # accent token is the house green
     assert DARK.accent.lower() == "#63be8b"
@@ -9,9 +9,9 @@ def test_theme_tokens_and_qss(qapp):
     assert c.alpha() == 255
     c2 = DARK.color("accent", 128)
     assert c2.alpha() == 128
-    qss = build_underlay_manager_qss(DARK)
-    assert "#UnderlayManagerDialog" in qss
-    assert "$accent" not in qss  # all tokens substituted
+    qss = build_dialog_qss(DARK)
+    assert 'houseDialog="true"' in qss  # unified scope marker
+    assert "$accent" not in qss  # all tokens substituted (f-string builder)
 
 
 def test_generic_button_hover_uses_accent(qapp):
@@ -20,10 +20,10 @@ def test_generic_button_hover_uses_accent(qapp):
     House convention: interactive hover uses the accent, never a neutral
     surface2/faint wash. This asserts against the resolved (detect()) theme.
     """
-    from firepro3d.theme import build_underlay_manager_qss, detect
+    from firepro3d.theme import build_dialog_qss, detect
 
     t = detect()
-    qss = build_underlay_manager_qss(t)
+    qss = build_dialog_qss(t)
 
     # Isolate the generic :hover:enabled rule (exclude variant-specific ones).
     hover_lines = [
@@ -39,22 +39,23 @@ def test_generic_button_hover_uses_accent(qapp):
     assert t.surface2 not in rule
 
 
-def test_tree_qss_selector_retargeted_to_qtreeview(qapp):
-    """The manager view is a QTreeView, so its QSS block must target
-    ``QTreeView#underlayTable`` — Qt QSS does not match a QTableView selector to
-    a QTreeView, which left the whole block (bg / accent hover / selection)
-    inert. This asserts the selector was retargeted and fully resolves.
+def test_tree_qss_selector_covers_both_view_types(qapp):
+    """The unified builder styles both QTreeView and QTableView with
+    ``objectName="underlayTable"`` — the manager uses a QTreeView, the Block
+    Manager a QTableView; both must receive row/hover/selection styling.
+    Regression guard for the original QTableView-only selector that left the
+    tree block inert.
     """
-    from firepro3d.theme import build_underlay_manager_qss, detect
+    from firepro3d.theme import build_dialog_qss, detect
 
     t = detect()
-    qss = build_underlay_manager_qss(t)
+    qss = build_dialog_qss(t)
 
-    # Retargeted: tree selector present, stale table selector gone.
+    # Both view types are addressed together in the unified stylesheet.
     assert "QTreeView#underlayTable" in qss
-    assert "QTableView#underlayTable" not in qss
+    assert "QTableView#underlayTable" in qss
 
-    # The accent hover rule now applies to the tree, with accent_soft resolved.
+    # The accent hover rule applies to the tree, with accent_soft resolved.
     hover_lines = [
         ln for ln in qss.splitlines()
         if "QTreeView#underlayTable::item:hover" in ln
@@ -71,10 +72,10 @@ def test_tree_branch_strip_keeps_base_background(qapp):
     leftward past the row content into the indentation. Regression guard for the
     child-row highlight overhang.
     """
-    from firepro3d.theme import build_underlay_manager_qss, detect
+    from firepro3d.theme import build_dialog_qss, detect
 
     t = detect()
-    qss = build_underlay_manager_qss(t)
+    qss = build_dialog_qss(t)
 
     branch_lines = [
         ln for ln in qss.splitlines()
@@ -97,10 +98,10 @@ def test_tree_branch_disclosure_arrows_via_image(qapp):
     import os
     import re
 
-    from firepro3d.theme import build_underlay_manager_qss, detect
+    from firepro3d.theme import build_dialog_qss, detect
 
     t = detect()
-    qss = build_underlay_manager_qss(detect())
+    qss = build_dialog_qss(detect())
 
     # Closed and open has-children branch states both carry an image rule.
     assert re.search(r"::branch:.*closed[\s\S]*?image:\s*url", qss), \

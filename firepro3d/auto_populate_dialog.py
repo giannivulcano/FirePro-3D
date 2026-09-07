@@ -1549,14 +1549,14 @@ class AutoPopulateDialog(QDialog):
 
     def _on_accept(self):
         if not self._selected_record:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "No Sprinkler Selected",
-                                "Please select a sprinkler from the table.")
+            from .themed_message import themed_warn
+            themed_warn(self, "No Sprinkler Selected",
+                        "Please select a sprinkler from the table.")
             return
         if not self._computed_positions:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "No Positions",
-                                "No sprinkler positions could be computed for this room.")
+            from .themed_message import themed_warn
+            themed_warn(self, "No Positions",
+                        "No sprinkler positions could be computed for this room.")
             return
         self.accept()
 

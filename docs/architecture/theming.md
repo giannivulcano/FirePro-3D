@@ -75,6 +75,27 @@ an explicit `# theme-exempt: <reason>` marker (used only for fixed paper/preview
 backdrops). The guard is allow-listed to the migrated files today; extending it
 to the full chrome set is a tracked follow-up.
 
+## Layout metrics (`theme.M`)
+
+Spacing/sizing is tokenized the same way colours are, in a **variant-independent**
+flat namespace `theme.M` (a `_Metrics` object) — so light and dark share one set of
+margins/radii and one edit reflows every consuming dialog. Metrics are
+**semantic-first**: named tokens (`HEADER_H`, `HEADER_MARGIN`, `DIALOG_BODY_MARGIN`,
+`PANEL_PAGE_MARGIN`, `FOOTER_MARGIN`, `PANEL_W`/`PANEL_W_WIDE`, `SIDE_RAIL_*`,
+`RADIUS_INPUT`/`_CARD`/`_PILL`/`_CHIP`, …) are authoritative; a documented base ramp
+(`XS/SM/MD/LG/XL` = 4/8/12/16/20) is a *reference*, not a master multiplier (a
+density multiplier is a deferred extension the flat namespace allows). Margins are
+`(l,t,r,b)` tuples; consume via `layout.setContentsMargins(*M.X)` in Python and
+`{M.X}` interpolation in QSS builders. `tests/test_metrics_drift_guard.py` blocks
+raw layout literals in the house dialog base + kit.
+
+> **Dialog / shell / component-kit system contracts** — `HouseDialog`,
+> `build_dialog_qss` (the `houseDialog="true"` marker scoping), the `ui_kit`
+> components (SideTabs / DetailsPanel / Section / SwitchBar / ToggleSwitch / Pill),
+> and the `ThemedMessageDialog` helper API — live in
+> **`docs/specs/ui-design-system.md`** (Rule A: this page owns the token *language*;
+> the spec owns the *system*).
+
 ## Global stylesheet
 
 `build_app_qss(t)` returns the application-wide QSS, applied once at startup:
