@@ -134,3 +134,21 @@ def test_user_draw_marks_dirty(qapp):
     w = mgr.open_new()
     w.editor_scene.sceneModified.emit()   # simulate a user edit
     assert w.is_dirty() is True
+
+
+def test_seed_populates_tracking_list(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())
+    assert len(w.editor_scene._draw_lines) == 2       # in the tracking list, not just items()
+
+
+def test_gather_includes_directly_added_drawn_primitive(qapp):
+    # simulate a live draw: an item appended to a tracking list (as the draw tools do)
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    from firepro3d.construction_geometry import CircleItem as CI
+    c = CI(QPointF(0, 0), 5); w.editor_scene.addItem(c); w.editor_scene._draw_circles.append(c)
+    w.seed_from_dicts(_seed_dicts())                  # plus 2 seeded lines
+    kinds = sorted(p.to_dict()["type"] for p in w.gather_primitives())
+    assert kinds == ["draw_circle", "draw_line", "draw_line"]   # drawn + seeded both gathered

@@ -18,11 +18,10 @@ from .construction_geometry import (
 from .block_definition import _PRIMITIVE_FACTORY
 from . import geometry_import
 
-_PRIM_TYPES = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
-_TYPE_TO_LIST = {
-    "draw_line": "_draw_lines", "draw_rectangle": "_draw_rects",
-    "draw_circle": "_draw_circles", "arc": "_draw_arcs",
-    "polyline": "_polylines", "polygon": "_draw_polygons",
+_CLS_TO_LIST = {
+    LineItem: "_draw_lines", RectangleItem: "_draw_rects",
+    CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
+    PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
 }
 
 
@@ -59,13 +58,9 @@ class BlockEditorWidget(QWidget):
         self._dirty = False
 
     def _add_primitive(self, item):
-        """Add a construction primitive to the editor scene + its tracking list.
-
-        Args:
-            item: A construction-geometry primitive (QGraphicsItem subclass).
-        """
+        """Add a construction primitive to the editor scene + its tracking list."""
         self.editor_scene.addItem(item)
-        list_attr = _TYPE_TO_LIST.get(item.to_dict().get("type"))
+        list_attr = _CLS_TO_LIST.get(type(item))
         if list_attr is not None:
             getattr(self.editor_scene, list_attr).append(item)
 
@@ -96,13 +91,18 @@ class BlockEditorWidget(QWidget):
         self.seed_from_dicts(list(defn.primitives))
 
     def gather_primitives(self):
-        """Return the editor scene's construction primitives (insertion order).
+        """Return the editor scene's construction primitives (stable list order).
 
-        Returns:
-            A list of construction-geometry items in insertion order.
+        Reads the scene's own tracking lists (populated by both seeding and the
+        live drawing tools), so drawn and seeded geometry are both captured, and
+        transient preview/ref items are naturally excluded.
         """
-        return [it for it in self.editor_scene.items()
-                if isinstance(it, _PRIM_TYPES)][::-1]
+        s = self.editor_scene
+        items = []
+        for attr in ("_draw_lines", "_draw_rects", "_draw_circles",
+                     "_draw_arcs", "_polylines", "_draw_polygons"):
+            items.extend(getattr(s, attr))
+        return items
 
     def commit_block(self, name, library, series, *, replace_source=True,
                      save_to_library=False):
