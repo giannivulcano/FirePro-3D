@@ -63,3 +63,23 @@ def test_confirm_custom_labels_and_danger(qapp, monkeypatch):
                         lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
     assert tm.themed_confirm(None, "T", "Delete?", danger=True,
                              ok_label="Delete", cancel_label="Cancel") is True
+
+
+def test_choice_returns_selected_key(qapp, monkeypatch):
+    # Simulate the user clicking the button whose key is "push":
+    def fake_exec(self):
+        self._choice_result["key"] = "push"
+        return tm.QDialog.DialogCode.Accepted
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec", fake_exec, raising=False)
+    key = tm.themed_choice(None, "T", "msg",
+                           [("Keep", "keep", None), ("Pull", "pull", None),
+                            ("Push", "push", "primary")])
+    assert key == "push"
+
+
+def test_choice_none_on_close(qapp, monkeypatch):
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Rejected, raising=False)
+    key = tm.themed_choice(None, "T", "msg",
+                           [("A", "a", None), ("B", "b", "primary")])
+    assert key is None

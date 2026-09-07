@@ -6,11 +6,11 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QFileDialog, QDockWidget,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTabWidget, QMenu, QWidget, QMessageBox,
+                              QTabWidget, QMenu, QWidget,
                               QComboBox, QDoubleSpinBox, QFormLayout,
                               QToolButton, QProgressDialog)
 from firepro3d.themed_message import (
-    themed_info, themed_warn, themed_error, themed_confirm,
+    themed_info, themed_warn, themed_error, themed_confirm, themed_choice,
     themed_input_number, themed_input_choice,
 )
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
@@ -1974,27 +1974,25 @@ class MainWindow(QMainWindow):
             return
         if not diverges:
             return
-        resp = QMessageBox.question(
+        choice = themed_choice(
             self, "Title Block Template",
-            f"The library copy of '{embedded.name}' differs from this "
-            "project's embedded copy.\n\n"
-            "Yes = Push to Library (overwrite library with project version)\n"
-            "No  = Pull from Library (replace project copy with library version)\n"
-            "Cancel = Keep Both (project continues to render its own embedded copy)",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        if resp == QMessageBox.StandardButton.Yes:
-            # Push: write embedded copy to library.
+            f"The library copy of '{embedded.name}' differs from this project's "
+            "embedded copy.\n\n"
+            "Push to Library = overwrite the library with the project version.\n"
+            "Pull from Library = replace the project copy with the library version.\n"
+            "Keep Both = the project keeps rendering its own embedded copy.",
+            [("Keep Both", "keep", None),
+             ("Pull from Library", "pull", None),
+             ("Push to Library", "push", "primary")])
+        if choice == "push":
             save_to_library(embedded)
-        elif resp == QMessageBox.StandardButton.No:
-            # Pull: find the library copy and install it as the embedded template.
+        elif choice == "pull":
             lib_copies = [t for t in load_library() if t.uuid == embedded.uuid]
             if lib_copies:
                 self.scene._titleblock_template = lib_copies[0].to_dict()
                 self._push_titleblock_template()
                 self._on_paper_modified()   # pulling changes project bytes → dirty (§17.7)
+        # "keep"/None → do nothing (Keep Both)
 
     # ── Project Information dialog ────────────────────────────────────────────
 
@@ -3769,18 +3767,18 @@ class MainWindow(QMainWindow):
         """Show unsaved-changes dialog. Returns True to proceed, False to cancel."""
         if not self._modified:
             return True
-        reply = QMessageBox.question(
+        choice = themed_choice(
             self, "Unsaved Changes",
             f"You have unsaved changes. Save before {action}?",
-            QMessageBox.StandardButton.Save |
-            QMessageBox.StandardButton.Discard |
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Save:
+            [("Cancel", "cancel", None),
+             ("Discard", "discard", None),
+             ("Save", "save", "primary")])
+        if choice == "save":
             self.save_file()
-        elif reply == QMessageBox.StandardButton.Cancel:
-            return False
-        return True
+            return True
+        if choice == "discard":
+            return True
+        return False   # "cancel" or closed (None) → do not proceed
 
     def _dispatch_undo(self):
         """Route undo to the active tab's undo stack.

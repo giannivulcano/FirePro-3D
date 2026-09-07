@@ -19,13 +19,14 @@ themed_input_choice(parent, title, label, items, *, current=0)
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import (QDialog, QLabel, QPushButton,
-                             QLineEdit, QComboBox)
+from PyQt6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel,
+                             QPushButton, QLineEdit, QComboBox)
 from PyQt6.QtGui import QDoubleValidator
 
 from .house_dialog import HouseDialog
 from .dimension_edit import DimensionEdit
 from . import theme as _theme
+from .theme import M
 
 
 # ── Icon glyphs (unicode symbols coloured via CSS) ───────────────────────────
@@ -116,6 +117,42 @@ class ThemedMessageDialog(HouseDialog):
         cancel_btn.clicked.connect(self.reject)
         self.set_footer_buttons(primary=(ok_label, self.accept), cancel=False,
                                 extra_left=cancel_btn, danger=danger)
+
+    # ── N-button choice footer ────────────────────────────────────────────────
+
+    def _make_choice(self, buttons, result_holder) -> None:
+        """Rebuild the footer with an arbitrary ordered list of buttons.
+
+        Args:
+            buttons: List of ``(label, key, variant)`` tuples laid out
+                left→right.  ``variant`` is ``"primary"``, ``"danger"``, or
+                ``None``.  The buttons are right-aligned via a leading stretch.
+            result_holder: A mutable dict with a ``"key"`` entry; whichever
+                button the user clicks writes its key into
+                ``result_holder["key"]`` before accepting the dialog.
+        """
+        self._choice_result = result_holder
+        self._clear_footer()
+        footer = QFrame(objectName="footerBar")
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(*M.FOOTER_MARGIN)
+        fl.setSpacing(M.FOOTER_BTN_GAP)
+        fl.addStretch(1)
+        for label, key, variant in buttons:
+            btn = QPushButton(label)
+            if variant:
+                btn.setProperty("variant", variant)
+            # Capture key in the closure explicitly.
+            def _make_handler(k):
+                def _handler():
+                    result_holder["key"] = k
+                    self.accept()
+                return _handler
+            btn.clicked.connect(_make_handler(key))
+            fl.addWidget(btn)
+        self._footer = footer
+        self._root.addWidget(footer)
+        self.adjustSize()
 
     # ── Input-widget seam ─────────────────────────────────────────────────────
 
@@ -283,6 +320,29 @@ def themed_input_number(parent, title, label, *, initial: float,
             except ValueError:
                 return initial, True
     return initial, False
+
+
+def themed_choice(parent, title, message, buttons, *, kind=None):
+    """N-button themed modal.
+
+    Args:
+        parent:   Qt parent widget.
+        title:    Dialog / header title.
+        message:  Body text.
+        buttons:  List of ``(label, key, variant)`` tuples laid out left→right.
+                  Put the primary/affirmative button last so it lands rightmost.
+                  ``variant`` is ``"primary"``, ``"danger"``, or ``None``.
+        kind:     Optional ``"info"`` / ``"warn"`` / ``"error"`` icon glyph.
+
+    Returns:
+        The chosen key string, or ``None`` if the dialog was closed without
+        choosing (Escape / window-close).
+    """
+    dlg = ThemedMessageDialog(title, message, parent=parent, kind=kind)
+    result = {"key": None}
+    dlg._make_choice(buttons, result)
+    dlg.exec()
+    return result["key"]
 
 
 def themed_input_choice(parent, title, label, items: list[str], *,
