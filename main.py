@@ -443,6 +443,10 @@ class MainWindow(QMainWindow):
         # Block Editor Manager
         from firepro3d.block_editor import BlockEditorManager
         self.block_editor_manager = BlockEditorManager(self.central_tabs, self.scene)
+        # Adopt each new editor scene into the same interaction envelope the plan
+        # scene gets (Escape/status/mode-sync/property panel) so 2D placement in
+        # an editor tab mirrors a plan view.
+        self.block_editor_manager.on_open = self._adopt_block_editor
 
         # Paper space — ViewResolver + Sheet + widget
         self.scene._sheets = [Sheet.create_default()]
@@ -3942,11 +3946,14 @@ class MainWindow(QMainWindow):
             w.paper_scene.clearSelection()
             self.update_paper_property_manager()
             return
+        # Route to the active scene so Escape cancels placement in a Block
+        # Editor tab (its own scene), not the plan scene.
+        sc = self._active_scene()
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
-        if self.scene.mode == "pipe" and self.scene.cancel_pipe_placement():
+        if sc.mode == "pipe" and sc.cancel_pipe_placement():
             return
-        self.scene.set_mode("select")
-        self.scene.clearSelection()
+        sc.set_mode("select")
+        sc.clearSelection()
         self.view_3d._on_escape()
 
     def _delete_if_not_editing(self):
@@ -4349,6 +4356,22 @@ class MainWindow(QMainWindow):
         if isinstance(w, BlockEditorWidget):
             return w.editor_scene
         return self.scene
+
+    def _adopt_block_editor(self, widget):
+        """Wire a new editor scene into the shared interaction envelope.
+
+        Connects the SAME signals the plan scene uses (mode -> status label +
+        mode-button highlight + template sync; selection -> property panel;
+        requestPropertyUpdate -> property panel) so drawing in an editor tab
+        gives the same feedback/cancel behavior as a plan view. Plan-specific
+        wiring (model browser, contextual ribbon) is intentionally NOT adopted.
+        """
+        sc = widget.editor_scene
+        sc.modeChanged.connect(self._update_mode_label)
+        sc.modeChanged.connect(self._sync_mode_buttons)
+        sc.modeChanged.connect(self._on_mode_changed_template)
+        sc.selectionChanged.connect(self.update_property_manager)
+        sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
 
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown

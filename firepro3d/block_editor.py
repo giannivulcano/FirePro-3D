@@ -328,6 +328,16 @@ class BlockEditorManager:
         self._project_scene = project_scene
         self._open: dict = {}          # key -> BlockEditorWidget
         self._new_counter = 0
+        # Hook set by the app shell (MainWindow) to adopt each freshly-created
+        # editor scene into the interaction envelope (Escape/status/mode-sync/
+        # property panel). Called with the BlockEditorWidget after its tab lands.
+        self.on_open = None
+
+    def _created(self, w: BlockEditorWidget) -> BlockEditorWidget:
+        """Invoke the shell adoption hook (if any) for a new editor widget."""
+        if self.on_open is not None:
+            self.on_open(w)
+        return w
 
     def open_new(self, *, title: str = "New") -> BlockEditorWidget:
         """Open a fresh, independent editor tab (new/blank/clone)."""
@@ -338,7 +348,7 @@ class BlockEditorManager:
         self._open[key] = w
         idx = self._tabs.addTab(w, f"Block: {title}")
         self._tabs.setCurrentIndex(idx)
-        return w
+        return self._created(w)
 
     def open_for_definition(self, block_id: str) -> BlockEditorWidget:
         """Open an editor for *block_id*, focusing an existing one if open."""
@@ -353,7 +363,7 @@ class BlockEditorManager:
         self._open[block_id] = w
         idx = self._tabs.addTab(w, f"Block: {title}")
         self._tabs.setCurrentIndex(idx)
-        return w
+        return self._created(w)
 
     def close(self, widget: BlockEditorWidget) -> None:
         """Remove and dispose an editor tab."""
