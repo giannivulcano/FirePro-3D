@@ -71,7 +71,11 @@ class _WinDot(QPushButton):
         self.setFixedSize(20, 20)
         self.setIconSize(QSize(18, 18))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QPushButton{border:none;background:transparent;}")
+        # Reset padding/min-size: the app/dialog QSS `QPushButton { padding:5px..;
+        # min-height:22px }` otherwise bleeds in and pushes the 18px glyph down
+        # inside the fixed 20px button (reads as vertically skewed-low dots).
+        self.setStyleSheet("QPushButton{border:none;background:transparent;"
+                           "padding:0px;margin:0px;min-width:0px;min-height:0px;}")
         self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent, 18))
         self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent, 18))
         self.setIcon(self._normal)
