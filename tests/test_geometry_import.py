@@ -4,8 +4,8 @@ Tests for bbox_top_left and geom_dicts_to_primitives.
 """
 
 from PyQt6.QtCore import QPointF
-from firepro3d.geometry_import import bbox_top_left
-from firepro3d.construction_geometry import LineItem, CircleItem
+from firepro3d.geometry_import import bbox_top_left, geom_dicts_to_primitives
+from firepro3d.construction_geometry import LineItem, CircleItem, PolylineItem
 
 
 def test_bbox_top_left_over_mixed_primitives(qapp):
@@ -20,10 +20,6 @@ def test_bbox_top_left_over_mixed_primitives(qapp):
 def test_bbox_top_left_empty_returns_origin(qapp):
     tl = bbox_top_left([])
     assert (tl.x(), tl.y()) == (0.0, 0.0)
-
-
-from firepro3d.geometry_import import geom_dicts_to_primitives
-from firepro3d.construction_geometry import PolylineItem
 
 
 def test_line_dict_scales_to_lineitem(qapp):
@@ -66,6 +62,24 @@ def test_unsupported_kinds_skipped_and_counted(qapp):
 
 
 def test_primitives_roundtrip_to_block_type_keys(qapp):
-    geoms = [{"kind": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1}]
+    geoms = [
+        {"kind": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1},
+        {"kind": "circle", "x": 0, "y": 0, "w": 10, "h": 10},
+        {"kind": "path_points", "points": [(0, 0), (5, 5), (10, 0)], "closed": False},
+    ]
     items, _ = geom_dicts_to_primitives(geoms, import_scale=1.0)
     assert items[0].to_dict()["type"] == "draw_line"
+    assert items[1].to_dict()["type"] == "draw_circle"
+    assert items[2].to_dict()["type"] == "polyline"
+
+
+def test_malformed_line_dict_skipped_not_raised(qapp):
+    """A malformed line dict (missing 'x2') among valid dicts: skip + count, no exception."""
+    geoms = [
+        {"kind": "line", "x1": 0, "y1": 0, "x2": 5, "y2": 0},   # valid
+        {"kind": "line", "x1": 0, "y1": 0},                       # malformed: missing x2
+        {"kind": "line", "x1": 1, "y1": 1, "x2": 6, "y2": 1},   # valid
+    ]
+    items, skipped = geom_dicts_to_primitives(geoms, import_scale=1.0)
+    assert len(items) == 2
+    assert skipped == 1
