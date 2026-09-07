@@ -215,3 +215,27 @@ def test_widget_save_empty_returns_none(qapp, monkeypatch):
     monkeypatch.setattr(tm, "themed_info", lambda *a, **k: None)
     w = be.BlockEditorManager(tabs, project).open_new()
     assert w.save() is None   # no geometry
+
+
+# ---------------------------------------------------------------------------
+# BE2.3a: editor toolbar strip with Save button
+# ---------------------------------------------------------------------------
+
+def test_editor_widget_has_save_action(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    assert w.act_save is not None
+    assert w.act_save.isEnabled() is True
+    assert w.act_set_origin.isEnabled() is False   # BE3
+    assert w.act_import.isEnabled() is False        # BE4
+
+
+def test_save_action_triggers_save(qapp, monkeypatch):
+    project = Model_Space(); tabs = QTabWidget()
+    from firepro3d import block_editor as be
+    w = be.BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())
+    called = {"n": 0}
+    monkeypatch.setattr(w, "save", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+    w.act_save.trigger()
+    assert called["n"] == 1
