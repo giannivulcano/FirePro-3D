@@ -8,7 +8,8 @@ definition id. See docs/specs/block-system.md §"Block Editor (v2)".
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
+                             QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
 from .model_space import Model_Space
 from .model_view import Model_View
@@ -17,12 +18,94 @@ from .construction_geometry import (
 )
 from .block_definition import _PRIMITIVE_FACTORY
 from . import geometry_import
+from .house_dialog import HouseDialog
 
 _CLS_TO_LIST = {
     LineItem: "_draw_lines", RectangleItem: "_draw_rects",
     CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
 }
+
+
+class BlockSaveDialog(HouseDialog):
+    """Collect block identity + save options at Save time.
+
+    context: "new" | "seeded" | "edit". Shows a replace-source checkbox for
+    "seeded" and an "updates N instances" warning for "edit" when N>0.
+
+    Args:
+        parent: Qt parent widget.
+        theme: Optional theme override.
+        libraries: Existing library names for the combo.
+        series: Existing series names for the combo.
+        context: "new", "seeded", or "edit".
+        instance_count: For "edit" context, number of placed instances.
+        initial: (name, library, series) to pre-fill.
+        validator: Optional callable(name, library, series) -> str|None.
+    """
+
+    def __init__(self, parent=None, *, theme=None, libraries=(), series=(),
+                 context="new", instance_count=0, initial=("", "", ""),
+                 validator=None):
+        super().__init__(parent, title="Save Block", icon="insert_block_icon.svg",
+                         min_width=400, theme=theme)
+        self.setObjectName("BlockSaveDialog")
+        self._validator = validator
+        self._context = context
+        form = QFormLayout()
+        form.setVerticalSpacing(14)
+        form.setHorizontalSpacing(14)
+        self.name_edit = QLineEdit(initial[0])
+        self.library_combo = QComboBox()
+        self.library_combo.setEditable(True)
+        self.library_combo.addItems(list(libraries))
+        self.library_combo.setCurrentText(initial[1])
+        self.series_combo = QComboBox()
+        self.series_combo.setEditable(True)
+        self.series_combo.addItems(list(series))
+        self.series_combo.setCurrentText(initial[2])
+        form.addRow("Name", self.name_edit)
+        form.addRow("Library", self.library_combo)
+        form.addRow("Series", self.series_combo)
+        self.save_to_library_cb = QCheckBox("Also save to library")
+        form.addRow("", self.save_to_library_cb)
+        self.replace_source_cb = QCheckBox("Replace selected geometry with an instance")
+        if context == "seeded":
+            self.replace_source_cb.setChecked(True)
+            form.addRow("", self.replace_source_cb)
+        if context == "edit" and instance_count > 0:
+            warn = QLabel(f"Saving updates {instance_count} placed instance(s).")
+            warn.setWordWrap(True)
+            form.addRow("", warn)
+        self.body_layout().addLayout(form)
+        self.set_footer_buttons(primary=("Save", self._on_save), cancel=True)
+
+    def values(self) -> dict:
+        """Return the current field values as a dict."""
+        return {
+            "name": self.name_edit.text().strip(),
+            "library": self.library_combo.currentText().strip(),
+            "series": self.series_combo.currentText().strip(),
+            "save_to_library": self.save_to_library_cb.isChecked(),
+            "replace_source": (self._context != "seeded") or self.replace_source_cb.isChecked(),
+        }
+
+    def validation_error(self) -> str | None:
+        """Return an error string if the form is invalid, else None."""
+        v = self.values()
+        if not (v["name"] and v["library"] and v["series"]):
+            return "Name, Library and Series are all required."
+        if self._validator is not None:
+            return self._validator(v["name"], v["library"], v["series"])
+        return None
+
+    def _on_save(self):
+        err = self.validation_error()
+        if err:
+            from .themed_message import themed_info
+            themed_info(self, "Save Block", err)
+            return
+        self.accept()
 
 
 class BlockEditorWidget(QWidget):
@@ -146,6 +229,77 @@ class BlockEditorWidget(QWidget):
         self._mark_clean()
         # save_to_library handled in the next sub-task (dialog wiring)
         return defn
+
+    def save(self, parent=None):
+        """Open the Save dialog, then commit to the project (+ optional library).
+
+        Args:
+            parent: Optional Qt parent for the dialog (falls back to self).
+
+        Returns:
+            The committed ``BlockDefinition``, or None if cancelled / no geometry.
+        """
+        from PyQt6.QtWidgets import QDialog
+        if not self.gather_primitives():
+            from .themed_message import themed_info
+            themed_info(parent or self, "Save Block", "Draw or import geometry first.")
+            return None
+        proj = self._project_scene
+        defs = list(proj._block_definitions.values())
+        libraries = sorted({d.library for d in defs})
+        series = sorted({d.series for d in defs})
+        if self._edit_block_id is not None:
+            context = "edit"
+            icount = proj.instance_count(self._edit_block_id)
+            cur = proj.get_block_definition(self._edit_block_id)
+            initial = (cur.name, cur.library, cur.series) if cur else ("", "", "")
+        elif self._seed_source_items:
+            context = "seeded"
+            icount = 0
+            initial = ("", "", "")
+        else:
+            context = "new"
+            icount = 0
+            initial = ("", "", "")
+
+        def _validator(name, library, series):
+            for o in proj._block_definitions.values():
+                if o.id == self._edit_block_id:
+                    continue
+                if (o.library, o.series, o.name) == (library, series, name):
+                    return f"A block '{name}' already exists in {library} / {series}."
+            return None
+
+        dlg = BlockSaveDialog(parent or self, libraries=libraries, series=series,
+                              context=context, instance_count=icount,
+                              initial=initial, validator=_validator)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        v = dlg.values()
+        defn = self.commit_block(v["name"], v["library"], v["series"],
+                                 replace_source=v["replace_source"])
+        if defn is None:
+            return None
+        if v["save_to_library"]:
+            self._save_to_library(defn, parent or self)
+        return defn
+
+    def _save_to_library(self, defn, parent):
+        """Persist *defn* to the on-disk block library, prompting on collision.
+
+        Args:
+            defn: The ``BlockDefinition`` to persist.
+            parent: Qt parent widget for confirmation dialogs.
+        """
+        from . import block_library
+        from .themed_message import themed_confirm
+        try:
+            block_library.save_to_library(defn)
+        except block_library.BlockNameCollision as e:
+            if themed_confirm(parent, "Overwrite block?",
+                              f"A different block '{e.existing_name}' occupies that "
+                              f"file. Overwrite it?"):
+                block_library.save_to_library(defn, overwrite=True)
 
 
 class BlockEditorManager:

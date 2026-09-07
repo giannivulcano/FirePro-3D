@@ -152,3 +152,66 @@ def test_gather_includes_directly_added_drawn_primitive(qapp):
     w.seed_from_dicts(_seed_dicts())                  # plus 2 seeded lines
     kinds = sorted(p.to_dict()["type"] for p in w.gather_primitives())
     assert kinds == ["draw_circle", "draw_line", "draw_line"]   # drawn + seeded both gathered
+
+
+# ---------------------------------------------------------------------------
+# BE2.2b: BlockSaveDialog + widget.save()
+# ---------------------------------------------------------------------------
+
+from firepro3d.block_editor import BlockSaveDialog
+
+
+def test_save_dialog_values_and_validation(qapp):
+    dlg = BlockSaveDialog(None, libraries=["L1"], series=["S1"], context="new")
+    assert dlg.validation_error() is not None          # all blank
+    dlg.name_edit.setText("N"); dlg.library_combo.setCurrentText("L1")
+    dlg.series_combo.setCurrentText("S1")
+    assert dlg.validation_error() is None
+    v = dlg.values()
+    assert v["name"] == "N" and v["library"] == "L1" and v["series"] == "S1"
+    assert v["replace_source"] is True                 # non-seeded => True
+
+
+def test_save_dialog_seeded_has_replace_checkbox(qapp):
+    dlg = BlockSaveDialog(None, context="seeded")
+    assert dlg.replace_source_cb.isChecked() is True
+    dlg.replace_source_cb.setChecked(False)
+    assert dlg.values()["replace_source"] is False
+
+
+def test_save_dialog_validator_blocks_duplicate(qapp):
+    def val(n, l, s):
+        return "dup" if (n, l, s) == ("X", "L", "S") else None
+    dlg = BlockSaveDialog(None, context="new", validator=val)
+    dlg.name_edit.setText("X"); dlg.library_combo.setCurrentText("L")
+    dlg.series_combo.setCurrentText("S")
+    assert dlg.validation_error() == "dup"
+
+
+def test_widget_save_commits_via_monkeypatched_dialog(qapp, monkeypatch):
+    project = Model_Space(); tabs = QTabWidget()
+    from firepro3d import block_editor as be
+    w = be.BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())
+
+    class _FakeDlg:
+        def __init__(self, *a, **k): pass
+        def exec(self):
+            from PyQt6.QtWidgets import QDialog
+            return QDialog.DialogCode.Accepted
+        def values(self):
+            return {"name": "N", "library": "L", "series": "S",
+                    "save_to_library": False, "replace_source": True}
+    monkeypatch.setattr(be, "BlockSaveDialog", _FakeDlg)
+    defn = w.save()
+    assert defn is not None and defn.id in project._block_definitions
+    assert (defn.name, defn.library, defn.series) == ("N", "L", "S")
+
+
+def test_widget_save_empty_returns_none(qapp, monkeypatch):
+    project = Model_Space(); tabs = QTabWidget()
+    from firepro3d import block_editor as be
+    import firepro3d.themed_message as tm
+    monkeypatch.setattr(tm, "themed_info", lambda *a, **k: None)
+    w = be.BlockEditorManager(tabs, project).open_new()
+    assert w.save() is None   # no geometry
