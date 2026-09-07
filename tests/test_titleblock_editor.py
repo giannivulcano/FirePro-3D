@@ -8,8 +8,9 @@ from unittest.mock import patch, MagicMock
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDialog
 
+import firepro3d.titleblock_editor as _te
 import firepro3d.titleblock_template as tbt
 from firepro3d.titleblock_template import make_default_template, place_field
 from firepro3d.titleblock_editor import TitleBlockEditorDialog
@@ -80,10 +81,7 @@ class TestEditorSession:
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
         # delete_template now asks for confirmation; answer Yes.
-        monkeypatch.setattr(
-            QMessageBox, "question",
-            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes),
-        )
+        monkeypatch.setattr(_te, "themed_confirm", lambda *a, **kw: True)
         dlg.delete_template()
         assert tbt.load_library() == []
 
@@ -227,9 +225,8 @@ class TestSaveFailedStampPreserved:
 
         warnings_shown = []
 
-        import firepro3d.titleblock_editor as te
-        with patch.object(te, "save_to_library", side_effect=OSError("disk full")):
-            with patch.object(QMessageBox, "warning",
+        with patch.object(_te, "save_to_library", side_effect=OSError("disk full")):
+            with patch.object(_te, "themed_warn",
                               side_effect=lambda *a, **kw: warnings_shown.append(a)):
                 result = dlg.save()
 
@@ -444,10 +441,7 @@ class TestDeleteConfirm:
     def test_delete_cancel_keeps_template(self, tmp_path, monkeypatch):
         """Answering No to the confirm dialog keeps the template in the library."""
         dlg, t = self._dlg(tmp_path, monkeypatch)
-        monkeypatch.setattr(
-            QMessageBox, "question",
-            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.No),
-        )
+        monkeypatch.setattr(_te, "themed_confirm", lambda *a, **kw: False)
         dlg.delete_template()
         # Template must still be in the library.
         assert len(tbt.load_library()) == 1
@@ -455,10 +449,7 @@ class TestDeleteConfirm:
     def test_delete_yes_removes_template(self, tmp_path, monkeypatch):
         """Answering Yes to the confirm dialog removes the template."""
         dlg, t = self._dlg(tmp_path, monkeypatch)
-        monkeypatch.setattr(
-            QMessageBox, "question",
-            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes),
-        )
+        monkeypatch.setattr(_te, "themed_confirm", lambda *a, **kw: True)
         dlg.delete_template()
         assert tbt.load_library() == []
 
@@ -893,8 +884,7 @@ class TestFieldsTab:
     def test_delete_placed_field_warns_and_removes(self, tmp_path, monkeypatch):
         """Deleting a placed field shows a warning, then removes it and unplaces it."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        monkeypatch.setattr(QMessageBox, "question", staticmethod(
-            lambda *a, **kw: QMessageBox.StandardButton.Yes))
+        monkeypatch.setattr(_te, "themed_confirm", lambda *a, **kw: True)
         dlg._field_list.setCurrentRow(1)
         fid = dlg.working.layout.fields[1].id
         dlg._delete_field_btn.click()
@@ -946,8 +936,8 @@ class TestFieldsTab:
         assert fid not in dlg.working.layout.placed_ids()
 
         question_called = []
-        monkeypatch.setattr(QMessageBox, "question", staticmethod(
-            lambda *a, **kw: question_called.append(1) or QMessageBox.StandardButton.Yes))
+        monkeypatch.setattr(_te, "themed_confirm",
+                            lambda *a, **kw: question_called.append(1) or True)
 
         dlg._field_list.setCurrentRow(new_row)
         dlg._delete_field_btn.click()

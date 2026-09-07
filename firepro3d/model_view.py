@@ -3,6 +3,7 @@ import math
 from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
 )
+from .themed_message import themed_input_number
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent
 from . import theme as th
@@ -1018,10 +1019,9 @@ class Model_View(QGraphicsView):
                         scale = self.transform().m11()
                         tol = 15.0 / max(scale, 1e-6)
                         if dist <= tol:
-                            from PyQt6.QtWidgets import QInputDialog
-                            val, ok = QInputDialog.getDouble(
+                            val, ok = themed_input_number(
                                 self, "Edit Constraint Distance",
-                                "Distance:", c.distance, 0.01, 1_000_000, 3)
+                                "Distance:", initial=c.distance, dimension=True)
                             if ok:
                                 c.distance = val
                                 sc._tools._solve_constraints()

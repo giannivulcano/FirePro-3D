@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QHeaderView, QMessageBox,
+    QPushButton, QHeaderView,
     QAbstractItemView, QLabel, QComboBox, QMenu,
 )
+from .themed_message import themed_info, themed_confirm
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from .dimension_edit import DimensionDelegate
@@ -317,15 +318,14 @@ class LevelWidget(QWidget):
         if lvl is None:
             return
         if len(self.manager.levels) <= 1:
-            QMessageBox.information(self, "Level",
-                                    "The last remaining level cannot be deleted.")
+            themed_info(self, "Level",
+                        "The last remaining level cannot be deleted.")
             return
-        reply = QMessageBox.question(
+        if not themed_confirm(
             self, "Delete Level",
             f"Delete level '{lvl.name}'?\n"
             "Items on this level will be moved to the first remaining level.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes:
+        ):
             return
         fallback = None
         for l in self.manager.levels:

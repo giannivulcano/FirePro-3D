@@ -242,11 +242,10 @@ class TestLevelRenameRemap:
         widget = LevelWidget(lm, scene)
         row = self._find_name_row(widget, "Level 1")
         widget.table.setCurrentCell(row, 0)
-        # Bypass the QMessageBox confirmation dialog
+        # Bypass the themed_confirm confirmation dialog
+        import firepro3d.level_widget as _lw
         from unittest.mock import patch
-        from PyQt6.QtWidgets import QMessageBox
-        with patch.object(QMessageBox, "question",
-                          return_value=QMessageBox.StandardButton.Yes):
+        with patch.object(_lw, "themed_confirm", return_value=True):
             widget._delete_level()
         widget.deleteLater()
 

@@ -6,8 +6,9 @@ Provides: Scale, Rotate, Lock/Unlock, Refresh from disk, Remove.
 """
 
 from PyQt6.QtWidgets import (
-    QMenu, QInputDialog, QGraphicsItem, QGraphicsItemGroup
+    QMenu, QGraphicsItem, QGraphicsItemGroup
 )
+from .themed_message import themed_input_number
 from PyQt6.QtGui import QAction, QPen, QColor
 from .underlay import Underlay
 
@@ -86,11 +87,11 @@ class UnderlayContextMenu:
 
     @staticmethod
     def _set_scale(scene, data: Underlay, item: QGraphicsItem):
-        val, ok = QInputDialog.getDouble(
+        val, ok = themed_input_number(
             scene.views()[0] if scene.views() else None,
             "Set Underlay Scale",
             "Scale factor:",
-            data.scale, 0.001, 1000.0, 4
+            initial=data.scale, dimension=False,
         )
         if ok:
             data.scale = val
@@ -99,11 +100,11 @@ class UnderlayContextMenu:
 
     @staticmethod
     def _set_rotation(scene, data: Underlay, item: QGraphicsItem):
-        val, ok = QInputDialog.getDouble(
+        val, ok = themed_input_number(
             scene.views()[0] if scene.views() else None,
             "Set Underlay Rotation",
             "Rotation (degrees):",
-            data.rotation, -360.0, 360.0, 1
+            initial=data.rotation, dimension=False,
         )
         if ok:
             data.rotation = val

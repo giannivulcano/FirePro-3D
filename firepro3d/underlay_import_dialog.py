@@ -36,8 +36,9 @@ from PyQt6.QtWidgets import (
     QFileDialog, QLineEdit, QFormLayout,
     QDialogButtonBox, QApplication,
     QCheckBox, QWidget, QSizePolicy, QScrollArea, QButtonGroup,
-    QMessageBox, QInputDialog, QAbstractItemView, QFrame,
+    QAbstractItemView, QFrame,
 )
+from .themed_message import themed_warn, themed_confirm, themed_input_text
 from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPainterPath, QFont,
     QCursor, QPainter, QPixmap, QIcon, QTransform,
@@ -2048,9 +2049,9 @@ class UnderlayImportDialog(HouseDialog):
         elif ext == ".dwg":
             self._load_dwg(path)
         else:
-            QMessageBox.warning(self, "Unsupported file",
-                                f"File type '{ext}' is not supported.\n"
-                                "Please select a PDF, DXF, or DWG file.")
+            themed_warn(self, "Unsupported file",
+                        f"File type '{ext}' is not supported.\n"
+                        "Please select a PDF, DXF, or DWG file.")
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
@@ -2069,9 +2070,9 @@ class UnderlayImportDialog(HouseDialog):
         self._has_vectors = True
 
         if not _HAS_EZDXF:
-            QMessageBox.warning(self, "Missing dependency",
-                                "ezdxf is required for DXF import.\n"
-                                "Install it with: pip install ezdxf")
+            themed_warn(self, "Missing dependency",
+                        "ezdxf is required for DXF import.\n"
+                        "Install it with: pip install ezdxf")
             return
 
         if _doc is not None:
@@ -2351,17 +2352,12 @@ class UnderlayImportDialog(HouseDialog):
 
         oda_path = find_oda_converter()
         if oda_path is None:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("ODA File Converter Required")
-            msg.setText(
+            if themed_confirm(
+                self, "ODA File Converter Required",
                 "DWG import requires ODA File Converter (free download).\n\n"
-                f"Download from:\n{ODA_DOWNLOAD_URL}")
-            msg.addButton(QMessageBox.StandardButton.Cancel)
-            locate_btn = msg.addButton("Locate ODA\u2026",
-                                       QMessageBox.ButtonRole.ActionRole)
-            msg.exec()
-            if msg.clickedButton() == locate_btn:
+                f"Download from:\n{ODA_DOWNLOAD_URL}",
+                ok_label="Locate ODA\u2026", cancel_label="Cancel",
+            ):
                 oda_path = self._browse_for_oda()
             if oda_path is None:
                 return
@@ -2375,17 +2371,12 @@ class UnderlayImportDialog(HouseDialog):
             from .dwg_converter import get_last_error
             diag = get_last_error()
             detail = f"\n\nDiagnostics:\n{diag}" if diag else ""
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Conversion Failed")
-            msg.setText(
+            if not themed_confirm(
+                self, "Conversion Failed",
                 f"ODA File Converter could not convert this DWG file.\n"
-                f"ODA path: {oda_path}{detail}")
-            msg.addButton(QMessageBox.StandardButton.Cancel)
-            change_btn = msg.addButton("Change ODA Path\u2026",
-                                       QMessageBox.ButtonRole.ActionRole)
-            msg.exec()
-            if msg.clickedButton() != change_btn:
+                f"ODA path: {oda_path}{detail}",
+                ok_label="Change ODA Path\u2026", cancel_label="Cancel",
+            ):
                 return
             new_path = self._browse_for_oda()
             if new_path is None:
@@ -2400,8 +2391,8 @@ class UnderlayImportDialog(HouseDialog):
         doc = read_dxf(dxf_path)
         if doc is None:
             self._clear_loading()
-            QMessageBox.warning(self, "Read Error",
-                                f"Could not read converted DXF:\n{dxf_path}")
+            themed_warn(self, "Read Error",
+                        f"Could not read converted DXF:\n{dxf_path}")
             return
         self._clear_loading()
 
@@ -2539,9 +2530,9 @@ class UnderlayImportDialog(HouseDialog):
         self._populate_scale_combo(is_pdf=True)   # offer architectural ratios
 
         if not _HAS_FITZ:
-            QMessageBox.warning(self, "Missing dependency",
-                                "PyMuPDF (fitz) is required for PDF vector import.\n"
-                                "Install it with: pip install PyMuPDF")
+            themed_warn(self, "Missing dependency",
+                        "PyMuPDF (fitz) is required for PDF vector import.\n"
+                        "Install it with: pip install PyMuPDF")
             return
 
         self._set_loading("Reading PDF file…")
@@ -3569,10 +3560,10 @@ class UnderlayImportDialog(HouseDialog):
             else:
                 unit_hint = ""
 
-            text, ok = QInputDialog.getText(
+            text, ok = themed_input_text(
                 self, "Real Distance",
                 f"The two points are {px_dist:.1f} preview units apart.\n"
-                f"Enter the REAL distance between them{unit_hint}:"
+                f"Enter the REAL distance between them{unit_hint}:",
             )
             if ok and text.strip():
                 fallback = self._sm.bare_number_unit() if self._sm else "mm"
@@ -3744,8 +3735,8 @@ class UnderlayImportDialog(HouseDialog):
         if self._extracting:
             return  # half-built _all_geoms — ignore queued Import clicks
         if not self._all_geoms and self._has_vectors:
-            QMessageBox.warning(self, "Nothing to import",
-                                "Load a file before importing.")
+            themed_warn(self, "Nothing to import",
+                        "Load a file before importing.")
             return
         self.accept()
 

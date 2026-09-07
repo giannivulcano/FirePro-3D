@@ -25,9 +25,10 @@ from PyQt6.QtCore import QModelIndex, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeView,
+    QHeaderView, QLabel, QLineEdit, QPushButton, QTreeView,
     QVBoxLayout, QWidget,
 )
+from .themed_message import themed_confirm
 
 from .house_dialog import HouseDialog
 from .underlay_manager_delegates import (
@@ -525,16 +526,11 @@ class UnderlayManagerDialog(HouseDialog):
             title = f'Delete "{name}"?'
         else:
             title = f"Delete {len(records)} underlays?"
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Delete underlay")
-        box.setText(title)
-        box.setInformativeText("The source file on disk is not affected.")
-        delete_button = box.addButton(
-            "Delete", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
-        return box.clickedButton() is delete_button
+        return themed_confirm(
+            self, "Delete underlay",
+            title + "\n\nThe source file on disk is not affected.",
+            danger=True, ok_label="Delete", cancel_label="Cancel",
+        )
 
     def _reload(self) -> None:
         records = self._selected_records()

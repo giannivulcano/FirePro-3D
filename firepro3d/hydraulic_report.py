@@ -24,8 +24,9 @@ import re
 from PyQt6.QtWidgets import (
     QWidget, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser,
-    QHeaderView, QFileDialog, QMessageBox, QCheckBox,
+    QHeaderView, QFileDialog, QCheckBox,
 )
+from .themed_message import themed_info
 from PyQt6.QtCore import Qt, QPointF, QRectF, QUrl
 from PyQt6.QtGui import (QColor, QTextDocument, QPainter, QPen, QFont, QBrush,
                          QPainterPath, QImage, QPageSize)
@@ -741,8 +742,7 @@ class HydraulicReportWidget(QWidget):
         printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         doc.print(printer)
 
-        QMessageBox.information(self, "Export Complete",
-                                f"PDF saved to:\n{path}")
+        themed_info(self, "Export Complete", f"PDF saved to:\n{path}")
 
     # Export — CSV
 
@@ -771,8 +771,7 @@ class HydraulicReportWidget(QWidget):
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
             self._write_csv(f)
-        QMessageBox.information(self, "Export Complete",
-                                f"CSV saved to:\n{path}")
+        themed_info(self, "Export Complete", f"CSV saved to:\n{path}")
 
     def _write_csv(self, f):
         """Write the summary sections + node summary table to a file object."""

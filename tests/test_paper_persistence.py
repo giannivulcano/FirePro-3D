@@ -200,7 +200,7 @@ def test_load_and_new_end_clean(_mw, tmp_path):
 # Crash recovery + resolver identity
 # ─────────────────────────────────────────────────────────────────────────────
 
-from PyQt6.QtWidgets import QMessageBox
+import main as _main_module
 
 from firepro3d.paper_space import TextAnnotationItem
 
@@ -228,9 +228,7 @@ def test_recovery_restores_paper_and_survives_save(_mw, tmp_path, monkeypatch):
     assert not _find_scene_text(_mw, "RECOVER-ME")
 
     # 3. Accept recovery.
-    monkeypatch.setattr(
-        QMessageBox, "question",
-        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(_main_module, "themed_confirm", lambda *a, **k: True)
     _mw._current_file = None
     _mw._check_recovery()
 
@@ -258,9 +256,7 @@ def test_recovery_declined_unchanged(_mw, tmp_path, monkeypatch):
     _add_text(_mw, "DECLINED")
     _mw._autosave()
     _fresh(_mw)
-    monkeypatch.setattr(
-        QMessageBox, "question",
-        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    monkeypatch.setattr(_main_module, "themed_confirm", lambda *a, **k: False)
     _mw._check_recovery()
     assert not _find_scene_text(_mw, "DECLINED")
     assert not autosave.is_file(), "declined recovery still deletes the autosave"
@@ -298,8 +294,6 @@ def test_resolver_identity_after_load_paths(_mw, tmp_path, monkeypatch):
                         staticmethod(lambda: str(autosave)))
     _add_text(_mw, "X")
     _mw._autosave()
-    monkeypatch.setattr(
-        QMessageBox, "question",
-        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(_main_module, "themed_confirm", lambda *a, **k: True)
     _mw._check_recovery()
     assert scene._resolver is _mw._view_resolver, "recovery must rebind the live resolver"

@@ -14,8 +14,9 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
-    QAbstractItemView, QMenu, QMessageBox,
+    QAbstractItemView, QMenu,
 )
+from .themed_message import themed_confirm
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QFont, QColor, QBrush
 
@@ -715,12 +716,9 @@ class ModelBrowser(QWidget):
         """Remove with confirmation dialog."""
         from .underlay_manager_model import _record_name
         filename = _record_name(data)
-        reply = QMessageBox.question(
+        if themed_confirm(
             self, "Remove Underlay",
             f"Remove underlay '{filename}'?\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        ):
             self._scene.remove_underlay(data, item)
             self.refresh()

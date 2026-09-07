@@ -377,9 +377,9 @@ class SceneIOMixin:
             self.underlaysChanged.emit()
 
         if missing_underlays:
-            from PyQt6.QtWidgets import QMessageBox
+            from .themed_message import themed_warn
             paths = "\n".join(f"  \u2022 {u.path}" for u in missing_underlays)
-            QMessageBox.warning(
+            themed_warn(
                 None, "Missing Underlay Files",
                 f"{len(missing_underlays)} underlay file(s) could not be found:\n\n"
                 f"{paths}\n\n"

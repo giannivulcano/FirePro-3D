@@ -23,9 +23,10 @@ from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QPlainTextEdit, QRadioButton,
+    QMenu, QPushButton, QPlainTextEdit, QRadioButton,
     QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
+from .themed_message import themed_confirm, themed_warn
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QPen
 
 from .titleblock_template import (
@@ -826,12 +827,11 @@ class TitleBlockEditorDialog(QDialog):
         """Delete the currently selected template from the library (after confirm)."""
         if self.working is None:
             return
-        resp = QMessageBox.question(
+        if not themed_confirm(
             self, "Delete Template",
             f"Delete '{self.working.name}' from the library?\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if resp != QMessageBox.StandardButton.Yes:
+            danger=True, ok_label="Delete",
+        ):
             return
         try:
             delete_from_library(self.working.uuid)
@@ -860,8 +860,8 @@ class TitleBlockEditorDialog(QDialog):
         except (OSError, ValueError) as exc:
             self.working.modified = old_modified
             _log.warning("Failed to save template: %s", exc)
-            QMessageBox.warning(self, "Save Failed",
-                                f"Could not save template:\n{exc}")
+            themed_warn(self, "Save Failed",
+                        f"Could not save template:\n{exc}")
             return False
         self._reload_library()
         # Re-sync list selection
@@ -1454,12 +1454,11 @@ class TitleBlockEditorDialog(QDialog):
             return
         lay = self.working.layout
         if f.id in lay.placed_ids():
-            resp = QMessageBox.question(
+            if not themed_confirm(
                 self, "Delete Field",
                 f"'{f.name}' is placed on the strip. Delete anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if resp != QMessageBox.StandardButton.Yes:
+                danger=True, ok_label="Delete",
+            ):
                 return
         self.push_snapshot()
         unplace_field(lay, f.id)
