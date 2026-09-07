@@ -571,13 +571,14 @@ class MainWindow(QMainWindow):
         # Added BEFORE coord_label so it sits to the left of the
         # coordinate readout, clear of the QSizeGrip at the far right.
         self.snap_indicator = _SnapIndicatorLabel(self)
-        self.snap_indicator.clicked.connect(self.scene.toggle_snap)
+        self.snap_indicator.clicked.connect(lambda: self._active_scene().toggle_snap())
         status_bar.addPermanentWidget(self.snap_indicator)
         self.scene.snapToggled.connect(self._update_snap_indicator)
         self._update_snap_indicator(self.scene._snap_enabled)
         # ALIGN status-bar indicator — mirrors SNAP pill for ALIGN state.
         self.guides_indicator = _GuidesIndicatorLabel(self)
-        self.guides_indicator.clicked.connect(self.scene.set_align_enabled)
+        self.guides_indicator.clicked.connect(
+            lambda: self._active_scene().set_align_enabled())
         status_bar.addPermanentWidget(self.guides_indicator)
         self.scene.alignToggled.connect(self._update_guides_indicator)
         self._update_guides_indicator(self.scene.get_align_enabled())
@@ -645,10 +646,11 @@ class MainWindow(QMainWindow):
         # the visible one). toggle_snap() flips state; snapToggled then syncs
         # the ribbon button, status-bar pill, and SNAP toolbar.
         self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
-        self._f3_shortcut.activated.connect(self.scene.toggle_snap)
+        self._f3_shortcut.activated.connect(lambda: self._active_scene().toggle_snap())
         # F11 global ALIGN toggle — mirrors F3 / SNAP pattern.
         self._f11_shortcut = QShortcut(QKeySequence("F11"), self)
-        self._f11_shortcut.activated.connect(self.scene.set_align_enabled)
+        self._f11_shortcut.activated.connect(
+            lambda: self._active_scene().set_align_enabled())
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         # Edit shortcuts route through the ACTIVE scene/view so they operate on a
@@ -1045,9 +1047,11 @@ class MainWindow(QMainWindow):
         if isinstance(w, BlockEditorWidget):
             self._show_block_editor_ribbon()
             self.update_property_manager()
+            self._refresh_snap_align_indicators()
             return
         # Leaving a Block Editor tab: tear down its contextual ribbon.
         self._hide_block_editor_ribbon()
+        self._refresh_snap_align_indicators()
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
@@ -2546,7 +2550,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_snap(self, checked: bool):
         """Called when the SNAP ribbon button is toggled (or F3 pressed)."""
-        self.scene.toggle_snap(checked)
+        self._active_scene().toggle_snap(checked)
 
     def _toggle_snap_bar(self, checked: bool):
         """Show/hide the SNAP snap-type toolbar (hidden by default)."""
@@ -3836,7 +3840,7 @@ class MainWindow(QMainWindow):
         if isinstance(w, PaperSpaceWidget):
             w.paper_scene.undo_stack.undo()
         else:
-            self.scene.undo()
+            self._active_scene().undo()
 
     def _dispatch_redo(self):
         """Route redo to the active tab's undo stack.
@@ -3847,7 +3851,7 @@ class MainWindow(QMainWindow):
         if isinstance(w, PaperSpaceWidget):
             w.paper_scene.undo_stack.redo()
         else:
-            self.scene.redo()
+            self._active_scene().redo()
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
@@ -4378,6 +4382,20 @@ class MainWindow(QMainWindow):
         sc.modeChanged.connect(self._on_mode_changed_template)
         sc.selectionChanged.connect(self.update_property_manager)
         sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+        # Keep the shared SNAP/ALIGN status pills + toolbar + ribbon button in
+        # sync when the editor scene's snap/align state is toggled.
+        sc.snapToggled.connect(self._update_snap_indicator)
+        sc.snapToggled.connect(self.snap_toolbar._on_snap_toggled)
+        sc.alignToggled.connect(self._update_guides_indicator)
+
+    def _refresh_snap_align_indicators(self):
+        """Point the SNAP/ALIGN status pills at the active scene's state."""
+        sc = self._active_scene()
+        try:
+            self._update_snap_indicator(sc._snap_enabled)
+            self._update_guides_indicator(sc.get_align_enabled())
+        except Exception:
+            pass
 
     # ── Block Editor contextual ribbon ──────────────────────────────────────
     def _active_editor_widget(self):
@@ -4433,22 +4451,6 @@ class MainWindow(QMainWindow):
         from firepro3d import theme as _th
         _theme = DARK if _th.detect().name == DARK else LIGHT
         _I = lambda name: themed_icon(name, _theme)
-        g = page.add_group("2D Geometry")
-
-        def _mode(label, icon, mode, tip):
-            cb = lambda: self._active_scene().set_mode(mode)
-            b = g.add_small_button(label, _I(icon), cb, checkable=True)
-            b.setToolTip(tip)
-            self._mode_buttons[mode] = b
-            return b
-
-        _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
-        _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
-              "Draw a rectangle (R)")
-        _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
-        _mode("Polyline", "polyline_icon.svg", "polyline", "Draw a polyline")
-        _mode("Arc", "arc_icon.svg", "draw_arc", "Draw an arc")
-        _mode("Polygon", "polygon_icon.svg", "polygon", "Draw a polygon (P)")
 
         gb = page.add_group("Block")
         self._be_save_btn = gb.add_small_button(
@@ -4466,6 +4468,23 @@ class MainWindow(QMainWindow):
         self._be_origin_btn.setEnabled(False)   # BE3
         self._be_import_btn.setEnabled(False)   # BE4
         self._be_attr_btn.setEnabled(False)     # wired later
+
+        g = page.add_group("2D Geometry")
+
+        def _mode(label, icon, mode, tip):
+            cb = lambda: self._active_scene().set_mode(mode)
+            b = g.add_small_button(label, _I(icon), cb, checkable=True)
+            b.setToolTip(tip)
+            self._mode_buttons[mode] = b
+            return b
+
+        _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
+        _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
+              "Draw a rectangle (R)")
+        _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
+        _mode("Polyline", "polyline_icon.svg", "polyline", "Draw a polyline")
+        _mode("Arc", "arc_icon.svg", "draw_arc", "Draw an arc")
+        _mode("Polygon", "polygon_icon.svg", "polygon", "Draw a polygon (P)")
 
     def _be_save(self):
         w = self._active_editor_widget()
