@@ -249,3 +249,49 @@ def test_manager_open_in_editor_uses_editor_manager(qapp):
         w.seed_from_definition(defn)
     assert w._edit_block_id == defn.id
     assert len(w.gather_primitives()) == 1   # seeded from the def
+
+
+# ---------------------------------------------------------------------------
+# BE3a: Set-Origin core — pinned origin + persistent marker
+# ---------------------------------------------------------------------------
+
+def test_origin_defaults_to_bbox_top_left(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())     # lines spanning (0,0)-(100,50)
+    o = w.origin_point()
+    assert (round(o.x()), round(o.y())) == (0, 0)
+
+
+def test_set_origin_point_pins_and_marks(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())
+    w.set_origin_point(QPointF(100, 50))
+    o = w.origin_point()
+    assert (round(o.x()), round(o.y())) == (100, 50)
+    assert w._origin_marker is not None
+    assert w._origin_marker.pos() == QPointF(100, 50)
+    assert w._origin_marker.scene() is w.editor_scene
+
+
+def test_commit_uses_pinned_origin(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w.seed_from_dicts(_seed_dicts())
+    w.set_origin_point(QPointF(25, 10))
+    defn = w.commit_block("N", "L", "S")
+    assert defn is not None
+    assert (round(defn.origin[0]), round(defn.origin[1])) == (25, 10)
+
+
+def test_seed_from_definition_restores_origin_marker(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    a = LineItem(QPointF(0, 0), QPointF(10, 0))
+    defn = project.commit_block_definition(block_id=None, name="B", library="L",
+        series="S", primitives=[a.to_dict()], origin=(7.0, 3.0), place_instance=False)
+    w = BlockEditorManager(tabs, project).open_for_definition(defn.id)
+    w.seed_from_definition(defn)
+    o = w.origin_point()
+    assert (round(o.x()), round(o.y())) == (7, 3)
+    assert w._origin_marker is not None

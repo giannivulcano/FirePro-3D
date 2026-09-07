@@ -132,6 +132,8 @@ class BlockEditorWidget(QWidget):
         # active — not on a widget strip (see main._build_block_editor_context).
         lay.addWidget(self.view)
         self._dirty = False
+        self._origin = None          # QPointF | None ; None => auto bbox_top_left
+        self._origin_marker = None   # QGraphicsItem crosshair
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
 
     def _on_scene_modified(self):
@@ -142,6 +144,44 @@ class BlockEditorWidget(QWidget):
 
     def _mark_clean(self):
         self._dirty = False
+
+    def set_origin_point(self, pt):
+        """Pin the block insertion origin (definition-local) + show the marker.
+
+        Args:
+            pt: a QPointF in editor-scene coordinates.
+        """
+        from PyQt6.QtCore import QPointF
+        self._origin = QPointF(pt)
+        self._ensure_origin_marker()
+        self._origin_marker.setPos(self._origin)
+
+    def origin_point(self):
+        """Return the pinned origin QPointF, or the current bbox top-left if unset."""
+        if self._origin is not None:
+            return self._origin
+        return geometry_import.bbox_top_left(self.gather_primitives())
+
+    def _ensure_origin_marker(self):
+        """Create the persistent, screen-constant origin crosshair once."""
+        if self._origin_marker is not None:
+            return
+        from PyQt6.QtWidgets import QGraphicsPathItem
+        from PyQt6.QtGui import QPainterPath, QPen, QColor
+        path = QPainterPath()
+        r = 8.0  # device px (ItemIgnoresTransformations => screen-constant)
+        path.moveTo(-r, 0); path.lineTo(r, 0)
+        path.moveTo(0, -r); path.lineTo(0, r)
+        path.addEllipse(-r, -r, 2 * r, 2 * r)
+        item = QGraphicsPathItem(path)
+        pen = QPen(QColor("#ff3b30")); pen.setWidthF(1.5); pen.setCosmetic(True)
+        item.setPen(pen)
+        item.setFlag(item.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, False)
+        item.setZValue(10_000)
+        item.setData(0, "block_origin_marker")
+        self.editor_scene.addItem(item)
+        self._origin_marker = item
 
     def _add_primitive(self, item):
         """Add a construction primitive to the editor scene + its tracking list."""
@@ -175,6 +215,9 @@ class BlockEditorWidget(QWidget):
                 editor scene.
         """
         self.seed_from_dicts(list(defn.primitives))
+        from PyQt6.QtCore import QPointF
+        self.set_origin_point(QPointF(defn.origin[0], defn.origin[1]))
+        self._mark_clean()
 
     def gather_primitives(self):
         """Return the editor scene's construction primitives (stable list order).
@@ -217,7 +260,7 @@ class BlockEditorWidget(QWidget):
         prims = [it.to_dict() for it in items]
         if not prims:
             return None
-        origin = geometry_import.bbox_top_left(items)
+        origin = self.origin_point()
         is_new = self._edit_block_id is None
         do_replace = is_new and replace_source and bool(self._seed_source_items)
         defn = self._project_scene.commit_block_definition(
