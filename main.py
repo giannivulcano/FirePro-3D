@@ -4382,6 +4382,11 @@ class MainWindow(QMainWindow):
         sc.modeChanged.connect(self._on_mode_changed_template)
         sc.selectionChanged.connect(self.update_property_manager)
         sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+        # Status-bar readouts: per-step/variant instruction (corner/centre,
+        # polygon sides, "pick opposite corner", …), live coordinates, warnings.
+        sc.instructionChanged.connect(lambda text: self.mode_label.setText(text))
+        sc.cursorMoved.connect(self.coord_label.setText)
+        sc.warningIssued.connect(self._on_warning_issued)
         # Keep the shared SNAP/ALIGN status pills + toolbar + ribbon button in
         # sync when the editor scene's snap/align state is toggled.
         sc.snapToggled.connect(self._update_snap_indicator)
