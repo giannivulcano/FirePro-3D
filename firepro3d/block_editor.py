@@ -134,6 +134,7 @@ class BlockEditorWidget(QWidget):
         self._dirty = False
         self._origin = None          # QPointF | None ; None => auto bbox_top_left
         self._origin_marker = None   # QGraphicsItem crosshair
+        self._picking_origin = False # True while waiting for the user's snapped click
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
 
     def _on_scene_modified(self):
@@ -144,6 +145,58 @@ class BlockEditorWidget(QWidget):
 
     def _mark_clean(self):
         self._dirty = False
+
+    # ── Origin-pick mode (BE3b) ──────────────────────────────────────────────
+
+    def begin_set_origin(self):
+        """Enter origin-pick mode: the next left-click sets a snapped origin."""
+        from PyQt6.QtCore import Qt
+        self._picking_origin = True
+        self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        self.view.viewport().installEventFilter(self)
+        try:
+            self.editor_scene._show_status(
+                "Click to set the block origin (snapped) — right-click to cancel")
+        except Exception:
+            pass
+
+    def _end_origin_pick(self):
+        self._picking_origin = False
+        self.view.viewport().unsetCursor()
+        self.view.viewport().removeEventFilter(self)
+
+    def _pick_origin_at(self, scene_pos):
+        """Snap *scene_pos* via the editor snap engine, then pin the origin.
+
+        Falls back to the raw point when nothing snaps. Testable headlessly.
+
+        Args:
+            scene_pos: QPointF in editor-scene coordinates.
+        """
+        snapped = scene_pos
+        try:
+            res = self.editor_scene._snap_engine.find(
+                scene_pos, self.editor_scene, self.view.transform())
+            pt = getattr(res, "point", None) if res is not None else None
+            if pt is not None:
+                snapped = pt
+        except Exception:
+            pass
+        self.set_origin_point(snapped)
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent, Qt
+        if self._picking_origin and obj is self.view.viewport() \
+                and event.type() == QEvent.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton:
+                sp = self.view.mapToScene(event.position().toPoint())
+                self._pick_origin_at(sp)
+            # left = commit, any other button = cancel; either way exit the mode
+            self._end_origin_pick()
+            return True
+        return super().eventFilter(obj, event)
+
+    # ── Origin point + marker ────────────────────────────────────────────────
 
     def set_origin_point(self, pt):
         """Pin the block insertion origin (definition-local) + show the marker.

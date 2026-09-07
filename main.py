@@ -4458,14 +4458,13 @@ class MainWindow(QMainWindow):
         self._be_save_btn.setToolTip("Save this block to the project (and optionally the library)")
         self._be_origin_btn = gb.add_small_button(
             "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
-        self._be_origin_btn.setToolTip("Set the block insertion origin (coming soon)")
+        self._be_origin_btn.setToolTip("Set the block insertion origin (click to pick, snapped)")
         self._be_import_btn = gb.add_small_button(
             "Import", _I("block_manager_icon.svg"), self._be_import)
         self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry (coming soon)")
         self._be_attr_btn = gb.add_small_button(
             "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
         self._be_attr_btn.setToolTip("Edit block attributes (coming soon)")
-        self._be_origin_btn.setEnabled(False)   # BE3
         self._be_import_btn.setEnabled(False)   # BE4
         self._be_attr_btn.setEnabled(False)     # wired later
 
@@ -4492,7 +4491,9 @@ class MainWindow(QMainWindow):
             w.save(self)
 
     def _be_set_origin(self):
-        pass   # BE3 — snapped Set-Origin tool
+        w = self._active_editor_widget()
+        if w is not None:
+            w.begin_set_origin()
 
     def _be_import(self):
         pass   # BE4 — import DXF/DWG/PDF into the editor

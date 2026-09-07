@@ -295,3 +295,34 @@ def test_seed_from_definition_restores_origin_marker(qapp):
     o = w.origin_point()
     assert (round(o.x()), round(o.y())) == (7, 3)
     assert w._origin_marker is not None
+
+
+# ---------------------------------------------------------------------------
+# BE3b: live snapped Set-Origin pick + ribbon button
+# ---------------------------------------------------------------------------
+
+def test_begin_and_end_origin_pick_toggles_flag(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w.begin_set_origin()
+    assert w._picking_origin is True
+    w._end_origin_pick()
+    assert w._picking_origin is False
+
+
+def test_pick_origin_no_snap_uses_raw_point(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    # empty editor -> nothing to snap to -> raw point pinned
+    w._pick_origin_at(QPointF(42, 17))
+    assert w._origin is not None
+    o = w.origin_point()
+    assert (round(o.x()), round(o.y())) == (42, 17)
+
+
+def test_pick_origin_pins_and_shows_marker(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w._pick_origin_at(QPointF(5, 5))
+    assert w._origin_marker is not None
+    assert w._origin_marker.scene() is w.editor_scene
