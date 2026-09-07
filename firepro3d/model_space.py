@@ -2967,30 +2967,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return True
         return False
 
-    def _cycle_opening_alignment(self) -> None:
-        """Advance opening alignment through OPENING_ALIGNMENTS and refresh the
-        live ghost (§7.6)."""
-        aligns = list(OPENING_ALIGNMENTS)
-        try:
-            idx = aligns.index(self._opening_alignment)
-        except ValueError:
-            idx = -1
-        self._opening_alignment = aligns[(idx + 1) % len(aligns)]
-        self._sync_opening_state_to_template()
-        self._refresh_opening_ghost()
-        self.instructionChanged.emit(
-            f"Opening [{self._opening_alignment}] · Space=align "
-            f"←/→=hinge ↑/↓=facing")
+    def _cycle_opening_alignment(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
+        return self._feature_ctl._cycle_opening_alignment(*args, **kwargs)
 
-    def _sync_opening_state_to_template(self) -> None:
-        """Push the live cycle state onto the placement template and refresh the
-        property panel so Spacebar/arrow changes are reflected there (§7.6)."""
-        tmpl = getattr(self, "current_template", None)
-        if isinstance(tmpl, WallOpening):
-            tmpl.alignment = self._opening_alignment
-            tmpl.mirror_hinge = self._opening_mirror_hinge
-            tmpl.mirror_facing = self._opening_mirror_facing
-            self.requestPropertyUpdate.emit(tmpl)
+    def _sync_opening_state_to_template(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
+        return self._feature_ctl._sync_opening_state_to_template(*args, **kwargs)
 
     def _cycle_similar_selection(self) -> bool:
         """Select the next element of the same type as the sole selection.
@@ -3747,8 +3728,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 f"H: {sm.scene_to_display(rect.height())}"
             )
 
-    def _move_door_window(self, event, snapped):
-        self.update_preview_node(snapped)
+    def _move_door_window(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
+        return self._feature_ctl._move_door_window(*args, **kwargs)
 
     # ── Gridline Array / Offset replication (Task 7) ────────────────────
 
@@ -6141,59 +6122,17 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return self._feature_ctl._press_window(*args, **kwargs)
 
     # ── Opening live preview (§7.6) ───────────────────────────────────
-    def _move_opening(self, event, snapped):
-        """Redraw the live opening ghost on the hovered wall.
+    def _move_opening(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
+        return self._feature_ctl._move_opening(*args, **kwargs)
 
-        Hidden (and removed) when the cursor is not over a wall, so the ghost
-        never floats in empty space.
-        """
-        wall = self._find_wall_at(snapped)
-        if wall is None:
-            self._clear_opening_ghost()
-            return
-        offset = self._offset_along_wall(wall, snapped)
-        ghost = self._opening_ghost
-        # Rebuild the ghost from scratch if it is missing or its Feature changed
-        # (feature_id is immutable on a WallOpening, so swap on mismatch).
-        if ghost is None or ghost.feature_id != self._opening_feature_id:
-            self._clear_opening_ghost()
-            ghost = WallOpening(feature_id=self._opening_feature_id)
-            ghost.setOpacity(0.5)
-            ghost.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-            ghost._exclude_from_bulk_select = True
-            self.addItem(ghost)
-            self._opening_ghost = ghost
-        ghost.wall = wall
-        ghost._offset_along = offset
-        tmpl = getattr(self, "current_template", None)
-        if isinstance(tmpl, WallOpening):
-            ghost.width_mm = tmpl.width_mm
-            ghost.height_mm = tmpl.height_mm
-            ghost.sill_mm = tmpl.sill_mm
-        ghost.alignment = self._opening_alignment
-        ghost.mirror_hinge = self._opening_mirror_hinge
-        ghost.mirror_facing = self._opening_mirror_facing
-        ghost._reposition()
+    def _refresh_opening_ghost(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
+        return self._feature_ctl._refresh_opening_ghost(*args, **kwargs)
 
-    def _refresh_opening_ghost(self):
-        """Re-apply the current cycle state to the live ghost (post-cycle)."""
-        ghost = self._opening_ghost
-        if ghost is None:
-            return
-        ghost.alignment = self._opening_alignment
-        ghost.mirror_hinge = self._opening_mirror_hinge
-        ghost.mirror_facing = self._opening_mirror_facing
-        ghost._reposition()
-        for v in self.views():
-            v.viewport().update()
-
-    def _clear_opening_ghost(self):
-        """Remove the live opening ghost if present."""
-        ghost = getattr(self, "_opening_ghost", None)
-        if ghost is not None:
-            if ghost.scene() is self:
-                self.removeItem(ghost)
-            self._opening_ghost = None
+    # Transitional shell → FeaturePlacementController (slice 11, C2). Goes bare
+    # (no shell) in C3 once set_mode's leaving-teardown call relocates into
+    # FeaturePlacementController.clear().
+    def _clear_opening_ghost(self, *args, **kwargs):
+        return self._feature_ctl._clear_opening_ghost(*args, **kwargs)
 
     # ── Shift-click floor vertex editing (select mode) ────────────────
     def _press_select_shift_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -6613,15 +6552,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _auto_join_wall(self, *args, **kwargs):
         return self._wall_ctl._auto_join_wall(*args, **kwargs)
-
-    # Transitional shells → FeaturePlacementController (slice 11, C1). These
-    # go bare (no shell) in C2 once their only remaining scene-side callers
-    # (_move_opening) also relocate into the controller.
-    def _find_wall_at(self, *args, **kwargs):
-        return self._feature_ctl._find_wall_at(*args, **kwargs)
-
-    def _offset_along_wall(self, *args, **kwargs):
-        return self._feature_ctl._offset_along_wall(*args, **kwargs)
 
     def copy_items_to_level(self, items: list, target_level: str):
         """Duplicate items and assign copies to target_level."""
