@@ -1041,12 +1041,11 @@ class MainWindow(QMainWindow):
         from firepro3d.block_editor import BlockEditorWidget
         w = self.central_tabs.widget(index)
         if isinstance(w, BlockEditorWidget):
-            try:
-                self.ribbon._tab_bar.setCurrentIndex(1)   # "2D Geometry"
-            except Exception:
-                pass
+            self._show_block_editor_ribbon()
             self.update_property_manager()
             return
+        # Leaving a Block Editor tab: tear down its contextual ribbon.
+        self._hide_block_editor_ribbon()
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
@@ -3446,6 +3445,10 @@ class MainWindow(QMainWindow):
         None → contextual transition so that contextual → contextual switches
         (e.g. wall → pipe) never overwrite the original base-tab position.
         """
+        # While the Block Editor ribbon owns the contextual slot, plan-scene
+        # selection must not fight it for slot 7.
+        if getattr(self, "_block_ribbon_active", False):
+            return
         items = self.scene.selectedItems()
         key = self._resolve_selection_context(items)
         if key == self._active_contextual_key:
@@ -4372,6 +4375,96 @@ class MainWindow(QMainWindow):
         sc.modeChanged.connect(self._on_mode_changed_template)
         sc.selectionChanged.connect(self.update_property_manager)
         sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+
+    # ── Block Editor contextual ribbon ──────────────────────────────────────
+    def _active_editor_widget(self):
+        """The current Block Editor tab widget, or None."""
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.currentWidget()
+        return w if isinstance(w, BlockEditorWidget) else None
+
+    def _show_block_editor_ribbon(self):
+        """Insert + activate the contextual 'Block Editor' ribbon page."""
+        if getattr(self, "_block_ribbon_active", False):
+            self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+            return
+        # Clear any selection-driven contextual page first (shared slot 7).
+        if self._active_contextual_key is not None:
+            self.ribbon.remove_page(self._contextual_index)
+            self._active_contextual_key = None
+        else:
+            self._pre_contextual_tab = self.ribbon._tab_bar.currentIndex()
+        page = self.ribbon.insert_page("Block Editor", self._contextual_index,
+                                       contextual=True)
+        self._build_block_editor_context(page)
+        self._block_ribbon_active = True
+        self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+
+    def _hide_block_editor_ribbon(self):
+        """Remove the contextual 'Block Editor' ribbon page (leaving an editor tab)."""
+        if not getattr(self, "_block_ribbon_active", False):
+            return
+        self.ribbon.remove_page(self._contextual_index)
+        self._block_ribbon_active = False
+        try:
+            self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
+        except Exception:
+            pass
+
+    def _build_block_editor_context(self, page):
+        """Populate the Block Editor ribbon: 2D drawing tools + block verbs.
+
+        Draw-mode buttons dispatch through ``_active_scene()`` (the editor scene).
+        Block verbs are small buttons (stack 3-high); Set Origin / Import / Edit
+        Attributes are placeholders wired in BE3 / BE4 / a later slice.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+        g = page.add_group("2D Geometry")
+
+        def _mode(label, icon, mode, tip):
+            cb = lambda: self._active_scene().set_mode(mode)
+            b = g.add_small_button(label, _I(icon), cb, checkable=True)
+            b.setToolTip(tip)
+            self._mode_buttons[mode] = b
+            return b
+
+        _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
+        _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
+              "Draw a rectangle (R)")
+        _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
+        _mode("Polyline", "polyline_icon.svg", "polyline", "Draw a polyline")
+        _mode("Arc", "arc_icon.svg", "draw_arc", "Draw an arc")
+        _mode("Polygon", "polygon_icon.svg", "polygon", "Draw a polygon (P)")
+
+        gb = page.add_group("Block")
+        self._be_save_btn = gb.add_small_button(
+            "Save\nBlock", _I("make_block_icon.svg"), self._be_save)
+        self._be_origin_btn = gb.add_small_button(
+            "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
+        self._be_import_btn = gb.add_small_button(
+            "Import", _I("block_manager_icon.svg"), self._be_import)
+        self._be_attr_btn = gb.add_small_button(
+            "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
+        self._be_origin_btn.setEnabled(False)   # BE3
+        self._be_import_btn.setEnabled(False)   # BE4
+        self._be_attr_btn.setEnabled(False)     # wired later
+
+    def _be_save(self):
+        w = self._active_editor_widget()
+        if w is not None:
+            w.save(self)
+
+    def _be_set_origin(self):
+        pass   # BE3 — snapped Set-Origin tool
+
+    def _be_import(self):
+        pass   # BE4 — import DXF/DWG/PDF into the editor
+
+    def _be_edit_attributes(self):
+        pass   # wired later — block attribute authoring
 
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown

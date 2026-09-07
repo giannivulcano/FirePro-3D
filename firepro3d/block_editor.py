@@ -9,8 +9,7 @@ definition id. See docs/specs/block-system.md §"Block Editor (v2)".
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
-                             QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit,
-                             QToolBar)
+                             QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
 from .model_space import Model_Space
 from .model_view import Model_View
@@ -128,24 +127,15 @@ class BlockEditorWidget(QWidget):
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        # editor verb strip (above the canvas)
-        self.toolbar = QToolBar()
-        self.act_save = self.toolbar.addAction("Save Block")
-        self.act_save.triggered.connect(self._on_save_clicked)
-        self.act_set_origin = self.toolbar.addAction("Set Origin")
-        self.act_set_origin.setEnabled(False)   # enabled in BE3
-        self.act_import = self.toolbar.addAction("Import…")
-        self.act_import.setEnabled(False)        # enabled in BE4
-        lay.addWidget(self.toolbar)
+        # Editor verbs (Save / Set Origin / Import / Edit Attributes) live in the
+        # contextual "Block Editor" ribbon, built by MainWindow when this tab is
+        # active — not on a widget strip (see main._build_block_editor_context).
         lay.addWidget(self.view)
         self._dirty = False
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
 
     def _on_scene_modified(self):
         self._dirty = True
-
-    def _on_save_clicked(self):
-        self.save(self)
 
     def is_dirty(self) -> bool:
         return self._dirty
