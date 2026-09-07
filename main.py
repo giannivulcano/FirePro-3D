@@ -651,21 +651,23 @@ class MainWindow(QMainWindow):
         self._f11_shortcut.activated.connect(self.scene.set_align_enabled)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
+        # Edit shortcuts route through the ACTIVE scene/view so they operate on a
+        # Block Editor tab's own scene, not the plan scene (mirrors _on_escape).
         QShortcut(QKeySequence("Delete"), self).activated.connect(
             self._delete_if_not_editing)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._on_escape)
         QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(
-            self.scene.copy_selected_items)
+            lambda: self._active_scene().copy_selected_items())
         QShortcut(QKeySequence("Ctrl+V"), self).activated.connect(
-            lambda: self.scene.set_mode("paste"))
+            lambda: self._active_scene().set_mode("paste"))
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
-            self.view._select_all_items)
+            lambda: self._active_view()._select_all_items())
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
-            lambda: self.scene.set_mode("duplicate"))
+            lambda: self._active_scene().set_mode("duplicate"))
         # Align on Shift+A (its old "A, L" chord was retired so bare A is the Arc
         # tool shortcut; Ctrl+A is Select All, so Shift+A keeps the A mnemonic).
         QShortcut(QKeySequence("Shift+A"), self,
-                  lambda: self.scene.set_mode("align"))
+                  lambda: self._active_scene().set_mode("align"))
 
         # Restore settings
         self._splash_progress(95, "Restoring settings...")
@@ -3961,14 +3963,15 @@ class MainWindow(QMainWindow):
 
     def _delete_if_not_editing(self):
         """Delete selected items unless a text item is being edited."""
-        focus = self.scene.focusItem()
+        sc = self._active_scene()
+        focus = sc.focusItem()
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
             return  # let the text editor handle Delete
-        # Check 3D-only selection first
-        if self.view_3d.get_3d_selected():
+        # Check 3D-only selection first (plan scene only; editor has no 3D)
+        if sc is self.scene and self.view_3d.get_3d_selected():
             self.view_3d.delete_selected()
             return
-        self.scene.delete_selected_items()
+        sc.delete_selected_items()
 
     def open_underlay_manager(self):
         """Open (or re-show) the modeless Underlay Manager singleton."""
@@ -4383,6 +4386,14 @@ class MainWindow(QMainWindow):
         w = self.central_tabs.currentWidget()
         return w if isinstance(w, BlockEditorWidget) else None
 
+    def _active_view(self):
+        """The Model_View for the active tab: the editor's view for a Block
+        Editor tab, else the plan view."""
+        w = self._active_editor_widget()
+        if w is not None:
+            return w.view
+        return self.view
+
     def _show_block_editor_ribbon(self):
         """Insert + activate the contextual 'Block Editor' ribbon page."""
         if getattr(self, "_block_ribbon_active", False):
@@ -4442,12 +4453,16 @@ class MainWindow(QMainWindow):
         gb = page.add_group("Block")
         self._be_save_btn = gb.add_small_button(
             "Save\nBlock", _I("make_block_icon.svg"), self._be_save)
+        self._be_save_btn.setToolTip("Save this block to the project (and optionally the library)")
         self._be_origin_btn = gb.add_small_button(
             "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
+        self._be_origin_btn.setToolTip("Set the block insertion origin (coming soon)")
         self._be_import_btn = gb.add_small_button(
             "Import", _I("block_manager_icon.svg"), self._be_import)
+        self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry (coming soon)")
         self._be_attr_btn = gb.add_small_button(
             "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
+        self._be_attr_btn.setToolTip("Edit block attributes (coming soon)")
         self._be_origin_btn.setEnabled(False)   # BE3
         self._be_import_btn.setEnabled(False)   # BE4
         self._be_attr_btn.setEnabled(False)     # wired later
