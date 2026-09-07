@@ -12,8 +12,8 @@ themed_error(parent, title, message) -> None
 themed_confirm(parent, title, message, *, danger=False,
                ok_label="Yes", cancel_label="No") -> bool
 themed_input_text(parent, title, label, *, initial="") -> tuple[str, bool]
-themed_input_number(parent, title, label, *, initial, dimension=True)
-    -> tuple[float, bool]
+themed_input_number(parent, title, label, *, initial, dimension=True,
+                    minimum=None, maximum=None) -> tuple[float, bool]
 themed_input_choice(parent, title, label, items, *, current=0)
     -> tuple[str, bool]
 """
@@ -269,7 +269,9 @@ def themed_input_text(parent, title, label, *, initial: str = "") -> tuple[str, 
 
 
 def themed_input_number(parent, title, label, *, initial: float,
-                        dimension: bool = True) -> tuple[float, bool]:
+                        dimension: bool = True,
+                        minimum: float | None = None,
+                        maximum: float | None = None) -> tuple[float, bool]:
     """Show a numeric-input dialog, returning ``(value, True)`` on accept.
 
     When ``dimension=True`` a :class:`DimensionEdit` widget is used
@@ -284,9 +286,12 @@ def themed_input_number(parent, title, label, *, initial: float,
         label:     Field caption shown above the input.
         initial:   Seed value (mm for dimension=True, float for False).
         dimension: ``True`` to use DimensionEdit; ``False`` for plain float.
+        minimum:   Optional lower bound; returned value is clamped to this.
+        maximum:   Optional upper bound; returned value is clamped to this.
 
     Returns:
         ``(float_value, True)`` when accepted; ``(initial, False)`` on cancel.
+        Accepted values are clamped to [minimum, maximum] when those are given.
     """
     dlg = ThemedMessageDialog(title, "", parent=parent)
 
@@ -299,6 +304,8 @@ def themed_input_number(parent, title, label, *, initial: float,
         edit.setText(str(initial))
         validator = QDoubleValidator()
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        if minimum is not None and maximum is not None:
+            validator.setRange(minimum, maximum, 10)
         edit.setValidator(validator)
 
     dlg._add_input_widget(label, edit)
@@ -312,13 +319,19 @@ def themed_input_number(parent, title, label, *, initial: float,
         if dimension:
             assert isinstance(edit, DimensionEdit)
             edit.commit()
-            return edit.value_mm(), True
+            value = edit.value_mm()
         else:
             assert isinstance(edit, QLineEdit)
             try:
-                return float(edit.text()), True
+                value = float(edit.text())
             except ValueError:
-                return initial, True
+                value = initial
+        # Clamp to bounds (guaranteed regardless of validator path)
+        if minimum is not None:
+            value = max(value, minimum)
+        if maximum is not None:
+            value = min(value, maximum)
+        return value, True
     return initial, False
 
 

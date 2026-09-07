@@ -92,6 +92,7 @@ class UnderlayContextMenu:
             "Set Underlay Scale",
             "Scale factor:",
             initial=data.scale, dimension=False,
+            minimum=0.001, maximum=1000.0,
         )
         if ok:
             data.scale = val
@@ -105,6 +106,7 @@ class UnderlayContextMenu:
             "Set Underlay Rotation",
             "Rotation (degrees):",
             initial=data.rotation, dimension=False,
+            minimum=-360.0, maximum=360.0,
         )
         if ok:
             data.rotation = val

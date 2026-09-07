@@ -83,3 +83,16 @@ def test_choice_none_on_close(qapp, monkeypatch):
     key = tm.themed_choice(None, "T", "msg",
                            [("A", "a", None), ("B", "b", "primary")])
     assert key is None
+
+
+def test_input_number_clamps_to_bounds(qapp, monkeypatch):
+    # value below minimum is clamped up; above maximum clamped down
+    monkeypatch.setattr(tm.ThemedMessageDialog, "exec",
+                        lambda self: tm.QDialog.DialogCode.Accepted, raising=False)
+    # seed below min → returned value respects the minimum
+    val, ok = tm.themed_input_number(None, "T", "Scale", initial=0.0005,
+                                     dimension=False, minimum=0.001, maximum=1000.0)
+    assert ok is True and val >= 0.001
+    val2, ok2 = tm.themed_input_number(None, "T", "Scale", initial=5000.0,
+                                      dimension=False, minimum=0.001, maximum=1000.0)
+    assert ok2 is True and val2 <= 1000.0

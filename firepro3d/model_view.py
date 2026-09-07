@@ -1021,7 +1021,8 @@ class Model_View(QGraphicsView):
                         if dist <= tol:
                             val, ok = themed_input_number(
                                 self, "Edit Constraint Distance",
-                                "Distance:", initial=c.distance, dimension=True)
+                                "Distance:", initial=c.distance, dimension=True,
+                                minimum=0.01, maximum=1_000_000)
                             if ok:
                                 c.distance = val
                                 sc._tools._solve_constraints()

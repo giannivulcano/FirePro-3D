@@ -1309,7 +1309,8 @@ class MainWindow(QMainWindow):
 
     def _on_numeric_input_requested(self, mode: str, title: str, label: str,
                                      default: float, min_val: float, max_val: float):
-        val, ok = themed_input_number(self, title, label, initial=default, dimension=True)
+        val, ok = themed_input_number(self, title, label, initial=default, dimension=True,
+                                      minimum=min_val, maximum=max_val)
         self.scene.complete_numeric_input(mode, val, ok)
 
     def _on_warning_issued(self, title: str, message: str):
