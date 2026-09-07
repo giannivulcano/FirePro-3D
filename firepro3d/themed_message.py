@@ -1,5 +1,5 @@
 """Small themed modal message dialog (house frameless shell)."""
-from PyQt6.QtWidgets import QDialog, QLabel, QWidget, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QDialog, QLabel, QPushButton
 
 from .house_dialog import HouseDialog
 
@@ -14,13 +14,11 @@ class ThemedMessageDialog(HouseDialog):
         super().__init__(parent, title=title, icon=icon, min_width=340,
                          theme=theme)
         self.setObjectName("ThemedMessageDialog")
-        body = QWidget()
-        col = QVBoxLayout(body)
-        col.setContentsMargins(0, 0, 0, 0)
+        # Add the message directly to #dialogBody (a bare QWidget wrapper would
+        # inherit the dark canvas fill and mismatch the surface body).
         lbl = QLabel(message)
         lbl.setWordWrap(True)
-        col.addWidget(lbl)
-        self.set_body(body)
+        self.body_layout().addWidget(lbl)
         self.set_footer_buttons(primary=("OK", self.accept), cancel=False)
 
     def _make_yes_no(self):

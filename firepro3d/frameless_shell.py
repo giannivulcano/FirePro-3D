@@ -132,26 +132,31 @@ class FramelessShellMixin:
         Returns a ``QFrame`` (objectName ``shellHeader`` to inherit the shared
         chrome QSS). Populates ``self._win_controls``.
         """
+        from .theme import M
         t = detect()
+        _vc = Qt.AlignmentFlag.AlignVCenter
         bar = QFrame(objectName="shellHeader")
-        bar.setFixedHeight(40)
+        bar.setFixedHeight(M.HEADER_H)
         hb = QHBoxLayout(bar)
-        hb.setContentsMargins(14, 7, 10, 7)
+        hb.setContentsMargins(*M.HEADER_MARGIN)
+        # Every header item is AlignVCenter so the icon, title, and control dots
+        # share one vertical baseline (un-aligned items stretch and can read as
+        # skewed against the center-aligned dots).
         if isinstance(icon, str) and icon:
             glyph = QLabel()
             try:
                 glyph.setPixmap(themed_icon(
                     icon,
-                    "light" if t.name == "light" else "dark").pixmap(22, 22))
+                    "light" if t.name == "light" else "dark").pixmap(
+                        M.HEADER_ICON, M.HEADER_ICON))
             except Exception:
                 pass
-            hb.addWidget(glyph)
-            hb.addSpacing(8)
+            hb.addWidget(glyph, 0, _vc)
+            hb.addSpacing(M.HEADER_ICON_GAP)
         self._shell_title_lbl = QLabel(title)
         self._shell_title_lbl.setProperty("role", "title")
-        hb.addWidget(self._shell_title_lbl)
+        hb.addWidget(self._shell_title_lbl, 0, _vc)
         hb.addStretch(1)
-        _vc = Qt.AlignmentFlag.AlignVCenter
         _slots = {"min": self.showMinimized,
                   "max": self._toggle_max,
                   "close": self._shell_close}
