@@ -58,3 +58,79 @@ def test_close_removes_tab_and_untracks(qapp):
     # a fresh open still works after close
     w2 = mgr.open_new()
     assert tabs.indexOf(w2) != -1
+
+
+# ---------------------------------------------------------------------------
+# BE2.2a: seeding + headless Save core + dirty tracking
+# ---------------------------------------------------------------------------
+
+def _seed_dicts(qapp_unused=None):
+    a = LineItem(QPointF(0, 0), QPointF(100, 0))
+    b = LineItem(QPointF(100, 0), QPointF(100, 50))
+    return [a.to_dict(), b.to_dict()]
+
+
+def test_seed_from_dicts_populates_editor_scene(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    w.seed_from_dicts(_seed_dicts())
+    assert len(w.gather_primitives()) == 2
+    assert w.is_dirty() is False          # seeding is not a user edit
+
+
+def test_commit_new_blank_registers_without_instance(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    w.seed_from_dicts(_seed_dicts())      # blank editor, drew geometry (no source)
+    defn = w.commit_block("Sym", "Lib", "Ser")
+    assert defn is not None and defn.id in project._block_definitions
+    assert project.instance_count(defn.id) == 0     # blank new: no auto-instance
+    assert w._edit_block_id == defn.id              # subsequent save = edit-in-place
+
+
+def test_commit_seeded_create_replaces_source_with_instance(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    # source items live in the PROJECT scene
+    from firepro3d.construction_geometry import LineItem as LI
+    s1 = LI(QPointF(0, 0), QPointF(100, 0)); project.addItem(s1); project._draw_lines.append(s1)
+    s2 = LI(QPointF(100, 0), QPointF(100, 50)); project.addItem(s2); project._draw_lines.append(s2)
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    w.seed_from_dicts([s1.to_dict(), s2.to_dict()], source_items=[s1, s2])
+    defn = w.commit_block("Sym", "Lib", "Ser", replace_source=True)
+    assert defn is not None
+    assert s1 not in project._draw_lines and s2 not in project._draw_lines  # consumed
+    assert project.instance_count(defn.id) == 1                              # placed
+
+
+def test_commit_edit_in_place_updates_same_id(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    a = LineItem(QPointF(0, 0), QPointF(10, 0))
+    defn = project.commit_block_definition(
+        block_id=None, name="B", library="L", series="S",
+        primitives=[a.to_dict()], origin=(0.0, 0.0), place_instance=True)
+    v0 = defn.version
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_for_definition(defn.id)
+    w.seed_from_definition(defn)
+    w.seed_from_dicts(_seed_dicts())      # add more geometry
+    ret = w.commit_block("B2", "L2", "S2")
+    assert ret is defn and defn.version > v0
+    assert (defn.name, defn.library, defn.series) == ("B2", "L2", "S2")
+
+
+def test_commit_empty_editor_returns_none(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    assert w.commit_block("X", "L", "S") is None
+
+
+def test_user_draw_marks_dirty(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    w.editor_scene.sceneModified.emit()   # simulate a user edit
+    assert w.is_dirty() is True

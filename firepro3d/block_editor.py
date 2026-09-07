@@ -12,6 +12,18 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 
 from .model_space import Model_Space
 from .model_view import Model_View
+from .construction_geometry import (
+    LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
+)
+from .block_definition import _PRIMITIVE_FACTORY
+from . import geometry_import
+
+_PRIM_TYPES = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+_TYPE_TO_LIST = {
+    "draw_line": "_draw_lines", "draw_rectangle": "_draw_rects",
+    "draw_circle": "_draw_circles", "arc": "_draw_arcs",
+    "polyline": "_polylines", "polygon": "_draw_polygons",
+}
 
 
 class BlockEditorWidget(QWidget):
@@ -34,6 +46,106 @@ class BlockEditorWidget(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.view)
+        self._dirty = False
+        self.editor_scene.sceneModified.connect(self._on_scene_modified)
+
+    def _on_scene_modified(self):
+        self._dirty = True
+
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def _mark_clean(self):
+        self._dirty = False
+
+    def _add_primitive(self, item):
+        """Add a construction primitive to the editor scene + its tracking list.
+
+        Args:
+            item: A construction-geometry primitive (QGraphicsItem subclass).
+        """
+        self.editor_scene.addItem(item)
+        list_attr = _TYPE_TO_LIST.get(item.to_dict().get("type"))
+        if list_attr is not None:
+            getattr(self.editor_scene, list_attr).append(item)
+
+    def seed_from_dicts(self, prim_dicts, *, source_items=None):
+        """Populate the editor scene with editable copies of primitive dicts.
+
+        Args:
+            prim_dicts: list of construction-geometry to_dict dicts.
+            source_items: the project-scene items these copies came from (for a
+                seeded create's replace-on-save); stored, not modified.
+        """
+        for d in prim_dicts:
+            cls = _PRIMITIVE_FACTORY.get(d.get("type"))
+            if cls is None:
+                continue
+            self._add_primitive(cls.from_dict(d))
+        if source_items is not None:
+            self._seed_source_items = list(source_items)
+        self._mark_clean()   # seeding is not a user edit
+
+    def seed_from_definition(self, defn):
+        """Seed from an existing BlockDefinition's primitives (edit or clone).
+
+        Args:
+            defn: A ``BlockDefinition`` whose primitives are cloned into the
+                editor scene.
+        """
+        self.seed_from_dicts(list(defn.primitives))
+
+    def gather_primitives(self):
+        """Return the editor scene's construction primitives (insertion order).
+
+        Returns:
+            A list of construction-geometry items in insertion order.
+        """
+        return [it for it in self.editor_scene.items()
+                if isinstance(it, _PRIM_TYPES)][::-1]
+
+    def commit_block(self, name, library, series, *, replace_source=True,
+                     save_to_library=False):
+        """Save the editor's geometry to the PROJECT scene (headless core).
+
+        New (``_edit_block_id is None``): registers a new definition. When the
+        editor was seeded from a selection and ``replace_source`` is True, the
+        source items are consumed and one instance is placed at the origin.
+        Edit-in-place: updates the existing definition (version bump + repaint),
+        no placement. Returns the BlockDefinition, or None if there is no
+        geometry. After a successful new commit, ``_edit_block_id`` is set so a
+        subsequent Save edits in place.
+
+        Args:
+            name: Human-readable block name.
+            library: Library taxonomy tier-1.
+            series: Library taxonomy tier-2.
+            replace_source: When True and source items were set via
+                ``seed_from_dicts``, consume those items and place one instance.
+            save_to_library: Reserved for the next sub-task (dialog wiring).
+
+        Returns:
+            The ``BlockDefinition``, or None if the editor has no geometry.
+        """
+        items = self.gather_primitives()
+        prims = [it.to_dict() for it in items]
+        if not prims:
+            return None
+        origin = geometry_import.bbox_top_left(items)
+        is_new = self._edit_block_id is None
+        do_replace = is_new and replace_source and bool(self._seed_source_items)
+        defn = self._project_scene.commit_block_definition(
+            block_id=self._edit_block_id, name=name, library=library, series=series,
+            primitives=prims, origin=(origin.x(), origin.y()),
+            place_instance=do_replace,
+            source_items=self._seed_source_items if do_replace else None)
+        if defn is None:
+            return None
+        self._edit_block_id = defn.id
+        self._seed_source_items = []   # consumed / no longer a fresh seed
+        self._mark_clean()
+        # save_to_library handled in the next sub-task (dialog wiring)
+        return defn
 
 
 class BlockEditorManager:
