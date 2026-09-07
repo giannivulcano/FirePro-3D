@@ -65,3 +65,28 @@ def test_commit_edit_missing_id_returns_none(qapp):
     assert scene.commit_block_definition(
         block_id="nope", name="X", library="L", series="S",
         primitives=_line_dicts(), origin=(0.0, 0.0)) is None
+
+
+# ── Fix BE1: partial-mutation guard (source_items after all guards) ──────────
+
+def test_commit_missing_id_does_not_delete_source_items(qapp):
+    scene = Model_Space()
+    src = LineItem(QPointF(0, 0), QPointF(10, 0))
+    scene.addItem(src)
+    scene._draw_lines.append(src)
+    n_undo = len(scene._undo_stack)
+    ret = scene.commit_block_definition(
+        block_id="nope", name="X", library="L", series="S",
+        primitives=_line_dicts(), origin=(0.0, 0.0), source_items=[src])
+    assert ret is None
+    assert src in scene._draw_lines          # NOT deleted on the failed guard
+    assert len(scene._undo_stack) == n_undo   # no undo pushed
+
+
+def test_commit_new_place_instance_false_registers_without_instance(qapp):
+    scene = Model_Space()
+    defn = scene.commit_block_definition(
+        block_id=None, name="NoInst", library="L", series="S",
+        primitives=_line_dicts(), origin=(0.0, 0.0), place_instance=False)
+    assert defn is not None and defn.id in scene._block_definitions
+    assert scene.instance_count(defn.id) == 0

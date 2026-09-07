@@ -1608,11 +1608,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
         register). ``block_id`` given -> edit-in-place: update
         name/library/series/origin and ``set_primitives`` (bumps version +
-        repaints every instance). Deletes any ``source_items`` (seeded-create
-        replace) before placing. Places one ``BlockInstance`` at *origin* when
+        repaints every instance). Places one ``BlockInstance`` at *origin* when
         ``place_instance``. Pushes exactly one undo state. Returns the
         definition, or None (empty ``primitives``, or a given ``block_id``
         absent from the registry).
+
+        ``source_items`` are deleted only after all early-return guards pass —
+        no partial mutation occurs on an empty-primitives or missing-id return.
 
         Args:
             block_id: Existing definition id to edit in-place, or None to
@@ -1624,8 +1626,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 to_dict form).
             origin: ``(x, y)`` insertion origin in scene millimetres.
             place_instance: When True, place one BlockInstance at *origin*.
-            source_items: Optional list of scene items to remove before
-                placing (seeded-create replace workflow).
+            source_items: Optional list of scene items to remove after all
+                guards pass (seeded-create replace workflow). Never deleted on
+                an early-return None.
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -1634,8 +1637,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if not primitives:
             return None
         ox, oy = float(origin[0]), float(origin[1])
-        for it in (source_items or []):
-            self._remove_item_from_lists(it)
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy))
@@ -1648,6 +1649,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             defn.origin = (ox, oy)
             defn.set_primitives(list(primitives))
             self.blockDefinitionsChanged.emit()
+        for it in (source_items or []):
+            self._remove_item_from_lists(it)
         if place_instance:
             self.place_block_instance(defn.id, (ox, oy), rotation=0.0)
         self.push_undo_state()
