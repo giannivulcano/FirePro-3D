@@ -1600,6 +1600,59 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.push_undo_state()
         return inst
 
+    def commit_block_definition(self, *, block_id, name, library, series,
+                                primitives, origin, place_instance=True,
+                                source_items=None):
+        """Create or edit a block definition from primitive dicts (one undo).
+
+        ``block_id is None`` -> new definition (``BlockDefinition.new`` +
+        register). ``block_id`` given -> edit-in-place: update
+        name/library/series/origin and ``set_primitives`` (bumps version +
+        repaints every instance). Deletes any ``source_items`` (seeded-create
+        replace) before placing. Places one ``BlockInstance`` at *origin* when
+        ``place_instance``. Pushes exactly one undo state. Returns the
+        definition, or None (empty ``primitives``, or a given ``block_id``
+        absent from the registry).
+
+        Args:
+            block_id: Existing definition id to edit in-place, or None to
+                create a new definition.
+            name: Human-readable block name.
+            library: Library taxonomy tier-1.
+            series: Library taxonomy tier-2.
+            primitives: List of 2D-primitive dicts (construction_geometry
+                to_dict form).
+            origin: ``(x, y)`` insertion origin in scene millimetres.
+            place_instance: When True, place one BlockInstance at *origin*.
+            source_items: Optional list of scene items to remove before
+                placing (seeded-create replace workflow).
+
+        Returns:
+            The ``BlockDefinition``, or None on empty primitives or missing id.
+        """
+        from .block_definition import BlockDefinition
+        if not primitives:
+            return None
+        ox, oy = float(origin[0]), float(origin[1])
+        for it in (source_items or []):
+            self._remove_item_from_lists(it)
+        if block_id is None:
+            defn = BlockDefinition.new(name=name, library=library, series=series,
+                                       primitives=list(primitives), origin=(ox, oy))
+            self.register_block_definition(defn)
+        else:
+            defn = self._block_definitions.get(block_id)
+            if defn is None:
+                return None
+            defn.name, defn.library, defn.series = name, library, series
+            defn.origin = (ox, oy)
+            defn.set_primitives(list(primitives))
+            self.blockDefinitionsChanged.emit()
+        if place_instance:
+            self.place_block_instance(defn.id, (ox, oy), rotation=0.0)
+        self.push_undo_state()
+        return defn
+
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
