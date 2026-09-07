@@ -1186,29 +1186,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Entering "opening" arms the placement template (Feature id + the
         # pre-commit cycle state) and clears any leftover ghost.  Leaving it
         # tears the ghost down so it never strands on the canvas.
+        # Opening placement enter/teardown — owned by the feature controller
+        # (slice 11). enter() arms the placement template + cycle state; clear()
+        # is idempotent and tears the ghost down when leaving.
         if mode == "opening":
-            # Accept either a WallOpening TEMPLATE object (the pre-placement
-            # property template — the new pattern) or a bare feature-id string
-            # (legacy call sites / tests).  A string is adopted onto the
-            # persistent template so there is always one source of truth.
-            if isinstance(template, WallOpening):
-                self.current_template = template
-            else:
-                feature_id = template or DEFAULT_FEATURE_FOR_TYPE["door"]
-                self.current_template = WallOpening(feature_id=feature_id)
-            tmpl = self.current_template
-            tmpl._scene_ref = self
-            # Mirror the template's placement state onto the scene fields the
-            # cycle keys / ghost read (kept in sync both ways below).
-            self._opening_feature_id = tmpl.feature_id
-            self._opening_alignment = tmpl.alignment
-            self._opening_mirror_hinge = tmpl.mirror_hinge
-            self._opening_mirror_facing = tmpl.mirror_facing
-            # Surface the template in the right-side property panel so the user
-            # can edit Sill / size / orientation BEFORE placing.
-            self.requestPropertyUpdate.emit(tmpl)
-        if mode != "opening":
-            self._clear_opening_ghost()
+            self._feature_ctl.enter(template)
+        self._feature_ctl.clear(mode)
 
         # ── Block placement (Block S2 T3) ────────────────────────────────────
         # Entering "place_block" adopts the template block-id and resets the
@@ -6127,12 +6110,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _refresh_opening_ghost(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
         return self._feature_ctl._refresh_opening_ghost(*args, **kwargs)
-
-    # Transitional shell → FeaturePlacementController (slice 11, C2). Goes bare
-    # (no shell) in C3 once set_mode's leaving-teardown call relocates into
-    # FeaturePlacementController.clear().
-    def _clear_opening_ghost(self, *args, **kwargs):
-        return self._feature_ctl._clear_opening_ghost(*args, **kwargs)
 
     # ── Shift-click floor vertex editing (select mode) ────────────────
     def _press_select_shift_floor(self, event, pos, snapped, item_under, node_under, pipe_under):

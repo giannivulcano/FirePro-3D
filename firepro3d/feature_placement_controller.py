@@ -192,3 +192,43 @@ class FeaturePlacementController:
             tmpl.mirror_hinge = self._scene._opening_mirror_hinge
             tmpl.mirror_facing = self._scene._opening_mirror_facing
             self._scene.requestPropertyUpdate.emit(tmpl)
+
+    # ── set_mode entering-arm / leaving-teardown (§2.5) ──────────────────────
+
+    def enter(self, template) -> None:
+        """Arm opening placement when entering 'opening' mode (§7.6).
+
+        Absorbs the set_mode entering-arm verbatim: adopt the placement template
+        (a WallOpening, or build one from a bare feature-id string), mirror its
+        placement state onto the scene's cycle fields, and surface it in the
+        property panel.
+        """
+        # Accept either a WallOpening TEMPLATE object (the pre-placement
+        # property template — the new pattern) or a bare feature-id string
+        # (legacy call sites / tests).  A string is adopted onto the
+        # persistent template so there is always one source of truth.
+        if isinstance(template, WallOpening):
+            self._scene.current_template = template
+        else:
+            feature_id = template or DEFAULT_FEATURE_FOR_TYPE["door"]
+            self._scene.current_template = WallOpening(feature_id=feature_id)
+        tmpl = self._scene.current_template
+        tmpl._scene_ref = self._scene
+        # Mirror the template's placement state onto the scene fields the
+        # cycle keys / ghost read (kept in sync both ways below).
+        self._scene._opening_feature_id = tmpl.feature_id
+        self._scene._opening_alignment = tmpl.alignment
+        self._scene._opening_mirror_hinge = tmpl.mirror_hinge
+        self._scene._opening_mirror_facing = tmpl.mirror_facing
+        # Surface the template in the right-side property panel so the user
+        # can edit Sill / size / orientation BEFORE placing.
+        self._scene.requestPropertyUpdate.emit(tmpl)
+
+    def clear(self, new_mode) -> None:
+        """Tear down the live opening ghost when leaving 'opening' mode.
+
+        Idempotent; no-ops when staying in 'opening'. Absorbs the set_mode
+        leaving-teardown verbatim.
+        """
+        if new_mode != "opening":
+            self._clear_opening_ghost()
