@@ -239,3 +239,28 @@ def test_save_action_triggers_save(qapp, monkeypatch):
     monkeypatch.setattr(w, "save", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
     w.act_save.trigger()
     assert called["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# BE2.3b/c: app-shell integration — open_for_definition + seed if empty
+# ---------------------------------------------------------------------------
+
+def test_manager_open_in_editor_uses_editor_manager(qapp):
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.block_editor import BlockEditorManager
+    from firepro3d.construction_geometry import LineItem
+    from PyQt6.QtCore import QPointF
+    project = Model_Space()
+    a = LineItem(QPointF(0, 0), QPointF(10, 0))
+    defn = project.commit_block_definition(block_id=None, name="B", library="L",
+        series="S", primitives=[a.to_dict()], origin=(0.0, 0.0), place_instance=False)
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+
+    # emulate _open_in_editor's core (open_for_definition + seed if empty)
+    w = mgr.open_for_definition(defn.id)
+    if not w.gather_primitives():
+        w.seed_from_definition(defn)
+    assert w._edit_block_id == defn.id
+    assert len(w.gather_primitives()) == 1   # seeded from the def

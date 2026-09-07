@@ -440,6 +440,10 @@ class MainWindow(QMainWindow):
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
 
+        # Block Editor Manager
+        from firepro3d.block_editor import BlockEditorManager
+        self.block_editor_manager = BlockEditorManager(self.central_tabs, self.scene)
+
         # Paper space — ViewResolver + Sheet + widget
         self.scene._sheets = [Sheet.create_default()]
         self.sheet_mgr = SheetManager(self.scene._sheets)
@@ -1030,6 +1034,15 @@ class MainWindow(QMainWindow):
         if self.scene.get_placement_anchor() is not None \
                 or self.scene.is_input_mode():
             self.scene.set_mode("select")
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.widget(index)
+        if isinstance(w, BlockEditorWidget):
+            try:
+                self.ribbon._tab_bar.setCurrentIndex(1)   # "2D Geometry"
+            except Exception:
+                pass
+            self.update_property_manager()
+            return
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
@@ -1055,7 +1068,18 @@ class MainWindow(QMainWindow):
         # Never close the 3D Model tab
         if tab_text == "3D Model":
             return
+        from firepro3d.block_editor import BlockEditorWidget
         widget = self.central_tabs.widget(index)
+        if isinstance(widget, BlockEditorWidget):
+            if widget.is_dirty():
+                from firepro3d.themed_message import themed_confirm
+                if not themed_confirm(self, "Discard changes?",
+                                      "This block editor has unsaved changes. Discard them?"):
+                    return   # abort close
+            self.block_editor_manager.forget(widget)
+            self.central_tabs.removeTab(index)
+            widget.deleteLater()
+            return
         self.central_tabs.removeTab(index)
         # Clean up elevation manager tracking
         if tab_text.startswith("Elevation: "):
@@ -1373,7 +1397,7 @@ class MainWindow(QMainWindow):
 
         def _mode_btn(group, label, icon, mode_name, large=True):
             """Create a checkable draw-mode button."""
-            cb = lambda: self.scene.set_mode(mode_name)
+            cb = lambda: self._active_scene().set_mode(mode_name)
             if large:
                 btn = group.add_large_button(label, icon, cb, checkable=True)
             else:
@@ -1502,8 +1526,8 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
-        _btn(g_blocks, "Make\nBlock", _I("make_block_icon.svg"),
-             self._make_block_from_selection, tip="Create a block from selected 2D geometry")
+        _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
+             self._open_block_editor, tip="Author a block in the Block Editor")
         _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
              self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
         _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
@@ -2677,6 +2701,16 @@ class MainWindow(QMainWindow):
                                     f"Could not save to library:\n{exc2}")
             except OSError as exc:
                 themed_info(self, "Make Block", f"Could not save to library:\n{exc}")
+
+    def _open_block_editor(self):
+        """Ribbon: open the Block Editor, seeded with the current selection copy."""
+        from firepro3d.construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
+        w = self.block_editor_manager.open_new()
+        if items:
+            w.seed_from_dicts([it.to_dict() for it in items], source_items=items)
 
     def _focus_blocks_browser(self):
         """Ribbon handler: reveal the Blocks browser tab for insert/place."""
@@ -4307,15 +4341,25 @@ class MainWindow(QMainWindow):
         if targets:
             fg.sync()
 
+    def _active_scene(self):
+        """The scene the ribbon tools/property panel act on: the current tab's
+        editor scene for a Block Editor tab, else the plan scene."""
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.currentWidget()
+        if isinstance(w, BlockEditorWidget):
+            return w.editor_scene
+        return self.scene
+
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown
         try:
+            sc = self._active_scene()
             # Don't override template properties during placement modes
-            if self.scene.mode in ("pipe", "sprinkler", "wall",
-                                    "floor", "roof", "roof_rect",
-                                    "set_scale", "design_area"):
+            if sc.mode in ("pipe", "sprinkler", "wall",
+                           "floor", "roof", "roof_rect",
+                           "set_scale", "design_area"):
                 return
-            items = self.scene.selectedItems()
+            items = sc.selectedItems()
         except RuntimeError:
             return
         if items:
