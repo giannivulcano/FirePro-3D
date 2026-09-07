@@ -90,3 +90,17 @@ def test_commit_new_place_instance_false_registers_without_instance(qapp):
         primitives=_line_dicts(), origin=(0.0, 0.0), place_instance=False)
     assert defn is not None and defn.id in scene._block_definitions
     assert scene.instance_count(defn.id) == 0
+
+
+# ── Parity baseline: make_block_from_selection (BE1) ─────────────────────────
+
+def test_make_from_selection_consumes_and_places_via_core(qapp):
+    scene = Model_Space()
+    a = LineItem(QPointF(0, 0), QPointF(10, 0)); scene.addItem(a); scene._draw_lines.append(a)
+    b = LineItem(QPointF(10, 0), QPointF(10, 5)); scene.addItem(b); scene._draw_lines.append(b)
+    n_undo = len(scene._undo_stack)
+    inst = scene.make_block_from_selection([a, b], QPointF(0, 0), "Q", "L", "S")
+    assert inst is not None and inst.block_id in scene._block_definitions
+    assert a not in scene._draw_lines and b not in scene._draw_lines   # consumed
+    assert scene.instance_count(inst.block_id) == 1
+    assert len(scene._undo_stack) == n_undo + 1                         # single undo
