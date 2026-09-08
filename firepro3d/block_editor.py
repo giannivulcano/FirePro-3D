@@ -396,9 +396,9 @@ class BlockEditorWidget(QWidget):
         EllipseItem/SplineItem primitives.
         """
         from PyQt6.QtWidgets import QDialog
-        from .underlay_import_dialog import UnderlayImportDialog
+        from .block_import_dialog import BlockImportDialog
         from . import dwg_converter
-        dlg = UnderlayImportDialog(self, scale_manager=self.editor_scene.scale_manager)
+        dlg = BlockImportDialog(self, scale_manager=self.editor_scene.scale_manager)
         try:
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
