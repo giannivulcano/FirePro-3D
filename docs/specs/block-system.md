@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S5 built (Manager + load-from-library + Excel autofilter + themed ribbon icons; details panel read-only); thumbnails + Open-in-Editor deferred
-last-verified: 2026-09-05
-verified-commit: 74bc7bb
+status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
+last-verified: 2026-09-07
+verified-commit: a3904ce
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -9,11 +9,12 @@ applies-to:
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
   - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser)
   - firepro3d/app_data.py           # new — shared _app_data_dir() helper (GENERALIZE)
-  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition (v2)
+  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition + set_origin mode (v2)
   - firepro3d/scene_io.py           # .fpd embed of definitions + instances
-  - firepro3d/main.py               # Blocks ribbon group + browser dock wiring; Create/Quick Block + editor context (v2)
-  - firepro3d/geometry_import.py    # planned (v2) — pure geom_dict→primitive factory + bbox_top_left
-  - firepro3d/block_editor.py       # planned (v2) — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
+  - firepro3d/main.py               # Blocks ribbon group + browser dock; Create/Quick Block + Block Editor contextual ribbon + active-scene routing (v2)
+  - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + bbox_top_left
+  - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
+  - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
 source-tasks:
   - todo_open.md:18   # ribbon taxonomy (Draw = geometry + blocks)
   - todo_open.md:286  # block_item paste/undo orphan bug (constructively fixed)
@@ -356,10 +357,12 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 
 ## Block Editor (v2)
 
-> Status: **designed, not yet built** (2026-09-07). WHAT locked via `/grill-me`; HOW in
-> `docs/superpowers/specs/2026-09-07-block-editor-v2-design.md`. This section is the durable
-> contract; the dated doc holds the fork rationale + slice plan. Fills the Editor that DD-10 and the
-> "Open in Editor" stub reserve.
+> Status: **built — BE1–BE5** (2026-09-07, branch `feat/block-editor-v2`). WHAT locked via
+> `/grill-me`; HOW in `docs/superpowers/specs/2026-09-07-block-editor-v2-design.md`. This section is
+> the durable contract; the dated doc holds the fork rationale + slice plan. Fills the Editor that
+> DD-10 and the "Open in Editor" stub reserve. **Deferred (P1 follow-ups):** native-curve import
+> (arc/ellipse/spline need `EllipseItem`/`SplineItem` primitives + a curve-preserving extraction),
+> block attribute authoring, thumbnails, strict ribbon-tab hiding.
 
 The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
 the user draws/imports 2D geometry, sets the origin and metadata, and Saves a definition into the
