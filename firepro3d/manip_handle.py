@@ -13,7 +13,6 @@ Rendering/event receipt lives in the ``_HandleItem`` QGraphicsItem host
 """
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -123,6 +122,35 @@ class ResizeHandle(Handle):
         return {"Width": abs(m._R0.width() * fx),
                 "Height": abs(m._R0.height() * fy)}
 
+    # -- drag lifecycle ------------------------------------------------------
+    def on_drag(self, m, scene_pos, mods) -> None:
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        snapped = m._snap(scene_pos)
+        d, fx, fy = resize_delta(m._B0, m._R0, self.role, m._start_scene, snapped,
+                                 keep_aspect=shift, from_center=ctrl)
+        m._last_factors = (fx, fy)
+        m._apply(d)
+        m._feed_hud(self.hud_values(m))
+
+    def on_release(self, m, scene_pos, mods) -> None:
+        moved = m._moved
+        factors = m._last_factors
+        m._restore_preview()
+        m._end_drag()
+        if moved:
+            m._bake_scale([r[0] for r in m._items0_at_press], self.role,
+                          factors, m._R0_at_press, m._B0_at_press)
+
+    def commit_typed(self, m, values) -> None:
+        from .dynamic_input import resolve_manip_resize
+        res = resolve_manip_resize(None, values)
+        w0, h0 = m._R0.width(), m._R0.height()
+        fx = (res["width"] / w0) if w0 > 1e-12 else 1.0
+        fy = (res["height"] / h0) if h0 > 1e-12 else 1.0
+        if abs(fx - 1.0) > 1e-12 or abs(fy - 1.0) > 1e-12:
+            m._bake_scale(m._typed_items, self.role, (fx, fy), m._typed_r0, m._typed_b0)
+
 
 class RotateHandle(Handle):
     """The rotate knob above the top-edge midpoint (held-preview → manip_rotate)."""
@@ -160,3 +188,32 @@ class RotateHandle(Handle):
 
     def hud_values(self, m) -> dict:
         return {}
+
+    # -- drag lifecycle ------------------------------------------------------
+    def on_drag(self, m, scene_pos, mods) -> None:
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        center = m._B0.map(m._R0.center())
+        snap = m._ROTATE_SNAP_DEG if shift else None
+        d, total = rotate_delta(center, m._start_scene, scene_pos, m._base_angle, snap)
+        m._apply(d)
+        m._feed_hud({"Angle": -total})
+
+    def on_release(self, m, scene_pos, mods) -> None:
+        from .selection_manipulator import _yup_angle_from_delta
+        from PyQt6.QtGui import QTransform
+        d = QTransform(m._D)
+        moved = m._moved
+        m._restore_preview()
+        m._end_drag()
+        if moved:
+            angle = _yup_angle_from_delta(d)
+            if abs(angle) > 1e-9:
+                pivot = m._B0_at_press.map(m._R0_at_press.center())
+                m._bake_rotate([r[0] for r in m._items0_at_press], angle, pivot)
+
+    def commit_typed(self, m, values) -> None:
+        from .dynamic_input import resolve_manip_rotate
+        angle = resolve_manip_rotate(None, values)["angle_deg"]
+        if abs(angle) > 1e-9:
+            pivot = m._typed_b0.map(m._typed_r0.center())
+            m._bake_rotate(m._typed_items, angle, pivot)
