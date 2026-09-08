@@ -82,10 +82,13 @@ class GeometryDrawingController:
             s._ellipse_center = None
             s._ellipse_major = None
             s._ellipse_step = 0
+            s._ellipse_rx = 0.0
+            s._ellipse_rot = 0.0
             if s._ellipse_preview is not None:
                 if s._ellipse_preview.scene() is s:
                     s.removeItem(s._ellipse_preview)
                 s._ellipse_preview = None
+            self._clear_ellipse_ref_lines()
         # Polygon teardown (slice 9)
         if new_mode != "polygon":
             s._polygon_center = None
@@ -114,6 +117,7 @@ class GeometryDrawingController:
         if new_mode != "draw_spline":
             s._spline_points = []
             self._cancel_spline_preview()
+            self._clear_spline_ref_poly()
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
     #    stays scene-side because it builds a GridlineItem in gridline mode) ────
@@ -287,7 +291,45 @@ class GeometryDrawingController:
         self._scene.instructionChanged.emit("Pick center point")
         return True
 
-    # ── Ellipse (3-click: centre → major endpoint → minor extent) ───────────
+    # ── Ellipse (3-click: centre → major endpoint (rx+angle) → minor extent).
+    #    Arc-parity: step-1 shows a live radius radial + Length/Angle HUD; step-2
+    #    shows the fixed major axis + a perpendicular minor guide + Radius HUD.
+    #    The generic ref-line factory _make_ref_line stays scene-side. ──────────
+
+    def _set_ellipse_major_ref_line(self) -> None:
+        """Draw the fixed full major axis (both directions through the centre)."""
+        s = self._scene
+        c = s._ellipse_center
+        if c is None or s._ellipse_ref_major is None:
+            return
+        cx, cy, rx = c.x(), c.y(), s._ellipse_rx
+        a = math.radians(s._ellipse_rot)          # Y-up
+        s._ellipse_ref_major.setLine(cx - rx * math.cos(a), cy + rx * math.sin(a),
+                                     cx + rx * math.cos(a), cy - rx * math.sin(a))
+
+    def _update_ellipse_minor_ref(self, cursor) -> None:
+        """Point the live minor guide perpendicular to the major axis, its half-
+        length = the cursor's distance from the centre (the minor radius)."""
+        s = self._scene
+        c = s._ellipse_center
+        if c is None or s._ellipse_ref_minor is None:
+            return
+        cx, cy = c.x(), c.y()
+        ry = math.hypot(cursor.x() - cx, cursor.y() - cy)
+        a = math.radians(s._ellipse_rot + 90.0)   # minor = major + 90° (Y-up)
+        s._ellipse_ref_minor.setLine(cx - ry * math.cos(a), cy + ry * math.sin(a),
+                                     cx + ry * math.cos(a), cy - ry * math.sin(a))
+
+    def _clear_ellipse_ref_lines(self) -> None:
+        """Remove the ellipse placement guides + radial preview line."""
+        s = self._scene
+        for attr in ("_ellipse_radius_line", "_ellipse_ref_major",
+                     "_ellipse_ref_minor"):
+            item = getattr(s, attr, None)
+            if item is not None:
+                if item.scene() is s:
+                    s.removeItem(item)
+                setattr(s, attr, None)
 
     def _press_draw_ellipse(self, event, pos, snapped, item_under, node_under, pipe_under):
         s = self._scene
@@ -295,62 +337,111 @@ class GeometryDrawingController:
             s._ellipse_center = snapped
             s._ellipse_step = 1
             s.update_preview_node(snapped)
-            s.instructionChanged.emit("Pick major-axis endpoint")
+            s.instructionChanged.emit("Pick major-axis endpoint (radius + angle)")
+            # Step-1 radial preview (centre → cursor), mirroring the arc radius line.
+            line = QGraphicsLineItem(snapped.x(), snapped.y(),
+                                     snapped.x(), snapped.y())
+            _pen = QPen(QColor(s._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _pen.setCosmetic(True)
+            line.setPen(_pen)
+            line.setZValue(200)
+            s.addItem(line)
+            s._ellipse_radius_line = line
         elif s._ellipse_step == 1:
-            dx = snapped.x() - s._ellipse_center.x()
-            dy = snapped.y() - s._ellipse_center.y()
-            if math.hypot(dx, dy) < 0.5:
-                s._show_status("Ellipse major axis too small — pick again", timeout=2000)
-                return
-            s._ellipse_major = snapped
-            s._ellipse_step = 2
-            s.instructionChanged.emit("Pick minor-axis extent")
-            from .construction_geometry import EllipseItem
-            prev = EllipseItem(s._ellipse_center, math.hypot(dx, dy), 0.5,
-                               math.degrees(math.atan2(-dy, dx)),
-                               s._geom_color_lw()[0], 2)
-            prev.setZValue(200)
-            s.addItem(prev)
-            s._ellipse_preview = prev
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = s._constrain_angle(s._ellipse_center, snapped)
+            self._commit_draw_ellipse_major_at(snapped)
         else:
             self._commit_draw_ellipse_at(snapped)
 
+    def _commit_draw_ellipse_major_at(self, point) -> bool:
+        """Step-1 applier: fix rx + rotation from the major endpoint, advance to
+        the minor step.  Shared by the mouse 2nd click and the ``line`` HUD
+        schema (Length=rx, Angle=rotation → this rim point)."""
+        s = self._scene
+        if s._ellipse_center is None:
+            return False
+        dx = point.x() - s._ellipse_center.x()
+        dy = point.y() - s._ellipse_center.y()
+        rx = math.hypot(dx, dy)
+        if rx < 0.5:
+            s._show_status("Ellipse major axis too small — pick again", timeout=2000)
+            return False
+        s._ellipse_major = QPointF(point)
+        s._ellipse_rx = rx
+        s._ellipse_rot = math.degrees(math.atan2(-dy, dx))
+        s._ellipse_step = 2
+        s.instructionChanged.emit("Pick minor-axis extent (radius)")
+        # Swap the radial preview line for the ellipse preview + step-2 guides.
+        if s._ellipse_radius_line is not None:
+            s.removeItem(s._ellipse_radius_line)
+            s._ellipse_radius_line = None
+        from .construction_geometry import EllipseItem
+        prev = EllipseItem(s._ellipse_center, rx, 0.5, s._ellipse_rot,
+                           s._geom_color_lw()[0], 2)
+        prev.setZValue(200)
+        s.addItem(prev)
+        s._ellipse_preview = prev
+        s._ellipse_ref_major = s._make_ref_line()
+        s._ellipse_ref_minor = s._make_ref_line()
+        self._set_ellipse_major_ref_line()
+        s.clear_placement_state()
+        return True
+
     def _move_draw_ellipse(self, event, snapped):
         s = self._scene
+        s.preview_pipe.hide()
         if s._ellipse_step == 0:
             s.update_preview_node(snapped)
-        else:
-            s.preview_node.hide()
-            self._preview_from_ellipse(snapped)
-            if s._ellipse_step == 1:
-                s.publish_placement_state(s._ellipse_center, snapped)
+            return
+        s.preview_node.hide()
+        if (event is not None
+                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                and s._ellipse_center is not None):
+            snapped = s._constrain_angle(s._ellipse_center, snapped)
+        self._preview_from_ellipse(snapped)
+        if s._ellipse_step == 2:
+            self._update_ellipse_minor_ref(snapped)
+        # Publish so the DynamicInputHud reads out Length/Angle (step 1) or
+        # Radius (step 2) from the centre anchor.
+        s.publish_placement_state(s._ellipse_center, snapped)
 
     def _preview_from_ellipse(self, cursor) -> None:
+        """Step-aware preview updater (shared by the mouse move and the HUD-Tab
+        field-commit path via _PREVIEW_DISPATCH)."""
         s = self._scene
         if s._ellipse_center is None:
             return
         cx, cy = s._ellipse_center.x(), s._ellipse_center.y()
         if s._ellipse_step == 1:
-            dx, dy = cursor.x() - cx, cursor.y() - cy
-            rx = max(math.hypot(dx, dy), 0.5)
-            rot = math.degrees(math.atan2(-dy, dx))
-            if s._ellipse_preview is not None:
-                s._ellipse_preview._rx = rx
-                s._ellipse_preview._rotation_deg = rot
-                s._ellipse_preview._regenerate()
+            if s._ellipse_radius_line is not None:
+                s._ellipse_radius_line.setLine(cx, cy, cursor.x(), cursor.y())
         elif s._ellipse_step == 2 and s._ellipse_preview is not None:
             dx, dy = cursor.x() - cx, cursor.y() - cy
             s._ellipse_preview._ry = max(math.hypot(dx, dy), 0.5)
             s._ellipse_preview._regenerate()
 
+    def _apply_ellipse_dynamic_input(self, geometry) -> bool:
+        """Route a resolved ellipse HUD value to the right step's applier.
+
+        Step 1 (``line`` schema) resolves to the major-endpoint QPointF; step 2
+        (``circle`` schema) resolves to a minor rim QPointF (only its distance
+        from the centre is used).
+        """
+        s = self._scene
+        if s._ellipse_step == 1:
+            return self._commit_draw_ellipse_major_at(geometry)   # QPointF
+        if s._ellipse_step == 2:
+            return self._commit_draw_ellipse_at(geometry)         # QPointF
+        return False
+
     def _commit_draw_ellipse_at(self, cursor):
         s = self._scene
         if s._ellipse_center is None or s._ellipse_major is None:
             return False
-        dxm = s._ellipse_major.x() - s._ellipse_center.x()
-        dym = s._ellipse_major.y() - s._ellipse_center.y()
-        rx = math.hypot(dxm, dym)
-        rot = math.degrees(math.atan2(-dym, dxm))
+        rx = s._ellipse_rx
+        rot = s._ellipse_rot
         ry = math.hypot(cursor.x() - s._ellipse_center.x(),
                         cursor.y() - s._ellipse_center.y())
         if rx < 0.5 or ry < 0.5:
@@ -364,11 +455,18 @@ class GeometryDrawingController:
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_ellipses.append(item)
+        s.clearSelection()            # only the just-placed item stays selected
         item.setSelected(True)
         for v in s.views(): v.viewport().update()
         if s._ellipse_preview is not None:
-            s.removeItem(s._ellipse_preview); s._ellipse_preview = None
-        s._ellipse_center = None; s._ellipse_major = None; s._ellipse_step = 0
+            s.removeItem(s._ellipse_preview)
+            s._ellipse_preview = None
+        self._clear_ellipse_ref_lines()
+        s._ellipse_center = None
+        s._ellipse_major = None
+        s._ellipse_step = 0
+        s._ellipse_rx = 0.0
+        s._ellipse_rot = 0.0
         s.clear_placement_state()
         s.push_undo_state()
         s.instructionChanged.emit("Pick centre point")
@@ -1379,25 +1477,75 @@ class GeometryDrawingController:
 
     # ── Spline (N-click control polygon; mirrors polyline authoring) ─────────
 
-    def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):
+    def _refresh_spline_preview(self) -> None:
+        """Rebuild the smooth B-spline curve preview from the control points."""
         s = self._scene
-        s._spline_points.append(QPointF(snapped))
         from .construction_geometry import SplineItem
-        # Preview requires at least 2 points (ezdxf BSpline order>=2)
-        if len(s._spline_points) >= 2:
-            if s._spline_preview is None:
-                prev = SplineItem(list(s._spline_points), 3, None, None,
-                                  s._geom_color_lw()[0], 2)
-                prev.setZValue(200)
-                s.addItem(prev)
-                s._spline_preview = prev
-            else:
-                s._spline_preview._control_points = list(s._spline_points)
-                s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
-                s._spline_preview._knots = None       # force auto clamped-uniform recompute
-                s._spline_preview._regenerate()
+        if len(s._spline_points) < 2:
+            return
+        if s._spline_preview is None:
+            prev = SplineItem(list(s._spline_points), 3, None, None,
+                              s._geom_color_lw()[0], 2)
+            prev.setZValue(200)
+            s.addItem(prev)
+            s._spline_preview = prev
+        else:
+            s._spline_preview._control_points = list(s._spline_points)
+            s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
+            s._spline_preview._knots = None       # force auto clamped-uniform recompute
+            s._spline_preview._regenerate()
+
+    def _update_spline_ref_poly(self, cursor=None) -> None:
+        """Draw/refresh the straight control-polygon guide through the control
+        points (dashed lines *between the nodes*), plus a live segment to
+        ``cursor`` when one is given."""
+        s = self._scene
+        pts = list(s._spline_points)
+        if cursor is not None:
+            pts = pts + [QPointF(cursor)]
+        if len(pts) < 2:
+            self._clear_spline_ref_poly()
+            return
+        path = QPainterPath()
+        path.moveTo(pts[0])
+        for p in pts[1:]:
+            path.lineTo(p)
+        if s._spline_ref_poly is None:
+            item = QGraphicsPathItem()
+            _pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+            _pen.setCosmetic(True)
+            item.setPen(_pen)
+            item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            item.setZValue(199)   # under the smooth curve preview (200)
+            s.addItem(item)
+            s._spline_ref_poly = item
+        s._spline_ref_poly.setPath(path)
+
+    def _clear_spline_ref_poly(self) -> None:
+        s = self._scene
+        if s._spline_ref_poly is not None:
+            if s._spline_ref_poly.scene() is s:
+                s.removeItem(s._spline_ref_poly)
+            s._spline_ref_poly = None
+
+    def _add_spline_control_point(self, pt) -> None:
+        """Append a control point and refresh the curve + control-polygon guide.
+        Shared by the mouse press and the ``line`` HUD applier."""
+        s = self._scene
+        s._spline_points.append(QPointF(pt))
+        self._refresh_spline_preview()
+        self._update_spline_ref_poly()
         s.instructionChanged.emit(
             "Click next control point (Enter/double-click to finish, Delete to undo)")
+
+    def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        self._add_spline_control_point(snapped)
+
+    def _apply_spline_dynamic_input(self, geometry) -> bool:
+        """HUD applier: the ``line`` schema resolves Length/Angle (from the last
+        control point) into a point — append it as the next control point."""
+        self._add_spline_control_point(geometry)
+        return True
 
     def _move_draw_spline(self, event, snapped):
         s = self._scene
@@ -1411,11 +1559,15 @@ class GeometryDrawingController:
             s._spline_preview._degree = max(1, min(3, len(pts) - 1))
             s._spline_preview._knots = None
             s._spline_preview._regenerate()
+        self._update_spline_ref_poly(snapped)
+        # Publish so the DynamicInputHud reads Length/Angle from the last node.
+        s.publish_placement_state(s._spline_points[-1], snapped)
 
     def _finish_draw_spline(self):
         s = self._scene
         pts = list(s._spline_points)
         self._cancel_spline_preview()
+        self._clear_spline_ref_poly()
         if len(pts) < 2:
             s._spline_points = []
             return False
@@ -1427,6 +1579,7 @@ class GeometryDrawingController:
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_splines.append(item)
+        s.clearSelection()            # only the just-placed item stays selected
         item.setSelected(True)
         for v in s.views(): v.viewport().update()
         s._spline_points = []
@@ -1442,12 +1595,14 @@ class GeometryDrawingController:
         s._spline_points.pop()
         if not s._spline_points:
             self._cancel_spline_preview()
+            self._clear_spline_ref_poly()
             return
         if s._spline_preview is not None:
             s._spline_preview._control_points = list(s._spline_points)
             s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
             s._spline_preview._knots = None
             s._spline_preview._regenerate()
+        self._update_spline_ref_poly()
 
     def _cancel_spline_preview(self):
         s = self._scene

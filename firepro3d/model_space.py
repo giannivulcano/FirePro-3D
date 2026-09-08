@@ -247,9 +247,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._ellipse_major: "QPointF | None" = None
         self._ellipse_step: int = 0
         self._ellipse_preview: "EllipseItem | None" = None
+        self._ellipse_rx: float = 0.0            # fixed after the major click
+        self._ellipse_rot: float = 0.0           # Y-up major-axis angle (deg)
+        self._ellipse_radius_line = None         # step-1 radial preview line
+        self._ellipse_ref_major = None           # step-2 fixed major-axis guide
+        self._ellipse_ref_minor = None           # step-2 live perpendicular guide
         # Spline drawing (N-click control polygon)
         self._spline_points: list = []
         self._spline_preview: "SplineItem | None" = None
+        self._spline_ref_poly = None             # straight control-polygon guide
         # Polygon drawing (3-step: centre → radius → rotate)
         # _polygon_rotating: True during rotate step (after radius click)
         # _polygon_sized_radius: the fixed radius while rotating
@@ -2611,6 +2617,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_line": "line",
         "draw_gridline": "line",
         "polyline": "line",
+        # draw_spline: per-segment Length/Angle from the last control point,
+        # exactly like polyline (the applier appends a control point).
+        "draw_spline": "line",
         # wall is intentionally absent — active_schema special-cases it per
         # primitive (line/polyline → ``line``, rect → ``rectangle``), mirroring
         # the draw_rectangle / draw_arc pattern.
@@ -2640,10 +2649,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
-        # draw_ellipse is intentionally absent — it has no _SCHEMA_FOR_MODE entry
-        # (no HUD in v1), so _hud_available() never engages and the applier would
-        # be dead. The 3-click mouse path calls _commit_draw_ellipse_at directly.
-        # draw_spline is likewise mouse-only (N-click control polygon, no HUD).
+        # draw_ellipse is step-aware (like draw_arc): active_schema special-cases
+        # it (step 1 → line schema Length=rx/Angle=rotation; step 2 → circle
+        # schema Radius=ry); this router dispatches to the step applier.
+        "draw_ellipse": "_apply_ellipse_dynamic_input",
+        # draw_spline uses the per-segment ``line`` schema; the applier appends a
+        # control point at the resolved point.
+        "draw_spline": "_apply_spline_dynamic_input",
         # polygon is step-aware (like draw_rectangle): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
@@ -5288,6 +5300,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _pop_draw_spline_vertex(self):  # shell
         return self._geom_ctl._pop_draw_spline_vertex()
 
+    def _apply_spline_dynamic_input(self, geometry) -> bool:  # shell
+        return self._geom_ctl._apply_spline_dynamic_input(geometry)
+
     def _commit_polyline_at(self, tip):
         """Append one vertex to the active polyline at ``tip``.
 
@@ -5490,6 +5505,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _commit_draw_ellipse_at(self, cursor):  # shell
         return self._geom_ctl._commit_draw_ellipse_at(cursor)
+
+    def _apply_ellipse_dynamic_input(self, geometry) -> bool:  # shell
+        return self._geom_ctl._apply_ellipse_dynamic_input(geometry)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.
