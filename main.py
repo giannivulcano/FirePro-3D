@@ -4484,11 +4484,15 @@ class MainWindow(QMainWindow):
 
         _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
-              "Draw a rectangle (R)")
+              "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
-        _mode("Polyline", "polyline_icon.svg", "polyline", "Draw a polyline")
-        _mode("Arc", "arc_icon.svg", "draw_arc", "Draw an arc")
-        _mode("Polygon", "polygon_icon.svg", "polygon", "Draw a polygon (P)")
+        _mode("Polyline", "polyline_icon.svg", "polyline",
+              "Draw a polyline (multi-segment)")
+        _mode("Arc", "arc_icon.svg", "draw_arc",
+              "Draw an arc (3-click) — ←/→ toggles start point")
+        _mode("Polygon", "polygon_icon.svg", "polygon",
+              "Draw a regular polygon — ↑/↓ sides, "
+              "←/→ inscribed/circumscribed (P)")
 
     def _be_save(self):
         w = self._active_editor_widget()
