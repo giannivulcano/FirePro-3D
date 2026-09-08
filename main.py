@@ -2744,10 +2744,24 @@ class MainWindow(QMainWindow):
         mgr.activateWindow()
 
     def _sync_mode_buttons(self, mode: str):
-        """Keep draw-mode buttons checked/unchecked to match the active mode."""
+        """Keep draw-mode buttons checked/unchecked to match the active mode.
+
+        Resilient to deleted buttons: the main ribbon and each Block Editor tab
+        both register into ``_mode_buttons`` under the same mode keys, so closing
+        a Block Editor tab leaves dead C++ wrappers behind for the shared draw
+        modes. Skip (and prune) any whose underlying object has been deleted —
+        the same self-heal pattern used by ``_manip_wraps``.
+        """
+        from PyQt6 import sip
         active_btn = self._mode_buttons.get(mode)
+        if active_btn is not None and sip.isdeleted(active_btn):
+            active_btn = None
         seen: set[int] = set()
+        dead: list[str] = []
         for m, btn in self._mode_buttons.items():
+            if btn is None or sip.isdeleted(btn):
+                dead.append(m)
+                continue
             btn_id = id(btn)
             if btn_id in seen:
                 continue
@@ -2755,6 +2769,8 @@ class MainWindow(QMainWindow):
             btn.blockSignals(True)
             btn.setChecked(btn is active_btn)
             btn.blockSignals(False)
+        for m in dead:
+            self._mode_buttons.pop(m, None)
 
     # ── Contextual tab catalog + shared Edit group ─────────────────────────
 
@@ -3376,7 +3392,7 @@ class MainWindow(QMainWindow):
         from firepro3d.construction_geometry import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
-            RegularPolygonItem,
+            RegularPolygonItem, EllipseItem, SplineItem,
         )
         from firepro3d.annotations import (
             DimensionAnnotation,
@@ -3395,7 +3411,7 @@ class MainWindow(QMainWindow):
         # 2-D geometry family
         if isinstance(item, (PolylineItem, LineItem,
                               RectangleItem, CircleItem, ArcItem,
-                              RegularPolygonItem)):
+                              RegularPolygonItem, EllipseItem, SplineItem)):
             return "geo2d"
         # Annotation family
         if isinstance(item, (NoteAnnotation, DimensionAnnotation)):
