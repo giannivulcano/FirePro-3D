@@ -197,6 +197,30 @@ class BlockImportDialog(UnderlayImportDialog):
         return None
 
     # ------------------------------------------------------------------
+    # Multi-layout default
+    # ------------------------------------------------------------------
+
+    def _on_dxf_read(self, path, doc):
+        """Auto-preview the ``Model`` layout for multi-layout DXF/DWG files.
+
+        The shared dialog leaves a multi-layout file's layout combo unselected
+        ("Select a layout to preview.") so a multi-sheet underlay import lets the
+        user pick a sheet. For block authoring the user wants the CAD geometry,
+        which lives in model space — so when a ``Model`` layout exists and nothing
+        is selected yet, select it (which kicks off extraction). The user can
+        still switch to a paper-space sheet from the same combo.
+        """
+        super()._on_dxf_read(path, doc)
+        # Populated combo + no selection == the shared dialog's multi-layout
+        # "pick a sheet" state. (Don't gate on isVisible() — false when the
+        # dialog isn't shown yet, e.g. under test.)
+        combo = getattr(self, "_layout_combo", None)
+        if combo is not None and combo.count() > 0 and combo.currentIndex() < 0:
+            idx = combo.findText("Model")
+            if idx >= 0:
+                combo.setCurrentIndex(idx)   # fires _on_layout_changed -> extract
+
+    # ------------------------------------------------------------------
     # Step navigation — neutralised (no rail, no stack navigation)
     # ------------------------------------------------------------------
 

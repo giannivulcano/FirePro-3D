@@ -77,6 +77,27 @@ def test_block_import_dialog_switch_step_is_noop(qapp):
 
 
 # ---------------------------------------------------------------------------
+# Multi-layout DWG/DXF auto-previews the Model layout (block-specific)
+# ---------------------------------------------------------------------------
+
+
+def test_multi_layout_auto_selects_model(qapp):
+    import ezdxf
+    doc = ezdxf.new()
+    doc.modelspace().add_line((0, 0), (10, 0))
+    doc.layouts.new("Sheet1")                 # -> multi-layout (Model + sheets)
+    dlg = BlockImportDialog(None)
+    try:
+        dlg._file_type = "dxf"
+        dlg._on_dxf_read("plan.dxf", doc)
+        # Block editor auto-selects Model instead of leaving the "pick a layout"
+        # placeholder (the shared underlay dialog leaves it unselected).
+        assert dlg._layout_combo.currentText() == "Model"
+    finally:
+        dlg.deleteLater()
+
+
+# ---------------------------------------------------------------------------
 # CYCLE 3 — parent still builds name+levels by default (backwards-compat)
 # ---------------------------------------------------------------------------
 
