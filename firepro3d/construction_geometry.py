@@ -1512,13 +1512,15 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
-            painter.setPen(hl)
-            painter.drawPath(self.path())
-            # Draw a dashed circumradius reference circle when selected so the
-            # user can see the defining circle.  Subtle: thin dashed cosmetic pen.
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed circumradius reference circle — shown whenever selected
+            # (manipulator-wrapped or not): a content aid, NOT the highlight.
+            # Canonical reference-line style (width-1 dashed).
             rv = self._circumradius()
             cx, cy = self._center.x(), self._center.y()
             ref_pen = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
@@ -1710,13 +1712,16 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
-            painter.setPen(hl)
-            painter.drawPath(self.path())
-            # Dashed major + minor axis guides — a selection-time reference aid
-            # (mirrors RegularPolygonItem's circumradius circle).
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed major + minor axis reference guides — shown whenever the
+            # ellipse is selected (manipulator-wrapped or not): a content aid,
+            # NOT the selection highlight. Canonical reference-line style
+            # (width-1 dashed) matching the placement-time radial guide.
             ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
             ref.setCosmetic(True)
             painter.setPen(ref)
@@ -1903,13 +1908,16 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
-            painter.setPen(hl)
-            painter.drawPath(self.path())
-            # Dashed control-polygon guide (straight lines between the control
-            # points) — a selection-time reference aid.
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed control-polygon reference guide (straight lines between the
+            # control points) — shown whenever selected (manipulator or not):
+            # a content aid, NOT the selection highlight. Canonical reference-
+            # line style, matching the placement-time control-polygon guide.
             if len(self._control_points) >= 2:
                 ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
                 ref.setCosmetic(True)

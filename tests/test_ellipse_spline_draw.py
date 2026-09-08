@@ -212,3 +212,47 @@ def test_spline_finish_clears_ref_poly_and_selection(scene):
     ctl._finish_draw_spline()
     selected = [it for it in scene._draw_splines if it.isSelected()]
     assert len(selected) == 1 and selected[0] is scene._draw_splines[-1]
+
+
+# ── Reference guides persist under the manipulator (reselection bug) ──────────
+
+def _px_count(scene, item, selected):
+    """Render pixel-count with a manipulator ALWAYS wrapping the item, at the
+    given selection state."""
+    from PyQt6.QtCore import QObject, QRectF
+    from PyQt6.QtGui import QImage, QPainter
+
+    class _FakeManip(QObject):
+        def wraps(self, it):
+            return True
+
+    scene._manipulator = _FakeManip()
+    item.setSelected(selected)
+    img = QImage(200, 160, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 200, 160), scene.itemsBoundingRect())
+    p.end()
+    return sum(1 for y in range(160) for x in range(200)
+               if img.pixelColor(x, y).alpha() > 0)
+
+
+def test_ellipse_ref_guides_render_when_manip_wrapped(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.construction_geometry import EllipseItem
+    sc = QGraphicsScene()
+    e = EllipseItem(QPointF(90, 70), 60, 24, 0.0)
+    sc.addItem(e)
+    # Manipulator wraps the item (reselection). Selecting must still add the
+    # dashed axis guides — previously suppressed by the _manip_wraps gate.
+    assert _px_count(sc, e, True) > _px_count(sc, e, False)
+
+
+def test_spline_ref_guides_render_when_manip_wrapped(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.construction_geometry import SplineItem
+    sc = QGraphicsScene()
+    s = SplineItem([QPointF(10, 10), QPointF(60, 90), QPointF(130, 20),
+                    QPointF(180, 70)])
+    sc.addItem(s)
+    assert _px_count(sc, s, True) > _px_count(sc, s, False)

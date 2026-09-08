@@ -338,15 +338,12 @@ class GeometryDrawingController:
             s._ellipse_step = 1
             s.update_preview_node(snapped)
             s.instructionChanged.emit("Pick major-axis endpoint (radius + angle)")
-            # Step-1 radial preview (centre → cursor), mirroring the arc radius line.
-            line = QGraphicsLineItem(snapped.x(), snapped.y(),
-                                     snapped.x(), snapped.y())
-            _pen = QPen(QColor(s._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-            _pen.setCosmetic(True)
-            line.setPen(_pen)
-            line.setZValue(200)
-            s.addItem(line)
-            s._ellipse_radius_line = line
+            # Step-1 radial guide — the canonical reference-line style (width-1
+            # dashed, via _make_ref_line) so the placement guide matches the
+            # post-placement major-axis reference drawn in EllipseItem.paint().
+            s._ellipse_radius_line = s._make_ref_line()
+            s._ellipse_radius_line.setLine(snapped.x(), snapped.y(),
+                                           snapped.x(), snapped.y())
         elif s._ellipse_step == 1:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):

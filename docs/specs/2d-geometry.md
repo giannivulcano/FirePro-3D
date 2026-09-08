@@ -135,6 +135,31 @@ full dual-path persistence + enumeration set (§6). *Import extraction*
 (DXF `ellipse_full` / SPLINE → these primitives) is owned by the separate
 block-editor curve-fidelity task, **not** this subsystem.
 
+## 3.6 Reference lines (placement + selection guides) — invariant
+
+A **reference line** is the canonical dashed guide the 2D-geometry tools use to
+show *defining geometry* — axes, radii, control polygons, the 0° datum / sweep
+radials. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
+in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
+`setCosmetic(True)`). The scene-side factory `Model_Space._make_ref_line()` /
+`_make_ref_circle()` (z = 200) builds the placement-time guides; each item's
+`paint()` draws the same style for the selection-time guides.
+
+**Invariants:**
+- The **placement-time** guide and the **selection-time** guide for the same
+  primitive MUST use this identical style (a placement radial must not be a
+  thicker "preview" line than the axis it becomes). Preview *rubber-bands* that
+  track the cursor toward a not-yet-committed point may still use the heavier
+  width-2 preview pen (circle/arc radius line); a *reference* line (a guide that
+  represents committed defining geometry) is always width-1.
+- Selection-time reference guides are drawn **whenever the item `isSelected()`**,
+  independent of `_manip_wraps()` — they are a content aid, not the selection
+  highlight (only the lighter highlight outline is gated on `not _manip_wraps`,
+  to avoid double-drawing with the manipulator frame).
+- Items that expose defining geometry render it as reference lines on selection:
+  `EllipseItem` (major + minor axes), `SplineItem` (control polygon),
+  `RegularPolygonItem` (circumradius circle).
+
 ## 4. Placement workflows (`model_space.py`)
 
 Placement is **always continuous** (the `single_place_mode` opt-in was removed
