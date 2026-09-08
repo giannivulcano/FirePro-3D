@@ -1526,9 +1526,9 @@ class MainWindow(QMainWindow):
                   "draw_rectangle").setToolTip(
             "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
-        _mode_btn(g_geom, "Ellipse", _I("placeholder_icon.svg"), "draw_ellipse").setToolTip(  # TODO ellipse_icon.svg
+        _mode_btn(g_geom, "Ellipse", _I("ellipse_icon.svg"), "draw_ellipse").setToolTip(
             "Draw an ellipse (3-click: centre, major, minor)")
-        _mode_btn(g_geom, "Spline", _I("placeholder_icon.svg"), "draw_spline").setToolTip(  # TODO spline_icon.svg
+        _mode_btn(g_geom, "Spline", _I("spline_icon.svg"), "draw_spline").setToolTip(
             "Draw a spline (click control points; Enter/double-click to finish)")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
@@ -4492,9 +4492,9 @@ class MainWindow(QMainWindow):
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
               "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
-        _mode("Ellipse", "placeholder_icon.svg", "draw_ellipse",  # TODO ellipse_icon.svg
+        _mode("Ellipse", "ellipse_icon.svg", "draw_ellipse",
               "Draw an ellipse (3-click: centre, major, minor)")
-        _mode("Spline", "placeholder_icon.svg", "draw_spline",  # TODO spline_icon.svg
+        _mode("Spline", "spline_icon.svg", "draw_spline",
               "Draw a spline (click control points; Enter/double-click to finish)")
         _mode("Polyline", "polyline_icon.svg", "polyline",
               "Draw a polyline (multi-segment)")
