@@ -123,7 +123,6 @@ class BlockEditorWidget(QWidget):
         self._edit_block_id = block_id
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
-        self._import_worker = None           # retained so the QThread isn't GC'd mid-run
         self.editor_scene = Model_Space()    # isolated scratchpad; no managers injected
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
@@ -380,86 +379,38 @@ class BlockEditorWidget(QWidget):
             (f", skipped {skipped}" if skipped else ""), timeout=5000)
         return len(items), skipped
 
-    def import_file(self, path, import_scale):
-        """Extract geometry from *path* (DXF/DWG/PDF) and add editable primitives.
-
-        Async for DXF/PDF (worker thread). DWG is converted to DXF first.
-
-        Args:
-            path: Absolute path to the source file (.dxf, .dwg, or .pdf).
-            import_scale: Multiplier applied to all coordinates (real mm per
-                source unit).
-        """
-        import os
-        ext = os.path.splitext(path)[1].lower()
-        if ext == ".pdf":
-            from .pdf_import_worker import PdfImportWorker
-            worker = PdfImportWorker(path)
-        elif ext == ".dwg":
-            from . import dwg_converter
-            oda = dwg_converter.find_oda_converter()
-            if not oda:
-                self.editor_scene._show_status(
-                    "DWG import needs the ODA File Converter (not found)", timeout=6000)
-                return
-            dxf = dwg_converter.convert_dwg_to_dxf(oda, path)
-            if not dxf:
-                self.editor_scene._show_status("DWG conversion failed", timeout=6000)
-                return
-            from .dxf_import_worker import DxfImportWorker
-            worker = DxfImportWorker(dxf, skip_sanitize=True)
-            self._import_dwg_tmp = dxf   # cleaned up in _on_import_finished
-        elif ext in (".dxf",):
-            from .dxf_import_worker import DxfImportWorker
-            worker = DxfImportWorker(path)
-        else:
-            self.editor_scene._show_status(f"Unsupported file type: {ext}", timeout=4000)
-            return
-        self._import_worker = worker
-        self._import_scale = import_scale
-        worker.finished_data.connect(self._on_import_finished)
-        worker.error.connect(self._on_import_error)
-        worker.status.connect(lambda m: self.editor_scene._show_status(m, timeout=3000))
-        worker.start()
-
-    def _on_import_finished(self, geoms):
-        self._add_imported_geoms(geoms, getattr(self, "_import_scale", 1.0))
-        self._cleanup_import_worker()
-
-    def _on_import_error(self, msg):
-        self.editor_scene._show_status(f"Import failed: {msg}", timeout=6000)
-        self._cleanup_import_worker()
-
-    def _cleanup_import_worker(self):
-        tmp = getattr(self, "_import_dwg_tmp", None)
-        if tmp:
-            try:
-                from . import dwg_converter
-                dwg_converter.cleanup_converted_dxf(tmp)
-            except Exception:
-                pass
-            self._import_dwg_tmp = None
-        self._import_worker = None
-
     def begin_import(self):
-        """File dialog -> scale prompt -> import_file (ribbon Import verb)."""
-        from PyQt6.QtWidgets import QFileDialog
-        from .themed_message import themed_input_number
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import geometry", "",
-            "CAD / PDF (*.dxf *.dwg *.pdf);;All files (*)")
-        if not path:
-            return
-        import os
-        ext = os.path.splitext(path)[1].lower()
-        default = (25.4 / 72.0) if ext == ".pdf" else 1.0
-        scale, ok = themed_input_number(
-            self, "Import scale",
-            "Millimetres per source unit (DXF unit / PDF point):",
-            initial=default, dimension=False, minimum=1e-6)
-        if not ok:
-            return
-        self.import_file(path, scale)
+        """Import geometry via the underlay import dialog (ribbon Import verb).
+
+        Reuses ``UnderlayImportDialog`` for the full import UX — file load,
+        high-fidelity preview, scale (incl. calibrate), insertion base, and layer
+        selection — then bakes its resolved transform and drops the filtered
+        geometry into the editor as **native 2D primitives** (not a batched
+        underlay). The dialog owns its own async extraction, so no worker is
+        needed here.
+
+        Fidelity note: today LINE/CIRCLE arrive as native LineItem/CircleItem and
+        arcs/splines/ellipses as high-resolution PolylineItem (the shared
+        extraction tessellates them). Native Arc/Ellipse/Spline import is a P1
+        follow-up — see todo_open.md 'revise the block-editor import' + the new
+        EllipseItem/SplineItem primitives.
+        """
+        from PyQt6.QtWidgets import QDialog
+        from .underlay_import_dialog import UnderlayImportDialog
+        from . import dwg_converter
+        dlg = UnderlayImportDialog(self, scale_manager=self.editor_scene.scale_manager)
+        try:
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            p = dlg.get_import_params()
+        finally:
+            dlg.deleteLater()
+        # Bake the dialog's resolved base-shift + scale into the (already
+        # layer-filtered) geom dicts, then convert to native primitives. Scale is
+        # already applied here, so pass 1.0 to the factory.
+        geoms = dwg_converter.apply_import_transform(
+            p.geom_list, p.scale, p.base_x, p.base_y)
+        self._add_imported_geoms(geoms, 1.0)
 
     def _save_to_library(self, defn, parent):
         """Persist *defn* to the on-disk block library, prompting on collision.
