@@ -59,6 +59,7 @@ class Model_View(QGraphicsView):
             "draw_line":              _C.CrossCursor,
             "draw_rectangle":         _C.CrossCursor,
             "draw_circle":            _C.CrossCursor,
+            "draw_ellipse":           _C.CrossCursor,
             "draw_arc":               _C.CrossCursor,
             "polyline":               _C.CrossCursor,
             "polygon":                _C.CrossCursor,

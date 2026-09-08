@@ -242,6 +242,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
+        # Ellipse drawing (3-click: centre → major endpoint → minor extent)
+        self._ellipse_center: "QPointF | None" = None
+        self._ellipse_major: "QPointF | None" = None
+        self._ellipse_step: int = 0
+        self._ellipse_preview: "EllipseItem | None" = None
         # Polygon drawing (3-step: centre → radius → rotate)
         # _polygon_rotating: True during rotate step (after radius click)
         # _polygon_sized_radius: the fixed radius while rotating
@@ -1283,6 +1288,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_line":      "Pick first point",
             "draw_rectangle": "Pick first corner",
             "draw_circle":    "Pick center point",
+            "draw_ellipse":   "Pick centre point",
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "dimension":      "Pick first point",
@@ -2616,6 +2622,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
+        "draw_ellipse": "_commit_draw_ellipse_at",
         # polygon is step-aware (like draw_rectangle): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
@@ -3328,6 +3335,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_gridline":            "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
+        "draw_ellipse":             "_move_draw_ellipse",
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
@@ -3367,6 +3375,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "polyline":        "_preview_from_polyline",
         "draw_rectangle":  "_preview_from_rectangle",
         "draw_circle":     "_preview_from_circle",
+        "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
@@ -3466,6 +3475,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _move_draw_circle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._move_draw_circle(event, snapped)
+
+    def _preview_from_ellipse(self, resolved) -> None:  # shell → GeometryDrawingController
+        return self._geom_ctl._preview_from_ellipse(resolved)
+
+    def _move_draw_ellipse(self, event, snapped):  # shell → GeometryDrawingController
+        return self._geom_ctl._move_draw_ellipse(event, snapped)
 
     def _move_polygon(self, event, snapped):  # shell → GeometryDrawingController (slice 9)
         return self._geom_ctl._move_polygon(event, snapped)
@@ -4020,7 +4035,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # moved item; they stay armed here and the press path swaps the sentinel for
     # the real self-exclude item.
     _ALIGN_PLACEMENT_MODES = frozenset({
-        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
+        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
         "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
@@ -4069,6 +4084,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_line":                "_press_draw_line",
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
+        "draw_ellipse":             "_press_draw_ellipse",
         "polygon":                  "_press_polygon",
         "wall":                     "_press_wall_router",
         "floor":                    "_press_floor_router",
@@ -4221,7 +4237,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "floor", "pipe", "sprinkler",
                             "draw_line", "draw_rectangle",
-                            "draw_circle", "draw_arc", "polyline", "draw_gridline",
+                            "draw_circle", "draw_ellipse", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
@@ -5429,6 +5445,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_draw_circle(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _press_draw_ellipse(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell
+        return self._geom_ctl._press_draw_ellipse(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _commit_draw_ellipse_at(self, cursor):  # shell
+        return self._geom_ctl._commit_draw_ellipse_at(cursor)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.

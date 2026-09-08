@@ -78,6 +78,14 @@ class GeometryDrawingController:
                 if s._draw_circle_preview.scene() is s:
                     s.removeItem(s._draw_circle_preview)
                 s._draw_circle_preview = None
+        if new_mode != "draw_ellipse":
+            s._ellipse_center = None
+            s._ellipse_major = None
+            s._ellipse_step = 0
+            if s._ellipse_preview is not None:
+                if s._ellipse_preview.scene() is s:
+                    s.removeItem(s._ellipse_preview)
+                s._ellipse_preview = None
         # Polygon teardown (slice 9)
         if new_mode != "polygon":
             s._polygon_center = None
@@ -274,6 +282,93 @@ class GeometryDrawingController:
         self._scene.clear_placement_state()
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Pick center point")
+        return True
+
+    # ── Ellipse (3-click: centre → major endpoint → minor extent) ───────────
+
+    def _press_draw_ellipse(self, event, pos, snapped, item_under, node_under, pipe_under):
+        s = self._scene
+        if s._ellipse_step == 0:
+            s._ellipse_center = snapped
+            s._ellipse_step = 1
+            s.update_preview_node(snapped)
+            s.instructionChanged.emit("Pick major-axis endpoint")
+        elif s._ellipse_step == 1:
+            dx = snapped.x() - s._ellipse_center.x()
+            dy = snapped.y() - s._ellipse_center.y()
+            if math.hypot(dx, dy) < 0.5:
+                s._show_status("Ellipse major axis too small — pick again", timeout=2000)
+                return
+            s._ellipse_major = snapped
+            s._ellipse_step = 2
+            s.instructionChanged.emit("Pick minor-axis extent")
+            from .construction_geometry import EllipseItem
+            prev = EllipseItem(s._ellipse_center, math.hypot(dx, dy), 0.5,
+                               math.degrees(math.atan2(-dy, dx)),
+                               s._geom_color_lw()[0], 2)
+            prev.setZValue(200)
+            s.addItem(prev)
+            s._ellipse_preview = prev
+        else:
+            self._commit_draw_ellipse_at(snapped)
+
+    def _move_draw_ellipse(self, event, snapped):
+        s = self._scene
+        if s._ellipse_step == 0:
+            s.update_preview_node(snapped)
+        else:
+            s.preview_node.hide()
+            self._preview_from_ellipse(snapped)
+            if s._ellipse_step == 1:
+                s.publish_placement_state(s._ellipse_center, snapped)
+
+    def _preview_from_ellipse(self, cursor) -> None:
+        s = self._scene
+        if s._ellipse_center is None:
+            return
+        cx, cy = s._ellipse_center.x(), s._ellipse_center.y()
+        if s._ellipse_step == 1:
+            dx, dy = cursor.x() - cx, cursor.y() - cy
+            rx = max(math.hypot(dx, dy), 0.5)
+            rot = math.degrees(math.atan2(-dy, dx))
+            if s._ellipse_preview is not None:
+                s._ellipse_preview._rx = rx
+                s._ellipse_preview._rotation_deg = rot
+                s._ellipse_preview._regenerate()
+        elif s._ellipse_step == 2 and s._ellipse_preview is not None:
+            dx, dy = cursor.x() - cx, cursor.y() - cy
+            s._ellipse_preview._ry = max(math.hypot(dx, dy), 0.5)
+            s._ellipse_preview._regenerate()
+
+    def _commit_draw_ellipse_at(self, cursor):
+        s = self._scene
+        if s._ellipse_center is None or s._ellipse_major is None:
+            return False
+        dxm = s._ellipse_major.x() - s._ellipse_center.x()
+        dym = s._ellipse_major.y() - s._ellipse_center.y()
+        rx = math.hypot(dxm, dym)
+        rot = math.degrees(math.atan2(-dym, dxm))
+        ry = math.hypot(cursor.x() - s._ellipse_center.x(),
+                        cursor.y() - s._ellipse_center.y())
+        if rx < 0.5 or ry < 0.5:
+            s._show_status("Ellipse axis too small — skipped", timeout=2000)
+            return False
+        from .construction_geometry import EllipseItem
+        tmpl = s._get_geometry_template()
+        _c, _lw = s._geom_color_lw()
+        item = EllipseItem(s._ellipse_center, rx, ry, rot, _c, _lw)
+        item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+        s.addItem(item)
+        s._draw_ellipses.append(item)
+        item.setSelected(True)
+        for v in s.views(): v.viewport().update()
+        if s._ellipse_preview is not None:
+            s.removeItem(s._ellipse_preview); s._ellipse_preview = None
+        s._ellipse_center = None; s._ellipse_major = None; s._ellipse_step = 0
+        s.clear_placement_state()
+        s.push_undo_state()
+        s.instructionChanged.emit("Pick centre point")
         return True
 
     # ── Polyline (the dual-concern Delete-pop helper

@@ -593,6 +593,8 @@ class PlacementInputCoordinator:
         if self._scene.mode == "draw_circle":
             a = self._scene._draw_circle_center
             return QPointF(a) if a is not None else None
+        if self._scene.mode == "draw_ellipse":
+            return QPointF(self._scene._ellipse_center) if self._scene._ellipse_center else None
         if self._scene.mode == "polygon":
             # Both sizing and rotate steps pivot about _polygon_center.
             a = self._scene._polygon_center
