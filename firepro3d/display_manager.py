@@ -533,7 +533,8 @@ def _apply_fitting(fitting, color, scale, opacity, visible, fill_color=None):
 def _is_geo2d_item(item) -> bool:
     """Check if item is one of the 5 draw-geometry classes (avoids circular imports)."""
     return type(item).__name__ in (
-        "LineItem", "PolylineItem", "RectangleItem", "CircleItem", "ArcItem"
+        "LineItem", "PolylineItem", "RectangleItem", "CircleItem", "ArcItem",
+        "EllipseItem"
     )
 
 
@@ -2808,6 +2809,7 @@ def _items_for_category_static(scene, key: str) -> list:
         items.extend(getattr(scene, "_draw_rects", []))
         items.extend(getattr(scene, "_draw_circles", []))
         items.extend(getattr(scene, "_draw_arcs", []))
+        items.extend(getattr(scene, "_draw_ellipses", []))
         items.extend(getattr(scene, "_draw_polygons", []))
         return items
     return []

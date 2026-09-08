@@ -15,6 +15,7 @@ from .model_space import Model_Space
 from .model_view import Model_View
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
+    EllipseItem,
 )
 from .block_definition import _PRIMITIVE_FACTORY
 from . import geometry_import
@@ -23,6 +24,7 @@ from .house_dialog import HouseDialog
 _CLS_TO_LIST = {
     LineItem: "_draw_lines", RectangleItem: "_draw_rects",
     CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
+    EllipseItem: "_draw_ellipses",
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
 }
 
@@ -247,7 +249,7 @@ class BlockEditorWidget(QWidget):
         s = self.editor_scene
         items = []
         for attr in ("_draw_lines", "_draw_rects", "_draw_circles",
-                     "_draw_arcs", "_polylines", "_draw_polygons"):
+                     "_draw_arcs", "_draw_ellipses", "_polylines", "_draw_polygons"):
             items.extend(getattr(s, attr))
         return items
 

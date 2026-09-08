@@ -404,6 +404,7 @@ class LevelWidget(QWidget):
         items += getattr(self.scene, "_draw_rects", [])
         items += getattr(self.scene, "_draw_circles", [])
         items += getattr(self.scene, "_draw_arcs", [])
+        items += getattr(self.scene, "_draw_ellipses", [])
         items += getattr(self.scene, "_draw_polygons", [])
         items += getattr(self.scene, "_gridlines", [])
         items += getattr(self.scene, "_roofs", [])

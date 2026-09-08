@@ -791,13 +791,14 @@ class SceneTools:
         """Return a flat list of all construction geometry items in the scene."""
         from .construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem,
+            RegularPolygonItem, EllipseItem,
         )
         items = []
         items.extend(self._scene._draw_lines)
         items.extend(self._scene._draw_rects)
         items.extend(self._scene._draw_circles)
         items.extend(self._scene._draw_arcs)
+        items.extend(getattr(self._scene, "_draw_ellipses", []))
         items.extend(self._scene._polylines)
         items.extend(self._scene._draw_polygons)
         return items
