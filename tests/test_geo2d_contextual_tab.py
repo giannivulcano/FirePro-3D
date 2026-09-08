@@ -1,8 +1,8 @@
 """Tests for the geo2d contextual ribbon tab — Placement + Fill groups.
 
 Verifies:
-  1. Selecting a RectangleItem shows the '2D Geometry' contextual tab containing
-     groups named 'Placement' and 'Fill'.
+  1. Selecting a RectangleItem shows the 'Modify | Rectangle' contextual tab
+     containing groups named 'Placement' and 'Fill'.
   2. Driving the Fill-type control to 'solid' routes through the undo path:
      rect.fill_type == 'solid' AND exactly one undo step was pushed.
   3. Driving the Level Offset control commits the parsed mm to
@@ -99,17 +99,17 @@ def _group_titles(page):
 
 
 def test_geo2d_tab_has_placement_and_fill_groups(main_window, qapp, clean_scene):
-    """Selecting a RectangleItem must show '2D Geometry' tab with 'Placement'
-    and 'Fill' groups."""
+    """Selecting a RectangleItem must show a 'Modify | Rectangle' tab with
+    'Placement' and 'Fill' groups."""
     rect = _make_rect(main_window.scene)
     rect.setSelected(True)
     qapp.processEvents()
 
     tabs = _titles(main_window)
-    assert "2D Geometry" in tabs, f"Expected '2D Geometry' contextual tab; got {tabs}"
+    assert "Modify | Rectangle" in tabs, f"Expected 'Modify | Rectangle' contextual tab; got {tabs}"
 
     # Find the contextual page
-    idx = tabs.index("2D Geometry")
+    idx = tabs.index("Modify | Rectangle")
     page = main_window.ribbon._stack.widget(idx)
     group_titles = _group_titles(page)
 
@@ -138,7 +138,7 @@ def test_fill_type_control_routes_through_undo(main_window, qapp, clean_scene):
     # Find the fill-type combo (QComboBox with "none"/"solid"/"hatch" options)
     from PyQt6.QtWidgets import QComboBox
     tabs = _titles(main_window)
-    idx = tabs.index("2D Geometry")
+    idx = tabs.index("Modify | Rectangle")
     page = main_window.ribbon._stack.widget(idx)
     combos = page.findChildren(QComboBox)
 
@@ -177,7 +177,7 @@ def test_level_offset_control_commits_mm(main_window, qapp, clean_scene):
 
     from firepro3d.dimension_edit import DimensionEdit
     tabs = _titles(main_window)
-    idx = tabs.index("2D Geometry")
+    idx = tabs.index("Modify | Rectangle")
     page = main_window.ribbon._stack.widget(idx)
 
     dim_edits = page.findChildren(DimensionEdit)
@@ -209,9 +209,9 @@ def test_fill_group_disabled_for_non_fillable(main_window, qapp, clean_scene):
     qapp.processEvents()
 
     tabs = _titles(main_window)
-    assert "2D Geometry" in tabs, f"Expected '2D Geometry' tab; got {tabs}"
+    assert "Modify | Line" in tabs, f"Expected 'Modify | Line' tab; got {tabs}"
 
-    idx = tabs.index("2D Geometry")
+    idx = tabs.index("Modify | Line")
     page = main_window.ribbon._stack.widget(idx)
 
     from firepro3d.ribbon_bar import RibbonGroup
