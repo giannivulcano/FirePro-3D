@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-05
-verified-commit: 928faba
+last-verified: 2026-09-08
+verified-commit: 1c988d5
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -94,7 +94,9 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 ### 3.8 Contextual tabs
 
-**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement group is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
+**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement *group* — the authoring group inside the **Create** tab, not a top-level tab — is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
+
+**Title model (Revit-style, 2026-09-08):** the tab title is **`"Modify | <Element>"`** where `<Element>` is the *concrete* element name of the selection (Rectangle / Circle / Ellipse / Spline / Wall / Pipe / …), not the family label. A selection that is **not homogeneous by element type** (mixed families *or* mixed 2-D-geometry types) titles the tab plain **`"Modify"`**. The family **key** still selects the page *builder* (`geo2d` → Placement+Fill+Edit, etc.); the **title** is decoupled and resolved per-selection by `_contextual_title()`.
 
 **Library primitives (`ribbon_bar.py` — dumb, no entity knowledge):**
 
@@ -103,17 +105,19 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 **Content & registry (`main.py` — owns all behavioral decisions):**
 
-- **`_CONTEXTUAL_TABS`** (class-level `dict[str, str]`): maps family key → human-readable tab title. Current catalog: `geo2d`, `geo3d`, `annotation`, `wall`, `floor`, `roof`, `room`, `opening`, `detail`, `pipe`, `sprinkler`, `water_supply`, `design_area`, `gridline`, `level`, `viewport`, `sheet_text`, `mixed` (→ "Modify").
-- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(title, page_builder)` callable. The **`geo2d`** key uses a dedicated `_build_geo2d_context` builder (2026-08-22 — Placement + Fill groups, then the shared Edit group); the **`floor`** key uses `_build_floor_context` (2026-08-28 — the reusable **Graphic Override** group, then the shared Edit group); all other keys still use `_build_contextual_edit_group`. Remaining type-specific tools are a filed follow-up.
-- **`_contextual_index`**: fixed slot = 7 (one past the 7th base tab) where the contextual tab is always inserted.
-- **`_active_contextual_key`**: the currently visible family key, or `None` when no contextual tab is shown.
+- **`_CONTEXTUAL_TABS`** (class-level `dict[str, str]`): maps family key → the family's registry label (used to build `_contextual_registry`; the key selects the *builder*). Catalog: `geo2d`, `geo3d`, `annotation`, `wall`, `floor`, `roof`, `room`, `opening`, `detail`, `pipe`, `sprinkler`, `water_supply`, `design_area`, `gridline`, `level`, `viewport`, `sheet_text`, `mixed`. **These labels are NOT the displayed tab title** — the user sees `"Modify | <Element>"` from `_contextual_title()` (see Title model above).
+- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(label, page_builder)` callable. The **`geo2d`** key uses a dedicated `_build_geo2d_context` builder (2026-08-22 — Placement + Fill groups, then the shared Edit group); the **`floor`** key uses `_build_floor_context` (2026-08-28 — the reusable **Graphic Override** group, then the shared Edit group); the **`opening`** key uses `_build_opening_context`; all other keys use `_build_contextual_edit_group`. Remaining type-specific tools are a filed follow-up.
+- **`_contextual_index`**: the insert slot immediately past the base tabs, **derived from the live tab count** at `_init_contextual_tabs()` time (`self.ribbon._tab_bar.count()`) — **currently 6** (base roster = Manage, Create, Architecture, Sprinkler Systems, Analyze, Draft; see §3.2). It is deliberately *not* hardcoded: a hardcoded `7` drifted stale once the roster settled at 6, silently sending `insert`/`setCurrentIndex`/`remove_page` at a non-existent slot (tab never auto-activated and never removed on deselect). The Block-Editor contextual page (`_show_/_hide_block_editor_ribbon`) shares this slot.
+- **`_element_name_for(item) -> str | None`**: friendly *element* name for the title (Rectangle/Circle/…, Door/Window/Blank via `openings_type`, Node/Pipe, etc.); `None` for the same unmappable set as `_family_key_for`.
+- **`_contextual_title(items) -> str`**: `"Modify | <Element>"` when the mappable selection is homogeneous by element name, else `"Modify"`.
+- **`_active_contextual_key`** / **`_active_contextual_title`**: the currently visible family key and displayed title, or `None` when no contextual tab is shown. Both are tracked so an element switch *within* a family (Rectangle → Circle — same `geo2d` key, different title) still retitles/rebuilds instead of a key-only no-op.
 - **`_pre_contextual_tab`**: the base-tab index to restore on deselect; captured only on the `None → contextual` transition so contextual-to-contextual swaps (wall → pipe) never overwrite the saved base.
 - **`_family_key_for(item) -> str | None`**: maps a scene item to its family key, or `None` for items with no contextual family (underlays, badges, helper child items). Subclass-before-base ordering is observed (DoorOpening/WindowOpening before WallOpening).
 - **`_resolve_selection_context(items) -> str | None`**: empty list or no mappable items → `None`; all items in the same family → that family key; items in multiple families → `"mixed"`.
-- **`_on_selection_changed_contextual()`**: wired to `scene.selectionChanged`. Transition table:
-  - **No change** (key == `_active_contextual_key`): no-op.
-  - **`None → contextual`**: capture `_pre_contextual_tab`; `insert_page` + activate.
-  - **`contextual → contextual`** (key change): `remove_page` old; `insert_page` + activate new (pre-tab stays from the original `None → contextual` capture).
+- **`_on_selection_changed_contextual()`**: wired to `scene.selectionChanged`. Suppressed while a placement tool is active (`scene.mode not in (None, "select")`) and while the Block-Editor ribbon owns the slot. Transition table (guard is on the `(key, title)` pair):
+  - **No change** (`key == _active_contextual_key` AND `title == _active_contextual_title`): no-op.
+  - **`None → contextual`**: capture `_pre_contextual_tab`; `insert_page(title)` + activate.
+  - **`contextual → contextual`** (key *or* title change): `remove_page` old; `insert_page(new title)` + activate (pre-tab stays from the original `None → contextual` capture).
   - **`contextual → None`**: `remove_page`; restore `_pre_contextual_tab`.
 
 **Reusable Graphic Override group (2026-08-28):** `_build_graphic_override_group(page)` adds a "Graphic Override" group of three small buttons — **Stroke Colour** / **Fill Colour** / **Clear** — surfacing the existing per-instance Display-Manager override machinery (`item._display_overrides` keyed `"color"` / `"fill"`; serialized). Stroke/Fill open a `QColorDialog` and write the picked hex onto every eligible selected item (those carrying a `_display_overrides` dict — the `DisplayableItemMixin` protocol); Clear empties the dict → reverts to the Display Manager category default. Each gesture pushes **one** undo snapshot (`scene.push_undo_state()`), re-applies via `display_manager.apply_saved_display_settings`, and emits `sceneModified`; an empty selection (or cancelled dialog) is a no-op that pushes nothing. Built on the Floor contextual tab first (via `_build_floor_context`) and designed to generalize to other entity families.
@@ -162,5 +166,5 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 | D5 | `_init_manage_tab` **shadows its `_btn` helper parameter** by rebinding `_btn = g_file.add_small_menu_button(...)` mid-function — the factory is unusable afterwards (later code happens not to call it). | Fragile; rename the locals on next touch. |
 | D6 | ~~Manage → Export group was a permanently-disabled placeholder button.~~ | **Resolved 2026-08-22** — stub removed during Manage-tab restructure. |
 | D7 | **Near-zero test coverage** — only `test_osnap_ui.py` touches the ribbon (Snap group). Contextual-tab behavior covered by `test_ribbon_restructure.py` (Preferences, 7-tab roster); mode-button sync and contextual show/hide via real selection need more coverage. | Gap; add coverage opportunistically when touching the ribbon. |
-| D8 | ~~Modify tab always visible + force-switching on selection~~ vs intended Revit-style contextual tab. | **Resolved 2026-08-22** — contextual-tab mechanism built (§3.8); Modify tab removed; `_on_selection_changed_modify` replaced by `_on_selection_changed_contextual`. |
+| D8 | ~~Modify tab always visible + force-switching on selection~~ vs intended Revit-style contextual tab. | **Resolved 2026-08-22** — contextual-tab mechanism built (§3.8); Modify tab removed; `_on_selection_changed_modify` replaced by `_on_selection_changed_contextual`. **Finalized 2026-09-08** — two coupled defects fixed: (1) `_contextual_index` was hardcoded `7` against a **6**-tab base roster, so the tab never auto-activated and never removed on deselect → now derived from the live tab count; (2) titles are now Revit-style **`"Modify | <Element>"`** (concrete element, not the family/`"2D Geometry"` label), resolving the confusion with the Create-tab "2D Geometry" *group*. |
 | D9 | **Paper-scene contextual parity deferred.** The `viewport` and `sheet_text` family keys exist in `_CONTEXTUAL_TABS` but `_on_selection_changed_contextual` only wires to `scene.selectionChanged` (model scene). Paper-space selection does not yet trigger contextual tabs. | Filed follow-up. |
