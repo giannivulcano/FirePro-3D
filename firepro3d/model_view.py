@@ -60,6 +60,7 @@ class Model_View(QGraphicsView):
             "draw_rectangle":         _C.CrossCursor,
             "draw_circle":            _C.CrossCursor,
             "draw_ellipse":           _C.CrossCursor,
+            "draw_spline":            _C.CrossCursor,
             "draw_arc":               _C.CrossCursor,
             "polyline":               _C.CrossCursor,
             "polygon":                _C.CrossCursor,
@@ -848,6 +849,10 @@ class Model_View(QGraphicsView):
             # Floor polygon placement pops its last vertex on Delete too.
             if (getattr(sc, "mode", None) == "floor"
                     and getattr(sc, "_floor_active", None) is not None):
+                ev.accept()
+                return True
+            if (getattr(sc, "mode", None) == "draw_spline"
+                    and getattr(sc, "_spline_points", None)):
                 ev.accept()
                 return True
         return super().event(ev)

@@ -111,6 +111,9 @@ class GeometryDrawingController:
                     s.removeItem(s._draw_arc_preview)
                 s._draw_arc_preview = None
             self._clear_arc_ref_lines()
+        if new_mode != "draw_spline":
+            s._spline_points = []
+            self._cancel_spline_preview()
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
     #    stays scene-side because it builds a GridlineItem in gridline mode) ────
@@ -1373,3 +1376,82 @@ class GeometryDrawingController:
         else:
             s.instructionChanged.emit(
                 f"Pick centre point  |  {self._polygon_readout()}")
+
+    # ── Spline (N-click control polygon; mirrors polyline authoring) ─────────
+
+    def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        s = self._scene
+        s._spline_points.append(QPointF(snapped))
+        from .construction_geometry import SplineItem
+        # Preview requires at least 2 points (ezdxf BSpline order>=2)
+        if len(s._spline_points) >= 2:
+            if s._spline_preview is None:
+                prev = SplineItem(list(s._spline_points), 3, None, None,
+                                  s._geom_color_lw()[0], 2)
+                prev.setZValue(200)
+                s.addItem(prev)
+                s._spline_preview = prev
+            else:
+                s._spline_preview._control_points = list(s._spline_points)
+                s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
+                s._spline_preview._knots = None       # force auto clamped-uniform recompute
+                s._spline_preview._regenerate()
+        s.instructionChanged.emit(
+            "Click next control point (Enter/double-click to finish, Delete to undo)")
+
+    def _move_draw_spline(self, event, snapped):
+        s = self._scene
+        if not s._spline_points:
+            s.update_preview_node(snapped)
+            return
+        s.preview_node.hide()
+        if s._spline_preview is not None:
+            pts = list(s._spline_points) + [QPointF(snapped)]
+            s._spline_preview._control_points = pts
+            s._spline_preview._degree = max(1, min(3, len(pts) - 1))
+            s._spline_preview._knots = None
+            s._spline_preview._regenerate()
+
+    def _finish_draw_spline(self):
+        s = self._scene
+        pts = list(s._spline_points)
+        self._cancel_spline_preview()
+        if len(pts) < 2:
+            s._spline_points = []
+            return False
+        from .construction_geometry import SplineItem
+        tmpl = s._get_geometry_template()
+        _c, _lw = s._geom_color_lw()
+        item = SplineItem(pts, 3, None, None, _c, _lw)
+        item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+        s.addItem(item)
+        s._draw_splines.append(item)
+        item.setSelected(True)
+        for v in s.views(): v.viewport().update()
+        s._spline_points = []
+        s.clear_placement_state()
+        s.push_undo_state()
+        s.instructionChanged.emit("Pick first control point")
+        return True
+
+    def _pop_draw_spline_vertex(self):
+        s = self._scene
+        if not s._spline_points:
+            return
+        s._spline_points.pop()
+        if not s._spline_points:
+            self._cancel_spline_preview()
+            return
+        if s._spline_preview is not None:
+            s._spline_preview._control_points = list(s._spline_points)
+            s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
+            s._spline_preview._knots = None
+            s._spline_preview._regenerate()
+
+    def _cancel_spline_preview(self):
+        s = self._scene
+        if s._spline_preview is not None:
+            if s._spline_preview.scene() is s:
+                s.removeItem(s._spline_preview)
+            s._spline_preview = None

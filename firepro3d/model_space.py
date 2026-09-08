@@ -247,6 +247,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._ellipse_major: "QPointF | None" = None
         self._ellipse_step: int = 0
         self._ellipse_preview: "EllipseItem | None" = None
+        # Spline drawing (N-click control polygon)
+        self._spline_points: list = []
+        self._spline_preview: "SplineItem | None" = None
         # Polygon drawing (3-step: centre → radius → rotate)
         # _polygon_rotating: True during rotate step (after radius click)
         # _polygon_sized_radius: the fixed radius while rotating
@@ -1292,6 +1295,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_rectangle": "Pick first corner",
             "draw_circle":    "Pick center point",
             "draw_ellipse":   "Pick centre point",
+            "draw_spline":    "Pick first control point",
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "dimension":      "Pick first point",
@@ -3350,6 +3354,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
         "draw_ellipse":             "_move_draw_ellipse",
+        "draw_spline":              "_move_draw_spline",
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
@@ -4050,7 +4055,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # the real self-exclude item.
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
-        "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
+        "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
         "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
@@ -4099,6 +4104,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
         "draw_ellipse":             "_press_draw_ellipse",
+        "draw_spline":              "_press_draw_spline",
         "polygon":                  "_press_polygon",
         "wall":                     "_press_wall_router",
         "floor":                    "_press_floor_router",
@@ -4251,7 +4257,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "floor", "pipe", "sprinkler",
                             "draw_line", "draw_rectangle",
-                            "draw_circle", "draw_ellipse", "draw_arc", "polyline", "draw_gridline",
+                            "draw_circle", "draw_ellipse", "draw_arc", "draw_spline",
+                            "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
@@ -5265,6 +5272,18 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_polyline(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell
+        return self._geom_ctl._press_draw_spline(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _move_draw_spline(self, event, snapped):  # shell
+        return self._geom_ctl._move_draw_spline(event, snapped)
+
+    def _finish_draw_spline(self):  # shell
+        return self._geom_ctl._finish_draw_spline()
+
+    def _pop_draw_spline_vertex(self):  # shell
+        return self._geom_ctl._pop_draw_spline_vertex()
 
     def _commit_polyline_at(self, tip):
         """Append one vertex to the active polyline at ``tip``.
@@ -6367,6 +6386,17 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             event.accept()
             return
 
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.mode == "draw_spline"
+                and self._spline_points):
+            # Double-click delivers one extra press (a duplicate control point at
+            # the ghost tip); drop it so the spline finishes at the last clicked pt.
+            if len(self._spline_points) > 2:
+                self._spline_points.pop()
+            self._geom_ctl._finish_draw_spline()
+            event.accept()
+            return
+
         # ── Floor: double-click closes the polygon ───────────────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "floor"
@@ -6792,7 +6822,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
         elif event.key() == Qt.Key.Key_Delete:
-            if not self._delete_or_pop_polyline_vertex():
+            if self.mode == "draw_spline" and self._spline_points:
+                self._pop_draw_spline_vertex()
+            elif not self._delete_or_pop_polyline_vertex():
                 self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             # Ctrl+A is handled by QShortcut → Model_View._select_all_items()
@@ -6829,6 +6861,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.mode == "draw_spline":
+                self._finish_draw_spline()
+                return
             # place_block: Enter at the rotate step commits upright (0deg)
             if self.mode == "place_block" and self._place_block_step == 1:
                 self._place_block_commit(0.0)

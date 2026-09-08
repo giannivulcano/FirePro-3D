@@ -58,3 +58,55 @@ def test_mode_switch_clears_ellipse_state(scene):
     scene.set_mode("select")
     assert scene._ellipse_step == 0
     assert scene._ellipse_center is None
+
+
+# ── Spline draw tool (appended) ─────────────────────────────────────────────
+from firepro3d.construction_geometry import SplineItem
+
+
+def test_nclick_spline_placement(scene):
+    scene.set_mode("draw_spline")
+    ctl = scene._geom_ctl
+    pts = [QPointF(0, 0), QPointF(10, 20), QPointF(30, -10), QPointF(40, 5)]
+    for p in pts:
+        ctl._press_draw_spline(None, p, p, None, None, None)
+    ctl._finish_draw_spline()
+    assert len(scene._draw_splines) == 1
+    assert len(scene._draw_splines[0]._control_points) == 4
+    assert scene._draw_splines[0]._degree == 3
+
+
+def test_spline_finish_early_lowers_degree(scene):
+    scene.set_mode("draw_spline")
+    ctl = scene._geom_ctl
+    for p in (QPointF(0, 0), QPointF(10, 10), QPointF(20, 0)):
+        ctl._press_draw_spline(None, p, p, None, None, None)
+    ctl._finish_draw_spline()
+    assert scene._draw_splines[0]._degree == 2
+
+
+def test_spline_single_point_cancels(scene):
+    scene.set_mode("draw_spline")
+    ctl = scene._geom_ctl
+    ctl._press_draw_spline(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ctl._finish_draw_spline()
+    assert len(scene._draw_splines) == 0
+
+
+def test_spline_delete_pops_control_point(scene):
+    scene.set_mode("draw_spline")
+    ctl = scene._geom_ctl
+    for p in (QPointF(0, 0), QPointF(10, 10), QPointF(20, 0)):
+        ctl._press_draw_spline(None, p, p, None, None, None)
+    assert len(scene._spline_points) == 3
+    ctl._pop_draw_spline_vertex()
+    assert len(scene._spline_points) == 2
+
+
+def test_spline_mode_switch_clears_state(scene):
+    scene.set_mode("draw_spline")
+    ctl = scene._geom_ctl
+    ctl._press_draw_spline(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    assert len(scene._spline_points) == 1
+    scene.set_mode("select")
+    assert scene._spline_points == []
