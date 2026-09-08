@@ -29,7 +29,7 @@ from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .construction_geometry import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-    RegularPolygonItem, EllipseItem,
+    RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
@@ -264,6 +264,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._draw_arcs: list[ArcItem] = []
         # Ellipse drawing
         self._draw_ellipses: list[EllipseItem] = []
+        # Spline drawing
+        self._draw_splines: list[SplineItem] = []
         # Holds the first click point.  In centre-first this is the arc centre
         # throughout.  In start-first (``_arc_variant == "start"``) it TRANSIENTLY
         # holds the START point until ``_commit_draw_arc_rim_at`` overwrites it
@@ -798,6 +800,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             CircleItem:          self._draw_circles,
             ArcItem:             self._draw_arcs,
             EllipseItem:         self._draw_ellipses,
+            SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
             GridlineItem:        self._gridlines,
         }
@@ -1855,6 +1858,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
             "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
+            "draw_splines":       [s.to_dict()  for s in self._draw_splines],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
@@ -1992,6 +1996,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_ellipses.clear()
 
+            for item in list(self._draw_splines):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._draw_splines.clear()
+
             for item in list(self._draw_polygons):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -2069,6 +2078,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 ei = EllipseItem.from_dict(d)
                 self.addItem(ei)
                 self._draw_ellipses.append(ei)
+
+            for d in state.get("draw_splines", []):
+                si = SplineItem.from_dict(d)
+                self.addItem(si)
+                self._draw_splines.append(si)
 
             for d in state.get("polygons", []):
                 pg = RegularPolygonItem.from_dict(d)
@@ -5043,7 +5057,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _press_offset(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Select entity to offset — go straight to live preview (no dialog)
         hit = [i for i in self.items(pos)
-               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, EllipseItem))]
+               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, EllipseItem, SplineItem))]
         if not hit:
             return
         self._offset_source = hit[0]
@@ -5080,6 +5094,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 elif isinstance(new_item, EllipseItem):
                     self.addItem(new_item)
                     self._draw_ellipses.append(new_item)
+                elif isinstance(new_item, SplineItem):
+                    self.addItem(new_item)
+                    self._draw_splines.append(new_item)
                 self.push_undo_state()
         # Stay in offset mode ready for next entity
         self._offset_source = None
@@ -6585,7 +6602,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 result.append(pipe)
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._draw_ellipses, self._draw_polygons,
+                    self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
@@ -6846,6 +6863,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         elif isinstance(new_item, EllipseItem):
                             self.addItem(new_item)
                             self._draw_ellipses.append(new_item)
+                        elif isinstance(new_item, SplineItem):
+                            self.addItem(new_item)
+                            self._draw_splines.append(new_item)
                         self.push_undo_state()
                     self._offset_source = None
                     if self._offset_highlight is not None:
@@ -7103,6 +7123,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._draw_ellipses.append(item)
 
+            elif obj_type == "draw_spline":
+                item = SplineItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.level = self.active_level
+                self.addItem(item)
+                self._draw_splines.append(item)
+
             elif obj_type == "polyline":
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
@@ -7187,6 +7214,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         from .construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
             RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
+            SplineItem as _SplineItem,
         )
         paths = []
         if not data:
@@ -7195,6 +7223,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_line": LineItem, "draw_rectangle": RectangleItem,
             "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
             "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
+            "draw_spline": _SplineItem,
         }
         for obj in data:
             t = obj.get("type", "")

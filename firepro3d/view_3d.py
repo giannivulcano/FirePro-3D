@@ -28,7 +28,7 @@ from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .construction_geometry import (
-    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem, EllipseItem,
+    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem, EllipseItem, SplineItem,
 )
 from .gridline import GridlineItem
 from .water_supply import WaterSupply
@@ -857,6 +857,20 @@ class View3D(QWidget):
                 p2 = pts[(i + 1) % CIRCLE_SEGMENTS]
                 lines_data.append([p1.x() / ppm, -p1.y() / ppm, z])
                 lines_data.append([p2.x() / ppm, -p2.y() / ppm, z])
+
+        # Splines (open B-spline path — tessellate item.path() as open polyline)
+        for item in getattr(self._scene, "_draw_splines", []):
+            z = self._level_z_mm(getattr(item, "level", DEFAULT_LEVEL))
+            ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
+            path = item.path()
+            length = path.length()
+            if length > 0:
+                pts = [path.pointAtPercent(i / CIRCLE_SEGMENTS) for i in range(CIRCLE_SEGMENTS + 1)]
+                for i in range(CIRCLE_SEGMENTS):
+                    p1 = pts[i]
+                    p2 = pts[i + 1]
+                    lines_data.append([p1.x() / ppm, -p1.y() / ppm, z])
+                    lines_data.append([p2.x() / ppm, -p2.y() / ppm, z])
 
         # Polylines
         for item in getattr(self._scene, "_polylines", []):

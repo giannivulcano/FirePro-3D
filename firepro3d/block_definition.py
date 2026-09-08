@@ -13,7 +13,7 @@ from PyQt6.QtGui import QPainterPath, QPen
 
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
-    EllipseItem,
+    EllipseItem, SplineItem,
 )
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
@@ -25,6 +25,7 @@ _PRIMITIVE_FACTORY = {
     "polyline": PolylineItem,
     "polygon": RegularPolygonItem,
     "draw_ellipse": EllipseItem,
+    "draw_spline": SplineItem,
 }
 
 

@@ -54,3 +54,43 @@ def test_ellipse_in_2d_geometry_display_category(scene):
     from firepro3d.display_manager import _items_for_category_static
     items = _items_for_category_static(scene, "2D Geometry")
     assert any(isinstance(it, EllipseItem) for it in items)
+
+
+# ── SplineItem integration (appended) ───────────────────────────────────────
+from firepro3d.construction_geometry import SplineItem
+
+
+def _add_spline(scene):
+    s = SplineItem([QPointF(0, 0), QPointF(10, 20), QPointF(30, -10), QPointF(40, 5)])
+    scene.addItem(s)
+    scene._draw_splines.append(s)
+    return s
+
+
+def test_spline_list_exists(scene):
+    assert scene._draw_splines == []
+
+
+def test_spline_capture_restore_roundtrip(scene):
+    _add_spline(scene)
+    state = scene._capture_network()
+    _add_spline(scene)
+    assert len(scene._draw_splines) == 2
+    scene._restore_network(state)
+    assert len(scene._draw_splines) == 1
+    assert len(scene._draw_splines[0]._control_points) == 4
+
+
+def test_spline_file_roundtrip(scene, tmp_path):
+    _add_spline(scene)
+    p = tmp_path / "s.fpd"
+    scene.save_to_file(str(p))
+    s2 = Model_Space()
+    s2.load_from_file(str(p))
+    assert len(s2._draw_splines) == 1
+    assert len(s2._draw_splines[0]._control_points) == 4
+
+
+def test_spline_in_primitive_factory():
+    from firepro3d.block_definition import _PRIMITIVE_FACTORY
+    assert _PRIMITIVE_FACTORY.get("draw_spline") is SplineItem

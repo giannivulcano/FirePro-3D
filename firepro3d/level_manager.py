@@ -543,6 +543,9 @@ class LevelManager:
         for item in getattr(scene, "_draw_ellipses", []):
             _set_level_vis(item)
 
+        for item in getattr(scene, "_draw_splines", []):
+            _set_level_vis(item)
+
         for item in getattr(scene, "_draw_polygons", []):
             _set_level_vis(item)
 
@@ -637,6 +640,7 @@ class LevelManager:
             "CircleItem":     Z_CAT_CONSTRUCTION,
             "ArcItem":        Z_CAT_CONSTRUCTION,
             "EllipseItem":    Z_CAT_CONSTRUCTION,
+            "SplineItem":     Z_CAT_CONSTRUCTION,
         }
         # Items that always overlay on top regardless of elevation
         _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
@@ -728,6 +732,7 @@ class LevelManager:
             getattr(scene, "_draw_circles", []),
             getattr(scene, "_draw_arcs", []),
             getattr(scene, "_draw_ellipses", []),
+            getattr(scene, "_draw_splines", []),
             getattr(scene, "_draw_polygons", []),
         ):
             for _it in _lst:
