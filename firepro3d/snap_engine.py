@@ -36,7 +36,7 @@ from .annotations import DimensionAnnotation, NoteAnnotation
 from .underlay_snap_index import UnderlaySnapIndex
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem,
-    PolylineItem, RegularPolygonItem, EllipseItem,
+    PolylineItem, RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .geometry_intersect import _angle_in_arc
 from .gridline import GridlineItem
@@ -1230,6 +1230,14 @@ class SnapEngine:
                     a, b = vertices[i], vertices[i + 1]
                     mid = QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
                     pts.append(("midpoint", item.mapToScene(mid), None))
+
+        # ── SplineItem (own branch before the generic path branch; emit the
+        #    control points / endpoints, not the tessellated bezier vertices) ─
+        elif isinstance(item, SplineItem):
+            cps = item.grip_points()   # control points, scene coords
+            if self.snap_endpoint and cps:
+                for c in cps:
+                    pts.append(("endpoint", c, None))
 
         # ── EllipseItem (rotated — own branch before the generic path branch;
         #    CircleItem's QGraphicsEllipseItem branch would emit axis-aligned

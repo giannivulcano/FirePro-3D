@@ -34,3 +34,28 @@ def test_ellipse_center_only_when_flag_off(eng):
     triples = eng._collect(e)
     assert any(t[0] == "center" for t in triples)
     assert not any(t[0] == "quadrant" for t in triples)
+
+
+# ── SplineItem snap (appended) ──────────────────────────────────────────────
+from firepro3d.construction_geometry import SplineItem
+
+
+def test_spline_emits_endpoints_and_control_points(eng):
+    pts = [QPointF(0, 0), QPointF(10, 20), QPointF(30, -10), QPointF(40, 5)]
+    s = SplineItem(pts)
+    triples = eng._collect(s)
+    coords = [(round(t[1].x(), 3), round(t[1].y(), 3)) for t in triples
+              if t[0] == "endpoint"]
+    # First + last control points (curve endpoints) must be emitted.
+    assert (0.0, 0.0) in coords
+    assert (40.0, 5.0) in coords
+    # Interior control points too.
+    assert (10.0, 20.0) in coords
+    assert (30.0, -10.0) in coords
+
+
+def test_spline_endpoints_suppressed_when_flag_off(eng):
+    eng.snap_endpoint = False
+    s = SplineItem([QPointF(0, 0), QPointF(10, 20), QPointF(30, -10), QPointF(40, 5)])
+    triples = eng._collect(s)
+    assert not any(t[0] == "endpoint" for t in triples)
