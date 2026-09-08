@@ -35,6 +35,8 @@ from firepro3d.construction_geometry import (
     RectangleItem,
     CircleItem,
     ArcItem,
+    EllipseItem,
+    SplineItem,
 )
 
 
@@ -54,7 +56,24 @@ def scene(qapp):
     s._draw_rects = []
     s._draw_circles = []
     s._draw_arcs = []
+    s._draw_ellipses = []
+    s._draw_splines = []
     return s
+
+
+def _add_ellipse(scene):
+    item = EllipseItem(QPointF(50, 50), 40, 20, 15.0, color="#ffffff")
+    scene.addItem(item)
+    scene._draw_ellipses.append(item)
+    return item
+
+
+def _add_spline(scene):
+    item = SplineItem([QPointF(0, 0), QPointF(30, 60), QPointF(90, -20),
+                       QPointF(120, 15)], color="#ffffff")
+    scene.addItem(item)
+    scene._draw_splines.append(item)
+    return item
 
 
 def _add_line(scene):
@@ -175,19 +194,22 @@ class TestCategoryColourApply:
         )
 
     def test_apply_to_scene_items_reaches_all_geo2d_types(self, qapp, scene):
-        """_apply_to_scene_items must find and update all 5 geo2d item types."""
+        """_apply_to_scene_items must find and update all geo2d item types
+        (line, polyline, rect, circle, arc, ellipse, spline)."""
         ln = _add_line(scene)
         pl = _add_polyline(scene)
         rc = _add_rect(scene)
         ci = _add_circle(scene)
         ar = _add_arc(scene)
+        el = _add_ellipse(scene)
+        sp = _add_spline(scene)
 
         vals = {"color": "#00ff00", "fill": None, "scale": 1.0,
                 "opacity": 100, "visible": True, "font": None,
                 "section": None, "section_pattern": None, "section_scale": 1.0}
         _apply_to_scene_items(scene, "2D Geometry", vals, respect_overrides=False)
 
-        for item in (ln, pl, rc, ci, ar):
+        for item in (ln, pl, rc, ci, ar, el, sp):
             assert item._display_color == "#00ff00", (
                 f"{type(item).__name__}._display_color expected '#00ff00', "
                 f"got {item._display_color!r}"

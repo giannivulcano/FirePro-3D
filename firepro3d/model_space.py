@@ -2640,7 +2640,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
-        "draw_ellipse": "_commit_draw_ellipse_at",
+        # draw_ellipse is intentionally absent — it has no _SCHEMA_FOR_MODE entry
+        # (no HUD in v1), so _hud_available() never engages and the applier would
+        # be dead. The 3-click mouse path calls _commit_draw_ellipse_at directly.
+        # draw_spline is likewise mouse-only (N-click control polygon, no HUD).
         # polygon is step-aware (like draw_rectangle): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
