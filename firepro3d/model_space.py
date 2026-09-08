@@ -159,6 +159,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
+    originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
 
     def __init__(self):
         super().__init__()
@@ -1284,6 +1285,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "dimension":      "Pick first point",
             "text":           "Pick first corner",
             "set_scale":      "Pick first calibration point",
+            "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
             "offset":         "Click geometry to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
@@ -4006,7 +4008,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
         "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
-        "dimension", "text", "set_scale", "water_supply", "design_area",
+        "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
@@ -4019,6 +4021,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "sprinkler":                "_press_sprinkler",
         "pipe":                     "_press_pipe",
         "set_scale":                "_press_set_scale",
+        "set_origin":               "_press_set_origin",
         "dimension":                "_press_dimension",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
@@ -4358,6 +4361,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self._show_status(f"Calibration failed: {e}")
             self._cal_point1 = None
             self.set_mode(None)
+
+    def _press_set_origin(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Block Editor 'set_origin' mode: emit the snapped+aligned point.
+
+        ``snapped`` is already OSNAP+ALIGN-resolved by get_effective_position, so
+        the origin honours snaps and alignment guides like any placement pick.
+        """
+        self.originPicked.emit(snapped)
+        self.set_mode("select")
 
     def _press_dimension(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._dim_pending is not None:
