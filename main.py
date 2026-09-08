@@ -1537,6 +1537,9 @@ class MainWindow(QMainWindow):
             "Place a text note")
         _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
              self._open_block_editor, tip="Author a block in the Block Editor")
+        _btn(g_blocks, "Quick\nBlock", _I("make_block_icon.svg"),
+             self._make_block_from_selection,
+             tip="Instantly make a block from the selected 2D geometry")
         _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
              self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
         _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
