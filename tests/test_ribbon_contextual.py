@@ -49,8 +49,10 @@ def test_registry_has_expected_keys(main_window):
 
 
 def test_contextual_index_after_base_tabs(main_window):
-    # 7 base tabs → contextual insert slot is 7
-    assert main_window._contextual_index == 7
+    # 6 base tabs → contextual insert slot is 6 (derived from the live tab
+    # count so it can't drift). Must equal the actual base-tab count.
+    assert main_window._contextual_index == 6
+    assert main_window._contextual_index == main_window.ribbon._tab_bar.count()
 
 
 def test_edit_group_builder_adds_group(main_window, qapp):
@@ -174,14 +176,14 @@ def clean_scene(main_window, qapp):
 
 
 def test_selecting_a_wall_shows_wall_tab(main_window, qapp, clean_scene):
-    """Selecting a WallSegment must insert a 'Wall' contextual tab and
+    """Selecting a WallSegment must insert a 'Modify | Wall' contextual tab and
     switch to it."""
     wall = _make_wall(main_window.scene)
     wall.setSelected(True)
     qapp.processEvents()
     tabs = _titles(main_window)
-    assert "Wall" in tabs, f"Expected 'Wall' tab; got {tabs}"
-    assert main_window.ribbon._tab_bar.currentIndex() == tabs.index("Wall")
+    assert "Modify | Wall" in tabs, f"Expected 'Modify | Wall' tab; got {tabs}"
+    assert main_window.ribbon._tab_bar.currentIndex() == tabs.index("Modify | Wall")
 
 
 def test_deselect_removes_contextual_and_restores(main_window, qapp, clean_scene):
@@ -192,12 +194,12 @@ def test_deselect_removes_contextual_and_restores(main_window, qapp, clean_scene
     wall = _make_wall(mw.scene)
     wall.setSelected(True)
     qapp.processEvents()
-    assert "Wall" in _titles(mw)                     # contextual appeared
+    assert "Modify | Wall" in _titles(mw)            # contextual appeared
 
     mw.scene.clearSelection()
     qapp.processEvents()
     tabs = _titles(mw)
-    assert "Wall" not in tabs, f"'Wall' tab should be gone; got {tabs}"
+    assert "Modify | Wall" not in tabs, f"contextual tab should be gone; got {tabs}"
     assert mw.ribbon._tab_bar.currentIndex() == 2, (
         f"Expected restore to tab 2 (Create); got {mw.ribbon._tab_bar.currentIndex()}"
     )
@@ -213,7 +215,7 @@ def test_switch_wall_to_pipe_keeps_pre_tab(main_window, qapp, clean_scene):
     w = _make_wall(mw.scene)
     w.setSelected(True)
     qapp.processEvents()
-    assert "Wall" in _titles(mw)
+    assert "Modify | Wall" in _titles(mw)
 
     # Swap selection: deselect wall, select pipe
     w.setSelected(False)
@@ -221,8 +223,8 @@ def test_switch_wall_to_pipe_keeps_pre_tab(main_window, qapp, clean_scene):
     p.setSelected(True)
     qapp.processEvents()
     tabs = _titles(mw)
-    assert "Pipe" in tabs, f"Expected 'Pipe' tab; got {tabs}"
-    assert "Wall" not in tabs, f"'Wall' tab should be gone; got {tabs}"
+    assert "Modify | Pipe" in tabs, f"Expected 'Modify | Pipe' tab; got {tabs}"
+    assert "Modify | Wall" not in tabs, f"'Modify | Wall' tab should be gone; got {tabs}"
 
     # Deselect everything — pre-tab must still be 2 (Create), not the
     # contextual index that was active during the wall→pipe swap.
@@ -264,7 +266,7 @@ def test_polygon_family_key_is_geo2d(main_window):
 
 
 def test_selecting_polygon_shows_geo2d_tab(main_window, qapp, clean_scene):
-    """Selecting a RegularPolygonItem must insert the '2D Geometry' contextual tab."""
+    """Selecting a RegularPolygonItem must insert a 'Modify | Polygon' contextual tab."""
     from firepro3d.construction_geometry import RegularPolygonItem
     from PyQt6.QtCore import QPointF
 
@@ -275,8 +277,8 @@ def test_selecting_polygon_shows_geo2d_tab(main_window, qapp, clean_scene):
         poly.setSelected(True)
         qapp.processEvents()
         tabs = _titles(main_window)
-        assert "2D Geometry" in tabs, (
-            f"Expected '2D Geometry' contextual tab; got tabs: {tabs}"
+        assert "Modify | Polygon" in tabs, (
+            f"Expected 'Modify | Polygon' contextual tab; got tabs: {tabs}"
         )
         assert main_window._active_contextual_key == "geo2d", (
             f"Expected _active_contextual_key='geo2d'; got {main_window._active_contextual_key!r}"
@@ -284,6 +286,41 @@ def test_selecting_polygon_shows_geo2d_tab(main_window, qapp, clean_scene):
     finally:
         main_window.scene.removeItem(poly)
         main_window.scene.clearSelection()
+        qapp.processEvents()
+
+
+def test_title_updates_on_element_switch_within_family(main_window, qapp, clean_scene):
+    """Switching between two element types in the SAME family (Rectangle →
+    Circle, both geo2d) must retitle the contextual tab, not silently leave the
+    old element name — the guard tracks (key, title), not key alone."""
+    from firepro3d.construction_geometry import RectangleItem, CircleItem
+    mw = main_window
+    rect = RectangleItem(QPointF(0, 0), QPointF(500, 300))
+    circ = CircleItem(QPointF(0, 0), 100.0)
+    for it in (rect, circ):
+        it.setFlag(it.GraphicsItemFlag.ItemIsSelectable, True)
+        mw.scene.addItem(it)
+    try:
+        rect.setSelected(True)
+        qapp.processEvents()
+        assert "Modify | Rectangle" in _titles(mw), _titles(mw)
+
+        # Swap element WITHOUT an empty intermediate selection: add the circle
+        # (→ same 'geo2d' family key, so a key-only guard would early-return and
+        # leave the stale 'Rectangle' title), then drop the rectangle.
+        circ.setSelected(True)
+        qapp.processEvents()
+        rect.setSelected(False)
+        qapp.processEvents()
+        tabs = _titles(mw)
+        assert "Modify | Circle" in tabs, f"Expected retitle to Circle; got {tabs}"
+        assert "Modify | Rectangle" not in tabs, f"Old title lingered; got {tabs}"
+        # Still exactly one contextual tab (no accumulation).
+        assert sum(t.startswith("Modify") for t in tabs) == 1, tabs
+    finally:
+        for it in (rect, circ):
+            mw.scene.removeItem(it)
+        mw.scene.clearSelection()
         qapp.processEvents()
 
 
@@ -301,8 +338,8 @@ def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene
         r.setSelected(True)
         qapp.processEvents()
         titles = _titles(mw)
-        assert mw.ribbon._tab_bar.count() == 7, (
-            f"Expected 7 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
+        assert mw.ribbon._tab_bar.count() == 6, (
+            f"Expected 6 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
         )
         assert mw.ribbon._tab_bar.currentIndex() == 2, (
             f"Expected active tab 2 (Create) to be unchanged; got {mw.ribbon._tab_bar.currentIndex()}"

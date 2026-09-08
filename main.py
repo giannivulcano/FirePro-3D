@@ -275,8 +275,11 @@ class _SnapToolbar(QToolBar):
 
 class MainWindow(QMainWindow):
     # ── Contextual-tab catalog ─────────────────────────────────────────────────
-    # Maps entity-family key → human-readable ribbon tab title.
-    # Used by _init_contextual_tabs() to build _contextual_registry.
+    # Maps entity-family key → the family's registry label. Used by
+    # _init_contextual_tabs() to build _contextual_registry (the key selects the
+    # page *builder*). The DISPLAYED tab title is derived per-selection from the
+    # concrete element via _contextual_title() → "Modify | <Element>"; these
+    # labels are the family fallback, not what the user sees on the tab.
     _CONTEXTUAL_TABS: dict[str, str] = {
         "geo2d":        "2D Geometry",
         "geo3d":        "3D Geometry",
@@ -3343,9 +3346,11 @@ class MainWindow(QMainWindow):
 
         Post-conditions:
             ``self._contextual_registry`` — catalog of all contextual tabs.
-            ``self._contextual_index``    — fixed insert slot (= 7, one past
-                                           the last base tab).
+            ``self._contextual_index``    — insert slot, one past the last base
+                                           tab (derived from the live tab count,
+                                           currently 6 — see D8/§3.8).
             ``self._active_contextual_key`` — ``None`` (no tab shown yet).
+            ``self._active_contextual_title`` — ``None`` (no tab shown yet).
             ``self._pre_contextual_tab``    — ``0`` (default saved-tab index).
         """
         self._contextual_registry: dict[str, tuple[str, callable]] = {
@@ -3367,10 +3372,17 @@ class MainWindow(QMainWindow):
             self._CONTEXTUAL_TABS["floor"],
             self._build_floor_context,
         )
-        # Fixed slot immediately after the 7 base tabs.
-        self._contextual_index: int = 7
+        # Insert slot immediately after the base tabs. Derived from the live
+        # tab count (init_ribbon has already built every base tab by now) so it
+        # can't drift when a base tab is added/removed — the hardcoded 7 was
+        # stale once the roster settled at 6 base tabs, which silently sent
+        # insert/activate/remove at a non-existent slot (D8/§3.8).
+        self._contextual_index: int = self.ribbon._tab_bar.count()
         # Tracks which contextual family is currently shown (None = hidden).
         self._active_contextual_key: str | None = None
+        # Tracks the displayed tab title ("Modify | <Element>") so an element
+        # change within one family (e.g. Rectangle → Circle) rebuilds the tab.
+        self._active_contextual_title: str | None = None
         # Remembers the previously selected base tab so C2 can restore it
         # when the contextual tab is dismissed.
         self._pre_contextual_tab: int = 0
@@ -3445,6 +3457,93 @@ class MainWindow(QMainWindow):
             return "gridline"
         return None
 
+    def _element_name_for(self, item) -> "str | None":
+        """Friendly element name for a scene item (e.g. ``"Rectangle"``).
+
+        Used to build the Revit-style ``"Modify | <Element>"`` contextual tab
+        title. Returns ``None`` for items with no contextual family (same set
+        as ``_family_key_for``), so unmappable items don't contribute a title.
+
+        Note this is the *specific* element, not the family label: every
+        2-D-geometry type gets its own name (Rectangle/Circle/Ellipse/…) rather
+        than the shared "2D Geometry" group name, per the 2026-09-08 request.
+        """
+        from firepro3d.construction_geometry import (
+            PolylineItem, LineItem,
+            RectangleItem, CircleItem, ArcItem,
+            RegularPolygonItem, EllipseItem, SplineItem,
+        )
+        from firepro3d.annotations import DimensionAnnotation
+        from firepro3d.wall import WallSegment
+        from firepro3d.floor_slab import FloorSlab
+        from firepro3d.roof import RoofItem
+        from firepro3d.room import Room
+        from firepro3d.wall_opening import WallOpening
+        from firepro3d.detail_view import DetailMarker
+        from firepro3d.node import Node
+        from firepro3d.water_supply import WaterSupply
+        from firepro3d.design_area import DesignArea
+        from firepro3d.gridline import GridlineItem
+
+        # 2-D geometry — specific type name (subclass-agnostic: no inheritance).
+        _GEO2D_NAMES = {
+            RectangleItem: "Rectangle", CircleItem: "Circle", ArcItem: "Arc",
+            LineItem: "Line", PolylineItem: "Polyline",
+            RegularPolygonItem: "Polygon", EllipseItem: "Ellipse",
+            SplineItem: "Spline",
+        }
+        name = _GEO2D_NAMES.get(type(item))
+        if name is not None:
+            return name
+        # Annotation family
+        if isinstance(item, NoteAnnotation):
+            return "Text"
+        if isinstance(item, DimensionAnnotation):
+            return "Dimension"
+        # Structural / architectural families
+        if isinstance(item, WallSegment):
+            return "Wall"
+        if isinstance(item, FloorSlab):
+            return "Floor"
+        if isinstance(item, RoofItem):
+            return "Roof"
+        if isinstance(item, Room):
+            return "Room"
+        # WallOpening carries its concrete type ("door"/"window"/"blank").
+        if isinstance(item, WallOpening):
+            return getattr(item, "openings_type", "opening").capitalize() or "Opening"
+        if isinstance(item, DetailMarker):
+            return "Detail"
+        if isinstance(item, Sprinkler):
+            return "Sprinkler"
+        # Node before Pipe is moot (no shared base); both fold into "pipe" but
+        # keep the concrete element name for the title.
+        if isinstance(item, Node):
+            return "Node"
+        if isinstance(item, Pipe):
+            return "Pipe"
+        if isinstance(item, WaterSupply):
+            return "Water Supply"
+        if isinstance(item, DesignArea):
+            return "Design Area"
+        if isinstance(item, GridlineItem):
+            return "Gridline"
+        return None
+
+    def _contextual_title(self, items) -> str:
+        """Resolve the contextual-tab title for a selection.
+
+        ``"Modify | <Element>"`` when every selected (mappable) item is the same
+        element type; plain ``"Modify"`` otherwise — this single rule covers
+        both a mixed-family selection (wall + pipe) and a mixed-2D-geometry
+        selection (rectangle + circle).
+        """
+        names = {self._element_name_for(it) for it in items}
+        names.discard(None)
+        if len(names) == 1:
+            return f"Modify | {next(iter(names))}"
+        return "Modify"
+
     def _resolve_selection_context(self, items) -> "str | None":
         """Derive the contextual-tab key for a list of selected items.
 
@@ -3466,16 +3565,23 @@ class MainWindow(QMainWindow):
 
         Transitions:
             no-selection / unknown → hide contextual tab, restore saved base tab.
-            single-family          → show that family's contextual tab.
-            multi-family           → show the "Modify" (``"mixed"``) tab.
-            same key as before     → no-op (avoids redundant rebuild).
+            single-element         → show "Modify | <Element>".
+            multi-element / mixed  → show the plain "Modify" tab.
+            same key AND title     → no-op (avoids redundant rebuild).
+
+        The tab title is derived from the selected *element* (``_contextual_title``);
+        the ``_contextual_registry`` key still selects the page *builder*. An
+        element change within one family (Rectangle → Circle) keeps the ``geo2d``
+        builder but changes the title, so the guard tracks both key and title
+        and rebuilds when either moves (the geo2d Fill-group enabled-state also
+        re-resolves for the new selection).
 
         The ``_pre_contextual_tab`` index is captured only on the
         None → contextual transition so that contextual → contextual switches
         (e.g. wall → pipe) never overwrite the original base-tab position.
         """
         # While the Block Editor ribbon owns the contextual slot, plan-scene
-        # selection must not fight it for slot 7.
+        # selection must not fight it for that slot.
         if getattr(self, "_block_ribbon_active", False):
             return
         items = self.scene.selectedItems()
@@ -3486,7 +3592,8 @@ class MainWindow(QMainWindow):
         # when the item is selected with no active placement tool.
         if getattr(self.scene, "mode", None) not in (None, "select"):
             key = None
-        if key == self._active_contextual_key:
+        title = self._contextual_title(items) if key is not None else None
+        if key == self._active_contextual_key and title == self._active_contextual_title:
             return
         had_contextual = self._active_contextual_key is not None
         if not had_contextual:
@@ -3495,16 +3602,18 @@ class MainWindow(QMainWindow):
         if had_contextual:
             self.ribbon.remove_page(self._contextual_index)
             self._active_contextual_key = None
+            self._active_contextual_title = None
         if key is None:
             self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
             return
         entry = self._contextual_registry.get(key)
         if entry is None:
             return
-        title, builder = entry
+        _registry_title, builder = entry
         page = self.ribbon.insert_page(title, self._contextual_index, contextual=True)
         builder(page)
         self._active_contextual_key = key
+        self._active_contextual_title = title
         self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
 
     def _require_selection(self, action):
@@ -4451,10 +4560,11 @@ class MainWindow(QMainWindow):
         if getattr(self, "_block_ribbon_active", False):
             self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
             return
-        # Clear any selection-driven contextual page first (shared slot 7).
+        # Clear any selection-driven contextual page first (shared slot).
         if self._active_contextual_key is not None:
             self.ribbon.remove_page(self._contextual_index)
             self._active_contextual_key = None
+            self._active_contextual_title = None
         else:
             self._pre_contextual_tab = self.ribbon._tab_bar.currentIndex()
         page = self.ribbon.insert_page("Block Editor", self._contextual_index,
