@@ -159,6 +159,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
+    originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
 
     def __init__(self):
         super().__init__()
@@ -1284,6 +1285,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "dimension":      "Pick first point",
             "text":           "Pick first corner",
             "set_scale":      "Pick first calibration point",
+            "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
             "offset":         "Click geometry to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
@@ -1581,24 +1583,81 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
 
-        Captures each primitive's to_dict, removes it from the scene + tracking list,
-        registers a BlockDefinition (origin-relative), places one instance at origin,
-        and pushes a single undo state. Returns the BlockInstance, or None if no
-        capturable primitive was supplied.
+        Thin caller of ``commit_block_definition`` (the shared linework->definition
+        core): captures each capturable item's ``to_dict``, then commits a new
+        definition, consuming the source items and placing one instance. Returns
+        the placed BlockInstance, or None if nothing capturable was supplied.
         """
-        from .block_definition import BlockDefinition
-        prims = []
+        prims, captured = [], []
         for it in items:
-            if hasattr(it, "to_dict") and self._remove_item_from_lists(it):
+            if hasattr(it, "to_dict"):
                 prims.append(it.to_dict())
+                captured.append(it)
         if not prims:
             return None
-        defn = BlockDefinition.new(name=name, library=library, series=series,
-                                   primitives=prims, origin=(origin.x(), origin.y()))
-        self.register_block_definition(defn)
-        inst = self.place_block_instance(defn.id, (origin.x(), origin.y()), rotation=0.0)
+        defn = self.commit_block_definition(
+            block_id=None, name=name, library=library, series=series,
+            primitives=prims, origin=(origin.x(), origin.y()),
+            place_instance=True, source_items=captured)
+        if defn is None:
+            return None
+        return self._block_instances[-1]
+
+    def commit_block_definition(self, *, block_id, name, library, series,
+                                primitives, origin, place_instance=True,
+                                source_items=None):
+        """Create or edit a block definition from primitive dicts (one undo).
+
+        ``block_id is None`` -> new definition (``BlockDefinition.new`` +
+        register). ``block_id`` given -> edit-in-place: update
+        name/library/series/origin and ``set_primitives`` (bumps version +
+        repaints every instance). Places one ``BlockInstance`` at *origin* when
+        ``place_instance``. Pushes exactly one undo state. Returns the
+        definition, or None (empty ``primitives``, or a given ``block_id``
+        absent from the registry).
+
+        ``source_items`` are deleted only after all early-return guards pass —
+        no partial mutation occurs on an empty-primitives or missing-id return.
+
+        Args:
+            block_id: Existing definition id to edit in-place, or None to
+                create a new definition.
+            name: Human-readable block name.
+            library: Library taxonomy tier-1.
+            series: Library taxonomy tier-2.
+            primitives: List of 2D-primitive dicts (construction_geometry
+                to_dict form).
+            origin: ``(x, y)`` insertion origin in scene millimetres.
+            place_instance: When True, place one BlockInstance at *origin*.
+            source_items: Optional list of scene items to remove after all
+                guards pass (seeded-create replace workflow). Never deleted on
+                an early-return None.
+
+        Returns:
+            The ``BlockDefinition``, or None on empty primitives or missing id.
+        """
+        from .block_definition import BlockDefinition
+        if not primitives:
+            return None
+        ox, oy = float(origin[0]), float(origin[1])
+        if block_id is None:
+            defn = BlockDefinition.new(name=name, library=library, series=series,
+                                       primitives=list(primitives), origin=(ox, oy))
+            self.register_block_definition(defn)
+        else:
+            defn = self._block_definitions.get(block_id)
+            if defn is None:
+                return None
+            defn.name, defn.library, defn.series = name, library, series
+            defn.origin = (ox, oy)
+            defn.set_primitives(list(primitives))
+            self.blockDefinitionsChanged.emit()
+        for it in (source_items or []):
+            self._remove_item_from_lists(it)
+        if place_instance:
+            self.place_block_instance(defn.id, (ox, oy), rotation=0.0)
         self.push_undo_state()
-        return inst
+        return defn
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
@@ -3949,7 +4008,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
         "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
-        "dimension", "text", "set_scale", "water_supply", "design_area",
+        "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
@@ -3962,6 +4021,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "sprinkler":                "_press_sprinkler",
         "pipe":                     "_press_pipe",
         "set_scale":                "_press_set_scale",
+        "set_origin":               "_press_set_origin",
         "dimension":                "_press_dimension",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
@@ -4301,6 +4361,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self._show_status(f"Calibration failed: {e}")
             self._cal_point1 = None
             self.set_mode(None)
+
+    def _press_set_origin(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Block Editor 'set_origin' mode: emit the snapped+aligned point.
+
+        ``snapped`` is already OSNAP+ALIGN-resolved by get_effective_position, so
+        the origin honours snaps and alignment guides like any placement pick.
+        """
+        self.originPicked.emit(snapped)
+        self.set_mode("select")
 
     def _press_dimension(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._dim_pending is not None:

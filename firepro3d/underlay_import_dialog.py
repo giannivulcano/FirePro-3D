@@ -893,7 +893,10 @@ class UnderlayImportDialog(HouseDialog):
     def __init__(self, parent=None, file_path: str = "",
                  scale_manager=None, default_dir: str = "",
                  levels: list[str] | None = None, current_level: str = "",
-                 modify_record=None):
+                 modify_record=None,
+                 include_name: bool = True, include_levels: bool = True):
+        self._include_name = include_name
+        self._include_levels = include_levels
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
@@ -997,7 +1000,8 @@ class UnderlayImportDialog(HouseDialog):
         available); management fields (colour, levels, overrides…) are NOT
         surfaced here — they are preserved by replace_underlay, not re-edited.
         """
-        self._name_edit.setText(getattr(record, "name", "") or "")
+        if hasattr(self, "_name_edit"):
+            self._name_edit.setText(getattr(record, "name", "") or "")
         from .underlay_manager_model import _record_name
         _name = _record_name(record) or "underlay"
         self.setWindowTitle(f"Modify Underlay — {_name}")
@@ -1331,11 +1335,12 @@ class UnderlayImportDialog(HouseDialog):
 
         # -- Page 0: SOURCE (file + recent) --
         src_pg, src_v = _page()
-        src_v.addWidget(_hdr("Name"))
-        self._name_edit = QLineEdit()
-        self._name_edit.setFont(QFont(FONT_UI))
-        self._name_edit.setPlaceholderText("underlay name (optional)")
-        src_v.addWidget(self._name_edit)
+        if self._include_name:
+            src_v.addWidget(_hdr("Name"))
+            self._name_edit = QLineEdit()
+            self._name_edit.setFont(QFont(FONT_UI))
+            self._name_edit.setPlaceholderText("underlay name (optional)")
+            src_v.addWidget(self._name_edit)
         src_v.addWidget(_hdr("Source"))
         self._file_edit = QLineEdit()
         src_v.addWidget(self._file_edit)
@@ -1412,13 +1417,14 @@ class UnderlayImportDialog(HouseDialog):
 
         # -- Page 2: PLACEMENT (levels · scale evidence · rotation · base · pos) --
         pl_pg, pl_v = _page()
-        pl_v.addWidget(_hdr("Levels"))
-        self._levels_picker = _LevelsPicker(
-            self._import_levels or [self._current_level or DEFAULT_LEVEL],
-            current=self._current_level or DEFAULT_LEVEL)
-        self._levels_picker.changed.connect(self._update_all)
-        self._selected_levels = self._levels_picker.selected  # get_import_params hook
-        pl_v.addWidget(self._levels_picker)
+        if self._include_levels:
+            pl_v.addWidget(_hdr("Levels"))
+            self._levels_picker = _LevelsPicker(
+                self._import_levels or [self._current_level or DEFAULT_LEVEL],
+                current=self._current_level or DEFAULT_LEVEL)
+            self._levels_picker.changed.connect(self._update_all)
+            self._selected_levels = self._levels_picker.selected  # get_import_params hook
+            pl_v.addWidget(self._levels_picker)
 
         # Scale — flat overline section (no container)
         pl_v.addWidget(_hdr("Scale"))
@@ -1823,7 +1829,7 @@ class UnderlayImportDialog(HouseDialog):
         else:
             scale_str = self._scale_combo.currentText() or "1:1"
         rotation = int(round(self._get_rotation()))
-        levels = self._levels_picker.selected()
+        levels = self._levels_picker.selected() if hasattr(self, "_levels_picker") else []
         if self._modify_record is not None and hasattr(self, "_placement_bar"):
             position = {0: "reuse", 1: "pick", 2: "origin"}.get(
                 self._placement_bar.current_index(), "reuse")
@@ -1835,31 +1841,32 @@ class UnderlayImportDialog(HouseDialog):
             cropped=cropped, scale=scale_str, verified=verified,
             rotation=rotation, levels=levels, position=position))
 
-        active = getattr(self, "_active_step", "source")
-        # active → green highlight + green chip; completed → green chip; place
-        # (not done) → warn chip; otherwise grey/todo.
-        done = {"source": bool(path), "content": bool(path),
-                "place": bool(verified and levels)}
-        def _st(k):
-            if k == active:
-                return "active"
-            if done[k]:
-                return "done"
-            return "warn" if k == "place" else "todo"
-        self._rail_set_step(
-            "source", (os.path.basename(path) or "Drop a file or paste a URL"),
-            _st("source"))
-        self._rail_set_step(
-            "content", ("cropped" if cropped else "whole sheet"), _st("content"))
-        self._rail_set_step(
-            "place",
-            f"{len(levels)} level{'s' if len(levels) != 1 else ''} · "
-            f"{'verified' if verified else 'unverified'}",
-            _st("place"))
+        if hasattr(self, "_rail"):
+            active = getattr(self, "_active_step", "source")
+            # active → green highlight + green chip; completed → green chip; place
+            # (not done) → warn chip; otherwise grey/todo.
+            done = {"source": bool(path), "content": bool(path),
+                    "place": bool(verified and levels)}
+            def _st(k):
+                if k == active:
+                    return "active"
+                if done[k]:
+                    return "done"
+                return "warn" if k == "place" else "todo"
+            self._rail_set_step(
+                "source", (os.path.basename(path) or "Drop a file or paste a URL"),
+                _st("source"))
+            self._rail_set_step(
+                "content", ("cropped" if cropped else "whole sheet"), _st("content"))
+            self._rail_set_step(
+                "place",
+                f"{len(levels)} level{'s' if len(levels) != 1 else ''} · "
+                f"{'verified' if verified else 'unverified'}",
+                _st("place"))
 
         ok_btn = self._button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_btn is not None:
-            ok_btn.setEnabled(bool(levels))
+            ok_btn.setEnabled(True if not hasattr(self, "_levels_picker") else bool(levels))
 
     # ── Loading state ─────────────────────────────────────────────────────
 
@@ -3826,7 +3833,7 @@ class UnderlayImportDialog(HouseDialog):
         levels_getter = getattr(self, "_selected_levels", None)
         p.levels = list(levels_getter()) if callable(levels_getter) else []
         p.scale_verified = bool(getattr(self, "_scale_verified", False))
-        p.name = self._name_edit.text().strip()
+        p.name = self._name_edit.text().strip() if hasattr(self, "_name_edit") else ""
 
         self._save_settings()
         return p

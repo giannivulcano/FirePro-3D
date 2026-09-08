@@ -465,6 +465,9 @@ class BlockManagerDialog(HouseDialog):
         bar = QHBoxLayout(toolbar)
         bar.setContentsMargins(12, 9, 12, 9)
         bar.setSpacing(8)
+        self.btn_new = QPushButton("New Block")
+        self.btn_new.setProperty("variant", "primary")
+        self.btn_new_from = QPushButton("New From Selected")
         self.btn_load = QPushButton("Load from Library…")
         self.btn_load.setProperty("variant", "primary")
         self.btn_save = QPushButton("Save to Library")
@@ -472,8 +475,8 @@ class BlockManagerDialog(HouseDialog):
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setProperty("variant", "danger")
         self.btn_editor = QPushButton("Open in Editor")
-        for w in (self.btn_load, self.btn_save, self.btn_reload,
-                  self.btn_delete, self.btn_editor):
+        for w in (self.btn_new, self.btn_new_from, self.btn_load, self.btn_save,
+                  self.btn_reload, self.btn_delete, self.btn_editor):
             bar.addWidget(w)
         bar.addStretch(1)
 
@@ -548,6 +551,8 @@ class BlockManagerDialog(HouseDialog):
     # ---------------------------------------------------------------- wiring
     def _wire(self) -> None:
         self.btn_close.clicked.connect(self.close)
+        self.btn_new.clicked.connect(self._create_new_block)
+        self.btn_new_from.clicked.connect(self._create_new_from_selected)
         self.btn_load.clicked.connect(self._load_from_library)
         self.btn_delete.clicked.connect(self._delete)
         self.btn_save.clicked.connect(lambda: self._save_to_library())
@@ -629,7 +634,8 @@ class BlockManagerDialog(HouseDialog):
             self.lbl_series.clear()
             self.lbl_status.clear()
             self.lbl_count.clear()
-            for b in (self.btn_save, self.btn_reload, self.btn_delete, self.btn_editor):
+            for b in (self.btn_save, self.btn_reload, self.btn_delete,
+                      self.btn_editor, self.btn_new_from):
                 b.setEnabled(False)
             return
         self.lbl_name.setText(defn.name)
@@ -641,6 +647,7 @@ class BlockManagerDialog(HouseDialog):
         self.lbl_count.setText(str(count))
         self.btn_delete.setEnabled(True)
         self.btn_editor.setEnabled(True)
+        self.btn_new_from.setEnabled(True)
         self.btn_save.setEnabled(status in ("project-only", "modified"))
         self.btn_reload.setEnabled(status == "modified")
 
@@ -715,8 +722,27 @@ class BlockManagerDialog(HouseDialog):
         themed_info(self, "Load from Library", _format_load_summary(summary))
 
     def _open_in_editor(self) -> None:
-        from .themed_message import themed_info
-        if self._current_def() is None:
+        defn = self._current_def()
+        if defn is None:
             return
-        themed_info(self, "Block Editor",
-                    "The Block Editor arrives in a later slice.")
+        mgr = getattr(self.main_window, "block_editor_manager", None)
+        if mgr is None:
+            return
+        w = mgr.open_for_definition(defn.id)
+        # seed only if freshly opened (empty editor); focusing an existing one keeps its state
+        if not w.gather_primitives():
+            w.seed_from_definition(defn)
+        self.raise_()  # keep manager reachable; editor tab is now active in the main window
+
+    def _create_new_block(self) -> None:
+        mgr = getattr(self.main_window, "block_editor_manager", None)
+        if mgr is not None:
+            mgr.open_new()
+
+    def _create_new_from_selected(self) -> None:
+        defn = self._current_def()
+        mgr = getattr(self.main_window, "block_editor_manager", None)
+        if defn is None or mgr is None:
+            return
+        w = mgr.open_new()                       # NEW id (clone), not edit-in-place
+        w.seed_from_definition(defn)             # inherit geometry

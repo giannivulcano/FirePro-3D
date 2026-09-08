@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S5 built (Manager + load-from-library + Excel autofilter + themed ribbon icons; details panel read-only); thumbnails + Open-in-Editor deferred
-last-verified: 2026-09-05
-verified-commit: 74bc7bb
+status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
+last-verified: 2026-09-07
+verified-commit: a3904ce
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -9,15 +9,20 @@ applies-to:
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
   - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser)
   - firepro3d/app_data.py           # new — shared _app_data_dir() helper (GENERALIZE)
-  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection
+  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition + set_origin mode (v2)
   - firepro3d/scene_io.py           # .fpd embed of definitions + instances
-  - firepro3d/main.py               # Blocks ribbon group + browser dock wiring
+  - firepro3d/main.py               # Blocks ribbon group + browser dock; Create/Quick Block + Block Editor contextual ribbon + active-scene routing (v2)
+  - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + bbox_top_left
+  - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
+  - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
 source-tasks:
   - todo_open.md:18   # ribbon taxonomy (Draw = geometry + blocks)
   - todo_open.md:286  # block_item paste/undo orphan bug (constructively fixed)
   - todo_open.md:354  # BlockItem undocumented → this governing spec
   - todo_open.md:232  # shared _app_data_dir() helper (folded in)
   - todo_open.md:90   # Feature naming decision (settled for both systems)
+  - todo_open.md:66   # "Open in Editor" → the v2 Block Editor authoring surface
+  - todo_open.md:60   # interactive snapped origin-pick (folded into the v2 Set-Origin tool)
 ---
 
 # Block System — Design Spec
@@ -349,3 +354,67 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
    `block_manager_icon.svg` (grid), two-token compliant, wired into the Create▸Blocks group
    (`main.py`) + the Block Manager title bar (`block_manager.py`); guard tests in
    `test_icon_theming.py` (17 green). Replaced the placeholder-icon fallback S2–S4 ran on.
+
+## Block Editor (v2)
+
+> Status: **built — BE1–BE5** (2026-09-07, branch `feat/block-editor-v2`). WHAT locked via
+> `/grill-me`; HOW in `docs/superpowers/specs/2026-09-07-block-editor-v2-design.md`. This section is
+> the durable contract; the dated doc holds the fork rationale + slice plan. Fills the Editor that
+> DD-10 and the "Open in Editor" stub reserve. **Deferred (P1 follow-ups):** native-curve import
+> (arc/ellipse/spline need `EllipseItem`/`SplineItem` primitives + a curve-preserving extraction),
+> block attribute authoring, thumbnails, strict ribbon-tab hiding.
+
+The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
+the user draws/imports 2D geometry, sets the origin and metadata, and Saves a definition into the
+project registry — **disconnected from all model views**.
+
+### Contract
+
+- **Editor scene = a standalone `Model_Space` instance** (scratchpad), hosted in a closable
+  `central_tabs` tab via a `BlockEditorWidget` + `Model_View`, managed by a `BlockEditorManager`
+  (mirrors `ElevationManager`). It runs **headless of the level/plan-view managers** (block geometry
+  is definition-local/2D) and inherits the full 2D toolchain (drawing controllers, snap, HUD, grips,
+  selection-manipulator, `push_undo_state`) for free. Undo is per-instance-isolated by construction.
+- **The editor never mutates the project scene** except through two calls:
+  `Model_Space.commit_block_definition(...)` (Save) and S3 `save_to_library` (opt-in). It is a
+  scratchpad; the definition lands in the **project** `Model_Space`.
+- **`commit_block_definition(*, block_id, name, library, series, primitives, origin, place_instance,
+  source_items)`** is the arm's-length commit (DD-11 posture): **new** (`block_id is None` →
+  `BlockDefinition.new` → `register`) vs **edit-in-place** (`block_id` → `set_primitives` version-bump
+  + repaint-all + metadata update); optional delete of `source_items` + one instance at `origin`;
+  **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
+  same core.
+- **Entry points (6):** Create Block button (blank | seeded-with-selection-**copy** → new `id`);
+  **Quick Block** button (instant consume-and-bake, separate button, `MakeBlockDialog` name);
+  Manager → Create new (blank); Manager → Create new based off selected (clone geometry +
+  `attributes`, new `id`); Manager → **Open in Editor** (same `id`, edit-in-place).
+- **Seeded create is non-destructive:** the editor works on a **copy**; the model is touched only at
+  Save via a "replace source with an instance?" prompt (default yes), atomically in the one commit
+  undo (source items passed as `source_items`).
+- **Edit-in-place surfaces propagation at Save:** an "updates N instances" confirm fires when the
+  edited definition has live instances (flyweight invariant: `set_primitives` → every
+  `on_definition_changed`).
+- **Import DXF/DWG/PDF → editable primitives** via the pure `geometry_import.geom_dicts_to_primitives(
+  geoms, import_scale)` (kind mapping line/circle/arc/path_points/ellipse→primitives, text skipped +
+  counted), reusing the async extraction workers + the `import_scale = real_mm/source_units`
+  convention (a **minimal** scale control, not the full `UnderlayImportDialog`). **SVG deferred.**
+- **Metadata authored in the editor** (name + editable library/series combos) via a consolidated
+  `BlockSaveDialog` (extends `MakeBlockDialog`), validated at Save (reuse `set_block_metadata` rules;
+  rename keeps `id`). The **Manager detail panel stays read-only** — the editor is *the* editing
+  surface (resolves `todo_open.md:66`).
+- **Origin:** snapped "Set Origin" tool + persistent marker, default `bbox_top_left`, stored
+  definition-local (render-ops already origin-relative). Folds in `todo_open.md:60`.
+- **Restricted "Block Editor" ribbon context** while an editor tab is active (2D geometry +
+  modify/transform + constraints + editor verbs only); property panel reused; no level chrome.
+
+### Deferred (v2.x)
+
+SVG import; attribute **authoring** (the `attributes` field is carried by clone, not edited);
+trace-over-underlay import fallback; import layer-subset selection; calibrate-by-pick import scale;
+annotative `scale_mode`; text-in-blocks.
+
+### Build order
+
+BE1 `geometry_import` + `commit_block_definition` (headless core) · BE2 editor shell + entry-point
+wiring + `BlockSaveDialog` · BE3 Set-Origin tool · BE4 import-into-editor · BE5 Quick Block button +
+polish. Full slice detail + acceptance criteria in the dated design doc.

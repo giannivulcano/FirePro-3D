@@ -440,6 +440,14 @@ class MainWindow(QMainWindow):
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
 
+        # Block Editor Manager
+        from firepro3d.block_editor import BlockEditorManager
+        self.block_editor_manager = BlockEditorManager(self.central_tabs, self.scene)
+        # Adopt each new editor scene into the same interaction envelope the plan
+        # scene gets (Escape/status/mode-sync/property panel) so 2D placement in
+        # an editor tab mirrors a plan view.
+        self.block_editor_manager.on_open = self._adopt_block_editor
+
         # Paper space — ViewResolver + Sheet + widget
         self.scene._sheets = [Sheet.create_default()]
         self.sheet_mgr = SheetManager(self.scene._sheets)
@@ -563,13 +571,14 @@ class MainWindow(QMainWindow):
         # Added BEFORE coord_label so it sits to the left of the
         # coordinate readout, clear of the QSizeGrip at the far right.
         self.snap_indicator = _SnapIndicatorLabel(self)
-        self.snap_indicator.clicked.connect(self.scene.toggle_snap)
+        self.snap_indicator.clicked.connect(lambda: self._active_scene().toggle_snap())
         status_bar.addPermanentWidget(self.snap_indicator)
         self.scene.snapToggled.connect(self._update_snap_indicator)
         self._update_snap_indicator(self.scene._snap_enabled)
         # ALIGN status-bar indicator — mirrors SNAP pill for ALIGN state.
         self.guides_indicator = _GuidesIndicatorLabel(self)
-        self.guides_indicator.clicked.connect(self.scene.set_align_enabled)
+        self.guides_indicator.clicked.connect(
+            lambda: self._active_scene().set_align_enabled())
         status_bar.addPermanentWidget(self.guides_indicator)
         self.scene.alignToggled.connect(self._update_guides_indicator)
         self._update_guides_indicator(self.scene.get_align_enabled())
@@ -637,27 +646,30 @@ class MainWindow(QMainWindow):
         # the visible one). toggle_snap() flips state; snapToggled then syncs
         # the ribbon button, status-bar pill, and SNAP toolbar.
         self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
-        self._f3_shortcut.activated.connect(self.scene.toggle_snap)
+        self._f3_shortcut.activated.connect(lambda: self._active_scene().toggle_snap())
         # F11 global ALIGN toggle — mirrors F3 / SNAP pattern.
         self._f11_shortcut = QShortcut(QKeySequence("F11"), self)
-        self._f11_shortcut.activated.connect(self.scene.set_align_enabled)
+        self._f11_shortcut.activated.connect(
+            lambda: self._active_scene().set_align_enabled())
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
+        # Edit shortcuts route through the ACTIVE scene/view so they operate on a
+        # Block Editor tab's own scene, not the plan scene (mirrors _on_escape).
         QShortcut(QKeySequence("Delete"), self).activated.connect(
             self._delete_if_not_editing)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._on_escape)
         QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(
-            self.scene.copy_selected_items)
+            lambda: self._active_scene().copy_selected_items())
         QShortcut(QKeySequence("Ctrl+V"), self).activated.connect(
-            lambda: self.scene.set_mode("paste"))
+            lambda: self._active_scene().set_mode("paste"))
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
-            self.view._select_all_items)
+            lambda: self._active_view()._select_all_items())
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
-            lambda: self.scene.set_mode("duplicate"))
+            lambda: self._active_scene().set_mode("duplicate"))
         # Align on Shift+A (its old "A, L" chord was retired so bare A is the Arc
         # tool shortcut; Ctrl+A is Select All, so Shift+A keeps the A mnemonic).
         QShortcut(QKeySequence("Shift+A"), self,
-                  lambda: self.scene.set_mode("align"))
+                  lambda: self._active_scene().set_mode("align"))
 
         # Restore settings
         self._splash_progress(95, "Restoring settings...")
@@ -1030,6 +1042,16 @@ class MainWindow(QMainWindow):
         if self.scene.get_placement_anchor() is not None \
                 or self.scene.is_input_mode():
             self.scene.set_mode("select")
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.widget(index)
+        if isinstance(w, BlockEditorWidget):
+            self._show_block_editor_ribbon()
+            self.update_property_manager()
+            self._refresh_snap_align_indicators()
+            return
+        # Leaving a Block Editor tab: tear down its contextual ribbon.
+        self._hide_block_editor_ribbon()
+        self._refresh_snap_align_indicators()
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
@@ -1055,7 +1077,18 @@ class MainWindow(QMainWindow):
         # Never close the 3D Model tab
         if tab_text == "3D Model":
             return
+        from firepro3d.block_editor import BlockEditorWidget
         widget = self.central_tabs.widget(index)
+        if isinstance(widget, BlockEditorWidget):
+            if widget.is_dirty():
+                from firepro3d.themed_message import themed_confirm
+                if not themed_confirm(self, "Discard changes?",
+                                      "This block editor has unsaved changes. Discard them?"):
+                    return   # abort close
+            self.block_editor_manager.forget(widget)
+            self.central_tabs.removeTab(index)
+            widget.deleteLater()
+            return
         self.central_tabs.removeTab(index)
         # Clean up elevation manager tracking
         if tab_text.startswith("Elevation: "):
@@ -1373,7 +1406,7 @@ class MainWindow(QMainWindow):
 
         def _mode_btn(group, label, icon, mode_name, large=True):
             """Create a checkable draw-mode button."""
-            cb = lambda: self.scene.set_mode(mode_name)
+            cb = lambda: self._active_scene().set_mode(mode_name)
             if large:
                 btn = group.add_large_button(label, icon, cb, checkable=True)
             else:
@@ -1502,8 +1535,11 @@ class MainWindow(QMainWindow):
         g_blocks = draw_page.add_group("Blocks")
         _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
             "Place a text note")
-        _btn(g_blocks, "Make\nBlock", _I("make_block_icon.svg"),
-             self._make_block_from_selection, tip="Create a block from selected 2D geometry")
+        _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
+             self._open_block_editor, tip="Author a block in the Block Editor")
+        _btn(g_blocks, "Quick\nBlock", _I("make_block_icon.svg"),
+             self._make_block_from_selection,
+             tip="Instantly make a block from the selected 2D geometry")
         _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
              self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
         _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
@@ -2517,7 +2553,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_snap(self, checked: bool):
         """Called when the SNAP ribbon button is toggled (or F3 pressed)."""
-        self.scene.toggle_snap(checked)
+        self._active_scene().toggle_snap(checked)
 
     def _toggle_snap_bar(self, checked: bool):
         """Show/hide the SNAP snap-type toolbar (hidden by default)."""
@@ -2677,6 +2713,16 @@ class MainWindow(QMainWindow):
                                     f"Could not save to library:\n{exc2}")
             except OSError as exc:
                 themed_info(self, "Make Block", f"Could not save to library:\n{exc}")
+
+    def _open_block_editor(self):
+        """Ribbon: open the Block Editor, seeded with the current selection copy."""
+        from firepro3d.construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
+        items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
+        w = self.block_editor_manager.open_new()
+        if items:
+            w.seed_from_dicts([it.to_dict() for it in items], source_items=items)
 
     def _focus_blocks_browser(self):
         """Ribbon handler: reveal the Blocks browser tab for insert/place."""
@@ -3408,6 +3454,10 @@ class MainWindow(QMainWindow):
         None → contextual transition so that contextual → contextual switches
         (e.g. wall → pipe) never overwrite the original base-tab position.
         """
+        # While the Block Editor ribbon owns the contextual slot, plan-scene
+        # selection must not fight it for slot 7.
+        if getattr(self, "_block_ribbon_active", False):
+            return
         items = self.scene.selectedItems()
         key = self._resolve_selection_context(items)
         if key == self._active_contextual_key:
@@ -3793,7 +3843,7 @@ class MainWindow(QMainWindow):
         if isinstance(w, PaperSpaceWidget):
             w.paper_scene.undo_stack.undo()
         else:
-            self.scene.undo()
+            self._active_scene().undo()
 
     def _dispatch_redo(self):
         """Route redo to the active tab's undo stack.
@@ -3804,7 +3854,7 @@ class MainWindow(QMainWindow):
         if isinstance(w, PaperSpaceWidget):
             w.paper_scene.undo_stack.redo()
         else:
-            self.scene.redo()
+            self._active_scene().redo()
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
@@ -3908,23 +3958,27 @@ class MainWindow(QMainWindow):
             w.paper_scene.clearSelection()
             self.update_paper_property_manager()
             return
+        # Route to the active scene so Escape cancels placement in a Block
+        # Editor tab (its own scene), not the plan scene.
+        sc = self._active_scene()
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
-        if self.scene.mode == "pipe" and self.scene.cancel_pipe_placement():
+        if sc.mode == "pipe" and sc.cancel_pipe_placement():
             return
-        self.scene.set_mode("select")
-        self.scene.clearSelection()
+        sc.set_mode("select")
+        sc.clearSelection()
         self.view_3d._on_escape()
 
     def _delete_if_not_editing(self):
         """Delete selected items unless a text item is being edited."""
-        focus = self.scene.focusItem()
+        sc = self._active_scene()
+        focus = sc.focusItem()
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
             return  # let the text editor handle Delete
-        # Check 3D-only selection first
-        if self.view_3d.get_3d_selected():
+        # Check 3D-only selection first (plan scene only; editor has no 3D)
+        if sc is self.scene and self.view_3d.get_3d_selected():
             self.view_3d.delete_selected()
             return
-        self.scene.delete_selected_items()
+        sc.delete_selected_items()
 
     def open_underlay_manager(self):
         """Open (or re-show) the modeless Underlay Manager singleton."""
@@ -4307,15 +4361,169 @@ class MainWindow(QMainWindow):
         if targets:
             fg.sync()
 
+    def _active_scene(self):
+        """The scene the ribbon tools/property panel act on: the current tab's
+        editor scene for a Block Editor tab, else the plan scene."""
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.currentWidget()
+        if isinstance(w, BlockEditorWidget):
+            return w.editor_scene
+        return self.scene
+
+    def _adopt_block_editor(self, widget):
+        """Wire a new editor scene into the shared interaction envelope.
+
+        Connects the SAME signals the plan scene uses (mode -> status label +
+        mode-button highlight + template sync; selection -> property panel;
+        requestPropertyUpdate -> property panel) so drawing in an editor tab
+        gives the same feedback/cancel behavior as a plan view. Plan-specific
+        wiring (model browser, contextual ribbon) is intentionally NOT adopted.
+        """
+        sc = widget.editor_scene
+        sc.modeChanged.connect(self._update_mode_label)
+        sc.modeChanged.connect(self._sync_mode_buttons)
+        sc.modeChanged.connect(self._on_mode_changed_template)
+        sc.selectionChanged.connect(self.update_property_manager)
+        sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+        # Status-bar readouts: per-step/variant instruction (corner/centre,
+        # polygon sides, "pick opposite corner", …), live coordinates, warnings.
+        sc.instructionChanged.connect(lambda text: self.mode_label.setText(text))
+        sc.cursorMoved.connect(self.coord_label.setText)
+        sc.warningIssued.connect(self._on_warning_issued)
+        # Keep the shared SNAP/ALIGN status pills + toolbar + ribbon button in
+        # sync when the editor scene's snap/align state is toggled.
+        sc.snapToggled.connect(self._update_snap_indicator)
+        sc.snapToggled.connect(self.snap_toolbar._on_snap_toggled)
+        sc.alignToggled.connect(self._update_guides_indicator)
+
+    def _refresh_snap_align_indicators(self):
+        """Point the SNAP/ALIGN status pills at the active scene's state."""
+        sc = self._active_scene()
+        try:
+            self._update_snap_indicator(sc._snap_enabled)
+            self._update_guides_indicator(sc.get_align_enabled())
+        except Exception:
+            pass
+
+    # ── Block Editor contextual ribbon ──────────────────────────────────────
+    def _active_editor_widget(self):
+        """The current Block Editor tab widget, or None."""
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.currentWidget()
+        return w if isinstance(w, BlockEditorWidget) else None
+
+    def _active_view(self):
+        """The Model_View for the active tab: the editor's view for a Block
+        Editor tab, else the plan view."""
+        w = self._active_editor_widget()
+        if w is not None:
+            return w.view
+        return self.view
+
+    def _show_block_editor_ribbon(self):
+        """Insert + activate the contextual 'Block Editor' ribbon page."""
+        if getattr(self, "_block_ribbon_active", False):
+            self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+            return
+        # Clear any selection-driven contextual page first (shared slot 7).
+        if self._active_contextual_key is not None:
+            self.ribbon.remove_page(self._contextual_index)
+            self._active_contextual_key = None
+        else:
+            self._pre_contextual_tab = self.ribbon._tab_bar.currentIndex()
+        page = self.ribbon.insert_page("Block Editor", self._contextual_index,
+                                       contextual=True)
+        self._build_block_editor_context(page)
+        self._block_ribbon_active = True
+        self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+
+    def _hide_block_editor_ribbon(self):
+        """Remove the contextual 'Block Editor' ribbon page (leaving an editor tab)."""
+        if not getattr(self, "_block_ribbon_active", False):
+            return
+        self.ribbon.remove_page(self._contextual_index)
+        self._block_ribbon_active = False
+        try:
+            self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
+        except Exception:
+            pass
+
+    def _build_block_editor_context(self, page):
+        """Populate the Block Editor ribbon: 2D drawing tools + block verbs.
+
+        Draw-mode buttons dispatch through ``_active_scene()`` (the editor scene).
+        Block verbs are small buttons (stack 3-high); Set Origin / Import / Edit
+        Attributes are placeholders wired in BE3 / BE4 / a later slice.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        gb = page.add_group("Block")
+        self._be_save_btn = gb.add_small_button(
+            "Save\nBlock", _I("make_block_icon.svg"), self._be_save)
+        self._be_save_btn.setToolTip("Save this block to the project (and optionally the library)")
+        self._be_origin_btn = gb.add_small_button(
+            "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
+        self._be_origin_btn.setToolTip("Set the block insertion origin (click to pick, snapped)")
+        self._be_import_btn = gb.add_small_button(
+            "Import", _I("block_manager_icon.svg"), self._be_import)
+        self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry into the editor")
+        self._be_attr_btn = gb.add_small_button(
+            "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
+        self._be_attr_btn.setToolTip("Edit block attributes (coming soon)")
+        self._be_attr_btn.setEnabled(False)     # wired later
+
+        g = page.add_group("2D Geometry")
+
+        def _mode(label, icon, mode, tip):
+            cb = lambda: self._active_scene().set_mode(mode)
+            b = g.add_small_button(label, _I(icon), cb, checkable=True)
+            b.setToolTip(tip)
+            self._mode_buttons[mode] = b
+            return b
+
+        _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
+        _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
+              "Draw a rectangle (R) — ←/→ toggles corner/centre")
+        _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
+        _mode("Polyline", "polyline_icon.svg", "polyline",
+              "Draw a polyline (multi-segment)")
+        _mode("Arc", "arc_icon.svg", "draw_arc",
+              "Draw an arc (3-click) — ←/→ toggles start point")
+        _mode("Polygon", "polygon_icon.svg", "polygon",
+              "Draw a regular polygon — ↑/↓ sides, "
+              "←/→ inscribed/circumscribed (P)")
+
+    def _be_save(self):
+        w = self._active_editor_widget()
+        if w is not None:
+            w.save(self)
+
+    def _be_set_origin(self):
+        w = self._active_editor_widget()
+        if w is not None:
+            w.begin_set_origin()
+
+    def _be_import(self):
+        w = self._active_editor_widget()
+        if w is not None:
+            w.begin_import()
+
+    def _be_edit_attributes(self):
+        pass   # wired later — block attribute authoring
+
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown
         try:
+            sc = self._active_scene()
             # Don't override template properties during placement modes
-            if self.scene.mode in ("pipe", "sprinkler", "wall",
-                                    "floor", "roof", "roof_rect",
-                                    "set_scale", "design_area"):
+            if sc.mode in ("pipe", "sprinkler", "wall",
+                           "floor", "roof", "roof_rect",
+                           "set_scale", "design_area"):
                 return
-            items = self.scene.selectedItems()
+            items = sc.selectedItems()
         except RuntimeError:
             return
         if items:
