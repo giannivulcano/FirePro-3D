@@ -4466,11 +4466,10 @@ class MainWindow(QMainWindow):
         self._be_origin_btn.setToolTip("Set the block insertion origin (click to pick, snapped)")
         self._be_import_btn = gb.add_small_button(
             "Import", _I("block_manager_icon.svg"), self._be_import)
-        self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry (coming soon)")
+        self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry into the editor")
         self._be_attr_btn = gb.add_small_button(
             "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
         self._be_attr_btn.setToolTip("Edit block attributes (coming soon)")
-        self._be_import_btn.setEnabled(False)   # BE4
         self._be_attr_btn.setEnabled(False)     # wired later
 
         g = page.add_group("2D Geometry")
@@ -4505,7 +4504,9 @@ class MainWindow(QMainWindow):
             w.begin_set_origin()
 
     def _be_import(self):
-        pass   # BE4 — import DXF/DWG/PDF into the editor
+        w = self._active_editor_widget()
+        if w is not None:
+            w.begin_import()
 
     def _be_edit_attributes(self):
         pass   # wired later — block attribute authoring

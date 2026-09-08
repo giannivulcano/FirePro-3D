@@ -334,3 +334,38 @@ def test_set_origin_press_emits_snapped_point(qapp):
     assert got and (round(got[0].x()), round(got[0].y())) == (3, 4)
     assert w.editor_scene.mode == "select"
     assert (round(w.origin_point().x()), round(w.origin_point().y())) == (3, 4)
+
+
+# ---------------------------------------------------------------------------
+# BE4: import extracted geometry as editable primitives
+# ---------------------------------------------------------------------------
+
+def test_add_imported_geoms_creates_selected_primitives(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    geoms = [
+        {"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+        {"kind": "circle", "x": 0, "y": 0, "w": 4, "h": 4},
+        {"kind": "text", "x": 0, "y": 0, "text": "A"},   # skipped
+    ]
+    added, skipped = w._add_imported_geoms(geoms, 1.0)
+    assert (added, skipped) == (2, 1)
+    assert len(w.gather_primitives()) == 2
+    assert len(w.editor_scene.selectedItems()) == 2      # imported set selected
+
+
+def test_add_imported_geoms_applies_scale(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    w._add_imported_geoms([{"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0}], 2.0)
+    ln = w.gather_primitives()[0]
+    assert ln.to_dict()["pt2"] == [20.0, 0.0]            # coords scaled ×2
+
+
+def test_add_imported_geoms_empty_reports_and_no_undo(qapp):
+    project = Model_Space(); tabs = QTabWidget()
+    w = BlockEditorManager(tabs, project).open_new()
+    n0 = len(w.editor_scene._undo_stack)
+    added, skipped = w._add_imported_geoms([{"kind": "text", "x": 0, "y": 0}], 1.0)
+    assert (added, skipped) == (0, 1)
+    assert len(w.editor_scene._undo_stack) == n0          # nothing added, no undo

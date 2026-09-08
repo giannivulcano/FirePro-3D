@@ -123,6 +123,7 @@ class BlockEditorWidget(QWidget):
         self._edit_block_id = block_id
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
+        self._import_worker = None           # retained so the QThread isn't GC'd mid-run
         self.editor_scene = Model_Space()    # isolated scratchpad; no managers injected
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
@@ -347,6 +348,118 @@ class BlockEditorWidget(QWidget):
         if v["save_to_library"]:
             self._save_to_library(defn, parent or self)
         return defn
+
+    # ── Import (BE4) ────────────────────────────────────────────────────────
+
+    def _add_imported_geoms(self, geoms, import_scale):
+        """Convert extracted geom dicts to editable primitives in the editor.
+
+        Adds each primitive to the scene + its tracking list, selects the imported
+        set, pushes one undo state, and reports a status. Returns (added, skipped).
+
+        Args:
+            geoms: List of kind-tagged geometry dicts from an import worker.
+            import_scale: Multiplier applied to all coordinates (real mm per
+                source unit).
+
+        Returns:
+            Tuple ``(added, skipped)`` — counts of accepted and dropped items.
+        """
+        items, skipped = geometry_import.geom_dicts_to_primitives(geoms, import_scale)
+        if not items:
+            self.editor_scene._show_status(
+                f"Import: nothing usable (skipped {skipped})", timeout=4000)
+            return 0, skipped
+        self.editor_scene.clearSelection()
+        for it in items:
+            self._add_primitive(it)
+            it.setSelected(True)
+        self.editor_scene.push_undo_state()
+        self.editor_scene._show_status(
+            f"Imported {len(items)} primitive(s)" +
+            (f", skipped {skipped}" if skipped else ""), timeout=5000)
+        return len(items), skipped
+
+    def import_file(self, path, import_scale):
+        """Extract geometry from *path* (DXF/DWG/PDF) and add editable primitives.
+
+        Async for DXF/PDF (worker thread). DWG is converted to DXF first.
+
+        Args:
+            path: Absolute path to the source file (.dxf, .dwg, or .pdf).
+            import_scale: Multiplier applied to all coordinates (real mm per
+                source unit).
+        """
+        import os
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
+            from .pdf_import_worker import PdfImportWorker
+            worker = PdfImportWorker(path)
+        elif ext == ".dwg":
+            from . import dwg_converter
+            oda = dwg_converter.find_oda_converter()
+            if not oda:
+                self.editor_scene._show_status(
+                    "DWG import needs the ODA File Converter (not found)", timeout=6000)
+                return
+            dxf = dwg_converter.convert_dwg_to_dxf(oda, path)
+            if not dxf:
+                self.editor_scene._show_status("DWG conversion failed", timeout=6000)
+                return
+            from .dxf_import_worker import DxfImportWorker
+            worker = DxfImportWorker(dxf, skip_sanitize=True)
+            self._import_dwg_tmp = dxf   # cleaned up in _on_import_finished
+        elif ext in (".dxf",):
+            from .dxf_import_worker import DxfImportWorker
+            worker = DxfImportWorker(path)
+        else:
+            self.editor_scene._show_status(f"Unsupported file type: {ext}", timeout=4000)
+            return
+        self._import_worker = worker
+        self._import_scale = import_scale
+        worker.finished_data.connect(self._on_import_finished)
+        worker.error.connect(self._on_import_error)
+        worker.status.connect(lambda m: self.editor_scene._show_status(m, timeout=3000))
+        worker.start()
+
+    def _on_import_finished(self, geoms):
+        self._add_imported_geoms(geoms, getattr(self, "_import_scale", 1.0))
+        self._cleanup_import_worker()
+
+    def _on_import_error(self, msg):
+        self.editor_scene._show_status(f"Import failed: {msg}", timeout=6000)
+        self._cleanup_import_worker()
+
+    def _cleanup_import_worker(self):
+        tmp = getattr(self, "_import_dwg_tmp", None)
+        if tmp:
+            try:
+                from . import dwg_converter
+                dwg_converter.cleanup_converted_dxf(tmp)
+            except Exception:
+                pass
+            self._import_dwg_tmp = None
+        self._import_worker = None
+
+    def begin_import(self):
+        """File dialog -> scale prompt -> import_file (ribbon Import verb)."""
+        from PyQt6.QtWidgets import QFileDialog
+        from .themed_message import themed_input_number
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import geometry", "",
+            "CAD / PDF (*.dxf *.dwg *.pdf);;All files (*)")
+        if not path:
+            return
+        import os
+        ext = os.path.splitext(path)[1].lower()
+        default = (25.4 / 72.0) if ext == ".pdf" else 1.0
+        scale, ok = themed_input_number(
+            self, "Import scale",
+            "Millimetres per source unit (DXF unit / PDF point):",
+            initial=default, dimension=False, minimum=1e-6)
+        if not ok:
+            return
+        self.import_file(path, scale)
 
     def _save_to_library(self, defn, parent):
         """Persist *defn* to the on-disk block library, prompting on collision.
