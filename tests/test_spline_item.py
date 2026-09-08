@@ -71,3 +71,13 @@ def test_roundtrip_arbitrary_degree_rational():
     assert s2._degree == 3
     assert s2._knots == knots
     assert s2._weights == weights
+
+
+def test_single_point_spline_does_not_crash():
+    """A degenerate 1-control-point spline must construct without raising
+    (ezdxf's BSpline rejects order 1; the ctor guards auto-knots for n<2)."""
+    s = SplineItem(_cp((5, 5)))          # 1 control point
+    assert s._knots is None
+    assert not s.is_closed()
+    s2 = SplineItem.from_dict(s.to_dict())   # round-trips a degenerate spline
+    assert len(s2._control_points) == 1

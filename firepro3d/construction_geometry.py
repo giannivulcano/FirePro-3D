@@ -1787,7 +1787,11 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._control_points = [QPointF(p) for p in control_points]
         n = len(self._control_points)
         self._degree = max(1, min(int(degree), max(n - 1, 1)))
-        self._knots = list(knots) if knots else _auto_knots(n, self._degree)
+        # ezdxf's BSpline rejects order 1 (a single control point), so a
+        # degenerate 0/1-point spline gets no auto knot vector — _bspline_path
+        # handles n < 2 via its own early return (moveTo / empty path).
+        self._knots = (list(knots) if knots
+                       else (_auto_knots(n, self._degree) if n >= 2 else None))
         self._weights = list(weights) if weights else None
 
         self.init_displayable(DEFAULT_LEVEL)
