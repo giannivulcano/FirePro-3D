@@ -1537,6 +1537,195 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# EllipseItem — centre + two half-axes + Y-up rotation
+# ─────────────────────────────────────────────────────────────────────────────
+
+_AXIS_MIN = 0.5   # anti-degeneracy floor (mm), matches circle/polygon
+
+
+class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+    """An ellipse defined by centre, semi-major (rx), semi-minor (ry) and a
+    Y-up rotation of the major axis.
+
+    Path-based (not a native QGraphicsEllipseItem) because the rotation is
+    data-parametric and paint-applied — never Qt setRotation — matching the
+    app-wide Y-up / CCW-positive convention used by RegularPolygonItem.
+    """
+
+    def __init__(self, center: QPointF, rx: float, ry: float,
+                 rotation_deg: float = 0.0,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+        super().__init__()
+        self._center = QPointF(center)
+        self._rx = max(float(rx), _AXIS_MIN)
+        self._ry = max(float(ry), _AXIS_MIN)
+        self._rotation_deg = float(rotation_deg)
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.setZValue(Z_CAT_CONSTRUCTION)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self._regenerate()
+
+    def _ellipse_path_local(self) -> QPainterPath:
+        p = QPainterPath()
+        p.addEllipse(QPointF(0.0, 0.0), self._rx, self._ry)
+        return p
+
+    def get_closed_path(self) -> QPainterPath:
+        t = QTransform()
+        t.translate(self._center.x(), self._center.y())
+        t.rotate(-self._rotation_deg)
+        return t.map(self._ellipse_path_local())
+
+    def is_closed(self) -> bool:
+        return True
+
+    def _regenerate(self):
+        self.setPath(self.get_closed_path())
+        self.update()
+
+    def _axis_endpoint(self, semi: float, angle_off_deg: float) -> QPointF:
+        a = math.radians(self._rotation_deg + angle_off_deg)
+        return QPointF(self._center.x() + semi * math.cos(a),
+                       self._center.y() - semi * math.sin(a))
+
+    def grip_points(self) -> list[QPointF]:
+        return [
+            QPointF(self._center),
+            self._axis_endpoint(self._rx, 0.0),
+            self._axis_endpoint(self._rx, 180.0),
+            self._axis_endpoint(self._ry, 90.0),
+            self._axis_endpoint(self._ry, 270.0),
+        ]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if index == 0:
+            self._center = QPointF(pos)
+            self._regenerate()
+            return
+        dx = pos.x() - self._center.x()
+        dy = pos.y() - self._center.y()
+        dist = math.hypot(dx, dy)
+        if dist < _AXIS_MIN:
+            return
+        if index in (1, 2):
+            self._rx = dist
+            ang = math.degrees(math.atan2(-dy, dx))
+            self._rotation_deg = (ang - (180.0 if index == 2 else 0.0)) % 360.0
+        elif index in (3, 4):
+            self._ry = dist
+        self._regenerate()
+
+    def translate(self, dx: float, dy: float):
+        self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        self._regenerate()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
+        self._regenerate()
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type":     {"type": "label", "value": "Ellipse"},
+            "Centre":   {"type": "label",
+                         "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
+            "Major (rx)": {"type": "dimension",
+                           "value": self._fmt(self._rx), "value_mm": self._rx},
+            "Minor (ry)": {"type": "dimension",
+                           "value": self._fmt(self._ry), "value_mm": self._ry},
+            "Rotation": {"type": "string",
+                         "value": f"{self._rotation_deg:.2f}", "suffix": "°"},
+            "Colour":   {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if key == "Major (rx)":
+            r = self._parse_dim(value)
+            if r is not None and r >= _AXIS_MIN:
+                self._rx = r
+                self._regenerate()
+            return
+        if key == "Minor (ry)":
+            r = self._parse_dim(value)
+            if r is not None and r >= _AXIS_MIN:
+                self._ry = r
+                self._regenerate()
+            return
+        if key == "Rotation":
+            try:
+                self._rotation_deg = float(str(value).replace("°", "").strip())
+            except (TypeError, ValueError):
+                return
+            self._regenerate()
+            return
+        if self._geom2d_set(key, value):
+            self._regenerate()
+            return
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":        "draw_ellipse",
+            "cx":          self._center.x(),
+            "cy":          self._center.y(),
+            "rx":          self._rx,
+            "ry":          self._ry,
+            "rotation":    self._rotation_deg,
+            "color":       self.pen().color().name(),
+            "lineweight":  self.pen().widthF(),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EllipseItem":
+        obj = cls(QPointF(data["cx"], data["cy"]),
+                  data["rx"], data["ry"], data.get("rotation", 0.0),
+                  data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+        obj._geom2d_from_dict(data)
+        obj._regenerate()
+        return obj
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
+        super().paint(painter, option, widget)
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+            painter.setPen(hl)
+            painter.drawPath(self.path())
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            path = path.united(self.get_closed_path())
+        return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GeometryTemplate — pre-placement defaults for geometry tools
 # ─────────────────────────────────────────────────────────────────────────────
 
