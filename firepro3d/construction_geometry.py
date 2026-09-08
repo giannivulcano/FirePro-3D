@@ -1726,6 +1726,188 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SplineItem — editable NURBS / B-spline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _bspline_path(control_points: list[QPointF], degree: int,
+                  knots: list[float] | None,
+                  weights: list[float] | None) -> QPainterPath:
+    """Build a QPainterPath tessellating a NURBS/B-spline via ezdxf.math.BSpline.
+
+    ezdxf is a pure evaluator here (no DXF I/O) — respects the read-only-DXF
+    rule.  ``order = degree + 1``; a curve with fewer control points than
+    ``degree+1`` auto-lowers by clamping the order to the control-point count.
+    """
+    path = QPainterPath()
+    n = len(control_points)
+    if n == 0:
+        return path
+    if n == 1:
+        path.moveTo(control_points[0])
+        return path
+    from ezdxf.math import BSpline
+    order = min(degree + 1, n)
+    cps = [(p.x(), p.y()) for p in control_points]
+    spline = BSpline(cps, order=order,
+                     knots=knots if knots else None,
+                     weights=weights if weights else None)
+    pts = list(spline.flattening(0.5))
+    if not pts:
+        return path
+    path.moveTo(pts[0][0], pts[0][1])
+    for p in pts[1:]:
+        path.lineTo(p[0], p[1])
+    return path
+
+
+def _auto_knots(n_points: int, degree: int) -> list[float]:
+    """Return the clamped-uniform knot vector ezdxf would generate for *n_points*
+    control points at *degree* (already clamped to n_points-1)."""
+    from ezdxf.math import BSpline
+    order = min(degree + 1, n_points)
+    cps = [(0.0, 0.0)] * n_points
+    return list(BSpline(cps, order=order).knots())
+
+
+class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+    """An editable NURBS/B-spline.
+
+    Data model is the full DXF SPLINE payload (control points + degree + knot
+    vector + optional weights) so an imported spline round-trips exactly.
+    Authored splines are the constrained subset: cubic (degree lowers under 4
+    control points), auto clamped-uniform knots, non-rational.
+    """
+
+    def __init__(self, control_points: list[QPointF], degree: int = 3,
+                 knots: list[float] | None = None,
+                 weights: list[float] | None = None,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+        super().__init__()
+        self._control_points = [QPointF(p) for p in control_points]
+        n = len(self._control_points)
+        self._degree = max(1, min(int(degree), max(n - 1, 1)))
+        self._knots = list(knots) if knots else _auto_knots(n, self._degree)
+        self._weights = list(weights) if weights else None
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.setZValue(Z_CAT_CONSTRUCTION)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self._regenerate()
+
+    def _regenerate(self):
+        self.setPath(_bspline_path(self._control_points, self._degree,
+                                   self._knots, self._weights))
+        self.update()
+
+    def is_closed(self) -> bool:
+        cps = self._control_points
+        return len(cps) >= 3 and cps[0] == cps[-1]
+
+    def get_closed_path(self) -> QPainterPath | None:
+        if not self.is_closed():
+            return None
+        p = QPainterPath(self.path())
+        p.closeSubpath()
+        return p
+
+    def grip_points(self) -> list[QPointF]:
+        return [QPointF(p) for p in self._control_points]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if 0 <= index < len(self._control_points):
+            self._control_points[index] = QPointF(pos)
+            self._regenerate()
+
+    def translate(self, dx: float, dy: float):
+        self._control_points = [QPointF(p.x() + dx, p.y() + dy)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        from .cad_math import CAD_Math
+        self._control_points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type":     {"type": "label", "value": "Spline"},
+            "Points":   {"type": "label", "value": str(len(self._control_points))},
+            "Degree":   {"type": "label", "value": str(self._degree)},
+            "Rational": {"type": "label", "value": "yes" if self._weights else "no"},
+            "Colour":   {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if self._geom2d_set(key, value):
+            self._regenerate()
+            return
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":           "draw_spline",
+            "control_points": [[p.x(), p.y()] for p in self._control_points],
+            "degree":         self._degree,
+            "knots":          list(self._knots) if self._knots else None,
+            "weights":        list(self._weights) if self._weights else None,
+            "color":          self.pen().color().name(),
+            "lineweight":     self.pen().widthF(),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SplineItem":
+        cps = [QPointF(x, y) for x, y in data["control_points"]]
+        obj = cls(cps, data.get("degree", 3),
+                  data.get("knots"), data.get("weights"),
+                  data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+        obj._geom2d_from_dict(data)
+        obj._regenerate()
+        return obj
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
+        super().paint(painter, option, widget)
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+            painter.setPen(hl)
+            painter.drawPath(self.path())
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                path = path.united(cp)
+        return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GeometryTemplate — pre-placement defaults for geometry tools
 # ─────────────────────────────────────────────────────────────────────────────
 
