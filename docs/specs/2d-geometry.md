@@ -4,8 +4,8 @@ status: current
 applies-to:
   - firepro3d/construction_geometry.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-08-28
-verified-commit: 579e841
+last-verified: 2026-09-07
+verified-commit: 554e67b
 ---
 
 # 2D Geometry System
@@ -23,7 +23,7 @@ construction geometry system"). Seeded from the 2026-08-22 (level-plane + fill) 
 
 ## 1. Scope & item models
 
-Six item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a Qt base:
+Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a Qt base:
 
 | Class | Base | Shape |
 |---|---|---|
@@ -33,6 +33,8 @@ Six item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a Qt
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
 | `ArcItem` | `QGraphicsPathItem` | 3-point / centre arc |
 | `RegularPolygonItem` | `QGraphicsPathItem` | **parametric** regular N-gon |
+| `EllipseItem` | `QGraphicsPathItem` | centre + rx/ry + **Y-up rotation** |
+| `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights) |
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
 
@@ -87,6 +89,77 @@ Stores `_center`, `_sides` (3–120), `_radius_mm`, `_rotation_deg`, `_inscribed
   `set_property` regenerates.
 - **Serialization:** `type: "polygon"` with centre/sides/radius/rotation/inscribed.
 
+## 3.5 EllipseItem + SplineItem (curve primitives, 2026-09-07)
+
+Two curve primitives added so DXF/PDF ellipses and splines can import as real
+curves (the *import extraction* itself is a separate task — these are the
+editable target primitives). Both are `QGraphicsPathItem`-based (not native Qt
+shapes) so their geometry is data-parametric and paint-applied.
+
+### 3.5.1 EllipseItem
+- Stores `_center`, `_rx` (semi-major), `_ry` (semi-minor), `_rotation_deg`.
+  **Rotation is data-parametric + Y-up (CCW-positive)**, applied in
+  `get_closed_path()` via `QTransform().rotate(-_rotation_deg)` — never Qt
+  `setRotation`, matching the `RegularPolygonItem` convention. Anti-degeneracy
+  floor: `rx`/`ry` clamp to ≥ 0.5 mm (the `_AXIS_MIN` = same epsilon as
+  circle/polygon radii).
+- **Grips (5):** `[centre, major+, major-, minor+, minor-]`. Grip 0 translates;
+  the major-axis grips set `rx` **and** `_rotation_deg` (via `atan2(-dy,dx)`,
+  the exact inverse of the axis-endpoint formula — the dragged grip lands under
+  the cursor); the minor-axis grips set `ry` only. No rotation grip — the major
+  axis carries rotation.
+- **Placement:** 3-click axes — centre → major-axis endpoint (`rx` + rotation)
+  → minor-axis extent (`ry`). Mode `"draw_ellipse"`, list `_draw_ellipses`,
+  `type: "draw_ellipse"`. Always closed → fillable.
+
+### 3.5.2 SplineItem
+- **Full NURBS data model:** `_control_points`, `_degree`, `_knots`, `_weights`
+  (`None` ⇒ non-rational). Stored general so an *imported* arbitrary-degree
+  rational spline round-trips verbatim; **authored** splines are the constrained
+  subset (cubic, auto clamped-uniform knots, non-rational — degree auto-lowers
+  when < 4 control points: 2 pts → line, 3 → quadratic). A degenerate < 2-point
+  spline stores `_knots = None` (ezdxf rejects order 1).
+- **Rendering/eval via `ezdxf.math.BSpline`** (`_bspline_path()`), used purely
+  as a NURBS evaluator (no DXF I/O — respects the read-only-DXF rule).
+  `order = min(degree+1, n_points)`; `.flattening()` tessellates to a
+  `QPainterPath` polyline.
+- **Grips:** one per control point (drag → rebuild). No centre grip.
+  Add/remove control point is deferred.
+- **Placement:** N-click control polygon (mirrors polyline) — Enter/double-click
+  finishes, Delete pops the last point, 1 point cancels. Mode `"draw_spline"`,
+  list `_draw_splines`, `type: "draw_spline"`. Open (not fillable) unless first
+  == last control point.
+
+Both register in `block_definition._PRIMITIVE_FACTORY` and thread through the
+full dual-path persistence + enumeration set (§6). *Import extraction*
+(DXF `ellipse_full` / SPLINE → these primitives) is owned by the separate
+block-editor curve-fidelity task, **not** this subsystem.
+
+## 3.6 Reference lines (placement + selection guides) — invariant
+
+A **reference line** is the canonical dashed guide the 2D-geometry tools use to
+show *defining geometry* — axes, radii, control polygons, the 0° datum / sweep
+radials. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
+in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
+`setCosmetic(True)`). The scene-side factory `Model_Space._make_ref_line()` /
+`_make_ref_circle()` (z = 200) builds the placement-time guides; each item's
+`paint()` draws the same style for the selection-time guides.
+
+**Invariants:**
+- The **placement-time** guide and the **selection-time** guide for the same
+  primitive MUST use this identical style (a placement radial must not be a
+  thicker "preview" line than the axis it becomes). Preview *rubber-bands* that
+  track the cursor toward a not-yet-committed point may still use the heavier
+  width-2 preview pen (circle/arc radius line); a *reference* line (a guide that
+  represents committed defining geometry) is always width-1.
+- Selection-time reference guides are drawn **whenever the item `isSelected()`**,
+  independent of `_manip_wraps()` — they are a content aid, not the selection
+  highlight (only the lighter highlight outline is gated on `not _manip_wraps`,
+  to avoid double-drawing with the manipulator frame).
+- Items that expose defining geometry render it as reference lines on selection:
+  `EllipseItem` (major + minor axes), `SplineItem` (control polygon),
+  `RegularPolygonItem` (circumradius circle).
+
 ## 4. Placement workflows (`model_space.py`)
 
 Placement is **always continuous** (the `single_place_mode` opt-in was removed
@@ -139,6 +212,16 @@ polygon (like the rectangle) emits **vertices (endpoint), edge midpoints
 (midpoint), centre (center)**, plus its edges as intersection/nearest/perpendicular
 segments — its branch must precede the generic `QGraphicsPathItem` branch in every
 dispatch site (emitter, `_phase4_items`, `_geometric_snaps`).
+
+**EllipseItem** emits **centre + 4 rotated axis-endpoint quadrants** via its own
+`_collect` branch placed **before** the generic `QGraphicsEllipseItem`/path branch
+(mandatory: `CircleItem` rides the generic `QGraphicsEllipseItem` branch, which
+reads an axis-aligned `boundingRect` and would emit *wrong* quadrants for a
+rotated ellipse). **SplineItem** emits its **endpoints + control points** (as
+endpoint-class snaps) via its own branch before the generic path branch.
+**Deferred** (logged here, not silently capped): ellipse/spline
+perpendicular / nearest / tangent / phase-4 intersection snapping — disproportionate
+numerical effort (ellipse-segment = quartic; NURBS projection) for rare use.
 
 ## 6. Persistence (dual path — invariant)
 

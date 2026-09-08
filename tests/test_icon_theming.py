@@ -24,6 +24,8 @@ _BLOCK_ICONS = [
 # authored against the two-token contract (2026-09-05).
 _GEOM2D_ICONS = [
     "polygon_icon.svg",
+    "ellipse_icon.svg",   # authored on-contract 2026-09-07 (ellipse primitive)
+    "spline_icon.svg",    # authored on-contract 2026-09-07 (spline primitive)
 ]
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}

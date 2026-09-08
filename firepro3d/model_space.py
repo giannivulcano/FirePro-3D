@@ -29,7 +29,7 @@ from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .construction_geometry import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-    RegularPolygonItem,
+    RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
@@ -242,6 +242,20 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
+        # Ellipse drawing (3-click: centre → major endpoint → minor extent)
+        self._ellipse_center: "QPointF | None" = None
+        self._ellipse_major: "QPointF | None" = None
+        self._ellipse_step: int = 0
+        self._ellipse_preview: "EllipseItem | None" = None
+        self._ellipse_rx: float = 0.0            # fixed after the major click
+        self._ellipse_rot: float = 0.0           # Y-up major-axis angle (deg)
+        self._ellipse_radius_line = None         # step-1 radial preview line
+        self._ellipse_ref_major = None           # step-2 fixed major-axis guide
+        self._ellipse_ref_minor = None           # step-2 live perpendicular guide
+        # Spline drawing (N-click control polygon)
+        self._spline_points: list = []
+        self._spline_preview: "SplineItem | None" = None
+        self._spline_ref_poly = None             # straight control-polygon guide
         # Polygon drawing (3-step: centre → radius → rotate)
         # _polygon_rotating: True during rotate step (after radius click)
         # _polygon_sized_radius: the fixed radius while rotating
@@ -257,6 +271,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
+        # Ellipse drawing
+        self._draw_ellipses: list[EllipseItem] = []
+        # Spline drawing
+        self._draw_splines: list[SplineItem] = []
         # Holds the first click point.  In centre-first this is the arc centre
         # throughout.  In start-first (``_arc_variant == "start"``) it TRANSIENTLY
         # holds the START point until ``_commit_draw_arc_rim_at`` overwrites it
@@ -790,6 +808,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             RectangleItem:       self._draw_rects,
             CircleItem:          self._draw_circles,
             ArcItem:             self._draw_arcs,
+            EllipseItem:         self._draw_ellipses,
+            SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
             GridlineItem:        self._gridlines,
         }
@@ -1280,6 +1300,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_line":      "Pick first point",
             "draw_rectangle": "Pick first corner",
             "draw_circle":    "Pick center point",
+            "draw_ellipse":   "Pick centre point",
+            "draw_spline":    "Pick first control point",
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "dimension":      "Pick first point",
@@ -1845,6 +1867,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
+            "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
+            "draw_splines":       [s.to_dict()  for s in self._draw_splines],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
@@ -1977,6 +2001,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_arcs.clear()
 
+            for item in list(self._draw_ellipses):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._draw_ellipses.clear()
+
+            for item in list(self._draw_splines):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._draw_splines.clear()
+
             for item in list(self._draw_polygons):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -2049,6 +2083,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 ai = ArcItem.from_dict(d)
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
+
+            for d in state.get("draw_ellipses", []):
+                ei = EllipseItem.from_dict(d)
+                self.addItem(ei)
+                self._draw_ellipses.append(ei)
+
+            for d in state.get("draw_splines", []):
+                si = SplineItem.from_dict(d)
+                self.addItem(si)
+                self._draw_splines.append(si)
 
             for d in state.get("polygons", []):
                 pg = RegularPolygonItem.from_dict(d)
@@ -2573,6 +2617,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_line": "line",
         "draw_gridline": "line",
         "polyline": "line",
+        # draw_spline: per-segment Length/Angle from the last control point,
+        # exactly like polyline (the applier appends a control point).
+        "draw_spline": "line",
         # wall is intentionally absent — active_schema special-cases it per
         # primitive (line/polyline → ``line``, rect → ``rectangle``), mirroring
         # the draw_rectangle / draw_arc pattern.
@@ -2602,6 +2649,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
+        # draw_ellipse is step-aware (like draw_arc): active_schema special-cases
+        # it (step 1 → line schema Length=rx/Angle=rotation; step 2 → circle
+        # schema Radius=ry); this router dispatches to the step applier.
+        "draw_ellipse": "_apply_ellipse_dynamic_input",
+        # draw_spline uses the per-segment ``line`` schema; the applier appends a
+        # control point at the resolved point.
+        "draw_spline": "_apply_spline_dynamic_input",
         # polygon is step-aware (like draw_rectangle): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
@@ -3314,6 +3368,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_gridline":            "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
+        "draw_ellipse":             "_move_draw_ellipse",
+        "draw_spline":              "_move_draw_spline",
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
@@ -3353,6 +3409,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "polyline":        "_preview_from_polyline",
         "draw_rectangle":  "_preview_from_rectangle",
         "draw_circle":     "_preview_from_circle",
+        "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
@@ -3452,6 +3509,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _move_draw_circle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._move_draw_circle(event, snapped)
+
+    def _preview_from_ellipse(self, resolved) -> None:  # shell → GeometryDrawingController
+        return self._geom_ctl._preview_from_ellipse(resolved)
+
+    def _move_draw_ellipse(self, event, snapped):  # shell → GeometryDrawingController
+        return self._geom_ctl._move_draw_ellipse(event, snapped)
 
     def _move_polygon(self, event, snapped):  # shell → GeometryDrawingController (slice 9)
         return self._geom_ctl._move_polygon(event, snapped)
@@ -4006,8 +4069,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # moved item; they stay armed here and the press path swaps the sentinel for
     # the real self-exclude item.
     _ALIGN_PLACEMENT_MODES = frozenset({
-        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
-        "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
+        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
+        "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
         "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
@@ -4055,6 +4118,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         "draw_line":                "_press_draw_line",
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
+        "draw_ellipse":             "_press_draw_ellipse",
+        "draw_spline":              "_press_draw_spline",
         "polygon":                  "_press_polygon",
         "wall":                     "_press_wall_router",
         "floor":                    "_press_floor_router",
@@ -4207,7 +4272,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "floor", "pipe", "sprinkler",
                             "draw_line", "draw_rectangle",
-                            "draw_circle", "draw_arc", "polyline", "draw_gridline",
+                            "draw_circle", "draw_ellipse", "draw_arc", "draw_spline",
+                            "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
@@ -5013,7 +5079,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _press_offset(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Select entity to offset — go straight to live preview (no dialog)
         hit = [i for i in self.items(pos)
-               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem))]
+               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, EllipseItem, SplineItem))]
         if not hit:
             return
         self._offset_source = hit[0]
@@ -5047,6 +5113,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 elif isinstance(new_item, ArcItem):
                     self.addItem(new_item)
                     self._draw_arcs.append(new_item)
+                elif isinstance(new_item, EllipseItem):
+                    self.addItem(new_item)
+                    self._draw_ellipses.append(new_item)
+                elif isinstance(new_item, SplineItem):
+                    self.addItem(new_item)
+                    self._draw_splines.append(new_item)
                 self.push_undo_state()
         # Stay in offset mode ready for next entity
         self._offset_source = None
@@ -5215,6 +5287,21 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_polyline(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell
+        return self._geom_ctl._press_draw_spline(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _move_draw_spline(self, event, snapped):  # shell
+        return self._geom_ctl._move_draw_spline(event, snapped)
+
+    def _finish_draw_spline(self):  # shell
+        return self._geom_ctl._finish_draw_spline()
+
+    def _pop_draw_spline_vertex(self):  # shell
+        return self._geom_ctl._pop_draw_spline_vertex()
+
+    def _apply_spline_dynamic_input(self, geometry) -> bool:  # shell
+        return self._geom_ctl._apply_spline_dynamic_input(geometry)
 
     def _commit_polyline_at(self, tip):
         """Append one vertex to the active polyline at ``tip``.
@@ -5412,6 +5499,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_draw_circle(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _press_draw_ellipse(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell
+        return self._geom_ctl._press_draw_ellipse(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _commit_draw_ellipse_at(self, cursor):  # shell
+        return self._geom_ctl._commit_draw_ellipse_at(cursor)
+
+    def _apply_ellipse_dynamic_input(self, geometry) -> bool:  # shell
+        return self._geom_ctl._apply_ellipse_dynamic_input(geometry)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.
@@ -6311,6 +6407,17 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             event.accept()
             return
 
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.mode == "draw_spline"
+                and self._spline_points):
+            # Double-click delivers one extra press (a duplicate control point at
+            # the ghost tip); drop it so the spline finishes at the last clicked pt.
+            if len(self._spline_points) > 2:
+                self._spline_points.pop()
+            self._geom_ctl._finish_draw_spline()
+            event.accept()
+            return
+
         # ── Floor: double-click closes the polygon ───────────────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "floor"
@@ -6546,7 +6653,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 result.append(pipe)
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._draw_polygons,
+                    self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
@@ -6736,7 +6843,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
         elif event.key() == Qt.Key.Key_Delete:
-            if not self._delete_or_pop_polyline_vertex():
+            if self.mode == "draw_spline" and self._spline_points:
+                self._pop_draw_spline_vertex()
+            elif not self._delete_or_pop_polyline_vertex():
                 self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             # Ctrl+A is handled by QShortcut → Model_View._select_all_items()
@@ -6773,6 +6882,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.mode == "draw_spline":
+                self._finish_draw_spline()
+                return
             # place_block: Enter at the rotate step commits upright (0deg)
             if self.mode == "place_block" and self._place_block_step == 1:
                 self._place_block_commit(0.0)
@@ -6804,6 +6916,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         elif isinstance(new_item, ArcItem):
                             self.addItem(new_item)
                             self._draw_arcs.append(new_item)
+                        elif isinstance(new_item, EllipseItem):
+                            self.addItem(new_item)
+                            self._draw_ellipses.append(new_item)
+                        elif isinstance(new_item, SplineItem):
+                            self.addItem(new_item)
+                            self._draw_splines.append(new_item)
                         self.push_undo_state()
                     self._offset_source = None
                     if self._offset_highlight is not None:
@@ -7054,6 +7172,20 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._draw_arcs.append(item)
 
+            elif obj_type == "draw_ellipse":
+                item = EllipseItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.level = self.active_level
+                self.addItem(item)
+                self._draw_ellipses.append(item)
+
+            elif obj_type == "draw_spline":
+                item = SplineItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.level = self.active_level
+                self.addItem(item)
+                self._draw_splines.append(item)
+
             elif obj_type == "polyline":
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
@@ -7137,7 +7269,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         without adding anything to the scene. Covers the copyable types."""
         from .construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem as _RegularPolygonItem,
+            RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
+            SplineItem as _SplineItem,
         )
         paths = []
         if not data:
@@ -7145,7 +7278,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         geom_ctors = {
             "draw_line": LineItem, "draw_rectangle": RectangleItem,
             "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
-            "polygon": _RegularPolygonItem,
+            "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
+            "draw_spline": _SplineItem,
         }
         for obj in data:
             t = obj.get("type", "")

@@ -1526,6 +1526,10 @@ class MainWindow(QMainWindow):
                   "draw_rectangle").setToolTip(
             "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
+        _mode_btn(g_geom, "Ellipse", _I("ellipse_icon.svg"), "draw_ellipse").setToolTip(
+            "Draw an ellipse (3-click: centre, major, minor)")
+        _mode_btn(g_geom, "Spline", _I("spline_icon.svg"), "draw_spline").setToolTip(
+            "Draw a spline (click control points; Enter/double-click to finish)")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
         _mode_btn(g_geom, "Polygon", _I("polygon_icon.svg"), "polygon").setToolTip(
@@ -2740,10 +2744,24 @@ class MainWindow(QMainWindow):
         mgr.activateWindow()
 
     def _sync_mode_buttons(self, mode: str):
-        """Keep draw-mode buttons checked/unchecked to match the active mode."""
+        """Keep draw-mode buttons checked/unchecked to match the active mode.
+
+        Resilient to deleted buttons: the main ribbon and each Block Editor tab
+        both register into ``_mode_buttons`` under the same mode keys, so closing
+        a Block Editor tab leaves dead C++ wrappers behind for the shared draw
+        modes. Skip (and prune) any whose underlying object has been deleted —
+        the same self-heal pattern used by ``_manip_wraps``.
+        """
+        from PyQt6 import sip
         active_btn = self._mode_buttons.get(mode)
+        if active_btn is not None and sip.isdeleted(active_btn):
+            active_btn = None
         seen: set[int] = set()
+        dead: list[str] = []
         for m, btn in self._mode_buttons.items():
+            if btn is None or sip.isdeleted(btn):
+                dead.append(m)
+                continue
             btn_id = id(btn)
             if btn_id in seen:
                 continue
@@ -2751,6 +2769,8 @@ class MainWindow(QMainWindow):
             btn.blockSignals(True)
             btn.setChecked(btn is active_btn)
             btn.blockSignals(False)
+        for m in dead:
+            self._mode_buttons.pop(m, None)
 
     # ── Contextual tab catalog + shared Edit group ─────────────────────────
 
@@ -3372,7 +3392,7 @@ class MainWindow(QMainWindow):
         from firepro3d.construction_geometry import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
-            RegularPolygonItem,
+            RegularPolygonItem, EllipseItem, SplineItem,
         )
         from firepro3d.annotations import (
             DimensionAnnotation,
@@ -3391,7 +3411,7 @@ class MainWindow(QMainWindow):
         # 2-D geometry family
         if isinstance(item, (PolylineItem, LineItem,
                               RectangleItem, CircleItem, ArcItem,
-                              RegularPolygonItem)):
+                              RegularPolygonItem, EllipseItem, SplineItem)):
             return "geo2d"
         # Annotation family
         if isinstance(item, (NoteAnnotation, DimensionAnnotation)):
@@ -3460,6 +3480,12 @@ class MainWindow(QMainWindow):
             return
         items = self.scene.selectedItems()
         key = self._resolve_selection_context(items)
+        # Don't surface a contextual tab mid-placement: the auto-select on each
+        # commit would otherwise pop (and hold) the tab while the user is still
+        # drawing. The contextual tab is a *select-mode* affordance — it appears
+        # when the item is selected with no active placement tool.
+        if getattr(self.scene, "mode", None) not in (None, "select"):
+            key = None
         if key == self._active_contextual_key:
             return
         had_contextual = self._active_contextual_key is not None
@@ -4488,6 +4514,10 @@ class MainWindow(QMainWindow):
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
               "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode("Circle", "circle_icon.svg", "draw_circle", "Draw a circle (C)")
+        _mode("Ellipse", "ellipse_icon.svg", "draw_ellipse",
+              "Draw an ellipse (3-click: centre, major, minor)")
+        _mode("Spline", "spline_icon.svg", "draw_spline",
+              "Draw a spline (click control points; Enter/double-click to finish)")
         _mode("Polyline", "polyline_icon.svg", "polyline",
               "Draw a polyline (multi-segment)")
         _mode("Arc", "arc_icon.svg", "draw_arc",

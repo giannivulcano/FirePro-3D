@@ -593,6 +593,8 @@ class PlacementInputCoordinator:
         if self._scene.mode == "draw_circle":
             a = self._scene._draw_circle_center
             return QPointF(a) if a is not None else None
+        if self._scene.mode == "draw_ellipse":
+            return QPointF(self._scene._ellipse_center) if self._scene._ellipse_center else None
         if self._scene.mode == "polygon":
             # Both sizing and rotate steps pivot about _polygon_center.
             a = self._scene._polygon_center
@@ -693,6 +695,8 @@ class PlacementInputCoordinator:
         """
         if self._scene.mode == "draw_arc":
             return self._arc_schema_for_step()
+        if self._scene.mode == "draw_ellipse":
+            return self._ellipse_schema_for_step()
         if self._scene.mode == "draw_rectangle":
             return self._rectangle_schema_for_step()
         if self._scene.mode == "polygon":
@@ -756,6 +760,20 @@ class PlacementInputCoordinator:
             return SCHEMAS.get("line")
         if self._scene._draw_arc_step == 2:
             return SCHEMAS.get("arc_span")
+        return None
+
+    def _ellipse_schema_for_step(self):
+        """Return the ellipse schema for the current step, or None.
+
+        Mirrors ``_arc_schema_for_step``: step 1 (centre→major) types the major
+        radius + angle via the ``line`` schema (Length=rx, Angle=rotation); step
+        2 types the minor radius via the ``circle`` schema (Radius=ry). Step 0
+        has no anchor before the first click, so no HUD.
+        """
+        if self._scene._ellipse_step == 1:
+            return SCHEMAS.get("line")
+        if self._scene._ellipse_step == 2:
+            return SCHEMAS.get("circle")
         return None
 
     def _wall_schema_for_primitive(self):

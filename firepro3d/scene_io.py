@@ -114,6 +114,8 @@ class SceneIOMixin:
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
         draw_circles_data = [c.to_dict() for c in self._draw_circles]
         draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
+        draw_ellipses_data = [e.to_dict() for e in self._draw_ellipses]
+        draw_splines_data = [s.to_dict() for s in self._draw_splines]
         polygons_data = [p.to_dict() for p in self._draw_polygons]
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
@@ -153,6 +155,8 @@ class SceneIOMixin:
             "draw_rectangles":     draw_rects_data,
             "draw_circles":        draw_circles_data,
             "draw_arcs":           draw_arcs_data,
+            "draw_ellipses":       draw_ellipses_data,
+            "draw_splines":        draw_splines_data,
             "polygons":            polygons_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
@@ -199,7 +203,7 @@ class SceneIOMixin:
         from .scale_manager import ScaleManager
         from .construction_geometry import (
             PolylineItem, LineItem, RectangleItem,
-            CircleItem, ArcItem, RegularPolygonItem,
+            CircleItem, ArcItem, RegularPolygonItem, EllipseItem, SplineItem,
         )
         from .gridline import GridlineItem
         from .wall import WallSegment
@@ -422,6 +426,16 @@ class SceneIOMixin:
             self.addItem(item)
             self._draw_arcs.append(item)
 
+        for entry in payload.get("draw_ellipses", []):
+            item = EllipseItem.from_dict(entry)
+            self.addItem(item)
+            self._draw_ellipses.append(item)
+
+        for entry in payload.get("draw_splines", []):
+            item = SplineItem.from_dict(entry)
+            self.addItem(item)
+            self._draw_splines.append(item)
+
         for entry in payload.get("polygons", []):
             item = RegularPolygonItem.from_dict(entry)
             self.addItem(item)
@@ -572,6 +586,8 @@ class SceneIOMixin:
         self._draw_rects = []
         self._draw_circles = []
         self._draw_arcs = []
+        self._draw_ellipses = []
+        self._draw_splines = []
         self._draw_polygons = []
         for inst in list(getattr(self, "_block_instances", [])):
             if inst.scene() is self:

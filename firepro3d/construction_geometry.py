@@ -1512,13 +1512,15 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
-            painter.setPen(hl)
-            painter.drawPath(self.path())
-            # Draw a dashed circumradius reference circle when selected so the
-            # user can see the defining circle.  Subtle: thin dashed cosmetic pen.
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed circumradius reference circle — shown whenever selected
+            # (manipulator-wrapped or not): a content aid, NOT the highlight.
+            # Canonical reference-line style (width-1 dashed).
             rv = self._circumradius()
             cx, cy = self._center.x(), self._center.y()
             ref_pen = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
@@ -1533,6 +1535,405 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         path = stroker.createStroke(self.path())
         if getattr(self, "fill_type", "none") != "none":
             path = path.united(self.get_closed_path())
+        return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EllipseItem — centre + two half-axes + Y-up rotation
+# ─────────────────────────────────────────────────────────────────────────────
+
+_AXIS_MIN = 0.5   # anti-degeneracy floor (mm), matches circle/polygon
+
+
+class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+    """An ellipse defined by centre, semi-major (rx), semi-minor (ry) and a
+    Y-up rotation of the major axis.
+
+    Path-based (not a native QGraphicsEllipseItem) because the rotation is
+    data-parametric and paint-applied — never Qt setRotation — matching the
+    app-wide Y-up / CCW-positive convention used by RegularPolygonItem.
+    """
+
+    def __init__(self, center: QPointF, rx: float, ry: float,
+                 rotation_deg: float = 0.0,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+        super().__init__()
+        self._center = QPointF(center)
+        self._rx = max(float(rx), _AXIS_MIN)
+        self._ry = max(float(ry), _AXIS_MIN)
+        self._rotation_deg = float(rotation_deg)
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.setZValue(Z_CAT_CONSTRUCTION)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self._regenerate()
+
+    def _ellipse_path_local(self) -> QPainterPath:
+        p = QPainterPath()
+        p.addEllipse(QPointF(0.0, 0.0), self._rx, self._ry)
+        return p
+
+    def get_closed_path(self) -> QPainterPath:
+        t = QTransform()
+        t.translate(self._center.x(), self._center.y())
+        t.rotate(-self._rotation_deg)
+        return t.map(self._ellipse_path_local())
+
+    def is_closed(self) -> bool:
+        return True
+
+    def _regenerate(self):
+        self.setPath(self.get_closed_path())
+        self.update()
+
+    def _axis_endpoint(self, semi: float, angle_off_deg: float) -> QPointF:
+        a = math.radians(self._rotation_deg + angle_off_deg)
+        return QPointF(self._center.x() + semi * math.cos(a),
+                       self._center.y() - semi * math.sin(a))
+
+    def grip_points(self) -> list[QPointF]:
+        return [
+            QPointF(self._center),
+            self._axis_endpoint(self._rx, 0.0),
+            self._axis_endpoint(self._rx, 180.0),
+            self._axis_endpoint(self._ry, 90.0),
+            self._axis_endpoint(self._ry, 270.0),
+        ]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if index == 0:
+            self._center = QPointF(pos)
+            self._regenerate()
+            return
+        dx = pos.x() - self._center.x()
+        dy = pos.y() - self._center.y()
+        dist = math.hypot(dx, dy)
+        if dist < _AXIS_MIN:
+            return
+        if index in (1, 2):
+            self._rx = dist
+            ang = math.degrees(math.atan2(-dy, dx))
+            self._rotation_deg = (ang - (180.0 if index == 2 else 0.0)) % 360.0
+        elif index in (3, 4):
+            self._ry = dist
+        self._regenerate()
+
+    def translate(self, dx: float, dy: float):
+        self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        self._regenerate()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
+        self._regenerate()
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type":     {"type": "label", "value": "Ellipse"},
+            "Centre":   {"type": "label",
+                         "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
+            "Major (rx)": {"type": "dimension",
+                           "value": self._fmt(self._rx), "value_mm": self._rx},
+            "Minor (ry)": {"type": "dimension",
+                           "value": self._fmt(self._ry), "value_mm": self._ry},
+            "Rotation": {"type": "string",
+                         "value": f"{self._rotation_deg:.2f}", "suffix": "°"},
+            "Colour":   {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if key == "Major (rx)":
+            r = self._parse_dim(value)
+            if r is not None and r >= _AXIS_MIN:
+                self._rx = r
+                self._regenerate()
+            return
+        if key == "Minor (ry)":
+            r = self._parse_dim(value)
+            if r is not None and r >= _AXIS_MIN:
+                self._ry = r
+                self._regenerate()
+            return
+        if key == "Rotation":
+            try:
+                self._rotation_deg = float(str(value).replace("°", "").strip())
+            except (TypeError, ValueError):
+                return
+            self._regenerate()
+            return
+        if self._geom2d_set(key, value):
+            self._regenerate()
+            return
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":        "draw_ellipse",
+            "cx":          self._center.x(),
+            "cy":          self._center.y(),
+            "rx":          self._rx,
+            "ry":          self._ry,
+            "rotation":    self._rotation_deg,
+            "color":       self.pen().color().name(),
+            "lineweight":  self.pen().widthF(),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EllipseItem":
+        obj = cls(QPointF(data["cx"], data["cy"]),
+                  data["rx"], data["ry"], data.get("rotation", 0.0),
+                  data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+        obj._geom2d_from_dict(data)
+        obj._regenerate()
+        return obj
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed major + minor axis reference guides — shown whenever the
+            # ellipse is selected (manipulator-wrapped or not): a content aid,
+            # NOT the selection highlight. Canonical reference-line style
+            # (width-1 dashed) matching the placement-time radial guide.
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            gp = self.grip_points()
+            painter.drawLine(gp[1], gp[2])   # major axis (major+ ↔ major-)
+            painter.drawLine(gp[3], gp[4])   # minor axis (minor+ ↔ minor-)
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            path = path.united(self.get_closed_path())
+        return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SplineItem — editable NURBS / B-spline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _bspline_path(control_points: list[QPointF], degree: int,
+                  knots: list[float] | None,
+                  weights: list[float] | None) -> QPainterPath:
+    """Build a QPainterPath tessellating a NURBS/B-spline via ezdxf.math.BSpline.
+
+    ezdxf is a pure evaluator here (no DXF I/O) — respects the read-only-DXF
+    rule.  ``order = degree + 1``; a curve with fewer control points than
+    ``degree+1`` auto-lowers by clamping the order to the control-point count.
+    """
+    path = QPainterPath()
+    n = len(control_points)
+    if n == 0:
+        return path
+    if n == 1:
+        path.moveTo(control_points[0])
+        return path
+    from ezdxf.math import BSpline
+    order = min(degree + 1, n)
+    cps = [(p.x(), p.y()) for p in control_points]
+    spline = BSpline(cps, order=order,
+                     knots=knots if knots else None,
+                     weights=weights if weights else None)
+    pts = list(spline.flattening(0.5))
+    if not pts:
+        return path
+    path.moveTo(pts[0][0], pts[0][1])
+    for p in pts[1:]:
+        path.lineTo(p[0], p[1])
+    return path
+
+
+def _auto_knots(n_points: int, degree: int) -> list[float]:
+    """Return the clamped-uniform knot vector ezdxf would generate for *n_points*
+    control points at *degree* (already clamped to n_points-1)."""
+    from ezdxf.math import BSpline
+    order = min(degree + 1, n_points)
+    cps = [(0.0, 0.0)] * n_points
+    return list(BSpline(cps, order=order).knots())
+
+
+class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+    """An editable NURBS/B-spline.
+
+    Data model is the full DXF SPLINE payload (control points + degree + knot
+    vector + optional weights) so an imported spline round-trips exactly.
+    Authored splines are the constrained subset: cubic (degree lowers under 4
+    control points), auto clamped-uniform knots, non-rational.
+    """
+
+    def __init__(self, control_points: list[QPointF], degree: int = 3,
+                 knots: list[float] | None = None,
+                 weights: list[float] | None = None,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+        super().__init__()
+        self._control_points = [QPointF(p) for p in control_points]
+        n = len(self._control_points)
+        self._degree = max(1, min(int(degree), max(n - 1, 1)))
+        # ezdxf's BSpline rejects order 1 (a single control point), so a
+        # degenerate 0/1-point spline gets no auto knot vector — _bspline_path
+        # handles n < 2 via its own early return (moveTo / empty path).
+        self._knots = (list(knots) if knots
+                       else (_auto_knots(n, self._degree) if n >= 2 else None))
+        self._weights = list(weights) if weights else None
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.setZValue(Z_CAT_CONSTRUCTION)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self._regenerate()
+
+    def _regenerate(self):
+        self.setPath(_bspline_path(self._control_points, self._degree,
+                                   self._knots, self._weights))
+        self.update()
+
+    def is_closed(self) -> bool:
+        cps = self._control_points
+        return len(cps) >= 3 and cps[0] == cps[-1]
+
+    def get_closed_path(self) -> QPainterPath | None:
+        if not self.is_closed():
+            return None
+        p = QPainterPath(self.path())
+        p.closeSubpath()
+        return p
+
+    def grip_points(self) -> list[QPointF]:
+        return [QPointF(p) for p in self._control_points]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if 0 <= index < len(self._control_points):
+            self._control_points[index] = QPointF(pos)
+            self._regenerate()
+
+    def translate(self, dx: float, dy: float):
+        self._control_points = [QPointF(p.x() + dx, p.y() + dy)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        from .cad_math import CAD_Math
+        self._control_points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type":     {"type": "label", "value": "Spline"},
+            "Points":   {"type": "label", "value": str(len(self._control_points))},
+            "Degree":   {"type": "label", "value": str(self._degree)},
+            "Rational": {"type": "label", "value": "yes" if self._weights else "no"},
+            "Colour":   {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if self._geom2d_set(key, value):
+            self._regenerate()
+            return
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":           "draw_spline",
+            "control_points": [[p.x(), p.y()] for p in self._control_points],
+            "degree":         self._degree,
+            "knots":          list(self._knots) if self._knots else None,
+            "weights":        list(self._weights) if self._weights else None,
+            "color":          self.pen().color().name(),
+            "lineweight":     self.pen().widthF(),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SplineItem":
+        cps = [QPointF(x, y) for x, y in data["control_points"]]
+        obj = cls(cps, data.get("degree", 3),
+                  data.get("knots"), data.get("weights"),
+                  data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+        obj._geom2d_from_dict(data)
+        obj._regenerate()
+        return obj
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            if not _manip_wraps(self):
+                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                hl.setCosmetic(True)
+                painter.setPen(hl)
+                painter.drawPath(self.path())
+            # Dashed control-polygon reference guide (straight lines between the
+            # control points) — shown whenever selected (manipulator or not):
+            # a content aid, NOT the selection highlight. Canonical reference-
+            # line style, matching the placement-time control-polygon guide.
+            if len(self._control_points) >= 2:
+                ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+                ref.setCosmetic(True)
+                painter.setPen(ref)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for a, b in zip(self._control_points, self._control_points[1:]):
+                    painter.drawLine(a, b)
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                path = path.united(cp)
         return path
 
 
