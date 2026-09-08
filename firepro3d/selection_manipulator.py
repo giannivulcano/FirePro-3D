@@ -628,6 +628,34 @@ class SelectionManipulator(QGraphicsObject):
             self._handles[role].setVisible(self._rigid[role].visible(self))
         self._handles[HandleRole.ROTATE].setVisible(
             self._rigid[HandleRole.ROTATE].visible(self))
+        item_handles = [h for h in self._active_handles()
+                        if h not in self._rigid.values()]
+        self._sync_host_pool(item_handles)
+
+    def _active_handles(self) -> list:
+        """Handles for the current selection: item-provided (U3) if any, else
+        the rigid set (fallback). Today no item implements manip_handles(), so
+        this always returns the rigid handles -> behavior identical."""
+        item_handles = []
+        for it in self._items:
+            fn = getattr(it, "manip_handles", None)
+            if fn is not None:
+                item_handles.extend(fn())
+        return item_handles or list(self._rigid.values())
+
+    def _sync_host_pool(self, handles: list) -> None:
+        """Ensure one _HandleItem host per widget-less handle (stub/U3). The
+        rigid handles keep their role-keyed hosts; these are the extras."""
+        while len(self._host_pool) < len(handles):
+            self._host_pool.append(_HandleItem(self, self._rigid[HandleRole.TOP_LEFT]))
+        for host in self._host_pool[len(handles):]:
+            host.hide()
+        r = self._rect
+        for host, handle in zip(self._host_pool, handles):
+            host.handle = handle
+            host.role = handle.role
+            host.setPos(handle.scene_position(r))
+            host.setVisible(handle.visible(self))
 
     # ------------------------------------------------------------- styling --
 
