@@ -91,8 +91,11 @@ class BlockImportDialog(UnderlayImportDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(12)
         for pg in pages:
-            # Reparent each page out of the stack into the column host.
+            # Reparent each page out of the stack into the column host. The stack
+            # hides its non-current pages (setVisible(False)); that state persists
+            # after reparenting, so force each page visible in the flat column.
             pg.setParent(col_host)
+            pg.setVisible(True)
             col.addWidget(pg)
         col.addStretch(1)
 
@@ -153,17 +156,27 @@ class BlockImportDialog(UnderlayImportDialog):
         return self._search_layout(root, widget)
 
     def _search_layout(self, layout, widget):
-        """Recursively find the layout that directly contains *widget*."""
-        from PyQt6.QtWidgets import QLayout
+        """Recursively find the layout that directly contains *widget*.
+
+        Descends into BOTH nested sub-layouts AND child widgets' own layouts —
+        the parent nests the ``body`` HBox inside ``_body_container`` (a widget),
+        so a layout-only walk would miss it.
+        """
         for i in range(layout.count()):
             item = layout.itemAt(i)
             if item is None:
                 continue
-            if item.widget() is widget:
+            w = item.widget()
+            if w is widget:
                 return layout
             child_layout = item.layout()
             if child_layout is not None:
                 result = self._search_layout(child_layout, widget)
+                if result is not None:
+                    return result
+            # Descend into a child widget's own layout (e.g. _body_container).
+            if w is not None and w.layout() is not None:
+                result = self._search_layout(w.layout(), widget)
                 if result is not None:
                     return result
         return None

@@ -6,6 +6,8 @@ still builds its full UI by default (backwards-compat guard).
 """
 from __future__ import annotations
 
+from PyQt6.QtWidgets import QWidget
+
 from firepro3d.block_import_dialog import BlockImportDialog
 from firepro3d.underlay_import_dialog import ImportParams
 
@@ -32,9 +34,22 @@ def test_block_import_dialog_constructs_flat(qapp):
         assert rail is None or rail.parent() is None or rail.isHidden(), (
             "Rail must be detached or hidden after _flatten_layout()")
 
-        # Flat panel attribute present.
+        # Flat panel attribute present AND actually placed in the visible layout
+        # (a failed layout-swap would leave it orphaned with no parent — the
+        # 'right panel not visible' bug).
         assert hasattr(dlg, "_flat_panel"), (
             "_flat_panel (QScrollArea) must be created by _flatten_layout()")
+        assert dlg._flat_panel.parentWidget() is not None, (
+            "_flat_panel must be parented into the body layout, not orphaned")
+        # The old QStackedWidget must be emptied (all 3 pages reparented out).
+        assert dlg._panel_stack.count() == 0, (
+            "all panel pages must be moved out of the stack into the flat column")
+        # All three pages live in the flat column and are visible.
+        col = dlg._flat_panel.widget()
+        page_kids = [c for c in col.findChildren(QWidget)
+                     if c.parent() is col]
+        assert len(page_kids) >= 3, (
+            f"expected >=3 section pages in the flat column, got {len(page_kids)}")
 
         # Params still work (empty levels/name via guards).
         p = dlg.get_import_params()
