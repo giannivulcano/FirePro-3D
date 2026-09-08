@@ -250,7 +250,8 @@ class _HandleItem(QGraphicsItem):
         border = self._manip._handle_color(self._hover)
         painter.setPen(QPen(border, self._border()))
         self.handle.paint(painter, size=self._size(), border=border,
-                          fill=_handle_fill(), hover=self._hover)
+                          fill=_handle_fill(), hover=self._hover,
+                          border_width=self._border())
 
     # -- interaction ----------------------------------------------------------
 
@@ -325,7 +326,7 @@ class SelectionManipulator(QGraphicsObject):
         self._exclude = exclude
 
         # Per-scene handle sizing (px in model, paper-mm in paper).  Read by
-        # every _Handle; the flag also decides ItemIgnoresTransformations.
+        # every _HandleItem; the flag also decides ItemIgnoresTransformations.
         self._handle_mm = (handle_units == "mm")
         if self._handle_mm:
             self._handle_size = SELECTION_GRIP_SIZE_MM
@@ -920,7 +921,8 @@ class SelectionManipulator(QGraphicsObject):
             return
         if self._active_handle is not None:
             self._active_handle.on_release(self, scene_pos, mods)
-            self.rebake()
+            if moved:
+                self.rebake()
         else:
             # Interior move: capture the held delta, restore, then bake.
             d = QTransform(self._D)
@@ -1028,6 +1030,7 @@ class SelectionManipulator(QGraphicsObject):
         self._moved = False
         self._items0 = []
         self._held_snap = None
+        self._active_handle = None
 
     def _click_through(self, scene_pos: QPointF,
                        mods: Qt.KeyboardModifier) -> None:

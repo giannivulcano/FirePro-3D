@@ -49,7 +49,7 @@ class Handle:
         raise NotImplementedError
 
     def paint(self, painter: QPainter, *, size: float, border: QColor,
-              fill: QColor, hover: bool) -> None:
+              fill: QColor, hover: bool, border_width: float) -> None:
         raise NotImplementedError
 
     def cursor(self, m) -> QCursor:
@@ -102,8 +102,9 @@ class ResizeHandle(Handle):
             path.addRect(rect)        # midpoint = square
         return path
 
-    def paint(self, painter, *, size, border, fill, hover):
+    def paint(self, painter, *, size, border, fill, hover, border_width):
         half = size / 2.0
+        painter.setPen(QPen(border, border_width))
         painter.setBrush(QBrush(border if hover else fill))
         rect = QRectF(-half, -half, size, size)
         if self.role in _CORNER_ROLES:
@@ -170,13 +171,13 @@ class RotateHandle(Handle):
         path.addEllipse(c, r, r)
         return path
 
-    def paint(self, painter, *, size, border, fill, hover):
+    def paint(self, painter, *, size, border, fill, hover, border_width):
         from .selection_manipulator import _ROTATE_OFFSET_PX, _ROTATE_RADIUS_PX
         c = QPointF(0.0, -_ROTATE_OFFSET_PX)
         stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
         painter.setPen(stem)
         painter.drawLine(QPointF(0, 0), c)
-        painter.setPen(QPen(border, painter.pen().widthF() or 1.0))
+        painter.setPen(QPen(border, border_width))
         painter.setBrush(QBrush(border if hover else fill))
         painter.drawEllipse(c, _ROTATE_RADIUS_PX, _ROTATE_RADIUS_PX)
 

@@ -38,3 +38,41 @@ def test_rotate_handle_gesture_mode():
 def test_handle_is_abstract_lifecycle():
     with pytest.raises(NotImplementedError):
         Handle().scene_position(RECT)
+
+
+def test_rotate_handle_knob_outline_uses_border_width(qapp):
+    """The rotate knob outline must draw at the passed border_width (0.3),
+    not the stem pen's width (1.0). Guards the FIX-1 paint regression."""
+    from PyQt6.QtGui import QColor, QPainter, QPixmap
+
+    pm = QPixmap(64, 64)
+    real = QPainter(pm)
+
+    class _Proxy:
+        def __init__(self, p):
+            self._p = p
+            self.log = []
+
+        def __getattr__(self, n):
+            return getattr(self._p, n)
+
+        def setPen(self, pen):
+            self.log.append(("pen", pen.widthF()))
+            self._p.setPen(pen)
+
+        def drawEllipse(self, *a):
+            self.log.append(("ellipse", self._p.pen().widthF()))
+            self._p.drawEllipse(*a)
+
+        def drawLine(self, *a):
+            self.log.append(("line", self._p.pen().widthF()))
+            self._p.drawLine(*a)
+
+    proxy = _Proxy(real)
+    RotateHandle().paint(proxy, size=8.0, border=QColor("#63BE8B"),
+                         fill=QColor("#222"), hover=False, border_width=0.3)
+    real.end()
+    ellipses = [w for (k, w) in proxy.log if k == "ellipse"]
+    assert ellipses, "knob ellipse was not drawn"
+    assert abs(ellipses[-1] - 0.3) < 1e-6, \
+        f"knob outline width {ellipses[-1]} != border_width 0.3"
