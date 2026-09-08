@@ -1715,6 +1715,15 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             hl.setCosmetic(True)
             painter.setPen(hl)
             painter.drawPath(self.path())
+            # Dashed major + minor axis guides — a selection-time reference aid
+            # (mirrors RegularPolygonItem's circumradius circle).
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            gp = self.grip_points()
+            painter.drawLine(gp[1], gp[2])   # major axis (major+ ↔ major-)
+            painter.drawLine(gp[3], gp[4])   # minor axis (minor+ ↔ minor-)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -1899,6 +1908,15 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             hl.setCosmetic(True)
             painter.setPen(hl)
             painter.drawPath(self.path())
+            # Dashed control-polygon guide (straight lines between the control
+            # points) — a selection-time reference aid.
+            if len(self._control_points) >= 2:
+                ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+                ref.setCosmetic(True)
+                painter.setPen(ref)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for a, b in zip(self._control_points, self._control_points[1:]):
+                    painter.drawLine(a, b)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()

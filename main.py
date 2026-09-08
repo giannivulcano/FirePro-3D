@@ -3480,6 +3480,12 @@ class MainWindow(QMainWindow):
             return
         items = self.scene.selectedItems()
         key = self._resolve_selection_context(items)
+        # Don't surface a contextual tab mid-placement: the auto-select on each
+        # commit would otherwise pop (and hold) the tab while the user is still
+        # drawing. The contextual tab is a *select-mode* affordance — it appears
+        # when the item is selected with no active placement tool.
+        if getattr(self.scene, "mode", None) not in (None, "select"):
+            key = None
         if key == self._active_contextual_key:
             return
         had_contextual = self._active_contextual_key is not None
