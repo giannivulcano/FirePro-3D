@@ -1310,6 +1310,22 @@ class TestMainWindowWiring:
         monkeypatch.setattr(
             "PyQt6.QtPrintSupport.QPrintDialog", _StubPrintDialog)
 
+        # main._print_paper builds QPrinter(HighResolution) before the dialog;
+        # its constructor queries the default printer driver and SEH-aborts the
+        # full suite (bug #371). Stub it — the printer object is never used here
+        # because print_sheets is faked above. main's import is function-local,
+        # so patching the name on the module takes effect at call time.
+        from PyQt6.QtPrintSupport import QPrinter as _RealQPrinter
+
+        class _StubPrinter:
+            PrinterMode = _RealQPrinter.PrinterMode
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        monkeypatch.setattr(
+            "PyQt6.QtPrintSupport.QPrinter", _StubPrinter)
+
         _mw._print_paper()
 
         assert captured.get("template") is not None, (
