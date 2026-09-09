@@ -8,10 +8,48 @@ This conftest provides a session-scoped fixture for it.
 from __future__ import annotations
 
 import base64
+import os
 import sys
+import tempfile
 
 import pytest
+from PyQt6 import QtCore as _QtCore
 from PyQt6.QtWidgets import QApplication
+
+
+# ── QSettings isolation (#312) ──────────────────────────────────────────────
+# Windows NativeFormat ignores setPath()/setDefaultFormat(), so the ONLY reliable
+# way to keep the ~90 ``QSettings("GV","FirePro3D")`` sites off the real dev
+# registry is to intercept construction at the class level. Installed here at
+# conftest-import time so every later ``from PyQt6.QtCore import QSettings`` (in
+# test AND firepro3d modules) resolves to the isolated subclass.
+_RealQSettings = _QtCore.QSettings
+_qsettings_dir = [tempfile.mkdtemp(prefix="fp3d_qs_default_")]
+
+
+class _IsolatedQSettings(_RealQSettings):
+    """QSettings subclass that reroutes registry-scope constructions to a
+    per-test temp INI so tests never touch the real Windows registry (#312).
+
+    Explicit ``QSettings(fileName, IniFormat)`` constructions (the ``tmp_settings``
+    fixture and the per-file isolation fixtures) are honored as-is. Every other
+    form — 2-arg ``(org, app)``, bare, ``(scope, org, app)``, ``(NativeFormat,
+    scope, org, app)`` — reroutes to ``<test_dir>/<org_app>.ini``, keyed by the
+    string args so same-scope reads/writes stay coherent within a test.
+    """
+
+    def __init__(self, *args, **kwargs):
+        Fmt = _RealQSettings.Format
+        if len(args) >= 2 and isinstance(args[0], str) and args[1] == Fmt.IniFormat:
+            super().__init__(*args, **kwargs)   # explicit INI-file form: honor
+            return
+        strs = [a for a in args if isinstance(a, str)]
+        key = "_".join(strs) if strs else "default"
+        key = "".join(c if (c.isalnum() or c in "._-") else "_" for c in key)
+        super().__init__(os.path.join(_qsettings_dir[0], key + ".ini"), Fmt.IniFormat)
+
+
+_QtCore.QSettings = _IsolatedQSettings
 
 
 @pytest.fixture(scope="session")
@@ -39,6 +77,22 @@ def _preserve_snap_globals():
     saved = (snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX)
     yield
     snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX = saved
+
+
+@pytest.fixture(autouse=True)
+def _isolate_qsettings(tmp_path_factory):
+    """Point the isolated QSettings store at a FRESH per-test temp dir (#312), so
+    a key written by one test can't leak into the next. The class-level redirect
+    itself is installed at conftest import (see ``_IsolatedQSettings`` above)."""
+    _qsettings_dir[0] = str(tmp_path_factory.mktemp("qsettings"))
+    yield
+
+
+@pytest.fixture
+def real_qsettings():
+    """The unpatched QSettings class — lets the isolation guard test read the
+    REAL registry to prove nothing leaked there (#312)."""
+    return _RealQSettings
 
 
 @pytest.fixture
