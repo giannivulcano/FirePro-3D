@@ -114,3 +114,50 @@ def test_on_release_ends_the_drag(qapp):
     assert m.is_dragging() is False        # _end_drag ran
     assert m._active_handle is None
     assert scene.solved[-1] is item        # solver ran on the real move
+
+
+def test_after_apply_not_double_fired_when_release_equals_last_drag(qapp):
+    """A future _after_apply override (wall/gridline propagation) must fire ONCE
+    per gesture end, not twice, when the release point == the last drag point
+    (the normal case). Guards the on_release re-apply double-fire trap."""
+    scene = _FakeScene()
+    item = _Item([QPointF(0, 0), QPointF(10, 0)])
+    m = _mk(scene)
+    m._items = [item]
+
+    class _CountingGrip(GripHandle):
+        after_calls = 0
+        def _after_apply(self, m, applied_pt):
+            type(self).after_calls += 1
+
+    h = _CountingGrip(item, 1)
+    m._active_handle = h
+    m._mode = "grip"; m._moved = True
+    h.on_press(m)
+    h.on_drag(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)   # _after_apply #1
+    # release at the SAME point the last drag resolved to -> no second apply
+    h.on_release(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)
+    assert _CountingGrip.after_calls == 1
+
+
+def test_after_apply_fires_again_when_release_differs(qapp):
+    """If the release point genuinely differs from the last drag point, the
+    release position IS applied (one extra _after_apply at the new point)."""
+    scene = _FakeScene()
+    item = _Item([QPointF(0, 0), QPointF(10, 0)])
+    m = _mk(scene)
+    m._items = [item]
+
+    class _CountingGrip(GripHandle):
+        after_calls = 0
+        def _after_apply(self, m, applied_pt):
+            type(self).after_calls += 1
+
+    h = _CountingGrip(item, 1)
+    m._active_handle = h
+    m._mode = "grip"; m._moved = True
+    h.on_press(m)
+    h.on_drag(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)   # #1
+    h.on_release(m, QPointF(40, 0), Qt.KeyboardModifier.NoModifier)  # #2 (differs)
+    assert _CountingGrip.after_calls == 2
+    assert item.grip_points()[1] == QPointF(40, 0)   # release point committed

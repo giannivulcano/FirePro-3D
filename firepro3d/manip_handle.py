@@ -284,6 +284,7 @@ class GripHandle(Handle):
         eff = getattr(sc, "get_effective_position", None)
         pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
         pt = self._transform_point(m, pt, mods)         # hook: Ctrl-constrain
+        self._last_pt = QPointF(pt)                     # AC6: track for on_release dedup
         self.item.apply_grip(self.index, pt)
         applied = self.item.grip_points()[self.index]
         self._after_apply(m, applied)                   # hook: sibling / propagation
@@ -303,8 +304,13 @@ class GripHandle(Handle):
             eff = getattr(sc, "get_effective_position", None)
             pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
             pt = self._transform_point(m, pt, mods)
-            self.item.apply_grip(self.index, pt)
-            self._after_apply(m, self.item.grip_points()[self.index])
+            # Re-apply only if the release point genuinely differs from the last
+            # on_drag point. In normal use Qt delivers a final move at the
+            # release position, so pt == last -> skip (avoids a double
+            # _after_apply for future sibling-propagation overrides). AC6.
+            if pt != getattr(self, "_last_pt", None):
+                self.item.apply_grip(self.index, pt)
+                self._after_apply(m, self.item.grip_points()[self.index])
         self._clear_grip_state(sc)
         m._end_drag()
         if moved:
