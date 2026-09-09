@@ -774,6 +774,9 @@ class SceneTools:
             # their coincident parametric grips must not steal the handle press.
             if _manip is not None and _manip.provides_handles_for(item):
                 continue
+            from .selection_manipulator import _item_uses_manip_handles
+            if _item_uses_manip_handles(item):
+                continue          # U3: migrated item -> manipulator hit-tests it
             for idx, gpt in enumerate(item.grip_points()):
                 if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):
                     continue

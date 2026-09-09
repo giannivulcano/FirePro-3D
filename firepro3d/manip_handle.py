@@ -218,3 +218,142 @@ class RotateHandle(Handle):
         if abs(angle) > 1e-9:
             pivot = m._typed_b0.map(m._typed_r0.center())
             m._bake_rotate(m._typed_items, angle, pivot)
+
+
+class GripHandle(Handle):
+    """A live-apply parametric grip (U3).
+
+    Unlike the held-preview ResizeHandle/RotateHandle, this handle mutates real
+    geometry every move via ``item.apply_grip(index, pt)`` — the live-apply drag
+    the U2 Handle contract was designed to admit. ``role`` is the non-rigid
+    ``HandleRole.GRIP`` so the manipulator's rigid role dict never resolves it;
+    the manipulator installs THIS handle in ``_begin_handle`` (U3 fix).
+    """
+
+    role = HandleRole.GRIP
+    gesture_mode = "grip"       # deliberately NOT in _SCHEMA_FOR_MODE -> no HUD
+    hud_schema = None
+
+    def __init__(self, item, index: int, circular: bool = False):
+        self.item = item
+        self.index = index
+        # circular=True renders/hit-tests the handle as a disc (used for
+        # centre/move grips) vs the default square (parametric point grips) —
+        # mirrors the manipulator's corner-circle / edge-square convention.
+        self.circular = circular
+
+    # -- geometry / appearance -----------------------------------------------
+    def scene_position(self, frame_rect: QRectF) -> QPointF:
+        return self.item.grip_points()[self.index]
+
+    def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
+        half = size / 2.0 + grab_pad
+        path = QPainterPath()
+        rect = QRectF(-half, -half, 2 * half, 2 * half)
+        if self.circular:
+            path.addEllipse(rect)
+        else:
+            path.addRect(rect)
+        return path
+
+    def paint(self, painter: QPainter, *, size, border, fill, hover,
+              border_width) -> None:
+        half = size / 2.0
+        painter.setPen(QPen(border, border_width))
+        painter.setBrush(QBrush(border if hover else fill))
+        rect = QRectF(-half, -half, size, size)
+        if self.circular:
+            painter.drawEllipse(rect)
+        else:
+            painter.drawRect(rect)
+
+    def cursor(self, m) -> QCursor:
+        return QCursor(Qt.CursorShape.OpenHandCursor)
+
+    def visible(self, m) -> bool:
+        fn = getattr(self.item, "grip_hittable", None)
+        return True if fn is None else bool(fn(self.index))
+
+    # -- drag lifecycle (live-apply) -----------------------------------------
+    def on_press(self, m) -> None:
+        sc = m.scene()
+        # Borrow the scene's grip-state so get_effective_position snaps exactly
+        # as the legacy grip path does (OSNAP excl. this item > ALIGN > grid).
+        self._prev_grip_item = getattr(sc, "_grip_item", None)
+        self._prev_grip_dragging = getattr(sc, "_grip_dragging", False)
+        sc._grip_item = self.item
+        sc._grip_dragging = True
+        # Snapshot every grip point for an exact Esc restore.
+        self._snapshot = list(self.item.grip_points())
+        self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
+
+    def on_drag(self, m, scene_pos: QPointF, mods) -> None:
+        sc = m.scene()
+        # Snap parity: drive the scene's own grip-snap authority (OSNAP excl.
+        # this item > ALIGN > grid) via the flags borrowed in on_press. Real
+        # Model_Space always has it; a plain scene (headless test) falls back
+        # to the raw point.
+        eff = getattr(sc, "get_effective_position", None)
+        pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+        pt = self._transform_point(m, pt, mods)         # hook: Ctrl-constrain
+        self._last_pt = QPointF(pt)                     # AC6: track for on_release dedup
+        self.item.apply_grip(self.index, pt)
+        applied = self.item.grip_points()[self.index]
+        self._after_apply(m, applied)                   # hook: sibling / propagation
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints(self.item)
+        m._reflow_live()
+
+    def on_release(self, m, scene_pos: QPointF, mods) -> None:
+        sc = m.scene()
+        moved = m._moved
+        # Apply the final mouse position: MouseButtonRelease bypasses _update,
+        # so the last on_drag landed at the penultimate mouse position. Snap +
+        # constrain the release point exactly as on_drag does so the committed
+        # geometry matches where the user let go.
+        if moved:
+            eff = getattr(sc, "get_effective_position", None)
+            pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+            pt = self._transform_point(m, pt, mods)
+            # Re-apply only if the release point genuinely differs from the last
+            # on_drag point. In normal use Qt delivers a final move at the
+            # release position, so pt == last -> skip (avoids a double
+            # _after_apply for future sibling-propagation overrides). AC6.
+            if pt != getattr(self, "_last_pt", None):
+                self.item.apply_grip(self.index, pt)
+                self._after_apply(m, self.item.grip_points()[self.index])
+        self._clear_grip_state(sc)
+        m._end_drag()
+        if moved:
+            tools = getattr(sc, "_tools", None)
+            if tools is not None:
+                tools._solve_constraints(self.item)
+            if m._commit_hook is not None:
+                m._commit_hook("grip")
+
+    def on_cancel(self, m) -> None:
+        sc = m.scene()
+        for i, p in enumerate(self._snapshot):
+            self.item.apply_grip(i, p)
+        self._restore_extra(m)
+        self._clear_grip_state(sc)
+        m._reflow_live()
+
+    # -- extension points (no-ops here; wall/gridline PRs override) -----------
+    def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
+        return pt
+
+    def _after_apply(self, m, applied_pt: QPointF) -> None:
+        pass
+
+    def _extra_snapshots(self, m) -> None:
+        pass
+
+    def _restore_extra(self, m) -> None:
+        pass
+
+    # -- helpers -------------------------------------------------------------
+    def _clear_grip_state(self, sc) -> None:
+        sc._grip_item = getattr(self, "_prev_grip_item", None)
+        sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)

@@ -269,6 +269,9 @@ class Model_View(QGraphicsView):
                 # its parametric grips must not also draw (double handles).
                 if _manip is not None and _manip.provides_handles_for(item):
                     continue
+                from .selection_manipulator import _item_uses_manip_handles
+                if _item_uses_manip_handles(item):
+                    continue      # U3: migrated item draws via the manipulator
                 for idx, gpt in enumerate(item.grip_points()):
                     # Don't render a handle for a grip that can't be picked
                     # (e.g. a hidden gridline bubble) — mirrors _find_grip_hit.

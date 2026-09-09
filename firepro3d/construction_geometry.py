@@ -1072,6 +1072,22 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
+    def manip_handles(self):
+        """U3: expose parametric grips as live-apply GripHandles (center +
+        4 radius). The manipulator renders/hit-tests/commits them; the legacy
+        grip paths skip this item (coexistence gate)."""
+        from .manip_handle import GripHandle
+        n = len(self.grip_points())
+        out = []
+        for i in range(n):
+            fn = getattr(self, "grip_hittable", None)
+            if fn is not None and not fn(i):
+                continue
+            # Grip 0 is the centre/move grip -> circular; the 4 radius grips
+            # are square parametric points.
+            out.append(GripHandle(self, i, circular=(i == 0)))
+        return out
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:

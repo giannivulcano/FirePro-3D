@@ -135,6 +135,15 @@ def manip_bounds(item) -> QRectF:
     return item.sceneBoundingRect()
 
 
+def _item_uses_manip_handles(item) -> bool:
+    """True when *item* provides its own manipulator handles (U3-migrated), so
+    the legacy grip paths (Model_View.drawForeground, scene_tools._find_grip_hit)
+    must NOT render/hit-test it — one render path, one hit-test (no double
+    handles / no stolen press). Mirrors provides_handles_for; U4 deletes both."""
+    fn = getattr(item, "manip_handles", None)
+    return fn is not None and bool(fn())
+
+
 def bake_translate(item, dx: float, dy: float) -> bool:
     """Apply a baked (real-coordinate) move via the item's best translate
     path: ``manip_translate`` > ``translate`` > ``moveBy``.
@@ -570,7 +579,7 @@ class SelectionManipulator(QGraphicsObject):
         # (headless).
         view = self._view()
         vt = view.viewportTransform() if view is not None else None
-        for h in self._handles.values():
+        for h in list(self._handles.values()) + list(self._host_pool):
             if not h.isVisible():
                 continue
             if vt is not None:
@@ -631,6 +640,29 @@ class SelectionManipulator(QGraphicsObject):
         item_handles = [h for h in self._active_handles()
                         if h not in self._rigid.values()]
         self._sync_host_pool(item_handles)
+
+    def _reflow_live(self) -> None:
+        """Recompute the frame + reposition existing hosts to the current grip
+        points during a live-apply drag (geometry mutates every move, so the
+        frame and sibling handles must follow). Reuses the hosts' current
+        handle objects — does NOT rebuild the handle list mid-drag."""
+        r = QRectF()
+        for it in self._items:
+            r = r.united(manip_bounds(it))
+        if r.width() < 1e-9:
+            r.setWidth(1e-9)
+        if r.height() < 1e-9:
+            r.setHeight(1e-9)
+        self.prepareGeometryChange()
+        self._rect = r
+        for role in _RESIZE_ROLES:
+            self._handles[role].setPos(self._rigid[role].scene_position(r))
+        self._handles[HandleRole.ROTATE].setPos(
+            self._rigid[HandleRole.ROTATE].scene_position(r))
+        for host in self._host_pool:
+            if host.isVisible():
+                host.setPos(host.handle.scene_position(r))
+        self.update()
 
     def _active_handles(self) -> list:
         """Handles for the current selection: item-provided (U3) if any, else
@@ -875,7 +907,7 @@ class SelectionManipulator(QGraphicsObject):
                role: Optional[HandleRole] = None) -> None:
         self._mode = mode
         self._role = role
-        self._active_handle = None if mode == "move" else self._rigid[role]
+        self._active_handle = None if mode == "move" else self._rigid.get(role)
         self._B0 = self.transform()
         self._R0 = QRectF(self._rect)
         self._start_scene = QPointF(scene_pos)
@@ -891,7 +923,7 @@ class SelectionManipulator(QGraphicsObject):
         # old->new undo commands (model scene passes no press_hook).
         if self._press_hook is not None:
             self._press_hook([rec[0] for rec in self._items0])
-        if self._active_handle is not None:
+        if self._active_handle is not None and mode != "grip":
             self._active_handle.on_press(self)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         self._open_hud(mode)
@@ -899,6 +931,16 @@ class SelectionManipulator(QGraphicsObject):
     def _begin_handle(self, handle, scene_pos: QPointF,
                       screen_pos: QPointF) -> None:
         self._begin(handle.gesture_mode, scene_pos, screen_pos, handle.role)
+        # U3: install the pressed handle itself. _begin installs the rigid
+        # handle of the same role (or None for a non-rigid GRIP role); a live
+        # item handle must drive its own lifecycle. Parity-safe for rigid
+        # handles (handle is self._rigid[role]).
+        self._active_handle = handle
+        # Rigid handles already got their single on_press via _begin (mode !=
+        # "grip"); only grip handles need it fired here (mode == "grip" made
+        # _begin skip it). Fires exactly once for every handle kind.
+        if handle.gesture_mode == "grip":
+            handle.on_press(self)
 
     def _update(self, scene_pos: QPointF,
                 mods: Qt.KeyboardModifier, screen_pos: QPointF) -> None:
