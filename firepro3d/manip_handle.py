@@ -218,3 +218,46 @@ class RotateHandle(Handle):
         if abs(angle) > 1e-9:
             pivot = m._typed_b0.map(m._typed_r0.center())
             m._bake_rotate(m._typed_items, angle, pivot)
+
+
+class GripHandle(Handle):
+    """A live-apply parametric grip (U3).
+
+    Unlike the held-preview ResizeHandle/RotateHandle, this handle mutates real
+    geometry every move via ``item.apply_grip(index, pt)`` — the live-apply drag
+    the U2 Handle contract was designed to admit. ``role`` is the non-rigid
+    ``HandleRole.GRIP`` so the manipulator's rigid role dict never resolves it;
+    the manipulator installs THIS handle in ``_begin_handle`` (U3 fix).
+    """
+
+    role = HandleRole.GRIP
+    gesture_mode = "grip"       # deliberately NOT in _SCHEMA_FOR_MODE -> no HUD
+    hud_schema = None
+
+    def __init__(self, item, index: int):
+        self.item = item
+        self.index = index
+
+    # -- geometry / appearance -----------------------------------------------
+    def scene_position(self, frame_rect: QRectF) -> QPointF:
+        return self.item.grip_points()[self.index]
+
+    def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
+        half = size / 2.0 + grab_pad
+        path = QPainterPath()
+        path.addRect(QRectF(-half, -half, 2 * half, 2 * half))
+        return path
+
+    def paint(self, painter: QPainter, *, size, border, fill, hover,
+              border_width) -> None:
+        half = size / 2.0
+        painter.setPen(QPen(border, border_width))
+        painter.setBrush(QBrush(border if hover else fill))
+        painter.drawRect(QRectF(-half, -half, size, size))
+
+    def cursor(self, m) -> QCursor:
+        return QCursor(Qt.CursorShape.SizeAllCursor)
+
+    def visible(self, m) -> bool:
+        fn = getattr(self.item, "grip_hittable", None)
+        return True if fn is None else bool(fn(self.index))

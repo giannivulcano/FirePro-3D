@@ -31,6 +31,7 @@ class HandleRole(Enum):
     BOTTOM_LEFT = 6
     LEFT = 7
     ROTATE = 8
+    GRIP = 9        # U3: non-rigid role for live-apply parametric grips
 
 
 # role -> (u, v, out_x, out_y): unit position on the rect and outward direction
