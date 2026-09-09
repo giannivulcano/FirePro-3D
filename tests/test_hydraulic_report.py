@@ -415,6 +415,9 @@ class TestExports:
         # The embedded 1000×620 graph image dominates the file size — a low
         # size means the ImageResource silently failed to resolve.
         assert out.exists() and out.stat().st_size > 5000
+        # Must be a real PDF (spec hydraulic-solver-and-reporting.md §573).
+        with open(out, "rb") as fh:
+            assert fh.read(5) == b"%PDF-"
 
     def test_export_default_dir_is_project_hc_reports(self, qapp, tmp_path):
         w = self._populated(qapp)

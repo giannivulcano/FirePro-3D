@@ -11,7 +11,7 @@ Provides a QWidget with three tabs:
   3. Hydraulic Graph    — supply curve vs demand on a Q^1.85 axis
 
 Export:
-  • PDF  — rendered via Qt's QPrinter (no external dependency)
+  • PDF  — rendered via Qt's QPdfWriter (no external dependency, no printer driver)
   • CSV  — Python built-in csv module
 """
 
@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from .themed_message import themed_info
 from PyQt6.QtCore import Qt, QPointF, QRectF, QUrl
 from PyQt6.QtGui import (QColor, QTextDocument, QPainter, QPen, QFont, QBrush,
-                         QPainterPath, QImage, QPageSize)
+                         QPainterPath, QImage, QPageSize, QPdfWriter)
 
 try:
     from PyQt6.QtPrintSupport import QPrinter
@@ -736,11 +736,14 @@ class HydraulicReportWidget(QWidget):
                         QUrl("hydraulic_graph"), self._graph_image())
         doc.setHtml(self._build_html())
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(path)
-        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-        doc.print(printer)
+        # Render via QPdfWriter, not QPrinter: constructing a real
+        # QPrinter(HighResolution) queries the default printer driver, which
+        # SEH-aborts the headless test suite on Windows (bug #371). This report
+        # only ever emits PDF, and doc.print() accepts any QPagedPaintDevice.
+        writer = QPdfWriter(path)
+        writer.setResolution(1200)   # match the old QPrinter HighResolution DPI
+        writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        doc.print(writer)
 
         themed_info(self, "Export Complete", f"PDF saved to:\n{path}")
 
