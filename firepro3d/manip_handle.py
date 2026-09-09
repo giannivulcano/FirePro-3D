@@ -261,3 +261,68 @@ class GripHandle(Handle):
     def visible(self, m) -> bool:
         fn = getattr(self.item, "grip_hittable", None)
         return True if fn is None else bool(fn(self.index))
+
+    # -- drag lifecycle (live-apply) -----------------------------------------
+    def on_press(self, m) -> None:
+        sc = m.scene()
+        # Borrow the scene's grip-state so get_effective_position snaps exactly
+        # as the legacy grip path does (OSNAP excl. this item > ALIGN > grid).
+        self._prev_grip_item = getattr(sc, "_grip_item", None)
+        self._prev_grip_dragging = getattr(sc, "_grip_dragging", False)
+        sc._grip_item = self.item
+        sc._grip_dragging = True
+        # Snapshot every grip point for an exact Esc restore.
+        self._snapshot = list(self.item.grip_points())
+        self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
+
+    def on_drag(self, m, scene_pos: QPointF, mods) -> None:
+        sc = m.scene()
+        # Snap parity: drive the scene's own grip-snap authority (OSNAP excl.
+        # this item > ALIGN > grid) via the flags borrowed in on_press. Real
+        # Model_Space always has it; a plain scene (headless test) falls back
+        # to the raw point.
+        eff = getattr(sc, "get_effective_position", None)
+        pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+        pt = self._transform_point(m, pt, mods)         # hook: Ctrl-constrain
+        self.item.apply_grip(self.index, pt)
+        applied = self.item.grip_points()[self.index]
+        self._after_apply(m, applied)                   # hook: sibling / propagation
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints(self.item)
+        m._reflow_live()
+
+    def on_release(self, m, scene_pos: QPointF, mods) -> None:
+        sc = m.scene()
+        self._clear_grip_state(sc)
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints(self.item)
+        if m._commit_hook is not None:
+            m._commit_hook("grip")
+
+    def on_cancel(self, m) -> None:
+        sc = m.scene()
+        for i, p in enumerate(self._snapshot):
+            self.item.apply_grip(i, p)
+        self._restore_extra(m)
+        self._clear_grip_state(sc)
+        m._reflow_live()
+
+    # -- extension points (no-ops here; wall/gridline PRs override) -----------
+    def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
+        return pt
+
+    def _after_apply(self, m, applied_pt: QPointF) -> None:
+        pass
+
+    def _extra_snapshots(self, m) -> None:
+        pass
+
+    def _restore_extra(self, m) -> None:
+        pass
+
+    # -- helpers -------------------------------------------------------------
+    def _clear_grip_state(self, sc) -> None:
+        sc._grip_item = getattr(self, "_prev_grip_item", None)
+        sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
