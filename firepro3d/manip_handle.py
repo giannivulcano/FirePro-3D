@@ -295,6 +295,16 @@ class GripHandle(Handle):
     def on_release(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
         moved = m._moved
+        # Apply the final mouse position: MouseButtonRelease bypasses _update,
+        # so the last on_drag landed at the penultimate mouse position. Snap +
+        # constrain the release point exactly as on_drag does so the committed
+        # geometry matches where the user let go.
+        if moved:
+            eff = getattr(sc, "get_effective_position", None)
+            pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+            pt = self._transform_point(m, pt, mods)
+            self.item.apply_grip(self.index, pt)
+            self._after_apply(m, self.item.grip_points()[self.index])
         self._clear_grip_state(sc)
         m._end_drag()
         if moved:
