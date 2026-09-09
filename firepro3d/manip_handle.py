@@ -256,7 +256,7 @@ class GripHandle(Handle):
         painter.drawRect(QRectF(-half, -half, size, size))
 
     def cursor(self, m) -> QCursor:
-        return QCursor(Qt.CursorShape.SizeAllCursor)
+        return QCursor(Qt.CursorShape.OpenHandCursor)
 
     def visible(self, m) -> bool:
         fn = getattr(self.item, "grip_hittable", None)
@@ -294,12 +294,15 @@ class GripHandle(Handle):
 
     def on_release(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
+        moved = m._moved
         self._clear_grip_state(sc)
-        tools = getattr(sc, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints(self.item)
-        if m._commit_hook is not None:
-            m._commit_hook("grip")
+        m._end_drag()
+        if moved:
+            tools = getattr(sc, "_tools", None)
+            if tools is not None:
+                tools._solve_constraints(self.item)
+            if m._commit_hook is not None:
+                m._commit_hook("grip")
 
     def on_cancel(self, m) -> None:
         sc = m.scene()

@@ -936,7 +936,11 @@ class SelectionManipulator(QGraphicsObject):
         # item handle must drive its own lifecycle. Parity-safe for rigid
         # handles (handle is self._rigid[role]).
         self._active_handle = handle
-        handle.on_press(self)
+        # Rigid handles already got their single on_press via _begin (mode !=
+        # "grip"); only grip handles need it fired here (mode == "grip" made
+        # _begin skip it). Fires exactly once for every handle kind.
+        if handle.gesture_mode == "grip":
+            handle.on_press(self)
 
     def _update(self, scene_pos: QPointF,
                 mods: Qt.KeyboardModifier, screen_pos: QPointF) -> None:

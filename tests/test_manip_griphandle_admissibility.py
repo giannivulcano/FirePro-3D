@@ -95,3 +95,22 @@ def test_admits_ctrl_point_transform_and_sibling_and_propagation(qapp):
     assert a.applied[-1] == (1, QPointF(25, 0))         # Ctrl flattened y
     assert b.applied[-1] == (1, QPointF(25, 0))         # propagation reached b
     h.on_cancel(m)
+
+
+def test_on_release_ends_the_drag(qapp):
+    """After a grip gesture the manipulator must NOT stay in drag mode (else a
+    later Esc restores already-committed geometry — data corruption)."""
+    scene = _FakeScene()
+    item = _Item([QPointF(0, 0), QPointF(10, 0)])
+    m = _mk(scene)
+    m._items = [item]
+    h = GripHandle(item, 1)
+    m._active_handle = h
+    m._mode = "grip"          # simulate an in-flight gesture
+    m._moved = True
+    h.on_press(m)
+    h.on_drag(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)
+    h.on_release(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)
+    assert m.is_dragging() is False        # _end_drag ran
+    assert m._active_handle is None
+    assert scene.solved[-1] is item        # solver ran on the real move
