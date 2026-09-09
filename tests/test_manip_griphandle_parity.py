@@ -18,6 +18,9 @@ def test_circle_manip_handles_shape():
     from firepro3d.manip_math import HandleRole
     assert hs[1].scene_position(None) == c.grip_points()[1]
     assert hs[0].role is HandleRole.GRIP
+    # centre grip (0) is circular; the 4 radius grips are square
+    assert hs[0].circular is True
+    assert all(h.circular is False for h in hs[1:])
 
 
 def test_radius_grip_apply_matches_legacy():

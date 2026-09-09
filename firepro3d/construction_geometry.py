@@ -1083,7 +1083,9 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             fn = getattr(self, "grip_hittable", None)
             if fn is not None and not fn(i):
                 continue
-            out.append(GripHandle(self, i))
+            # Grip 0 is the centre/move grip -> circular; the 4 radius grips
+            # are square parametric points.
+            out.append(GripHandle(self, i, circular=(i == 0)))
         return out
 
     # ── Closed-path protocol ─────────────────────────────────────────────────

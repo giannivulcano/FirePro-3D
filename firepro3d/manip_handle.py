@@ -234,9 +234,13 @@ class GripHandle(Handle):
     gesture_mode = "grip"       # deliberately NOT in _SCHEMA_FOR_MODE -> no HUD
     hud_schema = None
 
-    def __init__(self, item, index: int):
+    def __init__(self, item, index: int, circular: bool = False):
         self.item = item
         self.index = index
+        # circular=True renders/hit-tests the handle as a disc (used for
+        # centre/move grips) vs the default square (parametric point grips) —
+        # mirrors the manipulator's corner-circle / edge-square convention.
+        self.circular = circular
 
     # -- geometry / appearance -----------------------------------------------
     def scene_position(self, frame_rect: QRectF) -> QPointF:
@@ -245,7 +249,11 @@ class GripHandle(Handle):
     def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
         half = size / 2.0 + grab_pad
         path = QPainterPath()
-        path.addRect(QRectF(-half, -half, 2 * half, 2 * half))
+        rect = QRectF(-half, -half, 2 * half, 2 * half)
+        if self.circular:
+            path.addEllipse(rect)
+        else:
+            path.addRect(rect)
         return path
 
     def paint(self, painter: QPainter, *, size, border, fill, hover,
@@ -253,7 +261,11 @@ class GripHandle(Handle):
         half = size / 2.0
         painter.setPen(QPen(border, border_width))
         painter.setBrush(QBrush(border if hover else fill))
-        painter.drawRect(QRectF(-half, -half, size, size))
+        rect = QRectF(-half, -half, size, size)
+        if self.circular:
+            painter.drawEllipse(rect)
+        else:
+            painter.drawRect(rect)
 
     def cursor(self, m) -> QCursor:
         return QCursor(Qt.CursorShape.OpenHandCursor)
