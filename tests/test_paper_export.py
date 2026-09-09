@@ -157,27 +157,31 @@ class TestExportPdf:
 
 class TestPrintSheets:
     def test_print_routes_through_render(self, qapp, tmp_path):
-        """Drive print_sheets via a QPrinter set to PDF output (headless-safe)."""
-        from PyQt6.QtPrintSupport import QPrinter
+        """Drive print_sheets via a QPdfWriter (device-agnostic; headless-safe).
+
+        print_sheets / _set_page only need a QPagedPaintDevice — never construct
+        a real QPrinter in the suite (its constructor queries the default
+        printer driver, which SEH-aborts the full run, bug #371). QPdfWriter
+        satisfies the same interface and writes a real PDF, so the file
+        assertions still hold.
+        """
+        from PyQt6.QtGui import QPdfWriter
         from firepro3d import paper_export
         resolver, _ = _real_source_resolver()
         sheet = Sheet.create_default()
         out = tmp_path / "printed.pdf"
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(str(out))
+        writer = QPdfWriter(str(out))
 
-        paper_export.print_sheets([sheet], resolver, printer)
+        paper_export.print_sheets([sheet], resolver, writer)
 
         assert out.exists()
         assert out.stat().st_size > 0
 
     def test_print_empty_list_raises(self, qapp):
-        from PyQt6.QtPrintSupport import QPrinter
         from firepro3d import paper_export
         resolver, _ = _real_source_resolver()
-        printer = QPrinter()
+        printer = MagicMock()  # never used — print_sheets raises on empty list first
         with pytest.raises(ValueError):
             paper_export.print_sheets([], resolver, printer)
 
