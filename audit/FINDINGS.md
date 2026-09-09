@@ -6,12 +6,12 @@ Categories: delete / dedupe / abstract / restructure / spec-gap / bug. Status: o
 
 | # | File(s) | Cat | Description | Risk | Effort | Status |
 |---|---|---|---|---|---|---|
-| F1 | `backup/2025-09-29_node.py` | delete | Backup file committed to git. No dynamic-access risk (backup/ dir). | low | S | open |
-| F2 | `firepro3d/layer_manager.py` (128 LOC, `LayerManager`) | delete | Layer system was **removed** (CLAUDE.md). Only referenced by a stale comment in `model_space.py:146` + auto-gen `docs/gen_ref_pages.py`. No real importer. grep: no getattr/importlib dynamic access. | low | S | open |
-| F3 | annotations/array_dialog/auto_populate_dialog/model_view/paper_space/main | delete | 6 unused imports @90% (QTextOption, QAbstractSpinBox, `_interpolate_density`, QScrollBar, QGraphicsDropShadowEffect, QStyleFactory). | low | S | open |
-| F4 | auto_populate_dialog/display_manager/manip_handle/model_view/paper_display/wall_opening | delete | 6 unused local vars @100% (prev_col×2, applied_pt, next_child, source_view_key, preset) — dead assignments. | low | S | open |
-| F5 | 16 funcs @60% (see vulture.txt) | delete | Candidate-dead functions — e.g. `geometry_intersect.circle_circle_intersections`, `align_engine.point_along_ray`, `block_library.list_library`, `hatch_patterns.{refresh_patterns,is_builtin,make_hatch_tile}`, `underlay_cache.delete_cache`, `manip_math.transform_angle_deg`. Each needs a caller+test+dynamic-access grep before delete. | low | M | open |
-| F6 | fs_visibility_dialog/loading/loading_bar | delete | Unused classes @60%: `FSVisibilityDialog`, `LoaderWorker`, `LoadingBar`. Verify not instantiated dynamically. **Excludes `ui_kit.*` (unbuilt-by-design per ui-design-system.md proposal) and `TitleBlockFieldOverlay`.** | med | M | open |
+| F1 | `backup/2025-09-29_node.py` | delete | Backup file committed to git. No dynamic-access risk (backup/ dir). | low | S | accepted |
+| F2 | `firepro3d/layer_manager.py` (128 LOC, `LayerManager`) | delete | Layer system was **removed** (CLAUDE.md). Only referenced by a stale comment in `model_space.py:146` + auto-gen `docs/gen_ref_pages.py`. No real importer. grep: no getattr/importlib dynamic access. | low | S | accepted |
+| F3 | annotations/array_dialog/auto_populate_dialog/model_view/paper_space/main | delete | 6 unused imports @90% (QTextOption, QAbstractSpinBox, `_interpolate_density`, QScrollBar, QGraphicsDropShadowEffect, QStyleFactory). | low | S | accepted |
+| F4 | auto_populate_dialog/display_manager/manip_handle/model_view/paper_display/wall_opening | delete | 6 unused local vars @100% (prev_col×2, applied_pt, next_child, source_view_key, preset) — dead assignments. | low | S | accepted |
+| F5 | 16 funcs @60% (see vulture.txt) | delete | Candidate-dead functions — e.g. `geometry_intersect.circle_circle_intersections`, `align_engine.point_along_ray`, `block_library.list_library`, `hatch_patterns.{refresh_patterns,is_builtin,make_hatch_tile}`, `underlay_cache.delete_cache`, `manip_math.transform_angle_deg`. Each needs a caller+test+dynamic-access grep before delete. | low | M | accepted |
+| F6 | fs_visibility_dialog/loading/loading_bar | delete | Unused classes @60%: `FSVisibilityDialog`, `LoaderWorker`, `LoadingBar`. Verify not instantiated dynamically. **Excludes `ui_kit.*` (unbuilt-by-design per ui-design-system.md proposal) and `TitleBlockFieldOverlay`.** | med | M | accepted |
 
 ## Latent bug (found while mapping — logged, NOT fixed per hard rule 1)
 
@@ -42,7 +42,7 @@ Categories: delete / dedupe / abstract / restructure / spec-gap / bug. Status: o
 
 | # | File(s) | Cat | Description | Risk | Effort | Status |
 |---|---|---|---|---|---|---|
-| F17 | `requirements.txt` | delete | Unused deps: `fonttools`, `freetype-py`, `requests` (grep: zero imports). **Keep `pytest-timeout`** — pytest plugin used via config, deptry false positive. | low | S | open |
+| F17 | `requirements.txt` | delete | Unused deps: `fonttools`, `freetype-py`, `requests` (grep: zero imports). **Keep `pytest-timeout`** — pytest plugin used via config, deptry false positive. | low | S | accepted |
 
 ## Restructure — monster files (governed / sequenced LAST)
 
