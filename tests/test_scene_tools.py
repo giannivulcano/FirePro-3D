@@ -551,17 +551,19 @@ class TestFindGripHit:
         result = scene._tools._find_grip_hit(QPointF(1, 0))
         assert result is None
 
-    def test_circle_center_grip(self, scene):
+    def test_migrated_circle_skipped_by_find_grip_hit(self, scene):
+        # U3: CircleItem is migrated onto the manipulator's manip_handles(), so
+        # the LEGACY grip path must NOT hit-test it (coexistence gate — one
+        # hit-test, no stolen press). The circle is still fully grippable via
+        # the SelectionManipulator; the legacy _find_grip_hit just steps aside.
         circle = CircleItem(QPointF(50, 50), 30)
         scene.addItem(circle)
         circle.setSelected(True)
         _flush()
 
+        assert circle.manip_handles()  # it IS migrated (provides its own handles)
         result = scene._tools._find_grip_hit(QPointF(50, 50))
-        assert result is not None
-        item, idx = result
-        assert item is circle
-        assert idx == 0  # center grip
+        assert result is None  # legacy path steps aside for the migrated item
 
     def test_rectangle_corner_grip(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
