@@ -1,9 +1,10 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 universal rigid rotate (2026-08-31); U2–U5 of the Unification roadmap remain
-last-verified: 2026-08-31
-verified-commit: 4e5f893
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08); U3–U5 of the Unification roadmap remain
+last-verified: 2026-09-08
+verified-commit: 1a02a12
 applies-to:
   - firepro3d/selection_manipulator.py
+  - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
   - firepro3d/manip_math.py
   - firepro3d/model_view.py              # drawForeground grip-render seam + boundary/grip dedup
   - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
@@ -237,10 +238,11 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   `ItemIgnoresTransformations` handles with plain `mapFromScene` (correct only at
   m11==1), so the rotate knob was unhittable at the fit-to-view zoom and the
   press cleared the selection — now mapped via the view's `deviceTransform`.
-- **U2 — the `Handle` model**: define one `Handle` abstraction (role, position,
-  drag→edit, commit) and a `manip_handles(self) -> list[Handle]` capability.
-  Re-express the manipulator's own resize/rotate handles as `Handle`s. No item
-  migration yet; pure internal refactor with identical behavior.
+- **U2 — the `Handle` model** ✅ **DONE (2026-09-08):** defined one `Handle`
+  behavior abstraction (role, position, drag→edit, commit) + a `manip_handles()`
+  capability with a live-fallback sourcing path; re-expressed the manipulator's
+  own resize/rotate handles as `Handle`s. Pure internal refactor — the 6 manip
+  test files pass unmodified. See **"U2 — Handle model (as-built)"** below.
 - **U3 — migrate items onto `manip_handles`, one per PR**: each item exposes its
   parametric points as `Handle`s whose drag calls its existing `apply_grip`
   logic. The manipulator renders/hit-tests them inside the frame. Carry the
@@ -262,6 +264,62 @@ split, gridline parallel-delta, wall-endpoint propagation, and the rotation
 Y-up/pivot convention all currently live in the `model_space` grip lifecycle and
 must move onto the `Handle`/manipulator path without behavior drift. The v1
 `provides_handles_for` seam stays until U4 removes it.
+
+## U2 — Handle model (as-built, 2026-09-08)
+
+Design of record: `docs/superpowers/specs/2026-09-08-u2-handle-model-design.md`.
+
+**Two objects, wrap-not-merge.** `Handle` (in new `firepro3d/manip_handle.py`) is a
+plain behavior object; `_HandleItem` (renamed from `_Handle`, in
+`selection_manipulator.py`) is the screen-constant `QGraphicsItem` host that
+forwards `paint`/`shape`/`cursor`/`mousePress` to its `Handle`. Rigid handles keep
+rendering via role-keyed hosts (`manip._handles[role]` preserved); widget-less
+item handles (U3) get pooled hosts (`_sync_host_pool`).
+
+**`Handle` contract:** `role`, `gesture_mode` (`"resize"`/`"rotate"` → sets
+`_mode`), `hud_schema`; `scene_position(rect)`, `shape(*,size,grab_pad)`,
+`paint(painter,*,size,border,fill,hover,border_width)`, `cursor(m)`, `visible(m)`;
+lifecycle `on_press/on_drag/on_release/on_cancel(m,…)`, `commit_typed(m,values)`,
+`hud_values(m)`. Subclasses: `ResizeHandle`, `RotateHandle`. (U3 adds
+`GripHandle` — live-apply.)
+
+**Delegation, no drag-model branch.** The manipulator owns drag *state* +
+the held-preview toolkit (`_apply`/`_bake_*`/`_snap`/`_feed_hud`/`_snapshot_items`/
+`_restore_preview` — bodies unchanged); `_begin`/`_update`/`_finish`/
+`_on_hud_committed`/`cancel_drag` delegate the per-kind work to
+`_active_handle.on_*`. Held-preview handles (resize/rotate) *orchestrate* the
+toolkit; a live-apply handle (U3 parametric) calls `apply_grip`+solve in `on_drag`
+and never touches `_apply` — the manipulator is oblivious. Interior-drag **move
+stays a manipulator-level gesture** (not a Handle).
+
+**`manip_handles()` sourcing (option B, live-with-fallback):**
+`_active_handles()` returns `union(item.manip_handles() for items) or
+rigid_set` — today no item implements it, so the rigid fallback runs (behavior
+identical). `_layout` positions/gates the rigid role-hosts and syncs the pool for
+any item handles.
+
+**Handle-facing context API** (manipulator privates a Handle may read):
+`_snap`, `_apply`, `_bake_move/_bake_scale/_bake_rotate`, `_feed_hud`,
+`_restore_preview`, `_end_drag`, `_last_factors`, `_R0`/`_B0`/`_start_scene`/`_D`/
+`_base_angle`, the `_*_at_press` release-bake snapshot trio, the `_typed_*`
+typed-commit trio, `_ROTATE_SNAP_DEG`, `_moved`, `_resize_cursor`,
+`_show_scale_handles`/`_show_rotate_knob`.
+
+**Known limitation → U3 must fix:** `_begin_handle(handle, …)` calls
+`_begin(handle.gesture_mode, …, handle.role)`, and `_begin` installs
+`_active_handle = self._rigid[role]` — so a *pressed item handle* currently
+re-resolves to the **rigid** handle of the same role, not the item's own handle.
+Harmless in U2 (rigid-only; the admissibility test proves the *dispatch* admits
+live-apply by installing the fake directly). **U3 must make `_begin_handle`
+install the passed handle** (e.g. `_active_handle = handle` after `_begin`) so a
+pooled/item host press drives the item's handle. Parity-safe (for rigid handles
+`handle is self._rigid[role]`).
+
+**Tests:** `tests/test_manip_handle.py` (contract units + knob-outline-width
+guard), `tests/test_manip_handle_admissibility.py` (live-apply lifecycle +
+`manip_handles()` consumption + legacy seams intact),
+`tests/test_manip_u2_parity.py` (posted-event vs slot byte-parity + no-op/Esc).
+The 6 pre-U2 manip test files pass unmodified.
 
 ## Existing Code Context
 
