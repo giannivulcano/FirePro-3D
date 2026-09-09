@@ -12,7 +12,10 @@ fixtures. Closes the `tests/` SPEC-INDEX orphan. The recurring native-crash loci
 (QPrinter-SEH, underlay-worker queued-dispatch, VTK-MainWindow) live here because
 they are properties of the harness, not of any one subsystem under test.
 
-Forged 2026-09-09 on first touch (the #312/#367/#371/#375 test-infra cluster).
+Forged 2026-09-09 on first touch (the #312/#367/#373/#375 test-infra cluster; the
+underlay-worker crash is repo bug **#373** — some cluster commits/design-doc call it
+"#371" as a line-number shorthand, which collides with the already-fixed QPrinter
+SEH bug #371).
 
 ## Fixture catalog (`tests/conftest.py`)
 
@@ -49,7 +52,7 @@ Forged 2026-09-09 on first touch (the #312/#367/#371/#375 test-infra cluster).
    fixtures still work (explicit forms take precedence) and are a filed follow-up to
    retire.
 
-2. **Async-worker lifetime (#371).** A scene that starts an async worker must be
+2. **Async-worker lifetime (#373).** A scene that starts an async worker must be
    drainable via `Model_Space.cleanup()` (joins + disconnects the DXF worker), AND
    worker signals must be routed through a **scene-parented `QObject` sink**
    (`_DxfWorkerSink`) so a *leaked* worker's queued `finished_data` meta-call is

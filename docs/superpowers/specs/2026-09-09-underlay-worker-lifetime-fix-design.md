@@ -1,4 +1,9 @@
-# Underlay DXF Worker Lifetime Fix (#371) — Design
+# Underlay DXF Worker Lifetime Fix (bug #373) — Design
+
+> **Numbering note:** this doc and the cluster commits call the underlay-worker
+> crash "#371" — that is a line-number shorthand and is WRONG. In the repo's bug
+> numbering the underlay-worker crash is **bug #373**; **#371** is the (already
+> fixed) QPrinter SEH. Read every "#371" below as **#373**.
 
 **Date:** 2026-09-09
 **Scope:** the source-side mechanism only. Part of the P2 test-infrastructure cluster
