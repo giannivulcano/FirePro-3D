@@ -258,8 +258,17 @@ def test_modify_noop_roundtrip_preserves_all_placement_params(qapp, monkeypatch)
     from firepro3d.underlay_import_dialog import UnderlayImportDialog
 
     # Stub loaders so no file/thread is touched; we inject geometry ourselves.
-    monkeypatch.setattr(UnderlayImportDialog, "_load_file",
-                        lambda self: None)
+    # _load_file must still honor the real contract that _apply_modify_prefill
+    # relies on: the loader sets _file_type + populates the PDF ratio scale
+    # combo BEFORE prefill's scale block runs. A bare no-op leaves _file_type=""
+    # at prefill, so the record's import_scale seeds the (hidden) custom-scale
+    # edit instead of the ratio fields, and get_import_params — which reads the
+    # ratio fields for a PDF — returns the default 1:100 factor (35.28), not the
+    # record's 3.2809.
+    def _stub_load_file(self):
+        self._file_type = "pdf"
+        self._populate_scale_combo(is_pdf=True)
+    monkeypatch.setattr(UnderlayImportDialog, "_load_file", _stub_load_file)
     monkeypatch.setattr(UnderlayImportDialog, "_load_pdf_page",
                         lambda self, *a, **k: None)
 

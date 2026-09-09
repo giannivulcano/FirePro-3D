@@ -43,6 +43,13 @@ def _prepped_dialog(n_geoms=1) -> UnderlayImportDialog:
         ]
     dlg._has_vectors = True
     dlg._layers = ["0"]
+    # Zero the rotation before building the preview. The rotation field is
+    # restored from the sticky UnderlayImport/rotation QSettings key on
+    # construction, so a non-zero value persisted by an earlier test/session
+    # (e.g. a modify record with rotation=30) would rotate the preview group and
+    # move geometry out from under the scene-coordinate snap queries below —
+    # making these tests fail depending on ambient QSettings state.
+    dlg._set_rotation(0.0)
     dlg._populate_layer_list()
     dlg._rebuild_preview()
     return dlg
