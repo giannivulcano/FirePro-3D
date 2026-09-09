@@ -59,3 +59,29 @@ def test_visible_mirrors_grip_hittable():
 def test_role_is_grip_for_zvalue():
     item = _FakeItem([QPointF(0, 0)])
     assert GripHandle(item, 0).role is HandleRole.GRIP
+
+
+def test_begin_handle_installs_passed_handle(qapp):
+    """A pressed item handle must drive ITS OWN behavior, not the rigid handle
+    of the same role (U2 known limitation -> U3 fix)."""
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.selection_manipulator import SelectionManipulator
+
+    scene = QGraphicsScene()
+    m = SelectionManipulator(scene)
+    item = _FakeItem([QPointF(0, 0)])
+    h = GripHandle(item, 0)
+    m._begin_handle(h, QPointF(0, 0), QPointF(0, 0))
+    assert m._active_handle is h          # the passed handle, not self._rigid[...]
+    m.cancel_drag()
+
+
+def test_begin_tolerates_non_rigid_role(qapp):
+    """_begin must not KeyError when role is the non-rigid GRIP role."""
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    m = SelectionManipulator(scene)
+    # Should not raise:
+    m._begin("grip", QPointF(0, 0), QPointF(0, 0), HandleRole.GRIP)
+    m.cancel_drag()
