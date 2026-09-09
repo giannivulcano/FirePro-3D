@@ -2,8 +2,11 @@
 """UnderlayController — the underlay/import concern lifted off Model_Space.
 
 Decomposition slice (governing spec: docs/specs/model-space-architecture.md §5).
-A PLAIN object (not a QObject): the async worker uses lambda slots and
-`underlaysChanged` stays defined on the scene, so no QObject affinity is wanted.
+A PLAIN object (not a QObject): `underlaysChanged` stays defined on the scene, so
+no QObject affinity is wanted here. The async DXF worker's queued signals route
+through a small scene-parented `_DxfWorkerSink(QObject)` (crash-safety for a leaked
+worker, #371 — see `docs/specs/test-harness.md` Invariant 2); that QObject-ness is
+quarantined in the sink, leaving the controller itself a plain object.
 Owns the underlay list, the async DXF worker bridge, and the place_import
 transient state; back-references the scene for scene-graph mutation + signal
 emission. The freeze controller is NOT owned here — it stays `scene._underlay_freeze`.
