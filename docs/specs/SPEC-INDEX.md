@@ -36,6 +36,7 @@
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
 | Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
+| **Test harness / fixtures** | `specs/test-harness.md` | `tests/`, `tests/conftest.py` | current (forged 2026-09-09 on first touch — #371/#367/#312/#375 test-infra cluster; QSettings isolation, async-worker sink lifetime, View3D stub, native-crash families) |
 
 ## Orphans — no governing spec (forge on first touch)
 
