@@ -13,6 +13,7 @@ run-level acceptance (see the plan's Task 10).
 """
 from __future__ import annotations
 
+from PyQt6 import sip
 from PyQt6.QtWidgets import QApplication, QGraphicsView
 
 
@@ -66,3 +67,32 @@ def test_late_finished_data_after_cleanup_is_noop(qapp, tmp_path):
     worker.finished_data.emit([{"type": "line", "points": [(0.0, 0.0), (1.0, 1.0)]}])
     QApplication.processEvents()
     assert len(scene.underlays) == before
+
+
+def test_worker_signal_after_view_destroyed_is_dropped(qapp, tmp_path):
+    """Faithful repro of the #373 crash: a worker that outlives its scene's view
+    delivers a queued status/finished_data into the DELETED view-parented
+    QProgressDialog. Without the sip-guard this is a native access violation
+    (seen deterministically in the full suite at test_underlay_manager_launch's
+    qWaitForWindowExposed). The guard must drop the delivery.
+    """
+    scene, view = _scene_with_view(qapp)
+    scene.import_dxf(_tiny_dxf(tmp_path), x=0.0, y=0.0)
+    ctl = scene._underlay_ctl
+    worker = ctl._dxf_worker
+    progress = ctl._dxf_progress
+    worker.wait(5000)   # run() done; status/finished_data queued to the main thread
+
+    # Destroy the view -> its child QProgressDialog C++ object is deleted, exactly
+    # like a prior test tearing down before the queued signals were delivered.
+    # Deliberately do NOT call scene.cleanup() — this is the uncleaned-leaker case.
+    sip.delete(view)
+    assert sip.isdeleted(progress)
+    assert ctl._drop_late_signal(progress) is True
+
+    # Delivering the leaked signals must be a harmless no-op, not a crash.
+    worker.status.emit("late status")
+    worker.finished_data.emit([{"type": "line", "points": [(0.0, 0.0), (1.0, 1.0)]}])
+    QApplication.processEvents()
+    # If we got here without a native abort, the guard held.
+    assert True

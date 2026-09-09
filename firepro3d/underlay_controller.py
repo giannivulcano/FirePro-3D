@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSimpleTextItem, QProgressDialog,
 )
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
+from PyQt6 import sip
 
 from .constants import Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX
 from .dxf_import_worker import DxfImportWorker
@@ -102,16 +103,37 @@ class UnderlayController:
 
         # Wire signals
         worker.progress.connect(lambda cur, tot: self._on_dxf_progress(progress, cur, tot))
-        worker.status.connect(lambda msg: progress.setLabelText(msg))
+        worker.status.connect(lambda msg: self._on_dxf_status(msg, progress))
         worker.finished_data.connect(lambda geom_list: self._on_dxf_finished(geom_list, progress))
         worker.error.connect(lambda msg: self._on_dxf_error(msg, progress))
         progress.canceled.connect(worker.cancel)
 
         worker.start()
 
+    def _drop_late_signal(self, progress: QProgressDialog) -> bool:
+        """True if a queued DXF-worker signal arrived after teardown and must be
+        dropped (bug #373).
+
+        A worker whose ``run()`` finished posts queued main-thread meta-calls
+        (status / progress / finished_data) bound to the view-parented progress
+        dialog. If the owning scene/view was torn down before delivery, a LATER
+        event loop delivers them into a **deleted** C++ dialog / scene → native
+        access violation. This holds even when the leaking test never called
+        cleanup, so we cannot rely on ``_dxf_worker is None`` alone — check the
+        C++ objects directly.
+        """
+        return (self._dxf_worker is None
+                or sip.isdeleted(progress)
+                or sip.isdeleted(self._scene))
+
+    def _on_dxf_status(self, msg: str, progress: QProgressDialog):
+        if self._drop_late_signal(progress):
+            return
+        progress.setLabelText(msg)
+
     def _on_dxf_progress(self, progress: QProgressDialog, current: int, total: int):
-        if self._dxf_worker is None:
-            return   # worker already cleaned up — drop a late queued delivery (#373)
+        if self._drop_late_signal(progress):
+            return
         if total > 0:
             progress.setMaximum(total)
             progress.setValue(current)
@@ -119,8 +141,8 @@ class UnderlayController:
     def _on_dxf_finished(self, geom_list: list, progress: QProgressDialog):
         """Receives raw geometry dicts from the worker and creates QGraphicsItems
         on the main thread (required by Qt)."""
-        if self._dxf_worker is None:
-            return   # worker already cleaned up — drop a late queued delivery (#373)
+        if self._drop_late_signal(progress):
+            return   # worker cleaned up or scene/dialog destroyed — drop (#373)
         params = self._dxf_import_params
 
         if not geom_list:
@@ -340,8 +362,8 @@ class UnderlayController:
         group.setData(4, index)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
-        if self._dxf_worker is None:
-            return   # worker already cleaned up — drop a late queued delivery (#373)
+        if self._drop_late_signal(progress):
+            return   # worker cleaned up or scene/dialog destroyed — drop (#373)
         progress.close()
         self._scene._show_status(f"DXF error: {msg}")
         self._cleanup_dxf_worker()
