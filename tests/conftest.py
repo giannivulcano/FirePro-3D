@@ -274,3 +274,59 @@ def tiny_png_b64(qapp):
     buf.open(QIODevice.OpenModeFlag.WriteOnly)
     img.save(buf, "PNG")
     return base64.b64encode(bytes(buf.data())).decode("ascii")
+
+
+@pytest.fixture
+def stub_view3d():
+    """Opt-in: replace ``main.View3D`` with a windowless QWidget stub for the
+    duration of a test so MainWindow-constructing tests run with no VTK plotter
+    / no native window (bug #367).
+
+    Yields the stub CLASS so tests can ``isinstance(win.view_3d, stub_view3d)``.
+    ``test_view_3d.py`` does NOT use this fixture — it keeps real-View3D coverage
+    via ``pv.OFF_SCREEN = True``. The stub satisfies the full interface MainWindow
+    calls: cleanup/rebuild/get_3d_selected/delete_selected/show_radiation_heatmap/
+    clear_radiation_heatmap/_on_escape + the entitySelected signal.
+    """
+    import main as _main
+    from PyQt6.QtWidgets import QWidget
+    from PyQt6.QtCore import pyqtSignal
+
+    class _StubView3D(QWidget):
+        entitySelected = pyqtSignal(object)
+
+        def __init__(self, model_space, level_manager, scale_manager, parent=None):
+            super().__init__(parent)
+            self._plotter = None
+
+        def cleanup(self):
+            pass
+
+        def rebuild(self):
+            pass
+
+        def get_3d_selected(self):
+            return []
+
+        def delete_selected(self):
+            pass
+
+        def show_radiation_heatmap(self, result):
+            pass
+
+        def clear_radiation_heatmap(self):
+            pass
+
+        def _on_escape(self):
+            pass
+
+    had_prev = hasattr(_main, "View3D")
+    prev = getattr(_main, "View3D", None)
+    _main.View3D = _StubView3D
+    try:
+        yield _StubView3D
+    finally:
+        if had_prev:
+            _main.View3D = prev
+        else:
+            delattr(_main, "View3D")
