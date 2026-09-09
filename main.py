@@ -1255,7 +1255,6 @@ class MainWindow(QMainWindow):
     def _setup_tab_close_icon(self):
         """Create a white close-button icon for tabs (dark theme)."""
         from PyQt6.QtGui import QPixmap, QPainter, QPen, QIcon
-        from PyQt6.QtWidgets import QStyle, QStyleFactory
         import os, tempfile
 
         size = 16

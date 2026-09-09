@@ -17,7 +17,7 @@ import math
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QTabWidget, QWidget,
     QLabel, QDoubleSpinBox, QSpinBox, QCheckBox, QDialogButtonBox,
-    QAbstractSpinBox, QGraphicsRectItem, QGraphicsEllipseItem,
+    QGraphicsRectItem, QGraphicsEllipseItem,
     QGraphicsItemGroup,
 )
 from PyQt6.QtGui import QPen, QColor, QBrush, QTransform

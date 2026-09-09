@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox,
-    QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
+    QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QMenu, QCheckBox, QColorDialog,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
 )

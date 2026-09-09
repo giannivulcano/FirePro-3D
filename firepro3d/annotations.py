@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem, QGraphicsPathItem,
     QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QTextOption, QPainterPath, QPainterPathStroker, QBrush
+from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP
 

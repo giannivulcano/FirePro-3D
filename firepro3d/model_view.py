@@ -1,7 +1,7 @@
 import math
 
 from PyQt6.QtWidgets import (
-    QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
+    QGraphicsView, QMenu, QGraphicsItem,
 )
 from .themed_message import themed_input_number
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal

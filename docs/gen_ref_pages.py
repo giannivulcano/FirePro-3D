@@ -17,7 +17,7 @@ TIERS = {
         "water_supply", "design_area",
     ],
     "Managers": [
-        "display_manager", "level_manager", "scale_manager", "layer_manager",
+        "display_manager", "level_manager", "scale_manager",
         "elevation_manager",
     ],
     "Analysis": [

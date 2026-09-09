@@ -6,9 +6,9 @@ Categories: delete / dedupe / abstract / restructure / spec-gap / bug. Status: o
 
 | # | File(s) | Cat | Description | Risk | Effort | Status |
 |---|---|---|---|---|---|---|
-| F1 | `backup/2025-09-29_node.py` | delete | Backup file committed to git. No dynamic-access risk (backup/ dir). | low | S | accepted |
-| F2 | `firepro3d/layer_manager.py` (128 LOC, `LayerManager`) | delete | Layer system was **removed** (CLAUDE.md). Only referenced by a stale comment in `model_space.py:146` + auto-gen `docs/gen_ref_pages.py`. No real importer. grep: no getattr/importlib dynamic access. | low | S | accepted |
-| F3 | annotations/array_dialog/auto_populate_dialog/model_view/paper_space/main | delete | 6 unused imports @90% (QTextOption, QAbstractSpinBox, `_interpolate_density`, QScrollBar, QGraphicsDropShadowEffect, QStyleFactory). | low | S | accepted |
+| F1 | `backup/2025-09-29_node.py` | delete | Backup file committed to git. No dynamic-access risk (backup/ dir). | low | S | **done 2026-09-09** |
+| F2 | `firepro3d/layer_manager.py` (128 LOC, `LayerManager`) | delete | Layer system was **removed** (CLAUDE.md). Only referenced by a stale comment in `model_space.py:146` + auto-gen `docs/gen_ref_pages.py`. No real importer. grep: no getattr/importlib dynamic access. Also fixed gen_ref_pages.py doc-list + stale comment. | low | S | **done 2026-09-09** |
+| F3 | annotations/array_dialog/auto_populate_dialog/model_view/paper_space/main | delete | 6 unused imports @90%. **5 removed**; `_interpolate_density` KEPT — re-export used 17× by test_auto_populate.py (vulture didn't scan tests). | low | S | **done (partial) 2026-09-09** |
 | F4 | auto_populate_dialog/display_manager/manip_handle/model_view/paper_display/wall_opening | delete | 6 unused local vars @100% (prev_col×2, applied_pt, next_child, source_view_key, preset) — dead assignments. | low | S | accepted |
 | F5 | 16 funcs @60% (see vulture.txt) | delete | Candidate-dead functions — e.g. `geometry_intersect.circle_circle_intersections`, `align_engine.point_along_ray`, `block_library.list_library`, `hatch_patterns.{refresh_patterns,is_builtin,make_hatch_tile}`, `underlay_cache.delete_cache`, `manip_math.transform_angle_deg`. Each needs a caller+test+dynamic-access grep before delete. | low | M | accepted |
 | F6 | fs_visibility_dialog/loading/loading_bar | delete | Unused classes @60%: `FSVisibilityDialog`, `LoaderWorker`, `LoadingBar`. Verify not instantiated dynamically. **Excludes `ui_kit.*` (unbuilt-by-design per ui-design-system.md proposal) and `TitleBlockFieldOverlay`.** | med | M | accepted |
@@ -54,3 +54,9 @@ Categories: delete / dedupe / abstract / restructure / spec-gap / bug. Status: o
 
 ## Spec-coverage census
 Project is **well-governed** — SPEC-INDEX.md maps every major subsystem; orphans (thermal radiation, preferences dialog, 3D view, scene_io, feature system) are already tracked with a lazy-backfill posture. **No new orphans, no stale-spec rows** (section-view `section_*.py` non-existence is an intentional proposal, not drift). `annotations.py` / `level_widget.py` have no explicit index row — likely fold under paper-space / view-relationships; note for confirmation, not a forge-now orphan.
+
+## Follow-up findings (surfaced during F1–F3 execution)
+
+| # | File(s) | Cat | Description | Risk | Effort | Status |
+|---|---|---|---|---|---|---|
+| F21 | `tests/test_paper_space.py::TestTemplateItemRev3::test_default_template_paints` | bug | **Pre-existing render-test failure** on clean `main` (QImage paint assertion, L743) — unrelated to the cleanup (confirmed via stash + baseline run). Investigate separately. | med | M | open |

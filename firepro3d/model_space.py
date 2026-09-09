@@ -143,7 +143,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
-    underlaysChanged = pyqtSignal()    # emitted when underlays list changes (for LayerManager)
+    underlaysChanged = pyqtSignal()    # emitted when underlays list changes
     modeChanged = pyqtSignal(str)      # emits mode name for status bar instructions
     instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
