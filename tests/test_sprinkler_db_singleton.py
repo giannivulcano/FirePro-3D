@@ -4,6 +4,17 @@ import pytest
 from firepro3d.sprinkler_db import _default_db_path, SprinklerDatabase
 
 
+@pytest.fixture(autouse=True)
+def _no_data_folder_override(monkeypatch):
+    """Neutralize the Preferences data-folder override (QSettings
+    ``paths/user_data_root``) so these tests exercise the default ``%APPDATA%``
+    / home path they monkeypatch — not the developer machine's configured data
+    root. Without this, ``app_data_dir()`` returns the real override and the
+    default-path/fallback/migration assertions below fail environment-dependently.
+    """
+    monkeypatch.setattr("firepro3d.app_data._configured_root", lambda: None)
+
+
 def test_default_path_uses_appdata(monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     assert _default_db_path() == os.path.join(str(tmp_path), "FirePro3D", "sprinklers.json")
