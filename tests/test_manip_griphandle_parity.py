@@ -77,3 +77,37 @@ def test_posted_drag_moves_radius_grip(qapp):
     _post_drag(view, scene, [QPointF(50, 0), QPointF(70, 0), QPointF(90, 0)])
     qapp.processEvents()
     assert abs(c._radius - 90) < 1e-6
+
+
+def test_one_commit_per_gesture(qapp):
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(400, 400); view.show()
+    qapp.processEvents()
+    calls = []
+    c = CircleItem(QPointF(0, 0), 50); scene.addItem(c)
+    m = SelectionManipulator(scene, commit_hook=lambda mode: calls.append(mode))
+    c.setSelected(True); qapp.processEvents()
+    _post_drag(view, scene, [QPointF(50, 0), QPointF(70, 0), QPointF(90, 0)])
+    qapp.processEvents()
+    assert calls == ["grip"]          # exactly one commit, mode "grip"
+
+
+def test_esc_restores_and_no_commit(qapp):
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(400, 400); view.show()
+    qapp.processEvents()
+    calls = []
+    c = CircleItem(QPointF(0, 0), 50); scene.addItem(c)
+    before = c.to_dict()
+    m = SelectionManipulator(scene, commit_hook=lambda mode: calls.append(mode))
+    c.setSelected(True); qapp.processEvents()
+    # press + move (mutates), then cancel via the manipulator (Esc path)
+    h = c.manip_handles()[1]
+    m._begin_handle(h, QPointF(50, 0), QPointF(50, 0))
+    m._update(QPointF(90, 0), Qt.KeyboardModifier.NoModifier, QPointF(90, 0))
+    assert abs(c._radius - 90) < 1e-6         # mutated live
+    m.cancel_drag()
+    assert c.to_dict() == before              # restored exactly
+    assert calls == []                        # no undo entry on cancel
