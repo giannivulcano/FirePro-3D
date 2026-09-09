@@ -1,0 +1,44 @@
+246	UP037  	[*] quoted-annotation
+211	I001   	[*] unsorted-imports
+197	F401   	[-] unused-import
+101	BLE001 	[ ] blind-except
+ 39	S110   	[ ] try-except-pass
+ 31	RUF012 	[ ] mutable-class-default
+ 28	SIM102 	[ ] collapsible-if
+ 17	PLR1730	[*] if-stmt-min-max
+ 15	F821   	[ ] undefined-name
+ 15	RUF046 	[ ] unnecessary-cast-to-int
+ 14	UP006  	[*] non-pep585-annotation
+ 14	UP045  	[*] non-pep604-annotation-optional
+ 13	F841   	[-] unused-variable
+ 11	SIM114 	[*] if-with-same-arms
+  8	UP035  	[-] deprecated-import
+  8	RUF100 	[*] unused-noqa
+  7	B008   	[ ] function-call-in-default-argument
+  7	RUF059 	[ ] unused-unpacked-variable
+  6	DTZ011 	[ ] call-date-today
+  4	F811   	[-] redefined-while-unused
+  4	PIE790 	[*] unnecessary-placeholder
+  4	RUF034 	[ ] useless-if-else
+  3	ISC004 	[ ] implicit-string-concatenation-in-collection-literal
+  3	SIM103 	[ ] needless-bool
+  3	C401   	[ ] unnecessary-generator-set
+  3	RUF023 	[*] unsorted-dunder-slots
+  2	PLW0602	[ ] global-variable-not-assigned
+  2	RUF013 	[ ] implicit-optional
+  2	PERF102	[ ] incorrect-dict-iterator
+  2	PIE810 	[ ] multiple-starts-ends-with
+  1	DTZ005 	[ ] call-datetime-now-without-tzinfo
+  1	SIM113 	[ ] enumerate-for-loop
+  1	RUF010 	[*] explicit-f-string-type-conversion
+  1	SIM210 	[ ] if-expr-with-true-false
+  1	SIM115 	[ ] open-file-with-context-handler
+  1	PYI041 	[*] redundant-numeric-union
+  1	FLY002 	[ ] static-join-to-f-string
+  1	PLW1510	[ ] subprocess-run-without-check
+  1	S112   	[ ] try-except-continue
+  1	UP039  	[*] unnecessary-class-parentheses
+  1	C408   	[ ] unnecessary-collection-call
+  1	RET501 	[*] unnecessary-return-none
+Found 1032 errors.
+[*] 737 fixable with the `--fix` option (58 hidden fixes can be enabled with the `--unsafe-fixes` option).

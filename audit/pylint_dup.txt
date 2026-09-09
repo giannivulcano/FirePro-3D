@@ -1,0 +1,353 @@
+************* Module firepro3d.water_supply
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.floor_slab:[253:328]
+==firepro3d.roof:[357:423]
+        path = self.path()
+        if path.isEmpty():
+            return path
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        return stroker.createStroke(path) | path    # union stroke + fill area
+
+    # ── Grip points ──────────────────────────────────────────────────────────
+
+    def grip_points(self) -> list[QPointF]:
+        return [QPointF(p) for p in self._points]
+
+    def apply_grip(self, index: int, new_pos: QPointF):
+        if 0 <= index < len(self._points):
+            self._points[index] = QPointF(new_pos)
+            self._rebuild_path()
+
+    def insert_point(self, idx: int, pt: QPointF):
+        """Insert a vertex at position *idx* (shifts subsequent points)."""
+        self._points.insert(idx, QPointF(pt))
+        self._rebuild_path()
+
+    def remove_point(self, idx: int):
+        """Remove vertex at *idx* (no-op if would leave < 3 points)."""
+        if len(self._points) <= 3:
+            return
+        if 0 <= idx < len(self._points):
+            self._points.pop(idx)
+            self._rebuild_path()
+
+    def nearest_edge(self, pt: QPointF) -> tuple[int, float, QPointF]:
+        """Return (edge_index, distance, projection_point) for the edge
+        closest to *pt*.  Edge *i* runs from _points[i] → _points[(i+1)%n].
+        """
+        best_idx, best_dist, best_proj = 0, float("inf"), QPointF(pt)
+        n = len(self._points)
+        for i in range(n):
+            a = self._points[i]
+            b = self._points[(i + 1) % n]
+            dx, dy = b.x() - a.x(), b.y() - a.y()
+            len_sq = dx * dx + dy * dy
+            if len_sq < 1e-12:
+                t = 0.0
+            else:
+                t = max(0.0, min(1.0, ((pt.x() - a.x()) * dx + (pt.y() - a.y()) * dy) / len_sq))
+            proj = QPointF(a.x() + t * dx, a.y() + t * dy)
+            d = math.hypot(pt.x() - proj.x(), pt.y() - proj.y())
+            if d < best_dist:
+                best_idx, best_dist, best_proj = i, d, proj
+        return best_idx, best_dist, best_proj
+
+    def translate(self, dx: float, dy: float):
+        self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
+        self._rebuild_path()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the 2D slab boundary about ``pivot`` (Y-up CCW+).
+
+        Mirrors :meth:`translate`; the elevation Z-range is untouched (2D-plane
+        rotation only)."""
+        from .cad_math import CAD_Math
+        self._points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                        for p in self._points]
+        self._rebuild_path()
+
+    # ── Properties API ───────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        """Mode-conditional two-boundary elevation panel.
+
+        Rows CHANGE per boundary mode (level → Level+Offset; absolute → Z;
+        thickness → Thickness input). The property panel re-queries this after
+        every edit, so returning a different key set drives dynamic show/hide.
+        Appearance (Colour) is owned by the Display Manager, not this panel.
+        """ (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.floor_slab:[551:581]
+==firepro3d.roof:[639:668]
+        tri_indices = triangulate_polygon(pts_2d)
+        if not tri_indices:
+            return None
+
+        verts = []
+        for x, y in pts_2d:
+            verts.append([x, y, top_z])
+        for x, y in pts_2d:
+            verts.append([x, y, bot_z])
+
+        faces = []
+        for a, b, c in tri_indices:
+            faces.append([a, b, c])
+        for a, b, c in tri_indices:
+            faces.append([a + n, c + n, b + n])
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append([i, j, j + n])
+            faces.append([i, j + n, i + n])
+
+        return {
+            "vertices": verts,
+            "faces": faces,
+            "color": (self._color.redF(), self._color.greenF(),
+                      self._color.blueF(), 1.0),
+        }
+
+    def _mesh_gable(self, pts_2d, n, eave_z, bot_z) -> dict | None:
+        """Gable roof — two sloped planes + vertical gable-end walls.""" (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.roof:[480:514]
+==firepro3d.wall:[588:622]
+            self._rebuild_path()
+            self.update()
+            if sc and hasattr(sc, "sceneModified"):
+                sc.sceneModified.emit()
+            if sc and hasattr(sc, "push_undo_state"):
+                sc.push_undo_state()
+
+    def _parse_dim(self, value) -> float | None:
+        """Parse a dimension value (display-formatted or raw) to mm.
+
+        If *value* is already a numeric type (float/int), it is treated as
+        mm and returned directly.  String values are parsed through the
+        ScaleManager (supports feet-inches, mm, m, etc.).
+        """
+        if isinstance(value, (int, float)):
+            return float(value)
+        from .scale_manager import ScaleManager
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else self._scale_manager_ref
+        if sm:
+            parsed = ScaleManager.parse_dimension(str(value), sm.bare_number_unit())
+            if parsed is not None:
+                return parsed
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def set_property(self, key: str, value):
+        if key == "Name":
+            self.name = str(value)
+        elif key == "Colour":
+            self._color = QColor(value)
+            self.update() (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.floor_slab:[230:247]
+==firepro3d.wall:[359:379]
+            clip.closeSubpath()
+            sec_fill_hex = getattr(self, "_display_section_color", None) or ""
+            sec_fill = QColor(sec_fill_hex) if sec_fill_hex.startswith("#") else None
+            pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
+            h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
+            draw_section_hatch(painter, clip, self.scene(),
+                               color=line_col,
+                               pattern=pattern,
+                               line_width=pen.widthF() or 1.0,
+                               section_fill=sec_fill,
+                               hatch_scale=h_scale)
+
+        if self.isSelected():
+            sel_pen = QPen(_SELECTION_COLOR, 2)
+            sel_pen.setCosmetic(True)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush) (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.hydraulic_report:[47:71]
+==firepro3d.thermal_radiation_report:[59:83]
+    if bold:
+        font = it.font()
+        font.setBold(True)
+        it.setFont(font)
+    return it
+
+
+def _make_table(headers: list[str]) -> QTableWidget:
+    t = QTableWidget()
+    t.setColumnCount(len(headers))
+    t.setHorizontalHeaderLabels(headers)
+    t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+    t.horizontalHeader().setStretchLastSection(True)
+    t.setAlternatingRowColors(True)
+    t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    t.setSortingEnabled(True)
+    return t
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main widget
+# ─────────────────────────────────────────────────────────────────────────────
+ (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.model_space:[1847:1862]
+==firepro3d.scene_io:[45:69]
+        node_list = list(self.sprinkler_system.nodes)
+        node_id = {n: i for i, n in enumerate(node_list)}
+        nodes_data = [serialize_node(node, node_id) for node in node_list]
+        pipes_data = []
+        for pipe in self.sprinkler_system.pipes:
+            if pipe.node1 is None or pipe.node2 is None:
+                continue
+            if pipe.node1 not in node_id or pipe.node2 not in node_id:
+                continue
+            pipes_data.append(serialize_pipe(pipe, node_id))
+        annotations_data = []
+        for dim in self.annotations.dimensions:
+            annotations_data.append(serialize_dimension(dim))
+        for note in self.annotations.notes:
+            annotations_data.append(serialize_note(note)) (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.floor_slab:[404:421]
+==firepro3d.roof:[494:511]
+        if isinstance(value, (int, float)):
+            return float(value)
+        from .scale_manager import ScaleManager
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else self._scale_manager_ref
+        if sm:
+            parsed = ScaleManager.parse_dimension(str(value), sm.bare_number_unit())
+            if parsed is not None:
+                return parsed
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def set_property(self, key: str, value):
+        if key == "Name":
+            self.name = str(value) (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.block_manager:[505:525]
+==firepro3d.underlay_manager:[301:321]
+        body.addWidget(self.details)
+
+        # ── body container (toolbar + tree/details) → HouseDialog body ──
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(toolbar)
+        container_layout.addLayout(body, 1)
+        self.set_body(container, margin=(0, 0, 0, 0))
+
+        # ── footer (count + hint left, Close right) ──────────────────────
+        # Built manually and added to self._root so we can replicate
+        # count_label + spacing + hint on the left and Close on the right,
+        # with #footerBar objectName for QSS — matching the original exactly.
+        footer = QFrame(objectName="footerBar")
+        foot = QHBoxLayout(footer)
+        foot.setContentsMargins(12, 8, 12, 8)
+        self.count_label = QLabel()
+        self.count_label.setProperty("role", "muted") (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.elevation_scene:[109:126]
+==firepro3d.gridline:[234:255]
+            painter.setPen(highlight)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QRectF(-r, -r, 2 * r, 2 * r))
+
+    def mousePressEvent(self, event):
+        parent = self.parentItem()
+        if parent is not None:
+            scene = parent.scene()
+            if scene is not None:
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    parent.setSelected(not parent.isSelected())
+                else:
+                    scene.clearSelection()
+                    parent.setSelected(True)
+        event.accept()
+
+ (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.level_widget:[71:84]
+==firepro3d.project_browser:[172:186]
+        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        hdr.setFont(f)
+        hdr.setStyleSheet(
+            f"color: {_t.text_primary}; "
+            f"background: {_t.bg_raised}; "
+            f"padding: 4px; "
+            f"border-radius: 3px;"
+        )
+        layout.addWidget(hdr)
+
+        # Tree (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.roof_dialog:[140:161]
+==firepro3d.wall_dialog:[43:66]
+        self._defaults = defaults or {}
+        self._level_manager = level_manager
+        if self._level_manager is not None:
+            self._levels = self._level_manager.levels
+        else:
+            self._levels = levels or []
+        self._sm = scale_manager
+        self._build_ui()
+
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _fmt_mm(self, mm: float) -> str:
+        """Format a value in mm for display using project units."""
+        if self._sm:
+            return self._sm.format_length(mm)
+        return f"{mm:.1f} mm"
+
+    # ── UI construction ───────────────────────────────────────────────
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self) (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.level_widget:[71:82]
+==firepro3d.property_manager:[75:86]
+        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        hdr.setFont(f)
+        hdr.setStyleSheet(
+            f"color: {_t.text_primary}; "
+            f"background: {_t.bg_raised}; "
+            f"padding: 4px; "
+            f"border-radius: 3px;"
+        ) (duplicate-code)
+firepro3d\water_supply.py:1:0: R0801: Similar lines in 2 files
+==firepro3d.annotations:[372:387]
+==firepro3d.pipe:[325:340]
+        if v1.x() < 0:
+            v1 = QPointF(-v1.x(), -v1.y())
+        v2 = QPointF(1, 0)
+        angle = -CAD_Math.get_angle_between_vectors(v1, v2, signed=True)
+        if angle == 90:
+            angle = -90
+
+        mid_point = QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
+        bounds = self.label.boundingRect()
+        center = bounds.center()
+
+        # set transform origin so future rotations work around the center
+        self.label.setTransformOriginPoint(center)
+
+        # Label is now in model-space — boundingRect() is in scene units directly (duplicate-code)
+
+------------------------------------
+Your code has been rated at 10.00/10
+
