@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-08
-verified-commit: 4a2f650   # updated with the final branch SHA at merge
+verified-commit: c717f2c   # U3 GripHandle/CircleItem branch tip (pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
