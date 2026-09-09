@@ -258,8 +258,10 @@ def apply_import_params_preserving_management(
         new_layer_names: list[str] | None = None) -> None:
     """Overwrite only geometry+placement on *record* from *incoming*.
 
-    Management fields (levels, colour, line_weight_name, layer_overrides,
+    Management fields (colour, line_weight_name, layer_overrides,
     hidden_layers, visible, snap, locked, opacity, line_weight) are preserved.
+    ``levels`` and ``scale_verified`` are dialog-authored placement (see
+    ``_GEOMETRY_PLACEMENT_FIELDS``), so Modify overwrites them like geometry.
     If *new_layer_names* is given, prune layer_overrides/hidden_layers whose
     layer no longer exists (by-name reconciliation, mirroring refresh_underlay).
 

@@ -473,10 +473,11 @@ class TestRefreshUnderlayFromDisk:
                    if _.data(0) != "DXF Underlay"
                    or d.path != str(dxf_file))
         # Clean up the worker thread
-        if hasattr(scene, "_dxf_worker") and scene._dxf_worker is not None:
-            scene._dxf_worker.cancel()
-            scene._dxf_worker.quit()
-            scene._dxf_worker.wait(2000)
+        _ctl = getattr(scene, "_underlay_ctl", scene)  # worker lives on the controller (slice)
+        if getattr(_ctl, "_dxf_worker", None) is not None:
+            _ctl._dxf_worker.cancel()
+            _ctl._dxf_worker.quit()
+            _ctl._dxf_worker.wait(2000)
 
     def test_refresh_syncs_transform_before_reimport(self, qapp, tmp_path):
         """Position/scale/rotation/opacity are synced from the scene item."""
@@ -504,10 +505,11 @@ class TestRefreshUnderlayFromDisk:
         assert record.opacity == pytest.approx(0.6)
 
         # Clean up
-        if hasattr(scene, "_dxf_worker") and scene._dxf_worker is not None:
-            scene._dxf_worker.cancel()
-            scene._dxf_worker.quit()
-            scene._dxf_worker.wait(2000)
+        _ctl = getattr(scene, "_underlay_ctl", scene)  # worker lives on the controller (slice)
+        if getattr(_ctl, "_dxf_worker", None) is not None:
+            _ctl._dxf_worker.cancel()
+            _ctl._dxf_worker.quit()
+            _ctl._dxf_worker.wait(2000)
 
 
 # =====================================================================

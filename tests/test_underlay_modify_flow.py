@@ -39,13 +39,14 @@ def test_apply_import_params_preserves_management_fields():
                         snap=True, colour="#c0c0c0", scale=2.0, rotation=90.0,
                         x=10.0, y=20.0)
     apply_import_params_preserving_management(rec, incoming)
-    # geometry/placement overwritten:
+    # geometry/placement overwritten (levels is now dialog-authored placement,
+    # not a preserved management field — see underlay._GEOMETRY_PLACEMENT_FIELDS):
     assert rec.path == "new.dxf"
     assert rec.scale == 2.0
     assert rec.rotation == 90.0
     assert rec.x == 10.0 and rec.y == 20.0
+    assert rec.levels == ["Level 1"]
     # management preserved:
-    assert rec.levels == ["L1", "L3"]
     assert rec.snap is False
     assert rec.colour == "#ff0000"
     assert rec.line_weight_name == "Medium"
@@ -109,8 +110,15 @@ def _build_underlay_group(scene, layers=None, x=0.0, y=0.0):
     return group
 
 
+# The async DXF worker lives on the UnderlayController (underlay slice), not the
+# scene — reach it via _underlay_ctl (fall back to the scene for older layouts).
+def _underlay_ctl(scene):
+    return getattr(scene, "_underlay_ctl", scene)
+
+
 def _cleanup_worker(scene):
-    worker = getattr(scene, "_dxf_worker", None)
+    ctl = _underlay_ctl(scene)
+    worker = getattr(ctl, "_dxf_worker", None)
     if worker is not None:
         worker.cancel()
         worker.quit()
@@ -121,14 +129,15 @@ def _drain_dxf_worker(scene):
     """Block until the async DXF worker finishes and its queued
     finished_data → _on_dxf_finished slot has run on the main thread."""
     from PyQt6.QtWidgets import QApplication
-    worker = getattr(scene, "_dxf_worker", None)
+    ctl = _underlay_ctl(scene)
+    worker = getattr(ctl, "_dxf_worker", None)
     if worker is None:
         return
     worker.wait(5000)
     # Pump the event loop so the queued finished_data signal is delivered.
     for _ in range(50):
         QApplication.processEvents()
-        if getattr(scene, "_dxf_worker", None) is None:
+        if getattr(ctl, "_dxf_worker", None) is None:
             break
 
 
@@ -174,9 +183,11 @@ def test_replace_underlay_preserves_management_and_identity(qapp, tmp_path):
     assert record.import_base_y == pytest.approx(2.0)
     assert record.x == pytest.approx(42.0)   # on-canvas anchor preserved
     assert record.y == pytest.approx(17.0)
+    # levels is dialog-authored placement now (overwritten to the active level,
+    # since the stub params author none) — no longer a preserved management field.
+    assert record.levels == ["Level 1"]
     # Management fields preserved.
     assert record.colour == "#ff0000"
-    assert record.levels == ["L1", "L3"]
     assert record.snap is False
     # WALLS override pruned (not in the new geom_list's single A-WALL layer).
     assert "WALLS" not in record.layer_overrides

@@ -770,9 +770,10 @@ class UnderlayController:
                 "Insert at origin" mode → ``QPointF(0, 0)``).
 
         The Modify flow re-opens the import dialog pre-filled, lets the user
-        change scale/placement/layers, and re-places the geometry WHILE
-        preserving manager-owned fields (levels, colour, line_weight_name,
+        change scale/placement/layers/levels, and re-places the geometry WHILE
+        preserving manager-owned fields (colour, line_weight_name,
         layer_overrides, hidden_layers, visible, snap, locked, opacity).
+        ``levels`` is dialog-authored placement now (overwritten on Modify).
 
         Geometry+placement fields are overwritten via
         ``apply_import_params_preserving_management`` BEFORE rebuild, so even
