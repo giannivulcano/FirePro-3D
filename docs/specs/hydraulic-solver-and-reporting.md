@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built; divergence ledger in §12
-last-verified: 2026-07-14
-verified-commit: 5ba9227
+last-verified: 2026-09-09
+verified-commit: 1228ef5
 applies-to:
   - firepro3d/hydraulic_solver.py
   - firepro3d/hydraulic_report.py
@@ -395,7 +395,7 @@ Custom-painted `QWidget` (`_HydraulicGraphWidget`):
 
 | Format | Content | Method |
 |---|---|---|
-| PDF | Title + messages + summary sections + Node Summary Table + **hydraulic graph image** (off-screen 1000×620 render embedded via `QTextDocument` ImageResource) | `QTextDocument` → `QPrinter` (PyQt6: `QPageSize(PageSizeId.A4)`, `doc.print()`) |
+| PDF | Title + messages + summary sections + Node Summary Table + **hydraulic graph image** (off-screen 1000×620 render embedded via `QTextDocument` ImageResource) | `QTextDocument` → `QPdfWriter` (PyQt6: `QPageSize(PageSizeId.A4)`, res 1200, `doc.print()`) — **not** `QPrinter`, whose constructor queries the default printer driver and SEH-aborts the headless test suite (bug #371, fixed 2026-09-09) |
 | CSV | Title + messages + summary sections + `NODE_SUMMARY_HEADERS` + node rows | Python `csv` module (`_write_csv(f)` — testable file-object seam) |
 
 Both exports are **WYSIWYG on the "Show minor nodes" toggle** (they export the rows currently shown). Save dialogs default to **`<project folder>/HC Reports`** (created on demand) when the project has been saved; otherwise the plain filename (CWD fallback).
@@ -494,7 +494,7 @@ Pipe labels append flow (gpm, blue) and total hf (psi, orange) lines **only for 
 | ~~D7~~ | ~~Report structure~~ | ~~P2~~ | **Resolved 2026-07-10.** Report consolidated to 3 tabs (Summary / Node Summary Table / Hydraulic Graph) per §9, driven by shared `_summary_sections()` / `_node_summary_rows()` data assembly. New: G6 guard (§7.1), `node_parent_pipe`/`calc_date` result fields (§6), WaterSupply Test Date property, 14-column node table (velocity plain), PDF embeds graph image, exports WYSIWYG on minors toggle, HC Reports default export folder. Sprinkler Schedule / Pipe Schedule dropped (follow-ups: sprinkler legend → paper space; pipe takeoff → future BOM). Also fixed: PDF export used PyQt5 APIs and had never worked at runtime. | | |
 | ~~D8~~ | ~~Uncalibrated scale~~ | ~~P1~~ | **Withdrawn 2026-04-30.** Scene scale is always 1 px = 1 mm; `is_calibrated` refers to underlay calibration, not scene geometry. Pipes drawn directly on the scene have correct lengths regardless. The default `pixels_per_mm = 1.0` produces correct conversions. A scale guard would block valid calculations on projects without underlays. **Pre-existing bug:** `Pipe.get_length_ft()` returns 0.0 when `is_calibrated` is False, even though `pixels_per_mm = 1.0` gives the correct result. | | |
 | D9 | Multi-system export | P3 | One system per project; one calculation; one report | Per-system hydraulic calculations with combined multi-system PDF export | Depends on sprinkler spec D8. Report generates per-system sections with system identification. |
-| D10 | PDF templates | P3 | Basic QPrinter HTML rendering | Company logo, engineer stamp area, page numbers, professional formatting | Template system with configurable header block. |
+| D10 | PDF templates | P3 | Basic QPdfWriter HTML rendering | Company logo, engineer stamp area, page numbers, professional formatting | Template system with configurable header block. |
 
 ---
 
