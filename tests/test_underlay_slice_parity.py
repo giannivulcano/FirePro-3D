@@ -255,6 +255,8 @@ class TestAsyncImport:
             f"expected exactly 1 underlay, got {len(scene.underlays)}"
         assert fired, "underlaysChanged did not fire after async import"
 
+        scene.cleanup()   # #373: never leave a worker to outlive this test
+
 
 # ---------------------------------------------------------------------------
 # 5. live place_import / replace-placement

@@ -110,6 +110,8 @@ class UnderlayController:
         worker.start()
 
     def _on_dxf_progress(self, progress: QProgressDialog, current: int, total: int):
+        if self._dxf_worker is None:
+            return   # worker already cleaned up — drop a late queued delivery (#373)
         if total > 0:
             progress.setMaximum(total)
             progress.setValue(current)
@@ -117,6 +119,8 @@ class UnderlayController:
     def _on_dxf_finished(self, geom_list: list, progress: QProgressDialog):
         """Receives raw geometry dicts from the worker and creates QGraphicsItems
         on the main thread (required by Qt)."""
+        if self._dxf_worker is None:
+            return   # worker already cleaned up — drop a late queued delivery (#373)
         params = self._dxf_import_params
 
         if not geom_list:
@@ -336,14 +340,30 @@ class UnderlayController:
         group.setData(4, index)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
+        if self._dxf_worker is None:
+            return   # worker already cleaned up — drop a late queued delivery (#373)
         progress.close()
         self._scene._show_status(f"DXF error: {msg}")
         self._cleanup_dxf_worker()
 
     def _cleanup_dxf_worker(self):
-        if hasattr(self, "_dxf_worker") and self._dxf_worker is not None:
-            self._dxf_worker.quit()
-            self._dxf_worker.wait()
+        w = getattr(self, "_dxf_worker", None)
+        if w is not None:
+            # Sever signal delivery BEFORE the join so any finished_data /
+            # progress meta-call already queued to the main thread is dropped
+            # instead of firing into a torn-down scene / view-parented
+            # QProgressDialog during a LATER event loop (bug #373). quit() is a
+            # no-op for a run()-based QThread and wait() joins the thread but
+            # does NOT flush an already-posted queued signal, so disconnecting
+            # is what actually neutralises the pending delivery.
+            for sig in (w.progress, w.status, w.finished_data, w.error):
+                try:
+                    sig.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            w.cancel()
+            w.quit()
+            w.wait()
         self._dxf_worker = None
         self._dxf_progress = None
         self._dxf_import_params = None

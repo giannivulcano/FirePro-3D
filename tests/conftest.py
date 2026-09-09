@@ -99,6 +99,7 @@ def make_model_space(qapp):
     yield _factory
 
     for ms, view in created:
+        ms.cleanup()   # #373: join any underlay DXF worker before teardown
         view.hide()
 
 
@@ -167,6 +168,7 @@ def shown_model_view(qapp):
 
     yield view, scene
 
+    scene.cleanup()   # join the underlay DXF worker so it can't outlive the scene (#373)
     view.close()
 
 

@@ -496,6 +496,18 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Back-compat read view of the underlay list (owned by the controller)."""
         return self._underlay_ctl.items
 
+    def cleanup(self) -> None:
+        """Release background resources held by this scene (teardown seam).
+
+        Joins and disconnects the async underlay DXF worker so a queued
+        ``finished_data`` signal cannot deliver into a torn-down scene / dialog
+        during a later event loop (bug #373). Safe to call repeatedly; tests
+        call this on fixture teardown so a worker never outlives its scene.
+        """
+        ctl = getattr(self, "_underlay_ctl", None)
+        if ctl is not None:
+            ctl._cleanup_dxf_worker()
+
     @property
     def dynamic_input(self):
         """Back-compat view of the Dynamic-Input HUD (owned by the placement-input
