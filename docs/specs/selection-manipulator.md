@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08); U3–U5 of the Unification roadmap remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-08
-verified-commit: 1a02a12
+verified-commit: 4a2f650   # updated with the final branch SHA at merge
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
@@ -243,13 +243,20 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   capability with a live-fallback sourcing path; re-expressed the manipulator's
   own resize/rotate handles as `Handle`s. Pure internal refactor — the 6 manip
   test files pass unmodified. See **"U2 — Handle model (as-built)"** below.
-- **U3 — migrate items onto `manip_handles`, one per PR**: each item exposes its
-  parametric points as `Handle`s whose drag calls its existing `apply_grip`
-  logic. The manipulator renders/hit-tests them inside the frame. Carry the
-  per-item drag semantics that live in `model_space` today (Ctrl angle-constrain
-  on wall/line/gridline endpoints, gridline multi-select **parallel-delta**,
-  wall-endpoint propagation, the **constraint solver** pass). Parity test each
-  item (posted-event drag == legacy grip drag).
+- **U3 — migrate items onto `manip_handles`, one per PR** — **IN PROGRESS.**
+  ✅ **CircleItem DONE (2026-09-08)** — landed the live-apply `GripHandle`
+  framework + the `_begin_handle` fix + coexistence gate (see "U3 — GripHandle
+  (as-built)" above). Each item exposes its parametric points as `GripHandle`s
+  whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
+  them inside the frame. Carry the per-item drag semantics that live in
+  `model_space` today (Ctrl angle-constrain on wall/line/gridline endpoints via
+  `_transform_point`; gridline multi-select **parallel-delta** + wall-endpoint
+  propagation via `_after_apply`; the **constraint solver** pass — all admitted
+  by the framework). Parity test each item (posted-event drag == legacy grip
+  drag). Remaining, simplest-first: Polyline, Spline, Line (+Ctrl-constrain),
+  Rectangle, Arc, RegularPolygon, Ellipse, Wall (+propagation), Gridline
+  (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
+  elevation/detail/view-marker items.
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
@@ -320,6 +327,77 @@ guard), `tests/test_manip_handle_admissibility.py` (live-apply lifecycle +
 `manip_handles()` consumption + legacy seams intact),
 `tests/test_manip_u2_parity.py` (posted-event vs slot byte-parity + no-op/Esc).
 The 6 pre-U2 manip test files pass unmodified.
+
+## U3 — GripHandle (as-built, first increment: CircleItem, 2026-09-08)
+
+Design of record: `docs/superpowers/specs/2026-09-08-u3-griphandle-circleitem-design.md`.
+
+First per-item migration onto `manip_handles()`. Ships CircleItem; the remaining
+items follow one-per-PR (simplest-first, see the roadmap bullet).
+
+**`GripHandle(Handle)`** (`manip_handle.py`) — the live-apply handle. `role =
+HandleRole.GRIP` (new non-rigid enum member, absent from `_rigid`);
+`gesture_mode = "grip"` (absent from `_SCHEMA_FOR_MODE` → **no HUD**, matching
+legacy grips); `__init__(item, index)`. `scene_position` ignores the frame and
+returns `item.grip_points()[index]` (rides the live grip); `visible` mirrors
+`grip_hittable`. **Lifecycle** mutates real geometry every move via the item's
+`apply_grip(index, pt)` (the DRY mutation primitive — edit math is not rewritten):
+- `on_press`: borrow the scene's grip-state (`_grip_item`/`_grip_dragging`,
+  saving prior values) so the snap authority runs exactly as legacy; snapshot all
+  grip points for Esc.
+- `on_drag`: `pt = scene.get_effective_position(scene_pos)` (getattr fallback for
+  plain scenes) → `_transform_point` hook → `apply_grip` → `_after_apply` hook →
+  `scene._tools._solve_constraints(item)` → `m._reflow_live()`. Records
+  `self._last_pt`.
+- `on_release`: capture `moved`; re-apply the release point **only if it differs
+  from `_last_pt`** (Qt normally delivers a final move at the release position →
+  re-apply skipped, so a future `_after_apply` propagation override cannot
+  double-fire); `_clear_grip_state`; `m._end_drag()`; then if `moved`, solve +
+  `commit_hook("grip")` (one undo per gesture).
+- `on_cancel`: re-apply the snapshot (restore all grips); `_clear_grip_state`;
+  **no** commit.
+
+**Four per-item semantics are ADMITTED (not built here) as extension points:**
+`_transform_point` (Ctrl angle-constrain), `_after_apply` (gridline
+parallel-delta / wall-endpoint propagation), `_extra_snapshots`/`_restore_extra`
+(siblings), plus the always-run solver pass. Proven by
+`test_manip_griphandle_admissibility.py` fake-handle overrides.
+
+**Snap parity** = drive the scene's own `get_effective_position` via the borrowed
+flags (OSNAP-excl-dragged > ALIGN > grid) — guaranteed byte-identical to legacy;
+the rigid-move `_snap` is **not** reused for grips.
+
+**Manipulator changes:** `_begin` uses `_rigid.get(role)` (tolerates the
+non-rigid GRIP role); `_begin_handle` installs the passed handle and fires its
+`on_press` once (grip only; rigid handles still get their single `on_press` from
+`_begin`); `hit_test` iterates `_handles` **+ `_host_pool`** (pooled item-handle
+hosts); new `_reflow_live()` recomputes the frame + repositions rigid + pooled
+hosts every live-apply move **without rebuilding the handle list** (stable
+`_active_handle`).
+
+**Coexistence gate** (one render path, one hit-test): module-level
+`_item_uses_manip_handles(item)` (in `selection_manipulator.py`) — true when the
+item's `manip_handles()` returns a non-empty list. `Model_View.drawForeground`'s
+grip loop and `scene_tools._find_grip_hit` both `continue` past such items (next
+to the existing `provides_handles_for` skip). U4 deletes both skips with the
+legacy paths.
+
+**CircleItem.manip_handles()** returns 5 `GripHandle`s (center + 4 radius),
+`grip_hittable`-filtered. Center → `apply_grip(0)` (translate); radius →
+`apply_grip(1..4)` (resize). Zero special semantics — the pattern-establisher.
+
+**Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
+`manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a
+future item with fully state-dependent hittability should be handled when it
+lands.
+
+**Tests:** `tests/test_manip_griphandle.py` (contract + `_begin_handle` fix),
+`tests/test_manip_griphandle_admissibility.py` (four-semantics + `on_release`
+ends drag + no double `_after_apply`), `tests/test_manip_griphandle_coexist.py`
+(gate), `tests/test_manip_griphandle_parity.py` (posted-event byte-parity vs
+legacy `apply_grip`, one-undo, Esc restore). `test_scene_tools.py` flipped to
+assert the migrated circle is skipped by `_find_grip_hit`. All pre-U3 manip test
+files pass unmodified.
 
 ## Existing Code Context
 
