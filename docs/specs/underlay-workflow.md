@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-02  # §10 Polish v2: staged LoadingOverlay (PDF now threaded) + Name field + two-field [paper]=[real] scale w/ 2% calibration snap + $INSUNITS→mm fix + Modify preserves base & filters PDF by selected_layers + preview zoom cap 2000%
-verified-commit: ea6c1ea
+last-verified: 2026-09-08  # §10.7 reconciled: `levels`/`scale_verified`/`name` are dialog-authored placement (OVERWRITTEN on Modify), NOT preserved management fields — matched to underlay._GEOMETRY_PLACEMENT_FIELDS + apply_import_params_preserving_management (fix/failing-test-baseline). Prior: §10 Polish v2 2026-09-02.
+verified-commit: 263758e
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -567,11 +567,17 @@ replaces the plain "Insert at origin" toggle while modifying, with three modes
 
 The chosen mode flows as `replace_underlay(record, params, position=…)`.
 
-On confirm, `Model_Space.replace_underlay` OVERWRITES only geometry and placement:
-`path / page / dpi / scale / rotation / base / selected_layers / layout / import_bounds / import_mode`
+On confirm, `Model_Space.replace_underlay` OVERWRITES only geometry and placement
+(`underlay._GEOMETRY_PLACEMENT_FIELDS`):
+`path / page / dpi / scale / rotation / base / selected_layers / layout / import_bounds / import_mode / levels / scale_verified / name`
 
-It PRESERVES all management fields:
-`levels / colour / line_weight_name / layer_overrides (by layer name) / hidden_layers / visible / snap / locked / opacity`
+It PRESERVES the management fields:
+`colour / line_weight_name / layer_overrides (by layer name) / hidden_layers / visible / snap / locked / opacity`
+
+> **`levels` is dialog-authored placement, not a preserved management field**
+> (§10.1 "Levels re-added"): the Placement panel's Levels multi-select authors
+> them, so Modify overwrites `levels` like geometry. `scale_verified` and `name`
+> are likewise dialog-authored on Modify.
 
 Note: `params.scale` bakes into geometry via `import_scale`; the display `scale`
 field is preserved as-is. Layer overrides are matched by layer name — new layers
