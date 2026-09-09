@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, QSize
+from PyQt6.QtCore import Qt, QObject, QPointF, QRectF, QSize
 from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
@@ -31,12 +31,44 @@ from .underlay_freeze import _UnderlayPathItem
 log = logging.getLogger("FirePro3D")
 
 
+class _DxfWorkerSink(QObject):
+    """Queued-signal receiver whose deletion purges pending worker meta-calls (#371).
+
+    The DXF worker (a QThread) emits from ``run()`` -> queued delivery to the main
+    thread. If the slots were lambdas, the queued call's receiver would default to
+    the worker; when a LEAKED worker's C++ object is later garbage-collected while
+    a ``finished_data`` meta-call is still queued, Qt dispatches it into a dangling
+    receiver and crashes in C++ (native access violation) BEFORE any Python guard
+    runs. By routing the four signals through this QObject, parented to the SCENE,
+    Qt's ``~QObject`` ``removePostedEvents`` purges the queued call when the scene
+    is destroyed -> it is never dispatched. Pure forwarding; all logic stays on the
+    controller (which remains a plain object)."""
+
+    def __init__(self, controller, progress, parent):
+        super().__init__(parent)
+        self._ctl = controller
+        self._progress = progress
+
+    def on_progress(self, current, total):
+        self._ctl._on_dxf_progress(self._progress, current, total)
+
+    def on_status(self, msg):
+        self._ctl._on_dxf_status(msg, self._progress)
+
+    def on_finished(self, geom_list):
+        self._ctl._on_dxf_finished(geom_list, self._progress)
+
+    def on_error(self, msg):
+        self._ctl._on_dxf_error(msg, self._progress)
+
+
 class UnderlayController:
     def __init__(self, scene):
         self._scene = scene
         self.items: list = []               # was Model_Space.underlays
         self._dxf_worker = None
         self._dxf_progress = None
+        self._dxf_sink = None
         self._dxf_import_params = None
         self._place_import_params = None
         self._place_import_ghost = None
@@ -101,11 +133,15 @@ class UnderlayController:
             "layout": layout,
         }
 
-        # Wire signals
-        worker.progress.connect(lambda cur, tot: self._on_dxf_progress(progress, cur, tot))
-        worker.status.connect(lambda msg: self._on_dxf_status(msg, progress))
-        worker.finished_data.connect(lambda geom_list: self._on_dxf_finished(geom_list, progress))
-        worker.error.connect(lambda msg: self._on_dxf_error(msg, progress))
+        # Route worker signals through a scene-parented QObject sink so a leaked
+        # worker's queued meta-call is PURGED when the scene dies, instead of
+        # dispatching into a dangling receiver / torn-down dialog (#371). Bound
+        # methods (not lambdas) make the sink the queued-call receiver.
+        self._dxf_sink = _DxfWorkerSink(self, progress, self._scene)
+        worker.progress.connect(self._dxf_sink.on_progress)
+        worker.status.connect(self._dxf_sink.on_status)
+        worker.finished_data.connect(self._dxf_sink.on_finished)
+        worker.error.connect(self._dxf_sink.on_error)
         progress.canceled.connect(worker.cancel)
 
         worker.start()
@@ -386,8 +422,12 @@ class UnderlayController:
             w.cancel()
             w.quit()
             w.wait()
+        sink = getattr(self, "_dxf_sink", None)
+        if sink is not None:
+            sink.deleteLater()
         self._dxf_worker = None
         self._dxf_progress = None
+        self._dxf_sink = None
         self._dxf_import_params = None
 
     def import_pdf(self, file_path, dpi=150, page=0, x=0.0, y=0.0,
