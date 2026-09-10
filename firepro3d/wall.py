@@ -483,6 +483,23 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 self._thickness_mm = max(new_thickness, 25.4)  # min ~1 inch
         self._rebuild_path()
 
+    def manip_handles(self):
+        """U3: [pt1, pt2, mid(move), width] as live-apply manipulator grips.
+
+        Endpoints (0, 1) render round + Ctrl-angle-constrain against the opposite
+        endpoint AND propagate to joined walls (``WallEndpointGripHandle``); the
+        mid grip (2) is a round move grip (translates the whole wall); the width
+        grip (3) is a square thickness grip. The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate).
+        """
+        from .manip_handle import GripHandle, WallEndpointGripHandle
+        return [
+            WallEndpointGripHandle(self, 0, opposite_index=1),
+            WallEndpointGripHandle(self, 1, opposite_index=0),
+            GripHandle(self, 2, circular=True),
+            GripHandle(self, 3, circular=False),
+        ]
+
     def translate(self, dx: float, dy: float):
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)

@@ -448,6 +448,51 @@ class EndpointGripHandle(GripHandle):
         return constrain(grips[self.opposite_index], pt)
 
 
+class WallEndpointGripHandle(EndpointGripHandle):
+    """A ``WallSegment`` endpoint grip.
+
+    Extends ``EndpointGripHandle`` (Ctrl-angle-constrain against the opposite
+    endpoint) with the two wall-specific semantics that live in ``model_space``
+    today:
+
+    * **Propagation** — after each apply, every OTHER wall endpoint coincident
+      with the endpoint's pre-move position follows to the new position
+      (``scene._propagate_wall_endpoint``), keeping polyline-drawn walls joined.
+    * **Atomic sibling Esc-restore** — Wall is the first migrated item whose drag
+      mutates OTHER items, so it snapshots every other wall endpoint at press
+      (``scene._snapshot_wall_endpoints``) and restores them on cancel
+      (``scene._restore_wall_endpoints``); the base ``on_cancel`` only restores
+      the dragged grip.
+
+    All scene calls are duck-typed (``getattr``) so a plain headless scene with
+    no wall graph degrades to no-propagation / no-snapshot.
+    """
+
+    def _transform_point(self, m, pt, mods):
+        # Capture the endpoint position BEFORE this frame's apply_grip. Per-frame,
+        # NOT the press snapshot: siblings follow every move, so the coincidence
+        # test in propagation must run against where the endpoint was last frame,
+        # not the gesture start. Runs before apply_grip in both on_drag and the
+        # on_release re-apply, so _after_apply always has the correct old point.
+        self._old_pt = QPointF(self.item.grip_points()[self.index])
+        return super()._transform_point(m, pt, mods)
+
+    def _after_apply(self, m, applied_pt):
+        prop = getattr(m.scene(), "_propagate_wall_endpoint", None)
+        old = getattr(self, "_old_pt", None)
+        if prop is not None and old is not None:
+            prop(self.item, old, applied_pt)
+
+    def _extra_snapshots(self, m):
+        snap = getattr(m.scene(), "_snapshot_wall_endpoints", None)
+        self._wall_snapshot = snap(self.item) if snap is not None else None
+
+    def _restore_extra(self, m):
+        restore = getattr(m.scene(), "_restore_wall_endpoints", None)
+        if restore is not None and getattr(self, "_wall_snapshot", None):
+            restore(self._wall_snapshot)
+
+
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset()):
     """Build the default live-apply ``GripHandle`` list for a U3-migrated item.
 
