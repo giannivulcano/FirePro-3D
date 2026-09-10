@@ -1502,6 +1502,20 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._radius_mm = rv if self._inscribed else rv * math.cos(math.pi / self._sides)
         self._regenerate()
 
+    def manip_handles(self):
+        """U3: expose the centre + each vertex as a live-apply GripHandle.
+
+        All grips render round per the house rule: the centre is a move grip
+        and the vertices are the polygon's defining points (dragging a vertex
+        resizes + rotates — the edit math lives in apply_grip). Zero special
+        drag semantics: the legacy grip path explicitly excludes polygon from
+        Ctrl-constrain, so no EndpointGripHandle/_transform_point. Same shape
+        as ArcItem/Spline. The manipulator renders/hit-tests/commits them; the
+        legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(
+            self, circular=set(range(len(self.grip_points()))))
+
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         self._regenerate()
