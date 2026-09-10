@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem (2026-09-09); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-09
-verified-commit: PENDING   # re-stamped below to the SplineItem branch tip (pre-merge)
+verified-commit: e6d58d3   # U3 SplineItem migration (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
