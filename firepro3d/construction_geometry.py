@@ -950,6 +950,31 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             return {"translate", "rotate"}
         return {"translate", "rotate", "scale"}
 
+    def manip_handles(self):
+        """U3 (box-native special): expose the 9 rect grips as live-apply
+        GripHandles.
+
+        For an UNROTATED rect the manipulator shows its rigid RESIZE handles
+        instead (``provides_handles_for`` → ``_active_handles`` returns the rigid
+        set), so these grips only surface for a ROTATED rect (whose ``scale`` cap
+        is dropped) — replacing the legacy green grips with live-apply grips
+        whose ``apply_grip`` resizes in the rect's own rotated LOCAL frame (no
+        shear). Providing ``manip_handles`` also makes ``_item_uses_manip_handles``
+        the single coexistence gate: the legacy grip paths skip the rect for BOTH
+        states (no more separate ``provides_handles_for`` skip).
+
+        Corners (0,2,4,6) + centre (8) render round; edge midpoints (1,3,5,7)
+        square — matching the rigid resize-handle look; the square grips align to
+        the rect's angle via ``grip_render_angle``."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8})
+
+    def grip_render_angle(self, index: int) -> float:
+        """Rotate the square edge-midpoint grips to the rect's baked Y-up
+        orientation so their edges align with the (rotated) rect edges; the round
+        corner/centre grips ignore it (rotation-invariant)."""
+        return self._angle
+
     def manip_bounds(self) -> QRectF:
         """The rect's own geometry in scene coords so the manipulator handles
         hug the shape (not the pen-padded ``sceneBoundingRect``).  For a rotated

@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: cfa3ec9   # U3 EllipseItem migration + radial square-grip alignment (static + live-rotate) + rotate-knob live swing
+verified-commit: fc3263c   # U3 RectangleItem box-native migration + single coexistence gate
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -273,7 +273,15 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   ellipse is a generalized circle): `default_grip_handles(self, circular={0})`
   (centre round move grip; the 4 axis-endpoint sizing grips — major rx=1,2 [also
   rotates] / minor ry=3,4 — square). Zero special semantics (not Wall/Gridline/
-  Line → no Ctrl-constrain); not box-native (no `manip_scale`). Each
+  Line → no Ctrl-constrain); not box-native (no `manip_scale`). ✅ **RectangleItem
+  DONE (2026-09-10, box-native special)** — rect now provides `manip_handles()`
+  (9 grips) so `_item_uses_manip_handles` is the **single coexistence gate** (the
+  legacy paths drop their separate `provides_handles_for` skip). `_active_handles`
+  returns the rigid RESIZE set for the box-native (unrotated) rect — grips don't
+  double up; a ROTATED rect (scale cap dropped) surfaces its parametric grips
+  (live-apply; `apply_grip` resizes in the local frame — replaces the legacy green
+  grips). `provides_handles_for` kept internal (`_active_handles` +
+  `_frame_is_redundant`). Each
   item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
@@ -282,15 +290,18 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  **Rectangle** (box-native special — reconcile `provides_handles_for`
-  so its `manip_handles()` don't double up with the rigid resize handles),
+  **Sheet Text block** (paper `TextAnnotationItem` — box-native sibling of
+  Rectangle; paper-scene, folds with U5/paper handle work),
   Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
   elevation/detail/view-marker items.
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
-  funnel.
+  funnel. *(Progress 2026-09-10: the legacy-path SKIP is already a single gate —
+  `_item_uses_manip_handles` — after the RectangleItem box-native migration;
+  `provides_handles_for` is now internal-only, used by `_active_handles` +
+  `_frame_is_redundant`.)*
 - **U5 — fold in selection + other scenes**: integrate `selection-mode.md`
   (hover pre-highlight / Tab-cycle / rubber-band) against the unified handles;
   add handle providers for elevation and 3D scenes (their own selection specs).
@@ -300,7 +311,9 @@ solver, OSNAP-per-handle, the model full-network-snapshot vs paper macro undo
 split, gridline parallel-delta, wall-endpoint propagation, and the rotation
 Y-up/pivot convention all currently live in the `model_space` grip lifecycle and
 must move onto the `Handle`/manipulator path without behavior drift. The v1
-`provides_handles_for` seam stays until U4 removes it.
+`provides_handles_for` seam is no longer a legacy-path *skip* (unified to
+`_item_uses_manip_handles` at the RectangleItem migration) but stays as an
+internal helper until U4 removes it.
 
 ## U2 — Handle model (as-built, 2026-09-08)
 
@@ -413,9 +426,12 @@ hosts every live-apply move **without rebuilding the handle list** (stable
 **Coexistence gate** (one render path, one hit-test): module-level
 `_item_uses_manip_handles(item)` (in `selection_manipulator.py`) — true when the
 item's `manip_handles()` returns a non-empty list. `Model_View.drawForeground`'s
-grip loop and `scene_tools._find_grip_hit` both `continue` past such items (next
-to the existing `provides_handles_for` skip). U4 deletes both skips with the
-legacy paths.
+grip loop and `scene_tools._find_grip_hit` both `continue` past such items. This
+is now the **single** legacy-path skip: since RectangleItem (the only model-scene
+box-native item) provides `manip_handles`, the separate `provides_handles_for`
+skip was removed from both paths (2026-09-10). `provides_handles_for` remains an
+internal helper (`_active_handles` picks the rigid resize set for a box-native
+single item; `_frame_is_redundant`). U4 deletes the legacy paths + the helper.
 
 **`default_grip_handles(item, circular=frozenset())`** (`manip_handle.py`) — the
 shared body of every migrated item's `manip_handles()`: one `GripHandle` per
@@ -473,6 +489,17 @@ special semantics (not Wall/Gridline/Line → no Ctrl-constrain); not box-native
 **rotated to the ellipse's orientation** (radial alignment) via the
 `grip_render_angle` hook (below), so they stay aligned to the axes at placement
 angle and after a rotate.
+
+**RectangleItem.manip_handles()** (box-native special) → `default_grip_handles(
+self, circular={0,2,4,6,8})`: the 9 rect grips (corners 0,2,4,6 + centre 8 round;
+edge midpoints 1,3,5,7 square). These surface **only for a ROTATED rect** — an
+unrotated rect is box-native (`provides_handles_for` → `_active_handles` returns
+the rigid resize set), so it shows the 8 resize handles + rotate knob and the
+grips don't double up. A rotated rect drops the `scale` cap → its parametric grips
+drive edits via `apply_grip` (resize in the rect's own local frame, no shear),
+replacing the legacy green grips. `grip_render_angle` returns `_angle` so the
+square edge-midpoint grips align with the rotated edges. Providing `manip_handles`
+makes `_item_uses_manip_handles` the single coexistence gate (see above).
 
 **Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
 grips and centre/**move** grips render **round** (disc); only inert/derived
@@ -533,12 +560,17 @@ handle-count-tracks-sides, centre/vertex legacy-apply match, posted centre+verte
 drag, one-commit, Esc-restore, gate recognition), and
 `tests/test_manip_griphandle_ellipse_parity.py` (Ellipse parity — shape [centre
 round, axis grips square], major/minor/centre legacy-apply match, posted
-major+centre drag, one-commit, Esc-restore, gate recognition).
+major+centre drag, one-commit, Esc-restore, gate recognition), and
+`tests/test_manip_griphandle_rect_parity.py` (Rectangle box-native — shape, gate
+True both states, unrotated shows rigid resize handles [not grips], rotated shows
+9 parametric grips, rotated-corner apply parity, posted centre-drag, `_find_grip_hit`
+skip both states).
 `test_scene_tools.py` asserts
-the migrated circle/polyline/spline/line/arc are skipped by `_find_grip_hit`, and
-its generic `_find_grip_hit` mechanic tests use a migration-agnostic `_GripStub`
-(they used to ride `LineItem`, which now skips the legacy path). All pre-U3 manip
-test files pass unmodified.
+the migrated circle/polyline/spline/line/arc/**rect** are skipped by
+`_find_grip_hit` (the rect legacy-hit test became the "migrated → skipped"
+contract), and its generic `_find_grip_hit` mechanic tests use a migration-
+agnostic `_GripStub` (they used to ride `LineItem`, which now skips the legacy
+path). All pre-U3 manip test files pass unmodified.
 
 ## Existing Code Context
 

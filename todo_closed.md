@@ -2,6 +2,10 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Rotated rect legacy green grips — resolved by RectangleItem U3 box-native migration — 2026-09-10
+
+- [x] [type:maint] Rotated rect shows legacy green grips (no resize handles) [P3] [subject:UX] — RESOLVED by the RectangleItem U3 box-native migration (`feat/u3-griphandle-rect`, merged 2026-09-10). A rotated rect (whose `scale` cap is dropped) now surfaces its live-apply parametric `GripHandle`s via the manipulator — `apply_grip` resizes in the rect's own local frame (no shear) — replacing the legacy `drawForeground` green grips. Was: "BY DESIGN (U2 smoke), collapses into U4." [done:2026-09-10]
+
 ## Test-infra P2 cluster — QSettings isolation (#312) · View3D stub (#367) · underlay-worker lifetime (#373) · tests/ spec (#375) — 2026-09-09
 
 Shipped on `fix/test-infra-p2-cluster` (Large tier: /todo grill → #373 design → writing-plans → inline executing-plans). **Completes the #373 underlay-worker crash** that the prior `fix/native-crash-loci-371-373` branch only partially hardened. Governing spec forged: `docs/specs/test-harness.md` (closes the `tests/` orphan; SPEC-INDEX row added). Full single-process suite now **COMPLETES** (was a deterministic SIGSEGV/`0xC0000005`/`0xC0000409` abort mid-run): **4294 passed, 1 pre-existing failure** (`test_graphic_override::test_floor_tab_has_edit_and_graphic_override_groups`, unrelated ribbon-tab naming), 2 skipped. The todo's "~9 pre-existing failures" were QSettings pollution that #312 cured. **Numbering note:** cluster commit messages + the design doc call the underlay-worker crash "#371" (a line-number shorthand that collides with the already-fixed QPrinter SEH bug #371); the correct repo number is **#373** — governing docs corrected in `9899b03`. Follow-up filed: retire the now-redundant per-test QSettings isolation fixtures.
