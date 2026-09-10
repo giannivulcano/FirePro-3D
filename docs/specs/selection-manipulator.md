@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles (2026-09-09); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem (2026-09-09); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-09
-verified-commit: 2205cd1   # U3 PolylineItem migration + shared default_grip_handles helper + round vertex grips (branch tip, pre-merge)
+verified-commit: PENDING   # re-stamped below to the SplineItem branch tip (pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem
+  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
   # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
@@ -250,16 +250,19 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   shared `default_grip_handles(item, circular=frozenset())` helper
   (`manip_handle.py`) that is the common body of every item's `manip_handles()`
   (loop `grip_points()` → `GripHandle`, `grip_hittable`-filtered, square except
-  `circular` indices); CircleItem refactored onto it (`circular={0}`), Polyline
-  uses it plain (all vertices square, no move-centre grip — move is interior
-  drag). Each item exposes its parametric points as `GripHandle`s
+  `circular` indices, which render as round discs); CircleItem refactored onto it
+  (`circular={0}` centre), Polyline passes all vertex indices (round; no
+  move-centre grip — move is interior drag). ✅ **SplineItem DONE (2026-09-09)**
+  — control points are the spline's vertices → all round (`circular=` all
+  control-point indices); same shape as Polyline, no special semantics. Each
+  item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
   `model_space` today (Ctrl angle-constrain on wall/line/gridline endpoints via
   `_transform_point`; gridline multi-select **parallel-delta** + wall-endpoint
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
-  drag). Remaining, simplest-first: Spline, Line (+Ctrl-constrain),
+  drag). Remaining, simplest-first: Line (+Ctrl-constrain),
   Rectangle, Arc, RegularPolygon, Ellipse, Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
   elevation/detail/view-marker items.
@@ -403,6 +406,11 @@ drag semantics live on `GripHandle` subclass hooks, not here.
 vertex indices)`: one round handle per vertex, each → `apply_grip(index)` (move
 vertex + rebuild). No move-centre grip (move is the manipulator's interior
 drag); no special drag semantics.
+
+**SplineItem.manip_handles()** → `default_grip_handles(self, circular=all
+control-point indices)`: one round handle per control point, each →
+`apply_grip(index)` (move control point + `_regenerate`). Control points are the
+spline's vertices (no midpoints); no move-centre grip; no special drag semantics.
 
 **Grip-shape house rule (2026-09-09 smoke).** Vertex/endpoint grips and
 centre/move grips render **round** (disc); midpoint and other derived
