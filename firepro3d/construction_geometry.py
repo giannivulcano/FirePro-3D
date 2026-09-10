@@ -1696,6 +1696,14 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         from .manip_handle import default_grip_handles
         return default_grip_handles(self, circular={0})
 
+    def grip_render_angle(self, index: int) -> float:
+        """U3 grip-shape hook: rotate the square axis grips to the ellipse's
+        orientation so their edges align radially with the major/minor axes (and
+        stay aligned after a rotate). Returns the Y-up ``_rotation_deg``; the
+        round centre grip ignores it (rotation-invariant). Each axis radial is
+        ``_rotation_deg`` mod 90, so one box angle aligns all four squares."""
+        return self._rotation_deg
+
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         self._regenerate()

@@ -187,3 +187,32 @@ def test_coexistence_gate_recognizes_migration():
     """_item_uses_manip_handles True => legacy grip paths skip the ellipse."""
     from firepro3d.selection_manipulator import _item_uses_manip_handles
     assert _item_uses_manip_handles(_make_ellipse()) is True
+
+
+def test_grip_render_angle_tracks_rotation():
+    """The square axis grips report the ellipse's orientation as their render
+    angle, and it stays in sync after a rotate (manip_rotate)."""
+    e = EllipseItem(QPointF(0, 0), 60.0, 40.0, 30.0)
+    assert e.grip_render_angle(1) == 30.0
+    assert e.grip_render_angle(3) == 30.0
+    e.manip_rotate(20.0, QPointF(0, 0))               # rotate after the fact
+    assert e.grip_render_angle(1) == 50.0             # grips stay aligned
+
+
+def test_square_grip_shape_rotates_with_ellipse():
+    """A square axis grip's hit-shape rotates with the ellipse: at 45deg the
+    rotated square's bounding box is ~sqrt(2)x wider than the axis-aligned one.
+    The round centre grip is rotation-invariant (unchanged)."""
+    from firepro3d.manip_handle import GripHandle
+    flat = EllipseItem(QPointF(0, 0), 60.0, 40.0, 0.0)
+    tilt = EllipseItem(QPointF(0, 0), 60.0, 40.0, 45.0)
+    h_flat = GripHandle(flat, 1, circular=False)
+    h_tilt = GripHandle(tilt, 1, circular=False)
+    w_flat = h_flat.shape(size=10.0, grab_pad=0.0).boundingRect().width()
+    w_tilt = h_tilt.shape(size=10.0, grab_pad=0.0).boundingRect().width()
+    assert w_tilt > w_flat * 1.3                       # ~sqrt(2) = 1.414
+    # the round centre grip (circular) ignores the render angle entirely
+    c_flat = GripHandle(flat, 0, circular=True)
+    c_tilt = GripHandle(tilt, 0, circular=True)
+    assert (c_flat.shape(size=10.0, grab_pad=0.0).boundingRect()
+            == c_tilt.shape(size=10.0, grab_pad=0.0).boundingRect())

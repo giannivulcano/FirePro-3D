@@ -469,7 +469,10 @@ circle): centre = round move grip; the axis-endpoint sizing grips (major rx=1,2,
 which also rotate; minor ry=3,4) render **square** — same rationale as circle
 radius grips (points on a closed curve for sizing, not curve termini). Zero
 special semantics (not Wall/Gridline/Line → no Ctrl-constrain); not box-native
-(no `manip_scale`); `apply_grip` carries the edit math.
+(no `manip_scale`); `apply_grip` carries the edit math. The 4 square grips are
+**rotated to the ellipse's orientation** (radial alignment) via the
+`grip_render_angle` hook (below), so they stay aligned to the axes at placement
+angle and after a rotate.
 
 **Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
 grips and centre/**move** grips render **round** (disc); only inert/derived
@@ -481,6 +484,19 @@ whole item is a move grip → round, even when it sits at the geometric midpoint
 non-vertex → square), PolylineItem all vertices. Legacy `Model_View`
 `drawForeground` drew every grip square (`model_view.py` `drawRect` 8×8); this
 rule supersedes that look as items migrate.
+
+**Square-grip orientation hook — `grip_render_angle(index) -> float`** (added
+2026-09-10). Optional per-item hook; when present, `GripHandle` rotates a
+**square** grip's render + hit-shape by the returned Y-up degrees so its edges
+align with the item's orientation (radial alignment), applied as `rotate(-ang)`
+in both `paint()` and `shape()` (same value → hit-test matches render; a square
+is 90°/reflection-symmetric so the sign is immaterial). **Circular grips ignore
+it** (a disc is rotation-invariant). Absent → 0 (axis-aligned; the default for
+every other migrated item, including CircleItem's square radius grips, whose
+axis-aligned radials look identical rotated). EllipseItem returns `_rotation_deg`
+so its 4 square axis grips track the ellipse's placement angle and post-hoc
+rotate. `_HandleItem.boundingRect` already reserves `√2·half` for a rotated
+square.
 
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a

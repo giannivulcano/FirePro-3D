@@ -16,7 +16,9 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import (
+    QBrush, QColor, QCursor, QPainter, QPainterPath, QPen, QTransform,
+)
 
 from .manip_math import (
     HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point,
@@ -246,14 +248,32 @@ class GripHandle(Handle):
     def scene_position(self, frame_rect: QRectF) -> QPointF:
         return self.item.grip_points()[self.index]
 
+    def _render_angle(self) -> float:
+        """Y-up degrees to rotate this grip's SQUARE by, so its edges align with
+        the host item's orientation (e.g. an ellipse's axes) — radial alignment.
+        Opt-in: the item implements ``grip_render_angle(index)`` (absent → 0,
+        axis-aligned, the default for every unmigrated item). Ignored for circular
+        grips (a disc is rotation-invariant). A square is symmetric under 90°/
+        reflection, so the sign/exact-axis choice is visually immaterial; both
+        shape() and paint() apply the SAME value so hit-test matches render."""
+        if self.circular:
+            return 0.0
+        fn = getattr(self.item, "grip_render_angle", None)
+        return 0.0 if fn is None else float(fn(self.index))
+
     def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
         half = size / 2.0 + grab_pad
         path = QPainterPath()
         rect = QRectF(-half, -half, 2 * half, 2 * half)
         if self.circular:
             path.addEllipse(rect)
-        else:
-            path.addRect(rect)
+            return path
+        path.addRect(rect)
+        ang = self._render_angle()
+        if ang:
+            # Qt (y-down) rotate is CW+; negate the Y-up angle to match paint()
+            # and the item's own get_closed_path (t.rotate(-rotation_deg)).
+            path = QTransform().rotate(-ang).map(path)
         return path
 
     def paint(self, painter: QPainter, *, size, border, fill, hover,
@@ -264,6 +284,13 @@ class GripHandle(Handle):
         rect = QRectF(-half, -half, size, size)
         if self.circular:
             painter.drawEllipse(rect)
+            return
+        ang = self._render_angle()
+        if ang:
+            painter.save()
+            painter.rotate(-ang)
+            painter.drawRect(rect)
+            painter.restore()
         else:
             painter.drawRect(rect)
 
