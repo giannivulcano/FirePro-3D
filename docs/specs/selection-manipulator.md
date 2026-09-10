@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: e63249f   # U3 EllipseItem migration + radial square-grip alignment (static + live-rotate)
+verified-commit: cfa3ec9   # U3 EllipseItem migration + radial square-grip alignment (static + live-rotate) + rotate-knob live swing
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
