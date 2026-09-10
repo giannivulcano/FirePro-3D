@@ -1684,6 +1684,18 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._ry = dist
         self._regenerate()
 
+    def manip_handles(self):
+        """U3: expose parametric grips as live-apply GripHandles (centre + 4
+        axis endpoints). Mirrors CircleItem (an ellipse is a generalized
+        circle): grip 0 is the centre/move grip (round); the 4 axis-endpoint
+        grips (major rx = 1,2; minor ry = 3,4) are square sizing points — the
+        major pair also rotates. Zero special drag semantics (the legacy grip
+        path only Ctrl-constrains Wall/Gridline/Line); apply_grip carries the
+        edit math. The manipulator renders/hit-tests/commits them; the legacy
+        grip paths skip this item (coexistence gate)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         self._regenerate()
