@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: ed002ef   # U3 EllipseItem migration + radial square-grip alignment
+verified-commit: e63249f   # U3 EllipseItem migration + radial square-grip alignment (static + live-rotate)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -499,14 +499,18 @@ rotate. `_HandleItem.boundingRect` already reserves `√2·half` for a rotated
 square.
 
 *Live during the rotate held-preview:* the rotate knob is held-preview (the
-item's angle isn't mutated until the release bake), so `_render_angle` adds the
+item's angle isn't mutated until the release bake), so screen-constant
+(`ItemIgnoresTransformations`) handles would keep their pre-drag orientation
+while the frame turns. `Handle._live_preview_rotation()` returns the
 manipulator's `_preview_rotation_deg()` (= `_yup_angle_from_delta(self._D)` while
-`_mode == "rotate"`, else 0) — the square grips turn with the item as the knob
-drags, and because it's the same angle the bake applies there's no jump on
-commit. The manipulator sets `handle._m` on attach (`_sync_host_pool`) so the
-grip can read it, and `_apply` repaints the grip hosts each rotate move (their
-orientation depends on `_D`, which a transform-change repaint doesn't otherwise
-track).
+`_mode == "rotate"`, else 0); it's added to a square grip's `_render_angle` **and**
+used by `RotateHandle.shape/paint` to swing the knob+stem with the frame. Because
+it's the same angle the release bake applies, there's no jump on commit. The
+manipulator sets `handle._m` on every handle (rigid at construction; grips in
+`_sync_host_pool`), and `_apply` repaints all handle hosts each rotate move
+(their orientation depends on `_D`, which a transform-change repaint doesn't
+otherwise track). This makes the rotate knob swing for **any** rotatable item
+(box-native rects included), not just the ellipse.
 
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a

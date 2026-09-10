@@ -249,4 +249,16 @@ def test_grip_orientation_tracks_live_rotate(qapp):
     # base (item angle) is 0, so the square grip's render angle == the live preview
     assert square._render_angle() == pytest.approx(preview)
     assert centre._render_angle() == 0.0              # round grip: invariant
+
+    # the rotate knob swings with the frame too (was: stayed vertical live).
+    rot_handle = rot_host.handle
+    assert rot_handle._live_preview_rotation() == pytest.approx(preview)
+    # at rest the knob sits straight above the anchor (bounding centre on the
+    # vertical axis, x≈0); a ~90° live preview swings it off-axis.
+    knob_cx = rot_handle.shape(size=10.0, grab_pad=0.0).boundingRect().center().x()
+    assert abs(knob_cx) > 5.0
     m.cancel_drag()
+    # after cancel the preview is gone → knob back on the vertical axis
+    assert rot_handle._live_preview_rotation() == 0.0
+    knob_cx0 = rot_handle.shape(size=10.0, grab_pad=0.0).boundingRect().center().x()
+    assert abs(knob_cx0) < 1e-6

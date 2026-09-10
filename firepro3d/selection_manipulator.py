@@ -389,6 +389,8 @@ class SelectionManipulator(QGraphicsObject):
         from .manip_handle import ResizeHandle, RotateHandle
         self._rigid = {role: ResizeHandle(role) for role in _RESIZE_ROLES}
         self._rigid[HandleRole.ROTATE] = RotateHandle()
+        for _h in self._rigid.values():     # back-ref for live rotate-preview
+            _h._m = self
         self._handles = {role: _HandleItem(self, self._rigid[role])
                          for role in self._rigid}
         self._host_pool = []            # widget-less sourced handles (U3/stub) — Task 3 uses it
@@ -988,11 +990,11 @@ class SelectionManipulator(QGraphicsObject):
         for it, s0, s0_inv, t0 in self._items0:
             it.setTransform(s0 * d * s0_inv * t0)
         if self._mode == "rotate":
-            # Square grips read the live preview angle; force their hosts to
-            # repaint so they turn with the item as the knob drags (their own
-            # orientation depends on _D, which Qt's transform-change repaint
-            # doesn't otherwise track).
-            for host in self._host_pool:
+            # Square grips + the rotate knob read the live preview angle; force
+            # their hosts to repaint so they turn with the frame as the knob
+            # drags (their own orientation depends on _D, which Qt's transform-
+            # change repaint doesn't otherwise track).
+            for host in list(self._handles.values()) + self._host_pool:
                 if host.isVisible():
                     host.update()
 

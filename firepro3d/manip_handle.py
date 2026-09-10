@@ -42,6 +42,16 @@ class Handle:
     role: HandleRole = HandleRole.ROTATE
     gesture_mode: str = ""            # "resize"/"rotate" — sets manip._mode
     hud_schema: Optional[str] = None  # DynamicInput schema name, or None
+    _m = None                         # back-ref to the manipulator (set on attach)
+
+    def _live_preview_rotation(self) -> float:
+        """The manipulator's in-progress rotate-preview angle (Y-up deg), 0 when
+        not rotating or unattached. Lets a screen-constant (ItemIgnores-
+        Transformations) handle turn with the frame during the held-preview,
+        before the release bake."""
+        m = self._m
+        fn = getattr(m, "_preview_rotation_deg", None) if m is not None else None
+        return fn() if fn is not None else 0.0
 
     # -- geometry / appearance (the host delegates to these) -----------------
     def scene_position(self, frame_rect: QRectF) -> QPointF:
@@ -171,10 +181,19 @@ class RotateHandle(Handle):
         r = _ROTATE_RADIUS_PX + grab_pad
         path = QPainterPath()
         path.addEllipse(c, r, r)
+        ang = self._live_preview_rotation()
+        if ang:
+            # Swing the knob around the anchor with the frame during a rotate
+            # preview (Qt y-down rotate is CW+; negate the Y-up angle).
+            path = QTransform().rotate(-ang).map(path)
         return path
 
     def paint(self, painter, *, size, border, fill, hover, border_width):
         from .selection_manipulator import _ROTATE_OFFSET_PX, _ROTATE_RADIUS_PX
+        ang = self._live_preview_rotation()
+        painter.save()
+        if ang:
+            painter.rotate(-ang)            # stem+knob swing with the frame
         c = QPointF(0.0, -_ROTATE_OFFSET_PX)
         stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
         painter.setPen(stem)
@@ -182,6 +201,7 @@ class RotateHandle(Handle):
         painter.setPen(QPen(border, border_width))
         painter.setBrush(QBrush(border if hover else fill))
         painter.drawEllipse(c, _ROTATE_RADIUS_PX, _ROTATE_RADIUS_PX)
+        painter.restore()
 
     def cursor(self, m) -> QCursor:
         return m._rotate_cursor
@@ -266,9 +286,7 @@ class GripHandle(Handle):
             return 0.0
         fn = getattr(self.item, "grip_render_angle", None)
         base = 0.0 if fn is None else float(fn(self.index))
-        m = getattr(self, "_m", None)
-        prev = getattr(m, "_preview_rotation_deg", None) if m is not None else None
-        return base + (prev() if prev is not None else 0.0)
+        return base + self._live_preview_rotation()
 
     def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
         half = size / 2.0 + grab_pad
