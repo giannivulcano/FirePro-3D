@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: 4574d77   # U3 ArcItem migration (branch tip, pre-merge)
+verified-commit: 4af9743   # U3 RegularPolygonItem migration (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -264,7 +264,12 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   semantics (the legacy grip path explicitly excludes arc from Ctrl-constrain):
   `default_grip_handles(self, circular={0,1,2})` (centre + start + end, all round
   — centre = move grip, start/end = the arc's geometric endpoints). Same shape as
-  Spline/Polyline. Each
+  Spline/Polyline. ✅ **RegularPolygonItem DONE (2026-09-10)** — zero special
+  semantics (legacy grip path excludes polygon from Ctrl-constrain):
+  `default_grip_handles(self, circular=all indices)` (centre + N vertices, all
+  round — centre = move, vertices = the polygon's defining points; dragging a
+  vertex resizes + rotates, the edit math living in `apply_grip`). Handle count
+  tracks `_sides`. Each
   item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
@@ -273,7 +278,7 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  RegularPolygon, Ellipse, Wall (+propagation), Gridline
+  Ellipse, Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
   elevation/detail/view-marker items. (Rectangle is box-native → U4.)
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
@@ -468,7 +473,10 @@ byte-parity vs legacy `apply_grip`, one-undo, Esc restore),
 `tests/test_manip_griphandle_line_parity.py` (Polyline/Spline/Line parity; Line
 adds Ctrl-constrain-wiring + midpoint-translate), and
 `tests/test_manip_griphandle_arc_parity.py` (Arc parity — shape, end-grip/span
-legacy-apply match, posted start-grip drag, one-commit, Esc-restore).
+legacy-apply match, posted start-grip drag, one-commit, Esc-restore), and
+`tests/test_manip_griphandle_polygon_parity.py` (RegularPolygon parity — shape,
+handle-count-tracks-sides, centre/vertex legacy-apply match, posted centre+vertex
+drag, one-commit, Esc-restore, gate recognition).
 `test_scene_tools.py` asserts
 the migrated circle/polyline/spline/line/arc are skipped by `_find_grip_hit`, and
 its generic `_find_grip_hit` mechanic tests use a migration-agnostic `_GripStub`
