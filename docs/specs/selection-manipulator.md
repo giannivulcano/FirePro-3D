@@ -486,7 +486,10 @@ for headless). Reused by Wall/Gridline endpoints (opp 1↔0) in their PRs.
 WallEndpointGripHandle(1, opp=0), GripHandle(2), GripHandle(3, square)]`.
 Endpoints (0, 1) round + Ctrl-angle-constrained against the opposite endpoint
 (inherited from `EndpointGripHandle`); mid (2) round move grip (translates the
-whole wall); width (3) square thickness grip. The FIRST migrated item whose drag
+whole wall); width (3) square thickness grip, aligned to the wall via
+`grip_render_angle(3)` = the centerline's Y-up angle (so the square's edges track
+the wall orientation, like RectangleItem's edge grips / EllipseItem's axis grips;
+the round grips ignore it). The FIRST migrated item whose drag
 mutates OTHER items, so **`WallEndpointGripHandle(EndpointGripHandle)`**
 (`manip_handle.py`) adds two wall-only semantics on top of the Ctrl-constrain:
 (1) **propagation** — `_transform_point` captures the endpoint's pre-apply

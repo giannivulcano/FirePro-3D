@@ -76,6 +76,24 @@ def test_wall_manip_handles_shape():
         assert h.scene_position(None) == w.grip_points()[i]
 
 
+def test_width_grip_render_angle_aligns_with_wall():
+    """The square width grip (index 3) must rotate to the wall's centerline
+    orientation so its edges align with the wall (like RectangleItem edge grips /
+    EllipseItem axis grips). The round endpoint/centre grips ignore the hook."""
+    import math
+    # Diagonal wall so the alignment angle is unambiguously non-zero.
+    w = WallSegment(QPointF(0.0, 0.0), QPointF(100.0, 100.0), thickness_mm=100.0)
+    expected = -math.degrees(w.centerline_angle_rad())      # Y-up degrees
+    assert w.grip_render_angle(3) == expected
+    assert abs(expected) > 1.0                              # genuinely rotated
+    hs = w.manip_handles()
+    # The square width grip's rendered angle picks up grip_render_angle(3)...
+    assert hs[3]._render_angle() == expected
+    # ...while the round grips (endpoints/centre) are rotation-invariant -> 0.
+    assert hs[0]._render_angle() == 0.0
+    assert hs[2]._render_angle() == 0.0
+
+
 def test_endpoint_drag_propagates_old_to_new():
     w = _make_wall()
     h = w.manip_handles()[1]                       # pt2 endpoint

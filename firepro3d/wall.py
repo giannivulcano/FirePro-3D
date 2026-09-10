@@ -500,6 +500,18 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             GripHandle(self, 3, circular=False),
         ]
 
+    def grip_render_angle(self, index: int) -> float:
+        """U3 grip-shape hook: rotate the SQUARE width grip (index 3) to the
+        wall's centerline orientation so its edges align with the wall (like
+        RectangleItem's edge-midpoint grips / EllipseItem's axis grips).
+
+        Returns the Y-up angle of the centerline; the round endpoint/centre grips
+        (0, 1, 2) ignore it (a disc is rotation-invariant, so ``GripHandle``
+        short-circuits before calling this). A square is 90 deg-symmetric, so the
+        centerline angle aligns it regardless of the face-perpendicular offset.
+        """
+        return -math.degrees(self.centerline_angle_rad())
+
     def translate(self, dx: float, dy: float):
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
