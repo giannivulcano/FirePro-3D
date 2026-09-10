@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09); remaining U3 items + U4/U5 remain
-last-verified: 2026-09-09
-verified-commit: 9425cb6   # U3 LineItem migration (branch tip, pre-merge)
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem (2026-09-10); remaining U3 items + U4/U5 remain
+last-verified: 2026-09-10
+verified-commit: 4574d77   # U3 ArcItem migration (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem
+  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
   # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
@@ -260,7 +260,11 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   endpoint via a reusable `EndpointGripHandle(GripHandle)` (`_transform_point`
   → scene `_constrain_angle`; also serves Wall/Gridline endpoints later);
   midpoint (grip 1) square + plain `GripHandle` (translates the whole line, no
-  constrain — matches legacy). Each
+  constrain — matches legacy). ✅ **ArcItem DONE (2026-09-10)** — zero special
+  semantics (the legacy grip path explicitly excludes arc from Ctrl-constrain):
+  `default_grip_handles(self, circular={0,1,2})` (centre + start + end, all round
+  — centre = move grip, start/end = the arc's geometric endpoints). Same shape as
+  Spline/Polyline. Each
   item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
@@ -269,9 +273,9 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  Rectangle, Arc, RegularPolygon, Ellipse, Wall (+propagation), Gridline
+  RegularPolygon, Ellipse, Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
-  elevation/detail/view-marker items.
+  elevation/detail/view-marker items. (Rectangle is box-native → U4.)
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
@@ -432,6 +436,15 @@ point onto the nearest angle increment ray from `grip_points()[opposite_index]`
 via the scene's `_constrain_angle` (the legacy grip authority; getattr-guarded
 for headless). Reused by Wall/Gridline endpoints (opp 1↔0) in their PRs.
 
+**ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
+3 handles (centre + start + end), all round — centre is a move grip, start/end
+are the arc's geometric endpoints (curve termini), per the house rule. **Zero
+special drag semantics**: the legacy grip drag (`model_space.py`) explicitly
+excludes arc from Ctrl-constrain (*"rect, arc, polygon, circle … must NOT be
+affected by this block"*), so no `EndpointGripHandle`/`_transform_point`. Same
+shape as Spline/Polyline; `apply_grip` already carries the edit math (centre =
+translate; start = radius+start-angle; end = span-angle).
+
 **Grip-shape house rule (2026-09-09 smoke).** Vertex/endpoint grips and
 centre/move grips render **round** (disc); midpoint and other derived
 convenience grips stay **square**. Each item passes its round indices to
@@ -451,10 +464,13 @@ ends drag + no double `_after_apply`), `tests/test_manip_griphandle_coexist.py`
 (gate), `tests/test_manip_griphandle_parity.py` (CircleItem posted-event
 byte-parity vs legacy `apply_grip`, one-undo, Esc restore),
 `tests/test_manip_griphandle_polyline_parity.py`,
-`tests/test_manip_griphandle_spline_parity.py`, and
+`tests/test_manip_griphandle_spline_parity.py`,
 `tests/test_manip_griphandle_line_parity.py` (Polyline/Spline/Line parity; Line
-adds Ctrl-constrain-wiring + midpoint-translate). `test_scene_tools.py` asserts
-the migrated circle/polyline/spline/line are skipped by `_find_grip_hit`, and
+adds Ctrl-constrain-wiring + midpoint-translate), and
+`tests/test_manip_griphandle_arc_parity.py` (Arc parity — shape, end-grip/span
+legacy-apply match, posted start-grip drag, one-commit, Esc-restore).
+`test_scene_tools.py` asserts
+the migrated circle/polyline/spline/line/arc are skipped by `_find_grip_hit`, and
 its generic `_find_grip_hit` mechanic tests use a migration-agnostic `_GripStub`
 (they used to ride `LineItem`, which now skips the legacy path). All pre-U3 manip
 test files pass unmodified.

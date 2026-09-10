@@ -1273,6 +1273,16 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 self._span_deg = 360
         self._rebuild_path()
 
+    def manip_handles(self):
+        """U3: centre + start + end as live-apply GripHandles, all round (centre =
+        move grip; start/end are the arc's geometric endpoints) per the house
+        rule (vertex/endpoint + centre/move grips = round disc). No special drag
+        semantics — the legacy grip path explicitly excludes arc from
+        Ctrl-constrain (model_space grip drag). The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 1, 2})
+
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         self._rebuild_path()
