@@ -15,7 +15,9 @@ from __future__ import annotations
 import math
 import pytest
 from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
+from PyQt6.QtWidgets import (
+    QApplication, QGraphicsScene, QGraphicsView, QGraphicsRectItem,
+)
 
 from firepro3d.construction_geometry import (
     LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, SplineItem,
@@ -83,6 +85,21 @@ def scene(qapp):
     sc._test_view = view  # prevent GC from detaching the view
     yield sc
     view.close()
+
+
+class _GripStub(QGraphicsRectItem):
+    """Minimal selectable item exposing grip_points() for _find_grip_hit tests,
+    decoupled from any real (migrating) item type. _find_grip_hit contracts only
+    on grip_points() + selection, so this exercises its nearest/tolerance math
+    without riding a specific item that U3 will migrate (and U4 will retire)."""
+
+    def __init__(self, pts):
+        super().__init__()
+        self._pts = [QPointF(p) for p in pts]
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
+
+    def grip_points(self):
+        return list(self._pts)
 
 
 # =========================================================================
@@ -496,46 +513,49 @@ class TestBreakItem:
 class TestFindGripHit:
     """SceneTools._find_grip_hit — nearest grip within tolerance."""
 
-    def test_finds_nearest_grip_on_selected_line(self, scene):
-        line = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(line)
-        line.setSelected(True)
+    # These exercise _find_grip_hit's generic nearest/tolerance math via a
+    # migration-agnostic _GripStub (grips [pt1, mid, pt2]); using a real item
+    # here would break as each U3 migration flips it off the legacy path.
+    def test_finds_nearest_grip_on_selected_item(self, scene):
+        stub = _GripStub([QPointF(0, 0), QPointF(50, 0), QPointF(100, 0)])
+        scene.addItem(stub)
+        stub.setSelected(True)
         _flush()
 
         result = scene._tools._find_grip_hit(QPointF(1, 0))
         assert result is not None
         item, idx = result
-        assert item is line
+        assert item is stub
         assert idx == 0  # pt1 grip
 
     def test_finds_far_endpoint(self, scene):
-        line = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(line)
-        line.setSelected(True)
+        stub = _GripStub([QPointF(0, 0), QPointF(50, 0), QPointF(100, 0)])
+        scene.addItem(stub)
+        stub.setSelected(True)
         _flush()
 
         result = scene._tools._find_grip_hit(QPointF(99, 0))
         assert result is not None
         item, idx = result
-        assert item is line
+        assert item is stub
         assert idx == 2  # pt2 grip
 
     def test_finds_midpoint(self, scene):
-        line = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(line)
-        line.setSelected(True)
+        stub = _GripStub([QPointF(0, 0), QPointF(50, 0), QPointF(100, 0)])
+        scene.addItem(stub)
+        stub.setSelected(True)
         _flush()
 
         result = scene._tools._find_grip_hit(QPointF(50, 1))
         assert result is not None
         item, idx = result
-        assert item is line
+        assert item is stub
         assert idx == 1  # midpoint
 
     def test_returns_none_when_too_far(self, scene):
-        line = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(line)
-        line.setSelected(True)
+        stub = _GripStub([QPointF(0, 0), QPointF(50, 0), QPointF(100, 0)])
+        scene.addItem(stub)
+        stub.setSelected(True)
         _flush()
 
         # Way outside tolerance
@@ -543,9 +563,9 @@ class TestFindGripHit:
         assert result is None
 
     def test_returns_none_when_not_selected(self, scene):
-        line = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(line)
-        line.setSelected(False)
+        stub = _GripStub([QPointF(0, 0), QPointF(50, 0), QPointF(100, 0)])
+        scene.addItem(stub)
+        stub.setSelected(False)
         _flush()
 
         result = scene._tools._find_grip_hit(QPointF(1, 0))
@@ -594,6 +614,20 @@ class TestFindGripHit:
         assert sp.manip_handles()  # it IS migrated (provides its own handles)
         # A control-point position that the legacy path would otherwise hit.
         result = scene._tools._find_grip_hit(QPointF(50, 0))
+        assert result is None  # legacy path steps aside for the migrated item
+
+    def test_migrated_line_skipped_by_find_grip_hit(self, scene):
+        # U3: LineItem is migrated onto manip_handles(), so the LEGACY grip path
+        # must NOT hit-test its endpoints/midpoint (coexistence gate). Fully
+        # grippable via the SelectionManipulator; _find_grip_hit steps aside.
+        line = LineItem(QPointF(0, 0), QPointF(100, 0))
+        scene.addItem(line)
+        line.setSelected(True)
+        _flush()
+
+        assert line.manip_handles()  # it IS migrated (provides its own handles)
+        # An endpoint position that the legacy path would otherwise hit.
+        result = scene._tools._find_grip_hit(QPointF(0, 0))
         assert result is None  # legacy path steps aside for the migrated item
 
     def test_rectangle_corner_grip(self, scene):

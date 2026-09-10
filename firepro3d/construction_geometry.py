@@ -536,6 +536,20 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
             self._pt2 = pos
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
 
+    def manip_handles(self):
+        """U3: [pt1, midpoint, pt2] as live-apply grips. Endpoints (0, 2) render
+        round and Ctrl-angle-constrain against the opposite endpoint
+        (EndpointGripHandle); the midpoint (1) renders square and translates the
+        whole line (plain GripHandle, no constrain — matches the legacy path,
+        which only constrained endpoint grips). The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import GripHandle, EndpointGripHandle
+        return [
+            EndpointGripHandle(self, 0, opposite_index=2, circular=True),
+            GripHandle(self, 1, circular=False),
+            EndpointGripHandle(self, 2, opposite_index=0, circular=True),
+        ]
+
     def translate(self, dx: float, dy: float):
         """Move the entire line by (dx, dy)."""
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)

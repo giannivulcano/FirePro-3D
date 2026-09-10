@@ -334,8 +334,13 @@ class GripHandle(Handle):
 
     def on_cancel(self, m) -> None:
         sc = m.scene()
-        for i, p in enumerate(self._snapshot):
-            self.item.apply_grip(i, p)
+        # Restore only the DRAGGED grip from its snapshot. Re-applying every grip
+        # corrupts items whose apply_grip is index-dependent: LineItem's midpoint
+        # grip translates the whole line, so replaying it mid-restore shifts the
+        # endpoints. Only the dragged grip was mutated this gesture (a derived
+        # grip like the midpoint recomputes from the endpoints); sibling /
+        # propagated state on OTHER items is restored by _restore_extra.
+        self.item.apply_grip(self.index, self._snapshot[self.index])
         self._restore_extra(m)
         self._clear_grip_state(sc)
         m._reflow_live()
@@ -357,6 +362,36 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+
+
+class EndpointGripHandle(GripHandle):
+    """A ``GripHandle`` that Ctrl-angle-constrains its drag against a fixed
+    opposite endpoint — the per-item semantics for 2-endpoint items (LineItem
+    endpoints, and later WallSegment / GridlineItem endpoints).
+
+    Under Ctrl the dragged point is projected onto the nearest angle increment
+    ray from the opposite endpoint via the scene's ``_constrain_angle`` (the same
+    authority the legacy grip path used, so behaviour is a faithful port). A
+    plain scene (headless) with no ``_constrain_angle`` falls back to the raw
+    point. ``opposite_index`` is the grip index of the anchor endpoint (for a
+    LineItem: endpoint 0 ↔ 2; its midpoint grip stays a plain ``GripHandle``).
+    """
+
+    def __init__(self, item, index: int, opposite_index: int,
+                 circular: bool = True):
+        super().__init__(item, index, circular=circular)
+        self.opposite_index = opposite_index
+
+    def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
+        if not (mods & Qt.KeyboardModifier.ControlModifier):
+            return pt
+        constrain = getattr(m.scene(), "_constrain_angle", None)
+        if constrain is None:
+            return pt
+        grips = self.item.grip_points()
+        if self.opposite_index >= len(grips):
+            return pt
+        return constrain(grips[self.opposite_index], pt)
 
 
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset()):
