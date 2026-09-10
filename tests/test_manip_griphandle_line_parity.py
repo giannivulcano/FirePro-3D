@@ -3,7 +3,8 @@ outcome; one undo per gesture; Esc restores; snap parity; Ctrl angle-constrain
 against the opposite endpoint (EndpointGripHandle).
 
 U3 migration of LineItem onto manip_handles(). Endpoints (0, 2) are round +
-Ctrl-constrained; the midpoint (1) is square + translates the whole line."""
+Ctrl-constrained; the midpoint (1) is round (a move grip) + translates the whole
+line."""
 from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
@@ -42,11 +43,12 @@ def test_line_manip_handles_shape():
     assert len(hs) == 3
     assert [h.index for h in hs] == [0, 1, 2]
     assert all(h.role is HandleRole.GRIP for h in hs)
-    # endpoints (0, 2) are Ctrl-constrained + round; midpoint (1) plain + square
+    # endpoints (0, 2) are Ctrl-constrained + round; midpoint (1) plain + round
+    # (a move grip — translates the whole line — so round per the house rule)
     assert isinstance(hs[0], EndpointGripHandle) and hs[0].circular is True
     assert isinstance(hs[2], EndpointGripHandle) and hs[2].circular is True
     assert hs[0].opposite_index == 2 and hs[2].opposite_index == 0
-    assert type(hs[1]) is GripHandle and hs[1].circular is False
+    assert type(hs[1]) is GripHandle and hs[1].circular is True
     for i, h in enumerate(hs):
         assert h.scene_position(None) == ln.grip_points()[i]
 

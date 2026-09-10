@@ -259,8 +259,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   endpoints (grips 0, 2) round + Ctrl-angle-constrained against the opposite
   endpoint via a reusable `EndpointGripHandle(GripHandle)` (`_transform_point`
   → scene `_constrain_angle`; also serves Wall/Gridline endpoints later);
-  midpoint (grip 1) square + plain `GripHandle` (translates the whole line, no
-  constrain — matches legacy). ✅ **ArcItem DONE (2026-09-10)** — zero special
+  midpoint (grip 1) round (a move grip — translates the whole line) + plain
+  `GripHandle` (no constrain — matches legacy). ✅ **ArcItem DONE (2026-09-10)** — zero special
   semantics (the legacy grip path explicitly excludes arc from Ctrl-constrain):
   `default_grip_handles(self, circular={0,1,2})` (centre + start + end, all round
   — centre = move grip, start/end = the arc's geometric endpoints). Same shape as
@@ -278,9 +278,11 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  Ellipse, Wall (+propagation), Gridline
+  Ellipse, **Rectangle** (box-native special — reconcile `provides_handles_for`
+  so its `manip_handles()` don't double up with the rigid resize handles),
+  Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
-  elevation/detail/view-marker items. (Rectangle is box-native → U4.)
+  elevation/detail/view-marker items.
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
@@ -434,8 +436,9 @@ spline's vertices (no midpoints); no move-centre grip; no special drag semantics
 
 **LineItem.manip_handles()** → `[EndpointGripHandle(0, opp=2),
 GripHandle(1), EndpointGripHandle(2, opp=0)]`. Endpoints round + Ctrl-angle-
-constrained against the opposite endpoint; midpoint square + plain (translates
-the whole line). **`EndpointGripHandle(GripHandle)`** (`manip_handle.py`) is the
+constrained against the opposite endpoint; midpoint round + plain — it translates
+the whole line, so it is a **move grip** (round per the house rule), not a
+geometric midpoint. **`EndpointGripHandle(GripHandle)`** (`manip_handle.py`) is the
 reusable per-item Ctrl-constrain handle: `_transform_point` projects the dragged
 point onto the nearest angle increment ray from `grip_points()[opposite_index]`
 via the scene's `_constrain_angle` (the legacy grip authority; getattr-guarded
@@ -450,9 +453,12 @@ affected by this block"*), so no `EndpointGripHandle`/`_transform_point`. Same
 shape as Spline/Polyline; `apply_grip` already carries the edit math (centre =
 translate; start = radius+start-angle; end = span-angle).
 
-**Grip-shape house rule (2026-09-09 smoke).** Vertex/endpoint grips and
-centre/move grips render **round** (disc); midpoint and other derived
-convenience grips stay **square**. Each item passes its round indices to
+**Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
+grips and centre/**move** grips render **round** (disc); only inert/derived
+convenience grips (a pure geometric midpoint that does *not* move the whole item)
+stay **square**. The test is *function, not position*: a grip that translates the
+whole item is a move grip → round, even when it sits at the geometric midpoint
+(LineItem's midpoint grip). Each item passes its round indices to
 `default_grip_handles` (`circular=`): CircleItem `{0}` (centre; radius grips are
 non-vertex → square), PolylineItem all vertices. Legacy `Model_View`
 `drawForeground` drew every grip square (`model_view.py` `drawRect` 8×8); this

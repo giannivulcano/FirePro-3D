@@ -539,14 +539,16 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     def manip_handles(self):
         """U3: [pt1, midpoint, pt2] as live-apply grips. Endpoints (0, 2) render
         round and Ctrl-angle-constrain against the opposite endpoint
-        (EndpointGripHandle); the midpoint (1) renders square and translates the
-        whole line (plain GripHandle, no constrain — matches the legacy path,
-        which only constrained endpoint grips). The manipulator renders/hit-tests/
-        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        (EndpointGripHandle); the midpoint (1) also renders round — it translates
+        the whole line, so it is a move grip (round per the house rule), not a
+        geometric midpoint — with a plain GripHandle (no constrain, matching the
+        legacy path, which only constrained endpoint grips). The manipulator
+        renders/hit-tests/commits them; the legacy grip paths skip this item
+        (coexistence gate)."""
         from .manip_handle import GripHandle, EndpointGripHandle
         return [
             EndpointGripHandle(self, 0, opposite_index=2, circular=True),
-            GripHandle(self, 1, circular=False),
+            GripHandle(self, 1, circular=True),
             EndpointGripHandle(self, 2, opposite_index=0, circular=True),
         ]
 
