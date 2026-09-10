@@ -499,7 +499,11 @@ grips don't double up. A rotated rect drops the `scale` cap → its parametric g
 drive edits via `apply_grip` (resize in the rect's own local frame, no shear),
 replacing the legacy green grips. `grip_render_angle` returns `_angle` so the
 square edge-midpoint grips align with the rotated edges. Providing `manip_handles`
-makes `_item_uses_manip_handles` the single coexistence gate (see above).
+makes `_item_uses_manip_handles` the single coexistence gate (see above). The
+**centre MOVE grip is present for BOTH states**: the rotated rect exposes it as
+grip 8 of its parametric handles; the unrotated (box-native) rect adds it via
+`manip_box_extra_handles()` → `_active_handles` appends it to the rigid resize set
+(the rigid set has no centre handle — move is otherwise interior-drag only).
 
 **Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
 grips and centre/**move** grips render **round** (disc); only inert/derived

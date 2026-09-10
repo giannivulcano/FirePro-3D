@@ -975,6 +975,15 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         corner/centre grips ignore it (rotation-invariant)."""
         return self._angle
 
+    def manip_box_extra_handles(self):
+        """Handles shown ALONGSIDE the rigid resize set when the rect is
+        box-native (unrotated): the centre move grip (index 8), which the rigid
+        resize set otherwise lacks (move is interior-drag only). Keeps the centre
+        handle present for BOTH unrotated and rotated rects — a rotated rect
+        already exposes it as grip 8 of its parametric ``manip_handles``."""
+        from .manip_handle import GripHandle
+        return [GripHandle(self, 8, circular=True)]
+
     def manip_bounds(self) -> QRectF:
         """The rect's own geometry in scene coords so the manipulator handles
         hug the shape (not the pen-padded ``sceneBoundingRect``).  For a rotated

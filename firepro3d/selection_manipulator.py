@@ -678,7 +678,14 @@ class SelectionManipulator(QGraphicsObject):
         ``scale`` → not box-native → its parametric grips surface (live-apply,
         local-frame resize)."""
         if len(self._items) == 1 and self.provides_handles_for(self._items[0]):
-            return list(self._rigid.values())
+            handles = list(self._rigid.values())
+            # A box-native item may add handles the rigid resize set lacks — e.g.
+            # RectangleItem's centre MOVE grip — so the centre handle is present
+            # for the unrotated rect too (not only the rotated parametric path).
+            extra = getattr(self._items[0], "manip_box_extra_handles", None)
+            if extra is not None:
+                handles.extend(extra())
+            return handles
         item_handles = []
         for it in self._items:
             fn = getattr(it, "manip_handles", None)

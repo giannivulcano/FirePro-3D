@@ -51,9 +51,11 @@ def test_grip_render_angle_is_rect_angle():
     assert r.grip_render_angle(1) == pytest.approx(30.0)
 
 
-def test_unrotated_rect_shows_resize_handles_not_grips(qapp):
-    """Box-native single rect: the manipulator's active handles are the rigid
-    RESIZE/ROTATE set, NOT the rect's 9 parametric grips (no double-up)."""
+def test_unrotated_rect_shows_resize_handles_plus_centre_move(qapp):
+    """Box-native single rect: the active handles are the rigid RESIZE/ROTATE set
+    PLUS the centre MOVE grip — the 8 edge/corner parametric grips do NOT show
+    (they'd double up with the resize handles), but the centre handle is present
+    for the unrotated rect too (consistency with the rotated parametric path)."""
     from firepro3d.selection_manipulator import SelectionManipulator
     scene = QGraphicsScene()
     view = QGraphicsView(scene); view.resize(400, 400); view.show()
@@ -63,8 +65,29 @@ def test_unrotated_rect_shows_resize_handles_not_grips(qapp):
     r.setSelected(True); qapp.processEvents()
     assert m.provides_handles_for(r) is True
     active = m._active_handles()
-    assert all(isinstance(h, (ResizeHandle, RotateHandle)) for h in active)
-    assert not any(isinstance(h, GripHandle) for h in active)
+    rigid = [h for h in active if isinstance(h, (ResizeHandle, RotateHandle))]
+    grips = [h for h in active if isinstance(h, GripHandle)]
+    assert len(rigid) == 9                       # 8 resize + rotate knob
+    assert [h.index for h in grips] == [8]       # only the centre MOVE grip
+    assert grips[0].circular is True             # round
+
+
+def test_unrotated_rect_centre_grip_moves(qapp):
+    """The centre grip on an unrotated (box-native) rect translates it."""
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(600, 600); view.show()
+    qapp.processEvents()
+    r = _make_rect(); scene.addItem(r)
+    m = SelectionManipulator(scene)
+    r.setSelected(True); qapp.processEvents()
+    centre = next(h for h in m._active_handles()
+                  if isinstance(h, GripHandle) and h.index == 8)
+    c0 = r.grip_points()[8]
+    _drive_handle(r, 8, QPointF(c0.x() + 30, c0.y() - 20))
+    c1 = r.grip_points()[8]
+    assert abs(c1.x() - (c0.x() + 30)) < 1e-6
+    assert abs(c1.y() - (c0.y() - 20)) < 1e-6
 
 
 def test_rotated_rect_shows_parametric_grips(qapp):
