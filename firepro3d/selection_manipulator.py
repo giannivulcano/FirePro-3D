@@ -667,9 +667,18 @@ class SelectionManipulator(QGraphicsObject):
         self.update()
 
     def _active_handles(self) -> list:
-        """Handles for the current selection: item-provided (U3) if any, else
-        the rigid set (fallback). Today no item implements manip_handles(), so
-        this always returns the rigid handles -> behavior identical."""
+        """Handles for the current selection: the rigid RESIZE set for a
+        box-native single item (``provides_handles_for``), else the item-provided
+        grips (U3), else the rigid set (fallback).
+
+        The box-native branch is what keeps a RectangleItem showing its 8 resize
+        handles + rotate knob (not its 9 parametric grips) while UNROTATED — a
+        rect provides ``manip_handles`` for the unified coexistence gate, but its
+        grips must not double up with the resize handles. A ROTATED rect drops
+        ``scale`` → not box-native → its parametric grips surface (live-apply,
+        local-frame resize)."""
+        if len(self._items) == 1 and self.provides_handles_for(self._items[0]):
+            return list(self._rigid.values())
         item_handles = []
         for it in self._items:
             fn = getattr(it, "manip_handles", None)

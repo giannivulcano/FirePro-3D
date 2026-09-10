@@ -644,18 +644,23 @@ class TestFindGripHit:
         result = scene._tools._find_grip_hit(QPointF(0, 0))
         assert result is None  # legacy path steps aside for the migrated item
 
-    def test_rectangle_corner_grip(self, scene):
+    def test_migrated_rect_skipped_by_find_grip_hit(self, scene):
+        # U3 (box-native special): RectangleItem now provides manip_handles(), so
+        # the single coexistence gate (_item_uses_manip_handles) makes the LEGACY
+        # grip path step aside for it — an UNROTATED rect is driven by the
+        # manipulator's rigid resize handles, a ROTATED rect by its parametric
+        # grips. Either way _find_grip_hit must not steal the press.
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         rect.setSelected(True)
         _flush()
 
-        # Near top-left corner (grip index 0)
-        result = scene._tools._find_grip_hit(QPointF(1, 1))
-        assert result is not None
-        item, idx = result
-        assert item is rect
-        assert idx == 0
+        assert rect.manip_handles()  # it IS migrated (provides its own handles)
+        # A corner position that the legacy path would otherwise hit.
+        assert scene._tools._find_grip_hit(QPointF(1, 1)) is None      # unrotated
+        rect.set_angle(30.0, QPointF(50, 50))
+        _flush()
+        assert scene._tools._find_grip_hit(rect.grip_points()[0]) is None  # rotated
 
 
 # =========================================================================
