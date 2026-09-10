@@ -27,8 +27,8 @@ def test_polyline_manip_handles_shape():
     assert all(isinstance(h, GripHandle) for h in hs)
     assert [h.index for h in hs] == [0, 1, 2]
     assert all(h.role is HandleRole.GRIP for h in hs)
-    # all vertices are square parametric points (no circular move-grip)
-    assert all(h.circular is False for h in hs)
+    # house rule: vertex grips render round (disc); polyline has only vertices
+    assert all(h.circular is True for h in hs)
     # each rides its grip point
     for i, h in enumerate(hs):
         assert h.scene_position(None) == pl.grip_points()[i]

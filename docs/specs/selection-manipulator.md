@@ -399,10 +399,18 @@ drag semantics live on `GripHandle` subclass hooks, not here.
 5 handles (center + 4 radius). Center → `apply_grip(0)` (translate); radius →
 `apply_grip(1..4)` (resize). Zero special semantics — the pattern-establisher.
 
-**PolylineItem.manip_handles()** → `default_grip_handles(self)`: one square
-handle per vertex, each → `apply_grip(index)` (move vertex + rebuild). No
-move-centre grip (move is the manipulator's interior drag); no special drag
-semantics.
+**PolylineItem.manip_handles()** → `default_grip_handles(self, circular=all
+vertex indices)`: one round handle per vertex, each → `apply_grip(index)` (move
+vertex + rebuild). No move-centre grip (move is the manipulator's interior
+drag); no special drag semantics.
+
+**Grip-shape house rule (2026-09-09 smoke).** Vertex/endpoint grips and
+centre/move grips render **round** (disc); midpoint and other derived
+convenience grips stay **square**. Each item passes its round indices to
+`default_grip_handles` (`circular=`): CircleItem `{0}` (centre; radius grips are
+non-vertex → square), PolylineItem all vertices. Legacy `Model_View`
+`drawForeground` drew every grip square (`model_view.py` `drawRect` 8×8); this
+rule supersedes that look as items migrate.
 
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a

@@ -307,12 +307,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._rebuild_path()
 
     def manip_handles(self):
-        """U3: expose each vertex as a live-apply GripHandle (all square; there
-        is no centre/move grip — move is the manipulator's interior-drag). The
+        """U3: expose each vertex as a live-apply GripHandle. All grips are
+        vertices (no midpoint/convenience grips), so all render round per the
+        house rule (vertex/endpoint grips = round disc; midpoints = square).
+        Move is the manipulator's interior-drag (no centre grip). The
         manipulator renders/hit-tests/commits them; the legacy grip paths skip
         this item (coexistence gate)."""
         from .manip_handle import default_grip_handles
-        return default_grip_handles(self)
+        return default_grip_handles(self, circular=set(range(len(self._points))))
 
     def translate(self, dx: float, dy: float):
         """Move all vertices by (dx, dy)."""

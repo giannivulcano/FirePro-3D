@@ -364,10 +364,13 @@ def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset
 
     One handle per ``item.grip_points()`` index, ``grip_hittable``-filtered (an
     item with no ``grip_hittable`` keeps every point). Handles render as squares
-    (parametric point grips) except indices in *circular*, which render as discs
-    — the centre/move grips (e.g. CircleItem's grip 0). This is the shared body
-    of every item's ``manip_handles()``; per-item drag semantics live on
-    ``GripHandle`` subclass hooks, not here.
+    except indices in *circular*, which render as round discs. House rule
+    (2026-09-09 smoke): vertex/endpoint grips and centre/move grips render round;
+    midpoint and other derived convenience grips stay square — each item passes
+    the round indices (e.g. CircleItem ``{0}`` centre; PolylineItem all vertices;
+    a future LineItem ``{0, 2}`` endpoints, leaving the midpoint square). This is
+    the shared body of every item's ``manip_handles()``; per-item drag semantics
+    live on ``GripHandle`` subclass hooks, not here.
     """
     fn = getattr(item, "grip_hittable", None)
     out = []
