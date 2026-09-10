@@ -290,10 +290,16 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  **Sheet Text block** (paper `TextAnnotationItem` — box-native sibling of
-  Rectangle; paper-scene, folds with U5/paper handle work),
   Wall (+propagation), Gridline
-  (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
+  (+parallel-delta), Room, DesignArea,
+  **Text blocks — both BOUNDING-BOX-governed (box-native, like Rectangle: frame +
+  resize + move + rotate, NOT a single MText position grip)**: (a) the 2D-geometry
+  MTEXT text block `NoteAnnotation` (model scene; has a ribbon button; TODAY it is
+  translate-only with a single position grip — must be UPGRADED to box-native:
+  add `manip_scale`/`manip_rotate` + a bounding box, decide what resize does
+  [wrap-width vs font scale]); (b) the paper `Sheet Text block`
+  `TextAnnotationItem` (already box-native). `DimensionAnnotation` migrates
+  alongside (translate-only today), Floor, Roof, and the
   elevation/detail/view-marker items.
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
