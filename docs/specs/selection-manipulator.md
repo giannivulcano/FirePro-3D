@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles (2026-09-09); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-09
-verified-commit: 923da13   # U3 PolylineItem migration + shared default_grip_handles helper
+verified-commit: 2205cd1   # U3 PolylineItem migration + shared default_grip_handles helper + round vertex grips (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
