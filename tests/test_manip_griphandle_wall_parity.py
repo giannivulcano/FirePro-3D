@@ -121,6 +121,43 @@ def test_no_ctrl_no_constrain():
     assert w.grip_points()[1] == QPointF(300, 70)
 
 
+# --------------------------------------------------------------------------
+# Wall-controller snapshot/restore helpers (via the Model_Space bridges)
+# --------------------------------------------------------------------------
+
+def _add_wall(scene, p1, p2):
+    w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=100.0)
+    scene.addItem(w)
+    scene._walls.append(w)
+    return w
+
+
+def test_snapshot_excludes_dragged_and_captures_all_other_endpoints(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+    c = _add_wall(scene, (0, 0), (200, 100))
+
+    snap = scene._snapshot_wall_endpoints(a)       # dragging a
+    walls_in_snap = {rec[0] for rec in snap}
+    assert walls_in_snap == {b, c}                 # a excluded
+    # both endpoints of each other wall captured
+    assert sorted(idx for _, idx, _ in snap) == [0, 0, 1, 1]
+
+
+def test_restore_puts_endpoints_back(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+
+    snap = scene._snapshot_wall_endpoints(a)
+    b.apply_grip(0, QPointF(999, 999))             # move b away
+    assert b.grip_points()[0] == QPointF(999, 999)
+
+    scene._restore_wall_endpoints(snap)
+    assert b.grip_points()[0] == QPointF(0, 0)     # restored
+
+
 def test_width_grip_apply_matches_legacy_and_no_propagate():
     legacy = _make_wall(); legacy.apply_grip(3, QPointF(250, -120))
     migrated = _make_wall()

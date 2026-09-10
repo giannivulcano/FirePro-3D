@@ -228,6 +228,38 @@ class WallPlacementController:
                         and abs(gp.y() - old_pt.y()) <= eps):
                     w.apply_grip(idx, QPointF(new_pt))
 
+    def _snapshot_wall_endpoints(self, exclude):
+        """Snapshot every OTHER wall's two endpoints, for an atomic Esc-restore
+        of a propagating endpoint-grip drag.
+
+        Returns a list of ``(wall, endpoint_index, QPointF)`` covering both
+        endpoints of every wall except *exclude* (the directly-dragged wall,
+        whose dragged grip the base ``GripHandle.on_cancel`` restores itself).
+        Snapshotting all others — not just the currently-coincident ones — keeps
+        the restore correct even if the drag path sweeps the endpoint across a
+        wall it was not joined to at press.
+
+        Args:
+            exclude: The wall being directly grip-dragged.
+        """
+        snap = []
+        for w in self._scene._walls:
+            if w is exclude:
+                continue
+            gp = w.grip_points()
+            snap.append((w, 0, QPointF(gp[0])))
+            snap.append((w, 1, QPointF(gp[1])))
+        return snap
+
+    def _restore_wall_endpoints(self, snapshot):
+        """Restore endpoints captured by :meth:`_snapshot_wall_endpoints`.
+
+        Args:
+            snapshot: The ``(wall, index, QPointF)`` list to re-apply.
+        """
+        for w, idx, pt in snapshot:
+            w.apply_grip(idx, QPointF(pt))
+
     # ── Alignment cycle (Space) ─────────────────────────────────────────────
 
     def _cycle_wall_alignment(self) -> None:

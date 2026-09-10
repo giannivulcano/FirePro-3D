@@ -3253,6 +3253,12 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _propagate_wall_endpoint(self, *args, **kwargs):
         return self._wall_ctl._propagate_wall_endpoint(*args, **kwargs)
 
+    def _snapshot_wall_endpoints(self, *args, **kwargs):
+        return self._wall_ctl._snapshot_wall_endpoints(*args, **kwargs)
+
+    def _restore_wall_endpoints(self, *args, **kwargs):
+        return self._wall_ctl._restore_wall_endpoints(*args, **kwargs)
+
     def _format_cursor_readout(self, scene_pos) -> str:
         """Render *scene_pos* as the status-bar coordinate string.
 
