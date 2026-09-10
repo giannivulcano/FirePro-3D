@@ -493,6 +493,56 @@ class WallEndpointGripHandle(EndpointGripHandle):
             restore(self._wall_snapshot)
 
 
+class GridlineGripHandle(EndpointGripHandle):
+    """A ``GridlineItem`` grip.
+
+    Every gridline grip carries multi-select **parallel-delta**: after each
+    apply, the same scene-space delta is re-applied to the same grip index on
+    every OTHER selected gridline (``scene._propagate_gridline_grip``). Because
+    the drag mutates OTHER items, ``on_press`` snapshots them
+    (``scene._snapshot_gridline_grips``) and ``on_cancel`` restores them
+    (``scene._restore_gridline_grips``) — the base ``on_cancel`` restores only
+    the dragged grip.
+
+    Endpoints (0, 1) additionally Ctrl-angle-constrain against the opposite
+    endpoint (inherited ``EndpointGripHandle`` behaviour, ``opposite_index`` set).
+    Bubble-standoff grips (2, 3) pass ``opposite_index=None`` to skip the
+    constrain — parity with the legacy path, which Ctrl-constrained endpoints
+    only. All scene calls are duck-typed so a plain headless scene degrades to
+    no-propagation / no-snapshot.
+    """
+
+    def __init__(self, item, index: int, opposite_index=None,
+                 circular: bool = False):
+        super().__init__(item, index, opposite_index, circular=circular)
+
+    def _transform_point(self, m, pt, mods):
+        # Capture the pre-apply position of THIS grip every frame (before
+        # apply_grip in both on_drag and the on_release re-apply) so _after_apply
+        # can compute the incremental scene delta to hand to the siblings.
+        self._old_pt = QPointF(self.item.grip_points()[self.index])
+        if self.opposite_index is None:
+            return pt                       # bubble grips: no Ctrl-constrain
+        return super()._transform_point(m, pt, mods)
+
+    def _after_apply(self, m, applied_pt):
+        prop = getattr(m.scene(), "_propagate_gridline_grip", None)
+        old = getattr(self, "_old_pt", None)
+        if prop is not None and old is not None:
+            delta = QPointF(applied_pt.x() - old.x(), applied_pt.y() - old.y())
+            prop(self.item, self.index, delta)
+
+    def _extra_snapshots(self, m):
+        snap = getattr(m.scene(), "_snapshot_gridline_grips", None)
+        self._gl_snapshot = (snap(self.item, self.index)
+                             if snap is not None else None)
+
+    def _restore_extra(self, m):
+        restore = getattr(m.scene(), "_restore_gridline_grips", None)
+        if restore is not None and getattr(self, "_gl_snapshot", None):
+            restore(self._gl_snapshot)
+
+
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset()):
     """Build the default live-apply ``GripHandle`` list for a U3-migrated item.
 
