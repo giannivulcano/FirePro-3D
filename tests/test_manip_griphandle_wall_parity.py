@@ -158,6 +158,36 @@ def test_restore_puts_endpoints_back(qapp, shown_model_view):
     assert b.grip_points()[0] == QPointF(0, 0)     # restored
 
 
+# --------------------------------------------------------------------------
+# Coexistence gate + endpoint apply parity
+# --------------------------------------------------------------------------
+
+def test_wall_uses_manip_handles_gate():
+    from firepro3d.selection_manipulator import _item_uses_manip_handles
+    assert _item_uses_manip_handles(_make_wall()) is True
+
+
+def test_legacy_grip_paths_skip_migrated_wall(qapp, shown_model_view):
+    """The legacy find-grip-hit path must not return a migrated wall."""
+    view, scene = shown_model_view
+    w = _add_wall(scene, (0, 0), (500, 0))
+    scene.set_mode("select")
+    w.setSelected(True)
+    # A point exactly on the pt2 grip: legacy _find_grip_hit must skip the wall
+    hit = scene._tools._find_grip_hit(QPointF(500, 0))
+    assert hit is None or hit[0] is not w
+
+
+def test_endpoint_grip_apply_matches_legacy():
+    legacy = _make_wall(); legacy.apply_grip(1, QPointF(480, 60))
+    migrated = _make_wall()
+    h = migrated.manip_handles()[1]
+    sc = _StubScene(); m = _StubM(sc)
+    h.on_press(m)
+    h.on_drag(m, QPointF(480, 60), Qt.KeyboardModifier.NoModifier)
+    assert migrated.to_dict() == legacy.to_dict()
+
+
 def test_width_grip_apply_matches_legacy_and_no_propagate():
     legacy = _make_wall(); legacy.apply_grip(3, QPointF(250, -120))
     migrated = _make_wall()
