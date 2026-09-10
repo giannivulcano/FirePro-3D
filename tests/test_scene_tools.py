@@ -565,6 +565,22 @@ class TestFindGripHit:
         result = scene._tools._find_grip_hit(QPointF(50, 50))
         assert result is None  # legacy path steps aside for the migrated item
 
+    def test_migrated_polyline_skipped_by_find_grip_hit(self, scene):
+        # U3: PolylineItem is migrated onto manip_handles(), so the LEGACY grip
+        # path must NOT hit-test its vertices (coexistence gate). Fully grippable
+        # via the SelectionManipulator; _find_grip_hit steps aside.
+        pl = PolylineItem(QPointF(0, 0))
+        pl.append_point(QPointF(100, 0))
+        pl.append_point(QPointF(100, 100))
+        scene.addItem(pl)
+        pl.setSelected(True)
+        _flush()
+
+        assert pl.manip_handles()  # it IS migrated (provides its own handles)
+        # A vertex position that the legacy path would otherwise hit.
+        result = scene._tools._find_grip_hit(QPointF(100, 0))
+        assert result is None  # legacy path steps aside for the migrated item
+
     def test_rectangle_corner_grip(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)

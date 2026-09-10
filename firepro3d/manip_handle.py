@@ -357,3 +357,22 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+
+
+def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset()):
+    """Build the default live-apply ``GripHandle`` list for a U3-migrated item.
+
+    One handle per ``item.grip_points()`` index, ``grip_hittable``-filtered (an
+    item with no ``grip_hittable`` keeps every point). Handles render as squares
+    (parametric point grips) except indices in *circular*, which render as discs
+    — the centre/move grips (e.g. CircleItem's grip 0). This is the shared body
+    of every item's ``manip_handles()``; per-item drag semantics live on
+    ``GripHandle`` subclass hooks, not here.
+    """
+    fn = getattr(item, "grip_hittable", None)
+    out = []
+    for i in range(len(item.grip_points())):
+        if fn is not None and not fn(i):
+            continue
+        out.append(GripHandle(item, i, circular=(i in circular)))
+    return out

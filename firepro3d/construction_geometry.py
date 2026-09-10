@@ -306,6 +306,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._points[index] = pos
             self._rebuild_path()
 
+    def manip_handles(self):
+        """U3: expose each vertex as a live-apply GripHandle (all square; there
+        is no centre/move grip — move is the manipulator's interior-drag). The
+        manipulator renders/hit-tests/commits them; the legacy grip paths skip
+        this item (coexistence gate)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self)
+
     def translate(self, dx: float, dy: float):
         """Move all vertices by (dx, dy)."""
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
@@ -1075,18 +1083,10 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     def manip_handles(self):
         """U3: expose parametric grips as live-apply GripHandles (center +
         4 radius). The manipulator renders/hit-tests/commits them; the legacy
-        grip paths skip this item (coexistence gate)."""
-        from .manip_handle import GripHandle
-        n = len(self.grip_points())
-        out = []
-        for i in range(n):
-            fn = getattr(self, "grip_hittable", None)
-            if fn is not None and not fn(i):
-                continue
-            # Grip 0 is the centre/move grip -> circular; the 4 radius grips
-            # are square parametric points.
-            out.append(GripHandle(self, i, circular=(i == 0)))
-        return out
+        grip paths skip this item (coexistence gate). Grip 0 is the centre/move
+        grip (circular); the 4 radius grips are square parametric points."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
