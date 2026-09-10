@@ -686,6 +686,9 @@ class SelectionManipulator(QGraphicsObject):
         for host, handle in zip(self._host_pool, handles):
             host.handle = handle
             host.role = handle.role
+            # Back-ref so a GripHandle can read the live rotate-preview angle
+            # (grip_render_angle + _preview_rotation_deg) when it paints/hit-tests.
+            handle._m = self
             host.setPos(handle.scene_position(r))
             host.setVisible(handle.visible(self))
 
@@ -887,6 +890,18 @@ class SelectionManipulator(QGraphicsObject):
         for it, _s0, _inv, t0 in self._items0:
             it.setTransform(t0)
 
+    def _preview_rotation_deg(self) -> float:
+        """Y-up (CCW+) rotation currently applied by an in-progress ROTATE
+        held-preview; 0 when not rotating. Lets a migrated item's square grips
+        (``grip_render_angle``) track the rotate knob LIVE — the item's own
+        angle is not mutated until the release bake, so without this the grips
+        would keep their pre-drag orientation while the item visibly turns.
+        Uses the same ``_yup_angle_from_delta`` the bake uses → no jump on
+        commit."""
+        if self._mode != "rotate":
+            return 0.0
+        return _yup_angle_from_delta(self._D)
+
     def _resize_cursor(self, role: HandleRole) -> QCursor:
         return self._cursor_for(role)
 
@@ -972,6 +987,14 @@ class SelectionManipulator(QGraphicsObject):
         self.setTransform(self._B0 * d)
         for it, s0, s0_inv, t0 in self._items0:
             it.setTransform(s0 * d * s0_inv * t0)
+        if self._mode == "rotate":
+            # Square grips read the live preview angle; force their hosts to
+            # repaint so they turn with the item as the knob drags (their own
+            # orientation depends on _D, which Qt's transform-change repaint
+            # doesn't otherwise track).
+            for host in self._host_pool:
+                if host.isVisible():
+                    host.update()
 
     def _finish(self, scene_pos: QPointF, mods: Qt.KeyboardModifier) -> None:
         if self._mode is None:

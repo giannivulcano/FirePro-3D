@@ -255,11 +255,20 @@ class GripHandle(Handle):
         axis-aligned, the default for every unmigrated item). Ignored for circular
         grips (a disc is rotation-invariant). A square is symmetric under 90°/
         reflection, so the sign/exact-axis choice is visually immaterial; both
-        shape() and paint() apply the SAME value so hit-test matches render."""
+        shape() and paint() apply the SAME value so hit-test matches render.
+
+        During a rotate held-preview the item's own angle isn't mutated until the
+        release bake, so add the manipulator's LIVE preview rotation (0 unless a
+        rotate is in progress) — the grips turn with the item as the knob drags,
+        and because it's the same angle the bake applies there's no jump on
+        commit. ``self._m`` (the manipulator) is set by the host on attach."""
         if self.circular:
             return 0.0
         fn = getattr(self.item, "grip_render_angle", None)
-        return 0.0 if fn is None else float(fn(self.index))
+        base = 0.0 if fn is None else float(fn(self.index))
+        m = getattr(self, "_m", None)
+        prev = getattr(m, "_preview_rotation_deg", None) if m is not None else None
+        return base + (prev() if prev is not None else 0.0)
 
     def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
         half = size / 2.0 + grab_pad

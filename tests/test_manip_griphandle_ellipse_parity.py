@@ -216,3 +216,37 @@ def test_square_grip_shape_rotates_with_ellipse():
     c_tilt = GripHandle(tilt, 0, circular=True)
     assert (c_flat.shape(size=10.0, grab_pad=0.0).boundingRect()
             == c_tilt.shape(size=10.0, grab_pad=0.0).boundingRect())
+
+
+def test_grip_orientation_tracks_live_rotate(qapp):
+    """While the rotate knob is dragged (held-preview, before the release bake),
+    the square grips pick up the manipulator's LIVE preview rotation so they turn
+    with the ellipse; the round centre grip stays invariant."""
+    import pytest
+    from firepro3d.selection_manipulator import SelectionManipulator
+    from firepro3d.manip_math import HandleRole
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(400, 400); view.show()
+    qapp.processEvents()
+    e = _make_ellipse()                                # rotation 0 at rest
+    scene.addItem(e)
+    m = SelectionManipulator(scene)
+    e.setSelected(True); qapp.processEvents()
+    assert m._preview_rotation_deg() == 0.0            # not rotating yet
+
+    # begin a rotate on the knob and drag to induce a live preview rotation
+    rot_host = m._handles[HandleRole.ROTATE]
+    start = rot_host.handle.scene_position(m._rect)    # top-edge midpoint
+    m._begin_handle(rot_host.handle, start, start)
+    m._update(QPointF(-40, 0), Qt.KeyboardModifier.NoModifier, QPointF(-40, 0))
+
+    preview = m._preview_rotation_deg()
+    assert abs(preview) > 1.0                          # a real rotation is live
+    square = next(h.handle for h in m._host_pool
+                  if h.isVisible() and not h.handle.circular)
+    centre = next(h.handle for h in m._host_pool
+                  if h.isVisible() and h.handle.circular)
+    # base (item angle) is 0, so the square grip's render angle == the live preview
+    assert square._render_angle() == pytest.approx(preview)
+    assert centre._render_angle() == 0.0              # round grip: invariant
+    m.cancel_drag()

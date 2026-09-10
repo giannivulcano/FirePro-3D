@@ -498,6 +498,16 @@ so its 4 square axis grips track the ellipse's placement angle and post-hoc
 rotate. `_HandleItem.boundingRect` already reserves `√2·half` for a rotated
 square.
 
+*Live during the rotate held-preview:* the rotate knob is held-preview (the
+item's angle isn't mutated until the release bake), so `_render_angle` adds the
+manipulator's `_preview_rotation_deg()` (= `_yup_angle_from_delta(self._D)` while
+`_mode == "rotate"`, else 0) — the square grips turn with the item as the knob
+drags, and because it's the same angle the bake applies there's no jump on
+commit. The manipulator sets `handle._m` on attach (`_sync_host_pool`) so the
+grip can read it, and `_apply` repaints the grip hosts each rotate move (their
+orientation depends on `_D`, which a transform-change repaint doesn't otherwise
+track).
+
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a
 future item with fully state-dependent hittability should be handled when it
