@@ -221,3 +221,144 @@ def test_press_snapshots_siblings_and_cancel_restores_them():
     h.on_cancel(m)
     assert sc.restore_calls == [[("SNAP", w)]]      # siblings restored from snapshot
     assert w.grip_points()[1] == QPointF(500, 0)    # dragged endpoint restored
+
+
+# --------------------------------------------------------------------------
+# Integration — real Model_Space + its live manipulator (posted / driven)
+# --------------------------------------------------------------------------
+#
+# NOTE: SelectionManipulator._finish has the real signature
+# ``_finish(self, scene_pos, mods)`` (2 args, verified in
+# firepro3d/selection_manipulator.py:1017) — NOT the 3-arg form the plan draft
+# guessed. The driver + call sites below use the real 2-arg lifecycle; the
+# manipulator is never bypassed.
+
+
+def _pt(qp):
+    return (qp.x(), qp.y())
+
+
+def _drive_grip(scene, wall, index, start, path, mods=Qt.KeyboardModifier.NoModifier):
+    """Select *wall*, install its handle *index* on the scene's live
+    manipulator, and drive press -> moves through the manipulator (the same
+    lifecycle the view posts). Returns the manipulator (so callers can finish
+    or cancel). Does NOT release."""
+    scene.set_mode("select")
+    wall.setSelected(True)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    h = wall.manip_handles()[index]
+    m._begin_handle(h, QPointF(*start), QPointF(*start))
+    for pt in path:
+        m._update(QPointF(*pt), mods, QPointF(*pt))
+    return m
+
+
+def test_endpoint_drag_moves_both_joined_walls(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))        # grip 1 = shared (0,0)
+    b = _add_wall(scene, (0, 0), (0, 200))         # grip 0 = shared (0,0)
+
+    m = _drive_grip(scene, a, index=1, start=(0, 0), path=[(30, -20), (50, -50)])
+    m._finish(QPointF(50, -50), Qt.KeyboardModifier.NoModifier)
+
+    assert a.grip_points()[1] != QPointF(0, 0)     # dragged endpoint moved
+    assert b.grip_points()[0] != QPointF(0, 0)     # coincident endpoint followed
+    assert abs(a.grip_points()[1].x() - b.grip_points()[0].x()) < 1e-6
+    assert abs(a.grip_points()[1].y() - b.grip_points()[0].y()) < 1e-6
+
+
+def test_three_walls_at_vertex_all_follow(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+    c = _add_wall(scene, (0, 0), (200, 100))
+
+    m = _drive_grip(scene, a, index=1, start=(0, 0), path=[(-30, 80)])
+    m._finish(QPointF(-30, 80), Qt.KeyboardModifier.NoModifier)
+
+    for other in (b, c):
+        assert abs(other.grip_points()[0].x() - a.grip_points()[1].x()) < 1e-6
+        assert abs(other.grip_points()[0].y() - a.grip_points()[1].y()) < 1e-6
+
+
+def test_isolated_wall_and_far_endpoint_untouched(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+    iso = _add_wall(scene, (-300, -200), (-100, -200))
+    b_far = QPointF(b.grip_points()[1])
+    iso0, iso1 = QPointF(iso.grip_points()[0]), QPointF(iso.grip_points()[1])
+
+    m = _drive_grip(scene, a, index=1, start=(0, 0), path=[(50, -50)])
+    m._finish(QPointF(50, -50), Qt.KeyboardModifier.NoModifier)
+
+    assert b.grip_points()[1] == b_far             # b's far end fixed
+    assert iso.grip_points()[0] == iso0            # isolated wall untouched
+    assert iso.grip_points()[1] == iso1
+
+
+def test_width_grip_drag_does_not_propagate(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+    b0 = QPointF(b.grip_points()[0])
+
+    m = _drive_grip(scene, a, index=3, start=_pt(a.grip_points()[3]),
+                    path=[(0, -250)])
+    m._finish(QPointF(0, -250), Qt.KeyboardModifier.NoModifier)
+
+    assert b.grip_points()[0] == b0                # width grip never propagates
+
+
+def test_one_commit_per_gesture(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    _add_wall(scene, (0, 0), (0, 200))
+    calls = []
+    scene._live_manip()._commit_hook = lambda mode: calls.append(mode)
+
+    m = _drive_grip(scene, a, index=1, start=(0, 0), path=[(30, -20), (50, -50)])
+    m._finish(QPointF(50, -50), Qt.KeyboardModifier.NoModifier)
+
+    assert calls == ["grip"]
+
+
+def test_esc_atomically_restores_dragged_and_siblings(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_wall(scene, (-200, 0), (0, 0))
+    b = _add_wall(scene, (0, 0), (0, 200))
+    c = _add_wall(scene, (0, 0), (200, 100))
+    a_before = a.to_dict(); b_before = b.to_dict(); c_before = c.to_dict()
+    calls = []
+    scene._live_manip()._commit_hook = lambda mode: calls.append(mode)
+
+    m = _drive_grip(scene, a, index=1, start=(0, 0), path=[(40, -40), (80, -80)])
+    # mutated live (join dragged apart from origin)
+    assert a.grip_points()[1] != QPointF(0, 0)
+    assert b.grip_points()[0] != QPointF(0, 0)
+    m.cancel_drag()
+
+    assert a.to_dict() == a_before                 # dragged wall restored
+    assert b.to_dict() == b_before                 # sibling restored
+    assert c.to_dict() == c_before                 # sibling restored
+    assert calls == []                             # no commit on cancel
+
+
+def test_hosted_opening_rides_endpoint_drag(qapp, shown_model_view):
+    """A door hosted on the wall follows when the wall endpoint is grip-dragged
+    (parity: apply_grip -> _rebuild_path repositions openings, unchanged)."""
+    from firepro3d.wall_opening import DoorOpening
+    view, scene = shown_model_view
+    a = _add_wall(scene, (0, 0), (1000, 0))
+    door = DoorOpening(a, offset_along=500.0, width_mm=900.0)
+    a.openings.append(door)
+    scene.addItem(door)
+    a._rebuild_path()
+    door_y_before = door.scenePos().y()
+
+    m = _drive_grip(scene, a, index=1, start=(1000, 0), path=[(1000, 300)])
+    m._finish(QPointF(1000, 300), Qt.KeyboardModifier.NoModifier)
+
+    # the wall now rises toward pt2; the hosted door must move off the old axis
+    assert door.scenePos().y() != door_y_before
