@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: 4af9743   # U3 RegularPolygonItem migration (branch tip, pre-merge)
+verified-commit: 8d08399   # U3 EllipseItem migration (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -269,7 +269,11 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   `default_grip_handles(self, circular=all indices)` (centre + N vertices, all
   round — centre = move, vertices = the polygon's defining points; dragging a
   vertex resizes + rotates, the edit math living in `apply_grip`). Handle count
-  tracks `_sides`. Each
+  tracks `_sides`. ✅ **EllipseItem DONE (2026-09-10)** — mirrors CircleItem (an
+  ellipse is a generalized circle): `default_grip_handles(self, circular={0})`
+  (centre round move grip; the 4 axis-endpoint sizing grips — major rx=1,2 [also
+  rotates] / minor ry=3,4 — square). Zero special semantics (not Wall/Gridline/
+  Line → no Ctrl-constrain); not box-native (no `manip_scale`). Each
   item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
@@ -278,7 +282,7 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
   drag). Remaining, simplest-first:
-  Ellipse, **Rectangle** (box-native special — reconcile `provides_handles_for`
+  **Rectangle** (box-native special — reconcile `provides_handles_for`
   so its `manip_handles()` don't double up with the rigid resize handles),
   Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
@@ -453,6 +457,20 @@ affected by this block"*), so no `EndpointGripHandle`/`_transform_point`. Same
 shape as Spline/Polyline; `apply_grip` already carries the edit math (centre =
 translate; start = radius+start-angle; end = span-angle).
 
+**RegularPolygonItem.manip_handles()** → `default_grip_handles(self,
+circular=all indices)`: centre + N vertices, all round (centre = move; each
+vertex = a defining point — dragging it resizes + rotates). Handle count tracks
+`_sides`. Zero special semantics (legacy grip path excludes polygon from
+Ctrl-constrain); `apply_grip` carries the edit math.
+
+**EllipseItem.manip_handles()** → `default_grip_handles(self, circular={0})`:
+centre + 4 axis endpoints. Mirrors CircleItem (an ellipse is a generalized
+circle): centre = round move grip; the axis-endpoint sizing grips (major rx=1,2,
+which also rotate; minor ry=3,4) render **square** — same rationale as circle
+radius grips (points on a closed curve for sizing, not curve termini). Zero
+special semantics (not Wall/Gridline/Line → no Ctrl-constrain); not box-native
+(no `manip_scale`); `apply_grip` carries the edit math.
+
 **Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
 grips and centre/**move** grips render **round** (disc); only inert/derived
 convenience grips (a pure geometric midpoint that does *not* move the whole item)
@@ -482,7 +500,10 @@ adds Ctrl-constrain-wiring + midpoint-translate), and
 legacy-apply match, posted start-grip drag, one-commit, Esc-restore), and
 `tests/test_manip_griphandle_polygon_parity.py` (RegularPolygon parity — shape,
 handle-count-tracks-sides, centre/vertex legacy-apply match, posted centre+vertex
-drag, one-commit, Esc-restore, gate recognition).
+drag, one-commit, Esc-restore, gate recognition), and
+`tests/test_manip_griphandle_ellipse_parity.py` (Ellipse parity — shape [centre
+round, axis grips square], major/minor/centre legacy-apply match, posted
+major+centre drag, one-commit, Esc-restore, gate recognition).
 `test_scene_tools.py` asserts
 the migrated circle/polyline/spline/line/arc are skipped by `_find_grip_hit`, and
 its generic `_find_grip_hit` mechanic tests use a migration-agnostic `_GripStub`
