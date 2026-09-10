@@ -18,7 +18,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
 from firepro3d.construction_geometry import (
-    LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem,
+    LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, SplineItem,
 )
 from firepro3d.scene_tools import SceneTools, extract_edges
 from firepro3d.cad_math import CAD_Math
@@ -579,6 +579,21 @@ class TestFindGripHit:
         assert pl.manip_handles()  # it IS migrated (provides its own handles)
         # A vertex position that the legacy path would otherwise hit.
         result = scene._tools._find_grip_hit(QPointF(100, 0))
+        assert result is None  # legacy path steps aside for the migrated item
+
+    def test_migrated_spline_skipped_by_find_grip_hit(self, scene):
+        # U3: SplineItem is migrated onto manip_handles(), so the LEGACY grip
+        # path must NOT hit-test its control points (coexistence gate). Fully
+        # grippable via the SelectionManipulator; _find_grip_hit steps aside.
+        sp = SplineItem([QPointF(0, 0), QPointF(50, 0),
+                         QPointF(100, 50), QPointF(150, 0)])
+        scene.addItem(sp)
+        sp.setSelected(True)
+        _flush()
+
+        assert sp.manip_handles()  # it IS migrated (provides its own handles)
+        # A control-point position that the legacy path would otherwise hit.
+        result = scene._tools._find_grip_hit(QPointF(50, 0))
         assert result is None  # legacy path steps aside for the migrated item
 
     def test_rectangle_corner_grip(self, scene):
