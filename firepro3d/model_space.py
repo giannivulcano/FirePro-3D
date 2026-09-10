@@ -3226,16 +3226,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             gi.apply_grip(self._grip_index, pos)
             new_pt = gi.grip_points()[self._grip_index]
             delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
-            # Same scene-space delta re-projected onto each sibling's own axis:
-            # exact for parallel (same-orientation) selections; non-parallel
-            # members under-apply — consistent with endpoint-grip multi-select.
-            for sel in self.selectedItems():
-                if sel is gi or not isinstance(sel, GridlineItem):
-                    continue
-                sg = sel.grip_points()
-                target = QPointF(sg[self._grip_index].x() + delta.x(),
-                                 sg[self._grip_index].y() + delta.y())
-                sel.apply_grip(self._grip_index, target)
+            self._propagate_gridline_grip(gi, self._grip_index, delta)
         else:
             old_pt = None
             if (self._grip_index in (0, 1)
@@ -3258,6 +3249,43 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _restore_wall_endpoints(self, *args, **kwargs):
         return self._wall_ctl._restore_wall_endpoints(*args, **kwargs)
+
+    # ── Gridline grip-drag: multi-select parallel-delta ─────────────────────
+
+    def _propagate_gridline_grip(self, gi, index: int, delta: QPointF) -> None:
+        """Re-apply *delta* (scene units) to grip *index* on every OTHER selected
+        gridline, re-projected onto each one's own axis by ``apply_grip``.
+
+        Exact for parallel (same-orientation) selections; non-parallel members
+        under-apply — the historical multi-select behaviour. Locked gridlines
+        no-op inside ``apply_grip``. Ported verbatim from the pre-U3
+        ``_drag_grip_to`` loop so the drag reads identically.
+        """
+        for sel in self.selectedItems():
+            if sel is gi or not isinstance(sel, GridlineItem):
+                continue
+            sg = sel.grip_points()
+            target = QPointF(sg[index].x() + delta.x(), sg[index].y() + delta.y())
+            sel.apply_grip(index, target)
+
+    def _snapshot_gridline_grips(self, exclude, index: int):
+        """Snapshot grip *index* of every OTHER selected gridline, for an atomic
+        Esc-restore of a parallel-delta drag (the base ``GripHandle.on_cancel``
+        restores only the dragged item's grip). Returns ``(gridline, index,
+        QPointF)`` records; ``apply_grip`` on a gridline's original on-axis grip
+        point is idempotent, so re-applying restores exactly.
+        """
+        snap = []
+        for sel in self.selectedItems():
+            if sel is exclude or not isinstance(sel, GridlineItem):
+                continue
+            snap.append((sel, index, QPointF(sel.grip_points()[index])))
+        return snap
+
+    def _restore_gridline_grips(self, snapshot) -> None:
+        """Restore grips captured by :meth:`_snapshot_gridline_grips`."""
+        for sel, idx, pt in snapshot:
+            sel.apply_grip(idx, QPointF(pt))
 
     def _format_cursor_readout(self, scene_pos) -> str:
         """Render *scene_pos* as the status-bar coordinate string.
