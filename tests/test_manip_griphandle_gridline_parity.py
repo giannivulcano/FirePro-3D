@@ -233,3 +233,77 @@ def test_lock_toggle_hides_manip_grips(qapp, shown_model_view):
     assert gl._locked is True
     # grip_hittable now False for every index -> no hittable handle
     assert all(not gl.grip_hittable(i) for i in range(4))
+
+
+# --------------------------------------------------------------------------
+# Integration — real Model_Space + its live manipulator (driven lifecycle)
+# --------------------------------------------------------------------------
+
+def _drive_grip(scene, gl, index, start, path, mods=Qt.KeyboardModifier.NoModifier):
+    """Select *gl*, install its handle *index* on the scene's live manipulator,
+    and drive press -> moves through the manipulator (the lifecycle the view
+    posts). Returns the manipulator so callers can finish or cancel."""
+    scene.set_mode("select")
+    gl.setSelected(True)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    h = gl.manip_handles()[index]
+    m._begin_handle(h, QPointF(*start), QPointF(*start))
+    for pt in path:
+        m._update(QPointF(*pt), mods, QPointF(*pt))
+    return m
+
+
+def test_multiselect_endpoint_drag_moves_all_selected(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_gl(scene, (0, 0), (0, 5000), "1")
+    b = _add_gl(scene, (300, 0), (300, 5000), "2")
+    a.setSelected(True); b.setSelected(True)
+    b_far0 = QPointF(b.grip_points()[1])
+    m = _drive_grip(scene, a, index=1, start=(0, 5000), path=[(0, 5500), (0, 6000)])
+    m._finish(QPointF(0, 6000), Qt.KeyboardModifier.NoModifier)
+    assert a.grip_points()[1].y() != 5000                 # dragged moved
+    assert b.grip_points()[1].y() == b_far0.y() + 1000    # sibling moved same delta on-axis
+
+
+def test_one_commit_per_gesture(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_gl(scene, (0, 0), (0, 5000), "1")
+    _add_gl(scene, (300, 0), (300, 5000), "2")
+    calls = []
+    scene._live_manip()._commit_hook = lambda mode: calls.append(mode)
+    m = _drive_grip(scene, a, index=1, start=(0, 5000), path=[(0, 5500), (0, 6000)])
+    m._finish(QPointF(0, 6000), Qt.KeyboardModifier.NoModifier)
+    assert calls == ["grip"]
+
+
+def test_esc_atomically_restores_dragged_and_siblings(qapp, shown_model_view):
+    view, scene = shown_model_view
+    a = _add_gl(scene, (0, 0), (0, 5000), "1")
+    b = _add_gl(scene, (300, 0), (300, 5000), "2")
+    a.setSelected(True); b.setSelected(True)
+    a_before = a.to_dict(); b_before = b.to_dict()
+    calls = []
+    scene._live_manip()._commit_hook = lambda mode: calls.append(mode)
+    m = _drive_grip(scene, a, index=1, start=(0, 5000), path=[(0, 5800), (0, 6200)])
+    assert a.grip_points()[1].y() != 5000                 # mutated live
+    assert b.grip_points()[1].y() != 5000
+    m.cancel_drag()
+    assert a.to_dict() == a_before                        # dragged restored
+    assert b.to_dict() == b_before                        # sibling restored
+    assert calls == []                                    # no commit on cancel
+
+
+def test_locked_gridline_shows_no_hittable_grips(qapp, shown_model_view):
+    view, scene = shown_model_view
+    gl = _add_gl(scene, (0, 0), (0, 5000), "1")
+    gl._locked = True
+    assert all(not gl.grip_hittable(i) for i in range(4))
+
+
+def test_hidden_bubble_grip_not_hittable(qapp, shown_model_view):
+    view, scene = shown_model_view
+    gl = _add_gl(scene, (0, 0), (0, 5000), "1")
+    gl.bubble1.setVisible(False)
+    assert gl.grip_hittable(2) is False                   # bubble1 standoff grip
+    assert gl.grip_hittable(0) is True                    # endpoint still hittable
