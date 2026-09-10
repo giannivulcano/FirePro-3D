@@ -630,6 +630,20 @@ class TestFindGripHit:
         result = scene._tools._find_grip_hit(QPointF(0, 0))
         assert result is None  # legacy path steps aside for the migrated item
 
+    def test_migrated_arc_skipped_by_find_grip_hit(self, scene):
+        # U3: ArcItem is migrated onto manip_handles(), so the LEGACY grip path
+        # must NOT hit-test its centre/start/end grips (coexistence gate). Fully
+        # grippable via the SelectionManipulator; _find_grip_hit steps aside.
+        arc = ArcItem(QPointF(0, 0), 50.0, 0.0, 90.0)
+        scene.addItem(arc)
+        arc.setSelected(True)
+        _flush()
+
+        assert arc.manip_handles()  # it IS migrated (provides its own handles)
+        # The centre grip position that the legacy path would otherwise hit.
+        result = scene._tools._find_grip_hit(QPointF(0, 0))
+        assert result is None  # legacy path steps aside for the migrated item
+
     def test_rectangle_corner_grip(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
