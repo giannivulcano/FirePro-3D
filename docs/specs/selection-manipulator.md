@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08); remaining U3 items + U4/U5 remain
-last-verified: 2026-09-08
-verified-commit: c717f2c   # U3 GripHandle/CircleItem branch tip (pre-merge)
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles (2026-09-09); remaining U3 items + U4/U5 remain
+last-verified: 2026-09-09
+verified-commit: 2205cd1   # U3 PolylineItem migration + shared default_grip_handles helper + round vertex grips (branch tip, pre-merge)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle)
@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon
+  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
   # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
@@ -246,14 +246,20 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
 - **U3 — migrate items onto `manip_handles`, one per PR** — **IN PROGRESS.**
   ✅ **CircleItem DONE (2026-09-08)** — landed the live-apply `GripHandle`
   framework + the `_begin_handle` fix + coexistence gate (see "U3 — GripHandle
-  (as-built)" above). Each item exposes its parametric points as `GripHandle`s
+  (as-built)" above). ✅ **PolylineItem DONE (2026-09-09)** — extracted the
+  shared `default_grip_handles(item, circular=frozenset())` helper
+  (`manip_handle.py`) that is the common body of every item's `manip_handles()`
+  (loop `grip_points()` → `GripHandle`, `grip_hittable`-filtered, square except
+  `circular` indices); CircleItem refactored onto it (`circular={0}`), Polyline
+  uses it plain (all vertices square, no move-centre grip — move is interior
+  drag). Each item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
   `model_space` today (Ctrl angle-constrain on wall/line/gridline endpoints via
   `_transform_point`; gridline multi-select **parallel-delta** + wall-endpoint
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
-  drag). Remaining, simplest-first: Polyline, Spline, Line (+Ctrl-constrain),
+  drag). Remaining, simplest-first: Spline, Line (+Ctrl-constrain),
   Rectangle, Arc, RegularPolygon, Ellipse, Wall (+propagation), Gridline
   (+parallel-delta), Room, DesignArea, Note/Dimension, Floor, Roof, and the
   elevation/detail/view-marker items.
@@ -382,9 +388,29 @@ grip loop and `scene_tools._find_grip_hit` both `continue` past such items (next
 to the existing `provides_handles_for` skip). U4 deletes both skips with the
 legacy paths.
 
-**CircleItem.manip_handles()** returns 5 `GripHandle`s (center + 4 radius),
-`grip_hittable`-filtered. Center → `apply_grip(0)` (translate); radius →
+**`default_grip_handles(item, circular=frozenset())`** (`manip_handle.py`) — the
+shared body of every migrated item's `manip_handles()`: one `GripHandle` per
+`grip_points()` index, `grip_hittable`-filtered, square except indices in
+`circular` (rendered as discs — centre/move grips). Extracted on the 2nd
+migration to keep the ~15 per-item `manip_handles()` from drifting; per-item
+drag semantics live on `GripHandle` subclass hooks, not here.
+
+**CircleItem.manip_handles()** → `default_grip_handles(self, circular={0})`:
+5 handles (center + 4 radius). Center → `apply_grip(0)` (translate); radius →
 `apply_grip(1..4)` (resize). Zero special semantics — the pattern-establisher.
+
+**PolylineItem.manip_handles()** → `default_grip_handles(self, circular=all
+vertex indices)`: one round handle per vertex, each → `apply_grip(index)` (move
+vertex + rebuild). No move-centre grip (move is the manipulator's interior
+drag); no special drag semantics.
+
+**Grip-shape house rule (2026-09-09 smoke).** Vertex/endpoint grips and
+centre/move grips render **round** (disc); midpoint and other derived
+convenience grips stay **square**. Each item passes its round indices to
+`default_grip_handles` (`circular=`): CircleItem `{0}` (centre; radius grips are
+non-vertex → square), PolylineItem all vertices. Legacy `Model_View`
+`drawForeground` drew every grip square (`model_view.py` `drawRect` 8×8); this
+rule supersedes that look as items migrate.
 
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a
@@ -394,10 +420,11 @@ lands.
 **Tests:** `tests/test_manip_griphandle.py` (contract + `_begin_handle` fix),
 `tests/test_manip_griphandle_admissibility.py` (four-semantics + `on_release`
 ends drag + no double `_after_apply`), `tests/test_manip_griphandle_coexist.py`
-(gate), `tests/test_manip_griphandle_parity.py` (posted-event byte-parity vs
-legacy `apply_grip`, one-undo, Esc restore). `test_scene_tools.py` flipped to
-assert the migrated circle is skipped by `_find_grip_hit`. All pre-U3 manip test
-files pass unmodified.
+(gate), `tests/test_manip_griphandle_parity.py` (CircleItem posted-event
+byte-parity vs legacy `apply_grip`, one-undo, Esc restore),
+`tests/test_manip_griphandle_polyline_parity.py` (PolylineItem parity, same
+shape). `test_scene_tools.py` asserts the migrated circle **and** polyline are
+skipped by `_find_grip_hit`. All pre-U3 manip test files pass unmodified.
 
 ## Existing Code Context
 
