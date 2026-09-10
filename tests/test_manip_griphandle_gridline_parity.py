@@ -210,3 +210,26 @@ def test_legacy_grip_paths_skip_migrated_gridline(qapp, shown_model_view):
     # A point exactly on the far endpoint grip: legacy _find_grip_hit must skip it.
     hit = scene._tools._find_grip_hit(QPointF(gl.grip_points()[1]))
     assert hit is None or hit[0] is not gl
+
+
+class _LeftPress:
+    """Minimal QGraphicsSceneMouseEvent stand-in for _LockIndicator.mousePressEvent."""
+    def __init__(self, pos):
+        self._pos = pos
+
+    def accept(self):
+        pass
+
+
+def test_lock_toggle_hides_manip_grips(qapp, shown_model_view):
+    view, scene = shown_model_view
+    gl = _add_gl(scene, (0, 0), (0, 5000), "1")
+    scene.set_mode("select")
+    gl.setSelected(True)
+    QApplication.processEvents()
+    # Simulate the lock indicator click: lock, then nudge a rebake.
+    gl._lock_indicator.mousePressEvent(_LeftPress(QPointF(gl.bubble1.pos())))
+    QApplication.processEvents()
+    assert gl._locked is True
+    # grip_hittable now False for every index -> no hittable handle
+    assert all(not gl.grip_hittable(i) for i in range(4))

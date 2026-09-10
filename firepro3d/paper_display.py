@@ -486,8 +486,6 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
         if color_mode != PaperColorMode.FULL_COLOR and cat["fill"] is not None:
             bubble.setBrush(QBrush(QColor(cat["fill"])))
 
-    gl._grip1.setVisible(False)
-    gl._grip2.setVisible(False)
     gl._lock_indicator.setVisible(False)
     gl.setOpacity(cat["opacity"] / 100.0)
     gl.update()
@@ -522,7 +520,6 @@ def _save_gridline_state(gl) -> dict:
         "label_color": [b._label.defaultTextColor()
                         for b in (gl.bubble1, gl.bubble2)],
         "bubble_scale": [gl.bubble1.scale(), gl.bubble2.scale()],
-        "grip_vis": (gl._grip1.isVisible(), gl._grip2.isVisible()),
         "lock_vis": gl._lock_indicator.isVisible(),
     }
 
@@ -820,8 +817,6 @@ def restore_model_display(saved: list[dict]):
                 bubble.setPen(gs["bubble_pen"][i])
                 bubble.setBrush(gs["bubble_brush"][i])
                 bubble._label.setDefaultTextColor(gs["label_color"][i])
-            item._grip1.setVisible(gs["grip_vis"][0])
-            item._grip2.setVisible(gs["grip_vis"][1])
             item._lock_indicator.setVisible(gs["lock_vis"])
             item._paper_render = False
             item._paper_line_w = 0.0

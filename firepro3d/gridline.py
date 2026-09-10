@@ -18,13 +18,12 @@ import math
 from functools import lru_cache
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
-    QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
+    QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
 from .constants import (
-    Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX,
+    Z_GRIDLINE_BUBBLE, TEXT_METRIC_REF_PX,
     GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
-    SELECTION_OUTLINE_COLOR,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
@@ -250,29 +249,6 @@ class GridBubble(QGraphicsEllipseItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# _PullTabGrip — small handle at gridline endpoints
-# ─────────────────────────────────────────────────────────────────────────────
-
-_GRIP_HALF = 5.0  # Half-width of pull-tab square (screen pixels)
-
-
-class _PullTabGrip(QGraphicsRectItem):
-    """Small square grip handle at a gridline endpoint.
-
-    Uses ItemIgnoresTransformations for constant screen size.
-    Visible only when parent gridline is selected or hovered.
-    """
-
-    def __init__(self, parent: QGraphicsItem):
-        super().__init__(-_GRIP_HALF, -_GRIP_HALF, 2 * _GRIP_HALF, 2 * _GRIP_HALF, parent)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR), 1.0))
-        self.setBrush(QBrush(QColor(Qt.GlobalColor.white)))
-        self.setZValue(Z_CONSTRUCTION)
-        self.setVisible(False)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # _LockIndicator — small padlock icon at gridline midpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -335,10 +311,14 @@ class _LockIndicator(QGraphicsPathItem):
         gl = self._gridline
         gl._locked = not gl._locked
         self._rebuild()
-        # Update grip visibility — hide grips when locked
-        gl._grip1.setVisible(not gl._locked and gl.isSelected())
-        gl._grip2.setVisible(not gl._locked and gl.isSelected())
-        gl._refresh_bubble_grip_visibility()
+        # Grips are now manipulator-owned (U3): a lock change flips grip_hittable,
+        # so nudge the live manipulator to re-evaluate handle visibility. Duck-typed
+        # for headless scenes with no manipulator.
+        sc = gl.scene()
+        live = getattr(sc, "_live_manip", None) if sc is not None else None
+        m = live() if live is not None else None
+        if m is not None:
+            m.rebake()
         event.accept()
 
 
@@ -443,13 +423,9 @@ class GridlineItem(QGraphicsLineItem):
         # Lock state (must be set before _LockIndicator creation)
         self._locked = False
 
-        # Bubbles, grips, lock indicator
+        # Bubbles + lock indicator (grips are manipulator-owned since U3)
         self.bubble1 = GridBubble(label, self)
         self.bubble2 = GridBubble(label, self)
-        self._grip1 = _PullTabGrip(self)
-        self._grip2 = _PullTabGrip(self)
-        self._bgrip1 = _PullTabGrip(self)
-        self._bgrip2 = _PullTabGrip(self)
         self._lock_indicator = _LockIndicator(self)
 
         # Hover events for grip visibility
@@ -502,12 +478,7 @@ class GridlineItem(QGraphicsLineItem):
         """Refresh bubble paint and show/hide grips + lock indicator on selection change."""
         if change == self.GraphicsItemChange.ItemSelectedChange:
             selected = bool(value)
-            # Show grips only when selected AND unlocked
-            self._grip1.setVisible(selected and not self._locked)
-            self._grip2.setVisible(selected and not self._locked)
-            self._bgrip1.setVisible(selected and not self._locked and self.bubble1.isVisible())
-            self._bgrip2.setVisible(selected and not self._locked and self.bubble2.isVisible())
-            # Show lock indicator when selected
+            # Show lock indicator when selected (grips are manipulator-owned).
             self._lock_indicator.setVisible(selected)
             if selected:
                 self._lock_indicator._rebuild()
@@ -554,7 +525,6 @@ class GridlineItem(QGraphicsLineItem):
                             p1.y() - self._bubble1_offset * dy)
         self.bubble2.setPos(p2.x() + self._bubble2_offset * dx,
                             p2.y() + self._bubble2_offset * dy)
-        self._update_grip_positions()
         if hasattr(self, "_lock_indicator"):
             self._lock_indicator.setPos(self.bubble1.pos())
         self.update()
@@ -629,28 +599,6 @@ class GridlineItem(QGraphicsLineItem):
             self._bubble2_offset = val
         self._rebuild_geometry()
 
-    def _update_grip_positions(self):
-        """Place grips slightly beyond each endpoint along the line direction."""
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length = math.hypot(dx, dy)
-        if length < 1e-12:
-            self._grip1.setPos(p1)
-            self._grip2.setPos(p2)
-            return
-        ux, uy = dx / length, dy / length
-        self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
-        self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
-        self._bgrip1.setPos(self.bubble1.pos())
-        self._bgrip2.setPos(self.bubble2.pos())
-
-    def _refresh_bubble_grip_visibility(self):
-        show = self.isSelected() and not self._locked
-        self._bgrip1.setVisible(show and self.bubble1.isVisible())
-        self._bgrip2.setVisible(show and self.bubble2.isVisible())
-
     def grip_hittable(self, index: int) -> bool:
         """Whether grip *index* can be picked right now (used by _find_grip_hit)."""
         if self._locked:
@@ -664,19 +612,11 @@ class GridlineItem(QGraphicsLineItem):
     # ── Hover events ─────────────────────────────────────────────────────
 
     def hoverEnterEvent(self, event):
-        if not self.isSelected() and not self._locked:
-            self._grip1.setVisible(True)
-            self._grip2.setVisible(True)
-            self._bgrip1.setVisible(self.bubble1.isVisible())
-            self._bgrip2.setVisible(self.bubble2.isVisible())
+        # Grips are manipulator-owned (U3) and appear on selection; hover
+        # pre-highlight is U5 selection-mode territory.
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        if not self.isSelected():
-            self._grip1.setVisible(False)
-            self._grip2.setVisible(False)
-            self._bgrip1.setVisible(False)
-            self._bgrip2.setVisible(False)
         super().hoverLeaveEvent(event)
 
     # ── Selection highlight (suppress dashed box) ─────────────────────────

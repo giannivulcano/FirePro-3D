@@ -16,18 +16,13 @@ def scene_with_gridline(qapp):
     view.hide()
 
 
-def test_bubble_grips_visible_on_select(scene_with_gridline):
+def test_no_pulltab_child_items_after_migration(scene_with_gridline):
+    # U3: the legacy _PullTabGrip children are removed — grips are manipulator-
+    # owned. Lock/bubble-visibility gating now lives in grip_hittable (below).
     ms, view, gl = scene_with_gridline
     gl.setSelected(True)
-    assert gl._bgrip1.isVisible()
-    assert gl._bgrip2.isVisible()
-
-
-def test_bubble_grips_hidden_when_locked(scene_with_gridline):
-    ms, view, gl = scene_with_gridline
-    gl._locked = True
-    gl.setSelected(True)
-    assert not gl._bgrip1.isVisible()
+    assert not hasattr(gl, "_bgrip1")
+    assert not hasattr(gl, "_grip1")
 
 
 def test_grip_hittable_false_for_hidden_bubble(scene_with_gridline):
