@@ -1,5 +1,5 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
 verified-commit: ea42440   # U3 RectangleItem box-native migration + single gate + centre-move-handle both states
 applies-to:
@@ -289,8 +289,20 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   `_transform_point`; gridline multi-select **parallel-delta** + wall-endpoint
   propagation via `_after_apply`; the **constraint solver** pass — all admitted
   by the framework). Parity test each item (posted-event drag == legacy grip
-  drag). Remaining, simplest-first:
-  Wall (+propagation), Gridline
+  drag). ✅ **WallSegment DONE (2026-09-10)** — the FIRST migrated item with
+  **sibling mutation** (its drag moves OTHER items). `manip_handles()` returns 4
+  live-apply grips: two `WallEndpointGripHandle(EndpointGripHandle)`s (endpoints
+  0/1, round, Ctrl-constrain against the opposite endpoint — opp 1↔0) that add
+  **propagation** (`_after_apply` → `scene._propagate_wall_endpoint`: every OTHER
+  wall endpoint coincident with the pre-move position follows) plus **atomic
+  Esc-restore of siblings** (`_extra_snapshots`/`_restore_extra` →
+  `scene._snapshot_wall_endpoints`/`_restore_wall_endpoints`, homed in
+  `WallPlacementController`, reached via duck-typed scene bridges); a mid (2) round
+  move grip (translates the whole wall) and a width (3) square thickness grip,
+  both plain `GripHandle`s that never propagate. The rotate knob coexists (wall
+  has `manip_rotate`, like EllipseItem); not box-native (no `manip_scale`).
+  Remaining, simplest-first:
+  Gridline
   (+parallel-delta), Room, DesignArea,
   **Text blocks — both BOUNDING-BOX-governed (box-native, like Rectangle: frame +
   resize + move + rotate, NOT a single MText position grip)**: (a) the 2D-geometry
@@ -469,6 +481,27 @@ reusable per-item Ctrl-constrain handle: `_transform_point` projects the dragged
 point onto the nearest angle increment ray from `grip_points()[opposite_index]`
 via the scene's `_constrain_angle` (the legacy grip authority; getattr-guarded
 for headless). Reused by Wall/Gridline endpoints (opp 1↔0) in their PRs.
+
+**WallSegment.manip_handles()** → `[WallEndpointGripHandle(0, opp=1),
+WallEndpointGripHandle(1, opp=0), GripHandle(2), GripHandle(3, square)]`.
+Endpoints (0, 1) round + Ctrl-angle-constrained against the opposite endpoint
+(inherited from `EndpointGripHandle`); mid (2) round move grip (translates the
+whole wall); width (3) square thickness grip. The FIRST migrated item whose drag
+mutates OTHER items, so **`WallEndpointGripHandle(EndpointGripHandle)`**
+(`manip_handle.py`) adds two wall-only semantics on top of the Ctrl-constrain:
+(1) **propagation** — `_transform_point` captures the endpoint's pre-apply
+position per frame and `_after_apply` calls `scene._propagate_wall_endpoint`, so
+every OTHER wall endpoint coincident with the old position follows to the new one
+(joined polyline walls stay joined); (2) **atomic Esc-restore of siblings** —
+`_extra_snapshots` (in `on_press`) snapshots every other wall's endpoints via
+`scene._snapshot_wall_endpoints(self.item)` and `_restore_extra` (in `on_cancel`)
+re-applies them via `scene._restore_wall_endpoints`, because the base `on_cancel`
+only restores the dragged grip. Both wall-graph helpers live in
+`WallPlacementController`, reached through thin `Model_Space` bridges; all scene
+calls are getattr-guarded so a headless plain scene degrades to no-propagation.
+The mid/width grips are plain `GripHandle`s and never propagate. `apply_grip`
+carries the edit math (endpoints, translate, thickness) unchanged; the rotate
+knob coexists (wall has `manip_rotate`); not box-native.
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
