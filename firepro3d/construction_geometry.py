@@ -1863,6 +1863,17 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._control_points[index] = QPointF(pos)
             self._regenerate()
 
+    def manip_handles(self):
+        """U3: expose each control point as a live-apply GripHandle. Control
+        points are the spline's defining ("vertex") points — all render round
+        per the house rule (vertex grips = round disc; midpoints = square); a
+        spline has no midpoint/convenience grips. No move-centre grip (move is
+        the manipulator's interior-drag). The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(
+            self, circular=set(range(len(self._control_points))))
+
     def translate(self, dx: float, dy: float):
         self._control_points = [QPointF(p.x() + dx, p.y() + dy)
                                 for p in self._control_points]
