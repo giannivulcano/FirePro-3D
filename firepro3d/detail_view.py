@@ -153,16 +153,26 @@ class DetailMarker(QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # In a detail/clip view the crop rectangle is redundant (the view's mask
+        # edge already shows the crop) and reads as an unwanted "blue box" — draw
+        # only the callout (leader + bubble) there. The crop rect is the box in
+        # the PLAN view (box-native bounding box).
+        view = widget.parentWidget() if widget is not None else None
+        in_detail = view is not None and getattr(view, "_clip_rect", None) is not None
+
         R = _TAG_RADIUS
         pen_w = max(1.0, R * 0.04)
 
-        # ── Rounded-rect crop boundary ───────────────────────────────
+        # ── Rounded-rect crop boundary (plan view only) ──────────────
         r = self._crop_rect
         fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
-        crop_pen = QPen(self._tag_color, pen_w, Qt.PenStyle.DashLine)
-        painter.setPen(crop_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(r, fr, fr)
+        if not in_detail:
+            # Cosmetic width 1 dashed — matches the placement reference line.
+            crop_pen = QPen(self._tag_color, 1, Qt.PenStyle.DashLine)
+            crop_pen.setCosmetic(True)
+            painter.setPen(crop_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(r, fr, fr)
 
         # ── Leader line from crop rect edge to bubble center ─────────
         bp = self._bubble_pos
@@ -210,7 +220,8 @@ class DetailMarker(QGraphicsPathItem):
             painter.setPen(hl_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(bp, R, R)
-            painter.drawRoundedRect(r, fr, fr)
+            if not in_detail:                       # no crop-rect box in detail view
+                painter.drawRoundedRect(r, fr, fr)
 
     @staticmethod
     def _closest_rect_point(rect: QRectF, pt: QPointF) -> QPointF:

@@ -216,12 +216,11 @@ class Model_View(QGraphicsView):
                 painter.drawRect(QRectF(cr.right(), cr.top(),
                                         rect.right() - cr.right(), cr.height()))
 
-            # Draw crop boundary outline
-            crop_pen = QPen(QColor(_DETAIL_BORDER_COLOR), 2, Qt.PenStyle.DashLine)
-            crop_pen.setCosmetic(True)
-            painter.setPen(crop_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(cr)
+            # No passive crop-boundary outline: the mask edge already shows the
+            # crop extent, and an explicit dashed box reads as an unwanted "blue
+            # box" framing the whole detail view (user, 2026-09-11). The marker's
+            # callout (leader + bubble) still renders; the crop is edited from the
+            # plan view where the marker is a box-native rectangle.
 
         snap_result = getattr(scene, "_snap_result", None)
 
