@@ -120,9 +120,8 @@ def test_gridline_handle_is_endpoint_subclass_with_right_opposites():
     assert isinstance(hs[0], EndpointGripHandle)
     assert hs[0].opposite_index == 1 and hs[1].opposite_index == 0
     assert hs[2].opposite_index is None and hs[3].opposite_index is None
-    # endpoints round; bubble-standoff grips square
-    assert hs[0].circular is True and hs[1].circular is True
-    assert hs[2].circular is False and hs[3].circular is False
+    # all grips round: endpoints + bubble-standoff (draggable move-like) grips
+    assert all(h.circular is True for h in hs)
 
 
 def test_endpoint_apply_matches_legacy_and_propagates():

@@ -107,9 +107,11 @@ Gridline grips are **manipulator-owned** `GripHandle`s provided by
 house selection style. The full grip contract (render, hit-test, drag lifecycle,
 parallel-delta, endpoint Ctrl-constrain, sibling Esc-restore) is governed by
 `docs/specs/selection-manipulator.md §"U3 — GripHandle"` (Rule A — not restated
-here). `manip_handles()` returns 4 handles: endpoints (0, 1) round, bubble-standoff
-grips (2, 3) square; `grip_hittable(index)` still gates lock + hidden-bubble
-pickability (via `GripHandle.visible`).
+here). `manip_handles()` returns 4 handles, all round: endpoints (0, 1) and the
+bubble-standoff grips (2, 3) — the bubble grips are draggable move-like
+affordances (reposition the standoff), round per the house rule (function, not
+position). `grip_hittable(index)` still gates lock + hidden-bubble pickability
+(via `GripHandle.visible`).
 
 The legacy `_PullTabGrip` child items were **removed** at the U3 migration — grips
 no longer render via `_PullTabGrip`/`drawForeground`, and `_find_grip_hit` skips

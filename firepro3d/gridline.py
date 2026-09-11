@@ -864,8 +864,9 @@ class GridlineItem(QGraphicsLineItem):
         manipulator grips (``GridlineGripHandle``).
 
         Endpoints (0, 1) render round + Ctrl-angle-constrain against the opposite
-        endpoint; bubble-standoff grips (2, 3) render square (derived-convenience
-        grips) with no constrain. All four carry multi-select parallel-delta. The
+        endpoint; bubble-standoff grips (2, 3) render round (draggable move-like
+        affordances that reposition the bubble standoff) with no constrain. All
+        four carry multi-select parallel-delta. The
         manipulator renders/hit-tests/commits them; the legacy grip paths skip
         this item (coexistence gate ``_item_uses_manip_handles``). Per-grip
         pickability (lock + bubble visibility) is enforced by ``grip_hittable``
@@ -876,8 +877,8 @@ class GridlineItem(QGraphicsLineItem):
         return [
             GridlineGripHandle(self, 0, opposite_index=1, circular=True),
             GridlineGripHandle(self, 1, opposite_index=0, circular=True),
-            GridlineGripHandle(self, 2, circular=False),
-            GridlineGripHandle(self, 3, circular=False),
+            GridlineGripHandle(self, 2, circular=True),
+            GridlineGripHandle(self, 3, circular=True),
         ]
 
     # ── Serialisation ─────────────────────────────────────────────────────

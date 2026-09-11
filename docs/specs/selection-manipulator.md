@@ -507,9 +507,11 @@ carries the edit math (endpoints, translate, thickness) unchanged; the rotate
 knob coexists (wall has `manip_rotate`); not box-native.
 
 **GridlineItem.manip_handles()** → `[GridlineGripHandle(0, opp=1, round),
-GridlineGripHandle(1, opp=0, round), GridlineGripHandle(2, square),
-GridlineGripHandle(3, square)]`. Grips 0/1 are the endpoints (origin/far), 2/3
-the bubble-standoff grips; `apply_grip` slides endpoints along the axis (opposite
+GridlineGripHandle(1, opp=0, round), GridlineGripHandle(2, round),
+GridlineGripHandle(3, round)]`. Grips 0/1 are the endpoints (origin/far), 2/3
+the bubble-standoff grips; all round — the bubble grips are draggable move-like
+affordances (reposition the bubble standoff), round per the house rule (function,
+not position). `apply_grip` slides endpoints along the axis (opposite
 end fixed) and bubble grips along the standoff (floored at 0) — unchanged. The
 SECOND sibling-mutating migration, but the sibling relation is **multi-select
 parallel-delta**, not coincidence-propagation: **`GridlineGripHandle(
