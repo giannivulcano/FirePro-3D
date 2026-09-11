@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: fd4d05f   # U3 GridlineItem migration (parallel-delta on all grips + endpoint Ctrl-constrain + sibling-Esc; _PullTabGrip removed; bubble grips round)
+verified-commit: a1c968f   # U3 Room migration (single conditional label-move grip; state-dependent empty manip_handles path)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -531,6 +531,18 @@ The legacy `_PullTabGrip` child items (the pre-U3 endpoint/bubble grip visuals)
 are **removed** — grips are manipulator-owned; `_LockIndicator` stays and nudges
 `manipulator.rebake()` on lock-toggle so grip visibility re-evaluates. Rotate knob
 coexists (`manip_rotate`); not box-native. Hover grip-preview dropped (U5).
+
+**Room.manip_handles()** → `default_grip_handles(self, circular={0})`. The simplest
+migrated item: a SINGLE label-centre grip (round — a move affordance that
+repositions the label), **conditionally present**. `grip_points()` returns `[]`
+when the label is hidden (no name/tag or `_show_label` off), so `default_grip_handles`
+returns `[]` too — Room is the first item to exercise the **state-dependent empty
+`manip_handles()`** path: a label-less room reports "not migrated" via the gate,
+which is harmless because `grip_points()` is empty then (nothing renders on either
+path). Zero special drag semantics (`apply_grip(0)` moves the label; no
+Ctrl-constrain, no sibling propagation — the boundary vertices are wall-derived
+and NOT exposed as grips). `MANIP_NO_SOLO_ROTATE=True` → a solo room shows no
+rotate knob (rotate only in a multi-select group).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
