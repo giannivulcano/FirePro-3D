@@ -286,6 +286,61 @@ class DetailMarker(QGraphicsPathItem):
         if self._manager is not None:
             self._manager._on_marker_resized(self._name, r)
 
+    # ── Selection-manipulator adapter — box-native editable crop ──────────
+    # Governing spec: selection-manipulator.md (box-native; the SheetViewport
+    # crop-rect precedent) + view-relationships.md. DetailMarker behaves like
+    # RectangleItem in the plan: the crop rect is its bounding box (its own
+    # dashed outline is the visible box, so the manipulator frame is redundant),
+    # resized via the 8 rigid SQUARE handles (corners + edge midpoints).
+    # Axis-aligned — no rotate. The draggable bubble is an extra ROUND grip
+    # appended to the resize set (grip 8 → apply_grip moves it).
+
+    def manip_capabilities(self) -> set:
+        return {"translate", "scale"}        # box-native; no rotate (axis-aligned)
+
+    def manip_bounds(self) -> QRectF:
+        return QRectF(self._crop_rect)       # crop rect = the box the handles wrap
+
+    def manip_handles(self):
+        # Coexistence gate-tripper (_item_uses_manip_handles) + fallback. When
+        # box-native (always, here) the manipulator uses the rigid resize set +
+        # manip_box_extra_handles instead — so these never double up.
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={8})
+
+    def manip_box_extra_handles(self):
+        from .manip_handle import GripHandle
+        return [GripHandle(self, 8, circular=True)]   # bubble: round move grip
+
+    def manip_translate(self, dx: float, dy: float):
+        """Move the whole marker — crop rect + bubble — and refresh the tab clip."""
+        self._crop_rect.translate(dx, dy)
+        self._bubble_pos = QPointF(self._bubble_pos.x() + dx,
+                                   self._bubble_pos.y() + dy)
+        self.prepareGeometryChange()
+        self._rebuild_path()
+        self.update()
+        if self._manager is not None:
+            self._manager._on_marker_resized(self._name, QRectF(self._crop_rect))
+
+    def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
+        """Baked resize of the crop rect about scene ``anchor`` by (fx, fy).
+
+        Mirrors RectangleItem.manip_scale (the crop rect is in scene coords, so
+        no local-frame mapping). Refreshes the open detail tab's clip rect."""
+        r = self._crop_rect
+        left = anchor.x() + (r.left() - anchor.x()) * fx
+        right = anchor.x() + (r.right() - anchor.x()) * fx
+        top = anchor.y() + (r.top() - anchor.y()) * fy
+        bottom = anchor.y() + (r.bottom() - anchor.y()) * fy
+        self._crop_rect = QRectF(QPointF(left, top),
+                                 QPointF(right, bottom)).normalized()
+        self.prepareGeometryChange()
+        self._rebuild_path()
+        self.update()
+        if self._manager is not None:
+            self._manager._on_marker_resized(self._name, QRectF(self._crop_rect))
+
     # ── Interaction ──────────────────────────────────────────────────────
 
     def mouseDoubleClickEvent(self, event):
