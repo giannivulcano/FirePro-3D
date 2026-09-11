@@ -5,8 +5,8 @@ NoteAnnotation, drives observable behaviour, and asserts ground truth. Rotation
 uses the bake-at-rest model ported from RectangleItem (data _angle, NO Qt
 setRotation).
 """
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QTransform
+from PyQt6.QtCore import QPointF, QEvent, Qt
+from PyQt6.QtGui import QTransform, QMouseEvent
 
 from firepro3d.annotations import NoteAnnotation
 
@@ -185,3 +185,87 @@ def test_rotated_bounds_is_rotated_footprint(qapp):
     # box is no longer axis-aligned (width changes off its original 100).
     assert rotated.height() > base.height()
     assert abs(rotated.width() - base.width()) > 1e-3
+
+
+# ── Task 6: manipulator-driven parity (posted events) ────────────────────────
+# Mirrors the helpers in test_manip_griphandle_rect_parity.py.  Per-item single-
+# undo / Esc-restore are covered by the shared GripHandle framework suite
+# (test_manip_handle_admissibility.py); NoteAnnotation adds no custom handle
+# subclass (plain default_grip_handles), so the lifecycle is unchanged here.
+
+def _drive_handle(item, index, drag_to, mods=Qt.KeyboardModifier.NoModifier):
+    h = item.manip_handles()[index]
+
+    class _Scene:
+        _tools = None
+        _grip_item = None
+        _grip_dragging = False
+        def get_effective_position(self, pt): return QPointF(pt)
+    class _M:
+        _commit_hook = None
+        def scene(self_m): return sc
+        def _reflow_live(self_m): pass
+    sc = _Scene()
+    m = _M()
+    h.on_press(m)
+    h.on_drag(m, QPointF(drag_to), mods)
+    return h, m
+
+
+def _post_drag(view, scene, path):
+    from PyQt6.QtWidgets import QApplication
+    for i, pt in enumerate(path):
+        vp = view.mapFromScene(pt)
+        etype = (QEvent.Type.MouseButtonPress if i == 0
+                 else QEvent.Type.MouseButtonRelease if i == len(path) - 1
+                 else QEvent.Type.MouseMove)
+        btn = Qt.MouseButton.LeftButton
+        ev = QMouseEvent(etype, vp.toPointF(),
+                         view.viewport().mapToGlobal(vp).toPointF(),
+                         btn, btn if etype != QEvent.Type.MouseButtonRelease
+                         else Qt.MouseButton.NoButton,
+                         Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(view.viewport(), ev)
+
+
+def test_rotated_note_grip_apply_matches_live_drive(qapp):
+    """Driving grip 3 through the live-apply lifecycle == calling apply_grip
+    directly — proves the manipulator path carries the note's resize math."""
+    legacy = NoteAnnotation("Hi", x=0, y=0)
+    legacy.setTextWidth(100.0); legacy._box_height = 40.0
+    legacy.set_angle(30.0, QPointF(50, 20))
+    legacy.apply_grip(3, QPointF(130, 25))
+
+    migrated = NoteAnnotation("Hi", x=0, y=0)
+    migrated.setTextWidth(100.0); migrated._box_height = 40.0
+    migrated.set_angle(30.0, QPointF(50, 20))
+    _drive_handle(migrated, 3, QPointF(130, 25))
+
+    assert abs(migrated.textWidth() - legacy.textWidth()) < 1e-6
+    assert abs(migrated._box_height - legacy._box_height) < 1e-6
+    assert abs(migrated.pos().x() - legacy.pos().x()) < 1e-6
+    assert abs(migrated.pos().y() - legacy.pos().y()) < 1e-6
+
+
+def test_posted_drag_centre_grip_moves_rotated_note(qapp):
+    """End-to-end: a posted drag on the centre grip (8) of a rotated note,
+    routed through the manipulator (no legacy path), translates the note."""
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(600, 600); view.show()
+    qapp.processEvents()
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0); note._box_height = 40.0
+    note.set_angle(30.0, QPointF(50, 20))
+    scene.addItem(note)
+    m = SelectionManipulator(scene)
+    note.setSelected(True); qapp.processEvents()
+    assert m.provides_handles_for(note) is False        # rotated → parametric grips
+    c0 = note.grip_points()[8]
+    target = QPointF(c0.x() + 40, c0.y() - 25)
+    _post_drag(view, scene, [c0, QPointF(c0.x() + 20, c0.y() - 12), target])
+    qapp.processEvents()
+    c1 = note.grip_points()[8]
+    assert abs(c1.x() - target.x()) < 1e-6
+    assert abs(c1.y() - target.y()) < 1e-6
