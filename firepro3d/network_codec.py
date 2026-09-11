@@ -89,6 +89,8 @@ def serialize_note(note) -> dict:
         "x":          note.scenePos().x(),
         "y":          note.scenePos().y(),
         "text_width": note.textWidth(),
+        "angle":      getattr(note, "_angle", 0.0),
+        "box_height": getattr(note, "_box_height", 0.0),
         "properties": {k: v["value"] for k, v in note.get_properties().items()},
         "level":      getattr(note, "level", DEFAULT_LEVEL),
     }
@@ -166,6 +168,10 @@ def deserialize_note(scene, entry):
     tw = entry.get("text_width", -1)
     note = NoteAnnotation(x=entry["x"], y=entry["y"],
                           text_width=tw if tw and tw > 0 else 0)
+    # Back-compat: pre-upgrade records lack angle/box_height — default to the
+    # identity (0.0 / auto-fit), which renders exactly as before.
+    note._angle = float(entry.get("angle", 0.0))
+    note._box_height = float(entry.get("box_height", 0.0))
     scene.addItem(note)
     scene.annotations.add_note(note)
     for key, value in entry.get("properties", {}).items():
