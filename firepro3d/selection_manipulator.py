@@ -144,6 +144,18 @@ def _item_uses_manip_handles(item) -> bool:
     return fn is not None and bool(fn())
 
 
+def _painting_into_clip_view(widget) -> bool:
+    """True when *widget* is the viewport of a detail/clip view (a ``Model_View``
+    with a ``_clip_rect``). The manipulator's own handle paint short-circuits
+    there — the crop mask (a view-level foreground) would dim it — and the view's
+    ``drawForeground`` redraws the frame + handles bright ON TOP of the mask via
+    ``render_overlay``."""
+    if widget is None:
+        return False
+    view = widget.parentWidget()
+    return view is not None and getattr(view, "_clip_rect", None) is not None
+
+
 def bake_translate(item, dx: float, dy: float) -> bool:
     """Apply a baked (real-coordinate) move via the item's best translate
     path: ``manip_translate`` > ``translate`` > ``moveBy``.
@@ -255,6 +267,8 @@ class _HandleItem(QGraphicsItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
+        if _painting_into_clip_view(widget):
+            return                              # redrawn bright by view.drawForeground
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         border = self._manip._handle_color(self._hover)
         painter.setPen(QPen(border, self._border()))
@@ -618,6 +632,42 @@ class SelectionManipulator(QGraphicsObject):
         painter.setPen(pen)                     # from an item's own solid edge
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self._rect)
+
+    def render_overlay(self, view, painter) -> None:
+        """Draw the selection frame + handles BRIGHT into a detail/clip view's
+        ``drawForeground`` — on top of the crop mask (the manipulator is a scene
+        item, so its normal paint is dimmed under the mask; ``_HandleItem.paint``
+        short-circuits in a clip view). The frame is drawn in scene coords (the
+        detail view hides the marker's own crop rect, so this frame IS the visible
+        box there); handles are drawn in viewport pixels (screen-constant)."""
+        if not self.isVisible() or self._rect.isNull():
+            return
+        try:
+            color = QColor(theme.detect().selection)
+        except Exception:
+            color = QColor("#63BE8B")
+        pen = QPen(color, 1.0)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.save()
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self._rect)                      # frame (scene coords)
+        painter.restore()
+        painter.save()
+        painter.resetTransform()                          # handles: viewport px
+        for host in list(self._handles.values()) + list(self._host_pool):
+            if not host.isVisible():
+                continue
+            vp = view.mapFromScene(host.scenePos())
+            painter.save()
+            painter.translate(vp)
+            border = self._handle_color(False)
+            host.handle.paint(painter, size=host._size(), border=border,
+                              fill=_handle_fill(), hover=False,
+                              border_width=host._border())
+            painter.restore()
+        painter.restore()
 
     def _layout(self) -> None:
         """Position the resize handles + rotate knob and capability-gate them.

@@ -153,46 +153,54 @@ class DetailMarker(QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # In a detail/clip view the crop rectangle is redundant (the view's mask
-        # edge already shows the crop) and reads as an unwanted "blue box" — draw
-        # only the callout (leader + bubble) there. The crop rect is the box in
-        # the PLAN view (box-native bounding box).
+        # In a detail/clip view the marker paints NOTHING as an item: its callout
+        # is redrawn bright by Model_View.drawForeground AFTER the crop mask
+        # (exempt from the dim), and the crop rectangle is redundant there (the
+        # mask edge already shows the crop). The crop rect is the box-native
+        # bounding box in the PLAN view only.
         view = widget.parentWidget() if widget is not None else None
-        in_detail = view is not None and getattr(view, "_clip_rect", None) is not None
+        if view is not None and getattr(view, "_clip_rect", None) is not None:
+            return
 
         R = _TAG_RADIUS
-        pen_w = max(1.0, R * 0.04)
-
-        # ── Rounded-rect crop boundary (plan view only) ──────────────
         r = self._crop_rect
         fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
-        if not in_detail:
-            # Cosmetic width 1 dashed — matches the placement reference line.
-            crop_pen = QPen(self._tag_color, 1, Qt.PenStyle.DashLine)
-            crop_pen.setCosmetic(True)
-            painter.setPen(crop_pen)
+        # Cosmetic width 1 dashed crop box — matches the placement reference line.
+        crop_pen = QPen(self._tag_color, 1, Qt.PenStyle.DashLine)
+        crop_pen.setCosmetic(True)
+        painter.setPen(crop_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(r, fr, fr)
+
+        self._paint_callout(painter)
+
+        if self.isSelected():
+            hl_pen = QPen(self._tag_color.lighter(150), max(1, R * 0.08))
+            painter.setPen(hl_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(self._bubble_pos, R, R)
             painter.drawRoundedRect(r, fr, fr)
 
-        # ── Leader line from crop rect edge to bubble center ─────────
-        bp = self._bubble_pos
-        # Find closest point on crop rect edge to bubble center
-        leader_start = self._closest_rect_point(r, bp)
-        leader_pen = QPen(self._tag_color, pen_w)
-        painter.setPen(leader_pen)
-        painter.drawLine(leader_start, bp)
+    def _paint_callout(self, painter):
+        """Draw the leader + bubble + tag text (NO crop rect).
 
-        # ── Bubble: circle with horizontal divider ───────────────────
-        # Filled circle
+        Called by ``paint`` in the plan view, and by ``Model_View.drawForeground``
+        in a detail view so the callout renders bright ON TOP of the crop mask
+        (exempt from the dim). Painter is in scene coordinates in both cases."""
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        R = _TAG_RADIUS
+        pen_w = max(1.0, R * 0.04)
+        r = self._crop_rect
+        bp = self._bubble_pos
+        # Leader
+        painter.setPen(QPen(self._tag_color, pen_w))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(self._closest_rect_point(r, bp), bp)
+        # Bubble + divider
         painter.setPen(QPen(self._tag_color, pen_w))
         painter.setBrush(QBrush(self._fill_color))
         painter.drawEllipse(bp, R, R)
-
-        # Horizontal divider line
-        painter.drawLine(
-            QPointF(bp.x() - R, bp.y()),
-            QPointF(bp.x() + R, bp.y()))
-
+        painter.drawLine(QPointF(bp.x() - R, bp.y()), QPointF(bp.x() + R, bp.y()))
         # Detail number (top half)
         parts = self._name.split()
         number = parts[-1] if parts else "1"
@@ -202,26 +210,15 @@ class DetailMarker(QGraphicsPathItem):
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QPen(self._tag_color.lighter(150)))
-        top_rect = QRectF(bp.x() - R, bp.y() - R, R * 2, R)
-        painter.drawText(top_rect, Qt.AlignmentFlag.AlignCenter, number)
-
-        # View reference (bottom half) — shows the source view name
+        painter.drawText(QRectF(bp.x() - R, bp.y() - R, R * 2, R),
+                         Qt.AlignmentFlag.AlignCenter, number)
+        # View reference (bottom half)
         ref_font = QFont("Consolas")
         ref_font.setPixelSize(max(1, int(R * (font_pt / 10.0) * 0.7)))
         painter.setFont(ref_font)
-        bot_rect = QRectF(bp.x() - R, bp.y(), R * 2, R)
-        # Show the level name abbreviation or "—"
         ref_text = self._level_name.replace("Level ", "L") if self._level_name else "—"
-        painter.drawText(bot_rect, Qt.AlignmentFlag.AlignCenter, ref_text)
-
-        # ── Selection highlight ──────────────────────────────────────
-        if self.isSelected():
-            hl_pen = QPen(self._tag_color.lighter(150), max(1, R * 0.08))
-            painter.setPen(hl_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(bp, R, R)
-            if not in_detail:                       # no crop-rect box in detail view
-                painter.drawRoundedRect(r, fr, fr)
+        painter.drawText(QRectF(bp.x() - R, bp.y(), R * 2, R),
+                         Qt.AlignmentFlag.AlignCenter, ref_text)
 
     @staticmethod
     def _closest_rect_point(rect: QRectF, pt: QPointF) -> QPointF:

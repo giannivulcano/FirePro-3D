@@ -218,9 +218,28 @@ class Model_View(QGraphicsView):
 
             # No passive crop-boundary outline: the mask edge already shows the
             # crop extent, and an explicit dashed box reads as an unwanted "blue
-            # box" framing the whole detail view (user, 2026-09-11). The marker's
-            # callout (leader + bubble) still renders; the crop is edited from the
-            # plan view where the marker is a box-native rectangle.
+            # box" framing the whole detail view (user, 2026-09-11).
+            #
+            # Instead, redraw THIS detail's marker callout (leader + bubble + tag)
+            # bright, ON TOP of the mask (exempt from the crop dim). The marker
+            # paints nothing as an item in a clip view; its callout is drawn here.
+            # The selection frame/handles are drawn exempt just below (see the
+            # manipulator overlay pass).
+            name = getattr(self, "_detail_name", None)
+            if name is not None:
+                for it in scene.items():
+                    if (getattr(it, "_name", None) == name
+                            and hasattr(it, "_paint_callout")):
+                        painter.save()
+                        it._paint_callout(painter)
+                        painter.restore()
+                        break
+
+            # Selection frame + handles, bright on top of the mask (exempt) — so
+            # the crop is selectable/resizable from inside the detail view.
+            manip = scene._live_manip() if hasattr(scene, "_live_manip") else None
+            if manip is not None and manip.isVisible():
+                manip.render_overlay(self, painter)
 
         snap_result = getattr(scene, "_snap_result", None)
 

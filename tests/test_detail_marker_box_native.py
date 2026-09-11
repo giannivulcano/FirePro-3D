@@ -57,3 +57,33 @@ def test_selected_shows_rigid_resize_plus_round_bubble(qapp):
     assert extra[0].index == 8 and extra[0].circular is True  # round move grip
     # no rotate knob is active for an axis-aligned crop
     assert not any(h.role is HandleRole.ROTATE and h.visible(m) for h in handles)
+
+
+def test_clip_view_gate(qapp):
+    from firepro3d.selection_manipulator import _painting_into_clip_view
+    assert _painting_into_clip_view(None) is False
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene)
+    assert _painting_into_clip_view(view.viewport()) is False   # plain plan view
+    view._clip_rect = QRectF(0, 0, 100, 100)
+    assert _painting_into_clip_view(view.viewport()) is True     # detail view
+
+
+def test_render_overlay_draws_in_detail_view(qapp):
+    """The bright overlay (frame + handles) drawn by drawForeground on top of the
+    crop mask, so the crop is editable from inside the detail view."""
+    from PyQt6.QtGui import QImage, QPainter
+    scene = QGraphicsScene()
+    view = QGraphicsView(scene); view.resize(400, 400)
+    view._clip_rect = QRectF(0, 0, 200, 100); view.show()
+    qapp.processEvents()
+    dm = _make(); scene.addItem(dm)
+    m = SelectionManipulator(scene)
+    dm.setSelected(True); qapp.processEvents()
+    img = QImage(400, 400, QImage.Format.Format_ARGB32); img.fill(0)
+    p = QPainter(img)
+    m.render_overlay(view, p)
+    p.end()
+    drawn = [(x, y) for x in range(0, 400, 8) for y in range(0, 400, 8)
+             if img.pixelColor(x, y).alpha() != 0]
+    assert drawn != []                                           # frame + handles rendered
