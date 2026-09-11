@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab/polygon-vertex-grips (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: 5579339   # U3 DesignArea migration (single conditional badge-move grip; Room twin)
+verified-commit: 68cd0bf   # U3 FloorSlab migration (polygon boundary vertices; PolylineItem twin, zero special semantics)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -552,6 +552,15 @@ empty and the gate is off when there's no badge. `apply_grip(0)` moves the badge
 zero special semantics. The manipulator frame wraps the badge box (`manip_bounds`
 → `badge.sceneBoundingRect()`); caps are `{translate, rotate}` (badge is a
 fixed-layout table — never scalable).
+
+**FloorSlab.manip_handles()** → `default_grip_handles(self, circular=set(range(
+len(self._points))))`: one round grip per boundary vertex — a PolylineItem twin.
+`grip_points()`/`apply_grip()` (move vertex + `_rebuild_path`) carry the edit math
+unchanged. **Zero special drag semantics**: polygons are explicitly excluded from
+the legacy Ctrl-constrain block (*"rect, arc, polygon, circle … must NOT be
+affected"*), and a floor's boundary is not grip-coupled to neighbours, so no
+`EndpointGripHandle`/`_transform_point`/propagation. The rotate knob coexists
+(`manip_rotate`); not box-native (no `manip_scale` → caps `{translate, rotate}`).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
