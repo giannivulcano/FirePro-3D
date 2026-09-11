@@ -196,7 +196,12 @@ def test_dimension_annotation_moves_via_manipulator(qapp, scene_and_view):
     qapp.processEvents()
     manip = _manip(scene)
     assert dim in manip.selection_items()
-    assert _visible_handles(manip) == []
+    # U3: the dimension's offset grip is now manipulator-owned — a single round
+    # grip handle shows; translate-only, so no resize/rotate handles.
+    from firepro3d.manip_math import _RESIZE_ROLES
+    assert not manip._handles[HandleRole.ROTATE].isVisible()
+    assert all(not manip._handles[r].isVisible() for r in _RESIZE_ROLES)
+    assert len(_visible_handles(manip)) == 1          # the offset grip
 
     scene.push_undo_state()
     depth0 = len(scene._undo_stack)

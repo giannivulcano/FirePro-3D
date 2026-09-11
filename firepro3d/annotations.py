@@ -289,6 +289,18 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         # manip_rotate method lights up group rotate for dimensions.
         return {"translate"}
 
+    def manip_handles(self):
+        """U3: the single offset grip on the unified live-apply path.
+
+        One round grip at the offset-line midpoint (a draggable reposition
+        affordance — round per the gridline bubble-standoff precedent); index 0 →
+        ``apply_grip`` changes the perpendicular offset distance, unchanged. Zero
+        special semantics (no Ctrl-constrain, no sibling propagation). Translate
+        is still the manipulator's interior drag via ``manip_translate``; no
+        scale/rotate in v1."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
     def manip_translate(self, dx: float, dy: float):
         self._p1 = QPointF(self._p1.x() + dx, self._p1.y() + dy)
         self._p2 = QPointF(self._p2.x() + dx, self._p2.y() + dy)
