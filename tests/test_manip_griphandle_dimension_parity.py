@@ -21,6 +21,21 @@ def _make_dim():
     return DimensionAnnotation(QPointF(0, 0), QPointF(100, 0))
 
 
+def test_dimension_line_width_matches_reference_line_and_solid(qapp):
+    """The dimension line (and its shared ticks/witness pen) renders at cosmetic
+    width 1 — matching the placement reference line (_make_ref_line) — but SOLID,
+    not dashed. Guards the 2026-09-11 user request."""
+    dm = _make_dim()
+    pen = dm.pen()
+    assert pen.widthF() == 1.0                         # == reference-line width
+    assert pen.isCosmetic()
+    assert pen.style() is Qt.PenStyle.SolidLine        # not dashed
+    # the shared _dim_pen drives ticks + witness lines too
+    assert dm.tick1.pen().widthF() == 1.0
+    assert dm.witness1.pen().style() is Qt.PenStyle.SolidLine
+    assert dm._properties["Line Weight"]["value"] == "1"
+
+
 def test_dimension_manip_handles_shape(qapp):
     dm = _make_dim()
     assert len(dm.grip_points()) == 1                 # single offset grip

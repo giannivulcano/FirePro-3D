@@ -165,7 +165,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self._properties = {
             "Text Size": {"type": "string", "value": "10"},
             "Colour": {"type": "enum", "options": ["Black", "Red", "Blue", "White"], "value": "White"},
-            "Line Weight": {"type": "enum", "options": ["2", "4", "6"], "value": "2"},
+            # Default width 1 (cosmetic) matches the placement reference line
+            # (_make_ref_line / spline _spline_ref_poly), but solid — see the
+            # SolidLine pen below.  Thicker widths remain selectable.
+            "Line Weight": {"type": "enum", "options": ["1", "2", "4", "6"], "value": "1"},
             "Witness Length": {"type": "string", "value": "20"},
             "Offset": {"type": "string", "value": "10"},
         }
