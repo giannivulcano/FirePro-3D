@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: 189b5f9   # U3 WallSegment migration (propagation + sibling-Esc + width-grip alignment)
+verified-commit: 26d09c3   # U3 GridlineItem migration (parallel-delta on all grips + endpoint Ctrl-constrain + sibling-Esc; _PullTabGrip removed)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -505,6 +505,30 @@ calls are getattr-guarded so a headless plain scene degrades to no-propagation.
 The mid/width grips are plain `GripHandle`s and never propagate. `apply_grip`
 carries the edit math (endpoints, translate, thickness) unchanged; the rotate
 knob coexists (wall has `manip_rotate`); not box-native.
+
+**GridlineItem.manip_handles()** → `[GridlineGripHandle(0, opp=1, round),
+GridlineGripHandle(1, opp=0, round), GridlineGripHandle(2, square),
+GridlineGripHandle(3, square)]`. Grips 0/1 are the endpoints (origin/far), 2/3
+the bubble-standoff grips; `apply_grip` slides endpoints along the axis (opposite
+end fixed) and bubble grips along the standoff (floored at 0) — unchanged. The
+SECOND sibling-mutating migration, but the sibling relation is **multi-select
+parallel-delta**, not coincidence-propagation: **`GridlineGripHandle(
+EndpointGripHandle)`** (`manip_handle.py`) applies the same scene delta to the
+same grip index on every OTHER *selected* gridline (`_after_apply` →
+`scene._propagate_gridline_grip`) — for ALL four grips, not just endpoints (bubble
+standoffs propagate too; exact for parallel selections, under-applies for
+non-parallel, the historical behaviour). Endpoints Ctrl-angle-constrain against
+the opposite endpoint (inherited `EndpointGripHandle`, `opposite_index` set);
+bubble grips pass `opposite_index=None` to skip it (parity: legacy constrained
+endpoints only). Atomic Esc-restore of siblings via `_extra_snapshots`/
+`_restore_extra` → `scene._snapshot_gridline_grips(item, index)` /
+`_restore_gridline_grips` (indexed by the dragged grip; `apply_grip` on a
+gridline's original on-axis point is idempotent, so restore is exact). The scene
+helpers live directly in `Model_Space` (gridline has no domain controller yet).
+The legacy `_PullTabGrip` child items (the pre-U3 endpoint/bubble grip visuals)
+are **removed** — grips are manipulator-owned; `_LockIndicator` stays and nudges
+`manipulator.rebake()` on lock-toggle so grip visibility re-evaluates. Rotate knob
+coexists (`manip_rotate`); not box-native. Hover grip-preview dropped (U5).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end

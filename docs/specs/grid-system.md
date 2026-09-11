@@ -1,7 +1,7 @@
 ---
-status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20
-last-verified: 2026-08-20
-verified-commit: fa6efeb
+status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
+last-verified: 2026-09-10
+verified-commit: 26d09c3
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -100,15 +100,23 @@ reposition grips + lock indicator
 - Duplicate-label warning: bubble border color changes to orange (`#ff8800`) when the label matches another gridline in the scene. **Border width is unchanged** by the warning. Clears automatically when resolved.
 - `enter_paper_mode()` / `exit_paper_mode()` swap to scene-unit geometry for the paper render pass (§10.2, paper-space §9.9.1).
 
-### 4.3 Pull-Tab Grips (Child)
+### 4.3 Grips (manipulator-owned since U3, 2026-09-10)
 
-`_PullTabGrip` — `QGraphicsRectItem` with `ItemIgnoresTransformations` (constant screen size). Two instances per gridline, positioned slightly outward beyond each endpoint along the line direction.
+Gridline grips are **manipulator-owned** `GripHandle`s provided by
+`GridlineItem.manip_handles()` and rendered by the `SelectionManipulator` in the
+house selection style. The full grip contract (render, hit-test, drag lifecycle,
+parallel-delta, endpoint Ctrl-constrain, sibling Esc-restore) is governed by
+`docs/specs/selection-manipulator.md §"U3 — GripHandle"` (Rule A — not restated
+here). `manip_handles()` returns 4 handles: endpoints (0, 1) round, bubble-standoff
+grips (2, 3) square; `grip_hittable(index)` still gates lock + hidden-bubble
+pickability (via `GripHandle.visible`).
 
-- Visible only when the gridline is selected (and unlocked) or hovered
-- Rendered in the **house selection-grip style**: white fill + `SELECTION_OUTLINE_COLOR` (#0055ff) outline (per `docs/architecture/theming.md`); model grips are screen-px sized
-- Dragging a grip extends/shortens the gridline along its axis (§5.2)
+The legacy `_PullTabGrip` child items were **removed** at the U3 migration — grips
+no longer render via `_PullTabGrip`/`drawForeground`, and `_find_grip_hit` skips
+the gridline (coexistence gate `_item_uses_manip_handles`). The edit math
+(`apply_grip`, §5.2 / §5.7) is unchanged.
 
-A `_LockIndicator` padlock child renders beside the origin bubble when the gridline is selected; clicking it toggles `_locked`.
+A `_LockIndicator` padlock child renders beside the origin bubble when the gridline is selected; clicking it toggles `_locked` and nudges `manipulator.rebake()` so grip visibility re-evaluates immediately.
 
 ### 4.4 Serialization Format
 
@@ -143,7 +151,7 @@ Triggered by clicking the gridline body (not bubble, not grip) and dragging.
 
 ### 5.2 Grip Drag (Extend/Shorten)
 
-Triggered by clicking a pull-tab grip and dragging. `apply_grip(index, new_pos)` **extends/shortens the gridline along its own axis with the opposite endpoint fixed** — it does *not* translate the whole line (the pre-re-architecture bug).
+Triggered by dragging an endpoint grip (manipulator-owned `GripHandle` since U3, §4.3). `apply_grip(index, new_pos)` **extends/shortens the gridline along its own axis with the opposite endpoint fixed** — it does *not* translate the whole line (the pre-re-architecture bug).
 
 - Index 0 (origin end) and index 1 (far end): the cursor is projected onto the line direction; the perpendicular component is discarded. The grabbed endpoint moves along the axis, the other stays put, and `_length` (and `_origin`, for the origin grip) update accordingly.
 - Length floors at 1.0 mm.
@@ -185,9 +193,9 @@ Each bubble stands off from its endpoint by an **absolute, editable per-end offs
 
 Two additional pull-tab grips sit at the bubble centres (`_bgrip1` / `_bgrip2`, same house style as the endpoint grips). `grip_points()` returns **four** entries — `[origin, far, bubble1_centre, bubble2_centre]` (indices 0/1 endpoints, 2/3 bubbles). Dragging a bubble grip slides that end's offset **along the gridline axis** (perpendicular component discarded), floored at 0, no maximum, via `apply_grip(2|3, pos)`.
 
-- **Visibility / hittability:** bubble grips show on selection/hover when unlocked; a **hidden bubble shows no grip**. `grip_hittable(index)` returns `False` for a locked gridline (any index) and for a hidden bubble's index; it gates **both** the hit-test (`_find_grip_hit`, §5.3 / `scene_tools`) and the `drawForeground` grip-render loop (no phantom handle).
-- **Multi-select:** dragging one bubble grip applies the **same offset delta** to the matching end of every selected gridline; locked members are skipped (lock-aware via `apply_grip`). Endpoint grips (0/1) keep their extend/shorten behavior (§5.2) unchanged; the shared drag body is `_drag_grip_to()`. Ctrl-angle-constrain applies to endpoint grips only.
-- **Undo:** one state push on mouse release (shared grip-release path).
+- **Visibility / hittability:** bubble grips show on selection when unlocked; a **hidden bubble shows no grip**. `grip_hittable(index)` returns `False` for a locked gridline (any index) and for a hidden bubble's index; since U3 (§4.3) it gates the manipulator handle's visibility (`GripHandle.visible`), which is the sole render + hit path (the legacy `_find_grip_hit` / `drawForeground` loops skip the migrated gridline).
+- **Multi-select:** dragging one grip applies the **same scene delta** to the matching grip index of every selected gridline; locked members are skipped (lock-aware via `apply_grip`). All four grips propagate (endpoints AND bubble standoffs). Since U3 the propagation is driven by `GridlineGripHandle._after_apply` → `Model_Space._propagate_gridline_grip` (the legacy `_drag_grip_to` branch is preserved but calls the same method). Ctrl-angle-constrain applies to endpoint grips only.
+- **Undo:** one state push per gesture (`GripHandle` commit hook on release).
 
 ### 5.7 Double-Click to Select
 
@@ -372,7 +380,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - **Model-space editing:** unchanged — bubbles stay `ItemIgnoresTransformations`, fixed screen size, always readable. (The thin-lines WYSIWYG-preview toggle is deferred.)
 - **Sheet view rendering:** bubbles render at a true paper size derived from the Grid Line paper category's `bubble_label_height_mm` (label cap height, factory 3.0 mm); the category line weight drives both the gridline line and the bubble border on paper.
 - **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
-- Selection ring, pull-tab grips, lock indicator, and the duplicate-label warning color never plot.
+- Selection ring, manipulator grips, lock indicator, and the duplicate-label warning color never plot.
 
 ## 11. Design Decisions
 
@@ -393,7 +401,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ### 11.12 Grip = extend/shorten along the line (opposite end fixed)
 
-**Chosen:** A pull-tab grip drag extends/shortens the gridline along its axis with the far end fixed; re-angling is a panel edit, not a grip gesture.
+**Chosen:** An endpoint grip drag extends/shortens the gridline along its axis with the far end fixed; re-angling is a panel edit, not a grip gesture. (Grips are manipulator-owned since U3, §4.3; the extend/shorten `apply_grip` math is unchanged.)
 **Rationale:** Supersedes the pre-re-architecture whole-line-translate bug. Predictable, matches the parametric length field. Body drag remains perpendicular reposition.
 
 ### 11.13 Absolute mm bubble offset (retire fractional overshoot)
@@ -462,7 +470,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [x] `grid_line.py` removed; all imports cleaned up
 - [x] Parametric data model: `_origin` + `_length` + `_angle_deg` + per-bubble offsets; single `_rebuild_geometry()` writer keeps `line()` in sync
 - [x] Lock/unlock prevents grip drag, body drag, spacing edit, and panel geometry edit
-- [x] Visible pull-tab grips at endpoints (on selection/hover), house selection-grip style (white + `SELECTION_OUTLINE_COLOR`)
+- [x] Manipulator-owned grips at endpoints (on selection), house selection style (U3, §4.3; `_PullTabGrip` retired)
 - [x] Perpendicular body drag with directional constraint (fixed-sign normal)
 - [x] On-canvas placement via `draw_gridline` mode, mirroring the Line tool (1st click origin, 2nd click length+angle, Ctrl-constrain, Tab exact input, single-place)
 - [x] Draw-tab ribbon "Gridline" button sets `draw_gridline`; modal Grid Lines dialog removed
@@ -518,8 +526,9 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
 | `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
-| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost; grip render honors `grip_hittable` |
-| `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items |
+| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost. Grip render is manipulator-owned since U3 (§4.3) — the `drawForeground` legacy grip loop skips the migrated gridline. |
+| `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items — **skips** the U3-migrated gridline (`_item_uses_manip_handles`). |
+| `firepro3d/manip_handle.py` | `GridlineGripHandle` — the gridline's live-apply grip (parallel-delta on all grips + endpoint Ctrl-constrain + sibling Esc-restore); see `selection-manipulator.md §"U3 — GripHandle"`. |
 | `firepro3d/align_engine.py` | `AlignEngine`, `ReferenceFeature`, `Guide`, `AlignResult` — entity-agnostic; owned by `Model_Space` |
 | `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
@@ -539,8 +548,11 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `_is_template: bool` | `GridlineItem` | Flag for placement-template instance; restricts `get_properties()` to non-geometric rows |
 | `grip_points() -> list[QPointF]` (4 entries) | `GridlineItem` | `[origin, far, bubble1, bubble2]` — indices 2/3 are the bubble-offset grips (§5.7) |
 | `apply_grip(2|3, pos)` | `GridlineItem` | Slides that end's bubble offset along the axis (floored 0); indices 0/1 = endpoint extend/shorten |
-| `grip_hittable(index) -> bool` | `GridlineItem` | Gates a locked/hidden-bubble grip in `_find_grip_hit` and the `drawForeground` grip render (§5.7) |
-| `_drag_grip_to(pos)` | `Model_Space` | Shared grip-drag body: applies to active grip + same-delta multi-select propagation |
+| `grip_hittable(index) -> bool` | `GridlineItem` | Gates a locked/hidden-bubble grip; since U3 gates manipulator handle visibility (`GripHandle.visible`, §4.3) |
+| `manip_handles() -> list` (4) | `GridlineItem` | U3 manipulator grips (`GridlineGripHandle`); endpoints round, bubble grips square (§4.3) |
+| `_propagate_gridline_grip(gi, index, delta)` | `Model_Space` | Same-delta parallel propagation to other selected gridlines; called by `GridlineGripHandle._after_apply` AND the preserved legacy `_drag_grip_to` branch |
+| `_snapshot_gridline_grips(exclude, index)` / `_restore_gridline_grips(snapshot)` | `Model_Space` | Atomic Esc-restore of parallel-delta siblings (§4.3) |
+| `_drag_grip_to(pos)` | `Model_Space` | Legacy shared grip-drag body (now skipped for gridline via the coexistence gate; retained until U4) |
 
 ## 15. Edge Cases & Error Handling
 
