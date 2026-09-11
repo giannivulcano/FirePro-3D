@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem, QGraphicsPathItem,
     QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush
+from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush, QTransform
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP, MIN_TEXT_WRAP_WIDTH_MM
 
@@ -244,16 +244,101 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setTextWidth(new_w)
         self._box_height = new_h
 
-    # ── visual editing frame ──────────────────────────────────────────────
+    # ── Bake-at-rest rotation (data-only; NO Qt item transform) ───────────
+    # Ported from RectangleItem.  A note's pos() is nonzero (QGraphicsTextItem
+    # origin), so the map* overrides COMPOSE the local rotation with super()'s
+    # pos translation, and set_angle stores the pivot in LOCAL coords.  Qt's
+    # mapToScene is non-virtual in C++, so these only intercept Python callers
+    # (grip/snap); Qt rendering uses paint/boundingRect/shape (all baked below).
+
+    def set_angle(self, angle_deg: float, pivot: "QPointF | None" = None) -> None:
+        self._angle = float(angle_deg)
+        if pivot is not None:
+            # Manipulator passes a SCENE pivot → store LOCAL (pos-removal only;
+            # Qt rotation() is always 0, so this never un-applies _angle).
+            self._pivot = QGraphicsTextItem.mapFromScene(self, QPointF(pivot))
+        else:
+            self._pivot = None          # follow the box centre on resize
+        self.prepareGeometryChange()
+        self.update()
+
+    def _rotation_origin(self) -> QPointF:
+        return QPointF(self._pivot) if self._pivot is not None else self._local_box().center()
+
+    def _rotation_transform(self) -> QTransform:
+        m = QTransform()
+        if self._angle == 0.0:
+            return m
+        o = self._rotation_origin()
+        m.translate(o.x(), o.y())
+        m.rotate(-self._angle)          # Y-up CCW → Qt CW negate
+        m.translate(-o.x(), -o.y())
+        return m
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        self.set_angle(self._angle + angle_deg, pivot)
+
+    def mapToScene(self, *args):
+        """Local→scene through the data rotation, composed with pos (super())."""
+        if self._angle == 0.0:
+            return super().mapToScene(*args)
+        t = self._rotation_transform()
+        if len(args) == 2:                       # (x, y)
+            return super().mapToScene(t.map(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, (QPointF, QPainterPath)):
+            return super().mapToScene(t.map(obj))
+        return super().mapToScene(*args)         # unknown overload → best effort
+
+    def mapFromScene(self, *args):
+        """Scene→local inverse of :meth:`mapToScene`."""
+        if self._angle == 0.0:
+            return super().mapFromScene(*args)
+        inv, ok = self._rotation_transform().inverted()
+        if not ok:
+            inv = QTransform()
+        if len(args) == 2:
+            return inv.map(super().mapFromScene(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, (QPointF, QPainterPath)):
+            return inv.map(super().mapFromScene(obj))
+        return super().mapFromScene(*args)
+
+    def mapRectToScene(self, rect: QRectF) -> QRectF:
+        """Axis-aligned scene bounds of the rotated local ``rect`` (+pos)."""
+        if self._angle == 0.0:
+            return super().mapRectToScene(rect)
+        return super().mapRectToScene(self._rotation_transform().mapRect(rect))
+
+    # ── visual editing frame + baked rotation render ──────────────────────
 
     def paint(self, painter, option, widget=None):
+        painter.save()
+        if self._angle != 0.0:
+            painter.setWorldTransform(self._rotation_transform(), True)
         super().paint(painter, option, widget)
         if self.hasFocus():
             pen = QPen(QColor("#88aaff"), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
+            painter.drawRect(self._local_box())
+        painter.restore()
+
+    def boundingRect(self) -> QRectF:
+        # Cover both the painted content and the stored box (a tall _box_height
+        # must not clip the focus frame / selection).
+        base = QGraphicsTextItem.boundingRect(self).united(self._local_box())
+        if self._angle == 0.0:
+            return base
+        return self._rotation_transform().mapRect(base)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self._local_box())
+        if self._angle != 0.0:
+            path = self._rotation_transform().map(path)
+        return path
 
 
 # ═════════════════════════════════════════════════════════════════════════════

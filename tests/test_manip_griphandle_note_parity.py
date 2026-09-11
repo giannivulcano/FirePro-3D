@@ -133,3 +133,55 @@ def test_manip_scale_matches_apply_grip_corner(qapp):
     assert abs(note.textWidth() - 200.0) < 1e-6
     assert abs(note._box_height - 100.0) < 1e-6
     assert note.pos() == QPointF(0, 0)
+
+
+# ── Task 5: bake-at-rest rotation ────────────────────────────────────────────
+
+def test_rotate_bakes_angle_and_drops_scale_cap(qapp):
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 40.0
+    note.manip_rotate(90.0, QPointF(50, 20))       # 90° about box centre
+    assert abs(note._angle - 90.0) < 1e-6
+    assert note.manip_capabilities() == {"translate", "rotate"}   # scale dropped
+
+
+def test_rotated_grip_points_follow_transform(qapp):
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 40.0
+    centre = note._local_box().center()            # (50, 20) local
+    note.manip_rotate(90.0, note.mapToScene(centre))
+    gp = note.grip_points()
+    # Centre grip (8) is rotation-invariant → stays at the scene centre.
+    assert abs(gp[8].x() - 50.0) < 1e-3 and abs(gp[8].y() - 20.0) < 1e-3
+    # TL (0) moves off the origin under a 90° rotation about the centre.
+    assert gp[0] != QPointF(0, 0)
+
+
+def test_no_qt_item_rotation_set(qapp):
+    """Bake-at-rest: Qt's own rotation() stays 0 — pose lives in data + paint."""
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0)
+    note.manip_rotate(45.0, QPointF(50, 10))
+    assert note.rotation() == 0.0
+
+
+def test_grip_render_angle_tracks_baked_angle(qapp):
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.manip_rotate(30.0, QPointF(0, 0))
+    assert abs(note.grip_render_angle(1) - 30.0) < 1e-6
+
+
+def test_rotated_bounds_is_rotated_footprint(qapp):
+    """boundingRect grows to the rotated footprint (Qt scene index tracks shape)."""
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 40.0
+    base = note.boundingRect()
+    note.manip_rotate(45.0, QPointF(50, 20))
+    rotated = note.boundingRect()
+    # A 100×40 box rotated 45° → ~99×99 footprint: the short dim grows and the
+    # box is no longer axis-aligned (width changes off its original 100).
+    assert rotated.height() > base.height()
+    assert abs(rotated.width() - base.width()) > 1e-3
