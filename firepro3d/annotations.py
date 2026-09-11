@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
-from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP
+from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP, MIN_TEXT_WRAP_WIDTH_MM
 
 class Annotation:
     """Base class for CAD annotations."""
@@ -121,15 +121,78 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
             opt.setAlignment(_map.get(value, Qt.AlignmentFlag.AlignLeft))
             self.document().setDefaultTextOption(opt)
 
-    # ── grip protocol ────────────────────────────────────────────────────
+    # ── Box geometry (U3 box-native) ──────────────────────────────────────
+    # Local box is (0,0,W,H): a QGraphicsTextItem always paints from its local
+    # origin, so W = wrap width (textWidth) and H = stored box height (or the
+    # auto content height when _box_height == 0).
+
+    def _content_size(self) -> tuple[float, float]:
+        r = QGraphicsTextItem.boundingRect(self)
+        return r.width(), r.height()
+
+    def _local_box(self) -> QRectF:
+        cw, ch = self._content_size()
+        w = self.textWidth() if self.textWidth() > 0 else cw
+        h = self._box_height if self._box_height > 0 else ch
+        return QRectF(0.0, 0.0, w, h)
+
+    # ── Grip protocol (9 box grips) ───────────────────────────────────────
+    # Indices (clockwise from top-left, matching RectangleItem):
+    #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
 
     def grip_points(self) -> list[QPointF]:
-        """Single grip at the note's position."""
-        return [self.pos()]
+        r = self._local_box()
+        cx, cy = r.center().x(), r.center().y()
+        local = [
+            QPointF(r.left(),  r.top()),    QPointF(cx, r.top()),          QPointF(r.right(), r.top()),
+            QPointF(r.right(), cy),         QPointF(r.right(), r.bottom()), QPointF(cx, r.bottom()),
+            QPointF(r.left(),  r.bottom()), QPointF(r.left(),  cy),        QPointF(cx, cy),
+        ]
+        return [self.mapToScene(p) for p in local]
 
     def apply_grip(self, index: int, pos: QPointF):
-        if index == 0:
-            self.setPos(pos)
+        """Resize (edges/corners) or translate (centre) by dragging a grip.
+
+        Reproduces RectangleItem's local-frame resize, but re-anchors ``pos()``
+        instead of moving the local rect's left/top (the text item draws from its
+        origin).  Pinned-edge: the edge OPPOSITE the dragged handle stays fixed.
+        Font is never touched; horizontal drags set wrap width, vertical drags set
+        box height (content-min clamped).
+        """
+        local = self.mapFromScene(pos)
+        r = self._local_box()
+        # First horizontal resize from auto-width: seed wrap from content width.
+        if self.textWidth() <= 0 and index in (0, 2, 3, 4, 6, 7):
+            self.setTextWidth(r.width())
+            r = self._local_box()
+        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
+        if   index == 0: nl, nt, nr, nb = local.x(), local.y(), ri, b
+        elif index == 1: nl, nt, nr, nb = l, local.y(), ri, b
+        elif index == 2: nl, nt, nr, nb = l, local.y(), local.x(), b
+        elif index == 3: nl, nt, nr, nb = l, t, local.x(), b
+        elif index == 4: nl, nt, nr, nb = l, t, local.x(), local.y()
+        elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
+        elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
+        elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
+        elif index == 8:
+            dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
+            self._reanchor(dx, dy)
+            return
+        else:
+            return
+        new_r = QRectF(QPointF(nl, nt), QPointF(nr, nb)).normalized()
+        _, ch = self._content_size()
+        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
+        new_h = max(new_r.height(), ch)
+        self._reanchor(new_r.left(), new_r.top())
+        self.prepareGeometryChange()
+        self.setTextWidth(new_w)
+        self._box_height = new_h
+
+    def _reanchor(self, local_dx: float, local_dy: float):
+        """Shift pos() by a LOCAL-frame offset (honours rotation at angle != 0)."""
+        delta = self.mapToScene(QPointF(local_dx, local_dy)) - self.mapToScene(QPointF(0.0, 0.0))
+        self.moveBy(delta.x(), delta.y())
 
     # ── Selection-manipulator adapter (translate-only) ────────────────────
     # Governing spec: docs/specs/selection-manipulator.md.  A note's serialized

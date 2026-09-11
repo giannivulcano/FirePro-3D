@@ -44,3 +44,57 @@ def test_old_dict_without_new_keys_loads_as_identity(qapp):
     assert note._angle == 0.0
     assert note._box_height == 0.0
     scene.cleanup()
+
+
+# ── Task 3: 9-grip box geometry + pinned-edge resize (angle 0) ───────────────
+
+def test_grip_points_are_nine_box_corners_at_angle_zero(qapp):
+    note = NoteAnnotation("Hello world", x=100, y=200)
+    note.setTextWidth(80.0)
+    note._box_height = 40.0
+    gp = note.grip_points()
+    assert len(gp) == 9
+    assert gp[0] == QPointF(100, 200)          # TL at pos()
+    assert gp[4] == QPointF(180, 240)          # BR at pos()+(W,H)
+    assert gp[8] == QPointF(140, 220)          # Centre
+
+
+def test_mr_grip_changes_only_wrap_not_font_or_height(qapp):
+    note = NoteAnnotation("Hello", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 50.0
+    font_pt = note.font().pointSize()
+    note.apply_grip(3, QPointF(140, 25))       # right-mid to x=140
+    assert abs(note.textWidth() - 140.0) < 1e-6
+    assert abs(note._box_height - 50.0) < 1e-6
+    assert note.font().pointSize() == font_pt   # FONT untouched
+    assert note.pos() == QPointF(0, 0)          # right-drag pins left → no re-anchor
+
+
+def test_lm_grip_pins_right_edge_and_reanchors_pos(qapp):
+    note = NoteAnnotation("Hello", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 50.0
+    note.apply_grip(7, QPointF(30, 25))        # left-mid right to x=30 (shrink)
+    assert abs(note.textWidth() - 70.0) < 1e-6  # 100 - 30
+    assert abs(note.pos().x() - 30.0) < 1e-6    # left edge moved → pos re-anchored
+    assert abs(note.pos().y() - 0.0) < 1e-6
+
+
+def test_bm_grip_changes_only_box_height(qapp):
+    note = NoteAnnotation("Hello", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 50.0
+    note.apply_grip(5, QPointF(50, 80))        # bottom-mid down
+    assert abs(note._box_height - 80.0) < 1e-6
+    assert abs(note.textWidth() - 100.0) < 1e-6
+
+
+def test_first_resize_from_auto_width_seeds_wrap(qapp):
+    """text_width==0 (auto) → first horizontal drag seeds wrap from content."""
+    note = NoteAnnotation("Hello", x=0, y=0)   # unwrapped
+    assert note.textWidth() <= 0
+    content_w = note.boundingRect().width()
+    note.apply_grip(3, QPointF(content_w + 20, 5))
+    assert note.textWidth() > 0
+    assert abs(note.textWidth() - (content_w + 20)) < 1.0
