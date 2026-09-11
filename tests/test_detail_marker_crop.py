@@ -39,6 +39,16 @@ def test_apply_grip_resizes_crop_live(qapp):
     assert dm._crop_rect.bottomRight() == QPointF(260, 160)
 
 
+def test_bubble_follows_crop_resize(qapp):
+    dm = _make()
+    b0 = QPointF(dm._bubble_pos)
+    c0 = dm._crop_rect.center()
+    dm.apply_grip(2, QPointF(260, 160))            # grow via bottom-right corner
+    dc = dm._crop_rect.center() - c0
+    assert dm._bubble_pos == QPointF(b0.x() + dc.x(), b0.y() + dc.y())
+    assert dm._bubble_pos != b0                    # it actually moved
+
+
 def test_manip_translate_moves_crop_and_bubble(qapp):
     dm = _make()
     b0 = QPointF(dm._bubble_pos)

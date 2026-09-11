@@ -266,6 +266,7 @@ class DetailMarker(QGraphicsPathItem):
             self.update()
             return
 
+        old_center = self._crop_rect.center()
         r = QRectF(self._crop_rect)
         if index == 0:
             r.setTopLeft(new_pos)
@@ -285,6 +286,11 @@ class DetailMarker(QGraphicsPathItem):
             r.setLeft(new_pos.x())
 
         r = r.normalized()
+        # The bubble follows the resize by the crop-centre delta (constant offset,
+        # radius unchanged → no warp) so the callout tracks the box.
+        dc = r.center() - old_center
+        self._bubble_pos = QPointF(self._bubble_pos.x() + dc.x(),
+                                   self._bubble_pos.y() + dc.y())
         self._crop_rect = r
         self.prepareGeometryChange()
         self._rebuild_path()
