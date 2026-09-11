@@ -372,6 +372,18 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             self._points[index] = QPointF(new_pos)
             self._rebuild_path()
 
+    def manip_handles(self):
+        """U3: boundary vertices as live-apply grips (FloorSlab/PolylineItem twin).
+
+        Every vertex is a round grip (house rule); ``apply_grip`` carries the edit
+        math unchanged (``_rebuild_path`` regenerates overhang + ridge). Zero
+        special semantics — polygons are excluded from the legacy Ctrl-constrain
+        block, and a roof is not grip-coupled to neighbours — so no
+        ``EndpointGripHandle``/propagation. The rotate knob coexists
+        (``manip_rotate``); not box-native (no ``manip_scale``)."""
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular=set(range(len(self._points))))
+
     def insert_point(self, idx: int, pt: QPointF):
         """Insert a vertex at position *idx*."""
         self._points.insert(idx, QPointF(pt))
