@@ -98,3 +98,38 @@ def test_first_resize_from_auto_width_seeds_wrap(qapp):
     note.apply_grip(3, QPointF(content_w + 20, 5))
     assert note.textWidth() > 0
     assert abs(note.textWidth() - (content_w + 20)) < 1.0
+
+
+# ── Task 4: box-native manip_* + coexistence gate (angle 0) ──────────────────
+
+def test_caps_are_box_native_when_unrotated(qapp):
+    note = NoteAnnotation("Hi", x=0, y=0)
+    assert note.manip_capabilities() == {"translate", "scale", "rotate"}
+
+
+def test_manip_handles_gate_is_on(qapp):
+    from firepro3d.selection_manipulator import _item_uses_manip_handles
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(50.0)
+    assert _item_uses_manip_handles(note) is True
+    assert len(note.manip_handles()) == 9
+
+
+def test_manip_bounds_is_local_box_in_scene(qapp):
+    note = NoteAnnotation("Hi", x=10, y=20)
+    note.setTextWidth(60.0)
+    note._box_height = 30.0
+    b = note.manip_bounds()
+    assert abs(b.x() - 10) < 1e-6 and abs(b.y() - 20) < 1e-6
+    assert abs(b.width() - 60) < 1e-6 and abs(b.height() - 30) < 1e-6
+
+
+def test_manip_scale_matches_apply_grip_corner(qapp):
+    """Baked scale about an anchor reproduces the box; anchor (TL) held."""
+    note = NoteAnnotation("Hi", x=0, y=0)
+    note.setTextWidth(100.0)
+    note._box_height = 50.0
+    note.manip_scale(2.0, 2.0, QPointF(0, 0))
+    assert abs(note.textWidth() - 200.0) < 1e-6
+    assert abs(note._box_height - 100.0) < 1e-6
+    assert note.pos() == QPointF(0, 0)

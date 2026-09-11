@@ -200,14 +200,49 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
     # baked move is a plain moveBy.  No scale/rotate in v1.
 
     def manip_capabilities(self) -> set:
-        # Translate-only (U1 deferred rotate): a mixed selection that includes
-        # a note hides the group rotate knob (the manipulator requires every
-        # member to implement manip_rotate).  Adding "rotate" here + a
-        # manip_rotate method lights up group rotate for notes.
-        return {"translate"}
+        # Box-native like RectangleItem: resize is only correct axis-aligned, so a
+        # rotated note drops "scale" (its parametric grips surface instead).
+        if self._angle != 0.0:
+            return {"translate", "rotate"}
+        return {"translate", "scale", "rotate"}
 
     def manip_translate(self, dx: float, dy: float):
         self.moveBy(dx, dy)
+
+    def manip_bounds(self) -> QRectF:
+        return self.mapRectToScene(self._local_box())
+
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        # Corners (0,2,4,6) + centre (8) round; edge midpoints (1,3,5,7) square
+        # (matching the rigid resize-handle look, aligned via grip_render_angle).
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8})
+
+    def manip_box_extra_handles(self):
+        from .manip_handle import GripHandle
+        return [GripHandle(self, 8, circular=True)]   # centre move grip (unrotated)
+
+    def grip_render_angle(self, index: int) -> float:
+        return self._angle
+
+    def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
+        """Baked resize about a scene *anchor* by (fx, fy) in the note's own
+        frame — reproduces the manipulator preview for any handle.  Font untouched.
+        """
+        r = self._local_box()
+        a = self.mapFromScene(anchor)
+        left   = a.x() + (r.left()   - a.x()) * fx
+        right  = a.x() + (r.right()  - a.x()) * fx
+        top    = a.y() + (r.top()    - a.y()) * fy
+        bottom = a.y() + (r.bottom() - a.y()) * fy
+        new_r = QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
+        _, ch = self._content_size()
+        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
+        new_h = max(new_r.height(), ch)
+        self._reanchor(new_r.left(), new_r.top())
+        self.prepareGeometryChange()
+        self.setTextWidth(new_w)
+        self._box_height = new_h
 
     # ── visual editing frame ──────────────────────────────────────────────
 
