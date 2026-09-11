@@ -195,6 +195,19 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
                 br.width() + 2 * pad, br.height() + 2 * pad,
             )
 
+    def manip_handles(self):
+        """U3: the single label-centre grip as a live-apply manipulator grip.
+
+        ``default_grip_handles`` loops ``grip_points()``, which is empty when the
+        label is hidden — so a label-less room returns ``[]`` and the coexistence
+        gate stays off (nothing renders either way). When the label shows, the
+        one grip renders round (a move affordance — it repositions the label) and
+        the manipulator owns render/hit-test/commit; the legacy grip paths skip
+        this item. Zero special drag semantics (`apply_grip` moves the label).
+        """
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
     # ── Geometry ─────────────────────────────────────────────────────────
 
     def _rebuild(self):
