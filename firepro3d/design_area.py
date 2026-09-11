@@ -1113,6 +1113,20 @@ class DesignArea(QGraphicsPathItem):
         w, h = badge_fixed_size_mm()
         self.badge.setPos(pos.x() - w / 2, pos.y() - h / 2)
 
+    def manip_handles(self):
+        """U3: the single badge-centre grip as a live-apply manipulator grip.
+
+        ``default_grip_handles`` loops ``grip_points()``, which is empty when the
+        badge is hidden — so a badge-less area returns ``[]`` and the coexistence
+        gate stays off (nothing renders either way). When the badge shows, the one
+        grip renders round (a move affordance — it repositions the badge) and the
+        manipulator owns render/hit-test/commit; the legacy grip paths skip this
+        item. Zero special drag semantics (`apply_grip(0)` moves the badge). Mirrors
+        Room's label grip.
+        """
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
     def badge_offset(self) -> tuple[float, float]:
         """Current badge position in parent (DesignArea item) coordinates."""
         return (self.badge.pos().x(), self.badge.pos().y())
