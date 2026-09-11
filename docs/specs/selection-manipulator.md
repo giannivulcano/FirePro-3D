@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: a1c968f   # U3 Room migration (single conditional label-move grip; state-dependent empty manip_handles path)
+verified-commit: 5579339   # U3 DesignArea migration (single conditional badge-move grip; Room twin)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -543,6 +543,15 @@ path). Zero special drag semantics (`apply_grip(0)` moves the label; no
 Ctrl-constrain, no sibling propagation — the boundary vertices are wall-derived
 and NOT exposed as grips). `MANIP_NO_SOLO_ROTATE=True` → a solo room shows no
 rotate knob (rotate only in a multi-select group).
+
+**DesignArea.manip_handles()** → `default_grip_handles(self, circular={0})`. A Room
+twin: a SINGLE badge-centre grip (round move affordance), conditionally present —
+`grip_points()` is empty unless the badge is visible (`_sync_badge` shows it only
+for a confirmed area with members, not in edit mode), so `manip_handles()` is
+empty and the gate is off when there's no badge. `apply_grip(0)` moves the badge;
+zero special semantics. The manipulator frame wraps the badge box (`manip_bounds`
+→ `badge.sceneBoundingRect()`); caps are `{translate, rotate}` (badge is a
+fixed-layout table — never scalable).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
