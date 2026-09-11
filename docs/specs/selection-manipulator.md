@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10); remaining U3 items + U4/U5 remain
-last-verified: 2026-09-10
-verified-commit: e228e0e   # U3 DimensionAnnotation migration (single round offset grip; translate-only, zero special semantics)
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11); remaining U3 items + U4/U5 remain
+last-verified: 2026-09-11
+verified-commit: 39b1012   # DetailMarker editable crop (parametric grips + bright detail-view overlay + clip-view chrome suppression)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -580,6 +580,29 @@ previously drawn by the legacy `drawForeground` path; it is now
 manipulator-owned, so a selected dimension shows exactly one visible handle (the
 grip) with no resize/rotate handles. Serialized via `network_codec` (no
 `to_dict`), so parity is asserted on `_offset_dist`.
+
+**DetailMarker — parametric editable crop (`detail_view.py`).** DetailMarker is a
+PARAMETRIC crop rectangle (NOT box-native, deliberately): `manip_handles()` =
+`default_grip_handles(self, circular={8})` — 8 SQUARE crop grips (corners +
+midpoints, live `apply_grip` resize; the crop-centre delta shifts the bubble so
+the callout tracks the box) + a ROUND bubble move grip (index 8). Caps
+`{translate}` → the manipulator FRAME is the visible bounding box; axis-aligned
+(no `manip_rotate`). Box-native was tried and **rejected**: its held
+scale-transform preview warped the bubble circle into an ellipse, froze the frame
+(no live update), and suppressed the frame so no box showed.
+
+Two general mechanisms were added for the shared-scene detail view (a `Model_View`
+with `_clip_rect` re-rendering the SAME scene clipped to the crop):
+- **`_painting_into_clip_view(widget)`** (module-level): true when painting into a
+  detail/clip view. `_HandleItem.paint` short-circuits there (the crop mask, a
+  view-level foreground, would otherwise dim the handles).
+- **`SelectionManipulator.render_overlay(view, painter)`**: `Model_View.
+  drawForeground` calls it AFTER the crop mask, so the frame (scene coords) +
+  handles (viewport px) are redrawn BRIGHT on top of the mask — the crop is
+  selectable/resizable from inside the detail view. In a clip view the marker
+  paints nothing as an item; `drawForeground` draws its callout (leader + bubble,
+  `DetailMarker._paint_callout`) bright and the passive crop rect / boundary
+  outline are removed (the mask edge shows the crop — the old "blue box" is gone).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
