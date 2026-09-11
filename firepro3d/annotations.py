@@ -62,6 +62,13 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.level: str = DEFAULT_LEVEL
 
+        # Box-native geometry (U3): rotation is DATA (bake-at-rest, NOT a Qt item
+        # transform — mirrors RectangleItem); box height is stored so the vertical
+        # handles have meaning; 0 = auto-fit to content (today's look/identity).
+        self._angle: float = 0.0
+        self._pivot: QPointF | None = None
+        self._box_height: float = 0.0
+
         # Enable word wrap if width was specified
         if text_width > 0:
             self.setTextWidth(text_width)
