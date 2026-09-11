@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips (2026-09-10); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10); remaining U3 items + U4/U5 remain
 last-verified: 2026-09-10
-verified-commit: 55128d5   # U3 RoofItem migration (polygon boundary vertices; FloorSlab twin, zero special semantics)
+verified-commit: e228e0e   # U3 DimensionAnnotation migration (single round offset grip; translate-only, zero special semantics)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -567,6 +567,19 @@ circular=set(range(len(self._points))))`): one round grip per boundary vertex.
 `apply_grip` → `_rebuild_path` (regenerates overhang + ridge) unchanged. Zero
 special semantics (same polygon-boundary reasoning as FloorSlab); rotate knob
 coexists; not box-native.
+
+**DimensionAnnotation.manip_handles()** → `default_grip_handles(self, circular={0})`:
+the SINGLE offset grip (at the offset-line midpoint) on the unified path —
+round, a draggable reposition affordance per the gridline bubble-standoff
+precedent (function, not position). `apply_grip(0)` changes the perpendicular
+offset distance (`_offset_dist`) unchanged; zero special semantics (no
+Ctrl-constrain, no sibling propagation). Caps `{translate}` — interior-drag move
+via `manip_translate` (endpoints translate; `_p1/_p2` are the serialized
+geometry, so a bare `moveBy` would desync); no scale/rotate in v1. The grip was
+previously drawn by the legacy `drawForeground` path; it is now
+manipulator-owned, so a selected dimension shows exactly one visible handle (the
+grip) with no resize/rotate handles. Serialized via `network_codec` (no
+`to_dict`), so parity is asserted on `_offset_dist`.
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
