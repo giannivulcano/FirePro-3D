@@ -183,3 +183,14 @@ def test_crop_grip_drag_resizes_one_commit(qapp, shown_model_view):
     m._finish(target, Qt.KeyboardModifier.NoModifier)
     assert box.rect() != r0                        # resized
     assert calls == ["grip"]                       # single undo commit
+
+
+def test_crop_box_has_no_own_outline_keeps_fill(qapp, shown_model_view):
+    # Unified chrome: the manipulator frame IS the crop outline; the box draws
+    # only its faint fill (its own dashed outline is dropped -> no double rect).
+    from PyQt6.QtGui import QBrush
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    box = mgr._crop_box
+    assert box.pen().style() == Qt.PenStyle.NoPen
+    assert box.brush().style() != Qt.BrushStyle.NoBrush     # fill retained

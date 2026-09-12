@@ -58,9 +58,10 @@ class SharedCropBox(QGraphicsRectItem):
     def __init__(self, rect: QRectF, parent: QGraphicsItem | None = None):
         super().__init__(rect, parent)
 
-        pen = QPen(QColor(GRID_COLOR), 1, Qt.PenStyle.DashLine)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        # No own outline — the SelectionManipulator's dashed frame is the crop
+        # outline when a marker is selected (U3 unified chrome). Keep the faint
+        # fill so the building-extent region still reads. (DetailMarker precedent.)
+        self.setPen(QPen(Qt.PenStyle.NoPen))
         fill = QColor(GRID_COLOR)
         fill.setAlpha(15)
         self.setBrush(QBrush(fill))

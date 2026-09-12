@@ -11,6 +11,7 @@ applies-to:
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
   - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
+  - firepro3d/view_marker.py             # U3: ViewMarkerArrow manip adapter -> shared SharedCropBox (parametric crop, translate-only caps, own outline dropped)
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
   # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
@@ -313,7 +314,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   bug (present on `main`, filed separately — not this migration); (b) the paper
   `Sheet Text block` `TextAnnotationItem` (**already box-native** — no migration
   needed; the paper scene has no legacy grip path). `DimensionAnnotation`, Floor,
-  Roof DONE; remaining: the elevation/view-marker items.
+  Roof DONE; DetailMarker + ViewMarker DONE; the plan-scene U3 items are complete
+  (elevation/3D-scene handle providers remain under U5).
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
@@ -639,6 +641,24 @@ with `_clip_rect` re-rendering the SAME scene clipped to the crop):
   paints nothing as an item; `drawForeground` draws its callout (leader + bubble,
   `DetailMarker._paint_callout`) bright and the passive crop rect / boundary
   outline are removed (the mask edge shows the crop — the old "blue box" is gone).
+
+**ViewMarkerArrow — parametric shared crop (`view_marker.py`).** The N/S/E/W
+elevation markers all share ONE `SharedCropBox`. The selected marker's
+`manip_handles()` = `default_grip_handles(self)` — 8 SQUARE crop grips (corners +
+edge midpoints) forwarding to the shared box via the existing
+`grip_points`/`apply_grip`; resizing repositions all four markers to the new box
+edges (`_reposition_markers_to_rect`). `manip_bounds()` = the box's scene rect;
+`manip_translate()` moves the whole box + repositions the markers. Caps =
+`{translate}` (mirrors DetailMarker): NOT box-native, so the manipulator's dashed
+FRAME is the crop outline — `SharedCropBox`'s own dashed outline is dropped (pen
+`NoPen`), its faint fill kept. **`manip_translate` is mandatory, not optional:**
+the manipulator excludes items with no `"translate"` capability, so a resize-only
+marker would never be wrapped and its grips would not render — the move capability
+is a prerequisite of the migration. Axis-aligned (no `manip_rotate`; section-view
+angle deferred). State-dependent: an unselected marker's `grip_points()` is empty,
+so `manip_handles()` is empty and the coexistence gate reads "not migrated"
+(benign — nothing renders on either path; same resolved case as Room/DesignArea).
+Tests: `tests/test_manip_griphandle_viewmarker_parity.py`.
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
