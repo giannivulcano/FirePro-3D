@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11); plan-scene U3 items COMPLETE — U4/U5 remain (elevation/3D-scene handle providers land under U5)
 last-verified: 2026-09-11
-verified-commit: f4727b6   # ViewMarkerArrow U3: manip adapter -> shared SharedCropBox (8 square crop grips, mandatory manip_translate box-move, own dashed outline dropped for the unified frame)
+verified-commit: b08afc7   # ViewMarkerArrow U3: manip adapter -> shared SharedCropBox (8 square crop grips, mandatory manip_translate box-move, own dashed outline dropped) + rebake-ordering fix (grips gated on selection not box.isVisible())
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -658,7 +658,19 @@ is a prerequisite of the migration. Axis-aligned (no `manip_rotate`; section-vie
 angle deferred). State-dependent: an unselected marker's `grip_points()` is empty,
 so `manip_handles()` is empty and the coexistence gate reads "not migrated"
 (benign — nothing renders on either path; same resolved case as Room/DesignArea).
-Tests: `tests/test_manip_griphandle_viewmarker_parity.py`.
+**Rebake-ordering gotcha (2026-09-11 smoke fix):** `grip_points()` gates on
+`isSelected()` + box existence, **NOT** `box.isVisible()`. The manipulator builds
+its grip host-pool ONCE per `rebake()` (on `selectionChanged`); the crop box's
+visibility is set by the marker's own `itemChange` during the SAME selection
+event, which lands AFTER that rebake — so keying grips on `isVisible()` made
+rebake read `[]` and render zero handles ("no handles" live). The legacy
+`drawForeground` re-read `grip_points()` every repaint and never staled; the U3
+migration introduced the sensitivity. **General rule for any selection-conditional
+item: gate grips on selection, not on a visibility flag mutated by `itemChange`.**
+Tests: `tests/test_manip_griphandle_viewmarker_parity.py` (incl.
+`test_selection_renders_grip_hosts_no_manual_rebake`, which asserts the RENDERED
+host pool — the earlier parity tests called `manip_handles()` directly and masked
+the staleness).
 
 **ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
 3 handles (centre + start + end), all round — centre is a move grip, start/end
