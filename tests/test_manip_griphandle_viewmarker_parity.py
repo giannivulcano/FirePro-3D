@@ -159,3 +159,27 @@ def test_move_persists_in_serialization(qapp, shown_model_view):
     data = mgr.to_dict()
     assert data["crop_rect"]["x"] == mgr._crop_box.rect().x()
     assert data["crop_rect"]["y"] == mgr._crop_box.rect().y()
+
+
+# --------------------------------------------------------------------------
+# Integration — real Model_Space + its live manipulator (driven lifecycle)
+# --------------------------------------------------------------------------
+
+def test_crop_grip_drag_resizes_one_commit(qapp, shown_model_view):
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    box = mgr._crop_box
+    r0 = QRectF(box.rect())
+    m = scene._live_manip()
+    assert m is not None and m.wraps(marker)      # manipulator wrapped the marker
+    calls = []
+    m._commit_hook = lambda mode: calls.append(mode)
+    h = marker.manip_handles()[2]                 # bottomRight corner
+    start = QPointF(marker.grip_points()[2])
+    target = QPointF(start.x() + 500, start.y() + 300)
+    m._begin_handle(h, start, start)
+    m._update(target, Qt.KeyboardModifier.NoModifier, target)
+    m._finish(target, Qt.KeyboardModifier.NoModifier)
+    assert box.rect() != r0                        # resized
+    assert calls == ["grip"]                       # single undo commit
