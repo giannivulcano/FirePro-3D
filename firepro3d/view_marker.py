@@ -345,6 +345,38 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
             if box is not None:
                 box.apply_grip(index, new_pos)
 
+    # ── Selection-manipulator adapter (U3) — PARAMETRIC crop (resize + move) ──
+    # Governing spec: selection-manipulator.md (U3). Mirrors DetailMarker
+    # (detail_view.py): the 8 crop grips (corners + edge midpoints) live-mutate
+    # the SHARED SharedCropBox via apply_grip; interior-drag moves the whole box.
+    # The manipulator EXCLUDES items with no "translate" capability
+    # (selection_manipulator.py) so manip_translate is mandatory to be wrapped.
+    # Grips render SQUARE (resize handles); caps = {translate} (no manip_scale ->
+    # not box-native -> the manipulator's dashed FRAME is the crop outline; the
+    # box's own outline is dropped, its faint fill kept). Axis-aligned (no rotate).
+    # State-dependent: grip_points() is empty unless selected + box visible, so
+    # manip_handles() is empty then and the coexistence gate reads "not migrated"
+    # (benign — nothing renders on either path; same as Room/DesignArea).
+
+    def manip_bounds(self) -> QRectF:
+        box = None if self._manager is None else self._manager._crop_box
+        if box is not None:
+            return box.mapRectToScene(box.rect())
+        return self.sceneBoundingRect()
+
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self)      # 8 crop grips, all square (resize)
+
+    def manip_translate(self, dx: float, dy: float):
+        """Move the whole shared crop box + reposition all markers to its edges."""
+        box = None if self._manager is None else self._manager._crop_box
+        if box is None:
+            return
+        r = box.rect().translated(dx, dy)
+        box.setRect(r)
+        self._manager._reposition_markers_to_rect(r)
+
     # ── Serialization ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
