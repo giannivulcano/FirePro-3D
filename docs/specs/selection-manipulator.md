@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11); remaining U3 items + U4/U5 remain
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11); remaining U3 items (elevation/view-marker) + U4/U5 remain
 last-verified: 2026-09-11
-verified-commit: 39b1012   # DetailMarker editable crop (parametric grips + bright detail-view overlay + clip-view chrome suppression)
+verified-commit: cef1832   # NoteAnnotation box-native migration (9-grip box, wrap/box_height resize, bake-at-rest rotation, additive angle/box_height serialization)
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -305,14 +305,15 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   Gridline
   (+parallel-delta), Room, DesignArea,
   **Text blocks — both BOUNDING-BOX-governed (box-native, like Rectangle: frame +
-  resize + move + rotate, NOT a single MText position grip)**: (a) the 2D-geometry
-  MTEXT text block `NoteAnnotation` (model scene; has a ribbon button; TODAY it is
-  translate-only with a single position grip — must be UPGRADED to box-native:
-  add `manip_scale`/`manip_rotate` + a bounding box, decide what resize does
-  [wrap-width vs font scale]); (b) the paper `Sheet Text block`
-  `TextAnnotationItem` (already box-native). `DimensionAnnotation` migrates
-  alongside (translate-only today), Floor, Roof, and the
-  elevation/detail/view-marker items.
+  resize + move + rotate, NOT a single MText position grip)**: (a) ✅ **NoteAnnotation
+  DONE (2026-09-11)** — the 2D-geometry MTEXT text block UPGRADED to box-native
+  (resize = wrap-width + `box_height`, font untouched; bake-at-rest rotation, text
+  tilts; additive `angle`/`box_height` serialization; see the NoteAnnotation
+  as-built below). Surfaced a **pre-existing** live text-render/`QPainter engine==0`
+  bug (present on `main`, filed separately — not this migration); (b) the paper
+  `Sheet Text block` `TextAnnotationItem` (**already box-native** — no migration
+  needed; the paper scene has no legacy grip path). `DimensionAnnotation`, Floor,
+  Roof DONE; remaining: the elevation/view-marker items.
 - **U4 — retire the parallel systems**: once every item provides `manip_handles`,
   delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
   `provides_handles_for` predicate. One render path, one hit-test, one undo
@@ -580,6 +581,41 @@ previously drawn by the legacy `drawForeground` path; it is now
 manipulator-owned, so a selected dimension shows exactly one visible handle (the
 grip) with no resize/rotate handles. Serialized via `network_codec` (no
 `to_dict`), so parity is asserted on `_offset_dist`.
+
+**NoteAnnotation — box-native MTEXT (`annotations.py`).** The model-scene MTEXT
+note migrated from translate-only to **box-native** (like RectangleItem: frame +
+resize + move + rotate). `manip_capabilities()` = `{translate, scale, rotate}`
+unrotated, dropping `scale` when `_angle != 0` so the 9 parametric grips surface
+(RectangleItem convention). `manip_handles()` = `default_grip_handles(self,
+circular={0,2,4,6,8})`; `manip_box_extra_handles()` = the centre move grip (index
+8) alongside the rigid resize set when unrotated. **Resize** clones the paper
+`TextAnnotationItem` semantics: horizontal handles set the wrap width
+(`setTextWidth`), vertical handles set `_box_height` (content-min clamped;
+`MIN_TEXT_WRAP_WIDTH_MM` for wrap), corners do both, pinned-edge — **font is never
+touched**. Because a `QGraphicsTextItem` always paints from its local origin,
+`apply_grip`/`manip_scale` re-anchor `pos()` (via `_reanchor`, which maps the
+local shift through the rotation) instead of moving the local rect's left/top; the
+first horizontal resize from auto-width (`textWidth() <= 0`) seeds the wrap from
+the content width. **Rotation is bake-at-rest, ported from RectangleItem** (data
+`_angle`/`_pivot`, `_rotation_transform`, `set_angle`, `manip_rotate`; NO Qt
+`setRotation` — `rotation()` stays 0) — the text tilts with the frame. The map*
+overrides (`mapToScene`/`mapFromScene`/`mapRectToScene`) differ from RectangleItem
+in one respect: a note's `pos()` is nonzero, so they **compose** the local
+rotation with `super().map*` (pos translation), and `set_angle` converts the
+manipulator's *scene* pivot to local (`QGraphicsTextItem.mapFromScene`). Qt's
+`mapToScene` is non-virtual in C++, so these overrides only intercept Python
+callers (grip/snap); Qt rendering uses `paint`/`boundingRect`/`shape`, all baked
+(`boundingRect` unites content with `_local_box` so a tall box doesn't clip).
+Serialization gains additive `angle`/`box_height` keys (`network_codec`), with old
+records defaulting to `0.0`/auto-fit (byte-identical render). **Live-only
+pre-existing caveat (not from this migration):** a focused note's text/cursor
+don't render live and Qt spams `QPainter engine==0` (reproduces on `main`; filed
+as its own bug) — static/valid-device renders show the text fine. Tests:
+`tests/test_manip_griphandle_note_parity.py` (fields, serialization + back-compat,
+resize/pinned/clamp/seed, box-native caps/bounds/scale/gate, rotation bake +
+rotated grips + footprint, live-apply parity, posted-event drag, `_find_grip_hit`
+skip both states) + the updated caps assertion in
+`tests/test_manip_badge_annotations.py`.
 
 **DetailMarker — parametric editable crop (`detail_view.py`).** DetailMarker is a
 PARAMETRIC crop rectangle (NOT box-native, deliberately): `manip_handles()` =

@@ -13,9 +13,9 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem, QGraphicsPathItem,
     QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush
+from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QPainterPath, QPainterPathStroker, QBrush, QTransform
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
-from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP
+from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP, MIN_TEXT_WRAP_WIDTH_MM
 
 class Annotation:
     """Base class for CAD annotations."""
@@ -61,6 +61,13 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.level: str = DEFAULT_LEVEL
+
+        # Box-native geometry (U3): rotation is DATA (bake-at-rest, NOT a Qt item
+        # transform — mirrors RectangleItem); box height is stored so the vertical
+        # handles have meaning; 0 = auto-fit to content (today's look/identity).
+        self._angle: float = 0.0
+        self._pivot: QPointF | None = None
+        self._box_height: float = 0.0
 
         # Enable word wrap if width was specified
         if text_width > 0:
@@ -114,15 +121,78 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
             opt.setAlignment(_map.get(value, Qt.AlignmentFlag.AlignLeft))
             self.document().setDefaultTextOption(opt)
 
-    # ── grip protocol ────────────────────────────────────────────────────
+    # ── Box geometry (U3 box-native) ──────────────────────────────────────
+    # Local box is (0,0,W,H): a QGraphicsTextItem always paints from its local
+    # origin, so W = wrap width (textWidth) and H = stored box height (or the
+    # auto content height when _box_height == 0).
+
+    def _content_size(self) -> tuple[float, float]:
+        r = QGraphicsTextItem.boundingRect(self)
+        return r.width(), r.height()
+
+    def _local_box(self) -> QRectF:
+        cw, ch = self._content_size()
+        w = self.textWidth() if self.textWidth() > 0 else cw
+        h = self._box_height if self._box_height > 0 else ch
+        return QRectF(0.0, 0.0, w, h)
+
+    # ── Grip protocol (9 box grips) ───────────────────────────────────────
+    # Indices (clockwise from top-left, matching RectangleItem):
+    #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
 
     def grip_points(self) -> list[QPointF]:
-        """Single grip at the note's position."""
-        return [self.pos()]
+        r = self._local_box()
+        cx, cy = r.center().x(), r.center().y()
+        local = [
+            QPointF(r.left(),  r.top()),    QPointF(cx, r.top()),          QPointF(r.right(), r.top()),
+            QPointF(r.right(), cy),         QPointF(r.right(), r.bottom()), QPointF(cx, r.bottom()),
+            QPointF(r.left(),  r.bottom()), QPointF(r.left(),  cy),        QPointF(cx, cy),
+        ]
+        return [self.mapToScene(p) for p in local]
 
     def apply_grip(self, index: int, pos: QPointF):
-        if index == 0:
-            self.setPos(pos)
+        """Resize (edges/corners) or translate (centre) by dragging a grip.
+
+        Reproduces RectangleItem's local-frame resize, but re-anchors ``pos()``
+        instead of moving the local rect's left/top (the text item draws from its
+        origin).  Pinned-edge: the edge OPPOSITE the dragged handle stays fixed.
+        Font is never touched; horizontal drags set wrap width, vertical drags set
+        box height (content-min clamped).
+        """
+        local = self.mapFromScene(pos)
+        r = self._local_box()
+        # First horizontal resize from auto-width: seed wrap from content width.
+        if self.textWidth() <= 0 and index in (0, 2, 3, 4, 6, 7):
+            self.setTextWidth(r.width())
+            r = self._local_box()
+        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
+        if   index == 0: nl, nt, nr, nb = local.x(), local.y(), ri, b
+        elif index == 1: nl, nt, nr, nb = l, local.y(), ri, b
+        elif index == 2: nl, nt, nr, nb = l, local.y(), local.x(), b
+        elif index == 3: nl, nt, nr, nb = l, t, local.x(), b
+        elif index == 4: nl, nt, nr, nb = l, t, local.x(), local.y()
+        elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
+        elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
+        elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
+        elif index == 8:
+            dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
+            self._reanchor(dx, dy)
+            return
+        else:
+            return
+        new_r = QRectF(QPointF(nl, nt), QPointF(nr, nb)).normalized()
+        _, ch = self._content_size()
+        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
+        new_h = max(new_r.height(), ch)
+        self._reanchor(new_r.left(), new_r.top())
+        self.prepareGeometryChange()
+        self.setTextWidth(new_w)
+        self._box_height = new_h
+
+    def _reanchor(self, local_dx: float, local_dy: float):
+        """Shift pos() by a LOCAL-frame offset (honours rotation at angle != 0)."""
+        delta = self.mapToScene(QPointF(local_dx, local_dy)) - self.mapToScene(QPointF(0.0, 0.0))
+        self.moveBy(delta.x(), delta.y())
 
     # ── Selection-manipulator adapter (translate-only) ────────────────────
     # Governing spec: docs/specs/selection-manipulator.md.  A note's serialized
@@ -130,25 +200,145 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
     # baked move is a plain moveBy.  No scale/rotate in v1.
 
     def manip_capabilities(self) -> set:
-        # Translate-only (U1 deferred rotate): a mixed selection that includes
-        # a note hides the group rotate knob (the manipulator requires every
-        # member to implement manip_rotate).  Adding "rotate" here + a
-        # manip_rotate method lights up group rotate for notes.
-        return {"translate"}
+        # Box-native like RectangleItem: resize is only correct axis-aligned, so a
+        # rotated note drops "scale" (its parametric grips surface instead).
+        if self._angle != 0.0:
+            return {"translate", "rotate"}
+        return {"translate", "scale", "rotate"}
 
     def manip_translate(self, dx: float, dy: float):
         self.moveBy(dx, dy)
 
-    # ── visual editing frame ──────────────────────────────────────────────
+    def manip_bounds(self) -> QRectF:
+        return self.mapRectToScene(self._local_box())
+
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        # Corners (0,2,4,6) + centre (8) round; edge midpoints (1,3,5,7) square
+        # (matching the rigid resize-handle look, aligned via grip_render_angle).
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8})
+
+    def manip_box_extra_handles(self):
+        from .manip_handle import GripHandle
+        return [GripHandle(self, 8, circular=True)]   # centre move grip (unrotated)
+
+    def grip_render_angle(self, index: int) -> float:
+        return self._angle
+
+    def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
+        """Baked resize about a scene *anchor* by (fx, fy) in the note's own
+        frame — reproduces the manipulator preview for any handle.  Font untouched.
+        """
+        r = self._local_box()
+        a = self.mapFromScene(anchor)
+        left   = a.x() + (r.left()   - a.x()) * fx
+        right  = a.x() + (r.right()  - a.x()) * fx
+        top    = a.y() + (r.top()    - a.y()) * fy
+        bottom = a.y() + (r.bottom() - a.y()) * fy
+        new_r = QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
+        _, ch = self._content_size()
+        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
+        new_h = max(new_r.height(), ch)
+        self._reanchor(new_r.left(), new_r.top())
+        self.prepareGeometryChange()
+        self.setTextWidth(new_w)
+        self._box_height = new_h
+
+    # ── Bake-at-rest rotation (data-only; NO Qt item transform) ───────────
+    # Ported from RectangleItem.  A note's pos() is nonzero (QGraphicsTextItem
+    # origin), so the map* overrides COMPOSE the local rotation with super()'s
+    # pos translation, and set_angle stores the pivot in LOCAL coords.  Qt's
+    # mapToScene is non-virtual in C++, so these only intercept Python callers
+    # (grip/snap); Qt rendering uses paint/boundingRect/shape (all baked below).
+
+    def set_angle(self, angle_deg: float, pivot: "QPointF | None" = None) -> None:
+        self._angle = float(angle_deg)
+        if pivot is not None:
+            # Manipulator passes a SCENE pivot → store LOCAL (pos-removal only;
+            # Qt rotation() is always 0, so this never un-applies _angle).
+            self._pivot = QGraphicsTextItem.mapFromScene(self, QPointF(pivot))
+        else:
+            self._pivot = None          # follow the box centre on resize
+        self.prepareGeometryChange()
+        self.update()
+
+    def _rotation_origin(self) -> QPointF:
+        return QPointF(self._pivot) if self._pivot is not None else self._local_box().center()
+
+    def _rotation_transform(self) -> QTransform:
+        m = QTransform()
+        if self._angle == 0.0:
+            return m
+        o = self._rotation_origin()
+        m.translate(o.x(), o.y())
+        m.rotate(-self._angle)          # Y-up CCW → Qt CW negate
+        m.translate(-o.x(), -o.y())
+        return m
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        self.set_angle(self._angle + angle_deg, pivot)
+
+    def mapToScene(self, *args):
+        """Local→scene through the data rotation, composed with pos (super())."""
+        if self._angle == 0.0:
+            return super().mapToScene(*args)
+        t = self._rotation_transform()
+        if len(args) == 2:                       # (x, y)
+            return super().mapToScene(t.map(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, (QPointF, QPainterPath)):
+            return super().mapToScene(t.map(obj))
+        return super().mapToScene(*args)         # unknown overload → best effort
+
+    def mapFromScene(self, *args):
+        """Scene→local inverse of :meth:`mapToScene`."""
+        if self._angle == 0.0:
+            return super().mapFromScene(*args)
+        inv, ok = self._rotation_transform().inverted()
+        if not ok:
+            inv = QTransform()
+        if len(args) == 2:
+            return inv.map(super().mapFromScene(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, (QPointF, QPainterPath)):
+            return inv.map(super().mapFromScene(obj))
+        return super().mapFromScene(*args)
+
+    def mapRectToScene(self, rect: QRectF) -> QRectF:
+        """Axis-aligned scene bounds of the rotated local ``rect`` (+pos)."""
+        if self._angle == 0.0:
+            return super().mapRectToScene(rect)
+        return super().mapRectToScene(self._rotation_transform().mapRect(rect))
+
+    # ── visual editing frame + baked rotation render ──────────────────────
 
     def paint(self, painter, option, widget=None):
+        painter.save()
+        if self._angle != 0.0:
+            painter.setWorldTransform(self._rotation_transform(), True)
         super().paint(painter, option, widget)
         if self.hasFocus():
             pen = QPen(QColor("#88aaff"), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
+            painter.drawRect(self._local_box())
+        painter.restore()
+
+    def boundingRect(self) -> QRectF:
+        # Cover both the painted content and the stored box (a tall _box_height
+        # must not clip the focus frame / selection).
+        base = QGraphicsTextItem.boundingRect(self).united(self._local_box())
+        if self._angle == 0.0:
+            return base
+        return self._rotation_transform().mapRect(base)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self._local_box())
+        if self._angle != 0.0:
+            path = self._rotation_transform().map(path)
+        return path
 
 
 # ═════════════════════════════════════════════════════════════════════════════
