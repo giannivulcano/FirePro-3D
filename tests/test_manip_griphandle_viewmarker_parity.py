@@ -124,3 +124,38 @@ def test_legacy_grip_paths_skip_migrated_marker(qapp, shown_model_view):
     marker = _select(scene, mgr)
     hit = scene._tools._find_grip_hit(QPointF(marker.grip_points()[0]))
     assert hit is None or hit[0] is not marker
+
+
+# --------------------------------------------------------------------------
+# manip_translate (interior-drag move of the whole box) + caps + serialize
+# --------------------------------------------------------------------------
+
+def test_manip_translate_moves_box_and_markers(qapp, shown_model_view):
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    box = mgr._crop_box
+    r0 = QRectF(box.rect())
+    north0 = QPointF(mgr.get_marker("north").pos())
+    marker.manip_translate(400.0, 250.0)
+    assert box.rect() == r0.translated(400.0, 250.0)
+    assert mgr.get_marker("north").pos() != north0     # repositioned to new edge
+
+
+def test_capabilities_are_translate_only(qapp, shown_model_view):
+    from firepro3d.selection_manipulator import item_capabilities
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    # translate (for wrap + interior move); NO scale (not box-native), NO rotate.
+    assert item_capabilities(marker) == {"translate"}
+
+
+def test_move_persists_in_serialization(qapp, shown_model_view):
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    marker.manip_translate(400.0, 250.0)
+    data = mgr.to_dict()
+    assert data["crop_rect"]["x"] == mgr._crop_box.rect().x()
+    assert data["crop_rect"]["y"] == mgr._crop_box.rect().y()
