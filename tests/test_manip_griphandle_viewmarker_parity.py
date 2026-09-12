@@ -67,3 +67,60 @@ def test_selected_marker_gate_on(qapp, shown_model_view):
     mgr = _add_markers(scene)
     marker = _select(scene, mgr)
     assert _item_uses_manip_handles(marker) is True
+
+
+# --------------------------------------------------------------------------
+# Apply parity + coexistence
+# --------------------------------------------------------------------------
+
+class _StubScene:
+    _tools = None
+    _grip_item = None
+    _grip_dragging = False
+
+    def get_effective_position(self, p):
+        return QPointF(p)
+
+
+class _StubM:
+    _commit_hook = None
+
+    def __init__(self, sc):
+        self._sc = sc
+
+    def scene(self):
+        return self._sc
+
+    def _reflow_live(self):
+        pass
+
+
+def test_crop_grip_apply_matches_legacy(qapp, shown_model_view):
+    _, scene = shown_model_view
+    # Legacy path: drive apply_grip directly on the marker (forwards to box).
+    mgr_l = _add_markers(scene)
+    marker_l = _select(scene, mgr_l)
+    target = QPointF(marker_l.grip_points()[2].x() + 800,
+                     marker_l.grip_points()[2].y() + 600)
+    marker_l.apply_grip(2, QPointF(target))
+    legacy_rect = QRectF(mgr_l._crop_box.rect())
+    legacy_south = QPointF(mgr_l.get_marker("south").pos())
+    mgr_l.remove_all()
+
+    # Migrated path: drive the GripHandle lifecycle to the same target.
+    mgr_m = _add_markers(scene)
+    marker_m = _select(scene, mgr_m)
+    h = marker_m.manip_handles()[2]
+    sc = _StubScene(); m = _StubM(sc)
+    h.on_press(m)
+    h.on_drag(m, QPointF(target), Qt.KeyboardModifier.NoModifier)
+    assert mgr_m._crop_box.rect() == legacy_rect            # same resize
+    assert mgr_m.get_marker("south").pos() == legacy_south  # markers repositioned
+
+
+def test_legacy_grip_paths_skip_migrated_marker(qapp, shown_model_view):
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    hit = scene._tools._find_grip_hit(QPointF(marker.grip_points()[0]))
+    assert hit is None or hit[0] is not marker
