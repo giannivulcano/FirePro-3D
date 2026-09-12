@@ -97,6 +97,9 @@ class _StubM:
 
 def test_crop_grip_apply_matches_legacy(qapp, shown_model_view):
     _, scene = shown_model_view
+    # Both managers share this scene; the fixture has no gridlines, so each
+    # create_elevation_markers() falls through _gridline_bbox() to the SAME fixed
+    # rect -> identical starting crop boxes, which makes the parity comparison sound.
     # Legacy path: drive apply_grip directly on the marker (forwards to box).
     mgr_l = _add_markers(scene)
     marker_l = _select(scene, mgr_l)
