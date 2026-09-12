@@ -197,3 +197,22 @@ def test_crop_box_has_no_own_outline_keeps_fill(qapp, shown_model_view):
     box = mgr._crop_box
     assert box.pen().style() == Qt.PenStyle.NoPen
     assert box.brush().style() != Qt.BrushStyle.NoBrush     # fill retained
+
+
+def test_selection_renders_grip_hosts_no_manual_rebake(qapp, shown_model_view):
+    """Regression: the manipulator must actually RENDER 8 grip hosts after the
+    real selection path, with no manual rebake.
+
+    The bug: grips gated on box.isVisible(), which the marker's itemChange sets
+    during the SAME selectionChanged that drives rebake — so rebake read [] and
+    built ZERO hosts (live: 'there are no handles'). This asserts the rendered
+    host pool (NOT marker.manip_handles() directly, which the other tests call
+    and which masked the bug). Goes RED if grip_points() re-couples to
+    box.isVisible()."""
+    _, scene = shown_model_view
+    mgr = _add_markers(scene)
+    marker = _select(scene, mgr)
+    m = scene._live_manip()
+    assert m is not None and m.wraps(marker)
+    visible_hosts = [h for h in m._host_pool if h.isVisible()]
+    assert len(visible_hosts) == 8            # 8 crop grips actually rendered

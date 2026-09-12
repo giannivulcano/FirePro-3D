@@ -334,9 +334,16 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
     # ── Grip protocol (forward to shared crop box) ────────────────────────
 
     def grip_points(self) -> list[QPointF]:
+        # Gated on isSelected() + box existence only — NOT box.isVisible().
+        # The box's visibility is set by this marker's own itemChange
+        # (_on_marker_selection_changed) during the SAME selection event that
+        # triggers the manipulator's rebake; keying on isVisible() races that
+        # ordering (rebake read [] -> built zero grip hosts -> no handles shown).
+        # Selection alone is the correct predicate: the box is visible iff a
+        # marker is selected, and the manipulator only wraps selected items.
         if self.isSelected() and self._manager is not None:
             box = self._manager._crop_box
-            if box is not None and box.isVisible():
+            if box is not None:
                 return box.grip_points()
         return []
 
