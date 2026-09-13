@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path; U5 (selection-mode + elevation/3D handle providers) remains
-last-verified: 2026-09-12
-verified-commit: b374278   # U4: deleted the drawForeground grip loop + scene_tools._find_grip_hit + _drag_grip_to/mouseMove-grip/mouseRelease-commit/_grip_index + _item_uses_manip_handles gate; renamed provides_handles_for→_is_box_native_single
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO); U5 Legs B (elevation handle providers) + C (3D handle providers) remain
+last-verified: 2026-09-13
+verified-commit: 81befbf   # U5 Leg A: HALO + selection-mode built into the plan scene against the unified manipulator (halo.py, model_view/model_space, theme selection_hover); manipulator itself unchanged — still the sole model-scene grip owner
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -204,9 +204,9 @@ apply the exact value → bake + undo as if released.
   includes a note/dimension hides the rotate knob; adding rotate there is the
   next label-rotate follow-up.)
 - Paper viewport/text rotation semantics; movable rotation pivot; group scale.
-- Hover pre-highlight / Tab-cycle / rubber-band — owned by
-  `selection-mode.md` (proposal), which continues to own what-gets-selected;
-  this spec owns what-happens-to-the-selection.
+- HALO preselection / disambiguation-cycle / rubber-band — owned by
+  `selection-mode.md` (Leg A built 2026-09-13 in the plan scene), which owns
+  what-gets-selected; this spec owns what-happens-to-the-selection.
 
 ## Unification Roadmap (proposal — the intended end-state)
 
@@ -336,9 +336,18 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   handles" detection survives for `_active_handles`/`_frame_is_redundant`. Elevation
   (`ElevationView.paintEvent` + `elevation_scene._find_grip_hit`), paper, and 3D have
   their OWN independent grip paths — untouched, and folded in under U5.
-- **U5 — fold in selection + other scenes**: integrate `selection-mode.md`
-  (hover pre-highlight / Tab-cycle / rubber-band) against the unified handles;
-  add handle providers for elevation and 3D scenes (their own selection specs).
+- **U5 — fold in selection + other scenes**:
+  - ✅ **Leg A — plan-scene selection-mode + HALO DONE (2026-09-13):** integrated
+    `selection-mode.md` (preselection highlight / disambiguation-cycle / rubber-band)
+    against the unified manipulator, which stays the sole model-scene grip owner.
+    Disambiguation moved to **Spacebar** (Tab freed for the HUD); the hover engine
+    shipped as **HALO** (aperture pick + shared `halo_rank`). As-built pointer:
+    `selection-mode.md` §4 (HALO). DoR:
+    `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`. The
+    manipulator contract itself was unchanged — Leg A consumed it, did not modify it.
+  - ⏳ **Leg B — elevation handle providers:** pending (elevation scene's own
+    selection spec).
+  - ⏳ **Leg C — 3D handle providers:** pending (3D scene; orphan).
 
 **Risks to honor at each step** (why it's staged, not a big-bang): the constraint
 solver, OSNAP-per-handle, the model full-network-snapshot vs paper macro undo

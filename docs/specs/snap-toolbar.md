@@ -190,6 +190,10 @@ Valid state. `SnapEngine.find()` returns no candidates when all per-type flags a
 
 `saveState()` captures visibility. On next launch, toolbar stays hidden. User restores via View menu toggle action (Qt provides this automatically).
 
+## 8.6 Status-bar pills — SNAP · ALIGN · HALO
+
+The status bar carries a row of one-click toggle pills. Alongside the existing **SNAP** (F3, snap engine) and **ALIGN** pills sits a **HALO** pill (added 2026-09-13, `main.py`) that toggles the HALO preselection-highlight engine. Its state persists under QSettings `halo/enabled`; it matches the SNAP/ALIGN pill style (green when on, grey when off, click to toggle). HALO's behavior is owned by `selection-mode.md §4` — not restated here; this pill is only its on/off surface. (A Preferences "HALO" tab additionally exposes the aperture, persisted `halo/aperture_px`.)
+
 ## 9. Out of Scope
 
 - **Underlay snap toggle**: Separate control path (`ModelSpace._snap_to_underlay`), tracked by existing TODO.
