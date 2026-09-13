@@ -188,6 +188,49 @@ class _GuidesIndicatorLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class _HaloIndicatorLabel(QLabel):
+    """Clickable status-bar pill for the global HALO on/off switch.
+
+    Mirrors _GuidesIndicatorLabel — enabled = bold accent pill, disabled =
+    grey. Unlike SNAP/ALIGN there is no scene-side toggled signal, so this
+    pill owns its own checked state and exposes a QAbstractButton-like API
+    (isChecked/setChecked/click) so callers drive the widget directly.
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__("HALO", parent)
+        self.setToolTip("Toggle selection HALO")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumWidth(80)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._checked = True
+        self._apply_style()
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, on: bool) -> None:
+        self._checked = bool(on)
+        self._apply_style()
+
+    def click(self) -> None:
+        """Flip state and emit clicked (mirrors QAbstractButton.click)."""
+        self.setChecked(not self._checked)
+        self.clicked.emit()
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet(_pill_style(self._checked))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.click()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class _SnapToolbar(QToolBar):
     """Dockable toolbar of one-click toggles for the 8 SNAP snap types.
 
@@ -585,6 +628,15 @@ class MainWindow(QMainWindow):
         status_bar.addPermanentWidget(self.guides_indicator)
         self.scene.alignToggled.connect(self._update_guides_indicator)
         self._update_guides_indicator(self.scene.get_align_enabled())
+        # HALO status-bar indicator — mirrors SNAP/ALIGN pills. No scene-side
+        # toggled signal (halo_enabled is a plain bool), so the pill owns its
+        # checked state and _toggle_halo pushes it to the scene + QSettings.
+        self._halo_pill = _HaloIndicatorLabel(self)
+        _halo_on = self.settings.value("halo/enabled", True, type=bool)
+        self._halo_pill.setChecked(_halo_on)
+        self.scene.halo_enabled = _halo_on
+        self._halo_pill.clicked.connect(self._toggle_halo)
+        status_bar.addPermanentWidget(self._halo_pill)
         # Pipe-mode node snap readout (between SNAP and coordinates)
         self.node_snap_label = QLabel("")
         self.node_snap_label.setStyleSheet(
@@ -2399,6 +2451,27 @@ class MainWindow(QMainWindow):
 
         tabs.addTab(inf_tab, "ALIGN")
 
+        # ── Tab 3: HALO ──────────────────────────────────────────────
+        # Minimal enable toggle only; the full HALO UX pane is a deferred
+        # task. Bound to the same halo/enabled setting + scene.halo_enabled
+        # as the status-bar pill, and keeps the pill in sync.
+        halo_tab = QWidget()
+        halo_layout = QVBoxLayout(halo_tab)
+        halo_cb = QCheckBox("Enable HALO")
+        halo_cb.setObjectName("halo_enabled")
+        halo_cb.setChecked(bool(self.scene.halo_enabled))
+        halo_cb.toggled.connect(
+            lambda checked: (
+                setattr(self.scene, "halo_enabled", checked),
+                self.settings.setValue("halo/enabled", checked),
+                self._halo_pill.setChecked(checked),
+                [v.viewport().update() for v in self.scene.views()],
+            )
+        )
+        halo_layout.addWidget(halo_cb)
+        halo_layout.addStretch()
+        tabs.addTab(halo_tab, "HALO")
+
         # ── Buttons ──────────────────────────────────────────────────
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -2604,6 +2677,14 @@ class MainWindow(QMainWindow):
     def _update_guides_indicator(self, enabled: bool) -> None:
         """Restyle the ALIGN status-bar pill. Mirrors _update_snap_indicator."""
         self.guides_indicator.setGuidesOn(enabled)
+
+    def _toggle_halo(self, *args):
+        """Flip the global HALO switch from the status-bar pill."""
+        on = self._halo_pill.isChecked()
+        self.scene.halo_enabled = on
+        self.settings.setValue("halo/enabled", on)
+        for v in self.scene.views():
+            v.viewport().update()
 
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout in the status bar."""
