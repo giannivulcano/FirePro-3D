@@ -94,8 +94,6 @@ class Model_View(QGraphicsView):
             "offset":                 _C.PointingHandCursor,
             "offset_side":            _C.PointingHandCursor,
         }
-        if hasattr(scene, "modeChanged"):
-            scene.modeChanged.connect(self._on_mode_changed)
 
         # Accept drag-drop for PDF/DXF import
         self.setAcceptDrops(True)
@@ -106,13 +104,6 @@ class Model_View(QGraphicsView):
 
         # Accent crosshair cursor (MainWindow flips this on from ui/crosshair).
         self._crosshair_enabled = False
-
-    def _on_mode_changed(self, mode: str):
-        """Update viewport cursor to match the active scene mode."""
-        if self._panning:
-            return
-        cursor = self._resolve_cursor(mode)
-        self.setCursor(cursor)
 
     def _resolve_cursor(self, mode):
         """Cursor for *mode*: blank while the crosshair owns the pointer."""
@@ -259,7 +250,12 @@ class Model_View(QGraphicsView):
         paint_snap_indicator(painter, self, snap_result)
 
         # ── HALO preselection highlight ──────────────────────────────────
-        if not self._clip_rect and hasattr(scene, "halo_item"):
+        # Gated on _halo_suppressed() so a stale highlight is not left painted
+        # when the pill is toggled off, a tool mode is active, or a band/manip
+        # drag / pan is in progress (any of which suppress the highlight).
+        if (not self._clip_rect and hasattr(scene, "halo_item")
+                and hasattr(scene, "_halo_suppressed")
+                and not scene._halo_suppressed()):
             halo = scene.halo_item()
             if halo is not None:
                 from .halo import paint_halo_highlight
@@ -744,8 +740,9 @@ class Model_View(QGraphicsView):
             sc = self.scene()
             if sc is not None and hasattr(sc, "halo_update") and not self._panning:
                 from .constants import HALO_APERTURE_PX
+                aperture_px = getattr(sc, "_halo_aperture_px", HALO_APERTURE_PX)
                 dt = self.viewportTransform()
-                a_scene = HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
+                a_scene = aperture_px / max(self.transform().m11(), 1e-9)
                 if sc.halo_update(self.mapToScene(event.pos()), a_scene, dt):
                     self.viewport().update()
             if getattr(self, "_crosshair_enabled", False):
@@ -847,17 +844,19 @@ class Model_View(QGraphicsView):
                   and drawForeground); Qt-native drag would fight it.
         stretch → RubberBandDrag: legacy Qt-native band + crossing path,
                   UNCHANGED.
-        else    → NoDrag + crosshair for precise drawing / placement.
+        else    → NoDrag for precise drawing / placement.
+
+        Cursor always routes through ``_resolve_cursor`` so the accent
+        crosshair (BlankCursor) and the panning guard are honored on every
+        mode change — hardcoding a shape here would lose crosshair
+        suppression.
         """
         if mode == "stretch":
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-        elif mode in (None, "select"):
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.CrossCursor)
+        if not self._panning:
+            self.setCursor(self._resolve_cursor(mode))
 
     # -----------------------------
     # Tab — exact dimension input
