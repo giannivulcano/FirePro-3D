@@ -635,6 +635,11 @@ class MainWindow(QMainWindow):
         _halo_on = self.settings.value("halo/enabled", True, type=bool)
         self._halo_pill.setChecked(_halo_on)
         self.scene.halo_enabled = _halo_on
+        # HALO aperture (pick half-size in px) — loaded from settings into the
+        # per-scene value the view reads each move (prefs spinbox writes both).
+        from firepro3d.constants import HALO_APERTURE_PX
+        self.scene._halo_aperture_px = self.settings.value(
+            "halo/aperture_px", HALO_APERTURE_PX, type=int)
         self._halo_pill.clicked.connect(self._toggle_halo)
         status_bar.addPermanentWidget(self._halo_pill)
         # Pipe-mode node snap readout (between SNAP and coordinates)
@@ -2469,6 +2474,28 @@ class MainWindow(QMainWindow):
             )
         )
         halo_layout.addWidget(halo_cb)
+
+        # Aperture (pick tolerance) — px half-size of the HALO pick box. Writes
+        # halo/aperture_px and updates scene._halo_aperture_px live (the view
+        # reads it each mouse move).
+        from firepro3d.constants import HALO_APERTURE_PX
+        ap_row = QHBoxLayout()
+        ap_row.addWidget(QLabel("Aperture (px):"))
+        ap_spin = QSpinBox()
+        ap_spin.setObjectName("halo_aperture_px")
+        ap_spin.setRange(2, 20)
+        ap_spin.setValue(int(getattr(self.scene, "_halo_aperture_px",
+                                     HALO_APERTURE_PX)))
+        ap_spin.valueChanged.connect(
+            lambda v: (
+                setattr(self.scene, "_halo_aperture_px", int(v)),
+                self.settings.setValue("halo/aperture_px", int(v)),
+            )
+        )
+        ap_row.addWidget(ap_spin)
+        ap_row.addStretch()
+        halo_layout.addLayout(ap_row)
+
         halo_layout.addStretch()
         tabs.addTab(halo_tab, "HALO")
 
@@ -2683,6 +2710,11 @@ class MainWindow(QMainWindow):
         on = self._halo_pill.isChecked()
         self.scene.halo_enabled = on
         self.settings.setValue("halo/enabled", on)
+        if not on:
+            # Drop any live candidate list so the last highlight is not left
+            # painted after disabling (drawForeground is gated on suppression,
+            # but this also clears the stale candidate stack + readout).
+            self.scene.halo_clear()
         for v in self.scene.views():
             v.viewport().update()
 
