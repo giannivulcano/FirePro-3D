@@ -3114,6 +3114,46 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 return True
         return False
 
+    # ── HALO preselection ranking (pure, shared by hover/cycle/click) ─────
+    def _halo_resolve(self, item):
+        """Resolve a hit child item to its selectable parent entity.
+
+        Sprinklers resolve to their owning Node; a DesignAreaBadge to its
+        parent DesignArea; a gridline label child to its GridlineItem. Anything
+        else is returned unchanged.
+        """
+        if isinstance(item, Sprinkler):
+            return item.node
+        if isinstance(item, DesignAreaBadge):
+            return item.parentItem()
+        parent = item.parentItem() if hasattr(item, "parentItem") else None
+        if isinstance(parent, GridlineItem):
+            return parent
+        return item
+
+    def halo_rank(self, items, scene_pos):
+        """Order candidates: runtime-Z desc -> screen distance -> stable id.
+
+        Pure + deterministic. Resolves child->parent, dedupes, drops
+        non-selectable items. Single order consumed by hover/cycle/click.
+        """
+        resolved, seen = [], set()
+        for it in items:
+            r = self._halo_resolve(it)
+            if r is None or id(r) in seen:
+                continue
+            if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                continue
+            seen.add(id(r))
+            resolved.append(r)
+
+        def _dist(it):
+            c = it.sceneBoundingRect().center()
+            return (c.x() - scene_pos.x()) ** 2 + (c.y() - scene_pos.y()) ** 2
+
+        resolved.sort(key=lambda it: (-it.zValue(), _dist(it), id(it)))
+        return resolved
+
     def _cycle_wall_alignment(self, *args, **kwargs):
         return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
 
