@@ -46,8 +46,17 @@ class Model_View(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # Rubber-band selection — only active in select/stretch modes
-        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        # Rubber-band selection.
+        #   select mode  → scene-drawn band (this view's drawForeground);
+        #                  Qt-native drag is OFF (NoDrag) so we own the paint,
+        #                  the window/crossing flip, and the commit at release.
+        #   stretch mode → Qt-native RubberBandDrag (unchanged legacy path).
+        # View-side band state (viewport px). _rb_start is recorded in
+        # mousePressEvent; _rb_active/_rb_end track the live scene-drawn band.
+        self._rb_start = None
+        self._rb_active = False
+        self._rb_end = None
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         if hasattr(scene, "modeChanged"):
             scene.modeChanged.connect(self._on_mode_changed)
 
@@ -255,6 +264,25 @@ class Model_View(QGraphicsView):
             if halo is not None:
                 from .halo import paint_halo_highlight
                 paint_halo_highlight(painter, self, halo, th.detect())
+
+        # ── Scene-drawn rubber-band (viewport coords) ─────────────────────
+        # Direction-dependent: L->R = window (blue/solid), R->L = crossing
+        # (green/dashed). Drawn after HALO so the band sits on top.
+        if getattr(self, "_rb_active", False) and self._rb_end is not None:
+            painter.save()
+            painter.resetTransform()
+            crossing = self._rb_end.x() < self._rb_start.x()
+            base = th.detect().color("ok" if crossing else "selection")
+            pen = QPen(base, 1)
+            pen.setStyle(Qt.PenStyle.DashLine if crossing
+                         else Qt.PenStyle.SolidLine)
+            painter.setPen(pen)
+            fill = QColor(base)
+            fill.setAlpha(40)
+            painter.setBrush(fill)
+            painter.drawRect(QRectF(QPointF(self._rb_start),
+                                    QPointF(self._rb_end)).normalized())
+            painter.restore()
 
         # ── 1b. Floor vertex dots during placement ─────────────────────────────
         floor_active = getattr(scene, "_floor_active", None)
@@ -662,14 +690,44 @@ class Model_View(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
-            # Track rubber-band start for crossing selection (stretch mode)
+            # Track rubber-band start (viewport px). Used by both the legacy
+            # stretch-mode crossing path and the scene-drawn select band.
             self._rb_start = event.pos()
+            self._rb_active = False
+            self._rb_end = None
+            sc = self.scene()
+            if sc is not None and getattr(sc, "mode", None) in (None, "select"):
+                # Arm the scene-drawn band ONLY on an empty-canvas start: no
+                # manipulator/handle under the cursor AND no selectable item.
+                # A press on a manipulator, grip, or selectable item must fall
+                # through to the scene (item selection / interior press /
+                # grip-drag), never start a band.
+                scene_pos = self.mapToScene(event.pos())
+                manip = sc._live_manip() if hasattr(sc, "_live_manip") else None
+                on_manip = (manip is not None and manip.isVisible()
+                            and manip.hit_test(scene_pos))
+                hits = [i for i in sc.items(scene_pos)
+                        if i.flags()
+                        & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable]
+                if (not on_manip) and (not hits):
+                    self._rb_active = True
+                    self._rb_end = event.pos()
+                    sc._rb_active_flag = True
+            # Let the scene press run regardless — on an empty non-Ctrl press it
+            # clears selection (desired: a fresh band replaces the selection).
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         self._last_vp_pos = event.pos()   # used by drawForeground for dim HUD
+        if getattr(self, "_rb_active", False):
+            # Live scene-drawn band: extend it and repaint. Skip the HALO update
+            # while banding (halo_update is also suppressed scene-side via
+            # _rb_active_flag, but there is no point computing candidates here).
+            self._rb_end = event.pos()
+            self.viewport().update()
+            return
         if self._panning:
             # Lazy begin-on-first-move: a middle-click that never drags
             # freezes nothing; later moves hit the frozen fast path and
@@ -704,25 +762,61 @@ class Model_View(QGraphicsView):
             mode = getattr(sc, "mode", None) if sc else None
             self.setCursor(self._resolve_cursor(mode))
         elif event.button() == Qt.MouseButton.LeftButton:
-            # If this was a click (not a drag), temporarily suppress
-            # rubber-band so Qt doesn't deselect everything with an
-            # empty rubber-band rect.  The scene's press handler
-            # already handled item selection.
+            # Scene-drawn band (select mode). Owns its own click-vs-drag and
+            # commit; runs before the legacy stretch path below.
+            if getattr(self, "_rb_active", False):
+                sc = self.scene()
+                start = getattr(self, "_rb_start", None)
+                end = getattr(self, "_rb_end", None) or event.pos()
+                dist = ((end - start).manhattanLength()
+                        if start is not None else 0)
+                if dist < 5:
+                    # A click, not a drag: the scene press already handled
+                    # selection (and cleared it on empty non-Ctrl). Just drop
+                    # the band state; nothing to commit.
+                    self._rb_active = False
+                    self._rb_end = None
+                    if sc is not None:
+                        sc._rb_active_flag = False
+                    self._rb_start = None
+                    super().mouseReleaseEvent(event)
+                    self.viewport().update()
+                    return
+                # A real drag: commit the window/crossing selection.
+                start_scene = self.mapToScene(start)
+                end_scene = self.mapToScene(end)
+                crossing = end.x() < start.x()
+                rect = QRectF(start_scene, end_scene).normalized()
+                if sc is not None and hasattr(sc, "commit_rubber_band"):
+                    additive = bool(event.modifiers()
+                                    & Qt.KeyboardModifier.ControlModifier)
+                    sc.commit_rubber_band(rect, crossing, additive,
+                                          self.viewportTransform())
+                self._rb_active = False
+                self._rb_end = None
+                if sc is not None:
+                    sc._rb_active_flag = False
+                self._rb_start = None
+                super().mouseReleaseEvent(event)
+                self.viewport().update()
+                return
+            # Stretch mode keeps Qt-native RubberBandDrag. A <5px click there is
+            # still suppressed (as before) so Qt's empty rubber-band rect does
+            # not deselect everything; the scene press already handled the item
+            # selection. (Select mode's <5px click is handled by the band block
+            # above and never reaches here.)
+            sc = self.scene()
             rb_start = getattr(self, "_rb_start", None)
-            if rb_start is not None:
+            if (rb_start is not None
+                    and getattr(sc, "mode", None) == "stretch"):
                 dist = (event.pos() - rb_start).manhattanLength()
                 if dist < 5:
                     self.setDragMode(QGraphicsView.DragMode.NoDrag)
                     super().mouseReleaseEvent(event)
-                    sc = self.scene()
-                    mode = getattr(sc, "mode", "select") if sc else "select"
-                    if mode in ("select", "stretch"):
-                        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+                    self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
                     self._rb_start = None
                     return
             # Crossing selection for stretch mode: detect right-to-left drag
-            sc = self.scene()
-            rb_start = getattr(self, "_rb_start", None)
             if (sc is not None and rb_start is not None
                     and getattr(sc, "mode", None) == "stretch"
                     and getattr(sc, "_stretch_base", None) is None):
@@ -747,10 +841,19 @@ class Model_View(QGraphicsView):
     # -----------------------------------------
 
     def _on_mode_changed(self, mode):
-        """Disable rubber-band selection during drawing / placement modes
-        and switch to crosshair cursor for precise drawing."""
-        if mode in ("select", "stretch"):
+        """Toggle drag mode + cursor per interaction mode.
+
+        select  → NoDrag: the band is scene-drawn (see mousePress/Move/Release
+                  and drawForeground); Qt-native drag would fight it.
+        stretch → RubberBandDrag: legacy Qt-native band + crossing path,
+                  UNCHANGED.
+        else    → NoDrag + crosshair for precise drawing / placement.
+        """
+        if mode == "stretch":
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        elif mode in (None, "select"):
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)

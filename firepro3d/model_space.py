@@ -3157,14 +3157,26 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """True if the item is (or belongs to) a placed underlay group."""
         return self.find_underlay_for_item(item) is not None
 
-    def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool):
+    def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool,
+                           dt=None):
         """Select items in scene_rect. window(crossing=False)->fully contained,
-        crossing=True->intersecting. additive (Ctrl) adds to current selection."""
+        crossing=True->intersecting. additive (Ctrl) adds to current selection.
+
+        ``dt`` is the view's device transform (``viewportTransform()``). It must
+        be supplied so ``ItemIgnoresTransformations`` markers (Nodes) are hit
+        against their ON-SCREEN shape rather than their transform-free scene
+        shape (which inflates to ~356 scene units and would over-select). When
+        ``dt`` is None (headless/unit tests) the 2-arg query is used.
+        """
         mode = (Qt.ItemSelectionMode.IntersectsItemShape if crossing
                 else Qt.ItemSelectionMode.ContainsItemShape)
         if not additive:
             self.clearSelection()
-        for it in self.items(scene_rect, mode):
+        if dt is not None:
+            hits = self.items(scene_rect, mode, Qt.SortOrder.DescendingOrder, dt)
+        else:
+            hits = self.items(scene_rect, mode)
+        for it in hits:
             if getattr(it, "_exclude_from_bulk_select", False):
                 continue
             if self._halo_is_underlay(it):
