@@ -4430,10 +4430,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                                                item_under, node_under, pipe_under):
                 return
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        # Prefer the HALO-highlighted (hovered/cycled) candidate over the raw
+        # topmost pick so a Spacebar-cycled preselection is what the click
+        # commits; fall back to item_under when no HALO highlight is active.
+        target = self.halo_item() or item_under
         if not ctrl:
             self.clearSelection()
-        if item_under is not None:
-            item_under.setSelected(not item_under.isSelected() if ctrl else True)
+        if target is not None:
+            target.setSelected(not target.isSelected() if ctrl else True)
 
     def _press_sprinkler(self, event, pos, snapped, item_under, node_under, pipe_under):
         if isinstance(item_under, Pipe):
