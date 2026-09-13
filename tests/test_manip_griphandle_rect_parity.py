@@ -2,7 +2,7 @@
 
 Rect provides manip_handles() (9 grips) so _item_uses_manip_handles is the single
 coexistence gate. But for an UNROTATED rect the manipulator shows its rigid
-RESIZE handles (provides_handles_for → _active_handles returns the rigid set),
+RESIZE handles (_is_box_native_single → _active_handles returns the rigid set),
 NOT the parametric grips — no double-up. A ROTATED rect drops the scale cap, so
 its parametric grips surface (live-apply; apply_grip resizes in the rect's own
 local frame), replacing the legacy green grips.
@@ -63,7 +63,7 @@ def test_unrotated_rect_shows_resize_handles_plus_centre_move(qapp):
     r = _make_rect(); scene.addItem(r)
     m = SelectionManipulator(scene)
     r.setSelected(True); qapp.processEvents()
-    assert m.provides_handles_for(r) is True
+    assert m._is_box_native_single(r) is True
     active = m._active_handles()
     rigid = [h for h in active if isinstance(h, (ResizeHandle, RotateHandle))]
     grips = [h for h in active if isinstance(h, GripHandle)]
@@ -100,7 +100,7 @@ def test_rotated_rect_shows_parametric_grips(qapp):
     r = _make_rect(); r.set_angle(30.0, QPointF(50, 30)); scene.addItem(r)
     m = SelectionManipulator(scene)
     r.setSelected(True); qapp.processEvents()
-    assert m.provides_handles_for(r) is False
+    assert m._is_box_native_single(r) is False
     active = m._active_handles()
     grips = [h for h in active if isinstance(h, GripHandle)]
     assert len(grips) == 9

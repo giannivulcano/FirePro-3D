@@ -955,13 +955,12 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         GripHandles.
 
         For an UNROTATED rect the manipulator shows its rigid RESIZE handles
-        instead (``provides_handles_for`` → ``_active_handles`` returns the rigid
+        instead (``_is_box_native_single`` → ``_active_handles`` returns the rigid
         set), so these grips only surface for a ROTATED rect (whose ``scale`` cap
-        is dropped) — replacing the legacy green grips with live-apply grips
-        whose ``apply_grip`` resizes in the rect's own rotated LOCAL frame (no
-        shear). Providing ``manip_handles`` also makes ``_item_uses_manip_handles``
-        the single coexistence gate: the legacy grip paths skip the rect for BOTH
-        states (no more separate ``provides_handles_for`` skip).
+        is dropped) — driving edits via ``apply_grip`` in the rect's own rotated
+        LOCAL frame (no shear). Since U4 the manipulator is the sole grip
+        renderer/hit-tester (the legacy grip paths were retired), so
+        ``manip_handles`` is simply this item's handle set.
 
         Corners (0,2,4,6) + centre (8) render round; edge midpoints (1,3,5,7)
         square — matching the rigid resize-handle look; the square grips align to

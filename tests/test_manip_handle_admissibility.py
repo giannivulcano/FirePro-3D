@@ -6,7 +6,7 @@ Three goals (no production code modified):
      that edits on every on_drag() call and never uses the held-preview _apply.
   2. An item exposing manip_handles() -> [Handle] makes _active_handles() return
      that handle and a pooled _HandleItem host renders+hit-tests it.
-  3. The legacy grip seams (provides_handles_for, _find_grip_hit) still behave
+  3. The legacy grip seams (_is_box_native_single, _find_grip_hit) still behave
      identically for a box-native RectangleItem.
 """
 import pytest
@@ -256,7 +256,7 @@ def test_legacy_grip_seams_untouched(qapp, scene_and_view):
     """The legacy grip pipeline is correctly retired for a box-native item.
 
     When a single RectangleItem (which has manip_scale) is selected:
-      - provides_handles_for(r) is True (manipulator owns the handles)
+      - _is_box_native_single(r) is True (manipulator owns the handles)
       - _find_grip_hit at a corner grip returns None (grips suppressed so they
         cannot steal a manipulator-handle press)
     """
@@ -275,8 +275,8 @@ def test_legacy_grip_seams_untouched(qapp, scene_and_view):
     qapp.processEvents()
 
     # The manipulator must claim ownership of r's handles.
-    assert manip.provides_handles_for(r), (
-        "provides_handles_for(r) returned False — manipulator should own "
+    assert manip._is_box_native_single(r), (
+        "_is_box_native_single(r) returned False — manipulator should own "
         "a single box-native (manip_scale) RectangleItem's handles"
     )
 

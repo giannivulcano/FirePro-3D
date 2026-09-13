@@ -416,7 +416,7 @@ def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view)
     r.setSelected(True)
     qapp.processEvents()
     manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
-    assert manip.provides_handles_for(r)                 # grips retired for r
+    assert manip._is_box_native_single(r)                 # grips retired for r
     corner = manip._rect.topRight()
     assert manip.hit_test(corner)
     _post_mouse(view, QEvent.Type.MouseButtonPress, corner)

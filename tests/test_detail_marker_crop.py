@@ -65,7 +65,7 @@ def test_frame_shows_as_bounding_box(qapp):
     m = SelectionManipulator(scene)
     dm.setSelected(True); qapp.processEvents()
     assert dm in m.selection_items()
-    assert m.provides_handles_for(dm) is False         # parametric, not box-native
+    assert m._is_box_native_single(dm) is False         # parametric, not box-native
     assert m._frame_is_redundant() is False            # frame IS the visible box
 
 

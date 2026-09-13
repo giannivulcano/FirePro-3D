@@ -495,15 +495,12 @@ class SelectionManipulator(QGraphicsObject):
         selection boundary — the manipulator frame is the one boundary)."""
         return item in self._items
 
-    def provides_handles_for(self, item: QGraphicsItem) -> bool:
-        """True when the manipulator's OWN resize handles replace *item*'s
-        parametric grips — a single, scale-capable selection (a box-native
-        item like RectangleItem).  Such an item must be retired from the legacy
-        grip pipeline entirely: ``Model_View.drawForeground`` must not draw its
-        grips (double handles) and ``_find_grip_hit`` must not hit-test them
-        (a manipulator-handle press would otherwise be stolen by the coincident
-        rect grip, which also deselects the item).  Parametric items (no
-        ``manip_scale``) keep their grips inside the frame.
+    def _is_box_native_single(self, item: QGraphicsItem) -> bool:
+        """True when *item* is the sole selection AND scale-capable (box-native,
+        like RectangleItem): the manipulator shows its own rigid RESIZE handles
+        instead of the item's parametric grips, and draws no redundant frame
+        (the item's own outline IS the box).  Parametric items (no
+        ``manip_scale``) surface their grips inside the frame.
         """
         return (len(self._items) == 1 and self._items[0] is item
                 and "scale" in item_capabilities(item))
@@ -616,7 +613,7 @@ class SelectionManipulator(QGraphicsObject):
         handles alone (PowerPoint/Figma style); keep the frame for multi-select
         and non-box shapes, where the bounding box adds information."""
         return (len(self._items) == 1
-                and self.provides_handles_for(self._items[0]))
+                and self._is_box_native_single(self._items[0]))
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
@@ -718,7 +715,7 @@ class SelectionManipulator(QGraphicsObject):
 
     def _active_handles(self) -> list:
         """Handles for the current selection: the rigid RESIZE set for a
-        box-native single item (``provides_handles_for``), else the item-provided
+        box-native single item (``_is_box_native_single``), else the item-provided
         grips (U3), else the rigid set (fallback).
 
         The box-native branch is what keeps a RectangleItem showing its 8 resize
@@ -727,7 +724,7 @@ class SelectionManipulator(QGraphicsObject):
         grips must not double up with the resize handles. A ROTATED rect drops
         ``scale`` → not box-native → its parametric grips surface (live-apply,
         local-frame resize)."""
-        if len(self._items) == 1 and self.provides_handles_for(self._items[0]):
+        if len(self._items) == 1 and self._is_box_native_single(self._items[0]):
             handles = list(self._rigid.values())
             # A box-native item may add handles the rigid resize set lacks — e.g.
             # RectangleItem's centre MOVE grip — so the centre handle is present

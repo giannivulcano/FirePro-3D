@@ -261,7 +261,7 @@ def test_posted_drag_centre_grip_moves_rotated_note(qapp):
     scene.addItem(note)
     m = SelectionManipulator(scene)
     note.setSelected(True); qapp.processEvents()
-    assert m.provides_handles_for(note) is False        # rotated → parametric grips
+    assert m._is_box_native_single(note) is False        # rotated → parametric grips
     c0 = note.grip_points()[8]
     target = QPointF(c0.x() + 40, c0.y() - 25)
     _post_drag(view, scene, [c0, QPointF(c0.x() + 20, c0.y() - 12), target])
