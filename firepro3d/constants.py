@@ -245,3 +245,7 @@ TB_REV_PEN_MM = 0.2                 # revision table divider pen width (mm)
 TB_PREVIEW_MIN_MM = 20.0            # Fields-tab single-field preview: nominal slot min-height for unplaced fields
 TB_INSERT_BAND_PX = 6               # Arrangements canvas: hit-band (px) around row boundaries for insert zones
 TB_POOL_CARD_W = 150                # Arrangements tab: pool card list width (px); consumed by Task 10
+
+# HALO preselection-highlight engine
+HALO_APERTURE_PX = 6      # screen-space pick aperture radius (px)
+HALO_CYCLE_RESET_PX = 4   # cursor move beyond this rebuilds the candidate list
