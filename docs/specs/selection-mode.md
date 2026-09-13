@@ -233,7 +233,8 @@ The blue/solid ↔ green/dashed flip is live during the drag as direction change
 
 - Starts on an **empty-canvas press only**.
 - Drag < 5px: treated as click, no rubber-band.
-- Commit is `commit_rubber_band(rect, crossing, additive, dt)`, which is passed the view `viewportTransform()` (needed to map the shape-based hit-test).
+- Commit is `commit_rubber_band(rect, crossing, additive, dt)`, which is passed the view `viewportTransform()` (needed to map the shape-based hit-test). Both commit and the live preview (below) share one query, `rubber_band_hits(rect, crossing, dt)`.
+- **Live preview:** while the band is dragged, the items it *would* select are HALO-highlighted (multi-item, `selection_hover` outline) and update live as the rect grows / the direction flips; `Model_Space._band_preview` is refreshed per move (`update_band_preview`) and cleared on release, `<5px` click, and Escape. This is separate from the single-item hover (which stays suppressed during the drag, §4.3).
 - **Plain drag:** clears current selection before applying rubber-band results.
 - **Ctrl+drag:** additive — rubber-band results are added to the existing selection.
 - Items with the `_exclude_from_bulk_select` flag (DetailMarker, ViewMarkerArrow) are excluded from both modes.
