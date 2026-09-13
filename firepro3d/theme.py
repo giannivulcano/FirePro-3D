@@ -143,6 +143,7 @@ class Theme:
     on_accent: str
     selection: str
     selection_active: str
+    selection_hover: str
     ok: str
     warn: str
     danger: str
@@ -238,6 +239,7 @@ DARK = Theme(
     ink="#E6E9EC", muted="#98A1AA", faint="#6F7982",
     accent="#63BE8B", accent_ink="#0E1712", on_accent="#ffffff",
     selection="#63BE8B", selection_active="#8FE3B4",
+    selection_hover="#00BFFF",
     ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
 )
 
@@ -248,6 +250,7 @@ LIGHT = Theme(
     ink="#1c2024", muted="#5a636c", faint="#98a1aa",
     accent="#2f9e63", accent_ink="#ffffff", on_accent="#ffffff",
     selection="#2f9e63", selection_active="#1f7a49",
+    selection_hover="#0091D6",
     ok="#2f9e63", warn="#b46500", danger="#c42b1c",
 )
 
