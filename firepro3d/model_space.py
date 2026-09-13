@@ -198,6 +198,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._halo_candidates: list = []
         self._halo_index: int = 0
         self._halo_pick_pos = None
+        # Live rubber-band preselection preview (U5 leg A): resolved items the
+        # band WOULD select, HALO-highlighted mid-drag. Separate from the single
+        # hover set; populated by update_band_preview, cleared on release/cancel.
+        self._band_preview: list = []
         self.halo_enabled: bool = True   # global pill switch (main loads from QSettings)
         # HALO aperture (pick half-size in device px). Seeded from the constant;
         # main loads halo/aperture_px from QSettings and the prefs spinbox
@@ -3229,21 +3233,40 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         shape (which inflates to ~356 scene units and would over-select). When
         ``dt`` is None (headless/unit tests) the 2-arg query is used.
         """
-        mode = (Qt.ItemSelectionMode.IntersectsItemShape if crossing
-                else Qt.ItemSelectionMode.ContainsItemShape)
+        hits = self.rubber_band_hits(scene_rect, crossing, dt)
         if not additive:
             self.clearSelection()
+        for r in hits:
+            r.setSelected(True)
+
+    def rubber_band_hits(self, scene_rect, crossing: bool, dt=None):
+        """Resolved, filtered items a window(crossing=False)/crossing band selects.
+
+        Pure query (no selection side-effects): shared by
+        :meth:`commit_rubber_band` (which selects them) and the live band
+        preview (which HALO-highlights them). Mirrors the historical
+        commit filter semantics exactly, with dedupe on resolved identity so a
+        parent hit via multiple children is highlighted once.
+
+        ``dt`` is the view's device transform (``viewportTransform()``); it
+        must be supplied so ``ItemIgnoresTransformations`` markers (Nodes) hit
+        against their ON-SCREEN shape. When None (headless/unit tests) the
+        2-arg query is used.
+        """
+        mode = (Qt.ItemSelectionMode.IntersectsItemShape if crossing
+                else Qt.ItemSelectionMode.ContainsItemShape)
         if dt is not None:
-            hits = self.items(scene_rect, mode, Qt.SortOrder.DescendingOrder, dt)
+            raw = self.items(scene_rect, mode, Qt.SortOrder.DescendingOrder, dt)
         else:
-            hits = self.items(scene_rect, mode)
-        for it in hits:
+            raw = self.items(scene_rect, mode)
+        out, seen = [], set()
+        for it in raw:
             if getattr(it, "_exclude_from_bulk_select", False):
                 continue
             if self._halo_is_underlay(it):
                 continue
             r = self._halo_resolve(it)
-            if r is None:
+            if r is None or id(r) in seen:
                 continue
             if getattr(r, "_exclude_from_bulk_select", False):
                 continue
@@ -3254,7 +3277,20 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if isinstance(r, Room) and not self._halo_room_hit(
                     r, scene_rect, is_rect=True):
                 continue
-            r.setSelected(True)
+            seen.add(id(r))
+            out.append(r)
+        return out
+
+    def update_band_preview(self, scene_rect, crossing: bool, dt=None):
+        """Recompute the live band preselection preview set (highlighted, not
+        selected). Called from the view's move handler while banding."""
+        self._band_preview = self.rubber_band_hits(scene_rect, crossing, dt)
+
+    def clear_band_preview(self) -> bool:
+        """Drop the band preview set. Returns True if it had been populated."""
+        had = bool(self._band_preview)
+        self._band_preview = []
+        return had
 
     def _halo_in_view_range(self, item):
         """Reuse the existing plan view-range Z filter; permissive fallback.
@@ -3296,6 +3332,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if getattr(v, "_rb_active", False):
                 v._rb_active = False
                 self._rb_active_flag = False
+                self.clear_band_preview()
                 v.viewport().update()
                 return True
         if self.halo_item() is not None or self._halo_candidates:

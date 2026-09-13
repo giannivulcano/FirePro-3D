@@ -261,6 +261,21 @@ class Model_View(QGraphicsView):
                 from .halo import paint_halo_highlight
                 paint_halo_highlight(painter, self, halo, th.detect())
 
+        # ── Live band preselection preview (scene coords) ─────────────────
+        # The multi-item cyan HALO outlines of everything the band WOULD select,
+        # drawn in SCENE coords (like the single hover above) — NOT inside the
+        # resetTransform() block used for the band rect, so the outlines track
+        # their entities on-screen. Painted before the band rect so the band
+        # frame reads on top. (Perf: N outlines per repaint; fine for typical
+        # selections, uncapped for v1.)
+        if getattr(self, "_rb_active", False):
+            preview = getattr(scene, "_band_preview", None)
+            if preview:
+                from .halo import paint_halo_highlight
+                theme = th.detect()
+                for it in preview:
+                    paint_halo_highlight(painter, self, it, theme)
+
         # ── Scene-drawn rubber-band (viewport coords) ─────────────────────
         # Direction-dependent: L->R = window (blue/solid), R->L = crossing
         # (green/dashed). Drawn after HALO so the band sits on top.
@@ -718,10 +733,18 @@ class Model_View(QGraphicsView):
     def mouseMoveEvent(self, event):
         self._last_vp_pos = event.pos()   # used by drawForeground for dim HUD
         if getattr(self, "_rb_active", False):
-            # Live scene-drawn band: extend it and repaint. Skip the HALO update
-            # while banding (halo_update is also suppressed scene-side via
-            # _rb_active_flag, but there is no point computing candidates here).
+            # Live scene-drawn band: extend it and repaint. Skip the single-item
+            # HALO update while banding (suppressed scene-side via
+            # _rb_active_flag), but DO refresh the multi-item band preselection
+            # preview so the highlight tracks the band and flips window<->crossing.
             self._rb_end = event.pos()
+            sc = self.scene()
+            if sc is not None and hasattr(sc, "update_band_preview"):
+                start = self.mapToScene(self._rb_start)
+                end = self.mapToScene(self._rb_end)
+                rect = QRectF(start, end).normalized()
+                crossing = self._rb_end.x() < self._rb_start.x()
+                sc.update_band_preview(rect, crossing, self.viewportTransform())
             self.viewport().update()
             return
         if self._panning:
@@ -775,6 +798,8 @@ class Model_View(QGraphicsView):
                     self._rb_end = None
                     if sc is not None:
                         sc._rb_active_flag = False
+                        if hasattr(sc, "clear_band_preview"):
+                            sc.clear_band_preview()
                     self._rb_start = None
                     super().mouseReleaseEvent(event)
                     self.viewport().update()
@@ -793,6 +818,8 @@ class Model_View(QGraphicsView):
                 self._rb_end = None
                 if sc is not None:
                     sc._rb_active_flag = False
+                    if hasattr(sc, "clear_band_preview"):
+                        sc.clear_band_preview()
                 self._rb_start = None
                 super().mouseReleaseEvent(event)
                 self.viewport().update()
