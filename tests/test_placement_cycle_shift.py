@@ -79,16 +79,6 @@ class TestCyclePlacementAmbiguity:
         scene._pipe_ctl._tab_candidates = [type("N", (), {"z_pos": 0.0})()]
         assert scene.cycle_placement_ambiguity() is False
 
-    def test_select_mode_cycles_similar(self, scene):
-        scene.set_mode("select")
-        g1 = GridlineItem(QPointF(0, 0), QPointF(100, 0), label="1")
-        g2 = GridlineItem(QPointF(0, 50), QPointF(100, 50), label="2")
-        for g in (g1, g2):
-            scene.addItem(g); scene._gridlines.append(g)
-        g1.setSelected(True)
-        assert scene.cycle_placement_ambiguity() is True
-        assert g2.isSelected() and not g1.isSelected()
-
     def test_plain_drawing_mode_returns_false(self, scene):
         scene.set_mode("draw_line")
         assert scene.cycle_placement_ambiguity() is False
@@ -104,15 +94,25 @@ class TestSpacebarDrivesCycle:
         QApplication.sendEvent(view, _space())
         assert scene._wall_alignment == "Left"
 
-    def test_space_direct_cycles_similar_selection(self, scene):
-        scene.set_mode("select")
-        g1 = GridlineItem(QPointF(0, 0), QPointF(100, 0), label="1")
-        g2 = GridlineItem(QPointF(0, 50), QPointF(100, 50), label="2")
-        for g in (g1, g2):
-            scene.addItem(g); scene._gridlines.append(g)
-        g1.setSelected(True)
+    def test_space_cycles_halo_preselection(self, scene):
+        # A7 repurposed select-mode Space: it no longer advances the SELECTION
+        # (that same-type cycler is retired) but the HALO preselection highlight.
+        # test_halo_cycle.py covers the pure cycler via a direct
+        # cycle_placement_ambiguity() call; the value-add here is the KEY ROUTING
+        # — Space through keyPressEvent must reach the halo cycler.
+        from firepro3d.node import Node
+        from PyQt6.QtGui import QTransform
+        scene.set_mode(None)                        # resting select mode
+        # add_node dedupes within SNAP_RADIUS, so build raw coincident Nodes.
+        a = Node(0.0, 0.0); b = Node(0.0, 0.0)
+        scene.addItem(a); scene.addItem(b)
+        scene.halo_update(QPointF(0.0, 0.0), 8.0, QTransform())
+        assert len(scene._halo_candidates) == 2
+        first = scene.halo_item()
+        assert scene._halo_index == 0
         scene.keyPressEvent(_space())
-        assert g2.isSelected() and not g1.isSelected()
+        assert scene.halo_item() is not first       # Space advanced the highlight
+        assert scene._halo_index == 1
 
 
 class TestSpaceGatedByInputMode:
