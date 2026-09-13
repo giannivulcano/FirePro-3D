@@ -3066,7 +3066,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             nothing ambiguous to cycle (so the caller can leave the key alone).
         """
         if self.mode in ("select", None, ""):
-            return self._cycle_similar_selection()
+            return self._halo_cycle()
         if self.mode == "pipe" and len(self._pipe_ctl._tab_candidates) > 1:
             self._pipe_ctl.cycle_tab()
             return True
@@ -3084,40 +3084,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _sync_opening_state_to_template(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
         return self._feature_ctl._sync_opening_state_to_template(*args, **kwargs)
 
-    def _cycle_similar_selection(self) -> bool:
-        """Select the next element of the same type as the sole selection.
-
-        Lifted verbatim from the retired ``_handle_tab_input`` select branch.
-
-        Returns:
-            True when the selection was advanced, False when there is not
-            exactly one selected item of a cyclable type.
-        """
-        selected = self.selectedItems()
-        if len(selected) == 1:
-            item = selected[0]
-            _type_map = {
-                Pipe: lambda: list(self.sprinkler_system.pipes),
-                WallSegment: lambda: list(self._walls),
-                Node: lambda: [n for n in self.sprinkler_system.nodes
-                               if n.has_sprinkler()],
-                GridlineItem: lambda: list(self._gridlines),
-                FloorSlab: lambda: list(self._floor_slabs),
-                RoofItem: lambda: list(self._roofs),
-            }
-            collection = None
-            for cls, getter in _type_map.items():
-                if isinstance(item, cls):
-                    collection = getter()
-                    break
-            if collection and item in collection:
-                idx = collection.index(item)
-                nxt = collection[(idx + 1) % len(collection)]
-                self.clearSelection()
-                nxt.setSelected(True)
-                self.requestPropertyUpdate.emit(nxt)
-                return True
-        return False
+    def _halo_cycle(self) -> bool:
+        """Spacebar in select mode: advance the HALO preselection highlight."""
+        if len(self._halo_candidates) < 2:
+            return False
+        self._halo_index = (self._halo_index + 1) % len(self._halo_candidates)
+        for v in self.views():
+            v.viewport().update()
+        return True
 
     # ── HALO preselection ranking (pure, shared by hover/cycle/click) ─────
     def _halo_resolve(self, item):
