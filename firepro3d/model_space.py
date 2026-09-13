@@ -43,7 +43,8 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM)
+                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM,
+                       HALO_APERTURE_PX)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -198,6 +199,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._halo_index: int = 0
         self._halo_pick_pos = None
         self.halo_enabled: bool = True   # global pill switch (main loads from QSettings)
+        # HALO aperture (pick half-size in device px). Seeded from the constant;
+        # main loads halo/aperture_px from QSettings and the prefs spinbox
+        # updates it live. Model_View.mouseMoveEvent reads it per move.
+        self._halo_aperture_px: int = HALO_APERTURE_PX
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -3098,9 +3103,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if len(self._halo_candidates) < 2:
             return False
         self._halo_index = (self._halo_index + 1) % len(self._halo_candidates)
+        self._emit_halo_readout()
         for v in self.views():
             v.viewport().update()
         return True
+
+    def _emit_halo_readout(self):
+        """Emit the HALO stack readout (spec §3.3) on ``instructionChanged``.
+
+        Format: ``"<Type> — <i> of <N>"``, with the item's ``name`` appended
+        when it has one. Emits an empty string (clears the line) when there is
+        no current candidate.
+        """
+        item = self.halo_item()
+        if item is None:
+            self.instructionChanged.emit("")
+            return
+        n = len(self._halo_candidates)
+        readout = f"{type(item).__name__} — {self._halo_index + 1} of {n}"
+        name = getattr(item, "name", None)
+        if isinstance(name, str) and name:
+            readout += f"  ({name})"
+        self.instructionChanged.emit(readout)
 
     # ── HALO preselection ranking (pure, shared by hover/cycle/click) ─────
     def _halo_resolve(self, item):
@@ -3299,7 +3323,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._halo_candidates = self.halo_candidates_at(scene_pos, aperture_scene, dt)
         self._halo_index = 0
         self._halo_pick_pos = scene_pos
-        return self.halo_item() is not prev
+        changed = self.halo_item() is not prev
+        if changed:
+            self._emit_halo_readout()
+        return changed
 
     def _cycle_wall_alignment(self, *args, **kwargs):
         return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
