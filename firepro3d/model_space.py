@@ -4437,26 +4437,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             super().mousePressEvent(event)
             return
 
-        # ── Gridline body click → select (no body drag, use grips) ──
-        if self.mode in (None, "select"):
-            gl_hit = next(
-                (i for i in items
-                 if isinstance(i, GridlineItem)
-                 or (hasattr(i, 'parentItem') and isinstance(i.parentItem(), GridlineItem))),
-                None,
-            )
-            if gl_hit is not None:
-                gl = gl_hit if isinstance(gl_hit, GridlineItem) else gl_hit.parentItem()
-                ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                if ctrl:
-                    gl.setSelected(not gl.isSelected())
-                else:
-                    # Clear other selections and select this gridline
-                    if not gl.isSelected():
-                        self.clearSelection()
-                        gl.setSelected(True)
-                return
-
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is not None:
