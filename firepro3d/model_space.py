@@ -3154,6 +3154,41 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         resolved.sort(key=lambda it: (-it.zValue(), _dist(it), id(it)))
         return resolved
 
+    def halo_candidates_at(self, scene_pos, aperture_scene, dt):
+        """Aperture pick -> filtered, ranked HALO candidate list.
+
+        aperture_scene: half-size of the pick box in scene units.
+        dt: the view's viewportTransform for
+        ItemIgnoresTransformations-correct hits.
+        """
+        a = aperture_scene
+        box = QRectF(scene_pos.x() - a, scene_pos.y() - a, 2 * a, 2 * a)
+        raw = self.items(box, Qt.ItemSelectionMode.IntersectsItemShape,
+                         Qt.SortOrder.DescendingOrder, dt)
+        vis = [i for i in raw if i.isVisible() and self._halo_in_view_range(i)]
+        underlays = [i for i in vis if self._halo_is_underlay(i)]
+        others = [i for i in vis if not self._halo_is_underlay(i)]
+        ranked = self.halo_rank(others, scene_pos)
+        for u in underlays:
+            if u.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
+                ranked.append(u)
+        return ranked
+
+    def _halo_is_underlay(self, item):
+        """True if the item is (or belongs to) a placed underlay group."""
+        return self.find_underlay_for_item(item) is not None
+
+    def _halo_in_view_range(self, item):
+        """Reuse the existing plan view-range Z filter; permissive fallback.
+
+        No cleanly-callable per-item view-range predicate exists on
+        Model_Space — the plan Z-slab is enforced by a bulk visibility sweep
+        (LevelManager.apply_to_scene) that mutates ``setVisible``. That sweep's
+        result is already captured by the ``isVisible()`` check in
+        halo_candidates_at, so this predicate is permissive.
+        """
+        return True
+
     def _cycle_wall_alignment(self, *args, **kwargs):
         return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
 

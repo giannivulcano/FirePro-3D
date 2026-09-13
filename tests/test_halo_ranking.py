@@ -13,6 +13,7 @@ API notes (verified against the real code, not assumed):
 """
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QTransform
 from firepro3d.model_space import Model_Space
 from firepro3d.node import Node
 
@@ -47,3 +48,18 @@ def test_rank_is_deterministic_for_coincident(qapp):
     o2 = sc.halo_rank([b, a], QPointF(5.0, 5.0))
     assert [id(x) for x in o1] == [id(x) for x in o2]
     assert len(o1) == 2                              # both survive dedup (distinct ids)
+
+
+def test_candidates_at_returns_ranked_visible(qapp):
+    sc = Model_Space()
+    n = sc.add_node(0.0, 0.0)
+    cands = sc.halo_candidates_at(QPointF(0.0, 0.0), aperture_scene=8.0, dt=QTransform())
+    assert n in cands
+
+
+def test_candidates_exclude_hidden(qapp):
+    sc = Model_Space()
+    n = sc.add_node(0.0, 0.0)
+    n.setVisible(False)
+    cands = sc.halo_candidates_at(QPointF(0.0, 0.0), aperture_scene=8.0, dt=QTransform())
+    assert n not in cands
