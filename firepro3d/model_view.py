@@ -249,6 +249,13 @@ class Model_View(QGraphicsView):
         # main plan view and the import-dialog preview stay pixel-identical.
         paint_snap_indicator(painter, self, snap_result)
 
+        # ── HALO preselection highlight ──────────────────────────────────
+        if not self._clip_rect and hasattr(scene, "halo_item"):
+            halo = scene.halo_item()
+            if halo is not None:
+                from .halo import paint_halo_highlight
+                paint_halo_highlight(painter, self, halo, th.detect())
+
         # ── 1b. Floor vertex dots during placement ─────────────────────────────
         floor_active = getattr(scene, "_floor_active", None)
         if floor_active is not None and hasattr(floor_active, "_points"):
@@ -676,6 +683,13 @@ class Model_View(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
         else:
             super().mouseMoveEvent(event)
+            sc = self.scene()
+            if sc is not None and hasattr(sc, "halo_update") and not self._panning:
+                from .constants import HALO_APERTURE_PX
+                dt = self.viewportTransform()
+                a_scene = HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
+                if sc.halo_update(self.mapToScene(event.pos()), a_scene, dt):
+                    self.viewport().update()
             if getattr(self, "_crosshair_enabled", False):
                 self.viewport().update()
 
