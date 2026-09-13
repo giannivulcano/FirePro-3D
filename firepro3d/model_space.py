@@ -601,6 +601,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                if isinstance(item, GridlineItem)]
         if sel:
             self._gridline_spacing_selected = sel
+        # C2: a solely-selected underlay group shows its read-only property
+        # record (get_properties() is all "label" fields). Underlays reach
+        # selection only as the terminal HALO candidate, so this cannot shadow
+        # a real-entity selection.
+        selected = self.selectedItems()
+        if len(selected) == 1:
+            found = self.find_underlay_for_item(selected[0])
+            if found is not None:
+                self.requestPropertyUpdate.emit(found[0])
         for v in self.views():
             v.viewport().update()
 
@@ -3168,8 +3177,22 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         return target.intersects(arg) if is_rect else target.contains(arg)
 
     def _halo_is_underlay(self, item):
-        """True if the item is (or belongs to) a placed underlay group."""
-        return self.find_underlay_for_item(item) is not None
+        """True if the item is (or belongs to) a placed underlay group.
+
+        ``scene.items()`` hands back both the tracked underlay *group* and its
+        child path items. ``find_underlay_for_item`` matches by exact identity
+        against the tracked group only, so a child would miss. Walk the parent
+        chain (bounded) so every item owned by an underlay is classified as one
+        — mirroring the underlay context-menu caller (``contextMenuEvent``).
+        """
+        candidate = item
+        depth = 0
+        while candidate is not None and depth < 16:
+            if self.find_underlay_for_item(candidate) is not None:
+                return True
+            candidate = candidate.parentItem()
+            depth += 1
+        return False
 
     def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool,
                            dt=None):
