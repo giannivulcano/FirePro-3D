@@ -3262,6 +3262,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return True
         return False
 
+    def _escape_ladder(self) -> bool:
+        """Select-mode Escape precedence: cancel band -> reset HALO -> clear selection.
+
+        (Manipulator-drag cancel is handled earlier in keyPressEvent.) Returns True
+        if it consumed the key.
+        """
+        for v in self.views():
+            if getattr(v, "_rb_active", False):
+                v._rb_active = False
+                self._rb_active_flag = False
+                v.viewport().update()
+                return True
+        if self.halo_item() is not None or self._halo_candidates:
+            self.halo_clear()
+            for v in self.views():
+                v.viewport().update()
+            return True
+        if self.selectedItems():
+            self.clearSelection()
+            return True
+        return False
+
     def halo_clear(self):
         """Drop the candidate list. Returns True if there was something to clear."""
         had = bool(self._halo_candidates)
@@ -6930,6 +6952,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         self.removeItem(self._align_ghost)
                     self._align_ghost = None
                 self._show_status("Click reference edge")
+                return
+            # Select/None mode: run the precedence ladder (cancel band ->
+            # reset HALO -> clear selection). Manipulator-drag cancel already
+            # ran earlier in this method (step 1). If the ladder consumed the
+            # key, stop here; otherwise fall through to the tool-mode
+            # set_mode(None) below (a no-op for select/None).
+            if self.mode in (None, "select") and self._escape_ladder():
+                event.accept()
                 return
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)
