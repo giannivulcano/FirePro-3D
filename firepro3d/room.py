@@ -414,6 +414,16 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         br = super().boundingRect()
         return br.united(self.childrenBoundingRect())
 
+    def label_scene_rect(self):
+        """The label-background rect in scene coords, or None if no visible label."""
+        bg = self._label_bg
+        if bg is None or not bg.isVisible():
+            return None
+        lbl = self._label
+        if lbl is None or not lbl.isVisible() or not (lbl.toPlainText() or "").strip():
+            return None
+        return bg.mapToScene(bg.rect()).boundingRect()
+
     # NOTE: shape() intentionally NOT overridden. A previous version
     # returned only the room-tag label area so that clicking inside the
     # polygon would fall through to walls/floors — but Qt used that

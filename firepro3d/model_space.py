@@ -3151,7 +3151,21 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         for u in underlays:
             if u.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
                 ranked.append(u)
+        # C1: a labelled Room is a candidate only via its label rect; a
+        # label-less Room falls back to its full polygon (shape() untouched).
+        ranked = [r for r in ranked
+                  if not isinstance(r, Room)
+                  or self._halo_room_hit(r, scene_pos, is_rect=False)]
         return ranked
+
+    def _halo_room_hit(self, room, arg, is_rect):
+        """Room click target: label rect if labelled, else full polygon.
+
+        arg is a QPointF (is_rect False) or QRectF (is_rect True).
+        """
+        lr = room.label_scene_rect()
+        target = lr if lr is not None else room.mapToScene(room.shape()).boundingRect()
+        return target.intersects(arg) if is_rect else target.contains(arg)
 
     def _halo_is_underlay(self, item):
         """True if the item is (or belongs to) a placed underlay group."""
@@ -3188,7 +3202,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 continue
             if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
                 continue
-            # TODO(C1): Room label-rect containment refinement lands in Task C1.
+            # C1: a labelled Room selects only when the rubber-band touches its
+            # label rect; a label-less Room falls back to its full polygon.
+            if isinstance(r, Room) and not self._halo_room_hit(
+                    r, scene_rect, is_rect=True):
+                continue
             r.setSelected(True)
 
     def _halo_in_view_range(self, item):
