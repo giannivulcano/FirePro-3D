@@ -3157,6 +3157,28 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """True if the item is (or belongs to) a placed underlay group."""
         return self.find_underlay_for_item(item) is not None
 
+    def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool):
+        """Select items in scene_rect. window(crossing=False)->fully contained,
+        crossing=True->intersecting. additive (Ctrl) adds to current selection."""
+        mode = (Qt.ItemSelectionMode.IntersectsItemShape if crossing
+                else Qt.ItemSelectionMode.ContainsItemShape)
+        if not additive:
+            self.clearSelection()
+        for it in self.items(scene_rect, mode):
+            if getattr(it, "_exclude_from_bulk_select", False):
+                continue
+            if self._halo_is_underlay(it):
+                continue
+            r = self._halo_resolve(it)
+            if r is None:
+                continue
+            if getattr(r, "_exclude_from_bulk_select", False):
+                continue
+            if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                continue
+            # TODO(C1): Room label-rect containment refinement lands in Task C1.
+            r.setSelected(True)
+
     def _halo_in_view_range(self, item):
         """Reuse the existing plan view-range Z filter; permissive fallback.
 
