@@ -114,21 +114,11 @@ class TestPlacementAndGripWiring:
         assert ms._align_active_item is None
         assert ms._align_controller.acquired == []
 
-    def test_active_item_set_on_grip_drag_start(self, qapp, make_model_space):
-        """_align_active_item equals the dragged GridlineItem at drag-start."""
-        ms = make_model_space()
-        gl = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 200.0), label="1")
-        ms.addItem(gl)
-        ms._gridlines.append(gl)
-        gl.setSelected(True)
-        _setup_align_view(ms, center_x=0.0, center_y=0.0)
-
-        ms._grip_item = gl
-        ms._grip_index = 1
-        ms._grip_dragging = True
-        if isinstance(ms._grip_item, GridlineItem):
-            ms._align_active_item = ms._grip_item
-        assert ms._align_active_item is gl
+    # NOTE: the former test_active_item_set_on_grip_drag_start was retired with U4
+    # (2026-09-12). It inlined the deleted _find_grip_hit press-branch assignment
+    # (_align_active_item = gridline) and asserted its own copy — a tautology once
+    # that branch was removed. Gridline grip-drag snap self-exclusion is preserved
+    # via _grip_item (get_effective_position exclude), set by GridlineGripHandle.
 
 
 # ---------------------------------------------------------------------------
