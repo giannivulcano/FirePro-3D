@@ -46,21 +46,17 @@ def test_labeled_room_has_one_round_move_grip(qapp):
     assert hs[0].scene_position(None) == room.grip_points()[0]
 
 
-def test_label_hidden_room_exposes_no_grip_and_gate_off(qapp):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_label_hidden_room_exposes_no_grip(qapp):
     room = Room(boundary=[QPointF(0, 0), QPointF(1000, 0),
                           QPointF(1000, 1000), QPointF(0, 1000)])
-    # No name/tag -> label hidden -> no grip.
+    # No name/tag -> label hidden -> no grip. State-dependent empty is symmetric:
+    # grip_points() and manip_handles() are BOTH empty (nothing renders).
     assert room.grip_points() == []
     assert room.manip_handles() == []
-    # State-dependent path: empty manip_handles -> gate treats as not-migrated;
-    # harmless because grip_points() is also empty (nothing renders either way).
-    assert _item_uses_manip_handles(room) is False
 
 
-def test_labeled_room_gate_on(qapp):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
-    assert _item_uses_manip_handles(_labeled_room()) is True
+def test_labeled_room_exposes_grip(qapp):
+    assert _labeled_room().manip_handles()
 
 
 # --------------------------------------------------------------------------
@@ -97,15 +93,6 @@ def test_label_grip_apply_matches_legacy(qapp):
     h.on_press(m)
     h.on_drag(m, QPointF(700, 400), Qt.KeyboardModifier.NoModifier)
     assert migrated.to_dict() == legacy.to_dict()
-
-
-def test_legacy_grip_paths_skip_migrated_room(qapp, shown_model_view):
-    view, scene = shown_model_view
-    room = _add_room(scene)
-    scene.set_mode("select")
-    room.setSelected(True)
-    hit = scene._tools._find_grip_hit(QPointF(room.grip_points()[0]))
-    assert hit is None or hit[0] is not room
 
 
 # --------------------------------------------------------------------------

@@ -135,15 +135,6 @@ def manip_bounds(item) -> QRectF:
     return item.sceneBoundingRect()
 
 
-def _item_uses_manip_handles(item) -> bool:
-    """True when *item* provides its own manipulator handles (U3-migrated), so
-    the legacy grip paths (Model_View.drawForeground, scene_tools._find_grip_hit)
-    must NOT render/hit-test it — one render path, one hit-test (no double
-    handles / no stolen press). Mirrors provides_handles_for; U4 deletes both."""
-    fn = getattr(item, "manip_handles", None)
-    return fn is not None and bool(fn())
-
-
 def _painting_into_clip_view(widget) -> bool:
     """True when *widget* is the viewport of a detail/clip view (a ``Model_View``
     with a ``_clip_rect``). The manipulator's own handle paint short-circuits

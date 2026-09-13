@@ -51,22 +51,20 @@ def test_manip_bounds_is_crop_box_rect(qapp, shown_model_view):
     assert marker.manip_bounds() == box.mapRectToScene(box.rect())
 
 
-def test_unselected_marker_exposes_no_grips_and_gate_off(qapp, shown_model_view):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_unselected_marker_exposes_no_grips(qapp, shown_model_view):
     _, scene = shown_model_view
     mgr = _add_markers(scene)
     marker = mgr.get_marker("north")     # not selected -> box hidden
+    # State-dependent empty is symmetric (grip_points and manip_handles both []).
     assert marker.grip_points() == []
     assert marker.manip_handles() == []
-    assert _item_uses_manip_handles(marker) is False
 
 
-def test_selected_marker_gate_on(qapp, shown_model_view):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_selected_marker_exposes_grips(qapp, shown_model_view):
     _, scene = shown_model_view
     mgr = _add_markers(scene)
     marker = _select(scene, mgr)
-    assert _item_uses_manip_handles(marker) is True
+    assert marker.manip_handles()
 
 
 # --------------------------------------------------------------------------
@@ -119,14 +117,6 @@ def test_crop_grip_apply_matches_legacy(qapp, shown_model_view):
     h.on_drag(m, QPointF(target), Qt.KeyboardModifier.NoModifier)
     assert mgr_m._crop_box.rect() == legacy_rect            # same resize
     assert mgr_m.get_marker("south").pos() == legacy_south  # markers repositioned
-
-
-def test_legacy_grip_paths_skip_migrated_marker(qapp, shown_model_view):
-    _, scene = shown_model_view
-    mgr = _add_markers(scene)
-    marker = _select(scene, mgr)
-    hit = scene._tools._find_grip_hit(QPointF(marker.grip_points()[0]))
-    assert hit is None or hit[0] is not marker
 
 
 # --------------------------------------------------------------------------

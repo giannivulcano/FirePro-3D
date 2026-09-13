@@ -176,7 +176,6 @@ def test_esc_restores_and_no_commit(qapp):
     assert calls == []                                 # no undo entry on cancel
 
 
-def test_coexistence_gate_recognizes_migration():
-    """_item_uses_manip_handles True => legacy grip paths skip the polygon."""
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
-    assert _item_uses_manip_handles(_make_poly()) is True
+def test_provides_manip_handles():
+    """The polygon provides its own manipulator handles (migrated)."""
+    assert _make_poly().manip_handles()

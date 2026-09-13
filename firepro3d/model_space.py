@@ -4314,37 +4314,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         node_under = selection if isinstance(selection, Node) else None
         pipe_under = selection if isinstance(selection, Pipe) else None
 
-        # ── Grip hit takes priority over mode handlers ──────────────────
-        # Skip grip detection in drawing modes so clicks reach the draw handler
-        _skip_grip_modes = ("wall", "floor", "pipe", "sprinkler",
-                            "draw_line", "draw_rectangle",
-                            "draw_circle", "draw_ellipse", "draw_arc", "draw_spline",
-                            "polyline", "draw_gridline",
-                            "dimension", "text", "door", "window", "set_scale",
-                            "detail", "align", "design_area")
-        if (self.mode not in _skip_grip_modes
-                and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
-            grip_hit = self._tools._find_grip_hit(snapped)
-            if grip_hit is not None:
-                if self.mode == "move" and self.node_start_pos is None:
-                    # In move mode, use grip point as precise base point.  Build
-                    # the ghost silhouette here too: this early return skips the
-                    # ``_press_paste_move`` path that normally builds it, so
-                    # without this the (common) base-click-on-the-moved-item case
-                    # sets a base point but shows no ghost.
-                    item, idx = grip_hit
-                    self.node_start_pos = item.grip_points()[idx]
-                    self._move_ghost_base = self._build_move_ghost_base(
-                        is_paste=False)
-                    self.instructionChanged.emit("Pick destination point")
-                    return
-                self._grip_item, self._grip_index = grip_hit
-                self._grip_dragging = True
-                # Enable ALIGN self-exclusion for gridline endpoint drags.
-                if isinstance(self._grip_item, GridlineItem):
-                    self._align_active_item = self._grip_item
-                return  # consumed by grip system
-
         # ── Selection-manipulator interior press (select mode only) ─────
         # Grip hits above stay first (spec §event-routing: grip beats
         # interior-move).  Route the press through normal item dispatch so

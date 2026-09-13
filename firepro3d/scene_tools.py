@@ -746,42 +746,6 @@ class SceneTools:
                                  grips[idx].y() + delta.y())
                 item.apply_grip(idx, new_pt)
 
-    # -------------------------------------------------------------------------
-    # GRIP HELPERS (Sprint I)
-
-    def _find_grip_hit(self, pos: QPointF):
-        """
-        Return *(item, grip_index)* for the closest grip handle within
-        tolerance of *pos* on any selected item, else *None*.
-        """
-        views = self._scene.views()
-        if not views:
-            return None
-        scale = views[0].transform().m11()
-        grip_px = getattr(self._scene, "_grip_tolerance_px", 12)
-        tol   = grip_px / max(scale, 1e-6)
-
-        best = None
-        best_dist = tol
-        from .selection_manipulator import _item_uses_manip_handles
-        for item in self._scene.selectedItems():
-            if not hasattr(item, "grip_points"):
-                continue
-            # Single coexistence gate: the manipulator owns this item's handles
-            # (its live-apply grips, OR the rigid resize handles for a box-native
-            # rect — which now also provides manip_handles), so its coincident
-            # legacy grips must not steal the handle press.
-            if _item_uses_manip_handles(item):
-                continue
-            for idx, gpt in enumerate(item.grip_points()):
-                if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):
-                    continue
-                d = math.hypot(pos.x() - gpt.x(), pos.y() - gpt.y())
-                if d <= best_dist:
-                    best_dist = d
-                    best = (item, idx)
-        return best
-
     # =========================================================================
     # TRIM / EXTEND / MERGE  (Sprint Y)
     # =========================================================================

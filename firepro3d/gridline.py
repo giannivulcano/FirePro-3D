@@ -600,7 +600,7 @@ class GridlineItem(QGraphicsLineItem):
         self._rebuild_geometry()
 
     def grip_hittable(self, index: int) -> bool:
-        """Whether grip *index* can be picked right now (used by _find_grip_hit)."""
+        """Whether grip *index* can be picked right now (via ``GripHandle.visible``)."""
         if self._locked:
             return False
         if index == 2:
@@ -867,8 +867,8 @@ class GridlineItem(QGraphicsLineItem):
         endpoint; bubble-standoff grips (2, 3) render round (draggable move-like
         affordances that reposition the bubble standoff) with no constrain. All
         four carry multi-select parallel-delta. The
-        manipulator renders/hit-tests/commits them; the legacy grip paths skip
-        this item (coexistence gate ``_item_uses_manip_handles``). Per-grip
+        manipulator renders/hit-tests/commits them (the sole grip path since U4).
+        Per-grip
         pickability (lock + bubble visibility) is enforced by ``grip_hittable``
         via ``GripHandle.visible`` — a locked gridline lists 4 handles but shows
         none.

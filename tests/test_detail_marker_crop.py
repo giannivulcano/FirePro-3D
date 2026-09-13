@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from firepro3d.detail_view import DetailMarker
 from firepro3d.selection_manipulator import (
-    item_capabilities, _item_uses_manip_handles, SelectionManipulator,
+    item_capabilities, SelectionManipulator,
 )
 from firepro3d.manip_handle import GripHandle
 
@@ -18,10 +18,10 @@ def _make():
     return DetailMarker("Detail 1", QRectF(0, 0, 200, 100))
 
 
-def test_parametric_caps_and_gate(qapp):
+def test_parametric_caps_and_handles(qapp):
     dm = _make()
     assert item_capabilities(dm) == {"translate"}      # NOT scale (not box-native)
-    assert _item_uses_manip_handles(dm) is True
+    assert dm.manip_handles()                           # provides its own handles
 
 
 def test_manip_handles_square_crop_grips_round_bubble(qapp):

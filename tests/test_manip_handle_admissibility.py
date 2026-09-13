@@ -1,13 +1,13 @@
-"""U2: the Handle lifecycle admits a live-apply (U3-style) drag,
-manip_handles() consumption is live, and legacy grip seams are untouched.
+"""U2: the Handle lifecycle admits a live-apply (U3-style) drag and
+manip_handles() consumption is live.
 
 Three goals (no production code modified):
   1. The manipulator's gesture lifecycle ADMITS a live-apply drag — a handle
      that edits on every on_drag() call and never uses the held-preview _apply.
   2. An item exposing manip_handles() -> [Handle] makes _active_handles() return
      that handle and a pooled _HandleItem host renders+hit-tests it.
-  3. The legacy grip seams (_is_box_native_single, _find_grip_hit) still behave
-     identically for a box-native RectangleItem.
+  3. A single box-native RectangleItem is manipulator-owned via
+     _is_box_native_single (rigid resize set, not its parametric grips).
 """
 import pytest
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -249,16 +249,13 @@ def test_manip_handles_sourced_and_hosted(qapp, scene_and_view):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: legacy grip seams untouched for box-native RectangleItem
+# Test 3: box-native ownership for a single RectangleItem
 # ---------------------------------------------------------------------------
 
-def test_legacy_grip_seams_untouched(qapp, scene_and_view):
-    """The legacy grip pipeline is correctly retired for a box-native item.
-
-    When a single RectangleItem (which has manip_scale) is selected:
-      - _is_box_native_single(r) is True (manipulator owns the handles)
-      - _find_grip_hit at a corner grip returns None (grips suppressed so they
-        cannot steal a manipulator-handle press)
+def test_box_native_ownership(qapp, scene_and_view):
+    """A single RectangleItem (which has manip_scale) is manipulator-owned:
+    _is_box_native_single(r) is True, so _active_handles returns the rigid
+    resize set rather than the item's parametric grips.
     """
     from firepro3d.construction_geometry import RectangleItem
     from firepro3d.selection_manipulator import SelectionManipulator
@@ -278,13 +275,4 @@ def test_legacy_grip_seams_untouched(qapp, scene_and_view):
     assert manip._is_box_native_single(r), (
         "_is_box_native_single(r) returned False — manipulator should own "
         "a single box-native (manip_scale) RectangleItem's handles"
-    )
-
-    # _find_grip_hit at the top-left corner (grip index 0 = (100, 100)) must
-    # return None because the item is manipulator-owned.
-    tl = QPointF(100.0, 100.0)   # TL corner == grip_points()[0] at angle=0
-    hit = scene._tools._find_grip_hit(tl)
-    assert hit is None, (
-        f"_find_grip_hit returned {hit!r} at a corner of a manipulator-owned "
-        "RectangleItem — grips should be suppressed to prevent handle theft"
     )

@@ -180,20 +180,8 @@ def test_restore_puts_endpoints_back(qapp, shown_model_view):
 # Coexistence gate + endpoint apply parity
 # --------------------------------------------------------------------------
 
-def test_wall_uses_manip_handles_gate():
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
-    assert _item_uses_manip_handles(_make_wall()) is True
-
-
-def test_legacy_grip_paths_skip_migrated_wall(qapp, shown_model_view):
-    """The legacy find-grip-hit path must not return a migrated wall."""
-    view, scene = shown_model_view
-    w = _add_wall(scene, (0, 0), (500, 0))
-    scene.set_mode("select")
-    w.setSelected(True)
-    # A point exactly on the pt2 grip: legacy _find_grip_hit must skip the wall
-    hit = scene._tools._find_grip_hit(QPointF(500, 0))
-    assert hit is None or hit[0] is not w
+def test_wall_provides_manip_handles():
+    assert _make_wall().manip_handles()
 
 
 def test_endpoint_grip_apply_matches_legacy():

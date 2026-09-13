@@ -269,36 +269,6 @@ class Model_View(QGraphicsView):
                     painter.drawEllipse(vp, 5, 5)
                 painter.restore()
 
-        # ── 2. Grip handles (viewport coordinates) ────────────────────────────
-        selected = [i for i in scene.selectedItems() if hasattr(i, "grip_points")]
-        active_item  = getattr(scene, "_grip_item",  None)
-        active_idx   = getattr(scene, "_grip_index", -1)
-
-        if selected:
-            painter.save()
-            painter.resetTransform()
-            _sel_t = th.detect()
-            from .selection_manipulator import _item_uses_manip_handles
-            for item in selected:
-                # Single coexistence gate: the manipulator owns this item's
-                # handles (its live-apply grips, OR the rigid resize handles for a
-                # box-native rect — which now also provides manip_handles), so its
-                # legacy grips must not also draw (double handles).
-                if _item_uses_manip_handles(item):
-                    continue
-                for idx, gpt in enumerate(item.grip_points()):
-                    # Don't render a handle for a grip that can't be picked
-                    # (e.g. a hidden gridline bubble) — mirrors _find_grip_hit.
-                    if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):
-                        continue
-                    vp = self.mapFromScene(gpt)
-                    is_active = (item is active_item and idx == active_idx)
-                    fill = QColor(_sel_t.selection_active if is_active else _sel_t.selection)
-                    painter.setPen(QPen(QColor(_sel_t.selection), 1))
-                    painter.setBrush(QBrush(fill))
-                    painter.drawRect(vp.x() - 4, vp.y() - 4, 8, 8)
-            painter.restore()
-
         # ── 3b. Constraint indicators (viewport coordinates) ───────────────
         constraints = getattr(scene, "_constraints", [])
         if constraints:
@@ -687,22 +657,6 @@ class Model_View(QGraphicsView):
         elif event.button() == Qt.MouseButton.LeftButton:
             # Track rubber-band start for crossing selection (stretch mode)
             self._rb_start = event.pos()
-            sc = self.scene()
-            scene_pos = self.mapToScene(event.pos())
-
-            # When clicking on a grip handle the scene will consume the event.
-            # However, QGraphicsView starts rubber-band selection before the
-            # scene processes the click (grip handles are foreground overlays,
-            # not real scene items).  Detect the grip hit here and suppress
-            # rubber-band by temporarily switching to NoDrag for this press.
-            if (sc is not None
-                    and hasattr(sc, "_tools")):
-                if sc._tools._find_grip_hit(scene_pos) is not None:
-                    self._grip_press_active = True
-                    self.setDragMode(QGraphicsView.DragMode.NoDrag)
-                    super().mousePressEvent(event)
-                    return
-
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
@@ -736,30 +690,22 @@ class Model_View(QGraphicsView):
             mode = getattr(sc, "mode", None) if sc else None
             self.setCursor(self._resolve_cursor(mode))
         elif event.button() == Qt.MouseButton.LeftButton:
-            if getattr(self, "_grip_press_active", False):
-                self._grip_press_active = False
-                # Restore rubber-band in modes that use it
-                sc = self.scene()
-                mode = getattr(sc, "mode", "select") if sc else "select"
-                if mode in ("select", "stretch"):
-                    self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-            else:
-                # If this was a click (not a drag), temporarily suppress
-                # rubber-band so Qt doesn't deselect everything with an
-                # empty rubber-band rect.  The scene's press handler
-                # already handled item selection.
-                rb_start = getattr(self, "_rb_start", None)
-                if rb_start is not None:
-                    dist = (event.pos() - rb_start).manhattanLength()
-                    if dist < 5:
-                        self.setDragMode(QGraphicsView.DragMode.NoDrag)
-                        super().mouseReleaseEvent(event)
-                        sc = self.scene()
-                        mode = getattr(sc, "mode", "select") if sc else "select"
-                        if mode in ("select", "stretch"):
-                            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-                        self._rb_start = None
-                        return
+            # If this was a click (not a drag), temporarily suppress
+            # rubber-band so Qt doesn't deselect everything with an
+            # empty rubber-band rect.  The scene's press handler
+            # already handled item selection.
+            rb_start = getattr(self, "_rb_start", None)
+            if rb_start is not None:
+                dist = (event.pos() - rb_start).manhattanLength()
+                if dist < 5:
+                    self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                    super().mouseReleaseEvent(event)
+                    sc = self.scene()
+                    mode = getattr(sc, "mode", "select") if sc else "select"
+                    if mode in ("select", "stretch"):
+                        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+                    self._rb_start = None
+                    return
             # Crossing selection for stretch mode: detect right-to-left drag
             sc = self.scene()
             rb_start = getattr(self, "_rb_start", None)

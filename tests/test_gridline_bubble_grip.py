@@ -41,24 +41,6 @@ def test_grip_hittable_false_when_locked(scene_with_gridline):
     assert gl.grip_hittable(2) is False
 
 
-def test_find_grip_hit_skips_migrated_gridline(scene_with_gridline):
-    # U3: GridlineItem now provides manip_handles(), so the legacy grip pipeline
-    # must skip it (coexistence gate) — the manipulator owns its grips.
-    ms, view, gl = scene_with_gridline
-    gl.setSelected(True)
-    hit = ms._tools._find_grip_hit(QPointF(gl.bubble1.pos()))
-    assert hit is None or hit[0] is not gl
-
-
-def test_find_grip_hit_skips_hidden_bubble_grip(scene_with_gridline):
-    ms, view, gl = scene_with_gridline
-    gl.setSelected(True)
-    bubble_pt = QPointF(gl.bubble1.pos())
-    gl.bubble1.setVisible(False)
-    hit = ms._tools._find_grip_hit(bubble_pt)
-    assert hit is None or hit[1] != 2
-
-
 def test_bubble_grip_multiselect_same_delta(qapp):
     from firepro3d.model_space import Model_Space
     ms = Model_Space()

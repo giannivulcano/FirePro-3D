@@ -1,7 +1,7 @@
 """RectangleItem U3 box-native migration.
 
-Rect provides manip_handles() (9 grips) so _item_uses_manip_handles is the single
-coexistence gate. But for an UNROTATED rect the manipulator shows its rigid
+Rect provides manip_handles() (9 grips). For an UNROTATED rect the manipulator
+shows its rigid
 RESIZE handles (_is_box_native_single → _active_handles returns the rigid set),
 NOT the parametric grips — no double-up. A ROTATED rect drops the scale cap, so
 its parametric grips surface (live-apply; apply_grip resizes in the rect's own
@@ -35,13 +35,12 @@ def test_rect_manip_handles_shape():
         assert h.circular is (i in _ROUND), f"grip {i} circular={h.circular}"
 
 
-def test_gate_true_both_states():
-    """The single coexistence gate is True for a rect whether rotated or not."""
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_provides_manip_handles_both_states():
+    """A rect provides its own manip handles whether rotated or not."""
     r = _make_rect()
-    assert _item_uses_manip_handles(r) is True             # unrotated
+    assert r.manip_handles()                               # unrotated
     r.set_angle(30.0, QPointF(50, 30))
-    assert _item_uses_manip_handles(r) is True             # rotated
+    assert r.manip_handles()                               # rotated
 
 
 def test_grip_render_angle_is_rect_angle():
@@ -173,17 +172,3 @@ def test_posted_drag_centre_grip_moves_rotated_rect(qapp):
     assert abs(c1.y() - target.y()) < 1e-6
 
 
-def test_find_grip_hit_skips_rect_both_states(qapp):
-    """_find_grip_hit returns None for a selected rect (rotated or not) — the
-    manipulator owns its handles, so the legacy hit-test must not steal them."""
-    from firepro3d.model_space import Model_Space
-    scene = Model_Space()
-    view = QGraphicsView(scene); view.resize(400, 400); view.show()
-    qapp.processEvents()
-    r = _make_rect(); scene.addItem(r)
-    r.setSelected(True); qapp.processEvents()
-    # a press exactly on the top-left grip would hit a legacy grip if not skipped
-    tl = r.grip_points()[0]
-    assert scene._tools._find_grip_hit(tl) is None          # unrotated
-    r.set_angle(30.0, QPointF(50, 30)); qapp.processEvents()
-    assert scene._tools._find_grip_hit(r.grip_points()[0]) is None   # rotated

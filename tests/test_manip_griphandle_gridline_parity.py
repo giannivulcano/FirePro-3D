@@ -2,7 +2,7 @@
 outcome; ALL grips carry multi-select parallel-delta; endpoints Ctrl-constrain
 against the opposite endpoint; one undo per gesture; Esc atomically restores the
 dragged gridline AND every parallel-delta sibling; the legacy _PullTabGrip visuals
-are gone and _find_grip_hit skips the migrated item.
+are gone.
 
 U3 migration of GridlineItem onto manip_handles(). Mirrors
 test_manip_griphandle_wall_parity.py, adapted for parallel-delta (all grips) +
@@ -196,19 +196,8 @@ def test_press_snapshots_siblings_and_cancel_restores_them():
 # Coexistence gate
 # --------------------------------------------------------------------------
 
-def test_gridline_uses_manip_handles_gate():
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
-    assert _item_uses_manip_handles(_make_gl()) is True
-
-
-def test_legacy_grip_paths_skip_migrated_gridline(qapp, shown_model_view):
-    view, scene = shown_model_view
-    gl = _add_gl(scene, (0, 0), (0, 5000), "1")
-    scene.set_mode("select")
-    gl.setSelected(True)
-    # A point exactly on the far endpoint grip: legacy _find_grip_hit must skip it.
-    hit = scene._tools._find_grip_hit(QPointF(gl.grip_points()[1]))
-    assert hit is None or hit[0] is not gl
+def test_gridline_provides_manip_handles():
+    assert _make_gl().manip_handles()
 
 
 class _LeftPress:

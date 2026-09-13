@@ -51,17 +51,14 @@ def test_visible_badge_has_one_round_move_grip(qapp):
     assert hs[0].scene_position(None) == da.grip_points()[0]
 
 
-def test_hidden_badge_exposes_no_grip_and_gate_off(qapp):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_hidden_badge_exposes_no_grip(qapp):
     da = _da_with_badge(visible=False)
     assert da.grip_points() == []
     assert da.manip_handles() == []
-    assert _item_uses_manip_handles(da) is False
 
 
-def test_visible_badge_gate_on(qapp):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
-    assert _item_uses_manip_handles(_da_with_badge(visible=True)) is True
+def test_visible_badge_exposes_grip(qapp):
+    assert _da_with_badge(visible=True).manip_handles()
 
 
 # --------------------------------------------------------------------------
@@ -98,15 +95,6 @@ def test_badge_grip_apply_matches_legacy(qapp):
     h.on_press(m)
     h.on_drag(m, QPointF(700, 400), Qt.KeyboardModifier.NoModifier)
     assert migrated.badge_offset() == legacy.badge_offset()
-
-
-def test_legacy_grip_paths_skip_migrated_design_area(qapp, shown_model_view):
-    view, scene = shown_model_view
-    da = _add_da(scene)
-    scene.set_mode("select")
-    da.setSelected(True)
-    hit = scene._tools._find_grip_hit(QPointF(da.grip_points()[0]))
-    assert hit is None or hit[0] is not da
 
 
 # --------------------------------------------------------------------------

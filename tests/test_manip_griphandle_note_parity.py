@@ -107,11 +107,9 @@ def test_caps_are_box_native_when_unrotated(qapp):
     assert note.manip_capabilities() == {"translate", "scale", "rotate"}
 
 
-def test_manip_handles_gate_is_on(qapp):
-    from firepro3d.selection_manipulator import _item_uses_manip_handles
+def test_manip_handles_present(qapp):
     note = NoteAnnotation("Hi", x=0, y=0)
     note.setTextWidth(50.0)
-    assert _item_uses_manip_handles(note) is True
     assert len(note.manip_handles()) == 9
 
 
@@ -271,23 +269,3 @@ def test_posted_drag_centre_grip_moves_rotated_note(qapp):
     assert abs(c1.y() - target.y()) < 1e-6
 
 
-# ── Task 7: coexistence gate — legacy grip paths skip the note ───────────────
-
-def test_find_grip_hit_skips_note_both_states(qapp):
-    """_find_grip_hit returns None for a selected note (rotated or not) — the
-    manipulator owns its handles, so the legacy hit-test must not steal them."""
-    from PyQt6.QtWidgets import QGraphicsView
-    from firepro3d.model_space import Model_Space
-    scene = Model_Space()
-    view = QGraphicsView(scene); view.resize(400, 400); view.show()
-    qapp.processEvents()
-    note = NoteAnnotation("Hi", x=0, y=0)
-    note.setTextWidth(80.0); note._box_height = 40.0
-    scene.addItem(note)
-    scene.annotations.add_note(note)
-    note.setSelected(True); qapp.processEvents()
-    tl = note.grip_points()[0]
-    assert scene._tools._find_grip_hit(tl) is None          # unrotated
-    note.set_angle(30.0, QPointF(40, 20)); qapp.processEvents()
-    assert scene._tools._find_grip_hit(note.grip_points()[0]) is None   # rotated
-    scene.cleanup()
