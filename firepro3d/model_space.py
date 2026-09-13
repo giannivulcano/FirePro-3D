@@ -193,6 +193,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
+        # HALO hover state (U5) — scene-owned; view drives via halo_update (A6).
+        self._halo_candidates: list = []
+        self._halo_index: int = 0
+        self._halo_pick_pos = None
+        self.halo_enabled: bool = True   # global pill switch (main loads from QSettings)
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -3188,6 +3193,42 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         halo_candidates_at, so this predicate is permissive.
         """
         return True
+
+    def halo_item(self):
+        """The currently highlighted HALO candidate, or None."""
+        if 0 <= self._halo_index < len(self._halo_candidates):
+            return self._halo_candidates[self._halo_index]
+        return None
+
+    def _halo_suppressed(self):
+        """True when hover-highlight must not run (tool mode, drag, rubber-band)."""
+        if not self.halo_enabled:
+            return True
+        if self.mode not in (None, "select"):
+            return True
+        manip = self._live_manip()
+        if manip is not None and manip.is_dragging():
+            return True
+        if getattr(self, "_rb_active_flag", False):
+            return True
+        return False
+
+    def halo_clear(self):
+        """Drop the candidate list. Returns True if there was something to clear."""
+        had = bool(self._halo_candidates)
+        self._halo_candidates, self._halo_index, self._halo_pick_pos = [], 0, None
+        return had
+
+    def halo_update(self, scene_pos, aperture_scene, dt):
+        """Rebuild the candidate list for a mouse move. Returns True if the
+        highlighted item changed (caller repaints)."""
+        if self._halo_suppressed():
+            return self.halo_clear()
+        prev = self.halo_item()
+        self._halo_candidates = self.halo_candidates_at(scene_pos, aperture_scene, dt)
+        self._halo_index = 0
+        self._halo_pick_pos = scene_pos
+        return self.halo_item() is not prev
 
     def _cycle_wall_alignment(self, *args, **kwargs):
         return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
