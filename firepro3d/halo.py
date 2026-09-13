@@ -3,6 +3,13 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPen
 
 
+def halo_scene_path(item):
+    """The item's shape mapped to scene coords via Qt's canonical sceneTransform
+    (respects pos()/transform(); does NOT re-apply baked-rotation that shape()
+    already contains — unlike the items' overridden mapToScene)."""
+    return item.sceneTransform().map(item.shape())
+
+
 def paint_halo_highlight(painter, view, item, theme):
     """Draw a cosmetic outline around *item*'s shape in scene coords."""
     if item is None:
@@ -12,5 +19,5 @@ def paint_halo_highlight(painter, view, item, theme):
     pen.setCosmetic(True)
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawPath(item.mapToScene(item.shape()))
+    painter.drawPath(halo_scene_path(item))
     painter.restore()
