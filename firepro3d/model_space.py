@@ -349,7 +349,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._plan_view_manager = None                         # set by main.py
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
-        self._grip_index: int = -1              # grip handle index
         self._grip_dragging: bool = False
         # Gridline body drag (perpendicular constraint)
         self._dragging_gridline = None          # GridlineItem being body-dragged
@@ -1035,7 +1034,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self.pipeNodeHighlight.emit("")
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
-        self._grip_index = -1
         self._grip_dragging = False
         # ALIGN active-item: arm the seam for EVERY point-asking placement mode
         # (spec 2026-08-26 universal client scope — see ``_ALIGN_PLACEMENT_MODES``).
@@ -3214,33 +3212,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
 
-    def _drag_grip_to(self, pos):
-        """Apply the active grip drag to *pos* (scene coords), propagating to
-        other selected gridlines. Endpoint grips (0/1) keep the opposite end
-        fixed; bubble grips (2/3) slide the standoff. Lock-aware via apply_grip."""
-        gi = self._grip_item
-        if gi is None:
-            return
-        if isinstance(gi, GridlineItem):
-            old_pt = gi.grip_points()[self._grip_index]
-            gi.apply_grip(self._grip_index, pos)
-            new_pt = gi.grip_points()[self._grip_index]
-            delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
-            self._propagate_gridline_grip(gi, self._grip_index, delta)
-        else:
-            old_pt = None
-            if (self._grip_index in (0, 1)
-                    and isinstance(gi, WallSegment)
-                    and hasattr(gi, "grip_points")):
-                old_pt = gi.grip_points()[self._grip_index]
-            gi.apply_grip(self._grip_index, pos)
-            if old_pt is not None:
-                new_pt = gi.grip_points()[self._grip_index]
-                self._propagate_wall_endpoint(gi, old_pt, new_pt)
-        self._tools._solve_constraints(gi)
-        for v in self.views():
-            v.viewport().update()
-
     def _propagate_wall_endpoint(self, *args, **kwargs):
         return self._wall_ctl._propagate_wall_endpoint(*args, **kwargs)
 
@@ -3345,34 +3316,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # goes with the hint — leaving it set would let a mode that never
         # publishes hand the HUD the *previous* mode's stale point.
         self.clear_placement_state()
-
-        # ── Grip drag (mode-independent, takes priority) ────────────────
-        if self._grip_dragging and self._grip_item is not None:
-            pos = snapped
-            # Ctrl angle-snaps an endpoint-grip drag against the opposite
-            # endpoint.  Only applied to 2-endpoint item types whose grip
-            # indices map directly to the two ends:
-            #   WallSegment / GridlineItem: grips[0]=pt1, grips[1]=pt2
-            #   LineItem:                   grips[0]=pt1, grips[2]=pt2
-            # Other item types (rect, arc, polygon, circle) use different
-            # grip layouts and must NOT be affected by this block.
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                gi = self._grip_item
-                idx = self._grip_index
-                if isinstance(gi, (WallSegment, GridlineItem)):
-                    if idx in (0, 1):
-                        grips = gi.grip_points()
-                        if len(grips) >= 2:
-                            other = grips[1] if idx == 0 else grips[0]
-                            pos = self._constrain_angle(other, snapped)
-                elif isinstance(gi, LineItem):
-                    if idx in (0, 2):
-                        grips = gi.grip_points()
-                        if len(grips) >= 3:
-                            other = grips[2] if idx == 0 else grips[0]
-                            pos = self._constrain_angle(other, snapped)
-            self._drag_grip_to(pos)
-            return
 
         # ── Gridline body drag (perpendicular constraint) ───────────────
         if self._dragging_gridline is not None:
@@ -6345,21 +6288,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self._dragging_gridline = None
             self._gridline_drag_start = None
             self._gridline_drag_original_pos = None
-            return
-        if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
-            self._tools._solve_constraints(self._grip_item)  # enforce constraints
-            self._grip_dragging = False
-            self._grip_item     = None
-            self._grip_index    = -1
-            # Clear ALIGN active item now that the drag gesture is complete.
-            self._align_active_item = None
-            self._align_result = None
-            self._align_controller.clear()
-            self._align_last_move_ns = None
-            self._align_anchor_dir = None
-            self.push_undo_state()
-            for v in self.views():
-                v.viewport().update()
             return
         super().mouseReleaseEvent(event)
         # Deselect markers that got caught in a rubber-band drag.
