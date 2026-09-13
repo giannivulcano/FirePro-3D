@@ -1,13 +1,13 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11); plan-scene U3 items COMPLETE — U4/U5 remain (elevation/3D-scene handle providers land under U5)
-last-verified: 2026-09-11
-verified-commit: b08afc7   # ViewMarkerArrow U3: manip adapter -> shared SharedCropBox (8 square crop grips, mandatory manip_translate box-move, own dashed outline dropped) + rebake-ordering fix (grips gated on selection not box.isVisible())
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path; U5 (selection-mode + elevation/3D handle providers) remains
+last-verified: 2026-09-12
+verified-commit: b374278   # U4: deleted the drawForeground grip loop + scene_tools._find_grip_hit + _drag_grip_to/mouseMove-grip/mouseRelease-commit/_grip_index + _item_uses_manip_handles gate; renamed provides_handles_for→_is_box_native_single
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
   - firepro3d/manip_math.py
-  - firepro3d/model_view.py              # drawForeground grip-render seam + boundary/grip dedup
-  - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
+  - firepro3d/model_view.py              # drawForeground snap/constraint overlay + manipulator render_overlay (grip-render loop retired U4)
+  - firepro3d/scene_tools.py             # legacy _find_grip_hit retired U4 (no grip code remains)
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
   - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
@@ -23,14 +23,14 @@ source-tasks:
 
 > **v1 status (2026-08-30):** built and merged — the manipulator drives model +
 > paper selection, baked move/rotate/scale, group move, HUD readout + typed
-> input, RectangleItem bake-at-rest, and paper handle retirement (parity). It
-> **coexists** with the legacy per-item grip system via the `provides_handles_for`
-> arbitration seam. That seam still leaks known interaction bugs (surfaced in
-> live smoke — the "two systems fighting one item" class). Rather than chase
-> them per-symptom, they are deferred to and structurally eliminated by the
-> **Unification Roadmap** (below): U1–U4 collapse the two systems into one, at
-> which point the whole bug class is impossible. Treat v1 as the transitional
-> state, not the destination.
+> input, RectangleItem bake-at-rest, and paper handle retirement (parity). v1
+> **coexisted** with the legacy per-item grip system via the `provides_handles_for`
+> arbitration seam, which leaked a class of interaction bugs ("two systems fighting
+> one item"). The **Unification Roadmap** (below) structurally eliminated that class:
+> U1–U3 migrated every item onto `manip_handles`, and **U4 (2026-09-12) DELETED the
+> legacy grip system entirely** — the manipulator is now the sole model-scene render
+> path, hit-test, and undo funnel. Only U5 (selection-mode integration + elevation/3D
+> handle providers) remains.
 
 # Unified Selection Manipulator — Governing Spec
 
@@ -316,13 +316,26 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   needed; the paper scene has no legacy grip path). `DimensionAnnotation`, Floor,
   Roof DONE; DetailMarker + ViewMarker DONE; the plan-scene U3 items are complete
   (elevation/3D-scene handle providers remain under U5).
-- **U4 — retire the parallel systems**: once every item provides `manip_handles`,
-  delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
-  `provides_handles_for` predicate. One render path, one hit-test, one undo
-  funnel. *(Progress 2026-09-10: the legacy-path SKIP is already a single gate —
-  `_item_uses_manip_handles` — after the RectangleItem box-native migration;
-  `provides_handles_for` is now internal-only, used by `_active_handles` +
-  `_frame_is_redundant`.)*
+- **U4 — retire the parallel systems** ✅ **DONE (2026-09-12):** deleted all THREE
+  legacy legs — the `Model_View.drawForeground` grip-render loop, `scene_tools.
+  _find_grip_hit` (+ its two dead call sites: the `model_view` rubber-band-suppress
+  press branch and the `model_space` select/move grip-drag branch), AND the legacy
+  grip **drag/commit** leg (`_drag_grip_to`, the `mouseMoveEvent` grip block with
+  its Ctrl-constrain, the `mouseReleaseEvent` commit, and the `_grip_index` field).
+  Removed the `_item_uses_manip_handles` coexistence gate. The manipulator is now
+  the sole render path, hit-test, and undo funnel. **Precondition proven:** every
+  model-scene `grip_points()` item also provides `manip_handles()` (state-dependent
+  items — Room/DesignArea/ViewMarkerArrow — symmetric: grips empty ⟺ handles empty),
+  so all three legs were already dead code. **KEPT:** `grip_points()`/`apply_grip()`
+  (the mutation primitives `GripHandle` calls), the borrowed `_grip_item`/
+  `_grip_dragging` scene state (read by the snap self-exclusion in
+  `get_effective_position`), and the propagation/snapshot helpers
+  (`_propagate_gridline_grip`, `_snapshot_gridline_grips`, `_propagate_wall_endpoint`,
+  …). **RENAMED:** `provides_handles_for` → `_is_box_native_single` — its arbitration
+  role is gone, but the "single scale-capable (box-native) item → rigid resize
+  handles" detection survives for `_active_handles`/`_frame_is_redundant`. Elevation
+  (`ElevationView.paintEvent` + `elevation_scene._find_grip_hit`), paper, and 3D have
+  their OWN independent grip paths — untouched, and folded in under U5.
 - **U5 — fold in selection + other scenes**: integrate `selection-mode.md`
   (hover pre-highlight / Tab-cycle / rubber-band) against the unified handles;
   add handle providers for elevation and 3D scenes (their own selection specs).
@@ -332,9 +345,9 @@ solver, OSNAP-per-handle, the model full-network-snapshot vs paper macro undo
 split, gridline parallel-delta, wall-endpoint propagation, and the rotation
 Y-up/pivot convention all currently live in the `model_space` grip lifecycle and
 must move onto the `Handle`/manipulator path without behavior drift. The v1
-`provides_handles_for` seam is no longer a legacy-path *skip* (unified to
-`_item_uses_manip_handles` at the RectangleItem migration) but stays as an
-internal helper until U4 removes it.
+`provides_handles_for` seam was retired by U4 (2026-09-12): the box-native
+detection it encoded survives as the internal `_is_box_native_single`, but its
+arbitration-against-the-legacy-path role is gone (there is no legacy path).
 
 ## U2 — Handle model (as-built, 2026-09-08)
 
