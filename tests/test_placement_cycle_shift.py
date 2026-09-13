@@ -19,7 +19,6 @@ from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 
