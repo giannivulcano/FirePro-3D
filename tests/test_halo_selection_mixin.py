@@ -41,3 +41,8 @@ def test_rubber_band_hits_window_vs_crossing(qapp):
     band = QRectF(0, 0, 100, 100)
     assert set(s.rubber_band_hits(band, crossing=False)) == {inside}
     assert set(s.rubber_band_hits(band, crossing=True)) == {inside, straddle}
+
+
+def test_paint_rubber_band_is_callable(qapp):
+    from firepro3d.halo import paint_rubber_band
+    assert callable(paint_rubber_band)
