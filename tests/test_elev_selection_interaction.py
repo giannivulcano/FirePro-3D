@@ -6,7 +6,7 @@ Asserts observable ground truth (scene.halo_item(), scene.selectedItems()).
 Never QTest.mouseMove.
 """
 from PyQt6.QtCore import QPointF, QEvent, Qt
-from PyQt6.QtGui import QColor, QMouseEvent
+from PyQt6.QtGui import QColor, QMouseEvent, QTransform
 from PyQt6.QtWidgets import QApplication, QGraphicsItem
 
 from firepro3d.elevation_scene import ElevGridlineItem, _ElevProxyRect
@@ -178,3 +178,28 @@ def test_window_vs_crossing_band(qapp, elevation_scene_for):
     _drag(view, br, tl)              # R->L = crossing
     sel = set(elev.selectedItems())
     assert straddle in sel
+
+
+# ── Spacebar HALO cycle (F-1) ────────────────────────────────────────────────
+
+def test_spacebar_cycles_overlapping_candidates(qapp, elevation_scene_for):
+    """Spacebar (_halo_cycle) advances the HALO highlight through overlapping
+    candidates. ElevationScene mixes in HaloSelectionMixin, so it must inherit
+    _halo_cycle (F-1: it was only on Model_Space, so Spacebar silently no-op'd)."""
+    _ms, elev = elevation_scene_for("north")
+    # Two overlapping selectable items at the same spot → ≥2 HALO candidates.
+    a = _proxy(1000, 1000, 500, 500)
+    b = _proxy(1000, 1000, 500, 500)
+    elev.addItem(a)
+    elev.addItem(b)
+    # Hover over the shared region to populate the candidate list (no dt/view
+    # needed for the pure scene query).
+    changed = elev.halo_update(QPointF(1250, 1250), 5.0, QTransform())
+    assert changed
+    assert len(elev._halo_candidates) >= 2
+    first = elev.halo_item()
+    assert first is not None
+
+    assert elev._halo_cycle() is True         # cycle must advance
+    assert elev.halo_item() is not first      # highlight moved to another candidate
+    assert elev.halo_item() in (a, b)

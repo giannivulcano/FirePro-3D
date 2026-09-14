@@ -155,6 +155,16 @@ class HaloSelectionMixin:
         self._band_preview = []
         return had
 
+    def _halo_cycle(self) -> bool:
+        """Spacebar in select mode: advance the HALO preselection highlight."""
+        if len(self._halo_candidates) < 2:
+            return False
+        self._halo_index = (self._halo_index + 1) % len(self._halo_candidates)
+        self._emit_halo_readout()
+        for v in self.views():
+            v.viewport().update()
+        return True
+
     def halo_item(self):
         """The currently highlighted HALO candidate, or None."""
         if 0 <= self._halo_index < len(self._halo_candidates):
