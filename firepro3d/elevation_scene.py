@@ -622,6 +622,43 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             # contextMenuEvent handles right-click menus separately.
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton:
+            # HALO-committed selection (mirrors Model_Space._press_select_item).
+            # A press on a manipulator handle must fall through to super() so the
+            # manipulator's _HandleItem child consumes it (grip-drag) — never
+            # commit selection over a handle.
+            pos = event.scenePos()
+            manip = self._live_manip()
+            # A press over the manipulator frame/handle falls through to super()
+            # so the manipulator's _HandleItem child consumes it (grip-drag /
+            # interior move) — never commit a fresh HALO selection over it.
+            on_manip = (manip is not None and manip.isVisible()
+                        and manip.hit_test(pos))
+            if not on_manip:
+                ctrl = bool(event.modifiers()
+                            & Qt.KeyboardModifier.ControlModifier)
+                # Prefer the HALO-highlighted (hovered/cycled) candidate over the
+                # raw topmost pick, so a Spacebar-cycled preselection is what the
+                # click commits; fall back to the topmost selectable under cursor.
+                target = self.halo_item()
+                if target is None:
+                    for it in self.items(pos):
+                        r = self._halo_resolve(it)
+                        if r is not None and (
+                                r.flags()
+                                & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                            target = r
+                            break
+                if not ctrl:
+                    self.clearSelection()
+                if target is not None:
+                    target.setSelected(
+                        not target.isSelected() if ctrl else True)
+                    # Accept so the view does NOT arm a rubber band over a
+                    # committed selection; empty press falls through to super()
+                    # (which leaves the cleared selection for a fresh band).
+                    event.accept()
+                    return
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event):
