@@ -1,6 +1,6 @@
 # Selection Mode — Specification
 
-> **Status:** **Partial — Leg A implemented in the PLAN scene (2026-09-13).** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Elevation-scene selection (Leg B) and 3D-scene selection (Leg C) remain future work — see §2.2 / §13. DoR: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`.
+> **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
 > **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`selection_hover` token)
 > **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built)
 > **Revision:** 2 (Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips)
@@ -40,7 +40,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 
 ### 2.2 Out of scope (named, not specced)
 
-- **Elevation scene selection** — **Leg B** (elevation-scene handle providers), still pending. See §13 / `selection-manipulator.md` U5 roadmap.
+- **Elevation scene selection** — **Leg B**, built 2026-09-14. Specced in §14 (elevation is a distinct scene with a read-only-geometry contract, so it gets its own section, not a rule change to §1–§12). See `selection-manipulator.md` U5 roadmap.
 - **3D view selection** — **Leg C** (3D-scene handle providers; orphan), still pending. See §13.
 - **Per-entity grip catalogs** — owned by each entity's spec.
 - **Context menu contents** — owned by each entity's spec.
@@ -353,10 +353,43 @@ Known pre-existing gap (filed, not resolved by Leg A):
 
 ## 13. Future Work (out of scope for Leg A)
 
-- **Leg B — elevation-scene selection**: HALO/selection-mode + handle providers for the elevation scene (`selection-manipulator.md` U5 roadmap). Pending.
+- **Leg B — elevation-scene selection**: ✅ **DONE (2026-09-14)** — see §14.
 - **Leg C — 3D-scene selection**: handle providers for the 3D scene (orphan). Pending.
 - HALO "pick from list" dense-stack dropdown (deferred).
 - Preferences UX-pane reorg (rename Snapping→UX; SNAP·ALIGN·HALO tabs; grid removal; angle-snap→5°) — deferred.
 - Per-entity context menu definitions.
 - Selection filter toolbar (select only pipes, only walls, etc.).
 - Lasso selection (freeform rubber-band).
+
+---
+
+## 14. Elevation Scene (Leg B, 2026-09-14)
+
+The elevation scene (`ElevationScene`/`ElevationView`) reuses this contract via the extracted
+scene-agnostic **`HaloSelectionMixin`** (`firepro3d/halo_selection.py`) — the generic HALO ranking /
+aperture pick / scene-drawn rubber-band engine + 5 overridable hooks (`_halo_resolve`,
+`_halo_is_underlay`, `_halo_candidate_ok`, `_halo_in_view_range`, `_halo_mode_ok`). `Model_Space`
+overrides the hooks to keep §1–§12 plan behavior; `ElevationScene` mixes in with an elevation
+`_halo_resolve` (bubble/label child → parent gridline/datum) and generic defaults for the rest (no
+underlays, no rooms, no tool modes in elevation). `_halo_cycle` (Spacebar) lives on the mixin;
+`_emit_halo_readout` stays scene-specific (Model_Space → `instructionChanged`, Elevation →
+`cursorMoved`). Rubber-band paint is shared via `halo.paint_rubber_band`. The manipulator is the
+**sole grip owner** in elevation — the legacy `ElevationScene._find_grip_hit` + `ElevationView.paintEvent`
+grip loop are retired (the borrowed `_grip_item`/`_grip_dragging` state is kept for `GripHandle`).
+
+**Read-only-geometry contract (`view-relationships.md §3.1`).** Elevation is a read-only projection;
+what's editable there is **view-furniture / annotation extent only**, never model geometry:
+
+| Elevation item | Selectable | Manipulator surface | Editable |
+|---|---|---|---|
+| `ElevGridlineItem` | yes | frame + 2 extent grips | vertical draw-extent only (H pinned; persists to `_gridline_z_overrides`) |
+| `ElevDatumItem` | yes | frame + 2 extent grips | horizontal draw-extent only (V pinned; session-only) |
+| Read-only proxies (wall/opening/pipe/sprinkler/floor-slab/roof) | yes (property inspection) | **frame + zero handles** | none (interior-drag inert) |
+
+**Capability idiom (`selection-manipulator.md`):** the manipulator only wraps items declaring a
+`translate` capability, so §3.1-safe wrapping uses (a) an **axis-constrained `manip_translate`** for
+gridline/datum (drops the pinned axis) and (b) a **no-op `manip_translate`** for read-only proxies
+(which also declare `manip_handles() → []` for the frame-with-zero-handles look). Interior-drag never
+changes a pinned axis (behavioral §3.1 guard) and never moves a proxy. **No undo** in elevation
+(parity with prior behavior; filed follow-up). Cross-view selection sync stays out of scope
+(`view-relationships.md §1.3`).

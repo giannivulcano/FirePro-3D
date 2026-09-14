@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO); U5 Legs B (elevation handle providers) + C (3D handle providers) remain
-last-verified: 2026-09-13
-verified-commit: 81befbf   # U5 Leg A: HALO + selection-mode built into the plan scene against the unified manipulator (halo.py, model_view/model_space, theme selection_hover); manipulator itself unchanged — still the sole model-scene grip owner
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains
+last-verified: 2026-09-14
+verified-commit: 98466ef   # U5 Leg B: elevation manipulator + HALO + scene-drawn band; HaloSelectionMixin extracted; _active_handles honours declared-empty manip_handles; read-only proxies wrapped via no-op manip_translate
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -345,8 +345,22 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
     `selection-mode.md` §4 (HALO). DoR:
     `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`. The
     manipulator contract itself was unchanged — Leg A consumed it, did not modify it.
-  - ⏳ **Leg B — elevation handle providers:** pending (elevation scene's own
-    selection spec).
+  - ✅ **Leg B — elevation handle providers DONE (2026-09-14):** the manipulator is
+    now the sole grip owner in the elevation scene. Built via the extracted
+    scene-agnostic **`HaloSelectionMixin`** (`halo_selection.py`, shared with
+    `Model_Space`); an `ElevationScene`-owned `SelectionManipulator`
+    (`commit_hook` persists the gridline extent override, **no undo**;
+    `handle_units="px"`; `exclude` = `_ElevBubble`); gridline/datum expose
+    `manip_handles()` (extent grips) + an **axis-constrained `manip_translate`**
+    (drops the pinned axis — §3.1); read-only proxies get a **no-op
+    `manip_translate`** + `manip_handles() → []` (frame + zero handles). Legacy
+    `ElevationScene._find_grip_hit` + `ElevationView.paintEvent` grip loop retired
+    (borrowed `_grip_item`/`_grip_dragging` kept for `GripHandle`). **Contract
+    refinement:** `_active_handles` now honours an item's *declared* (possibly
+    **empty**) `manip_handles()` — the rigid resize fallback fires only when NO
+    selected item provides handles (Node/sprinkler); this supersedes the U2
+    as-built "`union(...) or rigid_set`". As-built pointer: `selection-mode.md`
+    §14. DoR: `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
   - ⏳ **Leg C — 3D handle providers:** pending (3D scene; orphan).
 
 **Risks to honor at each step** (why it's staged, not a big-bang): the constraint
@@ -386,9 +400,13 @@ and never touches `_apply` — the manipulator is oblivious. Interior-drag **mov
 stays a manipulator-level gesture** (not a Handle).
 
 **`manip_handles()` sourcing (option B, live-with-fallback):**
-`_active_handles()` returns `union(item.manip_handles() for items) or
-rigid_set` — today no item implements it, so the rigid fallback runs (behavior
-identical). `_layout` positions/gates the rigid role-hosts and syncs the pool for
+`_active_handles()` returns the union of the selected items' `manip_handles()`.
+**Refined U5 Leg B (2026-09-14):** an item that *declares* `manip_handles()` is
+authoritative — its possibly-**empty** set is honoured (a read-only elevation
+proxy returns `[]` for frame + zero handles); the rigid resize fallback fires
+only when **no** selected item provides `manip_handles` (Node/sprinkler,
+translate-only via `pos()`). Box-native items take the earlier box-native
+return, so they are unaffected. `_layout` positions/gates the rigid role-hosts and syncs the pool for
 any item handles.
 
 **Handle-facing context API** (manipulator privates a Handle may read):
