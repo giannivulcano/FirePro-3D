@@ -147,7 +147,13 @@ visibility flag (the ViewMarkerArrow lesson in `selection-manipulator.md`).
 
 **Governing-spec note (Phase 6):** `selection-manipulator.md:676-679` says `manip_translate` is
 mandatory to wrap — the elevation section must record the **no-op / axis-constrained translate**
-idiom as the sanctioned way to get a read-only or axis-pinned item wrapped.
+idiom as the sanctioned way to get a read-only or axis-pinned item wrapped. **Also** record the
+`_active_handles` contract refinement made during T4b: an item that *declares* `manip_handles()` is
+now authoritative (its possibly-**empty** set is honored); the rigid resize fallback fires only when
+**no** selected item provides `manip_handles` (Node/sprinkler). This supersedes the U2 as-built line
+"`_active_handles()` returns `union(...) or rigid_set`". Verified safe against Room/DesignArea/
+ViewMarker/box-native-rect parity suites (they route via the earlier box-native return or are
+capability-gated to frame+move regardless).
 
 ### 5. Rubber-band generalization
 
