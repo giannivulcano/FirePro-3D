@@ -10,7 +10,7 @@ from firepro3d import theme as th
 PRIMITIVES = {
     "ground", "surface", "sunken", "raised", "line", "line_strong",
     "ink", "muted", "faint", "accent", "accent_ink", "on_accent",
-    "selection", "selection_active", "ok", "warn", "danger",
+    "selection", "selection_active", "selection_hover", "ok", "warn", "danger",
 }
 
 SEMANTICS = {
@@ -179,4 +179,13 @@ def test_uipane_persists_and_reverts(qapp):
         else:
             s.setValue(th.THEME_SETTINGS_KEY, original)
         s.sync()
+
+
+def test_selection_hover_token_resolves():
+    from firepro3d.theme import DARK, LIGHT
+    for t in (DARK, LIGHT):
+        c = t.color("selection_hover")
+        assert c.isValid()
+        assert c.name().lower() != t.color("selection").name().lower()
+        assert c.name().lower() != "#00eeee"
         th.refresh_theme_preference()

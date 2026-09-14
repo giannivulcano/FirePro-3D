@@ -43,7 +43,8 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM)
+                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM,
+                       HALO_APERTURE_PX)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -193,6 +194,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
+        # HALO hover state (U5) — scene-owned; view drives via halo_update (A6).
+        self._halo_candidates: list = []
+        self._halo_index: int = 0
+        self._halo_pick_pos = None
+        # Live rubber-band preselection preview (U5 leg A): resolved items the
+        # band WOULD select, HALO-highlighted mid-drag. Separate from the single
+        # hover set; populated by update_band_preview, cleared on release/cancel.
+        self._band_preview: list = []
+        self.halo_enabled: bool = True   # global pill switch (main loads from QSettings)
+        # HALO aperture (pick half-size in device px). Seeded from the constant;
+        # main loads halo/aperture_px from QSettings and the prefs spinbox
+        # updates it live. Model_View.mouseMoveEvent reads it per move.
+        self._halo_aperture_px: int = HALO_APERTURE_PX
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -596,6 +610,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                if isinstance(item, GridlineItem)]
         if sel:
             self._gridline_spacing_selected = sel
+        # C2: a solely-selected underlay group shows its read-only property
+        # record (get_properties() is all "label" fields). Underlays reach
+        # selection only as the terminal HALO candidate, so this cannot shadow
+        # a real-entity selection.
+        selected = self.selectedItems()
+        if len(selected) == 1:
+            found = self.find_underlay_for_item(selected[0])
+            if found is not None:
+                self.requestPropertyUpdate.emit(found[0])
         for v in self.views():
             v.viewport().update()
 
@@ -3061,7 +3084,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             nothing ambiguous to cycle (so the caller can leave the key alone).
         """
         if self.mode in ("select", None, ""):
-            return self._cycle_similar_selection()
+            return self._halo_cycle()
         if self.mode == "pipe" and len(self._pipe_ctl._tab_candidates) > 1:
             self._pipe_ctl.cycle_tab()
             return True
@@ -3079,40 +3102,268 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _sync_opening_state_to_template(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
         return self._feature_ctl._sync_opening_state_to_template(*args, **kwargs)
 
-    def _cycle_similar_selection(self) -> bool:
-        """Select the next element of the same type as the sole selection.
+    def _halo_cycle(self) -> bool:
+        """Spacebar in select mode: advance the HALO preselection highlight."""
+        if len(self._halo_candidates) < 2:
+            return False
+        self._halo_index = (self._halo_index + 1) % len(self._halo_candidates)
+        self._emit_halo_readout()
+        for v in self.views():
+            v.viewport().update()
+        return True
 
-        Lifted verbatim from the retired ``_handle_tab_input`` select branch.
+    def _emit_halo_readout(self):
+        """Emit the HALO stack readout (spec §3.3) on ``instructionChanged``.
 
-        Returns:
-            True when the selection was advanced, False when there is not
-            exactly one selected item of a cyclable type.
+        Format: ``"<Type> — <i> of <N>"``, with the item's ``name`` appended
+        when it has one. Emits an empty string (clears the line) when there is
+        no current candidate.
         """
-        selected = self.selectedItems()
-        if len(selected) == 1:
-            item = selected[0]
-            _type_map = {
-                Pipe: lambda: list(self.sprinkler_system.pipes),
-                WallSegment: lambda: list(self._walls),
-                Node: lambda: [n for n in self.sprinkler_system.nodes
-                               if n.has_sprinkler()],
-                GridlineItem: lambda: list(self._gridlines),
-                FloorSlab: lambda: list(self._floor_slabs),
-                RoofItem: lambda: list(self._roofs),
-            }
-            collection = None
-            for cls, getter in _type_map.items():
-                if isinstance(item, cls):
-                    collection = getter()
-                    break
-            if collection and item in collection:
-                idx = collection.index(item)
-                nxt = collection[(idx + 1) % len(collection)]
-                self.clearSelection()
-                nxt.setSelected(True)
-                self.requestPropertyUpdate.emit(nxt)
+        item = self.halo_item()
+        if item is None:
+            self.instructionChanged.emit("")
+            return
+        n = len(self._halo_candidates)
+        readout = f"{type(item).__name__} — {self._halo_index + 1} of {n}"
+        name = getattr(item, "name", None)
+        if isinstance(name, str) and name:
+            readout += f"  ({name})"
+        self.instructionChanged.emit(readout)
+
+    # ── HALO preselection ranking (pure, shared by hover/cycle/click) ─────
+    def _halo_resolve(self, item):
+        """Resolve a hit child item to its selectable parent entity.
+
+        Sprinklers resolve to their owning Node; a DesignAreaBadge to its
+        parent DesignArea; a gridline label child to its GridlineItem. Anything
+        else is returned unchanged.
+        """
+        if isinstance(item, Sprinkler):
+            return item.node
+        if isinstance(item, DesignAreaBadge):
+            return item.parentItem()
+        parent = item.parentItem() if hasattr(item, "parentItem") else None
+        if isinstance(parent, GridlineItem):
+            return parent
+        return item
+
+    def halo_rank(self, items, scene_pos):
+        """Order candidates: runtime-Z desc -> screen distance -> stable id.
+
+        Pure + deterministic. Resolves child->parent, dedupes, drops
+        non-selectable items. Single order consumed by hover/cycle/click.
+        """
+        resolved, seen = [], set()
+        for it in items:
+            r = self._halo_resolve(it)
+            if r is None or id(r) in seen:
+                continue
+            if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                continue
+            seen.add(id(r))
+            resolved.append(r)
+
+        def _dist(it):
+            c = it.sceneBoundingRect().center()
+            return (c.x() - scene_pos.x()) ** 2 + (c.y() - scene_pos.y()) ** 2
+
+        resolved.sort(key=lambda it: (-it.zValue(), _dist(it), id(it)))
+        return resolved
+
+    def halo_candidates_at(self, scene_pos, aperture_scene, dt):
+        """Aperture pick -> filtered, ranked HALO candidate list.
+
+        aperture_scene: half-size of the pick box in scene units.
+        dt: the view's viewportTransform for
+        ItemIgnoresTransformations-correct hits.
+        """
+        a = aperture_scene
+        box = QRectF(scene_pos.x() - a, scene_pos.y() - a, 2 * a, 2 * a)
+        raw = self.items(box, Qt.ItemSelectionMode.IntersectsItemShape,
+                         Qt.SortOrder.DescendingOrder, dt)
+        vis = [i for i in raw if i.isVisible() and self._halo_in_view_range(i)]
+        underlays = [i for i in vis if self._halo_is_underlay(i)]
+        others = [i for i in vis if not self._halo_is_underlay(i)]
+        ranked = self.halo_rank(others, scene_pos)
+        for u in underlays:
+            if u.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
+                ranked.append(u)
+        # C1: a labelled Room is a candidate only via its label rect; a
+        # label-less Room falls back to its full polygon (shape() untouched).
+        ranked = [r for r in ranked
+                  if not isinstance(r, Room)
+                  or self._halo_room_hit(r, scene_pos, is_rect=False)]
+        return ranked
+
+    def _halo_room_hit(self, room, arg, is_rect):
+        """Room click target: label rect if labelled, else full polygon.
+
+        arg is a QPointF (is_rect False) or QRectF (is_rect True).
+        """
+        lr = room.label_scene_rect()
+        target = lr if lr is not None else room.mapToScene(room.shape()).boundingRect()
+        return target.intersects(arg) if is_rect else target.contains(arg)
+
+    def _halo_is_underlay(self, item):
+        """True if the item is (or belongs to) a placed underlay group.
+
+        ``scene.items()`` hands back both the tracked underlay *group* and its
+        child path items. ``find_underlay_for_item`` matches by exact identity
+        against the tracked group only, so a child would miss. Walk the parent
+        chain (bounded) so every item owned by an underlay is classified as one
+        — mirroring the underlay context-menu caller (``contextMenuEvent``).
+        """
+        candidate = item
+        depth = 0
+        while candidate is not None and depth < 16:
+            if self.find_underlay_for_item(candidate) is not None:
                 return True
+            candidate = candidate.parentItem()
+            depth += 1
         return False
+
+    def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool,
+                           dt=None):
+        """Select items in scene_rect. window(crossing=False)->fully contained,
+        crossing=True->intersecting. additive (Ctrl) adds to current selection.
+
+        ``dt`` is the view's device transform (``viewportTransform()``). It must
+        be supplied so ``ItemIgnoresTransformations`` markers (Nodes) are hit
+        against their ON-SCREEN shape rather than their transform-free scene
+        shape (which inflates to ~356 scene units and would over-select). When
+        ``dt`` is None (headless/unit tests) the 2-arg query is used.
+        """
+        hits = self.rubber_band_hits(scene_rect, crossing, dt)
+        if not additive:
+            self.clearSelection()
+        for r in hits:
+            r.setSelected(True)
+
+    def rubber_band_hits(self, scene_rect, crossing: bool, dt=None):
+        """Resolved, filtered items a window(crossing=False)/crossing band selects.
+
+        Pure query (no selection side-effects): shared by
+        :meth:`commit_rubber_band` (which selects them) and the live band
+        preview (which HALO-highlights them). Mirrors the historical
+        commit filter semantics exactly, with dedupe on resolved identity so a
+        parent hit via multiple children is highlighted once.
+
+        ``dt`` is the view's device transform (``viewportTransform()``); it
+        must be supplied so ``ItemIgnoresTransformations`` markers (Nodes) hit
+        against their ON-SCREEN shape. When None (headless/unit tests) the
+        2-arg query is used.
+        """
+        mode = (Qt.ItemSelectionMode.IntersectsItemShape if crossing
+                else Qt.ItemSelectionMode.ContainsItemShape)
+        if dt is not None:
+            raw = self.items(scene_rect, mode, Qt.SortOrder.DescendingOrder, dt)
+        else:
+            raw = self.items(scene_rect, mode)
+        out, seen = [], set()
+        for it in raw:
+            if getattr(it, "_exclude_from_bulk_select", False):
+                continue
+            if self._halo_is_underlay(it):
+                continue
+            r = self._halo_resolve(it)
+            if r is None or id(r) in seen:
+                continue
+            if getattr(r, "_exclude_from_bulk_select", False):
+                continue
+            if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                continue
+            # C1: a labelled Room selects only when the rubber-band touches its
+            # label rect; a label-less Room falls back to its full polygon.
+            if isinstance(r, Room) and not self._halo_room_hit(
+                    r, scene_rect, is_rect=True):
+                continue
+            seen.add(id(r))
+            out.append(r)
+        return out
+
+    def update_band_preview(self, scene_rect, crossing: bool, dt=None):
+        """Recompute the live band preselection preview set (highlighted, not
+        selected). Called from the view's move handler while banding."""
+        self._band_preview = self.rubber_band_hits(scene_rect, crossing, dt)
+
+    def clear_band_preview(self) -> bool:
+        """Drop the band preview set. Returns True if it had been populated."""
+        had = bool(self._band_preview)
+        self._band_preview = []
+        return had
+
+    def _halo_in_view_range(self, item):
+        """Reuse the existing plan view-range Z filter; permissive fallback.
+
+        No cleanly-callable per-item view-range predicate exists on
+        Model_Space — the plan Z-slab is enforced by a bulk visibility sweep
+        (LevelManager.apply_to_scene) that mutates ``setVisible``. That sweep's
+        result is already captured by the ``isVisible()`` check in
+        halo_candidates_at, so this predicate is permissive.
+        """
+        return True
+
+    def halo_item(self):
+        """The currently highlighted HALO candidate, or None."""
+        if 0 <= self._halo_index < len(self._halo_candidates):
+            return self._halo_candidates[self._halo_index]
+        return None
+
+    def _halo_suppressed(self):
+        """True when hover-highlight must not run (tool mode, drag, rubber-band)."""
+        if not self.halo_enabled:
+            return True
+        if self.mode not in (None, "select"):
+            return True
+        manip = self._live_manip()
+        if manip is not None and manip.is_dragging():
+            return True
+        if getattr(self, "_rb_active_flag", False):
+            return True
+        return False
+
+    def _escape_ladder(self) -> bool:
+        """Select-mode Escape precedence: cancel band -> reset HALO -> clear selection.
+
+        (Manipulator-drag cancel is handled earlier in keyPressEvent.) Returns True
+        if it consumed the key.
+        """
+        for v in self.views():
+            if getattr(v, "_rb_active", False):
+                v._rb_active = False
+                self._rb_active_flag = False
+                self.clear_band_preview()
+                v.viewport().update()
+                return True
+        if self.halo_item() is not None or self._halo_candidates:
+            self.halo_clear()
+            for v in self.views():
+                v.viewport().update()
+            return True
+        if self.selectedItems():
+            self.clearSelection()
+            return True
+        return False
+
+    def halo_clear(self):
+        """Drop the candidate list. Returns True if there was something to clear."""
+        had = bool(self._halo_candidates)
+        self._halo_candidates, self._halo_index, self._halo_pick_pos = [], 0, None
+        return had
+
+    def halo_update(self, scene_pos, aperture_scene, dt):
+        """Rebuild the candidate list for a mouse move. Returns True if the
+        highlighted item changed (caller repaints)."""
+        if self._halo_suppressed():
+            return self.halo_clear()
+        prev = self.halo_item()
+        self._halo_candidates = self.halo_candidates_at(scene_pos, aperture_scene, dt)
+        self._halo_index = 0
+        self._halo_pick_pos = scene_pos
+        changed = self.halo_item() is not prev
+        if changed:
+            self._emit_halo_readout()
+        return changed
 
     def _cycle_wall_alignment(self, *args, **kwargs):
         return self._wall_ctl._cycle_wall_alignment(*args, **kwargs)
@@ -4272,26 +4523,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             super().mousePressEvent(event)
             return
 
-        # ── Gridline body click → select (no body drag, use grips) ──
-        if self.mode in (None, "select"):
-            gl_hit = next(
-                (i for i in items
-                 if isinstance(i, GridlineItem)
-                 or (hasattr(i, 'parentItem') and isinstance(i.parentItem(), GridlineItem))),
-                None,
-            )
-            if gl_hit is not None:
-                gl = gl_hit if isinstance(gl_hit, GridlineItem) else gl_hit.parentItem()
-                ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                if ctrl:
-                    gl.setSelected(not gl.isSelected())
-                else:
-                    # Clear other selections and select this gridline
-                    if not gl.isSelected():
-                        self.clearSelection()
-                        gl.setSelected(True)
-                return
-
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is not None:
@@ -4340,10 +4571,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                                                item_under, node_under, pipe_under):
                 return
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        # Prefer the HALO-highlighted (hovered/cycled) candidate over the raw
+        # topmost pick so a Spacebar-cycled preselection is what the click
+        # commits; fall back to item_under when no HALO highlight is active.
+        target = self.halo_item() or item_under
         if not ctrl:
             self.clearSelection()
-        if item_under is not None:
-            item_under.setSelected(not item_under.isSelected() if ctrl else True)
+        if target is not None:
+            target.setSelected(not target.isSelected() if ctrl else True)
 
     def _press_sprinkler(self, event, pos, snapped, item_under, node_under, pipe_under):
         if isinstance(item_under, Pipe):
@@ -6781,6 +7016,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         self.removeItem(self._align_ghost)
                     self._align_ghost = None
                 self._show_status("Click reference edge")
+                return
+            # Select/None mode: run the precedence ladder (cancel band ->
+            # reset HALO -> clear selection). Manipulator-drag cancel already
+            # ran earlier in this method (step 1). If the ladder consumed the
+            # key, stop here; otherwise fall through to the tool-mode
+            # set_mode(None) below (a no-op for select/None).
+            if self.mode in (None, "select") and self._escape_ladder():
+                event.accept()
                 return
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)
