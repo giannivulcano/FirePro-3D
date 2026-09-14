@@ -725,11 +725,21 @@ class SelectionManipulator(QGraphicsObject):
                 handles.extend(extra())
             return handles
         item_handles = []
+        any_provider = False
         for it in self._items:
             fn = getattr(it, "manip_handles", None)
             if fn is not None:
+                any_provider = True
                 item_handles.extend(fn())
-        return item_handles or list(self._rigid.values())
+        # An item that *declares* manip_handles is authoritative — honour its
+        # (possibly EMPTY) set. A read-only elevation proxy returns [] to get the
+        # frame with zero editing handles (design decision #4); returning the
+        # rigid resize set there would make a read-only projection look editable.
+        # The rigid fallback applies only when NO selected item provides handles
+        # (e.g. a Node / sprinkler, which is translate-only via pos()).
+        if any_provider:
+            return item_handles
+        return list(self._rigid.values())
 
     def _sync_host_pool(self, handles: list) -> None:
         """Ensure one _HandleItem host per widget-less handle (stub/U3). The

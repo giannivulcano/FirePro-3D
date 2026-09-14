@@ -66,6 +66,52 @@ _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Read-only proxy items — model entities projected into elevation (§3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ElevReadOnlyProxyMixin:
+    """Grants the SelectionManipulator wrap (frame parity with the plan scene)
+    to an otherwise read-only elevation projection.
+
+    The manipulator only wraps items that declare a ``"translate"`` capability
+    (``item_capabilities`` → ``rebake`` exclusion; see design decision #4).
+    Elevation projects model entities (walls/openings/pipes/sprinklers/floor-
+    slabs/roofs) as READ-ONLY items — geometry is authored only in plan
+    (``view-relationships.md §3.1``). To get *selection parity* (the frame
+    shows on click) without making them editable, this mixin supplies a **no-op**
+    ``manip_translate``: it grants the capability so the frame wraps, but the
+    interior-drag bakes nothing. Proxies deliberately implement no
+    ``manip_handles``/``manip_scale``/``manip_rotate`` → the manipulator shows
+    the **frame + zero editing handles**.
+    """
+
+    def manip_translate(self, dx: float, dy: float) -> None:
+        """No-op: elevation projections are not editable (§3.1). Exists solely
+        to obtain the manipulator frame for selection parity with plan."""
+        # Intentionally inert — read-only projection.
+
+    def manip_handles(self):
+        """Explicitly ZERO editing handles: frame-only parity for a read-only
+        proxy. Declaring this (returning ``[]``) is authoritative in
+        ``SelectionManipulator._active_handles`` — it suppresses the rigid
+        resize fallback that a bare translate-only item (e.g. a Node) receives,
+        so the projection never looks editable (design decision #4)."""
+        return []
+
+
+class _ElevProxyRect(_ElevReadOnlyProxyMixin, QGraphicsRectItem):
+    """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
+
+
+class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
+    """Read-only line proxy (pipes)."""
+
+
+class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
+    """Read-only ellipse proxy (sprinklers)."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ElevGridlineItem — selectable gridline in elevation view
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -856,7 +902,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             v_bottom = -base_z  # Qt Y for bottom of wall
             height = v_bottom - v_top
 
-            rect = QGraphicsRectItem(h_min, v_top, width, height)
+            rect = _ElevProxyRect(h_min, v_top, width, height)
 
             # Use display manager colour; fall back to wall's own colour
             pen = QPen(dm_color, 1)
@@ -957,7 +1003,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
                     depth = wc_y
 
                 # ── Void rect (interrupts wall poché) ─────────────────────
-                void_rect = QGraphicsRectItem(h_min, v_top, width, v_bottom - v_top)
+                void_rect = _ElevProxyRect(h_min, v_top, width, v_bottom - v_top)
                 void_pen = QPen(Qt.PenStyle.NoPen)
                 void_rect.setPen(void_pen)
                 void_rect.setBrush(QBrush(void_color))
@@ -1017,7 +1063,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             col_name = pipe._properties.get("Colour", {}).get("value", "Red")
             color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
 
-            line = QGraphicsLineItem(h1, v1, h2, v2)
+            line = _ElevProxyLine(h1, v1, h2, v2)
             pen = QPen(color, 2)
             pen.setCosmetic(True)
             line.setPen(pen)
@@ -1066,7 +1112,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
                 color = QColor("#3264ff")
 
             r = 30.0  # mm radius
-            ellipse = QGraphicsEllipseItem(h - r, v - r, r * 2, r * 2)
+            ellipse = _ElevProxyEllipse(h - r, v - r, r * 2, r * 2)
             pen = QPen(color, 1.5)
             pen.setCosmetic(True)
             ellipse.setPen(pen)
@@ -1159,7 +1205,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             mask.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
 
             # Visible slab rect with styled fill
-            rect = QGraphicsRectItem(h_min, v_top, width, height)
+            rect = _ElevProxyRect(h_min, v_top, width, height)
             pen = QPen(dm_color, 1)
             pen.setCosmetic(True)
             rect.setPen(pen)
@@ -1213,7 +1259,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             # Draw convex hull outline (simplified)
             h_vals = [p.x() for p in elev_pts]
             v_vals = [p.y() for p in elev_pts]
-            rect = QGraphicsRectItem(
+            rect = _ElevProxyRect(
                 min(h_vals), min(v_vals),
                 max(h_vals) - min(h_vals), max(v_vals) - min(v_vals),
             )
