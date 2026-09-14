@@ -231,6 +231,10 @@ class ElevGridlineItem(QGraphicsLineItem):
         self._update_bubble_positions()
         self.update()
 
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 1})
+
     def _commit_grip_override(self):
         """Write current Z-extent back to the scene's override dict.
 
@@ -354,22 +358,6 @@ class ElevDatumItem(QGraphicsLineItem):
         # not draw its own line.
         pass
 
-    def mousePressEvent(self, event):
-        """Clicking the bubble area selects this item."""
-        r = self._bubble_r
-        bp = QPointF(self._bx, self._v)
-        if (event.scenePos() - bp).manhattanLength() < r * 1.5:
-            scene = self.scene()
-            if scene is not None:
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    self.setSelected(not self.isSelected())
-                else:
-                    scene.clearSelection()
-                    self.setSelected(True)
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
@@ -405,6 +393,10 @@ class ElevDatumItem(QGraphicsLineItem):
         self._build_bubble(self._bx, self._v, self._bubble_r,
                            self._datum_color, self._fill_color, self._pen_w)
         self._build_labels()
+
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 1})
 
 
 class ElevationScene(QGraphicsScene):
