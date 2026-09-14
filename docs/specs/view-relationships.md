@@ -74,13 +74,15 @@ Note that **view widget** and **view scene** are *implementation details*. The s
 
 ### 3.1 Authoring contract: strict 2D-plan today, elevation editing planned
 
-> **All geometry is authored in plan view. Z is set by property, never by direct manipulation in elevation or 3D. Elevation, section, detail, and 3D views are read-only projections of the data model.**
+> **Model geometry is authored in plan view. Z is set by property, never by direct manipulation in elevation or 3D. Elevation, section, detail, and 3D views are read-only projections of the model geometry.**
+
+**View-furniture / annotation-extent editing is permitted in elevation** (reconciled 2026-09-14, U5 Leg B). Repositioning the *draw extent* of an elevation gridline (its vertical top/bottom, persisted as `_gridline_z_overrides`) or a level datum (its horizontal extent) is annotation adjustment, **not** geometry authoring — it never changes a model entity's plan position or Z. The read-only-**geometry** contract stands; the projected model proxies (walls/pipes/floors/…) remain non-editable in elevation.
 
 Consequences:
 - The snap engine is 2D (canvas input only) — see `snapping-engine.md`.
 - The pipe placement methodology is plan-view-driven — see `pipe-placement-methodology.md`.
-- `ElevationView` and `View3D` provide pan / zoom / fit / coordinate display, but no geometric editing tools.
-- A future "edit in elevation" capability is a **planned extension**: the spec must not introduce constraints that preclude it (e.g. must not assume Z is invisible to view widgets).
+- `ElevationView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides pan / zoom / fit / coordinate display, no editing.
+- A future "edit model geometry in elevation" capability is still a **planned extension**: the spec must not introduce constraints that preclude it (e.g. must not assume Z is invisible to view widgets).
 
 ### 3.2 Two distinct Z systems
 

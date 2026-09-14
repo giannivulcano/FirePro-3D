@@ -280,20 +280,8 @@ class Model_View(QGraphicsView):
         # Direction-dependent: L->R = window (blue/solid), R->L = crossing
         # (green/dashed). Drawn after HALO so the band sits on top.
         if getattr(self, "_rb_active", False) and self._rb_end is not None:
-            painter.save()
-            painter.resetTransform()
-            crossing = self._rb_end.x() < self._rb_start.x()
-            base = th.detect().color("ok" if crossing else "selection")
-            pen = QPen(base, 1)
-            pen.setStyle(Qt.PenStyle.DashLine if crossing
-                         else Qt.PenStyle.SolidLine)
-            painter.setPen(pen)
-            fill = QColor(base)
-            fill.setAlpha(40)
-            painter.setBrush(fill)
-            painter.drawRect(QRectF(QPointF(self._rb_start),
-                                    QPointF(self._rb_end)).normalized())
-            painter.restore()
+            from .halo import paint_rubber_band
+            paint_rubber_band(painter, self, self._rb_start, self._rb_end, th.detect())
 
         # ── 1b. Floor vertex dots during placement ─────────────────────────────
         floor_active = getattr(scene, "_floor_active", None)

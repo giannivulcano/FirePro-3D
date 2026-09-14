@@ -330,8 +330,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Additional Spec Sessions
 
-- [ ] [type:design] Spec session: Elevation view selection mode [P2] [subject:Architecture]
-  - Details: selection/interaction model for elevation scenes. Depends on plan-view selection mode spec for shared conventions. `elevation_scene.py`.
 - [ ] [type:design] Spec session: 3D view selection mode [P2] [subject:Architecture]
   - Details: selection/interaction model for 3D viewport (pick ray, actor selection, highlight). Depends on plan-view selection mode spec for shared conventions. `view_3d.py`.
 - [ ] [type:design] Spec session: Roof elements [P2] [subject:Architecture]
@@ -423,8 +421,14 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: PRE-EXISTING (U2 smoke). Shift+press on the manipulator frame triggers the scene's additive-select rubber-band (`model_space`/`model_view` press routing, untouched by U2) rather than a Shift-ortho move / Shift-aspect resize. Decide UX: should a Shift+press landing on the frame/handle begin the constrained gesture (Shift applied at release)? `model_space.py`, `model_view.py`, `selection_manipulator.py`.
 - [ ] [type:feature] Optional dedicated centre move-handle (general) [P3] [subject:UX]
   - Details: move is interior-drag today (grab anywhere in the frame), no visible centre handle by design. PARTIAL 2026-09-10: RectangleItem now shows a centre move grip in BOTH states (rotated = parametric grip 8; unrotated box-native = `manip_box_extra_handles()` appended to the rigid set). The general case (multi-select group centre, paper viewport/text, other rigid-fallback selections) is still interior-drag only — generalize via a rigid CENTRE/MOVE handle if wanted app-wide. `selection_manipulator.py`.
-- [ ] [type:feature] U5 Leg B — elevation-scene selection + handle providers [P2] [subject:Architecture]
-  - Details: fold selection-mode / HALO + `manip_handles` providers onto the elevation scene (its independent grip path is `ElevationView.paintEvent` + `elevation_scene._find_grip_hit`). Needs the elevation selection spec first (see "Spec session: Elevation view selection mode"). Lineage: **U5 Leg A (HALO + selection-mode, plan scene) COMPLETE 2026-09-13** — commit `81befbf`; DoR `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`; `selection-mode.md` §4-as-HALO. `elevation_scene.py`, `elevation_view.py`. ref: selection-manipulator §Unification U5, selection-mode §13.
+- [ ] [type:feature] Elevation edit undo + datum-extent persistence [P3] [subject:Architecture]
+  - Details: split out of U5 Leg B (2026-09-14). Elevation has no undo stack — gridline/datum annotation-extent grip edits commit directly (parity, no undo). Add an undo path (own stack or a bridge to the model stack) so elevation extent edits are undoable; also make the datum's horizontal extent persist (gridline extent already persists via `_gridline_z_overrides`/`to_dict`; datum is session-only). `elevation_scene.py`, `elevation_manager.py`.
+- [ ] [type:feature] manip_handles for 2D-geometry-in-elevation (rides Leg B frame) [P3] [subject:Architecture]
+  - Details: split out of U5 Leg B. When 2D geometry can be placed/anchored in elevation (see "Vertical / elevation plane anchoring for 2D geometry" + "Project flat 2D geometry into elevation scenes"), give those items `manip_handles()` so they ride the elevation `SelectionManipulator` frame Leg B built. `construction_geometry.py`, `elevation_scene.py`.
+- [ ] [type:maint] Stale test: `test_design_area.py::TestPickMode::test_design_area_mode_skips_grips` [P3] [subject:Testing]
+  - Details: found during U5 Leg B full-suite run (2026-09-14); PROVEN pre-existing — fails identically on clean `main` (746cc1c). Asserts `_skip_grip_modes` in `Model_Space.mousePressEvent`, a symbol that no longer exists (stale source-introspection guard; unrelated to Leg B). Update to drive observable behavior or retire. `tests/test_design_area.py`.
+- [ ] [type:bug] Elevation HALO hover misses the label text inside a gridline/datum bubble [P3] [subject:UX]
+  - Details: cosmetic, from U5 Leg B seam review (2026-09-14). Elevation `_halo_resolve` walks ONE parent level (bubble/label child → parent gridline/datum), so hovering the tiny `QGraphicsSimpleTextItem` INSIDE an `_ElevBubble` (a grandchild of the gridline) doesn't light the HALO hover outline. Selection still works (bubbles are small; `_ElevBubble.mousePressEvent` selects the parent). Make `_halo_resolve` walk the full parent chain if it bothers. `elevation_scene.py`.
 - [ ] [type:feature] U5 Leg C — 3D-scene selection + handle providers [P2] [subject:Architecture]
   - Details: pick-ray/actor selection + handle providers for the 3D view. `view_3d.py` is a SPEC-INDEX **orphan** — forge a 3D-view selection governing spec first (orphan gate). Depends on plan-view selection-mode (Leg A, done). `view_3d.py`. ref: selection-manipulator §Unification U5, "Spec session: 3D view selection mode".
 - [ ] [type:feature] Preferences UX-pane reorg — Snapping→UX; SNAP/ALIGN/HALO tabs [P3] [subject:UX]

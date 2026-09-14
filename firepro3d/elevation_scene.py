@@ -29,6 +29,7 @@ from PyQt6.QtCore import QSettings
 
 from .constants import DEFAULT_LEVEL
 from . import theme as th
+from .halo_selection import HaloSelectionMixin
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -62,6 +63,52 @@ def _is_cardinal_for_elevation(p1: QPointF, p2: QPointF, direction: str) -> bool
 
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Read-only proxy items — model entities projected into elevation (§3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ElevReadOnlyProxyMixin:
+    """Grants the SelectionManipulator wrap (frame parity with the plan scene)
+    to an otherwise read-only elevation projection.
+
+    The manipulator only wraps items that declare a ``"translate"`` capability
+    (``item_capabilities`` → ``rebake`` exclusion; see design decision #4).
+    Elevation projects model entities (walls/openings/pipes/sprinklers/floor-
+    slabs/roofs) as READ-ONLY items — geometry is authored only in plan
+    (``view-relationships.md §3.1``). To get *selection parity* (the frame
+    shows on click) without making them editable, this mixin supplies a **no-op**
+    ``manip_translate``: it grants the capability so the frame wraps, but the
+    interior-drag bakes nothing. Proxies deliberately implement no
+    ``manip_handles``/``manip_scale``/``manip_rotate`` → the manipulator shows
+    the **frame + zero editing handles**.
+    """
+
+    def manip_translate(self, dx: float, dy: float) -> None:
+        """No-op: elevation projections are not editable (§3.1). Exists solely
+        to obtain the manipulator frame for selection parity with plan."""
+        # Intentionally inert — read-only projection.
+
+    def manip_handles(self):
+        """Explicitly ZERO editing handles: frame-only parity for a read-only
+        proxy. Declaring this (returning ``[]``) is authoritative in
+        ``SelectionManipulator._active_handles`` — it suppresses the rigid
+        resize fallback that a bare translate-only item (e.g. a Node) receives,
+        so the projection never looks editable (design decision #4)."""
+        return []
+
+
+class _ElevProxyRect(_ElevReadOnlyProxyMixin, QGraphicsRectItem):
+    """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
+
+
+class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
+    """Read-only line proxy (pipes)."""
+
+
+class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
+    """Read-only ellipse proxy (sprinklers)."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -231,6 +278,25 @@ class ElevGridlineItem(QGraphicsLineItem):
         self._update_bubble_positions()
         self.update()
 
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 1})
+
+    def manip_translate(self, dx: float, dy: float):
+        """Axis-constrained interior move (§3.1 read-only-geometry invariant).
+
+        H is pinned to ``self._h`` (a lateral shift would author geometry), so
+        ``dx`` is dropped; ``dy`` shifts both endpoints, moving the vertical
+        draw-extent as a whole. Mirrors how ``apply_grip`` writes the line and
+        keeps the bubbles in sync. Granting this capability is what lets the
+        SelectionManipulator wrap the gridline (see design decision #4).
+        """
+        line = self.line()
+        self.setLine(self._h, line.p1().y() + dy,
+                     self._h, line.p2().y() + dy)
+        self._update_bubble_positions()
+        self.update()
+
     def _commit_grip_override(self):
         """Write current Z-extent back to the scene's override dict.
 
@@ -354,22 +420,6 @@ class ElevDatumItem(QGraphicsLineItem):
         # not draw its own line.
         pass
 
-    def mousePressEvent(self, event):
-        """Clicking the bubble area selects this item."""
-        r = self._bubble_r
-        bp = QPointF(self._bx, self._v)
-        if (event.scenePos() - bp).manhattanLength() < r * 1.5:
-            scene = self.scene()
-            if scene is not None:
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    self.setSelected(not self.isSelected())
-                else:
-                    scene.clearSelection()
-                    self.setSelected(True)
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
@@ -406,8 +456,30 @@ class ElevDatumItem(QGraphicsLineItem):
                            self._datum_color, self._fill_color, self._pen_w)
         self._build_labels()
 
+    def manip_handles(self):
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0, 1})
 
-class ElevationScene(QGraphicsScene):
+    def manip_translate(self, dx: float, dy: float):
+        """Axis-constrained interior move (§3.1 read-only-geometry invariant).
+
+        V is pinned to ``self._v`` (a vertical shift would author the datum's
+        level elevation), so ``dy`` is dropped; ``dx`` shifts both endpoints,
+        moving the horizontal draw-extent. The left endpoint carries the bubble
+        + labels, so mirror ``apply_grip``'s left branch: advance ``self._bx``
+        and rebuild the children (session-only, not persisted — parity).
+        """
+        line = self.line()
+        new_x1 = line.p1().x() + dx
+        new_x2 = line.p2().x() + dx
+        self.setLine(new_x1, self._v, new_x2, self._v)
+        self._bx += dx
+        self._reposition_children()
+        self.prepareGeometryChange()
+        self.update()
+
+
+class ElevationScene(HaloSelectionMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
     entitySelected = pyqtSignal(object)   # picked legacy entity
@@ -429,10 +501,16 @@ class ElevationScene(QGraphicsScene):
         self._gridline_z_overrides: dict[str, dict] = {}
         # Keyed by gridline label → {"v_top": float, "v_bot": float}
 
-        # Grip-drag state (mirrors Model_Space pattern)
+        # Grip-drag state (mirrors Model_Space pattern). KEPT after the legacy
+        # _find_grip_hit path was retired: the manipulator's live-apply
+        # GripHandle BORROWS these during a drag (same contract as the plan
+        # scene — see U4).
         self._grip_item = None
         self._grip_index: int = -1
         self._grip_dragging = False
+
+        # HALO preselection + scene-drawn rubber-band state (mixin).
+        self._init_halo_state()
 
         # Theme
         _t = th.detect()
@@ -455,6 +533,69 @@ class ElevationScene(QGraphicsScene):
         self._ms.sceneModified.connect(self._schedule_rebuild)
         self.selectionChanged.connect(self._on_selection_changed)
 
+        # Selection manipulator — sole grip owner (retires _find_grip_hit).
+        # Mirrors Model_Space._create_manipulator with an elevation commit hook
+        # (no undo — elevation has none) and an exclude that keeps datum bubble
+        # decoration out of the wrap so only the top-level item is framed.
+        self._manipulator = None
+        self._create_manipulator()
+
+    # ── Selection manipulator ──────────────────────────────────────────────
+
+    def _create_manipulator(self):
+        """(Re)create the scene's selection manipulator and stash it."""
+        from .selection_manipulator import SelectionManipulator
+        self._manipulator = SelectionManipulator(
+            self, commit_hook=self._commit_elev_grip,
+            handle_units="px", exclude=self._manip_exclude)
+        return self._manipulator
+
+    def _live_manip(self):
+        """Return the manipulator, recreating it if a scene rebuild deleted its
+        underlying C++ object (rebuild() calls self.clear(), which removes the
+        manipulator scene item — same self-heal as Model_Space._live_manip)."""
+        from PyQt6 import sip
+        m = getattr(self, "_manipulator", None)
+        if m is not None and not sip.isdeleted(m):
+            return m
+        return self._create_manipulator()
+
+    def _manip_exclude(self, item) -> bool:
+        """Items the manipulator must never wrap: the gridline/datum bubble
+        decoration (child ``_ElevBubble``), so only the top-level selectable
+        gridline/datum is framed."""
+        return isinstance(item, _ElevBubble)
+
+    def _commit_elev_grip(self, mode):
+        """Manipulator commit hook (no undo). Persist each selected gridline's
+        adjusted Z-extent into ``_gridline_z_overrides``; datum edits are
+        session-only (parity)."""
+        for it in self.selectedItems():
+            if isinstance(it, ElevGridlineItem):
+                it._commit_grip_override()
+
+    # ── HALO hooks ─────────────────────────────────────────────────────────
+
+    def _halo_resolve(self, item):
+        """Resolve a hit child to its selectable parent: a bubble/label decoration
+        resolves to its parent gridline/datum; everything else is identity."""
+        parent = item.parentItem()
+        if isinstance(parent, (ElevGridlineItem, ElevDatumItem)):
+            return parent
+        return item
+
+    def _emit_halo_readout(self):
+        """Emit the HALO stack readout (§3.3) on ``cursorMoved``.
+
+        Defined now to avoid a latent AttributeError from the mixin's
+        ``halo_update``; the elevation view's HALO wiring lands in the next
+        task. Format mirrors Model_Space: ``"<Type> — <i> of <N>"``."""
+        item = self.halo_item()
+        if item is None:
+            return
+        n = len(self._halo_candidates)
+        self.cursorMoved.emit(f"{type(item).__name__} — {self._halo_index + 1} of {n}")
+
     # ── Selection sync ───────────────────────────────────────────────────
 
     def _on_selection_changed(self):
@@ -469,23 +610,11 @@ class ElevationScene(QGraphicsScene):
                     return
         self.entitySelected.emit(None)
 
-    # ── Grip-drag handling ────────────────────────────────────────────────
-
-    def _find_grip_hit(self, pos: QPointF):
-        """Return (item, grip_index) if pos is near a grip handle, else None."""
-        views = self.views()
-        if not views:
-            return None
-        scale = views[0].transform().m11()
-        tol = 16.0 / max(abs(scale), 1e-6)
-
-        for item in self.selectedItems():
-            if not hasattr(item, "grip_points"):
-                continue
-            for idx, gpt in enumerate(item.grip_points()):
-                if (pos - gpt).manhattanLength() <= tol * 1.5:
-                    return (item, idx)
-        return None
+    # ── Mouse handling ────────────────────────────────────────────────────
+    # The legacy grip path (_find_grip_hit + _grip_dragging lifecycle) was
+    # retired in U5 Leg B: the SelectionManipulator is the sole grip owner.
+    # The _grip_item/_grip_index/_grip_dragging attrs are KEPT — the
+    # manipulator's live-apply GripHandle borrows them during a drag.
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton:
@@ -494,70 +623,43 @@ class ElevationScene(QGraphicsScene):
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
-            hit = self._find_grip_hit(event.scenePos())
-            if hit is not None:
-                self._grip_item, self._grip_index = hit
-                self._grip_dragging = True
-                # Snapshot grip positions of co-selected items for delta propagation
-                self._grip_start_pos = event.scenePos()
-                self._grip_co_items = []
-                primary_type = type(self._grip_item)
-                for sel in self.selectedItems():
-                    if sel is self._grip_item:
-                        continue
-                    if isinstance(sel, primary_type) and hasattr(sel, "grip_points"):
-                        grips = sel.grip_points()
-                        if len(grips) > self._grip_index:
-                            self._grip_co_items.append(
-                                (sel, grips[self._grip_index]))
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._grip_dragging and self._grip_item is not None:
+            # HALO-committed selection (mirrors Model_Space._press_select_item).
+            # A press on a manipulator handle must fall through to super() so the
+            # manipulator's _HandleItem child consumes it (grip-drag) — never
+            # commit selection over a handle.
             pos = event.scenePos()
-            # Move primary item
-            old_grips = self._grip_item.grip_points()
-            self._grip_item.apply_grip(self._grip_index, pos)
-            new_grips = self._grip_item.grip_points()
-
-            # Compute delta and propagate to co-selected items
-            if len(old_grips) > self._grip_index and len(new_grips) > self._grip_index:
-                delta = new_grips[self._grip_index] - old_grips[self._grip_index]
-                for sel, start_pt in self._grip_co_items:
-                    sg = sel.grip_points()
-                    if len(sg) > self._grip_index:
-                        target = QPointF(
-                            sg[self._grip_index].x() + delta.x(),
-                            sg[self._grip_index].y() + delta.y())
-                        sel.apply_grip(self._grip_index, target)
-
-            self.update()
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self._grip_dragging:
-            # Commit override for the primary item and any co-selected gridlines
-            primary = self._grip_item
-            co_items = list(self._grip_co_items)
-
-            self._grip_item = None
-            self._grip_index = -1
-            self._grip_dragging = False
-            self._grip_co_items = []
-
-            if isinstance(primary, ElevGridlineItem):
-                primary._commit_grip_override()
-            for sel, _start_pt in co_items:
-                if isinstance(sel, ElevGridlineItem):
-                    sel._commit_grip_override()
-
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
+            manip = self._live_manip()
+            # A press over the manipulator frame/handle falls through to super()
+            # so the manipulator's _HandleItem child consumes it (grip-drag /
+            # interior move) — never commit a fresh HALO selection over it.
+            on_manip = (manip is not None and manip.isVisible()
+                        and manip.hit_test(pos))
+            if not on_manip:
+                ctrl = bool(event.modifiers()
+                            & Qt.KeyboardModifier.ControlModifier)
+                # Prefer the HALO-highlighted (hovered/cycled) candidate over the
+                # raw topmost pick, so a Spacebar-cycled preselection is what the
+                # click commits; fall back to the topmost selectable under cursor.
+                target = self.halo_item()
+                if target is None:
+                    for it in self.items(pos):
+                        r = self._halo_resolve(it)
+                        if r is not None and (
+                                r.flags()
+                                & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                            target = r
+                            break
+                if not ctrl:
+                    self.clearSelection()
+                if target is not None:
+                    target.setSelected(
+                        not target.isSelected() if ctrl else True)
+                    # Accept so the view does NOT arm a rubber band over a
+                    # committed selection; empty press falls through to super()
+                    # (which leaves the cleared selection for a fresh band).
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
 
     def contextMenuEvent(self, event):
         """Show right-click context menu for elevation view entities."""
@@ -837,7 +939,7 @@ class ElevationScene(QGraphicsScene):
             v_bottom = -base_z  # Qt Y for bottom of wall
             height = v_bottom - v_top
 
-            rect = QGraphicsRectItem(h_min, v_top, width, height)
+            rect = _ElevProxyRect(h_min, v_top, width, height)
 
             # Use display manager colour; fall back to wall's own colour
             pen = QPen(dm_color, 1)
@@ -938,7 +1040,7 @@ class ElevationScene(QGraphicsScene):
                     depth = wc_y
 
                 # ── Void rect (interrupts wall poché) ─────────────────────
-                void_rect = QGraphicsRectItem(h_min, v_top, width, v_bottom - v_top)
+                void_rect = _ElevProxyRect(h_min, v_top, width, v_bottom - v_top)
                 void_pen = QPen(Qt.PenStyle.NoPen)
                 void_rect.setPen(void_pen)
                 void_rect.setBrush(QBrush(void_color))
@@ -998,7 +1100,7 @@ class ElevationScene(QGraphicsScene):
             col_name = pipe._properties.get("Colour", {}).get("value", "Red")
             color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
 
-            line = QGraphicsLineItem(h1, v1, h2, v2)
+            line = _ElevProxyLine(h1, v1, h2, v2)
             pen = QPen(color, 2)
             pen.setCosmetic(True)
             line.setPen(pen)
@@ -1047,7 +1149,7 @@ class ElevationScene(QGraphicsScene):
                 color = QColor("#3264ff")
 
             r = 30.0  # mm radius
-            ellipse = QGraphicsEllipseItem(h - r, v - r, r * 2, r * 2)
+            ellipse = _ElevProxyEllipse(h - r, v - r, r * 2, r * 2)
             pen = QPen(color, 1.5)
             pen.setCosmetic(True)
             ellipse.setPen(pen)
@@ -1140,7 +1242,7 @@ class ElevationScene(QGraphicsScene):
             mask.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
 
             # Visible slab rect with styled fill
-            rect = QGraphicsRectItem(h_min, v_top, width, height)
+            rect = _ElevProxyRect(h_min, v_top, width, height)
             pen = QPen(dm_color, 1)
             pen.setCosmetic(True)
             rect.setPen(pen)
@@ -1194,7 +1296,7 @@ class ElevationScene(QGraphicsScene):
             # Draw convex hull outline (simplified)
             h_vals = [p.x() for p in elev_pts]
             v_vals = [p.y() for p in elev_pts]
-            rect = QGraphicsRectItem(
+            rect = _ElevProxyRect(
                 min(h_vals), min(v_vals),
                 max(h_vals) - min(h_vals), max(v_vals) - min(v_vals),
             )
