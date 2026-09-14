@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QGraphicsView
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QKeySequence, QShortcut
+from PyQt6.QtGui import QPainter, QKeySequence, QShortcut
 
 from . import theme as th
 
@@ -68,33 +68,6 @@ class ElevationView(QGraphicsView):
             scene.blockSignals(False)
             scene.selectionChanged.emit()
             self.viewport().update()
-
-    # ── Grip handle rendering ────────────────────────────────────────────
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        scene = self.scene()
-        if scene is None:
-            return
-
-        selected = [i for i in scene.selectedItems() if hasattr(i, "grip_points")]
-        if not selected:
-            return
-
-        active_item = getattr(scene, "_grip_item", None)
-        active_idx = getattr(scene, "_grip_index", -1)
-
-        painter = QPainter(self.viewport())
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        for item in selected:
-            for idx, gpt in enumerate(item.grip_points()):
-                vp = self.mapFromScene(gpt)
-                is_active = (item is active_item and idx == active_idx)
-                fill = QColor("#ff4400") if is_active else QColor("#00aaff")
-                painter.setPen(QPen(QColor("#000000"), 1))
-                painter.setBrush(QBrush(fill))
-                painter.drawRect(vp.x() - 4, vp.y() - 4, 8, 8)
-        painter.end()
 
     # ── Pan (middle mouse) ───────────────────────────────────────────────
 

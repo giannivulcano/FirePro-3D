@@ -116,17 +116,38 @@ Reuse the scene-parameterized `SelectionManipulator` exactly as `PaperScene` doe
 `_ROLE_ELEV_ANNOTATION` child decoration that isn't itself selectable). Verify no `Model_Space`-only
 attribute leaks into the manipulator's generic path (getattr-guard scene bridges).
 
-### 4. Gridline/datum `manip_handles()` + the §3.1 no-interior-move invariant
+### 4. Gridline/datum + read-only-proxy capabilities (CORRECTED 2026-09-14 after T4 grounding)
 
-`ElevGridlineItem`/`ElevDatumItem` gain `manip_handles()` via
-`default_grip_handles(self, circular={0,1})` (both endpoints are round move-affordances). Their
-existing `apply_grip` already enforces the axis constraint (gridline pins `self._h`; datum pins
-`self._v`), so the V-only/H-only constraint is preserved for free. **Interior-drag move is gated off
-by NOT implementing `manip_translate`** on these items — the manipulator excludes no-`translate`
-items from interior-move (the same mechanism that makes `ViewMarkerArrow` resize-only), so a body
-drag cannot shift the pinned axis. Read-only proxies implement no `manip_*`/`manip_handles` →
-frame-only, zero handles. **Rebake-ordering:** gate grip presence on `isSelected()`, never on an
-`itemChange`-mutated visibility flag (the ViewMarkerArrow lesson in `selection-manipulator.md`).
+**Correction:** the manipulator **only wraps items that declare a `"translate"` capability** —
+`item_capabilities()` grants it iff the item has `manip_translate`/`translate`/is a Node, and
+`rebake()` (`selection_manipulator.py:451`) *excludes* anything lacking it (hides the frame if
+`_items` is empty). `manip_capabilities()` can only *narrow* (intersect), never add. So the original
+"omit `manip_translate` → frame-only, no interior move" is **impossible**: a no-translate item gets
+**no frame and no grips at all**. (`ViewMarkerArrow`, the cited "resize-only" precedent, in fact
+implements `manip_translate` — that's why it wraps.) The fix:
+
+- **`ElevGridlineItem`/`ElevDatumItem`** — implement an **axis-constrained `manip_translate`**:
+  gridline drops `dx` (H pinned to `self._h`; applies `dy` to both endpoints → vertical extent
+  shift); datum drops `dy` (V pinned to `self._v`; applies `dx` → horizontal extent shift). This
+  grants the `translate` capability so the manipulator wraps them and their `manip_handles()` extent
+  grips render, while the §3.1 invariant (pinned axis unchanged) holds. Plus `manip_handles()` via
+  `default_grip_handles(self, circular={0,1})`. The §3.1 guard is **behavioral** — "an interior-drag
+  does not change the pinned axis" — NOT structural ("no `manip_translate`").
+- **Read-only proxies** (wall/opening/pipe/sprinkler/floor-slab/roof) — implement a **no-op
+  `manip_translate(dx, dy)`** (documented: elevation projections are not editable; the no-op exists
+  solely to obtain the manipulator frame for selection **parity with the plan scene**, honoring
+  §3.1). They implement no `manip_handles`/`manip_scale`/`manip_rotate` → the manipulator shows the
+  **frame + zero editing handles**. Interior-drag is inert (bakes nothing; `commit_hook` finds no
+  gridline to persist). **Residual parity gap (accepted, smoke-checked):** a drag-attempt on a proxy
+  previews a move then snaps back — file an interior-move-suppression polish follow-up if it reads
+  janky.
+
+**Rebake-ordering:** gate grip presence on `isSelected()`, never on an `itemChange`-mutated
+visibility flag (the ViewMarkerArrow lesson in `selection-manipulator.md`).
+
+**Governing-spec note (Phase 6):** `selection-manipulator.md:676-679` says `manip_translate` is
+mandatory to wrap — the elevation section must record the **no-op / axis-constrained translate**
+idiom as the sanctioned way to get a read-only or axis-pinned item wrapped.
 
 ### 5. Rubber-band generalization
 
@@ -165,8 +186,9 @@ removed so the datum flows through HALO like every other item.
 - [ ] On selection the manipulator frame wraps the item(s). **Handle gating:** gridline/datum surface
       their extent grips; read-only proxies (wall/opening/pipe/sprinkler/floor-slab/roof) show
       **frame + zero handles**; property inspection (`entitySelected` → panel) still fires.
-- [ ] **Interior-drag move disabled** for gridline/datum (no lateral H/V change); **no group transform**
-      on any multi-select (frame + per-item grips only). *(§3.1 invariant.)*
+- [ ] **Interior-drag is axis-constrained** for gridline/datum (drag never changes the pinned axis —
+      H for gridline, V for datum); **no group transform** (rotate/scale) on any selection. Read-only
+      proxies' interior-drag is inert. *(§3.1 invariant — behavioral guard.)*
 - [ ] Scene-drawn rubber-band replaces Qt-native: L→R window (blue/solid, contained), R→L crossing
       (green/dashed, intersects), live HALO preview, Ctrl+drag additive.
 - [ ] Gridline/datum grip drag produces the **byte-identical** `_gridline_z_overrides` result as the
