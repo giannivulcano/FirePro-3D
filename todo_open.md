@@ -511,6 +511,14 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Title block template editor
 
+> Follow-ups from the 2026-09-15 title-block bundle (`feat/titleblock-ansi-d-default`, Tasks A–F). Governing specs: `titleblock-template-system.md`, `settings-dialog.md`, `ui-design-system.md`.
+
+- [ ] [type:maint] [cleanup:delete] Remove the dead CEL DXF/PDF title-block chain [P3] [subject:Code Quality]
+  - Details: Task A retired the resolution-chain fallback → `TitleBlockDxfItem`/`TitleBlockPdfItem` classes, the `TITLE_BLOCK_DXFS`/`TITLE_BLOCK_PDFS` dicts, and the `CEL Titleblock (ANSI D) R0.dxf/.pdf` asset files are now unused. Grep for stragglers (tests referenced the class *names* in kind lists — already updated) then delete. `paper_space.py`, `firepro3d/graphics/`.
+- [ ] [type:feature] Dedicated "set default title block" control [P3] [subject:UX]
+  - Details: today the `.fpdt` link (`titleblock_template_uuid`) is set only as a side effect of "Save current project settings as default" (it captures the current project's embedded template uuid). Add an explicit picker (choose which library template new projects inherit) — e.g. in the Title Block editor or Project Settings. ref: titleblock-template-system DD-23. `titleblock_editor.py`, `settings/`.
+- [ ] [type:maint] House-theme the E3 data-migration prompt [P3] [subject:UX]
+  - Details: `GeneralPane.migrate_prompt_if_needed` uses a plain `QMessageBox` (Copy/Move/Leave). Replace with a house-styled `themed_*` / `HouseDialog` prompt for chrome parity. `settings/panes.py`. ref: settings-dialog §4.5b.
 - [ ] [type:feature] Font-properties widget dialog for title block cell text styling [P3] [subject:UX]
   - Details: family/size/bold/italic in one picker, replacing the separate per-cell controls. `titleblock_editor.py`.
 - [ ] [type:bug] Surface solver/renderer warnings on real sheets [P3] [subject:CAD]
