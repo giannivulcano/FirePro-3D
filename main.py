@@ -1791,7 +1791,7 @@ class MainWindow(QMainWindow):
         _btn.setToolTip("Change paper sheet size")
         _btn = g_pg.add_large_button(
             "Title Block",
-            _I("placeholder_icon.svg"),
+            _I("titleblock_icon.svg"),
             self._open_titleblock_editor)
         _btn.setToolTip("Edit title block template / fields")
 
