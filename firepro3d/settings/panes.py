@@ -14,7 +14,7 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPushButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPushButton, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -51,12 +51,15 @@ _SNAP_TYPES: list[tuple[str, str]] = [
 _QSETTINGS_ORG  = "GV"
 _QSETTINGS_APP  = "FirePro3D"
 
+# Default for halo aperture — matches HALO_APERTURE_PX in constants.py (6 px).
+_HALO_APERTURE_DEFAULT: int = 6
+
 _FACTORY_DEFAULTS: dict = {
     "tol_px":       15,
     "hysteresis_px": 3,
     "grip_px":      200,
-    "grid_mm":      10.0,
-    "angle_deg":    45,
+    "grid_mm":      10.0,   # kept for _FACTORY_DEFAULTS export parity; widget removed
+    "angle_deg":    5,
     "align":        True,
     # ── ALIGN knobs (docs/superpowers/specs/…-align-tracking-design.md D7) ──
     "align_path_tol_px": int(ALIGN_PATH_TOL_PX),
@@ -66,6 +69,9 @@ _FACTORY_DEFAULTS: dict = {
     "align_dir_extension": ALIGN_DIR_EXTENSION_DEFAULT,
     "align_dir_parallel":  ALIGN_DIR_PARALLEL_DEFAULT,
     "align_dir_perpendicular": ALIGN_DIR_PERPENDICULAR_DEFAULT,
+    # ── HALO ──────────────────────────────────────────────────────────────────
+    "halo_enabled":  True,
+    "halo_aperture": _HALO_APERTURE_DEFAULT,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
@@ -104,16 +110,24 @@ class UXPane(SettingsPane):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        from firepro3d.dimension_edit import DimensionEdit
+        from firepro3d.ui_kit import SwitchBar
 
         outer = QVBoxLayout(self)
 
-        tabs = QTabWidget()
-        outer.addWidget(tabs)
+        # ── Segmented control ────────────────────────────────────────────────
+        self._switch = SwitchBar(
+            [("snap", "SNAP"), ("align", "ALIGN"), ("halo", "HALO")]
+        )
+        outer.addWidget(self._switch)
 
-        # ── Tab 1: SNAP ──────────────────────────────────────────────────────
-        snap_tab = QWidget()
-        snap_layout = QVBoxLayout(snap_tab)
+        self._stack = QStackedWidget()
+        outer.addWidget(self._stack)
+
+        self._switch.changed.connect(self._on_switch)
+
+        # ── Page 0: SNAP ─────────────────────────────────────────────────────
+        snap_page = QWidget()
+        snap_layout = QVBoxLayout(snap_page)
 
         # Tolerance group
         tol_group = QGroupBox("Tolerance")
@@ -137,6 +151,11 @@ class UXPane(SettingsPane):
         self._grip_spin.setSuffix(" px")
         tol_form.addRow("Grip handle radius:", self._grip_spin)
 
+        self._angle_spin = QSpinBox()
+        self._angle_spin.setRange(1, 90)
+        self._angle_spin.setSuffix("°")
+        tol_form.addRow("Angle snap:", self._angle_spin)
+
         snap_layout.addWidget(tol_group)
 
         # Snap types group
@@ -148,30 +167,17 @@ class UXPane(SettingsPane):
             types_layout.addWidget(cb)
             self._snap_cbs[attr] = cb
         snap_layout.addWidget(types_group)
+        snap_layout.addStretch()
 
-        tabs.addTab(snap_tab, "SNAP")
+        self._stack.addWidget(snap_page)   # index 0
 
-        # ── Tab 2: Grid / Angle ──────────────────────────────────────────────
-        grid_tab = QWidget()
-        grid_form = QFormLayout(grid_tab)
-
-        self._grid_edit = DimensionEdit(None, initial_mm=10.0)
-        grid_form.addRow("Grid spacing:", self._grid_edit)
-
-        self._angle_spin = QSpinBox()
-        self._angle_spin.setRange(1, 90)
-        self._angle_spin.setSuffix("°")
-        grid_form.addRow("Angle snap:", self._angle_spin)
-
-        tabs.addTab(grid_tab, "Grid / Angle")
-
-        # ── Tab 3: ALIGN ─────────────────────────────────────────────────────
-        inf_tab = QWidget()
-        inf_layout = QVBoxLayout(inf_tab)
+        # ── Page 1: ALIGN ────────────────────────────────────────────────────
+        align_page = QWidget()
+        align_layout = QVBoxLayout(align_page)
 
         self._align_cb = QCheckBox("ALIGN (master on/off · F11)")
         self._align_cb.setObjectName("align_enabled")
-        inf_layout.addWidget(self._align_cb)
+        align_layout.addWidget(self._align_cb)
 
         # Acquire / tracking tunables
         tune_group = QGroupBox("Acquire & Tracking")
@@ -194,7 +200,7 @@ class UXPane(SettingsPane):
         self._align_maxpts_spin.setSingleStep(1)
         tune_form.addRow("Max acquired points:", self._align_maxpts_spin)
 
-        inf_layout.addWidget(tune_group)
+        align_layout.addWidget(tune_group)
 
         # Per-direction ray-kind toggles
         dir_group = QGroupBox("Tracking Directions")
@@ -206,15 +212,45 @@ class UXPane(SettingsPane):
         for cb in (self._align_hv_cb, self._align_ext_cb, self._align_par_cb,
                    self._align_perp_cb):
             dir_layout.addWidget(cb)
-        inf_layout.addWidget(dir_group)
-        inf_layout.addStretch()
+        align_layout.addWidget(dir_group)
+        align_layout.addStretch()
 
-        tabs.addTab(inf_tab, "ALIGN")
+        self._stack.addWidget(align_page)  # index 1
+
+        # ── Page 2: HALO ─────────────────────────────────────────────────────
+        halo_page = QWidget()
+        halo_layout = QVBoxLayout(halo_page)
+
+        halo_group = QGroupBox("Halo Selection")
+        halo_form = QFormLayout(halo_group)
+
+        self._halo_enable = QCheckBox("Enable halo highlight")
+        self._halo_enable.setChecked(True)
+        halo_form.addRow(self._halo_enable)
+
+        self._halo_aperture = QSpinBox()
+        self._halo_aperture.setRange(1, 100)
+        self._halo_aperture.setSingleStep(1)
+        self._halo_aperture.setSuffix(" px")
+        halo_form.addRow("Aperture:", self._halo_aperture)
+
+        halo_layout.addWidget(halo_group)
+        halo_layout.addStretch()
+
+        self._stack.addWidget(halo_page)   # index 2
+
+        # Start on SNAP page
+        self._stack.setCurrentIndex(0)
 
         # ── Reset to Defaults button ──────────────────────────────────────────
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.clicked.connect(self.reset_to_defaults)
         outer.addWidget(reset_btn)
+
+    def _on_switch(self, key: str) -> None:
+        """Switch stack page when the SwitchBar selection changes."""
+        idx = {"snap": 0, "align": 1, "halo": 2}.get(key, 0)
+        self._stack.setCurrentIndex(idx)
 
     # ── ALIGN knob setters / getters ──────────────────────────────────────────
     # Thin wrappers so callers (and tests) drive the widgets by name; apply()
@@ -309,9 +345,12 @@ class UXPane(SettingsPane):
             snap_flags: dict[str, bool] = {
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
+            halo_on = bool(getattr(self._scene, "_halo_enabled", True))
+            halo_aperture = int(getattr(self._scene, "_halo_aperture_px",
+                                        _HALO_APERTURE_DEFAULT))
         else:
             grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
-            angle_deg = s.value("snap/angle_deg", 45, type=int)
+            angle_deg = s.value("snap/angle_deg", 5, type=int)
             align_on = s.value("align/enabled", True, type=bool)
             align_tol = s.value("align/path_tol_px", int(ALIGN_PATH_TOL_PX), type=int)
             align_dwell = s.value("align/dwell_ms", ALIGN_DWELL_MS, type=int)
@@ -329,18 +368,15 @@ class UXPane(SettingsPane):
                 if isinstance(val, str):
                     val = val.lower() not in ("false", "0")
                 snap_flags[attr] = bool(val)
-
-        if self._view is not None:
-            grid_mm = float(self._view._grid_size)
-        else:
-            grid_mm = s.value("snap/grid_size", 10.0, type=float)
+            halo_on = s.value("halo/enabled", True, type=bool)
+            halo_aperture = s.value("halo/aperture_px",
+                                    _HALO_APERTURE_DEFAULT, type=int)
 
         # Build snapshot before touching widgets
         self._snapshot = {
             "tol_px":       tol_px,
             "hysteresis_px": hyst_px,
             "grip_px":      grip_px,
-            "grid_mm":      grid_mm,
             "angle_deg":    angle_deg,
             "align":        align_on,
             "align_path_tol_px": align_tol,
@@ -350,6 +386,8 @@ class UXPane(SettingsPane):
             "align_dir_extension": align_ext,
             "align_dir_parallel":  align_par,
             "align_dir_perpendicular": align_perp,
+            "halo_enabled":   halo_on,
+            "halo_aperture":  halo_aperture,
             **snap_flags,
         }
 
@@ -357,7 +395,6 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(tol_px)
         self._hyst_spin.setValue(hyst_px)
         self._grip_spin.setValue(grip_px)
-        self._grid_edit.set_value_mm(grid_mm)
         self._angle_spin.setValue(int(angle_deg))
         self._align_cb.setChecked(align_on)
         self._align_tol_spin.setValue(int(align_tol))
@@ -369,6 +406,8 @@ class UXPane(SettingsPane):
         self._align_perp_cb.setChecked(bool(align_perp))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(snap_flags[attr])
+        self._halo_enable.setChecked(halo_on)
+        self._halo_aperture.setValue(halo_aperture)
 
     def apply(self) -> None:
         """Write widget values to snap_engine, live objects, and QSettings.
@@ -406,12 +445,6 @@ class UXPane(SettingsPane):
             for attr, cb in self._snap_cbs.items():
                 s.setValue(f"snap/{attr}", cb.isChecked())
 
-        # ── Grid spacing ──────────────────────────────────────────────────────
-        grid_mm = self._grid_edit.value_mm()
-        s.setValue("snap/grid_size", grid_mm)
-        if self._view is not None:
-            self._view.set_grid(self._view._grid_visible, grid_mm)
-
         # ── Angle snap ────────────────────────────────────────────────────────
         angle_deg = self._angle_spin.value()
         s.setValue("snap/angle_deg", angle_deg)
@@ -448,6 +481,17 @@ class UXPane(SettingsPane):
                 ctrl.set_direction_flags(hv=align_hv, extension=align_ext,
                                          parallel=align_par,
                                          perpendicular=align_perp)
+
+        # ── HALO ─────────────────────────────────────────────────────────────
+        halo_on = self._halo_enable.isChecked()
+        halo_aperture = self._halo_aperture.value()
+        s.setValue("halo/enabled", halo_on)
+        s.setValue("halo/aperture_px", halo_aperture)
+        if self._scene is not None:
+            if hasattr(self._scene, "_halo_enabled"):
+                self._scene._halo_enabled = halo_on
+            if hasattr(self._scene, "_halo_aperture_px"):
+                self._scene._halo_aperture_px = halo_aperture
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -491,10 +535,6 @@ class UXPane(SettingsPane):
             for _, attr in _SNAP_TYPES:
                 setattr(eng, attr, self._snapshot[attr])
 
-        # ── Live view ─────────────────────────────────────────────────────────
-        if self._view is not None:
-            self._view.set_grid(self._view._grid_visible, self._snapshot["grid_mm"])
-
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
             self._snap_toolbar.refresh_from_engine()
@@ -503,7 +543,6 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(self._snapshot["tol_px"])
         self._hyst_spin.setValue(self._snapshot["hysteresis_px"])
         self._grip_spin.setValue(self._snapshot["grip_px"])
-        self._grid_edit.set_value_mm(self._snapshot["grid_mm"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
         self._align_cb.setChecked(self._snapshot["align"])
         self._align_tol_spin.setValue(int(self._snapshot["align_path_tol_px"]))
@@ -516,6 +555,8 @@ class UXPane(SettingsPane):
             bool(self._snapshot["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
+        self._halo_enable.setChecked(self._snapshot["halo_enabled"])
+        self._halo_aperture.setValue(self._snapshot["halo_aperture"])
 
     def reset_to_defaults(self) -> None:
         """Set every SNAP-pane widget to factory defaults and apply live."""
@@ -523,7 +564,6 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(d["tol_px"])
         self._hyst_spin.setValue(d["hysteresis_px"])
         self._grip_spin.setValue(d["grip_px"])
-        self._grid_edit.set_value_mm(d["grid_mm"])
         self._angle_spin.setValue(int(d["angle_deg"]))
         self._align_cb.setChecked(d["align"])
         self._align_tol_spin.setValue(int(d["align_path_tol_px"]))
@@ -535,6 +575,8 @@ class UXPane(SettingsPane):
         self._align_perp_cb.setChecked(bool(d["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(d[attr])
+        self._halo_enable.setChecked(d["halo_enabled"])
+        self._halo_aperture.setValue(d["halo_aperture"])
         self.apply()
 
 

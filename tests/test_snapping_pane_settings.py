@@ -135,17 +135,6 @@ def test_grip_persists_to_qsettings(qapp, isolated_settings):
     assert isolated_settings.value("snap/grip_tolerance_px", type=int) == 300
 
 
-# ── Grid ──────────────────────────────────────────────────────────────────────
-
-def test_grid_persists_to_qsettings(qapp, isolated_settings):
-    """apply() writes snap/grid_size to QSettings."""
-    pane = _make_pane(isolated_settings)
-    pane._grid_edit.set_value_mm(50.0)
-    pane.apply()
-    val = isolated_settings.value("snap/grid_size", type=float)
-    assert val == pytest.approx(50.0)
-
-
 # ── Angle snap ────────────────────────────────────────────────────────────────
 
 def test_angle_persists_to_qsettings(qapp, isolated_settings):
