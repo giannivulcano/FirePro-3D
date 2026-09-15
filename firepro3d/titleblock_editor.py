@@ -364,12 +364,14 @@ class TitleBlockEditorDialog(HouseDialog):
         # Transparent container (a bare QWidget renders black on the rail) + a
         # clearly-legible neutral hover using theme tokens (hexguard-safe).
         _c = detect()
+        # Green accent hover (same token as the footer buttons). font-size in pt
+        # (px makes pointSize()==-1 → QFont::setPointSize warnings — project trap).
         act_w.setStyleSheet(
             "QWidget { background: transparent; }"
             "QToolButton { border: none; border-radius: 4px; padding: 3px 8px;"
-            f" font-size: 15px; color: {_c.ink}; }}"
-            f"QToolButton:hover {{ background: {_c.raised}; }}"
-            f"QToolButton:pressed {{ background: {_c.line_strong}; }}")
+            f" font-size: 12pt; color: {_c.ink}; }}"
+            f"QToolButton:hover {{ background: {_c.accent_soft}; border: 1px solid {_c.accent}; }}"
+            f"QToolButton:pressed {{ background: {_c.accent_soft2}; }}")
         self._rail.set_header(act_w)             # buttons share the rail chrome
         root.addWidget(self._rail)
 
