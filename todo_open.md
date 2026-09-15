@@ -519,6 +519,10 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: today the `.fpdt` link (`titleblock_template_uuid`) is set only as a side effect of "Save current project settings as default" (it captures the current project's embedded template uuid). Add an explicit picker (choose which library template new projects inherit) — e.g. in the Title Block editor or Project Settings. ref: titleblock-template-system DD-23. `titleblock_editor.py`, `settings/`.
 - [ ] [type:maint] House-theme the E3 data-migration prompt [P3] [subject:UX]
   - Details: `GeneralPane.migrate_prompt_if_needed` uses a plain `QMessageBox` (Copy/Move/Leave). Replace with a house-styled `themed_*` / `HouseDialog` prompt for chrome parity. `settings/panes.py`. ref: settings-dialog §4.5b.
+- [ ] [type:feature] TopTabs richness: per-tab icons + status badges [P3] [subject:UX]
+  - Details: `ui_kit.TopTabs` shipped with the core look only (2026-09-15). Follow-ups from the reference `DIALOG_TABS_SPEC.md`: (a) 13px per-tab icons (needs 4 tab icons authored, mockup-gated); (b) modified-dot + warn-badge behaviors (a warn dot on a tab whose page has a validation issue, wired to the editor's `_show_warnings`/validate state). `ui_kit.py`, `titleblock_editor.py`, `theme.py`. ref: ui-design-system Tab-style catalog.
+- [ ] [type:maint] Adopt TopTabs in the other top-tab dialogs [P3] [subject:UX]
+  - Details: migrate remaining bare-`QTabWidget` house dialogs onto `ui_kit.TopTabs` as they're touched (e.g. Block Editor). Reference `underlay_manager` kit also carries a full `SectionDialog` shell (rail+tabs+header+footer) if a deeper unification is later wanted. ref: ui-design-system Tab-style catalog.
 - [ ] [type:feature] Font-properties widget dialog for title block cell text styling [P3] [subject:UX]
   - Details: family/size/bold/italic in one picker, replacing the separate per-cell controls. `titleblock_editor.py`.
 - [ ] [type:bug] Surface solver/renderer warnings on real sheets [P3] [subject:CAD]

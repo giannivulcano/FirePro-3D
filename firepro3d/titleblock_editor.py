@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QPushButton, QPlainTextEdit, QRadioButton,
-    QSizePolicy, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget,
+    QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 from .themed_message import themed_confirm, themed_warn
 from .house_dialog import HouseDialog
@@ -47,7 +47,7 @@ from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
 from .theme import detect, M
 from . import theme as _th
-from .ui_kit import SideTabs, ToggleSwitch
+from .ui_kit import SideTabs, ToggleSwitch, TopTabs
 from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -380,7 +380,7 @@ class TitleBlockEditorDialog(HouseDialog):
         centre.setSpacing(6)
 
         # ── Component tabs (Overview / Drawing Area / Fields) ─────────────
-        self._component_tabs = QTabWidget()
+        self._component_tabs = TopTabs()      # house top-tab strip
         centre.addWidget(self._component_tabs, stretch=1)
 
         # ── Tab 0: Overview ────────────────────────────────────────────────
@@ -453,7 +453,7 @@ class TitleBlockEditorDialog(HouseDialog):
 
         overview_layout.addWidget(preview_group, stretch=1)
 
-        self._component_tabs.addTab(overview_widget, "Overview")
+        self._component_tabs.add_tab("overview", "Overview", overview_widget)
 
         # Refresh fitInView when the Overview tab becomes visible so the fit
         # runs with a realized viewport (avoids the empty-rect on first show).
@@ -478,7 +478,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._area_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
 
-        self._component_tabs.addTab(area_widget, "Drawing Area")
+        self._component_tabs.add_tab("drawing_area", "Drawing Area", area_widget)
 
         # ── Strip border group — lives on the Arrangements tab (DD-17) ─────
         # Constructed here so its change signals wire alongside the area
@@ -722,11 +722,11 @@ class TitleBlockEditorDialog(HouseDialog):
         preview_col.addWidget(self._field_preview_view, stretch=1)
         fields_layout.addLayout(preview_col)
 
-        self._component_tabs.addTab(fields_widget, "Fields")
+        self._component_tabs.add_tab("fields", "Fields", fields_widget)
 
         # ── Tab 3: Arrangements (DD-17) ───────────────────────────────────
         self._arrange_tab = ArrangementsTab(self._strip_border)
-        self._component_tabs.addTab(self._arrange_tab, "Arrangements")
+        self._component_tabs.add_tab("arrangements", "Arrangements", self._arrange_tab)
         canvas = self._arrange_tab.canvas
         canvas.set_provider(self._arrange_provider)
         canvas.gestureStarting.connect(self.push_snapshot)

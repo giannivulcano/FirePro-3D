@@ -7,7 +7,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-                             QPushButton, QButtonGroup, QSizePolicy)
+                             QPushButton, QButtonGroup, QSizePolicy, QTabWidget)
 
 from .theme import M
 
@@ -124,6 +124,51 @@ class SideTabs(QFrame):
         """Insert a header widget (e.g. action buttons) above the tab rows,
         INSIDE the rail frame (shares its background + border)."""
         self.layout().insertWidget(0, widget)
+
+
+class TopTabs(QTabWidget):
+    """House top-tab strip (peer pages inside one section; DIALOG_TABS_SPEC).
+
+    A styled QTabWidget — muted default, accent-underline + semibold on the
+    selected tab, accent-soft hover, no base line, scroll-on-overflow. The
+    key-based API mirrors SideTabs (``add_tab`` / ``tabSelected`` /
+    ``set_current`` / ``current``) while native QTabWidget methods (``addTab``,
+    ``count``, ``widget``, ``currentChanged``) keep working. Rail → tabs is the
+    max depth: never nest TopTabs inside TopTabs.
+    """
+    tabSelected = pyqtSignal(str)          # key of the newly-current tab
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("topTabs")
+        self.setDocumentMode(True)
+        bar = self.tabBar()
+        bar.setObjectName("topTabsBar")
+        bar.setDrawBase(False)
+        bar.setExpanding(False)
+        bar.setUsesScrollButtons(True)
+        bar.setElideMode(Qt.TextElideMode.ElideNone)
+        self._keys: list[str] = []
+        self.currentChanged.connect(self._emit_selected)
+
+    def add_tab(self, key, label, widget, *, icon=None):
+        """Add a page keyed by *key*; returns the tab index."""
+        idx = (self.addTab(widget, label) if icon is None
+               else self.addTab(widget, icon, label))
+        self._keys.append(key)
+        return idx
+
+    def _emit_selected(self, idx):
+        if 0 <= idx < len(self._keys):
+            self.tabSelected.emit(self._keys[idx])
+
+    def set_current(self, key):
+        if key in self._keys:
+            self.setCurrentIndex(self._keys.index(key))
+
+    def current(self):
+        i = self.currentIndex()
+        return self._keys[i] if 0 <= i < len(self._keys) else None
 
 
 class DetailsPanel(QFrame):

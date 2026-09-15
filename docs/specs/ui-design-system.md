@@ -184,6 +184,17 @@ class SideTabs(QFrame):                 # #stepRail — vertical exclusive tab r
     def add_tab(self, key, label, *, icon=None, sub=None, step_no=None): ...
     def set_current(self, key); def current(self) -> str
     def set_status(self, key, text, state)     # state ∈ {"", "done", "warn"}
+    def set_label(self, key, text)             # relabel a tab in place (dynamic rails)
+    def set_header(self, widget); def clear()  # header strip / rebuild dynamic rails
+    tabSelected = pyqtSignal(str)
+
+class TopTabs(QTabWidget):              # #topTabs/#topTabsBar — peer pages in a section
+    # Styled QTabWidget: muted default, accent-underline + semibold selected,
+    # accent-soft hover, no base line, scroll-on-overflow. Key API mirrors
+    # SideTabs; native QTabWidget methods (addTab/count/widget/currentChanged)
+    # stay usable. Rail → tabs is the MAX depth — never nest TopTabs.
+    def add_tab(self, key, label, widget, *, icon=None) -> int: ...
+    def set_current(self, key); def current(self) -> str | None
     tabSelected = pyqtSignal(str)
 
 class DetailsPanel(QFrame):             # #detailsPanel — fixed-width bordered side panel
@@ -269,9 +280,10 @@ feedback memory.)
 
 ## Tab-style catalog (documented; scope-flagged)
 
-- **Top `QTabBar`** — `build_app_qss`; documented, **untouched**.
+- **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized**. Table of contents / stepped sequence / 4+ sections.
+- **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
+- **App/plan `QTabBar`** — `build_app_qss` (main-window plan tabs); documented, **untouched**.
 - **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); documented, **untouched**.
-- **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized here**.
 
 ## Multi-section dialog layout (canonical recipe)
 
