@@ -218,6 +218,9 @@ class _PaintedSwitch(QWidget):
             self.update()
             self.toggled.emit(v)
 
+    def toggle(self) -> None:
+        self.setChecked(not self._checked)
+
     def mousePressEvent(self, event):
         self.setChecked(not self._checked)
         event.accept()
@@ -265,6 +268,9 @@ class ToggleSwitch(QWidget):
 
     def setChecked(self, on: bool) -> None:
         self._sw.setChecked(on)
+
+    def toggle(self) -> None:
+        self._sw.toggle()
 
     def text(self) -> str:
         """Return the label text (mirrors QCheckBox.text() for compatibility)."""

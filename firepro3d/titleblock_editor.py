@@ -148,7 +148,7 @@ class _BorderGroup(QGroupBox):
         form = QFormLayout(self)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self._visible = QCheckBox()
+        self._visible = ToggleSwitch("")     # house toggle, per standard
         form.addRow("Visible:", self._visible)
 
         if show_edges:
@@ -359,9 +359,17 @@ class TitleBlockEditorDialog(HouseDialog):
         self._dup_btn.setToolTip("Duplicate template")
         self._dup_btn.clicked.connect(self.duplicate_template)
         for b in (self._new_btn, self._del_btn, self._dup_btn):   # requested order
-            b.setAutoRaise(True)                                   # hover highlight
             act.addWidget(b)
         act.addStretch(1)
+        # Transparent container (a bare QWidget renders black on the rail) + a
+        # clearly-legible neutral hover using theme tokens (hexguard-safe).
+        _c = detect()
+        act_w.setStyleSheet(
+            "QWidget { background: transparent; }"
+            "QToolButton { border: none; border-radius: 4px; padding: 3px 8px;"
+            f" font-size: 15px; color: {_c.ink}; }}"
+            f"QToolButton:hover {{ background: {_c.raised}; }}"
+            f"QToolButton:pressed {{ background: {_c.line_strong}; }}")
         self._rail.set_header(act_w)             # buttons share the rail chrome
         root.addWidget(self._rail)
 

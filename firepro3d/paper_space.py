@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QMenu, QCheckBox, QColorDialog, QLabel, QDateEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
+    QAbstractItemView,
 )
 from PyQt6.QtCore import (
     Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, QDate, pyqtSignal,
@@ -4378,12 +4379,19 @@ class RevisionsDialog(HouseDialog):
         self.table.verticalHeader().setVisible(False)
         self._date_delegate = _RevisionDateDelegate(self)
         self.table.setItemDelegateForColumn(2, self._date_delegate)
+        # Open editors on a single click; re-fit the Date column after each edit
+        # commits (so the column grows to the picked date, not only on reopen).
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        self._date_delegate.commitData.connect(
+            lambda *_: self.table.resizeColumnToContents(2))
         for r, rev in enumerate(revisions):
             self.table.setItem(r, 0, QTableWidgetItem(rev.get("no", "")))
             self.table.setItem(r, 1, QTableWidgetItem(rev.get("description", "")))
             self.table.setItem(r, 2, self._date_item(rev.get("date", "")))
         self.table.resizeColumnToContents(0)
         self.table.resizeColumnToContents(2)
+        # Floor the Date column so the picker never renders cramped.
+        self.table.setColumnWidth(2, max(self.table.columnWidth(2), 116))
         lay.addWidget(self.table)
         btns = QHBoxLayout()
         add = QPushButton("+ Add")
