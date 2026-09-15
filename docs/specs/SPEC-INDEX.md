@@ -37,13 +37,13 @@
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
 | Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
 | **Test harness / fixtures** | `specs/test-harness.md` | `tests/`, `tests/conftest.py` | current (forged 2026-09-09 on first touch — #373/#367/#312/#375 test-infra cluster; QSettings isolation, async-worker sink lifetime, View3D stub, native-crash families) |
+| **Settings dialogs** (Project + System) | `specs/settings-dialog.md` | `settings/panes.py`, `settings/project_settings_dialog.py`, `settings/system_settings_dialog.py`, `settings/template.py`, `preferences_dialog.py` (shim), `main.py` (ribbon + startup/new wiring), `scene_io.py` (template clone), `scale_manager.py` (units source), `app_data.py` | **proposal** (forged 2026-09-14; unbuilt — closes the `preferences_dialog.py` orphan) |
 
 ## Orphans — no governing spec (forge on first touch)
 
 | Subsystem | Modules (`firepro3d/`) | Note |
 |---|---|---|
 | Thermal radiation analysis | `thermal_radiation_solver.py`, `thermal_radiation_report.py`, `fire_curves.py` | Fully implemented, undocumented. Highest-value orphan. |
-| **Preferences dialog** | `preferences_dialog.py` | Built 2026-08-22 (5 panes: Snapping/Units & Precision/Import & Conversion/General/Project Info); governed temporarily by `ribbon-bar.md §3.4` + `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`. **Dedicated governing spec is a filed follow-up.** |
 | 3D view | `view_3d.py`, `view_cube.py` | PyVista/VTK; cross-test teardown hazards (see memory). |
 | Scene I/O / `.fpd` project format | `scene_io.py` | `architecture/io.md` exists but is thin/inaccurate; promote to a real spec on first touch. |
 | **Feature system** (Feature framework: definition/instance, host strategies, Manager, Editor) | `feature.py`, `wall_opening.py` (first Class = *Opening*), future `feature_*.py` | Vision specced in `wall-room-floor-system.md §7.16` (2026-08-23). The Opening element (first Feature) is governed by `wall-room-floor-system.md §7`. **Naming/extension contract locked 2026-09-04** in `block-system.md` (3-tier `Class/SubClass/Type` + `.fpdf`; non-parametric; openings → `Door`/`Window`/`Opening` Classes) — the re-architecture itself is deferred. **Promote to its own governing spec at Phase B (Manager).** |
