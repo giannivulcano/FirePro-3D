@@ -376,11 +376,13 @@ class TitleBlockEditorDialog(HouseDialog):
         root.addWidget(self._rail)
 
         # ── Central content panel (its own distinct area) ─────────────────
-        # Tokenized surface via a bare stylesheet (renders reliably under the
-        # house dialog QSS, unlike palette). The tab divider carries its OWN
-        # stylesheet so this parent bg can't bleed over it.
+        # Tokenized surface via a TARGETED stylesheet (objectName selector) so it
+        # styles only this frame — a bare `background:` would bleed onto children
+        # (e.g. the SwitchBar segments, killing their :checked accent).
         content = QFrame()
-        content.setStyleSheet(f"background: {self._theme.surface};")
+        content.setObjectName("tbEditorContent")
+        content.setStyleSheet(
+            f"QFrame#tbEditorContent {{ background: {self._theme.surface}; }}")
         centre = QVBoxLayout(content)
         # Zero horizontal margins so the TopTabs divider is full-bleed; the tabs
         # + pages keep their inset internally via TopTabs' page_inset.
@@ -402,10 +404,12 @@ class TitleBlockEditorDialog(HouseDialog):
         overview_form = QFormLayout(form_container)
         overview_form.setContentsMargins(0, 0, 0, 0)
         overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        _FIELD_W = 240        # fields are a fixed sensible width, not full-bleed
 
         # Name row
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("Template name")
+        self._name_edit.setMaximumWidth(_FIELD_W)
         self._name_edit.editingFinished.connect(
             lambda: self.set_name(self._name_edit.text()))
         overview_form.addRow("Name", self._name_edit)
@@ -413,29 +417,34 @@ class TitleBlockEditorDialog(HouseDialog):
         # Paper size combo
         self._paper_size_combo = QComboBox()
         self._paper_size_combo.addItems(list(PAPER_SIZES.keys()))
+        self._paper_size_combo.setMaximumWidth(_FIELD_W)
         self._paper_size_combo.currentTextChanged.connect(
             lambda t: self.set_paper_size(t))
         overview_form.addRow("Paper size", self._paper_size_combo)
 
-        # Orientation — house segmented switch (SwitchBar)
+        # Orientation — house segmented switch (content-fit: segments = "Landscape")
         self._orient_bar = SwitchBar(
-            [("landscape", "Landscape"), ("portrait", "Portrait")])
+            [("landscape", "Landscape"), ("portrait", "Portrait")],
+            expanding=False)
         self._orient_bar.changed.connect(self._on_orient_changed)
         overview_form.addRow("Orientation", self._orient_bar)
 
         # Three margin/strip DimensionEdits
         self._edge_edit = DimensionEdit(None, initial_mm=10.0,
                                         parser=_sm.parse_dimension, minimum=0.0)
+        self._edge_edit.setMaximumWidth(_FIELD_W)
         self._edge_edit.valueChanged.connect(self.set_margin_edge)
         overview_form.addRow("Edge margin (mm)", self._edge_edit)
 
         self._strip_margin_edit = DimensionEdit(None, initial_mm=5.0,
                                                 parser=_sm.parse_dimension, minimum=0.0)
+        self._strip_margin_edit.setMaximumWidth(_FIELD_W)
         self._strip_margin_edit.valueChanged.connect(self.set_margin_strip)
         overview_form.addRow("Strip gap (mm)", self._strip_margin_edit)
 
         self._strip_width_edit = DimensionEdit(None, initial_mm=90.0,
                                                parser=_sm.parse_dimension, minimum=0.0)
+        self._strip_width_edit.setMaximumWidth(_FIELD_W)
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
         overview_form.addRow("Strip width (mm)", self._strip_width_edit)
 

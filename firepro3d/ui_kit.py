@@ -258,7 +258,7 @@ class Section(QWidget):
 class SwitchBar(QWidget):
     changed = pyqtSignal(str)
 
-    def __init__(self, options, parent=None):
+    def __init__(self, options, parent=None, *, expanding=True):
         super().__init__(parent)
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
@@ -268,16 +268,24 @@ class SwitchBar(QWidget):
         self._btns = {}
         self._current = None
         n = len(options)
+        pol = (QSizePolicy.Policy.Expanding if expanding
+               else QSizePolicy.Policy.Preferred)
         for i, (key, label) in enumerate(options):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setProperty("switch", "true")
             b.setProperty("segpos", "left" if i == 0 else "right" if i == n - 1 else "mid")
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.setSizePolicy(pol, QSizePolicy.Policy.Fixed)
             b.clicked.connect(lambda _=False, k=key: self._select(k))
             self._grp.addButton(b, i)
             h.addWidget(b)
             self._btns[key] = b
+        if not expanding and self._btns:
+            # Content-fit: every segment equal width = the widest label.
+            w = max(b.sizeHint().width() for b in self._btns.values())
+            for b in self._btns.values():
+                b.setFixedWidth(w)
+            h.addStretch(1)              # keep the compact switch left-aligned
         if options:
             self.set_current(options[0][0])
 
