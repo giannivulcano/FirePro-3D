@@ -5,9 +5,10 @@ gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter
+from PyQt6.QtGui import QColor, QBrush, QPainter, QPen
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-                             QPushButton, QButtonGroup, QSizePolicy, QTabWidget)
+                             QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
+                             QTabBar)
 
 from .theme import M
 
@@ -126,6 +127,21 @@ class SideTabs(QFrame):
         self.layout().insertWidget(0, widget)
 
 
+class _TopTabBar(QTabBar):
+    """QTabBar that paints its own full-width bottom divider (the strip's
+    "rail"). Painted by the bar itself — reliable regardless of the QTabWidget
+    ::pane border quirks and page z-order."""
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        from .theme import detect
+        p = QPainter(self)
+        p.setPen(QPen(QColor(detect().line_strong), 1))
+        y = self.height() - 1
+        p.drawLine(0, y, self.width(), y)
+        p.end()
+
+
 class TopTabs(QTabWidget):
     """House top-tab strip (peer pages inside one section; DIALOG_TABS_SPEC).
 
@@ -142,7 +158,8 @@ class TopTabs(QTabWidget):
         super().__init__(parent)
         self.setObjectName("topTabs")
         self.setDocumentMode(True)
-        bar = self.tabBar()
+        bar = _TopTabBar()
+        self.setTabBar(bar)
         bar.setObjectName("topTabsBar")
         bar.setDrawBase(False)
         bar.setExpanding(False)
