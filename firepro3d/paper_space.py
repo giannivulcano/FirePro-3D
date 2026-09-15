@@ -31,10 +31,12 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
-    QMenu, QCheckBox, QColorDialog,
+    QMenu, QCheckBox, QColorDialog, QLabel, QDateEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, QDate, pyqtSignal,
+)
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
     QPainterPath, QImage, QUndoStack,
@@ -3021,7 +3023,13 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     vals["Sheet No"] = sheet.number                       # auto wins (§19.7)
     vals["Drawing No"] = sheet.number                     # synonym of Sheet No
     vals["Title"] = sheet.name                            # sheet identity owns it
-    vals["__revisions__"] = list(sheet.revisions)
+    # Revision dates are stored ISO; render them in the project display format
+    # (Task C). Storage is untouched — only the copy handed to the solver.
+    _fmt = project_info.get("date_format") or DEFAULT_DATE_FORMAT
+    vals["__revisions__"] = [
+        {**r, "date": format_date_display(r.get("date", ""), _fmt)}
+        for r in sheet.revisions
+    ]
     return vals
 
 
@@ -3087,15 +3095,31 @@ def open_revisions_dialog(scene, sheet, parent_widget=None) -> None:
     if parent_widget is None:
         views = scene.views()
         parent_widget = views[0] if views else None
-    dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
+    project_info = getattr(scene, "_scene_project_info", None)
+    if project_info is None:
+        project_info = {}
+    dlg = RevisionsDialog(list(sheet.revisions), parent_widget,
+                          project_info=project_info)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return
     new_revisions = dlg.result_revisions()
-    # No-change guard: skip the command (and sheetModified) when nothing changed.
-    if new_revisions == [dict(r) for r in sheet.revisions]:
-        return
-    if not getattr(scene, "_applying_command", False):
-        stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+    new_fmt = dlg.selected_date_format()
+    old_fmt = project_info.get("date_format") or DEFAULT_DATE_FORMAT
+    fmt_changed = new_fmt != old_fmt
+    revs_changed = new_revisions != [dict(r) for r in sheet.revisions]
+    if fmt_changed:
+        project_info["date_format"] = new_fmt      # project-scoped display fmt
+    if revs_changed:
+        # Revision edits ride the undo stack (§17.7); the redo re-renders and
+        # picks up any new format written just above.
+        if not getattr(scene, "_applying_command", False):
+            stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+    elif fmt_changed:
+        # Format-only change: re-render + dirty (non-undoable project setting,
+        # like Display Manager settings — see the filed DM-undo follow-up).
+        if hasattr(scene, "_refresh_titleblock"):
+            scene._refresh_titleblock()
+        scene.sheetModified.emit()
 
 
 class TitleBlockTemplateItem(QGraphicsItem):
@@ -4206,32 +4230,109 @@ class PaperScene(QGraphicsScene):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sheet Revisions dialog
+# Sheet Revisions dialog + date formatting (Task C)
 # ─────────────────────────────────────────────────────────────────────────────
 
+DEFAULT_DATE_FORMAT = "MM/DD/YYYY"
+# Display formats (labels) → strftime tokens. Revision dates are STORED as ISO
+# YYYY-MM-DD; these govern only how they render on the sheet + in the picker.
+DATE_FORMATS: dict[str, str] = {
+    "MM/DD/YYYY": "%m/%d/%Y",
+    "DD/MM/YYYY": "%d/%m/%Y",
+    "YYYY-MM-DD": "%Y-%m-%d",
+    "DD MMM YYYY": "%d %b %Y",
+    "MMM DD, YYYY": "%b %d, %Y",
+    "DD-MMM-YY": "%d-%b-%y",
+}
+# Same labels → Qt display-format tokens (for the QDateEdit picker WYSIWYG).
+_QT_DATE_TOKENS: dict[str, str] = {
+    "MM/DD/YYYY": "MM/dd/yyyy",
+    "DD/MM/YYYY": "dd/MM/yyyy",
+    "YYYY-MM-DD": "yyyy-MM-dd",
+    "DD MMM YYYY": "dd MMM yyyy",
+    "MMM DD, YYYY": "MMM dd, yyyy",
+    "DD-MMM-YY": "dd-MMM-yy",
+}
+
+
+def parse_date_to_iso(text: str) -> "str | None":
+    """Best-effort parse of a stored/typed date to ISO ``YYYY-MM-DD``.
+
+    Returns ``""`` for empty input and ``None`` when unparseable (so callers
+    can preserve a legacy free-text value verbatim rather than lose it).
+    """
+    import datetime as _dt
+    text = (text or "").strip()
+    if not text:
+        return ""
+    for f in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%d %b %Y", "%b %d, %Y",
+              "%d-%b-%y", "%m/%d/%y", "%Y/%m/%d"):
+        try:
+            return _dt.datetime.strptime(text, f).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def format_date_display(stored: str, fmt_label: str) -> str:
+    """Format an ISO stored date to the project display format.
+
+    Empty → ``""``. A non-ISO legacy value is returned **verbatim** (preserved,
+    never dropped). Unknown format labels fall back to the default.
+    """
+    import datetime as _dt
+    stored = (stored or "").strip()
+    if not stored:
+        return ""
+    try:
+        d = _dt.date.fromisoformat(stored)
+    except ValueError:
+        return stored   # legacy free-text preserved
+    return d.strftime(DATE_FORMATS.get(fmt_label, DATE_FORMATS[DEFAULT_DATE_FORMAT]))
+
+
 class RevisionsDialog(QDialog):
-    """No/Description/Date table editor for a sheet's revision history.
+    """Rev./Description/Date table editor for a sheet's revision history.
 
     Works on a copy of the input list; the caller reads result_revisions()
-    on accept and pushes an EditRevisionsCommand (T13 wiring).
+    and selected_date_format() on accept. Dates are edited with a QDateEdit
+    (Task C): stored ISO, displayed in the project's chosen format; empty is
+    allowed ("—"); an unparseable legacy value is preserved until the user
+    actively picks a new date.
     """
 
     _HEADERS = ["Rev.", "Description", "Date"]
     _KEYS = ("no", "description", "date")
 
-    def __init__(self, revisions: list[dict], parent=None):
+    def __init__(self, revisions: list[dict], parent=None, *, project_info=None):
         super().__init__(parent)
         self.setWindowTitle("Sheet Revisions")
-        self.setMinimumSize(420, 300)
+        self.setMinimumSize(460, 320)
+        self._project_info = project_info if project_info is not None else {}
         lay = QVBoxLayout(self)
+
+        # Project-scoped display-format chooser.
+        fmt_row = QHBoxLayout()
+        fmt_row.addWidget(QLabel("Date format:"))
+        self.fmt_combo = QComboBox()
+        self.fmt_combo.addItems(list(DATE_FORMATS.keys()))
+        cur = self._project_info.get("date_format") or DEFAULT_DATE_FORMAT
+        idx = self.fmt_combo.findText(cur)
+        self.fmt_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.fmt_combo.currentTextChanged.connect(self._apply_display_format)
+        fmt_row.addWidget(self.fmt_combo)
+        fmt_row.addStretch()
+        lay.addLayout(fmt_row)
+
         self.table = QTableWidget(len(revisions), 3)
         self.table.setHorizontalHeaderLabels(self._HEADERS)
         self.table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         for r, rev in enumerate(revisions):
-            for c, key in enumerate(self._KEYS):
-                self.table.setItem(r, c, QTableWidgetItem(rev.get(key, "")))
+            self.table.setItem(r, 0, QTableWidgetItem(rev.get("no", "")))
+            self.table.setItem(r, 1, QTableWidgetItem(rev.get("description", "")))
+            self.table.setCellWidget(r, 2, self._make_date_editor(rev.get("date", "")))
         lay.addWidget(self.table)
         btns = QHBoxLayout()
         add = QPushButton("+ Add")
@@ -4248,22 +4349,64 @@ class RevisionsDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
+    def _make_date_editor(self, stored: str) -> QDateEdit:
+        """A date picker seeded from *stored* (ISO or legacy). Minimum date is
+        the sentinel "no date" state ("—"); an unparseable legacy value is kept
+        on the widget so result_revisions() can preserve it if left untouched."""
+        ed = QDateEdit()
+        ed.setCalendarPopup(True)
+        ed.setSpecialValueText("—")                       # shown at minimum
+        ed.setMinimumDate(QDate(1900, 1, 1))
+        ed.setDisplayFormat(_QT_DATE_TOKENS.get(
+            self.fmt_combo.currentText(), _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT]))
+        ed.setDate(ed.minimumDate())                      # default: no date
+        ed.setProperty("raw_date", stored or "")
+        iso = parse_date_to_iso(stored)
+        if iso:
+            q = QDate.fromString(iso, "yyyy-MM-dd")
+            if q.isValid():
+                ed.setDate(q)
+        return ed
+
+    def _apply_display_format(self, label: str) -> None:
+        token = _QT_DATE_TOKENS.get(label, _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT])
+        for r in range(self.table.rowCount()):
+            ed = self.table.cellWidget(r, 2)
+            if isinstance(ed, QDateEdit):
+                ed.setDisplayFormat(token)
+
+    def _date_value(self, r: int) -> str:
+        ed = self.table.cellWidget(r, 2)
+        if not isinstance(ed, QDateEdit):
+            return ""
+        if ed.date() == ed.minimumDate():                 # untouched "no date"
+            return str(ed.property("raw_date") or "")     # preserve legacy/empty
+        return ed.date().toString("yyyy-MM-dd")           # ISO storage
+
     def _add_row(self):
         r = self.table.rowCount()
         self.table.insertRow(r)
-        for c in range(len(self._KEYS)):
-            self.table.setItem(r, c, QTableWidgetItem(""))
+        self.table.setItem(r, 0, QTableWidgetItem(""))
+        self.table.setItem(r, 1, QTableWidgetItem(""))
+        self.table.setCellWidget(r, 2, self._make_date_editor(""))
 
     def _remove_row(self):
         if self.table.currentRow() >= 0:
             self.table.removeRow(self.table.currentRow())
 
+    def selected_date_format(self) -> str:
+        return self.fmt_combo.currentText()
+
     def result_revisions(self) -> list[dict]:
         out = []
         for r in range(self.table.rowCount()):
-            row = {k: str(self.table.item(r, c).text().strip()
-                          if self.table.item(r, c) else "")
-                   for c, k in enumerate(self._KEYS)}
+            row = {
+                "no": (self.table.item(r, 0).text().strip()
+                       if self.table.item(r, 0) else ""),
+                "description": (self.table.item(r, 1).text().strip()
+                                if self.table.item(r, 1) else ""),
+                "date": self._date_value(r),
+            }
             if any(row.values()):
                 out.append(row)
         return out
