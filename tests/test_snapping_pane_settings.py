@@ -38,12 +38,14 @@ def isolated_settings(tmp_path, monkeypatch):
     settings_instance = QSettings(ini_path, QSettings.Format.IniFormat)
 
     import firepro3d.preferences_dialog as pd_mod
+    import firepro3d.settings.panes as panes_mod
 
     def _fake_qsettings(org=None, app=None):
         # Called as QSettings(org, app) — always return our INI instance
         return settings_instance
 
     monkeypatch.setattr(pd_mod, "QSettings", _fake_qsettings)
+    monkeypatch.setattr(panes_mod, "QSettings", _fake_qsettings)
     return settings_instance
 
 

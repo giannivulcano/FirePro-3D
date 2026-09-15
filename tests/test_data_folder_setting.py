@@ -6,9 +6,10 @@ from PyQt6.QtCore import QSettings
 def _ini_settings(monkeypatch, ini_path):
     """Point the preferences pane's QSettings at a temp INI (no registry writes)."""
     from firepro3d import preferences_dialog as pd
-    monkeypatch.setattr(
-        pd, "QSettings",
-        lambda *a, **k: QSettings(ini_path, QSettings.Format.IniFormat))
+    import firepro3d.settings.panes as panes_mod
+    _factory = lambda *a, **k: QSettings(ini_path, QSettings.Format.IniFormat)
+    monkeypatch.setattr(pd, "QSettings", _factory)
+    monkeypatch.setattr(panes_mod, "QSettings", _factory)
 
 
 def test_data_folder_persists_across_panes(qapp, tmp_path, monkeypatch):

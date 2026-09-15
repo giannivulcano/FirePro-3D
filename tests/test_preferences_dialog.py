@@ -1,35 +1,8 @@
 from firepro3d import snap_engine
-from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane, SnappingPane, UnitsPane
+from firepro3d.preferences_dialog import SettingsPane, SnappingPane, UnitsPane
 
-
-class _StubPane(SettingsPane):
-    def __init__(self):
-        super().__init__("Stub")
-        self.log = []
-
-    def load(self):    self.log.append("load")
-    def apply(self):   self.log.append("apply")
-    def revert(self):  self.log.append("revert")
-
-
-def test_dialog_loads_all_panes_on_open(qapp):
-    p = _StubPane()
-    dlg = PreferencesDialog(panes=[p])
-    assert p.log == ["load"]
-
-
-def test_apply_commits_all_panes(qapp):
-    p = _StubPane()
-    dlg = PreferencesDialog(panes=[p])
-    dlg._apply_all()
-    assert "apply" in p.log
-
-
-def test_reject_reverts_all_panes(qapp):
-    p = _StubPane()
-    dlg = PreferencesDialog(panes=[p])
-    dlg.reject()
-    assert "revert" in p.log
+# NOTE: PreferencesDialog was removed as part of the settings-dialog redesign.
+# Its tests have been retired here.  New dialog tests live in test_settings_dialogs.py.
 
 
 def test_snapping_pane_apply_writes_engine(qapp, monkeypatch):
