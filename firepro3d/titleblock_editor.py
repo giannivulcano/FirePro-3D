@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QPushButton, QPlainTextEdit, QRadioButton,
     QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -281,7 +281,7 @@ class TitleBlockEditorDialog(HouseDialog):
                  parent: QWidget | None = None,
                  project_info: dict | None = None):
         super().__init__(parent, title="Title Block Template Editor",
-                         resizable=True)
+                         resizable=True, icon="titleblock_icon.svg")
         self.setMinimumSize(640, 760)
 
         # ── Public state ──────────────────────────────────────────────────
@@ -331,10 +331,12 @@ class TitleBlockEditorDialog(HouseDialog):
         body = QWidget()
         root = QHBoxLayout(body)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(0)   # rail border-right sits flush against the content
 
-        # ── Left panel: library list + actions ────────────────────────────
-        left = QVBoxLayout()
+        # ── Left selection rail: library list + actions (house stepRail) ──
+        rail = QFrame(objectName="stepRail")
+        left = QVBoxLayout(rail)
+        left.setContentsMargins(10, 10, 10, 10)
         left.setSpacing(4)
         left.addWidget(QLabel("Templates:"))
         self._template_list = QListWidget()
@@ -361,10 +363,12 @@ class TitleBlockEditorDialog(HouseDialog):
         btn_row2.addWidget(self._use_btn)
         left.addLayout(btn_row2)
 
-        root.addLayout(left)
+        root.addWidget(rail)
 
-        # ── Centre: form (single column — tabs full width) ────────────────
-        centre = QVBoxLayout()
+        # ── Central content panel (its own distinct area) ─────────────────
+        content = QFrame()
+        centre = QVBoxLayout(content)
+        centre.setContentsMargins(12, 10, 10, 8)
         centre.setSpacing(6)
 
         # ── Component tabs (Overview / Drawing Area / Fields) ─────────────
@@ -727,7 +731,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._arrange_tab.sizing.currentTextChanged.connect(
             self._on_placement_sizing)
 
-        root.addLayout(centre, stretch=1)
+        root.addWidget(content, stretch=1)
 
         # ── Bottom: warnings + Save / Save && Close / Close (outside tabs) ──
         self._warning_label = QLabel()
@@ -736,22 +740,22 @@ class TitleBlockEditorDialog(HouseDialog):
         self._warning_label.setVisible(False)
         centre.addWidget(self._warning_label)
 
-        self._btn_box = QDialogButtonBox()
-        self.save_button = self._btn_box.addButton(
-            "Save", QDialogButtonBox.ButtonRole.ApplyRole)
-        self.save_button.setEnabled(False)   # disabled until a valid template is loaded
-        self.save_button.clicked.connect(self._on_save_clicked)
-        self.save_close_button = self._btn_box.addButton(
-            "Save && Close", QDialogButtonBox.ButtonRole.AcceptRole)
-        self.save_close_button.setEnabled(False)
-        self.save_close_button.clicked.connect(self._on_save_close_clicked)
-        self.close_button = self._btn_box.addButton(
-            "Close", QDialogButtonBox.ButtonRole.RejectRole)
-        self.close_button.clicked.connect(self.reject)
-        centre.addWidget(self._btn_box)
-
         # Hand the assembled content to the HouseDialog body seam (Task D).
-        self.set_body(body)
+        self.set_body(body, margin=(0, 0, 0, 0))
+
+        # ── Footer rail: Save (stays open) · Save && Close · Close ──────────
+        self.save_button = QPushButton("Save")
+        self.save_button.setEnabled(False)   # disabled until a valid template loads
+        self.save_button.clicked.connect(self._on_save_clicked)
+        _out = self.set_footer_buttons(
+            primary=("Save && Close", self._on_save_close_clicked),
+            cancel=True, extra_left=self.save_button)
+        self.save_close_button = _out["primary"]
+        self.save_close_button.setEnabled(False)
+        self.close_button = self._footer_box.button(
+            QDialogButtonBox.StandardButton.Cancel)
+        if self.close_button is not None:
+            self.close_button.setText("Close")
 
     # ═════════════════════════════════════════════════════════════════════════
     # Event filter (FocusOut on QPlainTextEdit commits the text)

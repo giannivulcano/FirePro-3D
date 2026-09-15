@@ -1088,12 +1088,14 @@ class TestRevisionsDialog:
 
     def test_blank_rows_dropped(self):
         from firepro3d.paper_space import RevisionsDialog
+        from PyQt6.QtCore import QDate
         dlg = RevisionsDialog([])
-        dlg._add_row()          # left blank
+        dlg._add_row()          # left blank → dropped (no rev#/description)
         dlg._add_row()
         dlg.table.item(1, 0).setText("1")
+        today = QDate.currentDate().toString("yyyy-MM-dd")
         assert dlg.result_revisions() == [{"no": "1", "description": "",
-                                           "date": ""}]
+                                           "date": today}]
 
     def test_remove_row(self):
         from firepro3d.paper_space import RevisionsDialog

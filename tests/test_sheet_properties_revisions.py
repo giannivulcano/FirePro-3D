@@ -220,11 +220,13 @@ def test_revisions_dialog_date_picker_stores_iso(qapp):
     assert out[0]["date"] == "2026-09-15"      # ISO storage regardless of display
 
 
-def test_revisions_dialog_empty_date_allowed(qapp):
+def test_revisions_dialog_empty_date_defaults_today(qapp):
     from firepro3d.paper_space import RevisionsDialog
+    from PyQt6.QtCore import QDate
     dlg = RevisionsDialog([{"no": "1", "description": "IFC", "date": ""}],
                           project_info={})
-    assert dlg.result_revisions()[0]["date"] == ""
+    today = QDate.currentDate().toString("yyyy-MM-dd")
+    assert dlg.result_revisions()[0]["date"] == today   # empty → today (Task D)
 
 
 def test_revisions_dialog_preserves_legacy_unparseable_date(qapp):
