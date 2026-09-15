@@ -273,6 +273,32 @@ feedback memory.)
 - **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); documented, **untouched**.
 - **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized here**.
 
+## Multi-section dialog layout (canonical recipe)
+
+Any dialog with multiple sections (settings, wizards, managers) uses the **side-rail
++ content-panel** composition — the Underlay Import dialog and the Settings dialogs
+(`settings/system_settings_dialog.py`, `settings/project_settings_dialog.py`) are the
+reference implementations. The recipe (get all four right or the rail reads as a black
+bar / merges with the content):
+
+1. **Shell:** subclass `HouseDialog`; pass a header **`icon="<name>_icon.svg"`** (SVG
+   filename — rendered via `themed_icon`) so the title has its glyph, and
+   `controls=("min","max","close")` + `resizable=True` for a maximize affordance.
+2. **Body:** `set_body(container, margin=(0, 0, 0, 0))` so the rail sits **flush** to the
+   dialog edge (no inset).
+3. **Layout:** a `QHBoxLayout` with `setContentsMargins(0,0,0,0)` **and `setSpacing(0)`** —
+   the zero spacing is load-bearing: a non-zero gap exposes the unstyled body behind the
+   rail as a black bar. Left = `SideTabs` (rail, `#stepRail`, `surface` + `border-right`);
+   right = the content `QStackedWidget(objectName="detailsPanel")` (`surface` +
+   `border-left`). The two flush borders form the single grey rail/content separator.
+4. **Content background:** the content stack/panel **must** carry `objectName="detailsPanel"`
+   — a bare `QStackedWidget()` paints the default (black) brush live (transparent only
+   offscreen). This is the #1 recurring defect for this layout.
+5. **Sequential vs not:** use `add_tab(key, label, step_no=N)` for wizards (numbered
+   chips); plain `add_tab(key, label)` for non-sequential sections (settings).
+6. Binary on/off controls inside the panes use **`ToggleSwitch`**, never `QCheckBox`
+   (theming.md binary-toggle mandate).
+
 ## Acceptance Criteria
 
 - [ ] One edit to a metrics token reflows every consuming dialog; no house
