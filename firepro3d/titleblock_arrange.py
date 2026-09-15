@@ -21,7 +21,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QFormLayout, QFrame, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QToolTip, QVBoxLayout, QWidget,
+    QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
 from .constants import TB_INSERT_BAND_PX, TB_POOL_CARD_W
@@ -36,6 +36,19 @@ from .titleblock_template import (
 # Module-level ScaleManager used as the dimension parser (same pattern as
 # titleblock_editor._sm: standalone → bare numbers parse as mm).
 _sm = ScaleManager()
+
+
+def _vrule() -> QFrame:
+    """A 1px full-height vertical divider, tokenized (matches rail borders).
+
+    Bare stylesheet with a runtime token value (hexguard-safe); Expanding
+    vertical policy so it spans the whole column height.
+    """
+    rule = QFrame()
+    rule.setFixedWidth(1)
+    rule.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+    rule.setStyleSheet(f"background: {detect().line_strong};")
+    return rule
 
 
 def _pool_rail_qss() -> str:
@@ -1185,7 +1198,7 @@ class ArrangementsTab(QWidget):
         """
         super().__init__(parent)
         cols = QHBoxLayout(self)
-        cols.setSpacing(6)
+        cols.setSpacing(16)     # gap around the rail borders/dividers
 
         # ── Column 1: unplaced-field pool (house Section + SideTabs-rail look)
         self.pool = PoolList()
@@ -1193,7 +1206,12 @@ class ArrangementsTab(QWidget):
         self.pool.setFixedWidth(TB_POOL_CARD_W)
         self.pool.setFrameShape(QFrame.Shape.NoFrame)
         self.pool.setStyleSheet(_pool_rail_qss())
-        cols.addWidget(Section("Unplaced Fields", self.pool))
+        pool_section = Section("Unplaced Fields", self.pool)
+        # Expanding vertical so the pool's border-right divider spans the full
+        # column height (Preferred would stop at the cards' content height).
+        pool_section.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        cols.addWidget(pool_section)
 
         # ── Column 2: warning banner + strip canvas + Fit ─────────────────
         centre = QVBoxLayout()
@@ -1209,6 +1227,9 @@ class ArrangementsTab(QWidget):
         fit_btn.clicked.connect(self.canvas.fit_strip)
         centre.addWidget(fit_btn)
         cols.addLayout(centre, stretch=1)
+
+        # Divider between the canvas and the placement props rail.
+        cols.addWidget(_vrule())
 
         # ── Column 3: placement props + relocated strip border ────────────
         # House Section (uppercase overline, no box); left-aligned form; the

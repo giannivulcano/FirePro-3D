@@ -346,6 +346,19 @@ class TitleBlockEditorDialog(HouseDialog):
     # UI construction
     # ═════════════════════════════════════════════════════════════════════════
 
+    def _vrule(self) -> QFrame:
+        """A 1px full-height vertical divider, tokenized (matches rail borders).
+
+        Bare stylesheet with a runtime token value (hexguard-safe, same pattern
+        as the TopTabs divider); Expanding vertical policy so it spans the whole
+        column height regardless of neighbour content.
+        """
+        rule = QFrame()
+        rule.setFixedWidth(1)
+        rule.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        rule.setStyleSheet(f"background: {self._theme.line_strong};")
+        return rule
+
     def _build_rail_header(self, new_cb, del_cb, dup_cb, *,
                            new_tip: str, del_tip: str, dup_tip: str):
         """Return a transparent +/−/⧉ action header for a SideTabs rail.
@@ -428,7 +441,7 @@ class TitleBlockEditorDialog(HouseDialog):
         overview_widget = QWidget()
         overview_root = QHBoxLayout(overview_widget)
         overview_root.setContentsMargins(0, 0, 0, 0)
-        overview_root.setSpacing(14)
+        overview_root.setSpacing(16)     # gap around the info|preview divider
         info_col = QVBoxLayout()
         info_col.setSpacing(14)
 
@@ -498,6 +511,9 @@ class TitleBlockEditorDialog(HouseDialog):
         info_col.addStretch()
         overview_root.addLayout(info_col)
 
+        # Divider between the info rail and the preview rail.
+        overview_root.addWidget(self._vrule())
+
         # Preview rail — uppercase header + the live preview view.
         self._preview_view = QGraphicsView(self._preview_scene)
         self._preview_view.setMinimumHeight(280)
@@ -544,11 +560,16 @@ class TitleBlockEditorDialog(HouseDialog):
                 new_tip="New field", del_tip="Delete field",
                 dup_tip="Duplicate field")
         self._field_rail.set_header(field_hdr)
+        # Expanding vertical so the rail's border-right divider spans the full
+        # column height (Preferred would stop at the rows' content height).
+        self._field_rail.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        fields_layout.setSpacing(16)     # gap around the rail borders/dividers
         fields_layout.addWidget(self._field_rail)
 
         # ── MIDDLE: intrinsics form (grouped — grill 2026-08-04) ──────────
         self._field_form_widget = QWidget()
-        self._field_form_widget.setMinimumWidth(260)
+        self._field_form_widget.setMinimumWidth(360)   # identity rail — roomier
         self._field_form_widget.setEnabled(False)
         form_col = QVBoxLayout(self._field_form_widget)
         form_col.setSpacing(6)
@@ -748,7 +769,10 @@ class TitleBlockEditorDialog(HouseDialog):
         form_col.addWidget(Section("Fill & Border", fb_container))
         form_col.addStretch()
 
-        fields_layout.addWidget(self._field_form_widget)
+        fields_layout.addWidget(self._field_form_widget, stretch=1)
+
+        # Divider between the identity (form) rail and the preview rail.
+        fields_layout.addWidget(self._vrule())
 
         # ── RIGHT: single-field preview (house Section, matches Overview) ──
         self._field_preview_view = QGraphicsView(self._field_preview_scene)
@@ -757,7 +781,9 @@ class TitleBlockEditorDialog(HouseDialog):
             self._field_preview_view.renderHints().__class__.Antialiasing)
         self._field_preview_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        fields_layout.addWidget(Section("Preview", self._field_preview_view), stretch=1)
+        preview_section = Section("Preview", self._field_preview_view)
+        preview_section.setMaximumWidth(760)   # less wide (was: eating all space)
+        fields_layout.addWidget(preview_section, stretch=1)
 
         self._component_tabs.add_tab("fields", "Fields", fields_widget)
 

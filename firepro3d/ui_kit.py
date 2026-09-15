@@ -143,7 +143,7 @@ class TopTabs(QWidget):
     tabSelected = pyqtSignal(str)          # key of the newly-current tab
     currentChanged = pyqtSignal(int)       # mirrors QTabWidget (index)
 
-    def __init__(self, parent=None, *, page_inset=12):
+    def __init__(self, parent=None, *, page_inset=12, page_top=14):
         super().__init__(parent)
         self.setObjectName("topTabs")
         v = QVBoxLayout(self)
@@ -165,20 +165,31 @@ class TopTabs(QWidget):
         # Tabs + pages are inset by *page_inset* so they align with padded
         # content; the divider stays FULL-BLEED to the widget's edges (so the
         # adopter zeroes its horizontal margins around TopTabs).
-        _bar_row = QWidget()
+        _bar_row = QWidget(objectName="topTabsBarRow")
         _bl = QHBoxLayout(_bar_row)
         _bl.setContentsMargins(page_inset, 0, page_inset, 0)
         _bl.setSpacing(0)
         _bl.addWidget(self._bar)
         _bl.addStretch(1)
-        _stack_row = QWidget()
+        # page_top gives the page content breathing room below the divider so
+        # Section overline labels don't crowd the tab ribbon.
+        _stack_row = QWidget(objectName="topTabsStackRow")
+        self._stack.setObjectName("topTabsStack")
         _sl = QVBoxLayout(_stack_row)
-        _sl.setContentsMargins(page_inset, 0, page_inset, 0)
+        _sl.setContentsMargins(page_inset, page_top, page_inset, 0)
         _sl.setSpacing(0)
         _sl.addWidget(self._stack)
         v.addWidget(_bar_row)
         v.addWidget(self._divider)      # full-bleed
         v.addWidget(_stack_row, 1)
+        # The container + its rows/stack stay TRANSPARENT (targeted selectors so
+        # nothing bleeds onto child controls) — the adopter's surface shows
+        # through. Explicit `transparent` is required because unstyled
+        # QStackedWidget/QWidget paint BLACK when shown live (project trap);
+        # add_tab() pins each page the same way.
+        self.setStyleSheet(
+            "QWidget#topTabs, QWidget#topTabsBarRow, QWidget#topTabsStackRow,"
+            " QStackedWidget#topTabsStack { background: transparent; }")
         self._keys: list[str] = []
         self._bar.currentChanged.connect(self._on_current)
 
@@ -194,6 +205,14 @@ class TopTabs(QWidget):
             self._bar.addTab(label)
         else:
             self._bar.addTab(icon, label)
+        # Pin the page transparent (unstyled QStackedWidget pages render BLACK
+        # live — project trap). Targeted objectName selector so it never bleeds
+        # onto child controls; the adopter's surface shows through.
+        name = widget.objectName() or f"topTabsPage{len(self._keys)}"
+        widget.setObjectName(name)
+        prior = widget.styleSheet()
+        rule = f"QWidget#{name} {{ background: transparent; }}"
+        widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
         self._stack.addWidget(widget)
         self._keys.append(key)
         return len(self._keys) - 1
