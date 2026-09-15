@@ -534,12 +534,11 @@ class TestPickerDisplayName:
         t = make_default_template()          # "FirePro Default", ANSI D landscape
         tbt.save_to_library(t)
         dlg = TitleBlockEditorDialog(project_template=None)
-        # The list item text must be the display_name, not just the bare name.
-        texts = [dlg._template_list.item(i).text()
-                 for i in range(dlg._template_list.count())]
+        # The rail tab label must be the display_name, not just the bare name.
+        texts = [row._name.text() for row in dlg._rail._rows.values()]
         expected = t.display_name          # "FirePro Default (ANSI D)"
         assert expected in texts, (
-            f"Expected display_name '{expected}' in list but got {texts}"
+            f"Expected display_name '{expected}' in rail but got {texts}"
         )
         # Bare name must NOT appear as a standalone entry
         assert t.name not in texts, (

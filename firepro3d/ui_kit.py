@@ -51,6 +51,9 @@ class _StepRow(QFrame):
                 w.setProperty("current", "true" if on else "false")
                 w.style().unpolish(w); w.style().polish(w)
 
+    def set_label(self, text):
+        self._name.setText(text)
+
     def set_status(self, text, state):
         self._status.setText(text)
         self._status.setProperty("state", state or "")
@@ -88,6 +91,15 @@ class SideTabs(QFrame):
         if self._current is None:
             self.set_current(key)
 
+    def clear(self):
+        """Remove every tab — for dynamic rails rebuilt when their data changes."""
+        for row in list(self._rows.values()):
+            self._v.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+        self._rows.clear()
+        self._current = None
+
     def _on_click(self, key):
         self.set_current(key)
         self.tabSelected.emit(key)
@@ -102,6 +114,11 @@ class SideTabs(QFrame):
 
     def set_status(self, key, text, state):
         self._rows[key].set_status(text, state)
+
+    def set_label(self, key, text):
+        row = self._rows.get(key)
+        if row is not None:
+            row.set_label(text)
 
 
 class DetailsPanel(QFrame):

@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QPushButton, QPlainTextEdit, QRadioButton,
-    QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 from .themed_message import themed_confirm, themed_warn
 from .house_dialog import HouseDialog
@@ -45,7 +45,10 @@ from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
-from .theme import detect
+from .theme import detect, M
+from . import theme as _th
+from .ui_kit import SideTabs
+from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
 # ScaleManager() is standalone (pixels_per_mm=1 → 1 px = 1 mm, display_unit=mm),
@@ -333,37 +336,38 @@ class TitleBlockEditorDialog(HouseDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)   # rail border-right sits flush against the content
 
-        # ── Left selection rail: library list + actions (house stepRail) ──
-        rail = QFrame(objectName="stepRail")
-        left = QVBoxLayout(rail)
-        left.setContentsMargins(10, 10, 10, 10)
-        left.setSpacing(4)
-        left.addWidget(QLabel("Templates:"))
-        self._template_list = QListWidget()
-        self._template_list.setMinimumWidth(180)
-        self._template_list.setMaximumWidth(220)
-        self._template_list.currentItemChanged.connect(self._on_list_selection)
-        left.addWidget(self._template_list, stretch=1)
+        # ── Left selection rail: +/−/duplicate actions above a SideTabs list ──
+        theme_name = "dark" if self._theme is _th.DARK else "light"
+        left = QVBoxLayout()
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(0)
 
-        btn_row = QHBoxLayout()
-        self._new_btn = QPushButton("New")
+        act = QHBoxLayout()
+        act.setContentsMargins(10, 10, 10, 4)
+        act.setSpacing(4)
+        self._new_btn = QToolButton()
+        self._new_btn.setText("+")
+        self._new_btn.setToolTip("New template")
         self._new_btn.clicked.connect(self.new_template)
-        self._dup_btn = QPushButton("Duplicate")
+        self._dup_btn = QToolButton()
+        self._dup_btn.setIcon(themed_icon("duplicate_icon.svg", theme_name))
+        self._dup_btn.setToolTip("Duplicate template")
         self._dup_btn.clicked.connect(self.duplicate_template)
-        btn_row.addWidget(self._new_btn)
-        btn_row.addWidget(self._dup_btn)
-        left.addLayout(btn_row)
-
-        btn_row2 = QHBoxLayout()
-        self._del_btn = QPushButton("Delete")
+        self._del_btn = QToolButton()
+        self._del_btn.setText("−")            # minus glyph
+        self._del_btn.setToolTip("Delete template")
         self._del_btn.clicked.connect(self.delete_template)
-        self._use_btn = QPushButton("Use for project")
-        self._use_btn.clicked.connect(self.use_for_project)
-        btn_row2.addWidget(self._del_btn)
-        btn_row2.addWidget(self._use_btn)
-        left.addLayout(btn_row2)
+        for b in (self._new_btn, self._dup_btn, self._del_btn):
+            b.setAutoRaise(True)
+            act.addWidget(b)
+        act.addStretch(1)
+        left.addLayout(act)
 
-        root.addWidget(rail)
+        # Template selector — the house SideTabs rail (rebuilt in _reload_library).
+        self._rail = SideTabs()
+        self._rail.tabSelected.connect(self._on_template_selected)
+        left.addWidget(self._rail, 1)
+        root.addLayout(left)
 
         # ── Central content panel (its own distinct area) ─────────────────
         content = QFrame()
@@ -743,19 +747,29 @@ class TitleBlockEditorDialog(HouseDialog):
         # Hand the assembled content to the HouseDialog body seam (Task D).
         self.set_body(body, margin=(0, 0, 0, 0))
 
-        # ── Footer rail: Save (stays open) · Save && Close · Close ──────────
+        # ── Footer rail: Load to Project · Save · Save && Close · Close ──────
+        # Custom footer (the primary+cancel helper can't hold four right-grouped
+        # actions). All grouped at the right.
+        footer = QFrame(objectName="footerBar")
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(*M.FOOTER_MARGIN)
+        fl.setSpacing(M.FOOTER_BTN_GAP)
+        fl.addStretch(1)
+        self._use_btn = QPushButton("Load to Project")
+        self._use_btn.clicked.connect(self.use_for_project)
         self.save_button = QPushButton("Save")
         self.save_button.setEnabled(False)   # disabled until a valid template loads
         self.save_button.clicked.connect(self._on_save_clicked)
-        _out = self.set_footer_buttons(
-            primary=("Save && Close", self._on_save_close_clicked),
-            cancel=True, extra_left=self.save_button)
-        self.save_close_button = _out["primary"]
+        self.save_close_button = QPushButton("Save && Close")
+        self.save_close_button.setProperty("variant", "primary")
         self.save_close_button.setEnabled(False)
-        self.close_button = self._footer_box.button(
-            QDialogButtonBox.StandardButton.Cancel)
-        if self.close_button is not None:
-            self.close_button.setText("Close")
+        self.save_close_button.clicked.connect(self._on_save_close_clicked)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.reject)
+        for b in (self._use_btn, self.save_button,
+                  self.save_close_button, self.close_button):
+            fl.addWidget(b)
+        self._root.addWidget(footer)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Event filter (FocusOut on QPlainTextEdit commits the text)
@@ -777,18 +791,15 @@ class TitleBlockEditorDialog(HouseDialog):
         "Name (SIZE, Portrait)") with the uuid stored in UserRole.
         """
         self._loading = True
-        self._template_list.clear()
+        self._rail.clear()
         for tmpl in load_library():
-            item = QListWidgetItem(tmpl.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, tmpl.uuid)
-            self._template_list.addItem(item)
+            self._rail.add_tab(tmpl.uuid, tmpl.display_name)
         self._loading = False
 
-    def _on_list_selection(self, current, _previous) -> None:
-        if self._loading or current is None:
+    def _on_template_selected(self, uuid: str) -> None:
+        if self._loading or not uuid:
             return
-        uid = current.data(Qt.ItemDataRole.UserRole)
-        self.select_template(uid)
+        self.select_template(uuid)
 
     # ── Public session API ────────────────────────────────────────────────
 
@@ -797,13 +808,9 @@ class TitleBlockEditorDialog(HouseDialog):
         for tmpl in load_library():
             if tmpl.uuid == uuid:
                 self._edit_copy_of(tmpl)
-                # Sync list selection without retriggering
+                # Sync rail selection without retriggering.
                 self._loading = True
-                for i in range(self._template_list.count()):
-                    if self._template_list.item(i).data(
-                            Qt.ItemDataRole.UserRole) == uuid:
-                        self._template_list.setCurrentRow(i)
-                        break
+                self._rail.set_current(uuid)
                 self._loading = False
                 return
 
@@ -876,13 +883,9 @@ class TitleBlockEditorDialog(HouseDialog):
                         f"Could not save template:\n{exc}")
             return False
         self._reload_library()
-        # Re-sync list selection
-        uid = self.working.uuid
+        # Re-sync rail selection to the just-saved template.
         self._loading = True
-        for i in range(self._template_list.count()):
-            if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
-                self._template_list.setCurrentRow(i)
-                break
+        self._rail.set_current(self.working.uuid)
         self._loading = False
         return True
 
@@ -1713,13 +1716,8 @@ class TitleBlockEditorDialog(HouseDialog):
             return
         self.push_snapshot()
         self.working.name = text
-        # Update list widget label with the full display_name ("Name (SIZE)" or
-        # "Name (SIZE, Portrait)") so the suffix is always current.
-        uid = self.working.uuid
-        for i in range(self._template_list.count()):
-            if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
-                self._template_list.item(i).setText(self.working.display_name)
-                break
+        # Keep the rail label's display_name ("Name (SIZE)") current as you type.
+        self._rail.set_label(self.working.uuid, self.working.display_name)
 
     def set_paper_size(self, size: str) -> None:
         """Snapshot + set template paper_size; re-solves preview at new dims.

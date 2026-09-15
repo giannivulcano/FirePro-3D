@@ -4300,8 +4300,9 @@ class RevisionsDialog(HouseDialog):
     edited with a QDateEdit (Task C): stored ISO, displayed in the project's
     chosen format; a row with no valid stored date defaults to **today**; an
     unparseable legacy value is preserved until the user actively picks a new
-    date. Table + date widgets are transparent; the calendar has no red
-    weekends; columns are resizable with Rev./Date auto-fit to content.
+    date. The calendar shows no red weekends; columns are resizable with
+    Rev./Date auto-fit to content. Content is added via body_layout() so the
+    container matches the dialog surface (no black bare-QWidget fill).
     """
 
     _HEADERS = ["Rev.", "Description", "Date"]
@@ -4311,9 +4312,10 @@ class RevisionsDialog(HouseDialog):
         super().__init__(parent, title="Sheet Revisions", resizable=True,
                          min_width=460, icon="titleblock_icon.svg")
         self._project_info = project_info if project_info is not None else {}
-        body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
+        # Add straight to the house body layout — wrapping in a bare QWidget
+        # renders a black container over the lighter dialog surface (the
+        # documented HouseDialog "use body_layout()" gotcha).
+        lay = self.body_layout()
 
         # Project-scoped display-format chooser.
         fmt_row = QHBoxLayout()
@@ -4337,10 +4339,6 @@ class RevisionsDialog(HouseDialog):
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.table.verticalHeader().setVisible(False)
-        # Transparent body so the dark house dialog shows through (no black fill).
-        self.table.setStyleSheet(
-            "QTableWidget, QTableWidget::viewport { background: transparent; }")
-        self.table.viewport().setAutoFillBackground(False)
         for r, rev in enumerate(revisions):
             self.table.setItem(r, 0, QTableWidgetItem(rev.get("no", "")))
             self.table.setItem(r, 1, QTableWidgetItem(rev.get("description", "")))
@@ -4358,8 +4356,13 @@ class RevisionsDialog(HouseDialog):
         btns.addStretch()
         lay.addLayout(btns)
 
-        self.set_body(body)
-        self.set_footer_buttons(primary=("OK", self.accept), cancel=True)
+        _out = self.set_footer_buttons(primary=("OK", self.accept), cancel=True)
+        _ok = _out.get("primary")
+        _cancel = self._footer_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if _ok is not None and _cancel is not None:      # OK matches Cancel width
+            _w = max(_ok.sizeHint().width(), _cancel.sizeHint().width())
+            _ok.setMinimumWidth(_w)
+            _cancel.setMinimumWidth(_w)
         self.setMinimumSize(460, 360)
 
     def _make_date_editor(self, stored: str) -> QDateEdit:
@@ -4371,7 +4374,6 @@ class RevisionsDialog(HouseDialog):
         ed.setCalendarPopup(True)
         ed.setDisplayFormat(_QT_DATE_TOKENS.get(
             self.fmt_combo.currentText(), _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT]))
-        ed.setStyleSheet("QDateEdit { background: transparent; }")
         ed.setProperty("raw_date", stored or "")
         ed.setProperty("legacy", False)
         iso = parse_date_to_iso(stored)
