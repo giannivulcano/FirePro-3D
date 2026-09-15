@@ -694,6 +694,80 @@ class TestResolutionChain:
         assert not emitted
 
 
+class TestRevisionColumns:
+    """Task B: revision table renders as true columns (Rev./Description/Date)."""
+
+    def _rev_scene(self, revisions):
+        sheet = Sheet.create_default()
+        sheet.revisions = list(revisions)
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        sc = PaperScene(sheet, resolver)
+        sc.set_template(make_default_template(), project_info={})
+        return sc
+
+    def _rev_draw_calls(self, sc):
+        """Render the scene and capture the revision-table _draw_text_mm calls.
+
+        Returns a list of (text, align, left, right, width) for every call the
+        title-block item makes at the revision cap height — the observable
+        ground truth of the per-column layout.
+        """
+        from PyQt6.QtGui import QImage, QPainter
+        from PyQt6.QtCore import Qt
+        from firepro3d.constants import TB_REV_CAP_MM
+        item = sc._title_tb
+        assert type(item).__name__ == "TitleBlockTemplateItem"
+        calls = []
+        orig = item._draw_text_mm
+
+        def spy(painter, rect, lines, fdef, **kw):
+            if kw.get("cap_mm") == TB_REV_CAP_MM:
+                calls.append((lines[0], kw.get("align"),
+                              rect.left(), rect.right(), rect.width()))
+            return orig(painter, rect, lines, fdef, **kw)
+
+        item._draw_text_mm = spy
+        img = QImage(2400, 1600, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.white)
+        p = QPainter(img)
+        sc.render(p)
+        p.end()
+        return calls
+
+    def test_header_is_three_columns_rev_not_no(self, qapp):
+        sc = self._rev_scene([
+            {"no": "1", "description": "Issued for review", "date": "09/15/2026"},
+        ])
+        calls = self._rev_draw_calls(sc)
+        texts = [c[0] for c in calls]
+        # "No" (and the old faked single-string header) are gone.
+        assert "Rev." in texts and "Description" in texts and "Date" in texts
+        assert "No  Description  Date" not in texts
+        header = {c[0]: c for c in calls[:3]}    # first 3 calls = header row
+        assert header["Rev."][1] == "center"
+        assert header["Description"][1] == "left"
+        assert header["Date"][1] == "right"
+
+    def test_columns_are_ordered_and_description_widest(self, qapp):
+        sc = self._rev_scene([
+            {"no": "1", "description": "Issued for review", "date": "09/15/2026"},
+            {"no": "2", "description": "Revised per AHJ comments", "date": "09/20/2026"},
+        ])
+        calls = self._rev_draw_calls(sc)
+        header = {c[0]: c for c in calls[:3]}
+        rev, desc, date = header["Rev."], header["Description"], header["Date"]
+        # Left-x order: Rev < Description < Date.
+        assert rev[2] < desc[2] < date[2]
+        # Date is right-justified against the cell's right edge; Rev starts left.
+        assert date[3] >= desc[3] and rev[2] <= desc[2]
+        # Description takes the most width (Rev/Date are minimized to content).
+        assert desc[4] > rev[4] and desc[4] > date[4]
+        # Every data cell carries its column's justification.
+        data = calls[3:]
+        assert all(c[1] in ("center", "left", "right") for c in data)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # T9: View-title mm sizing (spec §9.4)
 # ─────────────────────────────────────────────────────────────────────────────

@@ -3184,7 +3184,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
 
     def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
                       fdef, *, cap_mm: float | None = None,
-                      bold: bool | None = None) -> None:
+                      bold: bool | None = None, align: str | None = None) -> None:
         """Draw wrapped lines at a paper-mm cap height (mm primitive).
 
         Args:
@@ -3195,6 +3195,9 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 alignment.
             cap_mm: Override cap height (mm); defaults to fdef.cap_height_mm.
             bold: Override bold flag; defaults to fdef.bold.
+            align: Override horizontal alignment ("left"/"center"/"right");
+                defaults to fdef.alignment. Used by the revision table's
+                per-column justification (Task B).
         """
         f = QFont(fdef.font_family or "Arial")
         f.setBold(fdef.bold if bold is None else bold)
@@ -3213,7 +3216,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
         align = {"left": Qt.AlignmentFlag.AlignLeft,
                  "center": Qt.AlignmentFlag.AlignHCenter,
                  "right": Qt.AlignmentFlag.AlignRight}.get(
-                     fdef.alignment, Qt.AlignmentFlag.AlignLeft)
+                     align if align is not None else fdef.alignment,
+                     Qt.AlignmentFlag.AlignLeft)
         y = 0.0
         for line in lines:
             painter.drawText(
@@ -3221,6 +3225,21 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 align | Qt.AlignmentFlag.AlignVCenter, line)
             y += fm.lineSpacing()
         painter.restore()
+
+    @staticmethod
+    def _rev_text_width_mm(fdef, text: str, *, bold: bool) -> float:
+        """On-paper width (mm) of *text* at the revision-row cap height.
+
+        Auto-sizes the Rev. and Date columns to their widest content (header +
+        data) so the Description column fills the remainder (Task B).
+        """
+        f = QFont(fdef.font_family or "Arial")
+        f.setBold(bold)
+        f.setItalic(fdef.italic)
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        fm = QFontMetricsF(f)
+        cap_px = fm.capHeight() or 1.0
+        return fm.horizontalAdvance(text or "") * (TB_REV_CAP_MM / cap_px)
 
     def _draw_label(self, painter: QPainter, rect: QRectF, fdef) -> None:
         """Draw the small-caps label row for a FieldDef.
@@ -3267,33 +3286,61 @@ class TitleBlockTemplateItem(QGraphicsItem):
                     QRectF(img_rect.left() + dx, img_rect.top() + dy,
                            scaled.width(), scaled.height()),
                     pm, QRectF(pm.rect()))
-            # Revision table (kind-specific; ignores text/image sub-rects)
+            # Revision table (kind-specific; ignores text/image sub-rects).
+            # True columns (Task B): Rev. (centre) + Date (right) auto-size to
+            # their widest content incl. header; Description (left) fills the
+            # remainder. Headers are integral + per-column aligned. No vertical
+            # dividers (B5a) — whitespace between columns, horizontal row rules.
             if f.kind == "revision_table":
                 inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
                                       -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
                 content = inner.adjusted(
                     0, TB_LABEL_ROW_MM if f.label else 0.0, 0, 0)
                 rows = lay.cell_revision_rows.get(i, [])
+                pad = TB_CELL_PAD_MM
+                # Content-driven minimum widths (header sets the floor).
+                rev_w = self._rev_text_width_mm(f, "Rev.", bold=True)
+                date_w = self._rev_text_width_mm(f, "Date", bold=True)
+                for rev in rows:
+                    rev_w = max(rev_w, self._rev_text_width_mm(
+                        f, str(rev.get("no", "")), bold=False))
+                    date_w = max(date_w, self._rev_text_width_mm(
+                        f, str(rev.get("date", "")), bold=False))
+                rev_w += 2 * pad
+                date_w += 2 * pad
+                # Never let Description collapse in a narrow strip: cap the
+                # Rev+Date pair at 3/4 of the width, scaling both if needed.
+                if rev_w + date_w > content.width() * 0.75:
+                    scale = (content.width() * 0.75) / (rev_w + date_w)
+                    rev_w *= scale
+                    date_w *= scale
+                rev_x = content.left()
+                date_x = content.right() - date_w
+                desc_x = rev_x + rev_w
+                desc_w = max(date_x - desc_x, 0.0)
+                cols = ((rev_x, rev_w, "center"),
+                        (desc_x, desc_w, "left"),
+                        (date_x, date_w, "right"))
+                keys = ("no", "description", "date")
+                headers = ("Rev.", "Description", "Date")
+
                 y = content.top()
                 painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
                 # Header row — the solver's +1 reservation is this header band.
-                self._draw_text_mm(
-                    painter,
-                    QRectF(content.left(), y, content.width(), TB_REV_ROW_MM),
-                    ["No  Description  Date"], f,
-                    cap_mm=TB_REV_CAP_MM, bold=True)
+                for (cx, cw, calign), htext in zip(cols, headers):
+                    self._draw_text_mm(
+                        painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
+                        [htext], f, cap_mm=TB_REV_CAP_MM, bold=True,
+                        align=calign)
                 y += TB_REV_ROW_MM
                 painter.drawLine(QPointF(content.left(), y),
                                  QPointF(content.right(), y))
                 for rev in rows:
-                    line = (f'{rev.get("no", "")}  '
-                            f'{rev.get("description", "")}  '
-                            f'{rev.get("date", "")}')
-                    self._draw_text_mm(
-                        painter,
-                        QRectF(content.left(), y, content.width(),
-                               TB_REV_ROW_MM),
-                        [line], f, cap_mm=TB_REV_CAP_MM, bold=False)
+                    for (cx, cw, calign), key in zip(cols, keys):
+                        self._draw_text_mm(
+                            painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
+                            [str(rev.get(key, ""))], f, cap_mm=TB_REV_CAP_MM,
+                            bold=False, align=calign)
                     y += TB_REV_ROW_MM
                     painter.drawLine(QPointF(content.left(), y),
                                      QPointF(content.right(), y))
@@ -4169,7 +4216,7 @@ class RevisionsDialog(QDialog):
     on accept and pushes an EditRevisionsCommand (T13 wiring).
     """
 
-    _HEADERS = ["No", "Description", "Date"]
+    _HEADERS = ["Rev.", "Description", "Date"]
     _KEYS = ("no", "description", "date")
 
     def __init__(self, revisions: list[dict], parent=None):
