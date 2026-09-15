@@ -16,6 +16,9 @@ GUARDED = [
     # UI design-system: base + kit + migrated dialogs (ui-design-system.md)
     "house_dialog.py", "ui_kit.py", "themed_message.py", "frameless_shell.py",
     "make_block_dialog.py", "underlay_manager.py", "block_manager.py",
+    # Settings dialogs (settings-dialog.md §4.6 — token-clean on HouseDialog)
+    "settings/panes.py", "settings/system_settings_dialog.py",
+    "settings/project_settings_dialog.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")
