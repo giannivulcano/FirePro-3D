@@ -5,10 +5,10 @@ gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter, QPen
+from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
-                             QTabBar)
+                             QTabBar, QStackedWidget)
 
 from .theme import M
 
@@ -127,58 +127,67 @@ class SideTabs(QFrame):
         self.layout().insertWidget(0, widget)
 
 
-class _TopTabBar(QTabBar):
-    """QTabBar that paints its own full-width bottom divider (the strip's
-    "rail"). Painted by the bar itself — reliable regardless of the QTabWidget
-    ::pane border quirks and page z-order."""
-
-    def paintEvent(self, e):
-        super().paintEvent(e)
-        from .theme import detect
-        p = QPainter(self)
-        p.setPen(QPen(QColor(detect().line_strong), 1))
-        y = self.height() - 1
-        p.drawLine(0, y, self.width(), y)
-        p.end()
-
-
-class TopTabs(QTabWidget):
+class TopTabs(QWidget):
     """House top-tab strip (peer pages inside one section; DIALOG_TABS_SPEC).
 
-    A styled QTabWidget — muted default, accent-underline + semibold on the
-    selected tab, accent-soft hover, no base line, scroll-on-overflow. The
-    key-based API mirrors SideTabs (``add_tab`` / ``tabSelected`` /
-    ``set_current`` / ``current``) while native QTabWidget methods (``addTab``,
-    ``count``, ``widget``, ``currentChanged``) keep working. Rail → tabs is the
-    max depth: never nest TopTabs inside TopTabs.
+    Composed of a ``QTabBar`` + a **full-width divider** + a ``QStackedWidget``
+    (the reference's design — a QTabWidget's ``::pane`` border is unreliable and
+    the bar sizes to its tabs, so its own line stops short of the content width).
+    Styled ``#topTabsBar`` (muted default, accent-underline + semibold selected,
+    accent-soft hover) with a ``#topTabsDivider`` line under the strip. The
+    key-based API mirrors SideTabs; a QTabWidget-compatible subset
+    (``count``/``tabText``/``widget``/``currentWidget``/``setCurrentWidget``/
+    ``currentChanged``) keeps callers + tests working. Rail → tabs is the max
+    depth: never nest TopTabs.
     """
     tabSelected = pyqtSignal(str)          # key of the newly-current tab
+    currentChanged = pyqtSignal(int)       # mirrors QTabWidget (index)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("topTabs")
-        self.setDocumentMode(True)
-        bar = _TopTabBar()
-        self.setTabBar(bar)
-        bar.setObjectName("topTabsBar")
-        bar.setDrawBase(False)
-        bar.setExpanding(False)
-        bar.setUsesScrollButtons(True)
-        bar.setElideMode(Qt.TextElideMode.ElideNone)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        self._bar = QTabBar(objectName="topTabsBar")
+        self._bar.setDrawBase(False)
+        self._bar.setExpanding(False)
+        self._bar.setUsesScrollButtons(True)
+        self._bar.setElideMode(Qt.TextElideMode.ElideNone)
+        # Full-width divider under the strip. Painted via palette (autoFill) so a
+        # parent's bare-background stylesheet can't bleed over it.
+        from .theme import detect
+        from PyQt6.QtGui import QPalette
+        self._divider = QFrame()
+        self._divider.setFixedHeight(1)
+        self._divider.setAutoFillBackground(True)
+        _dp = self._divider.palette()
+        _dp.setColor(QPalette.ColorRole.Window, QColor(detect().line_strong))
+        self._divider.setPalette(_dp)
+        self._stack = QStackedWidget()
+        v.addWidget(self._bar)
+        v.addWidget(self._divider)
+        v.addWidget(self._stack, 1)
         self._keys: list[str] = []
-        self.currentChanged.connect(self._emit_selected)
+        self._bar.currentChanged.connect(self._on_current)
 
-    def add_tab(self, key, label, widget, *, icon=None):
-        """Add a page keyed by *key*; returns the tab index."""
-        idx = (self.addTab(widget, label) if icon is None
-               else self.addTab(widget, icon, label))
-        self._keys.append(key)
-        return idx
-
-    def _emit_selected(self, idx):
+    def _on_current(self, idx):
+        self._stack.setCurrentIndex(idx)
+        self.currentChanged.emit(idx)
         if 0 <= idx < len(self._keys):
             self.tabSelected.emit(self._keys[idx])
 
+    def add_tab(self, key, label, widget, *, icon=None):
+        """Add a page keyed by *key*; returns the tab index."""
+        if icon is None:
+            self._bar.addTab(label)
+        else:
+            self._bar.addTab(icon, label)
+        self._stack.addWidget(widget)
+        self._keys.append(key)
+        return len(self._keys) - 1
+
+    # ── SideTabs-style key API ─────────────────────────────────────────────
     def set_current(self, key):
         if key in self._keys:
             self.setCurrentIndex(self._keys.index(key))
@@ -186,6 +195,20 @@ class TopTabs(QTabWidget):
     def current(self):
         i = self.currentIndex()
         return self._keys[i] if 0 <= i < len(self._keys) else None
+
+    # ── QTabWidget-compatible subset (callers + tests) ─────────────────────
+    def tabBar(self): return self._bar
+    def count(self): return self._bar.count()
+    def tabText(self, i): return self._bar.tabText(i)
+    def widget(self, i): return self._stack.widget(i)
+    def currentIndex(self): return self._bar.currentIndex()
+    def setCurrentIndex(self, i): self._bar.setCurrentIndex(i)
+    def currentWidget(self): return self._stack.currentWidget()
+
+    def setCurrentWidget(self, w):
+        i = self._stack.indexOf(w)
+        if i >= 0:
+            self._bar.setCurrentIndex(i)
 
 
 class DetailsPanel(QFrame):

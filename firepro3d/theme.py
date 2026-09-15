@@ -853,7 +853,6 @@ QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="warn"], QDialog[hou
 QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[houseDialog="true"] QLabel[stepStatus="true"][done="true"] {{ color: {t.muted}; }}
 
 /* ── Kit: TopTabs (peer pages within a section; DIALOG_TABS_SPEC) ────────── */
-QDialog[houseDialog="true"] QTabWidget#topTabs::pane {{ background: {t.surface}; border: none; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
     padding: 7px 11px 8px; margin-right: 2px; color: {t.muted}; background: transparent;
