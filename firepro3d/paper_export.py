@@ -163,8 +163,8 @@ def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer,
         resolver: Shared ViewResolver bridging viewports to source scenes.
         printer: A QPrinter the caller has already configured.
         template: Optional TitleBlockTemplate to install on each transient
-            PaperScene before rendering.  When None (default) the legacy chain
-            is used — existing call sites are byte-identical.
+            PaperScene before rendering.  When None (default) the sheet renders
+            with no title block (Task A: no CEL fallback).
         project_info: Project-info dict forwarded to ``set_template``.
             Ignored when *template* is None.
 

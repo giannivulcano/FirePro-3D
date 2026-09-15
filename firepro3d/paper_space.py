@@ -3467,7 +3467,7 @@ class PaperScene(QGraphicsScene):
 
         Never rebuilds the whole sheet (spec §4.12) — safe to call from
         undo commands and viewport-event frames.  No-op when no template
-        item is active (legacy chain items don't consume live values).
+        item is active (a blank sheet has no live values to refresh).
         """
         if not isinstance(self._title_tb, TitleBlockTemplateItem):
             return
@@ -3518,7 +3518,11 @@ class PaperScene(QGraphicsScene):
         )
         self._bg_item.setZValue(0)
 
-        # Title block resolution: template → DXF → PDF → programmatic (§8.1)
+        # Title block resolution (Task A): a project template that MATCHES the
+        # sheet renders; otherwise the sheet is BLANK and a status-bar nudge
+        # prompts the user to build/apply one. The legacy CEL DXF/PDF and the
+        # programmatic fallback were removed — a title block is now always an
+        # authored parametric template.
         use_external_title = False
         self.titleblock_warning = ""
 
@@ -3530,28 +3534,16 @@ class PaperScene(QGraphicsScene):
                 self.titleblock_warning = (
                     f"Template '{self._template.name}' "
                     f"({self._template.paper_size}) does not match "
-                    f"sheet size {self._sheet.paper_size} — using built-in "
-                    "title block."
+                    f"sheet size {self._sheet.paper_size} — no title block "
+                    "shown. Open Draft → Title Block to apply a matching one."
                 )
+        if not use_external_title and not self.titleblock_warning:
+            self.titleblock_warning = (
+                "No title block on this sheet — open Draft → Title Block to "
+                "create or apply one."
+            )
 
-        dxf_path = TITLE_BLOCK_DXFS.get(self._sheet.paper_size)
-        if not use_external_title and dxf_path and os.path.isfile(dxf_path):
-            tb_dxf = TitleBlockDxfItem(dxf_path, w, h)
-            if tb_dxf.is_valid():
-                self.addItem(tb_dxf)
-                self._title_tb = tb_dxf
-                use_external_title = True
-
-        if not use_external_title:
-            pdf_path = TITLE_BLOCK_PDFS.get(self._sheet.paper_size)
-            if pdf_path:
-                tb_pdf = TitleBlockPdfItem(pdf_path, w, h)
-                if tb_pdf.pixmap() is not None and not tb_pdf.pixmap().isNull():
-                    self.addItem(tb_pdf)
-                    self._title_tb = tb_pdf
-                    use_external_title = True
-
-        # Drawing border (skip when external DXF/PDF artwork provides its own)
+        # Drawing border (always drawn now that no external artwork frames it).
         bx, by = MARGIN, MARGIN
         bw, bh = w - 2 * MARGIN, h - 2 * MARGIN
         if not use_external_title:
@@ -3562,12 +3554,13 @@ class PaperScene(QGraphicsScene):
             )
             border.setZValue(2)
 
-        # Programmatic title block (fallback)
+        # Vestigial programmatic block: kept for the title_block property + the
+        # Scale-value refresh refs, but ALWAYS hidden — a no-template sheet
+        # renders blank (Task A). Full retirement of TitleBlockItem is filed.
         self._title = TitleBlockItem(w, h)
         self._title.fields = self._sheet.title_block_fields
         self.addItem(self._title)
-        if use_external_title:
-            self._title.hide()
+        self._title.hide()
 
         # Field overlay removed — DXF artwork already contains placeholder text
         # as geometry; the programmatic overlay produced misaligned duplicates.

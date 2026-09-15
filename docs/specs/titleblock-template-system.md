@@ -84,6 +84,11 @@ Constraints:
 21. **Text colour.** One `text_color` per field (default `#000000`) painted by the single `_draw_text_mm` choke point — label, body text, and revision-table text all take it; revision-table **divider lines stay black** (table chrome). Migration/legacy default renders identically.
 22. **Arrangements tooltips.** Hovering a strip cell shows the field's **name only** (fallback: id) via a `viewportEvent` ToolTip intercept over the solved cell rects; pool cards carry `setToolTip(name)`. Stamps and the revision table — the cells whose render doesn't identify them — are exactly the point. Placement facts stay in the props panel.
 
+**Task A decisions (2026-09-15 grill; as-built):**
+
+23. **Linked default title block via `.fpdt` (reference, not embed).** The blank-project template (`default.fpdt`, owned by `settings/template.py` — schema in `settings-dialog.md`) gains a `titleblock_template_uuid` field: a **library uuid**, not an embedded copy. On startup and New-Project, `apply_template_titleblock(scene, data)` resolves the uuid against the library (`load_library`) and **embeds the CURRENT version** into the fresh project — so edits to the linked template flow into all *future* new projects automatically. **Existing saved projects are untouched** (their embedded copy stays authoritative — DD-5); library divergence on open still uses the explicit push/pull notice (`_maybe_offer_template_push`). A blank/missing/unresolvable uuid → no embed → blank sheet + prompt (never raises). `save_current_as_default` captures the current project's embedded template uuid — **this is how the link is set** (a follow-up may add a dedicated "set default title block" control).
+24. **No built-in title block (retires DD-1's fallback clause).** The CEL DXF/PDF and programmatic fallbacks are removed. A title block is always an authored parametric template; absent a matching one, the sheet renders **blank + prompt**. This makes the out-of-box default an editable first-class template rather than a non-editable imported artifact. The DXF/PDF item classes + `TITLE_BLOCK_DXFS/PDFS` dicts + the CEL asset files are now dead (filed for deletion).
+
 ## Data Model
 
 All dataclasses have `to_dict`/`from_dict`; unknown keys ignored on load (forward compat).
@@ -152,11 +157,11 @@ Pure functions; QRectF/QFontMetricsF allowed, QGraphics types are not; never dec
 
 `TitleBlockTemplateItem(QGraphicsItem)` paints a `SolvedLayout`: fills → one hoisted strip clip around content (labels, contain-fit image bands from the per-field pixmap cache, revision rows, text — all via solver sub-rects, mm primitive §9.4; the text pen is the field's `text_color`, DD-21) → borders (cells, then area, then strip; `addRoundedRect` when fillet and all four edges on, straight per-edge segments otherwise, DD-19). A stamp is an empty field cell — no special paint path. Undecodable images → warning + no paint, never a broken image on a plot.
 
-Resolution order in `PaperScene._setup` (supersedes paper-space §8.1):
+Resolution order in `PaperScene._setup` (supersedes paper-space §8.1; **Task A 2026-09-15** removed the fallback chain):
 
 1. Project template matches the sheet (`paper_size` + effective orientation agree) → `TitleBlockTemplateItem`.
-2. Template exists but doesn't match (manual sheet change) → **warn** (status bar via `titleblock_warning`), fall to 3.
-3. No template: legacy chain — DXF → PDF → programmatic, unchanged.
+2. Template exists but doesn't match (manual sheet change) → **warn + BLANK** (status bar via `titleblock_warning`).
+3. No template, or an unresolvable/corrupt embed → **BLANK sheet + status-bar nudge** ("open Draft → Title Block to create or apply one"). The legacy CEL DXF→PDF→programmatic fallback is gone: `TitleBlockDxfItem`/`TitleBlockPdfItem` + `TITLE_BLOCK_DXFS/PDFS` are now dead code (filed for deletion with the CEL assets). The programmatic `TitleBlockItem` is retained for the `title_block` property + Scale-refresh refs but is **always hidden**. `MainWindow._push_titleblock_template` shows the specific "unreadable" message (corrupt embed) in preference to the generic blank nudge.
 
 **Template drives the sheet (DD-2):** on apply, MainWindow sets `sheet.paper_size`/`sheet.orientation` from the template before the rebuild. The load path does NOT force size/orientation (the `.fpd`'s stored page is authoritative; a persisted mismatch renders the fallback + warning, never a silent resize). A manual paper-size change resets `sheet.orientation` to native.
 

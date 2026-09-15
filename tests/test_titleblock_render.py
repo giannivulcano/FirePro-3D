@@ -634,10 +634,12 @@ from firepro3d.paper_space import PaperScene, ViewResolver
 
 
 class TestResolutionChain:
-    """§8.1 template-first resolution chain tests.
+    """Title-block resolution tests (Task A).
 
-    These tests exercise PaperScene.set_template() and the _setup priority
-    ordering: template → DXF → PDF → programmatic.
+    A project template that MATCHES the sheet renders; otherwise the sheet is
+    BLANK and sets ``titleblock_warning`` (status-bar nudge). The legacy CEL
+    DXF/PDF and the programmatic fallback were removed — the programmatic
+    ``TitleBlockItem`` is kept but always hidden.
     """
 
     def _scene(self, template=None, size="ANSI D"):
@@ -656,21 +658,26 @@ class TestResolutionChain:
         assert "TitleBlockTemplateItem" in kinds
         assert "TitleBlockDxfItem" not in kinds
 
-    def test_no_template_renders_legacy_chain(self):
+    def test_no_template_renders_blank_with_warning(self):
+        """Task A: no template → BLANK sheet + nudge (no CEL DXF/PDF fallback)."""
         sc, _ = self._scene(None)
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds
-        # ANSI D has a CEL DXF on disk in this repo
-        assert "TitleBlockDxfItem" in kinds or "TitleBlockItem" in kinds
+        assert "TitleBlockDxfItem" not in kinds
+        assert "TitleBlockPdfItem" not in kinds
+        # Programmatic block kept for the title_block property but hidden.
+        assert sc.title_block is not None and not sc.title_block.isVisible()
+        assert sc.titleblock_warning           # status-bar nudge to build one
 
-    def test_size_mismatch_falls_back_with_warning(self):
-        """Rev2: template with ANSI D paper_size on an ANSI B sheet → warning + fallback."""
+    def test_size_mismatch_blank_with_warning(self):
+        """Task A: template on the wrong-size sheet → BLANK + mismatch warning."""
         t = make_default_template()  # paper_size="ANSI D"
-        # Put it on an ANSI B sheet → mismatch
-        sc, _ = self._scene(t, size="ANSI B")
+        sc, _ = self._scene(t, size="ANSI B")  # mismatch
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds
-        assert sc.titleblock_warning          # surfaced for the status bar
+        assert "TitleBlockDxfItem" not in kinds
+        assert not sc.title_block.isVisible()
+        assert sc.titleblock_warning           # surfaced for the status bar
 
     def test_set_template_none_restores_legacy(self):
         sc, _ = self._scene(make_default_template())
@@ -1089,7 +1096,7 @@ class TestMainWindowWiring:
         )
 
     def test_new_file_clears_template_from_paper_scene(self, _mw):
-        """File→New clears template and restores the legacy chain in the paper scene."""
+        """File→New clears the template; the paper scene renders blank (Task A)."""
         _fresh(_mw)
         # Set a template so there's something to clear.
         _mw.scene._titleblock_template = make_default_template().to_dict()
@@ -1170,19 +1177,19 @@ class TestMainWindowWiring:
             f"got {saved.get('modified')!r}"
         )
 
-    def test_push_corrupt_embed_no_raise_legacy_chain(self, _mw):
-        """Corrupt embedded template (missing required 'name' key triggers TypeError)
-        must not raise and must show legacy chain.
+    def test_push_corrupt_embed_no_raise_blank(self, _mw):
+        """Task A: a corrupt embedded template must not raise, must render BLANK
+        (no TitleBlockTemplateItem), and must surface the 'unreadable' message
+        (which takes precedence over the generic blank nudge).
         """
         _fresh(_mw)
-        # Use a dict that causes from_dict to raise (None name triggers error in
-        # to_dict/copy downstream; better: use a non-dict to force TypeError)
+        # A non-dict embed forces from_dict to fail → treated as None.
         _mw.scene._titleblock_template = "this is not a dict"
         _mw._push_titleblock_template()
         sc = _mw.paper_space_widget.paper_scene
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds, (
-            "Corrupt embed must fall back to legacy chain (no TitleBlockTemplateItem)"
+            "Corrupt embed must render blank (no TitleBlockTemplateItem)"
         )
         msg = _mw.statusBar().currentMessage()
         assert "unreadable" in msg.lower(), (
