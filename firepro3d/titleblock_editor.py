@@ -47,7 +47,7 @@ from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
 from .theme import detect, M
 from . import theme as _th
-from .ui_kit import SideTabs
+from .ui_kit import SideTabs, ToggleSwitch
 from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -296,6 +296,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self.result_saved: bool = False
         self._project_info = project_info or {}
         self._use_requested = False   # set by use_for_project(); read by _do_save
+        self._dirty = False           # unsaved working edits (close warning)
 
         # ── Snapshot undo/redo stacks ─────────────────────────────────────
         # Each entry is a dict snapshot from TitleBlockTemplate.to_dict()
@@ -338,36 +339,31 @@ class TitleBlockEditorDialog(HouseDialog):
 
         # ── Left selection rail: +/−/duplicate actions above a SideTabs list ──
         theme_name = "dark" if self._theme is _th.DARK else "light"
-        left = QVBoxLayout()
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(0)
+        self._rail = SideTabs()
+        self._rail.tabSelected.connect(self._on_template_selected)
 
-        act = QHBoxLayout()
-        act.setContentsMargins(10, 10, 10, 4)
+        act_w = QWidget()
+        act = QHBoxLayout(act_w)
+        act.setContentsMargins(0, 0, 0, 6)
         act.setSpacing(4)
         self._new_btn = QToolButton()
         self._new_btn.setText("+")
         self._new_btn.setToolTip("New template")
         self._new_btn.clicked.connect(self.new_template)
+        self._del_btn = QToolButton()
+        self._del_btn.setText("−")       # minus glyph
+        self._del_btn.setToolTip("Delete template")
+        self._del_btn.clicked.connect(self.delete_template)
         self._dup_btn = QToolButton()
         self._dup_btn.setIcon(themed_icon("duplicate_icon.svg", theme_name))
         self._dup_btn.setToolTip("Duplicate template")
         self._dup_btn.clicked.connect(self.duplicate_template)
-        self._del_btn = QToolButton()
-        self._del_btn.setText("−")            # minus glyph
-        self._del_btn.setToolTip("Delete template")
-        self._del_btn.clicked.connect(self.delete_template)
-        for b in (self._new_btn, self._dup_btn, self._del_btn):
-            b.setAutoRaise(True)
+        for b in (self._new_btn, self._del_btn, self._dup_btn):   # requested order
+            b.setAutoRaise(True)                                   # hover highlight
             act.addWidget(b)
         act.addStretch(1)
-        left.addLayout(act)
-
-        # Template selector — the house SideTabs rail (rebuilt in _reload_library).
-        self._rail = SideTabs()
-        self._rail.tabSelected.connect(self._on_template_selected)
-        left.addWidget(self._rail, 1)
-        root.addLayout(left)
+        self._rail.set_header(act_w)             # buttons share the rail chrome
+        root.addWidget(self._rail)
 
         # ── Central content panel (its own distinct area) ─────────────────
         content = QFrame()
@@ -635,19 +631,18 @@ class TitleBlockEditorDialog(HouseDialog):
             lambda v: self._field_prop("cap_height_mm", v))
         style_form.addRow("Cap height (mm):", self._fcap_height)
 
-        # Bold / italic checkboxes (one row)
-        self._fbold = QCheckBox()
+        # Bold / Italic toggles (house ToggleSwitch, per standard)
+        self._fbold = ToggleSwitch("Bold")
         self._fbold.toggled.connect(
             lambda b: self._field_prop("bold", b))
-        self._fitalic = QCheckBox()
+        self._fitalic = ToggleSwitch("Italic")
         self._fitalic.toggled.connect(
             lambda b: self._field_prop("italic", b))
         bi_row = QHBoxLayout()
         bi_row.addWidget(self._fbold)
-        bi_row.addWidget(QLabel("Italic:"))
         bi_row.addWidget(self._fitalic)
         bi_row.addStretch()
-        style_form.addRow("Bold:", bi_row)
+        style_form.addRow("Style:", bi_row)
 
         # Alignment
         self._falign = QComboBox()
@@ -755,19 +750,15 @@ class TitleBlockEditorDialog(HouseDialog):
         fl.setContentsMargins(*M.FOOTER_MARGIN)
         fl.setSpacing(M.FOOTER_BTN_GAP)
         fl.addStretch(1)
-        self._use_btn = QPushButton("Load to Project")
-        self._use_btn.clicked.connect(self.use_for_project)
-        self.save_button = QPushButton("Save")
+        self._use_btn = QPushButton("Apply Template")
+        self._use_btn.clicked.connect(self._apply_template)
+        self.save_button = QPushButton("Save Template")
+        self.save_button.setProperty("variant", "primary")
         self.save_button.setEnabled(False)   # disabled until a valid template loads
         self.save_button.clicked.connect(self._on_save_clicked)
-        self.save_close_button = QPushButton("Save && Close")
-        self.save_close_button.setProperty("variant", "primary")
-        self.save_close_button.setEnabled(False)
-        self.save_close_button.clicked.connect(self._on_save_close_clicked)
         self.close_button = QPushButton("Close")
-        self.close_button.clicked.connect(self.reject)
-        for b in (self._use_btn, self.save_button,
-                  self.save_close_button, self.close_button):
+        self.close_button.clicked.connect(self._confirm_close)
+        for b in (self._use_btn, self.save_button, self.close_button):
             fl.addWidget(b)
         self._root.addWidget(footer)
 
@@ -819,6 +810,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self.working = tmpl.copy()
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._dirty = False           # freshly loaded — no unsaved edits
         self._populate_form()
 
     def new_template(self) -> None:
@@ -900,6 +892,20 @@ class TitleBlockEditorDialog(HouseDialog):
         self._use_requested = True
         self.project_template_result = self.working.copy()
 
+    def _apply_template(self) -> None:
+        """Apply the working template to the project and close (Apply Template)."""
+        self.use_for_project()
+        self.accept()
+
+    def _confirm_close(self) -> None:
+        """Close — warn first if the template has unsaved working edits."""
+        if getattr(self, "_dirty", False):
+            if not themed_confirm(
+                    self, "Discard changes?",
+                    "This template has unsaved changes. Close without saving?"):
+                return
+        self.reject()
+
     # ═════════════════════════════════════════════════════════════════════════
     # Snapshot undo / redo
     # ═════════════════════════════════════════════════════════════════════════
@@ -912,6 +918,7 @@ class TitleBlockEditorDialog(HouseDialog):
         """
         if self.working is None:
             return
+        self._dirty = True            # a user edit — arm the close warning
         self._undo_stack.append(copy.deepcopy(self.working.to_dict()))
         if len(self._undo_stack) > _UNDO_STACK_MAX:
             self._undo_stack.pop(0)
@@ -971,7 +978,6 @@ class TitleBlockEditorDialog(HouseDialog):
         if self.working is None:
             self._warning_label.setVisible(False)
             self.save_button.setEnabled(False)
-            self.save_close_button.setEnabled(False)
             return
 
         # Single-size model: use the template's layout and oriented paper dims
@@ -996,7 +1002,6 @@ class TitleBlockEditorDialog(HouseDialog):
             warnings.append(f"Layout error: {exc}")
             self._show_warnings(warnings)
             self.save_button.setEnabled(False)
-            self.save_close_button.setEnabled(False)
             return
 
         warnings.extend(layout.warnings)
@@ -1010,7 +1015,6 @@ class TitleBlockEditorDialog(HouseDialog):
 
         self._show_warnings(warnings)
         self.save_button.setEnabled(enabled)
-        self.save_close_button.setEnabled(enabled)
         # Use itemsBoundingRect (not sceneRect) so the rect shrinks when
         # switching from a large paper size (e.g. ANSI D) to a small one
         # (e.g. A4). QGraphicsScene.clear() resets sceneRect lazily; stale
@@ -1807,6 +1811,7 @@ class TitleBlockEditorDialog(HouseDialog):
             return False
         if not self.save():
             return False
+        self._dirty = False           # saved — clear the close warning
         if self._use_requested or self.project_template_result is not None:
             self.project_template_result = self.working.copy()
             # Mark the result as saved: a saved use-intent survives a later
@@ -1818,8 +1823,3 @@ class TitleBlockEditorDialog(HouseDialog):
     def _on_save_clicked(self) -> None:
         """Save mid-session: library write + live refresh, dialog stays open."""
         self._do_save()
-
-    def _on_save_close_clicked(self) -> None:
-        """Save then accept (the pre-2026-08-04 Save behavior)."""
-        if self._do_save():
-            self.accept()

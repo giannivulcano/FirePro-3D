@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QMenu, QCheckBox, QColorDialog, QLabel, QDateEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
 )
 from PyQt6.QtCore import (
     Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, QDate, pyqtSignal,
@@ -3349,7 +3349,10 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 keys = ("no", "description", "date")
                 headers = ("Rev.", "Description", "Date")
 
-                y = content.top()
+                # Vertically centre the header+rows block within the cell so the
+                # rows aren't stranded at the top when the cell is taller.
+                block_h = (1 + len(rows)) * TB_REV_ROW_MM
+                y = content.top() + max(0.0, (content.height() - block_h) / 2.0)
                 painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
                 # Header row — the solver's +1 reservation is this header band.
                 for (cx, cw, calign), htext in zip(cols, headers):
@@ -4292,17 +4295,50 @@ def format_date_display(stored: str, fmt_label: str) -> str:
     return d.strftime(DATE_FORMATS.get(fmt_label, DATE_FORMATS[DEFAULT_DATE_FORMAT]))
 
 
+class _RevisionDateDelegate(QStyledItemDelegate):
+    """Renders a revision date as plain cell text; opens a QDateEdit only on
+    edit (double-click). The item's UserRole holds the stored value (ISO, or a
+    legacy string kept verbatim); DisplayRole holds the formatted text."""
+
+    def __init__(self, dialog):
+        super().__init__(dialog)
+        self._dialog = dialog
+
+    def createEditor(self, parent, option, index):
+        ed = QDateEdit(parent)
+        ed.setCalendarPopup(True)
+        ed.setDisplayFormat(_QT_DATE_TOKENS.get(
+            self._dialog.selected_date_format(),
+            _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT]))
+        cal = ed.calendarWidget()
+        if cal is not None:                                # no red weekends
+            wk = cal.weekdayTextFormat(Qt.DayOfWeek.Monday)
+            cal.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, wk)
+            cal.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, wk)
+        return ed
+
+    def setEditorData(self, editor, index):
+        iso = parse_date_to_iso(index.data(Qt.ItemDataRole.UserRole) or "")
+        editor.setDate(QDate.fromString(iso, "yyyy-MM-dd")
+                       if iso else QDate.currentDate())
+
+    def setModelData(self, editor, model, index):
+        iso = editor.date().toString("yyyy-MM-dd")
+        model.setData(index, iso, Qt.ItemDataRole.UserRole)
+        model.setData(index, format_date_display(
+            iso, self._dialog.selected_date_format()), Qt.ItemDataRole.DisplayRole)
+
+
 class RevisionsDialog(HouseDialog):
     """Rev./Description/Date table editor for a sheet's revision history.
 
     House-chrome dialog (Task D). Works on a copy of the input list; the caller
-    reads result_revisions() and selected_date_format() on accept. Dates are
-    edited with a QDateEdit (Task C): stored ISO, displayed in the project's
-    chosen format; a row with no valid stored date defaults to **today**; an
-    unparseable legacy value is preserved until the user actively picks a new
-    date. The calendar shows no red weekends; columns are resizable with
-    Rev./Date auto-fit to content. Content is added via body_layout() so the
-    container matches the dialog surface (no black bare-QWidget fill).
+    reads result_revisions() and selected_date_format() on accept. The Date
+    column shows plain formatted text and opens a QDateEdit (via
+    _RevisionDateDelegate) only when edited; dates STORE as ISO and default to
+    **today** when empty; an unparseable legacy value renders + round-trips
+    verbatim. Content is added via body_layout() so the container matches the
+    dialog surface.
     """
 
     _HEADERS = ["Rev.", "Description", "Date"]
@@ -4316,6 +4352,7 @@ class RevisionsDialog(HouseDialog):
         # renders a black container over the lighter dialog surface (the
         # documented HouseDialog "use body_layout()" gotcha).
         lay = self.body_layout()
+        lay.setSpacing(10)                                 # breathing room (ER1)
 
         # Project-scoped display-format chooser.
         fmt_row = QHBoxLayout()
@@ -4339,10 +4376,12 @@ class RevisionsDialog(HouseDialog):
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.table.verticalHeader().setVisible(False)
+        self._date_delegate = _RevisionDateDelegate(self)
+        self.table.setItemDelegateForColumn(2, self._date_delegate)
         for r, rev in enumerate(revisions):
             self.table.setItem(r, 0, QTableWidgetItem(rev.get("no", "")))
             self.table.setItem(r, 1, QTableWidgetItem(rev.get("description", "")))
-            self.table.setCellWidget(r, 2, self._make_date_editor(rev.get("date", "")))
+            self.table.setItem(r, 2, self._date_item(rev.get("date", "")))
         self.table.resizeColumnToContents(0)
         self.table.resizeColumnToContents(2)
         lay.addWidget(self.table)
@@ -4365,54 +4404,29 @@ class RevisionsDialog(HouseDialog):
             _cancel.setMinimumWidth(_w)
         self.setMinimumSize(460, 360)
 
-    def _make_date_editor(self, stored: str) -> QDateEdit:
-        """A date picker seeded from *stored*. Defaults to **today** when there
-        is no valid stored date; an unparseable legacy value is kept on the
-        widget so result_revisions() preserves it if left untouched. Transparent
-        to match the table; the popup calendar shows no red weekends."""
-        ed = QDateEdit()
-        ed.setCalendarPopup(True)
-        ed.setDisplayFormat(_QT_DATE_TOKENS.get(
-            self.fmt_combo.currentText(), _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT]))
-        ed.setProperty("raw_date", stored or "")
-        ed.setProperty("legacy", False)
-        iso = parse_date_to_iso(stored)
-        if iso:
-            ed.setDate(QDate.fromString(iso, "yyyy-MM-dd"))
-        else:
-            ed.setDate(QDate.currentDate())               # default: today
-            if (stored or "").strip():
-                ed.setProperty("legacy", True)            # unparseable → preserve
-        ed.setProperty("touched", False)
-        ed.dateChanged.connect(lambda *_: ed.setProperty("touched", True))
-        cal = ed.calendarWidget()
-        if cal is not None:                                # no red weekends
-            weekday_fmt = cal.weekdayTextFormat(Qt.DayOfWeek.Monday)
-            cal.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, weekday_fmt)
-            cal.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, weekday_fmt)
-        return ed
+    def _date_item(self, stored: str) -> QTableWidgetItem:
+        """A Date cell: UserRole = stored ISO/legacy/today; text = formatted."""
+        item = QTableWidgetItem()
+        raw = (stored or "").strip()
+        iso = parse_date_to_iso(raw)
+        value = iso or (raw if raw else QDate.currentDate().toString("yyyy-MM-dd"))
+        item.setData(Qt.ItemDataRole.UserRole, value)
+        item.setText(format_date_display(value, self.selected_date_format()))
+        return item
 
     def _apply_display_format(self, label: str) -> None:
-        token = _QT_DATE_TOKENS.get(label, _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT])
         for r in range(self.table.rowCount()):
-            ed = self.table.cellWidget(r, 2)
-            if isinstance(ed, QDateEdit):
-                ed.setDisplayFormat(token)
-
-    def _date_value(self, r: int) -> str:
-        ed = self.table.cellWidget(r, 2)
-        if not isinstance(ed, QDateEdit):
-            return ""
-        if ed.property("legacy") and not ed.property("touched"):
-            return str(ed.property("raw_date") or "")     # keep untouched legacy
-        return ed.date().toString("yyyy-MM-dd")           # ISO storage
+            it = self.table.item(r, 2)
+            if it is not None:
+                stored = it.data(Qt.ItemDataRole.UserRole) or ""
+                it.setText(format_date_display(str(stored), label))
 
     def _add_row(self):
         r = self.table.rowCount()
         self.table.insertRow(r)
         self.table.setItem(r, 0, QTableWidgetItem(""))
         self.table.setItem(r, 1, QTableWidgetItem(""))
-        self.table.setCellWidget(r, 2, self._make_date_editor(""))
+        self.table.setItem(r, 2, self._date_item(""))
 
     def _remove_row(self):
         if self.table.currentRow() >= 0:
@@ -4424,12 +4438,14 @@ class RevisionsDialog(HouseDialog):
     def result_revisions(self) -> list[dict]:
         out = []
         for r in range(self.table.rowCount()):
+            date_it = self.table.item(r, 2)
             row = {
                 "no": (self.table.item(r, 0).text().strip()
                        if self.table.item(r, 0) else ""),
                 "description": (self.table.item(r, 1).text().strip()
                                 if self.table.item(r, 1) else ""),
-                "date": self._date_value(r),
+                "date": (str(date_it.data(Qt.ItemDataRole.UserRole) or "")
+                         if date_it else ""),
             }
             # A row is a real revision only if it has a number or description —
             # the date always carries today's default, so it can't gate empties.

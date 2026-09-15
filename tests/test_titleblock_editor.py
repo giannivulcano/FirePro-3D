@@ -62,7 +62,6 @@ class TestEditorSession:
         dlg.working.layout.strip_width_mm = 5.0   # under floor
         dlg.refresh_preview()
         assert not dlg.save_button.isEnabled()
-        assert not dlg.save_close_button.isEnabled()  # gating mirrors both
 
     def test_new_duplicate_save(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
@@ -138,15 +137,15 @@ class TestSaveButtonsRow:
         assert lib[saved.uuid].layout.strip_width_mm == 95.0
         dlg.close()
 
-    def test_save_and_close_accepts(self, tmp_path, monkeypatch):
-        """Save & Close = the pre-2026-08-04 Save behavior (save + accept)."""
+    def test_save_template_writes_library_stays_open(self, tmp_path, monkeypatch):
+        """Save Template writes the library and leaves the dialog open."""
         dlg, t = self._dlg(tmp_path, monkeypatch)
         dlg.show()
-        dlg.working.layout.strip_width_mm = 96.0
-        dlg.save_close_button.click()
-        assert dlg.result() == QDialog.DialogCode.Accepted
-        assert not dlg.isVisible()
+        dlg.set_strip_width(96.0)
+        dlg.save_button.click()                              # "Save Template"
+        assert dlg.result() != QDialog.DialogCode.Accepted   # stays open
         assert tbt.load_library()[0].layout.strip_width_mm == 96.0
+        dlg.close()
 
     def test_close_button_rejects_without_saving(self, tmp_path, monkeypatch):
         """Close = the old Cancel: reject without any library write."""
@@ -178,31 +177,29 @@ class TestSavedUseIntentSurvivesClose:
         dlg.select_template(t.uuid)
         return dlg
 
-    def test_use_save_close_marks_result_saved(self, tmp_path, monkeypatch):
-        """Use → Save (stays open) → Close: dialog rejects but the saved
-        result survives with result_saved=True."""
+    def test_apply_template_applies_and_accepts(self, tmp_path, monkeypatch):
+        """'Apply Template' sets project_template_result and accepts (applies)."""
         dlg = self._dlg(tmp_path, monkeypatch)
         dlg.show()
-        dlg._use_btn.click()
-        dlg.save_button.click()
-        dlg.close_button.click()
-        assert dlg.result() == QDialog.DialogCode.Rejected
+        dlg._use_btn.click()                                 # "Apply Template"
+        assert dlg.result() == QDialog.DialogCode.Accepted
         assert dlg.project_template_result is not None
-        assert dlg.result_saved is True, (
-            "Use + Save + Close must mark the result as saved so main.py "
-            "applies it despite the rejection"
-        )
 
-    def test_use_without_save_close_not_marked_saved(self, tmp_path, monkeypatch):
-        """Use WITHOUT Save → Close: unsaved use-intent still discards."""
+    def test_close_with_unsaved_changes_prompts(self, tmp_path, monkeypatch):
+        """Close warns when there are unsaved working edits (dirty)."""
+        import firepro3d.titleblock_editor as tbe
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.show()
-        dlg._use_btn.click()
-        dlg.close_button.click()
-        assert dlg.result() == QDialog.DialogCode.Rejected
-        assert dlg.result_saved is False, (
-            "Use without Save must NOT mark the result as saved"
-        )
+        dlg.set_strip_width(99.0)                            # a working edit → dirty
+        rejected = []
+        monkeypatch.setattr(dlg, "reject", lambda: rejected.append(1))
+        # Decline the discard prompt → reject NOT called (stays open).
+        monkeypatch.setattr(tbe, "themed_confirm", lambda *a, **k: False)
+        dlg._confirm_close()
+        assert not rejected
+        # Accept the discard prompt → reject called.
+        monkeypatch.setattr(tbe, "themed_confirm", lambda *a, **k: True)
+        dlg._confirm_close()
+        assert rejected
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -246,7 +243,6 @@ class TestSaveButtonInitialState:
         # Empty library, no project template
         dlg = TitleBlockEditorDialog(project_template=None)
         assert not dlg.save_button.isEnabled()
-        assert not dlg.save_close_button.isEnabled()  # gating mirrors both
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -406,11 +402,9 @@ class TestUseSaveOrdering:
         NEW_WIDTH = 111.0
         dlg.set_strip_width(NEW_WIDTH)
 
-        # Drive Save & Close (the pre-2026-08-04 Save; save succeeds since the
-        # template is valid). Patch accept() so the dialog doesn't try to close.
-        accepted = []
-        monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
-        dlg.save_close_button.click()
+        # Save Template refreshes project_template_result from the post-Use
+        # working copy (save succeeds since the template is valid).
+        dlg.save_button.click()
 
         # project_template_result must carry the new width AND today's modified stamp.
         assert dlg.project_template_result is not None
@@ -421,7 +415,6 @@ class TestUseSaveOrdering:
         assert dlg.project_template_result.modified == datetime.date.today().isoformat(), (
             "project_template_result.modified not stamped to today"
         )
-        assert accepted, "Save & Close did not call accept()"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

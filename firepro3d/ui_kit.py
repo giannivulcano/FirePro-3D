@@ -120,6 +120,11 @@ class SideTabs(QFrame):
         if row is not None:
             row.set_label(text)
 
+    def set_header(self, widget):
+        """Insert a header widget (e.g. action buttons) above the tab rows,
+        INSIDE the rail frame (shares its background + border)."""
+        self.layout().insertWidget(0, widget)
+
 
 class DetailsPanel(QFrame):
     def __init__(self, *, width=M.PANEL_W, title=None, parent=None):

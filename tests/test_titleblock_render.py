@@ -1074,13 +1074,14 @@ class TestPanelAndUndo:
 class TestRevisionsDialog:
     def test_dialog_round_trips_rows(self):
         from firepro3d.paper_space import RevisionsDialog
-        from PyQt6.QtCore import QDate
+        from PyQt6.QtCore import Qt
         revs = [{"no": "1", "description": "Issued", "date": "07-21"}]
         dlg = RevisionsDialog(revs)
         dlg._add_row()
         dlg.table.item(1, 0).setText("2")
         dlg.table.item(1, 1).setText("As-built")
-        dlg.table.cellWidget(1, 2).setDate(QDate(2026, 7, 22))  # date picker
+        # The date is a delegate-edited item (UserRole = stored ISO).
+        dlg.table.item(1, 2).setData(Qt.ItemDataRole.UserRole, "2026-07-22")
         out = dlg.result_revisions()
         assert out[0]["no"] == "1" and out[1]["description"] == "As-built"
         assert out[1]["date"] == "2026-07-22"       # picked date stored ISO
