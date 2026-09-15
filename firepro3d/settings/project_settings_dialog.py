@@ -34,7 +34,8 @@ class ProjectSettingsDialog(HouseDialog):
         parent=None,
     ):
         super().__init__(parent, title="Project Settings", resizable=True,
-                         controls=("min", "max", "close"), min_width=560)
+                         controls=("min", "max", "close"), min_width=560,
+                         icon="settings_project_icon.svg")
 
         self._scene = scene
         self._panes = {
@@ -47,6 +48,7 @@ class ProjectSettingsDialog(HouseDialog):
         body = QWidget()
         h = QHBoxLayout(body)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)   # rail border-right sits flush against content (no black gap)
 
         self._rail = SideTabs()
         self._stack = QStackedWidget(objectName="detailsPanel")

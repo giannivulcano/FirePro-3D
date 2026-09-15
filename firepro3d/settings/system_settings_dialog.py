@@ -36,7 +36,8 @@ class SystemSettingsDialog(HouseDialog):
         parent=None,
     ):
         super().__init__(parent, title="System Settings", resizable=True,
-                         controls=("min", "max", "close"), min_width=620)
+                         controls=("min", "max", "close"), min_width=620,
+                         icon="settings_system_icon.svg")
 
         self._panes = {
             "general": GeneralPane(),
@@ -52,6 +53,7 @@ class SystemSettingsDialog(HouseDialog):
         body = QWidget()
         h = QHBoxLayout(body)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)   # rail border-right sits flush against content (no black gap)
 
         self._rail = SideTabs()
         self._stack = QStackedWidget(objectName="detailsPanel")
