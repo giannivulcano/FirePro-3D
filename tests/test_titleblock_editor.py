@@ -626,10 +626,11 @@ class TestTemplatePagMm:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestPortraitRadioWiring:
-    """_orient_portrait.toggled must be connected so clicking Portrait works.
+    """Orientation SwitchBar wiring: clicking Portrait/Landscape must work.
 
-    These tests drive .click() (not set_orientation()) to verify the actual
-    signal wiring — source-inspection tests would miss a missing connect().
+    These tests drive the segment button .click() (not set_orientation()) to
+    verify the actual signal wiring — source-inspection would miss a missing
+    connect().
     """
 
     def _dlg(self, tmp_path, monkeypatch) -> "TitleBlockEditorDialog":
@@ -646,7 +647,7 @@ class TestPortraitRadioWiring:
         assert dlg.working.orientation == "landscape", (
             "Pre-condition: default template is landscape"
         )
-        dlg._orient_portrait.click()
+        dlg._orient_bar._btns["portrait"].click()
         assert dlg.working.orientation == "portrait", (
             "Portrait radio click must set working.orientation to 'portrait'"
         )
@@ -655,7 +656,7 @@ class TestPortraitRadioWiring:
         """After clicking Portrait, the preview page dims must have h > w."""
         from firepro3d.titleblock_editor import _template_page_mm
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._orient_portrait.click()
+        dlg._orient_bar._btns["portrait"].click()
         w, h = _template_page_mm(dlg.working)
         assert h > w, (
             f"Portrait page must have h > w after radio click, got w={w}, h={h}"
@@ -664,9 +665,9 @@ class TestPortraitRadioWiring:
     def test_landscape_click_restores_orientation(self, tmp_path, monkeypatch):
         """Clicking Portrait then Landscape must return working.orientation to 'landscape'."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._orient_portrait.click()
+        dlg._orient_bar._btns["portrait"].click()
         assert dlg.working.orientation == "portrait"
-        dlg._orient_landscape.click()
+        dlg._orient_bar._btns["landscape"].click()
         assert dlg.working.orientation == "landscape", (
             "Landscape radio click must restore working.orientation to 'landscape'"
         )
@@ -785,28 +786,23 @@ class TestNameEditInPaperSetup:
             "it must be the first row in the Paper Setup group box"
         )
 
-    def test_name_edit_inside_paper_setup_group(self, tmp_path, monkeypatch):
-        """_name_edit must be a descendant of a QGroupBox named 'Paper Setup'."""
-        from PyQt6.QtWidgets import QGroupBox
+    def test_name_edit_inside_paper_setup_section(self, tmp_path, monkeypatch):
+        """_name_edit must live under the 'PAPER SETUP' Section (uppercase header)."""
+        from firepro3d.ui_kit import Section
+        from PyQt6.QtWidgets import QLabel, QLineEdit
 
         dlg = self._dlg(tmp_path, monkeypatch)
         overview_page = dlg._component_tabs.widget(0)
         assert overview_page is not None
 
-        paper_setup_groups = [
-            w for w in overview_page.findChildren(QGroupBox)
-            if w.title() == "Paper Setup"
+        sections = [
+            s for s in overview_page.findChildren(Section)
+            if any(lbl.property("role") == "header" and lbl.text() == "PAPER SETUP"
+                   for lbl in s.findChildren(QLabel))
         ]
-        assert paper_setup_groups, (
-            "No QGroupBox titled 'Paper Setup' found in Overview tab"
-        )
-        paper_setup = paper_setup_groups[0]
-
-        # _name_edit must be a descendant of paper_setup
-        from PyQt6.QtWidgets import QLineEdit
-        name_edits = paper_setup.findChildren(QLineEdit)
-        assert dlg._name_edit in name_edits, (
-            "_name_edit is not inside the 'Paper Setup' group box"
+        assert sections, "No 'PAPER SETUP' Section found in Overview tab"
+        assert dlg._name_edit in sections[0].findChildren(QLineEdit), (
+            "_name_edit is not inside the PAPER SETUP section"
         )
 
 

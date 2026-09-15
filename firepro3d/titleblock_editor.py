@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPushButton, QPlainTextEdit, QRadioButton,
+    QMenu, QPushButton, QPlainTextEdit,
     QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 from .themed_message import themed_confirm, themed_warn
@@ -47,7 +47,7 @@ from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
 from .theme import detect, M
 from . import theme as _th
-from .ui_kit import SideTabs, ToggleSwitch, TopTabs
+from .ui_kit import SideTabs, ToggleSwitch, TopTabs, Section, SwitchBar
 from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -392,74 +392,63 @@ class TitleBlockEditorDialog(HouseDialog):
         centre.addWidget(self._component_tabs, stretch=1)
 
         # ── Tab 0: Overview ────────────────────────────────────────────────
+        # House convention: SECTION (uppercase header label, no box) + a
+        # left-labelled two-column form (matches the underlay import dialog).
         overview_widget = QWidget()
         overview_layout = QVBoxLayout(overview_widget)
-        overview_layout.setSpacing(6)
+        overview_layout.setSpacing(14)
 
-        overview_form_group = QGroupBox("Paper Setup")
-        overview_form = QFormLayout(overview_form_group)
-        overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_container = QWidget()
+        overview_form = QFormLayout(form_container)
+        overview_form.setContentsMargins(0, 0, 0, 0)
+        overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        # Name row — first inside Paper Setup (Fix 3)
+        # Name row
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("Template name")
         self._name_edit.editingFinished.connect(
             lambda: self.set_name(self._name_edit.text()))
-        overview_form.addRow("Name:", self._name_edit)
+        overview_form.addRow("Name", self._name_edit)
 
         # Paper size combo
         self._paper_size_combo = QComboBox()
         self._paper_size_combo.addItems(list(PAPER_SIZES.keys()))
         self._paper_size_combo.currentTextChanged.connect(
             lambda t: self.set_paper_size(t))
-        overview_form.addRow("Paper size:", self._paper_size_combo)
+        overview_form.addRow("Paper size", self._paper_size_combo)
 
-        # Orientation toggle (two radio buttons)
-        orient_widget = QWidget()
-        orient_row = QHBoxLayout(orient_widget)
-        orient_row.setContentsMargins(0, 0, 0, 0)
-        self._orient_landscape = QRadioButton("Landscape")
-        self._orient_portrait = QRadioButton("Portrait")
-        self._orient_landscape.setChecked(True)
-        orient_row.addWidget(self._orient_landscape)
-        orient_row.addWidget(self._orient_portrait)
-        orient_row.addStretch()
-        self._orient_landscape.toggled.connect(self._on_orientation_toggled)
-        self._orient_portrait.toggled.connect(self._on_orientation_toggled)
-        overview_form.addRow("Orientation:", orient_widget)
+        # Orientation — house segmented switch (SwitchBar)
+        self._orient_bar = SwitchBar(
+            [("landscape", "Landscape"), ("portrait", "Portrait")])
+        self._orient_bar.changed.connect(self._on_orient_changed)
+        overview_form.addRow("Orientation", self._orient_bar)
 
         # Three margin/strip DimensionEdits
         self._edge_edit = DimensionEdit(None, initial_mm=10.0,
                                         parser=_sm.parse_dimension, minimum=0.0)
         self._edge_edit.valueChanged.connect(self.set_margin_edge)
-        overview_form.addRow("Edge margin (mm):", self._edge_edit)
+        overview_form.addRow("Edge margin (mm)", self._edge_edit)
 
         self._strip_margin_edit = DimensionEdit(None, initial_mm=5.0,
                                                 parser=_sm.parse_dimension, minimum=0.0)
         self._strip_margin_edit.valueChanged.connect(self.set_margin_strip)
-        overview_form.addRow("Strip gap (mm):", self._strip_margin_edit)
+        overview_form.addRow("Strip gap (mm)", self._strip_margin_edit)
 
         self._strip_width_edit = DimensionEdit(None, initial_mm=90.0,
                                                parser=_sm.parse_dimension, minimum=0.0)
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
-        overview_form.addRow("Strip width (mm):", self._strip_width_edit)
+        overview_form.addRow("Strip width (mm)", self._strip_width_edit)
 
-        overview_layout.addWidget(overview_form_group)
+        overview_layout.addWidget(Section("Paper Setup", form_container))
 
-        # Preview group — below Paper Setup, inside Overview tab (Fix 2)
-        preview_group = QGroupBox("Preview")
-        preview_group_layout = QVBoxLayout(preview_group)
-        preview_group_layout.setContentsMargins(4, 4, 4, 4)
-
+        # Preview section — uppercase header + the live preview view.
         self._preview_view = QGraphicsView(self._preview_scene)
         self._preview_view.setMinimumHeight(280)
         self._preview_view.setRenderHint(
             self._preview_view.renderHints().__class__.Antialiasing)
         self._preview_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        preview_group_layout.addWidget(self._preview_view)
-
-        overview_layout.addWidget(preview_group, stretch=1)
+        overview_layout.addWidget(Section("Preview", self._preview_view), stretch=1)
 
         self._component_tabs.add_tab("overview", "Overview", overview_widget)
 
@@ -1087,18 +1076,16 @@ class TitleBlockEditorDialog(HouseDialog):
         self._on_canvas_selection(self._arrange_tab.canvas.selected_field_id)
 
     def _populate_overview_fields(self) -> None:
-        """Populate paper-size combo + orientation radios from working template."""
+        """Populate paper-size combo + orientation switch from working template."""
         if self.working is None:
             return
         # Paper size combo
         idx = self._paper_size_combo.findText(self.working.paper_size)
         if idx >= 0:
             self._paper_size_combo.setCurrentIndex(idx)
-        # Orientation radios
-        if self.working.orientation == "portrait":
-            self._orient_portrait.setChecked(True)
-        else:
-            self._orient_landscape.setChecked(True)
+        # Orientation switch (set_current does not emit changed — no snapshot).
+        self._orient_bar.set_current(
+            "portrait" if self.working.orientation == "portrait" else "landscape")
 
     def _populate_variant_fields(self) -> None:
         """Update margin/border widgets from the active layout (no snapshot)."""
@@ -1711,21 +1698,11 @@ class TitleBlockEditorDialog(HouseDialog):
         if tab is not None and self.working is not None:
             tab.refresh(self.working.layout)
 
-    def _on_orientation_toggled(self, checked: bool) -> None:
-        """Called when either orientation radio button's toggled signal fires.
-
-        Both Landscape and Portrait radios connect here.  Only acts on the
-        ``checked=True`` transition to avoid double-fire (each toggle emits
-        once for the button becoming checked and once for the other becoming
-        unchecked).
-        """
+    def _on_orient_changed(self, key: str) -> None:
+        """Orientation SwitchBar selection ("landscape"/"portrait")."""
         if self._loading or self.working is None:
             return
-        # Only act on the "becoming checked" transition to avoid double-fire
-        if not checked:
-            return
-        orientation = "landscape" if self._orient_landscape.isChecked() else "portrait"
-        self.set_orientation(orientation)
+        self.set_orientation(key)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Public form slots (API; tested directly)
