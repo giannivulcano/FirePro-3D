@@ -133,7 +133,7 @@ def _update_swatch(btn: QPushButton, color: str) -> None:
 # Border sub-group widget
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _BorderGroup(QGroupBox):
+class _BorderGroup(QWidget):
     """Reusable widget for editing a BorderStyle (visible, width, color, corner, fillet).
 
     With ``show_edges=True`` (field cells only) an "Edges:" row of four
@@ -177,16 +177,15 @@ class _BorderGroup(QGroupBox):
         form.addRow("Color", self._color_btn)
         self._color_btn.clicked.connect(self._pick_color)
 
-        self._corner = QComboBox()
-        self._corner.addItems(["Sharp", "Fillet"])
-        self._corner.setMaximumWidth(_FW)
+        self._corner = SwitchBar(
+            [("sharp", "Sharp"), ("fillet", "Fillet")], expanding=False)
         form.addRow("Corner", self._corner)
 
         self._fillet = DimensionEdit(None, initial_mm=0.0,
                                      parser=_sm.parse_dimension, minimum=0.0)
         self._fillet.setMaximumWidth(_FW)
         form.addRow("Fillet radius (mm)", self._fillet)
-        self._corner.currentIndexChanged.connect(self._on_corner_changed)
+        self._corner.changed.connect(self._on_corner_changed)
 
         # Presentation: house Section (uppercase header, no box) for the frame
         # groups; a titled QGroupBox for the nested Fields "Cell Border".
@@ -206,9 +205,9 @@ class _BorderGroup(QGroupBox):
         if c.isValid():
             _update_swatch(self._color_btn, c.name())
 
-    def _on_corner_changed(self, _):
+    def _on_corner_changed(self, _=None):
         self._fillet.setEnabled(
-            self._all_edges_on() and self._corner.currentText() == "Fillet")
+            self._all_edges_on() and self._corner.current() == "fillet")
 
     def _all_edges_on(self) -> bool:
         if not self._show_edges:
@@ -222,7 +221,7 @@ class _BorderGroup(QGroupBox):
         full = self._all_edges_on()
         self._corner.setEnabled(full)
         self._fillet.setEnabled(
-            full and self._corner.currentText() == "Fillet")
+            full and self._corner.current() == "fillet")
         tip = "" if full else "Fillet requires all four edges"
         self._corner.setToolTip(tip)
         self._fillet.setToolTip(tip)
@@ -236,8 +235,8 @@ class _BorderGroup(QGroupBox):
         self._visible.setChecked(style.visible)
         self._width.set_value_mm(style.width_mm)
         _update_swatch(self._color_btn, style.color)
-        self._corner.setCurrentText(
-            "Fillet" if style.corner == "fillet" else "Sharp")
+        self._corner.set_current(
+            "fillet" if style.corner == "fillet" else "sharp")
         self._fillet.set_value_mm(style.fillet_radius_mm)
         self._fillet.setEnabled(style.corner == "fillet")
         if self._show_edges:
@@ -257,7 +256,7 @@ class _BorderGroup(QGroupBox):
             "visible": self._visible.isChecked(),
             "width_mm": self._width.value_mm(),
             "color": self._color_btn.property("_color") or "#000000",
-            "corner": "fillet" if self._corner.currentText() == "Fillet" else "sharp",
+            "corner": "fillet" if self._corner.current() == "fillet" else "sharp",
             "fillet_radius_mm": self._fillet.value_mm(),
         }
         if self._show_edges:
@@ -497,7 +496,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._area_border._width.valueChanged.connect(
             lambda _: self._on_border_changed())
         self._area_border._color_btn.clicked.connect(self._on_border_changed)
-        self._area_border._corner.currentIndexChanged.connect(
+        self._area_border._corner.changed.connect(
             lambda _: self._on_border_changed())
         self._area_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
@@ -514,7 +513,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._strip_border._width.valueChanged.connect(
             lambda _: self._on_border_changed())
         self._strip_border._color_btn.clicked.connect(self._on_border_changed)
-        self._strip_border._corner.currentIndexChanged.connect(
+        self._strip_border._corner.changed.connect(
             lambda _: self._on_border_changed())
         self._strip_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
@@ -723,7 +722,7 @@ class TitleBlockEditorDialog(HouseDialog):
             lambda _: self._on_field_border_changed())
         self._field_border_group._color_btn.clicked.connect(
             self._on_field_border_changed)
-        self._field_border_group._corner.currentIndexChanged.connect(
+        self._field_border_group._corner.changed.connect(
             lambda _: self._on_field_border_changed())
         self._field_border_group._fillet.valueChanged.connect(
             lambda _: self._on_field_border_changed())
