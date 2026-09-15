@@ -376,7 +376,9 @@ class TitleBlockEditorDialog(HouseDialog):
         root.addWidget(self._rail)
 
         # ── Central content panel (its own distinct area) ─────────────────
+        # Tokenized surface (a bare QFrame renders black behind the tabs).
         content = QFrame()
+        content.setStyleSheet(f"background: {self._theme.surface};")
         centre = QVBoxLayout(content)
         centre.setContentsMargins(12, 10, 10, 8)
         centre.setSpacing(6)
