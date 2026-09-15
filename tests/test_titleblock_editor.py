@@ -1479,16 +1479,16 @@ class TestArrangementsTab:
         slot = self._slot_of(dlg, fid)
         assert slot.sizing == "static"
         depth = len(dlg._undo_stack)
-        tab.sizing.setCurrentText("Dynamic")
+        tab.sizing._btns["dynamic"].click()
         assert slot.sizing == "dynamic"
         assert len(dlg._undo_stack) == depth + 1
-        # Clear selection, re-select the same field → combo shows Dynamic
+        # Clear selection, re-select the same field → switch shows Dynamic
         far = QPointF(canvas.solved.strip_rect.left() - 100,
                       canvas.solved.strip_rect.top())
         canvas.select_at(far)
         idx = canvas.solved.cell_field_ids.index(fid)
         canvas.select_at(canvas.solved.cell_rects[idx].center())
-        assert tab.sizing.currentText() == "Dynamic"
+        assert tab.sizing.current() == "dynamic"
 
     def test_strip_border_lives_on_arrangements(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)

@@ -773,7 +773,7 @@ class TitleBlockEditorDialog(HouseDialog):
         canvas.unplaceRequested.connect(self._unplace_from_canvas)
         self._arrange_tab.min_height.valueChanged.connect(
             self._on_placement_min_height)
-        self._arrange_tab.sizing.currentTextChanged.connect(
+        self._arrange_tab.sizing.changed.connect(
             self._on_placement_sizing)
 
         root.addWidget(content, stretch=1)
@@ -1696,8 +1696,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._loading = True
         try:
             self._arrange_tab.min_height.set_value_mm(slot.min_height_mm)
-            self._arrange_tab.sizing.setCurrentText(
-                "Dynamic" if slot.sizing == "dynamic" else "Static")
+            self._arrange_tab.sizing.set_current(slot.sizing)
         finally:
             self._loading = prev_loading
 
@@ -1710,10 +1709,13 @@ class TitleBlockEditorDialog(HouseDialog):
         slot.min_height_mm = mm
         self._after_arrange_gesture()
 
-    def _on_placement_sizing(self, text: str) -> None:
-        """Snapshot + write the selected slot's sizing mode (no-op guarded)."""
+    def _on_placement_sizing(self, key: str) -> None:
+        """Snapshot + write the selected slot's sizing mode (no-op guarded).
+
+        *key* is the SwitchBar segment key ("static"/"dynamic").
+        """
         slot = self._selected_slot()
-        val = text.lower()
+        val = key.lower()
         if self._loading or slot is None or slot.sizing == val:
             return
         self.push_snapshot()

@@ -19,7 +19,7 @@ from PyQt6.QtGui import (
     QPainter, QPen, QShowEvent, QWheelEvent,
 )
 from PyQt6.QtWidgets import (
-    QComboBox, QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox,
+    QFormLayout, QFrame, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
     QToolTip, QVBoxLayout, QWidget,
 )
@@ -28,6 +28,7 @@ from .constants import TB_INSERT_BAND_PX, TB_POOL_CARD_W
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 from .theme import detect
+from .ui_kit import Section, SwitchBar
 from .titleblock_template import (
     Slot, TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
 )
@@ -35,6 +36,28 @@ from .titleblock_template import (
 # Module-level ScaleManager used as the dimension parser (same pattern as
 # titleblock_editor._sm: standalone → bare numbers parse as mm).
 _sm = ScaleManager()
+
+
+def _pool_rail_qss() -> str:
+    """Stylesheet giving the unplaced-field pool the house SideTabs-rail look.
+
+    A targeted per-widget stylesheet (beats the house-dialog QSS bleed) using
+    runtime theme tokens — no literal colours, so it stays hexguard-safe. The
+    PoolList stays a QListWidget (its manual drag machinery, DD-16, is intact);
+    only its chrome mimics the rail (surface field, accent-soft hover, green
+    accent-bar selected row).
+    """
+    t = detect()
+    return (
+        f"QListWidget#poolRail {{ background: {t.surface}; border: none;"
+        f" border-right: 1px solid {t.line_strong}; outline: none; }}"
+        f"QListWidget#poolRail::item {{ color: {t.ink}; padding: 6px 8px;"
+        f" margin: 2px 4px; border-radius: 6px;"
+        f" border-left: 2px solid transparent; }}"
+        f"QListWidget#poolRail::item:hover {{ background: {t.accent_soft}; }}"
+        f"QListWidget#poolRail::item:selected {{ background: {t.accent_soft};"
+        f" border-left: 2px solid {t.accent}; color: {t.ink}; }}"
+    )
 
 
 @dataclass
@@ -1164,13 +1187,13 @@ class ArrangementsTab(QWidget):
         cols = QHBoxLayout(self)
         cols.setSpacing(6)
 
-        # ── Column 1: unplaced-field pool ─────────────────────────────────
-        left = QVBoxLayout()
-        left.addWidget(QLabel("Unplaced fields:"))
+        # ── Column 1: unplaced-field pool (house Section + SideTabs-rail look)
         self.pool = PoolList()
+        self.pool.setObjectName("poolRail")
         self.pool.setFixedWidth(TB_POOL_CARD_W)
-        left.addWidget(self.pool, stretch=1)
-        cols.addLayout(left)
+        self.pool.setFrameShape(QFrame.Shape.NoFrame)
+        self.pool.setStyleSheet(_pool_rail_qss())
+        cols.addWidget(Section("Unplaced Fields", self.pool))
 
         # ── Column 2: warning banner + strip canvas + Fit ─────────────────
         centre = QVBoxLayout()
@@ -1188,17 +1211,23 @@ class ArrangementsTab(QWidget):
         cols.addLayout(centre, stretch=1)
 
         # ── Column 3: placement props + relocated strip border ────────────
+        # House Section (uppercase overline, no box); left-aligned form; the
+        # Sizing choice is a segmented SwitchBar (solid-green selected).
         right = QVBoxLayout()
-        self.props_group = QGroupBox("Placement")
-        pf = QFormLayout(self.props_group)
-        pf.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        props_container = QWidget()
+        pf = QFormLayout(props_container)
+        pf.setContentsMargins(0, 0, 0, 0)
+        pf.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.min_height = DimensionEdit(None, initial_mm=10.0,
                                         parser=_sm.parse_dimension,
                                         minimum=0.0)
-        pf.addRow("Min height (mm):", self.min_height)
-        self.sizing = QComboBox()
-        self.sizing.addItems(["Static", "Dynamic"])
-        pf.addRow("Sizing:", self.sizing)
+        self.min_height.setMaximumWidth(240)
+        pf.addRow("Min height (mm)", self.min_height)
+        self.sizing = SwitchBar(
+            [("static", "Static"), ("dynamic", "Dynamic")], expanding=False)
+        pf.addRow("Sizing", self.sizing)
+        # props_group is the Section wrapper (setEnabled toggles the whole form).
+        self.props_group = Section("Placement", props_container)
         self.props_group.setEnabled(False)   # until a placed cell is selected
         right.addWidget(self.props_group)
         right.addWidget(strip_border_group)  # re-parented here (DD-17)
