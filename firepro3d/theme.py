@@ -207,6 +207,8 @@ class Theme:
     def warn_soft(self) -> str: return _rgba(self.warn, 40)
     @property
     def danger_soft(self) -> str: return _rgba(self.danger, 38)
+    @property
+    def toggle_knob(self) -> str: return self.on_accent
 
     def color(self, name: str, alpha: int = 255) -> QColor:
         """Resolve a primitive OR semantic token name to a QColor.
@@ -860,11 +862,6 @@ QDialog[houseDialog="true"] QPushButton[switch="true"]:checked {{ background: {t
 /* ── Kit: Pill ──────────────────────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[pill="true"] {{ padding: {M.PILL_PADDING[0]}px {M.PILL_PADDING[1]}px; border-radius: {M.RADIUS_PILL}px; }}
 QDialog[houseDialog="true"] QPushButton[pill="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
-
-/* ── Kit: ToggleSwitch ──────────────────────────────────────────────────── */
-QDialog[houseDialog="true"] QPushButton[toggleSwitch="true"] {{
-    background: {t.line_strong}; border: none; border-radius: 9px; }}
-QDialog[houseDialog="true"] QPushButton[toggleSwitch="true"]:checked {{ background: {t.accent}; }}
 
 /* ── Kit: cards / pills / drop hint (folded out of _import_extra_qss) ───── */
 QDialog[houseDialog="true"] QFrame#scaleCard, QDialog[houseDialog="true"] QFrame#srcCard {{

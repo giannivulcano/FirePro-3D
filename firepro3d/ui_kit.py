@@ -5,6 +5,7 @@ gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy)
 
@@ -175,10 +176,54 @@ class SwitchBar(QWidget):
         return self._current
 
 
+class _PaintedSwitch(QWidget):
+    """iOS-style painted track + sliding knob. Theme read at paint time."""
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, checked: bool = False, parent=None):
+        super().__init__(parent)
+        self._checked = bool(checked)
+        self.setFixedSize(42, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, v: bool) -> None:
+        v = bool(v)
+        if v != self._checked:
+            self._checked = v
+            self.update()
+            self.toggled.emit(v)
+
+    def mousePressEvent(self, event):
+        self.setChecked(not self._checked)
+        event.accept()
+
+    def paintEvent(self, _event):
+        from .theme import detect
+        t = detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.rect().adjusted(1, 1, -1, -1)
+        track = QColor(t.accent if self._checked else t.line_strong)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(track))
+        rad = r.height() / 2
+        p.drawRoundedRect(r, rad, rad)
+        d = r.height() - 4
+        x = (r.right() - d - 2) if self._checked else (r.left() + 2)
+        p.setBrush(QBrush(QColor(t.toggle_knob)))
+        p.drawEllipse(int(x), r.top() + 2, int(d), int(d))
+        p.end()
+
+
 class ToggleSwitch(QWidget):
-    """Binary on/off: accent when on, label to the right. Rendered via a
-    checkable QPushButton styled as a switch (build_dialog_qss toggleSwitch
-    rule); net-new per theming.md 'binary on/off -> toggle switch' mandate."""
+    """iOS-style painted toggle (sliding knob) + label to the right.
+
+    Public API mirrors QCheckBox: ``isChecked()``, ``setChecked(on)``,
+    ``toggled`` signal, ``text()``.
+    """
     toggled = pyqtSignal(bool)
 
     def __init__(self, label, checked=False, parent=None):
@@ -187,20 +232,16 @@ class ToggleSwitch(QWidget):
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(M.SM)
-        self._sw = QPushButton()
-        self._sw.setCheckable(True)
-        self._sw.setChecked(checked)
-        self._sw.setProperty("toggleSwitch", "true")
-        self._sw.setFixedSize(34, 18)
+        self._sw = _PaintedSwitch(checked=checked)
         self._sw.toggled.connect(self.toggled)
         h.addWidget(self._sw)
         h.addWidget(QLabel(label))
         h.addStretch(1)
 
-    def isChecked(self):
+    def isChecked(self) -> bool:
         return self._sw.isChecked()
 
-    def setChecked(self, on):
+    def setChecked(self, on: bool) -> None:
         self._sw.setChecked(on)
 
     def text(self) -> str:
