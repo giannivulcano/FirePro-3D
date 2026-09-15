@@ -37,7 +37,7 @@
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
 | Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
 | **Test harness / fixtures** | `specs/test-harness.md` | `tests/`, `tests/conftest.py` | current (forged 2026-09-09 on first touch — #373/#367/#312/#375 test-infra cluster; QSettings isolation, async-worker sink lifetime, View3D stub, native-crash families) |
-| **Settings dialogs** (Project + System) | `specs/settings-dialog.md` | `settings/panes.py`, `settings/project_settings_dialog.py`, `settings/system_settings_dialog.py`, `settings/template.py`, `preferences_dialog.py` (shim), `main.py` (ribbon + startup/new wiring), `scene_io.py` (template clone), `scale_manager.py` (units source), `app_data.py` | **proposal** (forged 2026-09-14; unbuilt — closes the `preferences_dialog.py` orphan) |
+| **Settings dialogs** (Project + System) | `specs/settings-dialog.md` | `settings/panes.py`, `settings/project_settings_dialog.py`, `settings/system_settings_dialog.py`, `settings/template.py`, `preferences_dialog.py` (shim), `main.py` (ribbon + startup/new wiring), `scene_io.py` (template clone), `scale_manager.py` (units source), `app_data.py` | current (built 2026-09-14 on `feat/settings-dialog`; closes the `preferences_dialog.py` orphan) |
 
 ## Orphans — no governing spec (forge on first touch)
 

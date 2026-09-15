@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-09-14; not yet built. Flip to current/partial + stamp verified-commit at Phase 6.
-last-verified:            # (pending build)
-verified-commit:          # (pending build)
+status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
+last-verified: 2026-09-14
+verified-commit: b934edb
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)

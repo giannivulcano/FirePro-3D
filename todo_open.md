@@ -83,6 +83,19 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 - [ ] [type:maint] Live theme-switch-while-open wiring [P3] [subject:UX]
   - Details: folds into the existing "Latched `detect()`" item; `HouseDialog.restyle()` seam now exists. ref: ui-design-system.
 
+## Settings dialog follow-ups
+
+> From the 2026-09-14 Settings dialog redesign (`feat/settings-dialog`). Governing spec `docs/specs/settings-dialog.md`.
+
+- [ ] [type:feature] User Profile + full `.fpdt` template subsystem [P3] [subject:Architecture]
+  - Details: the deferred long-term vision. Near-term shipped a single AppData `default.fpdt` (opens on startup + New Project via `apply_template_settings`) + a "Save current Project Settings as default" button. Full version: a User-Profile settings layer under System Settings and/or a managed `.fpdt` template library (multiple templates, per-paper-size, project-template picker on New). `settings/template.py`, `main.py`. ref: settings-dialog §5 D7.
+- [ ] [type:maint] Dedupe underlay import's `_ToggleSwitch` onto `ui_kit.ToggleSwitch` [P3] [subject:Code Quality]
+  - Details: `underlay_import_dialog._ToggleSwitch` (the painted iOS switch) was promoted into `ui_kit.ToggleSwitch` (now the tokenized standard). Migrate the import dialog's "place at origin" usage onto `ui_kit.ToggleSwitch` and delete the local class (kept during the redesign to avoid touching the import dialog's tested code). `underlay_import_dialog.py`, `ui_kit.py`.
+- [ ] [type:maint] Retire the `preferences_dialog.py` re-export shim [P3] [subject:Code Quality]
+  - Details: `preferences_dialog.py` is a thin shim re-exporting from `firepro3d.settings.panes` for back-compat (used by `underlay_import_dialog.py:2522` + several tests). Migrate those importers to `firepro3d.settings.panes` and delete the shim. `preferences_dialog.py`, `underlay_import_dialog.py`, `tests/`.
+- [ ] [type:maint] Settings redesign minor cleanups (seam-review NOTEs + dead default) [P3] [subject:Code Quality]
+  - Details: (a) `apply_template_settings` name overlaps between `paper_space` (text templates) and `settings/template.py` — namespaced at call sites, no collision, but a readability trap; (b) `clone_template_into` doesn't strip the `"template": true` marker (harmless — not wired into startup/new, and a cloned project never re-saves it; add a strip if ever wired); (c) dead `grid_mm` key lingers in `settings/panes._FACTORY_DEFAULTS` (widget removed, a test still asserts the key). `settings/template.py`, `settings/panes.py`.
+
 ## Block System
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
@@ -230,16 +243,10 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: wire type-specific modify tools + the reusable `_build_graphic_override_group` and `_build_placement_group` (both protocol-gated, currently floor/geo2d-only) into the wall/room/roof/pipe/etc. contextual tabs; carry template persistence for wall/roof (floor done). `main.py`, `model_space.py`. ref: ribbon-bar-spec.
 - [ ] [type:feature] Wire paper-scene selection into contextual tabs + add Viewport & Sheet Text tabs [P2] [subject:UX]
   - Details: wire the paper scene's selection into the contextual-tab resolver (model-scene-only today), then add the Viewport tab (scale presets / show-border / delete) and a Sheet Text tab (migrate the Draft→Font group into it). `main.py`, `ribbon_bar.py`, `docs/specs/ribbon-bar.md §3.8`. ref: ribbon-bar-spec D9, paper-space §19.4.
-- [ ] [type:maint] Forge a governing spec for the Preferences dialog [P3] [subject:Documentation]
-  - Details: `preferences_dialog.py` is a new subsystem currently only covered by the design-of-record; promote it to `docs/specs/` + SPEC-INDEX (it's filed in the Orphans table).
 - [ ] [type:bug] Restore the radiation dock on startup + wire ImportPane forward-keys read-back [P3] [subject:UX]
   - Details: `restore_settings` restores browser/properties/hydraulics docks but not radiation; GeneralPane persists a default that has no effect until this is wired. `main.py`.
 - [ ] [type:feature] Generic 3D solid modeling (extrude/hole/boolean) in the Create tab [P3] [subject:Architecture]
   - Details: generic 3D solid modeling (extrude/hole/boolean) in the Create tab.
-- [ ] [type:bug] Normalize the legacy snap dialog's QSettings store + retire the redundant Manage "Snap Settings" button [P3] [subject:UX]
-  - Details: `_open_snap_tolerance_dialog`/`_open_snap_settings` (OSNAP toolbar right-click + Manage "Snap Settings") write `inference/alignment_guides` via bare `QSettings()`; SnappingPane uses `QSettings("GV","FirePro3D")`. Normalize the legacy dialog + retire the redundant Manage "Snap Settings" button (now in Preferences). `main.py`.
-- [ ] [type:feature] Consolidate scattered/legacy settings dialogs into the one Preferences dialog [P3] [subject:UX]
-  - Details: fold remaining scattered/legacy settings dialogs (Project Info, Import/Export, Inference, Display) into the one Preferences dialog; keep the swappable source for the future user-profile settings layer. Re-filed 2026-09-09: the TODO-AUDIT Cluster 5 merge of the "Continue folding scattered settings" + "Unified Settings dialog" tasks was lost when the audit was applied — originals removed, merge never filed. Snap-dialog QSettings normalization tracked separately above. `main.py`, `preferences_dialog.py`.
 
 ## Gridline Revit-aligned UX re-architecture
 
@@ -431,8 +438,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: cosmetic, from U5 Leg B seam review (2026-09-14). Elevation `_halo_resolve` walks ONE parent level (bubble/label child → parent gridline/datum), so hovering the tiny `QGraphicsSimpleTextItem` INSIDE an `_ElevBubble` (a grandchild of the gridline) doesn't light the HALO hover outline. Selection still works (bubbles are small; `_ElevBubble.mousePressEvent` selects the parent). Make `_halo_resolve` walk the full parent chain if it bothers. `elevation_scene.py`.
 - [ ] [type:feature] U5 Leg C — 3D-scene selection + handle providers [P2] [subject:Architecture]
   - Details: pick-ray/actor selection + handle providers for the 3D view. `view_3d.py` is a SPEC-INDEX **orphan** — forge a 3D-view selection governing spec first (orphan gate). Depends on plan-view selection-mode (Leg A, done). `view_3d.py`. ref: selection-manipulator §Unification U5, "Spec session: 3D view selection mode".
-- [ ] [type:feature] Preferences UX-pane reorg — Snapping→UX; SNAP/ALIGN/HALO tabs [P3] [subject:UX]
-  - Details: split out of U5 Leg A. Rename the Snapping pane → **UX**; restructure into SNAP / ALIGN / HALO tabs; remove dead grid-spacing; move angle-snap into SNAP (own container, default 5°). Touches the **orphan** `preferences_dialog.py` — forge its governing spec first (orphan gate; see "Forge a governing spec for the Preferences dialog"). Leg A shipped a minimal third HALO tab (Enable + aperture-px) as the interim home. `preferences_dialog.py`, `main.py`. ref: snap-toolbar.
 - [ ] [type:bug] Ctrl+click over the manipulator frame is swallowed (no additive toggle there) [P2] [subject:UX]
   - Details: PRE-EXISTING, surfaced by the U5 Leg A seam review. The manipulator interior-press guard (`model_space.py` ~4267) routes any press over the frame to the manipulator BEFORE `_press_select_item`, excluding only Shift — so a Ctrl+click additive/toggle landing on the frame never reaches selection once something is selected. Can't simply add Ctrl to the exclusion (a Ctrl+press on a resize handle starts Ctrl-from-centre scale). Needs a design pass distinguishing Ctrl+click-additive (frame interior) from Ctrl+press-on-handle-scale. `model_space.py`, `selection_manipulator.py`.
 - [ ] [type:feature] HALO "pick from list" for dense stacks [P3] [subject:UX]
@@ -575,7 +580,7 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## NFPA 13 Compliance Gaps (from 2026-04-29 gap analysis)
 
-- [ ] [type:feature] Remote area selection mechanism [P1] [subject:Hydraulic Calculator]
+- [ ] [type:feature] Remote area selection mechanism [P3] [subject:Hydraulic Calculator]
   - Details: no way to designate the most-demanding remote area for hydraulic design. Currently uses all design sprinklers equally. Need UI to mark remote area + solver to validate it as most demanding. `hydraulic_solver.py`, `design_area.py`.
 - [ ] [type:feature] Paper space Phase 2 implementation [P2] [subject:Architecture]
   - Details: annotations layer, label/thin-line scaling, layer overrides per viewport, DXF export. Phase 1 (sheet management, sheet views, PDF print) is partial. See `docs/specs/paper-space.md` Phase 2. `paper_space.py`.
