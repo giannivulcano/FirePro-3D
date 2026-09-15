@@ -288,12 +288,15 @@ bar / merges with the content):
    dialog edge (no inset).
 3. **Layout:** a `QHBoxLayout` with `setContentsMargins(0,0,0,0)` **and `setSpacing(0)`** —
    the zero spacing is load-bearing: a non-zero gap exposes the unstyled body behind the
-   rail as a black bar. Left = `SideTabs` (rail, `#stepRail`, `surface` + `border-right`);
-   right = the content `QStackedWidget(objectName="detailsPanel")` (`surface` +
-   `border-left`). The two flush borders form the single grey rail/content separator.
-4. **Content background:** the content stack/panel **must** carry `objectName="detailsPanel"`
-   — a bare `QStackedWidget()` paints the default (black) brush live (transparent only
-   offscreen). This is the #1 recurring defect for this layout.
+   rail as a black bar. Left = `SideTabs` (rail, `#stepRail`, `surface` + `border-right`
+   in `line_strong` — the **single canonical rail/content separator token**); right = the
+   content `QStackedWidget(objectName="railContent")` (`surface`, **no** border of its own,
+   so the seam is one 1px line, not a doubled 2px one).
+4. **Content background:** the rail-adjacent content stack **must** carry a themed
+   objectName — `railContent` (rail-adjacent, no left border) or `detailsPanel` (when a
+   column sits between it and the rail, e.g. Underlay Import's preview). A bare
+   `QStackedWidget()` paints the default (black) brush live (transparent only offscreen) —
+   the #1 recurring defect for this layout.
 5. **Sequential vs not:** use `add_tab(key, label, step_no=N)` for wizards (numbered
    chips); plain `add_tab(key, label)` for non-sequential sections (settings).
 6. Binary on/off controls inside the panes use **`ToggleSwitch`**, never `QCheckBox`

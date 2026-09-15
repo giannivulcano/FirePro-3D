@@ -815,6 +815,9 @@ QFrame#toolbarBar  {{ background: {t.surface}; border-bottom: 1px solid {t.line}
 QFrame#dialogBody  {{ background: {t.surface}; border-top: 1px solid {t.line}; }}
 QFrame#detailsPanel {{ background: {t.surface}; border-left: 1px solid {t.line}; }}
 QStackedWidget#detailsPanel {{ background: {t.surface}; border-left: 1px solid {t.line_strong}; }}
+/* Rail-adjacent content: no own border — the SideTabs rail's border-right (line_strong)
+   is the single canonical rail/content separator (see ui-design-system.md multi-section recipe). */
+QStackedWidget#railContent {{ background: {t.surface}; }}
 
 /* ── Underlay/Block table (tree AND flat view share rules) ──────────────── */
 QTreeView#underlayTable, QTableView#underlayTable {{

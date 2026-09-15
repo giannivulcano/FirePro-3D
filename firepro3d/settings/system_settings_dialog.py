@@ -56,7 +56,7 @@ class SystemSettingsDialog(HouseDialog):
         h.setSpacing(0)   # rail border-right sits flush against content (no black gap)
 
         self._rail = SideTabs()
-        self._stack = QStackedWidget(objectName="detailsPanel")
+        self._stack = QStackedWidget(objectName="railContent")
 
         for key, label in self._TABS:
             self._rail.add_tab(key, label)
