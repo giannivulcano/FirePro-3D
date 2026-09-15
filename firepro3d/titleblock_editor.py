@@ -142,14 +142,17 @@ class _BorderGroup(QGroupBox):
     """
 
     def __init__(self, title: str, parent: QWidget | None = None, *,
-                 show_edges: bool = False):
-        super().__init__(title, parent)
+                 show_edges: bool = False, section: bool = False):
+        super().__init__(parent)
         self._show_edges = show_edges
-        form = QFormLayout(self)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        _FW = 240
+        form_container = QWidget()
+        form = QFormLayout(form_container)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self._visible = ToggleSwitch("")     # house toggle, per standard
-        form.addRow("Visible:", self._visible)
+        form.addRow("Visible", self._visible)
 
         if show_edges:
             edges_row = QHBoxLayout()
@@ -163,24 +166,39 @@ class _BorderGroup(QGroupBox):
                 cb.toggled.connect(self._sync_fillet_enabled)
                 edges_row.addWidget(cb)
             edges_row.addStretch()
-            form.addRow("Edges:", edges_row)
+            form.addRow("Edges", edges_row)
 
         self._width = DimensionEdit(None, initial_mm=0.5,
                                     parser=_sm.parse_dimension, minimum=0.0)
-        form.addRow("Width (mm):", self._width)
+        self._width.setMaximumWidth(_FW)
+        form.addRow("Width (mm)", self._width)
 
         self._color_btn = _make_swatch("#000000", self)
-        form.addRow("Color:", self._color_btn)
+        form.addRow("Color", self._color_btn)
         self._color_btn.clicked.connect(self._pick_color)
 
         self._corner = QComboBox()
         self._corner.addItems(["Sharp", "Fillet"])
-        form.addRow("Corner:", self._corner)
+        self._corner.setMaximumWidth(_FW)
+        form.addRow("Corner", self._corner)
 
         self._fillet = DimensionEdit(None, initial_mm=0.0,
                                      parser=_sm.parse_dimension, minimum=0.0)
-        form.addRow("Fillet radius (mm):", self._fillet)
+        self._fillet.setMaximumWidth(_FW)
+        form.addRow("Fillet radius (mm)", self._fillet)
         self._corner.currentIndexChanged.connect(self._on_corner_changed)
+
+        # Presentation: house Section (uppercase header, no box) for the frame
+        # groups; a titled QGroupBox for the nested Fields "Cell Border".
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        if section:
+            outer.addWidget(Section(title, form_container))
+        else:
+            box = QGroupBox(title)
+            box_layout = QVBoxLayout(box)
+            box_layout.addWidget(form_container)
+            outer.addWidget(box)
 
     def _pick_color(self):
         cur = QColor(self._color_btn.property("_color") or "#000000")
@@ -470,7 +488,7 @@ class TitleBlockEditorDialog(HouseDialog):
         area_layout = QVBoxLayout(area_widget)
         area_layout.setSpacing(6)
 
-        self._area_border = _BorderGroup("Drawing Area Border")
+        self._area_border = _BorderGroup("Drawing Area Border", section=True)
         area_layout.addWidget(self._area_border)
         area_layout.addStretch()
 
@@ -489,7 +507,7 @@ class TitleBlockEditorDialog(HouseDialog):
         # ── Strip border group — lives on the Arrangements tab (DD-17) ─────
         # Constructed here so its change signals wire alongside the area
         # border's; re-parented into the Arrangements tab's third column.
-        self._strip_border = _BorderGroup("Info Strip Border")
+        self._strip_border = _BorderGroup("Info Strip Border", section=True)
 
         # Wire strip border change signals (writes strip_border to working + snapshot)
         self._strip_border._visible.toggled.connect(self._on_border_changed)
