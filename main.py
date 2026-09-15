@@ -2202,45 +2202,41 @@ class MainWindow(QMainWindow):
         self.scene._project_info = edited
         self._push_titleblock_template()
 
-    def _build_preferences_dialog(self):
-        """Construct a ``PreferencesDialog`` with all 6 panes wired to live targets.
+    def _open_system_settings(self) -> None:
+        """Open the System (app-wide) Settings dialog — General/UX/UI/Import."""
+        from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
+        SystemSettingsDialog(
+            scene=getattr(self, "scene", None),
+            view=getattr(self, "view", None),
+            snap_toolbar=getattr(self, "snap_toolbar", None),
+            on_theme_changed=self._apply_theme,
+            on_crosshair_changed=self._apply_crosshair,
+            on_immersive_changed=self._apply_immersive,
+            parent=self,
+        ).exec()
 
-        This is a factory (non-exec); call ``dlg.exec()`` yourself — or use
-        ``_open_preferences()`` for the normal open-and-block path.
+    def _on_project_settings_changed(self) -> None:
+        """Refresh labels and mark the project modified after units/info change."""
+        if getattr(self, "scene", None) is not None:
+            self.scene._refresh_all_labels()
+        self._modified = True
+        self._update_title()
 
-        Returns:
-            A fully wired :class:`~firepro3d.preferences_dialog.PreferencesDialog`.
-        """
-        from firepro3d.preferences_dialog import (
-            PreferencesDialog,
-            SnappingPane,
-            UnitsPane,
-            ImportPane,
-            GeneralPane,
-            UIPane,
-            ProjectInfoPane,
-        )
-        panes = [
-            SnappingPane(
-                scene=getattr(self, "scene", None),
-                view=getattr(self, "view", None),
-                snap_toolbar=getattr(self, "snap_toolbar", None),
-            ),
-            UnitsPane(
-                scale_manager=getattr(getattr(self, "scene", None), "scale_manager", None),
-                on_changed=getattr(self, "scene", None) and self.scene._refresh_all_labels,
-            ),
-            ImportPane(),
-            GeneralPane(),
-            UIPane(on_theme_changed=self._apply_theme,
-                   on_crosshair_changed=self._apply_crosshair,
-                   on_immersive_changed=self._apply_immersive),
-            ProjectInfoPane(
-                get_info=self._get_project_info,
-                set_info=self._set_project_info,
-            ),
-        ]
-        return PreferencesDialog(panes, parent=self)
+    def _open_project_settings(self) -> None:
+        """Open the Project (per-.fpd) Settings dialog — Project Info/Units."""
+        from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog
+        ProjectSettingsDialog(
+            scene=self.scene,
+            get_info=self._get_project_info,
+            set_info=self._set_project_info,
+            on_changed=self._on_project_settings_changed,
+            parent=self,
+        ).exec()
+
+    def _open_preferences(self) -> None:
+        # Interim: single ribbon button opens System Settings.
+        # Split into two ribbon buttons in the ribbon phase.
+        self._open_system_settings()
 
     def _apply_theme(self) -> None:
         """Re-apply the app + ribbon stylesheets for the current theme preference.

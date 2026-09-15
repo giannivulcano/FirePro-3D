@@ -1,7 +1,8 @@
 """Tests for the settings package refactor.
 
-Verifies that panes are importable from firepro3d.settings.panes and that
-firepro3d.preferences_dialog still re-exports everything tests depend on.
+Verifies that panes are importable from firepro3d.settings.panes, that
+firepro3d.preferences_dialog still re-exports everything tests depend on,
+and that the new SystemSettingsDialog / ProjectSettingsDialog work correctly.
 """
 
 
@@ -37,3 +38,43 @@ def test_uxpane_snap_has_angle_no_grid(qapp):
     p = UXPane()
     assert hasattr(p, "_angle_spin")
     assert not hasattr(p, "_grid_edit")   # grid-spacing removed
+
+
+# ── New dialog tests ─────────────────────────────────────────────────────────
+
+def test_system_settings_dialog_rail(qapp, make_model_space):
+    from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
+    # make_model_space() returns a Model_Space (factory); the view is attached
+    # internally but not returned.
+    scene = make_model_space()
+    view = getattr(scene, "_view_for_test", None)
+    dlg = SystemSettingsDialog(scene=scene, view=view, snap_toolbar=None)
+    assert dlg.rail_keys() == ["general", "ux", "ui", "import"]
+    assert dlg._stack.count() == 4
+    dlg.deleteLater()
+
+
+def test_project_settings_dialog_rail_and_save_default(
+        qapp, model_scene, tmp_path, monkeypatch):
+    from firepro3d import app_data
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog
+    scene = model_scene()
+    dlg = ProjectSettingsDialog(
+        scene=scene, get_info=lambda: {}, set_info=lambda d: None,
+    )
+    assert dlg.rail_keys() == ["project_info", "units"]
+    # Drive the dialog widget so _apply_all() in _on_save_default() commits
+    # the right value to the scene (not a direct scene mutation).
+    units_pane = dlg._panes["units"]
+    combo = units_pane._unit_combo
+    imperial_idx = next(
+        i for i in range(combo.count())
+        if combo.itemText(i).startswith("Imperial")
+    )
+    combo.setCurrentIndex(imperial_idx)
+    dlg._on_save_default()
+    import os, json
+    with open(os.path.join(str(tmp_path), "default.fpdt")) as f:
+        assert json.load(f)["scale"]["display_unit"] == "imperial"
+    dlg.deleteLater()
