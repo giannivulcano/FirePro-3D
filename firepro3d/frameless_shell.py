@@ -125,6 +125,7 @@ class FramelessShellMixin:
         self._resize_origin = None
         self._resize_geom = None
         self._win_controls = {}
+        self._resize_filter_installed = False
         if resizable:
             self.setMouseTracking(True)
         if build_titlebar:
@@ -232,7 +233,58 @@ class FramelessShellMixin:
         self._resize_edge = None
         self._resize_origin = None
         self._resize_geom = None
+        if self.mouseGrabber() is self:
+            self.releaseMouse()
         super().mouseReleaseEvent(event)
+
+    # ── resize-edge cursor over child widgets ────────────────────────────────
+    # Child widgets fill the dialog and would otherwise intercept the hover, so
+    # the resize cursor never appears at the edges. An event filter (installed on
+    # every child for resizable dialogs only) applies the resize cursor to the
+    # hovered child near an edge and routes an edge-press through grabMouse so the
+    # dialog's own move/release handlers perform the resize.
+    _EDGE_CURSORS = {
+        "t": Qt.CursorShape.SizeVerCursor,  "b": Qt.CursorShape.SizeVerCursor,
+        "l": Qt.CursorShape.SizeHorCursor,  "r": Qt.CursorShape.SizeHorCursor,
+        "tl": Qt.CursorShape.SizeFDiagCursor, "br": Qt.CursorShape.SizeFDiagCursor,
+        "tr": Qt.CursorShape.SizeBDiagCursor, "bl": Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def _install_resize_filter(self):
+        if self._resize_filter_installed or not self._resizable:
+            return
+        from PyQt6.QtWidgets import QWidget
+        for w in self.findChildren(QWidget):
+            w.setMouseTracking(True)
+            w.installEventFilter(self)
+        self._resize_filter_installed = True
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if self._resizable and not self.isMaximized():
+            et = event.type()
+            if (et == QEvent.Type.MouseMove
+                    and not (event.buttons() & Qt.MouseButton.LeftButton)):
+                local = self.mapFromGlobal(
+                    obj.mapToGlobal(event.position().toPoint()))
+                edge = self._edge_at(local)
+                cur = self._EDGE_CURSORS.get(edge)
+                if cur is not None:
+                    obj.setCursor(cur)
+                else:
+                    obj.unsetCursor()
+            elif (et == QEvent.Type.MouseButtonPress
+                    and event.button() == Qt.MouseButton.LeftButton):
+                local = self.mapFromGlobal(
+                    obj.mapToGlobal(event.position().toPoint()))
+                edge = self._edge_at(local)
+                if edge:
+                    self._resize_edge = edge
+                    self._resize_origin = event.globalPosition().toPoint()
+                    self._resize_geom = self.geometry()
+                    self.grabMouse()
+                    return True
+        return super().eventFilter(obj, event)
 
     def mouseDoubleClickEvent(self, event):
         tb = getattr(self, "_titlebar", None)
@@ -311,6 +363,7 @@ class FramelessShellMixin:
     def showEvent(self, event):
         super().showEvent(event)
         self._enable_rounded_corners()
+        self._install_resize_filter()
 
     def _enable_rounded_corners(self):
         """Win11 DWM rounded corners for the frameless window (matches the

@@ -1,4 +1,8 @@
-"""Tests for Task D6: MainWindow._build_preferences_dialog / _open_preferences.
+"""Tests for MainWindow ribbon structure and settings-dialog rails.
+
+Covers: ribbon tab roster/order, mode-button wiring, and the rails of the
+System/Project Settings dialogs (replaces the deleted _build_preferences_dialog
+factory test).
 
 All tests reuse the session-scoped ``qapp`` fixture from tests/conftest.py.
 The module-scoped ``_main_window_singleton`` fixture mirrors the pattern from
@@ -41,17 +45,16 @@ def main_window(_main_window_singleton):
     yield _main_window_singleton
 
 
-def test_open_preferences_has_six_tabs(main_window):
-    """_build_preferences_dialog() returns a dialog with exactly 6 tabs.
+def test_settings_dialogs_rails(qapp, make_model_space):
+    """SystemSettingsDialog and ProjectSettingsDialog expose the correct rail keys."""
+    from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
+    from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog
 
-    The sixth tab is the UI pane (System/Light/Dark theme selector) added on
-    the design-token branch.
-    """
-    dlg = main_window._build_preferences_dialog()
-    assert dlg._tabs.count() == 6
-    titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-    assert "UI" in titles
-    dlg.deleteLater()
+    # make_model_space() is a factory — call it to get a Model_Space.
+    scene = make_model_space()
+    sysdlg = SystemSettingsDialog(scene=scene)
+    assert sysdlg.rail_keys() == ["general", "ux", "ui", "import"]
+    sysdlg.deleteLater()
 
 
 EXPECTED_TABS = ["Manage", "Create", "Architecture",

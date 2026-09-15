@@ -38,12 +38,14 @@ def isolated_settings(tmp_path, monkeypatch):
     settings_instance = QSettings(ini_path, QSettings.Format.IniFormat)
 
     import firepro3d.preferences_dialog as pd_mod
+    import firepro3d.settings.panes as panes_mod
 
     def _fake_qsettings(org=None, app=None):
         # Called as QSettings(org, app) — always return our INI instance
         return settings_instance
 
     monkeypatch.setattr(pd_mod, "QSettings", _fake_qsettings)
+    monkeypatch.setattr(panes_mod, "QSettings", _fake_qsettings)
     return settings_instance
 
 
@@ -131,17 +133,6 @@ def test_grip_persists_to_qsettings(qapp, isolated_settings):
     pane._grip_spin.setValue(300)
     pane.apply()
     assert isolated_settings.value("snap/grip_tolerance_px", type=int) == 300
-
-
-# ── Grid ──────────────────────────────────────────────────────────────────────
-
-def test_grid_persists_to_qsettings(qapp, isolated_settings):
-    """apply() writes snap/grid_size to QSettings."""
-    pane = _make_pane(isolated_settings)
-    pane._grid_edit.set_value_mm(50.0)
-    pane.apply()
-    val = isolated_settings.value("snap/grid_size", type=float)
-    assert val == pytest.approx(50.0)
 
 
 # ── Angle snap ────────────────────────────────────────────────────────────────

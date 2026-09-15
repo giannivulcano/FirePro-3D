@@ -26,13 +26,13 @@ _ALL_ATTRS = [
 
 class _StubMainWindow:
     """Minimal stand-in: the toolbar only needs .settings and
-    ._open_snap_tolerance_dialog from its owning window."""
+    ._open_system_settings from its owning window."""
 
     def __init__(self, settings):
         self.settings = settings
         self.dialog_opened = False
 
-    def _open_snap_tolerance_dialog(self):
+    def _open_system_settings(self):
         self.dialog_opened = True
 
 

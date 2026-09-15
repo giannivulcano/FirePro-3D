@@ -6,7 +6,7 @@ applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
   - firepro3d/icons.py
-  - firepro3d/preferences_dialog.py
+  # settings dialog internals now governed by specs/settings-dialog.md (this spec owns only the ribbon Settings-group surface that opens it)
   - main.py (init_ribbon + _init_*_tab helpers + contextual-tab mechanism + mode-button sync)
 source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (orphan-gate spec forged on first touch); ribbon-overhaul 2026-08-22 (7 tabs + contextual + Preferences + icons)"
 ---

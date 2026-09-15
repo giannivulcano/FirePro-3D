@@ -27,11 +27,13 @@ from firepro3d.constants import (
 def patched_qsettings(tmp_settings, monkeypatch):
     """Redirect the pane's internal QSettings(org, app) to the temp INI."""
     import firepro3d.preferences_dialog as pd_mod
+    import firepro3d.settings.panes as panes_mod
 
     def _fake_qsettings(org=None, app=None):
         return tmp_settings
 
     monkeypatch.setattr(pd_mod, "QSettings", _fake_qsettings)
+    monkeypatch.setattr(panes_mod, "QSettings", _fake_qsettings)
     return tmp_settings
 
 

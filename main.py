@@ -312,7 +312,7 @@ class _SnapToolbar(QToolBar):
         menu.addAction("Disable All", lambda: self._set_all(False))
         menu.addSeparator()
         menu.addAction("Snap Settings…",
-                       self._main_window._open_snap_tolerance_dialog)
+                       self._main_window._open_system_settings)
         menu.exec(event.globalPos())
 
 
@@ -361,6 +361,12 @@ class MainWindow(QMainWindow):
         self.current_opening_template = WallOpening(wall=None, feature_id="door_914")
         self._current_file: str | None = None
         self._modified: bool = False
+        # Init True so a premature showEvent (e.g. immersive showMaximized() fired
+        # inside restore_settings, before the cold-start block builds the views)
+        # SKIPS the deferred fit; the cold-start block re-arms it to False so the
+        # real post-__init__ window.show() performs the fit. (Fixes an AttributeError
+        # crash when "Maximize window on startup" is enabled — pre-existing.)
+        self._initial_fit_done = True
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
         self._last_feature: dict[str, str] = {}  # type_ → last-used feature id
@@ -744,7 +750,8 @@ class MainWindow(QMainWindow):
         self._create_elevation_markers()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
-        self._apply_persistent_unit_prefs()
+        from firepro3d.settings import template as _settings_template
+        _settings_template.apply_template_settings(self.scene)
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -802,9 +809,10 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
-        # Maximized window — after restoreGeometry/State so it wins.
-        if self.settings.value("ui/immersive", False, type=bool):
-            self.showMaximized()
+        # Maximized window ("Maximize on startup"). Applied on the real first
+        # showEvent, NOT here: main() calls window.resize(800, 600) after __init__
+        # and before show(), which would clobber a showMaximized() called now.
+        self._start_maximized = self.settings.value("ui/immersive", False, type=bool)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -863,8 +871,6 @@ class MainWindow(QMainWindow):
             perpendicular=self.settings.value("align/dir_perpendicular",
                                               ALIGN_DIR_PERPENDICULAR_DEFAULT,
                                               type=bool))
-        # Restore display unit and precision from user preference
-        self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
         if self.settings.contains("template/pipe"):
             pipe_props = self.settings.value("template/pipe", {})
@@ -908,20 +914,6 @@ class MainWindow(QMainWindow):
         # names + absolute-Z re-seed from the active level inside the helper.
         self.scene.load_floor_template_settings(self.settings)
 
-    def _apply_persistent_unit_prefs(self):
-        """Override the scale manager's display unit and precision with the
-        user's persistent QSettings preference.  Called after project load
-        so the file's stored units don't override the user's choice."""
-        if self.settings.contains("display/unit"):
-            unit_str = self.settings.value("display/unit", "mm", type=str)
-            try:
-                self.scene.scale_manager.display_unit = DisplayUnit(unit_str)
-            except ValueError:
-                pass
-        if self.settings.contains("display/precision"):
-            self.scene.scale_manager.precision = self.settings.value(
-                "display/precision", 3, type=int)
-
     def showEvent(self, event):
         """Fit the view after the window is fully shown for the first time."""
         super().showEvent(event)
@@ -930,6 +922,10 @@ class MainWindow(QMainWindow):
             # Open Plan: Level 1 as the default view
             from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
+            # "Maximize on startup" — applied here (after main()'s resize) so it
+            # actually fits the screen instead of being clobbered.
+            if getattr(self, "_start_maximized", False):
+                self.showMaximized()
 
     def _switch_sheet(self, sheet):
         """Make *sheet* the active sheet and rebind the canonical widget.
@@ -1516,9 +1512,13 @@ class MainWindow(QMainWindow):
         # --- Settings ---
         g_set = manage_page.add_group("Settings")
         _btn = g_set.add_large_button(
-            "Preferences", _I("info_icon.svg"),
-            self._open_preferences)
-        _btn.setToolTip("Open application preferences")
+            "System Settings", _I("settings_system_icon.svg"),
+            self._open_system_settings)
+        _btn.setToolTip("Application-wide settings (General / UX / UI / Import)")
+        _btn = g_set.add_large_button(
+            "Project Settings", _I("settings_project_icon.svg"),
+            self._open_project_settings)
+        _btn.setToolTip("Settings for the current project (Project Info / Units)")
 
         # --- Edit (Undo/Redo always accessible) ---
         g_edit = manage_page.add_group("Edit")
@@ -1544,11 +1544,6 @@ class MainWindow(QMainWindow):
             _I("placeholder_icon.svg"),
             self._build_snap_angle_menu())
         _btn.setToolTip("Set Ctrl-drag angle snap increment")
-        _btn = g_snap.add_small_button(
-            "Snap\nSettings",
-            _I("placeholder_icon.svg"),
-            self._open_snap_tolerance_dialog)
-        _btn.setToolTip("Adjust snap tolerance and type settings")
         # Toggle for the SNAP snap-type toolbar (hidden on first launch).
         self._snap_bar_btn = g_snap.add_small_button(
             "SNAP\nBar",
@@ -2217,45 +2212,36 @@ class MainWindow(QMainWindow):
         self.scene._project_info = edited
         self._push_titleblock_template()
 
-    def _build_preferences_dialog(self):
-        """Construct a ``PreferencesDialog`` with all 6 panes wired to live targets.
+    def _open_system_settings(self) -> None:
+        """Open the System (app-wide) Settings dialog — General/UX/UI/Import."""
+        from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
+        SystemSettingsDialog(
+            scene=getattr(self, "scene", None),
+            view=getattr(self, "view", None),
+            snap_toolbar=getattr(self, "snap_toolbar", None),
+            on_theme_changed=self._apply_theme,
+            on_crosshair_changed=self._apply_crosshair,
+            on_immersive_changed=self._apply_immersive,
+            parent=self,
+        ).exec()
 
-        This is a factory (non-exec); call ``dlg.exec()`` yourself — or use
-        ``_open_preferences()`` for the normal open-and-block path.
+    def _on_project_settings_changed(self) -> None:
+        """Refresh labels and mark the project modified after units/info change."""
+        if getattr(self, "scene", None) is not None:
+            self.scene._refresh_all_labels()
+        self._modified = True
+        self._update_title()
 
-        Returns:
-            A fully wired :class:`~firepro3d.preferences_dialog.PreferencesDialog`.
-        """
-        from firepro3d.preferences_dialog import (
-            PreferencesDialog,
-            SnappingPane,
-            UnitsPane,
-            ImportPane,
-            GeneralPane,
-            UIPane,
-            ProjectInfoPane,
-        )
-        panes = [
-            SnappingPane(
-                scene=getattr(self, "scene", None),
-                view=getattr(self, "view", None),
-                snap_toolbar=getattr(self, "snap_toolbar", None),
-            ),
-            UnitsPane(
-                scale_manager=getattr(getattr(self, "scene", None), "scale_manager", None),
-                on_changed=getattr(self, "scene", None) and self.scene._refresh_all_labels,
-            ),
-            ImportPane(),
-            GeneralPane(),
-            UIPane(on_theme_changed=self._apply_theme,
-                   on_crosshair_changed=self._apply_crosshair,
-                   on_immersive_changed=self._apply_immersive),
-            ProjectInfoPane(
-                get_info=self._get_project_info,
-                set_info=self._set_project_info,
-            ),
-        ]
-        return PreferencesDialog(panes, parent=self)
+    def _open_project_settings(self) -> None:
+        """Open the Project (per-.fpd) Settings dialog — Project Info/Units."""
+        from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog
+        ProjectSettingsDialog(
+            scene=self.scene,
+            get_info=self._get_project_info,
+            set_info=self._set_project_info,
+            on_changed=self._on_project_settings_changed,
+            parent=self,
+        ).exec()
 
     def _apply_theme(self) -> None:
         """Re-apply the app + ribbon stylesheets for the current theme preference.
@@ -2297,247 +2283,6 @@ class MainWindow(QMainWindow):
         else:
             self.showNormal()
 
-    def _open_preferences(self) -> None:
-        """Open the unified Preferences dialog and block until closed."""
-        self._build_preferences_dialog().exec()
-
-    # ── Snap Settings ────────────────────────────────────────────────────────
-
-    def _open_snap_settings(self):
-        """Open dialog to configure grid spacing and angle snap increment."""
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Snap Settings")
-        dlg.setMinimumWidth(300)
-        layout = QFormLayout(dlg)
-
-        grid_spin = QDoubleSpinBox()
-        grid_spin.setRange(1, 1000)
-        grid_spin.setDecimals(1)
-        grid_spin.setValue(self.view._grid_size)
-        grid_spin.setSuffix(" mm")
-        layout.addRow("Grid spacing:", grid_spin)
-
-        angle_spin = QDoubleSpinBox()
-        angle_spin.setRange(1, 90)
-        angle_spin.setDecimals(1)
-        angle_spin.setValue(self.scene._snap_angle_deg)
-        angle_spin.setSuffix("°")
-        layout.addRow("Angle snap:", angle_spin)
-
-        # Angle presets
-        preset_combo = QComboBox()
-        preset_combo.addItems(["15", "30", "45", "90"])
-        idx = preset_combo.findText(str(int(self.scene._snap_angle_deg)))
-        if idx >= 0:
-            preset_combo.setCurrentIndex(idx)
-        preset_combo.currentTextChanged.connect(
-            lambda t: angle_spin.setValue(float(t)))
-        layout.addRow("Angle preset:", preset_combo)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_grid = grid_spin.value()
-            new_angle = angle_spin.value()
-            self.view.set_grid(self.view._grid_visible, new_grid)
-            self.scene._snap_angle_deg = new_angle
-            # Persist
-            self.settings.setValue("snap/grid_size", new_grid)
-            self.settings.setValue("snap/angle_deg", new_angle)
-
-    def _open_snap_tolerance_dialog(self, modal: bool = True):
-        """Live-adjustable snap settings dialog with per-type toggles.
-
-        Args:
-            modal: When True (default), shows the dialog via exec() and blocks.
-                When False, builds and returns the dialog without calling exec()
-                (test seam — mirrors how other dialogs expose a non-modal path).
-
-        Returns:
-            The QDialog instance (always).  In modal mode the dialog has
-            already been exec()'d and closed before the return.
-        """
-        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                      QDialogButtonBox, QGroupBox, QCheckBox,
-                                      QTabWidget, QWidget, QLabel)
-        from firepro3d import snap_engine
-
-        eng = self.scene._snap_engine
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Snap Settings")
-        dlg.setMinimumWidth(340)
-        outer = QVBoxLayout(dlg)
-
-        tabs = QTabWidget()
-        outer.addWidget(tabs)
-
-        # ── Tab 1: SNAP ──────────────────────────────────────────────
-        snap_tab = QWidget()
-        snap_layout = QVBoxLayout(snap_tab)
-
-        # Tolerance
-        tol_group = QGroupBox("Tolerance")
-        tol_layout = QFormLayout(tol_group)
-        tol_spin = QSpinBox()
-        tol_spin.setRange(5, 1000)
-        tol_spin.setSingleStep(5)
-        tol_spin.setValue(snap_engine.SNAP_TOLERANCE_PX)
-        tol_spin.setSuffix(" px")
-        tol_spin.valueChanged.connect(
-            lambda v: setattr(snap_engine, "SNAP_TOLERANCE_PX", v))
-        tol_layout.addRow("Snap radius:", tol_spin)
-
-        grip_spin = QSpinBox()
-        grip_spin.setRange(100, 1000)
-        grip_spin.setSingleStep(50)
-        grip_spin.setValue(int(getattr(self.scene, "_grip_tolerance_px", 200)))
-        grip_spin.setSuffix(" px")
-        grip_spin.valueChanged.connect(
-            lambda v: setattr(self.scene, "_grip_tolerance_px", v))
-        tol_layout.addRow("Grip handle radius:", grip_spin)
-        snap_layout.addWidget(tol_group)
-
-        # Snap types
-        types_group = QGroupBox("Snap Types")
-        types_layout = QVBoxLayout(types_group)
-
-        snap_types = [
-            ("Endpoint",      "snap_endpoint"),
-            ("Midpoint",      "snap_midpoint"),
-            ("Intersection",  "snap_intersection"),
-            ("Center",        "snap_center"),
-            ("Quadrant",      "snap_quadrant"),
-            ("Nearest",       "snap_nearest"),
-            ("Perpendicular", "snap_perpendicular"),
-            ("Tangent",       "snap_tangent"),
-        ]
-
-        checkboxes: list[tuple[QCheckBox, str]] = []
-        for label, attr in snap_types:
-            cb = QCheckBox(label)
-            cb.setChecked(getattr(eng, attr, True))
-            cb.toggled.connect(
-                lambda v, a=attr: setattr(eng, a, v))  # a=attr captures per-iter
-            types_layout.addWidget(cb)
-            checkboxes.append((cb, attr))
-
-        snap_layout.addWidget(types_group)
-        tabs.addTab(snap_tab, "SNAP")
-
-        # ── Tab 2: ALIGN ─────────────────────────────────────────────
-        inf_tab = QWidget()
-        inf_layout = QVBoxLayout(inf_tab)
-
-        align_cb = QCheckBox("ALIGN")
-        align_cb.setObjectName("align_enabled")
-        align_cb.setChecked(self.scene.get_align_enabled())
-        align_cb.toggled.connect(
-            lambda checked: (
-                self.scene.set_align_enabled(checked),
-                QSettings().setValue("align/enabled", checked),
-            )
-        )
-        inf_layout.addWidget(align_cb)
-
-        coming_soon_group = QGroupBox("Dynamic Input · Equal Spacing")
-        coming_soon_group.setEnabled(False)
-        cs_layout = QVBoxLayout(coming_soon_group)
-        cs_label = QLabel("Coming soon")
-        cs_label.setStyleSheet("color: #888;")
-        cs_layout.addWidget(cs_label)
-        inf_layout.addWidget(coming_soon_group)
-        inf_layout.addStretch()
-
-        tabs.addTab(inf_tab, "ALIGN")
-
-        # ── Tab 3: HALO ──────────────────────────────────────────────
-        # Minimal enable toggle only; the full HALO UX pane is a deferred
-        # task. Bound to the same halo/enabled setting + scene.halo_enabled
-        # as the status-bar pill, and keeps the pill in sync.
-        halo_tab = QWidget()
-        halo_layout = QVBoxLayout(halo_tab)
-        halo_cb = QCheckBox("Enable HALO")
-        halo_cb.setObjectName("halo_enabled")
-        halo_cb.setChecked(bool(self.scene.halo_enabled))
-        halo_cb.toggled.connect(
-            lambda checked: (
-                setattr(self.scene, "halo_enabled", checked),
-                self.settings.setValue("halo/enabled", checked),
-                self._halo_pill.setChecked(checked),
-                [v.viewport().update() for v in self.scene.views()],
-            )
-        )
-        halo_layout.addWidget(halo_cb)
-
-        # Aperture (pick tolerance) — px half-size of the HALO pick box. Writes
-        # halo/aperture_px and updates scene._halo_aperture_px live (the view
-        # reads it each mouse move).
-        from firepro3d.constants import HALO_APERTURE_PX
-        ap_row = QHBoxLayout()
-        ap_row.addWidget(QLabel("Aperture (px):"))
-        ap_spin = QSpinBox()
-        ap_spin.setObjectName("halo_aperture_px")
-        ap_spin.setRange(2, 20)
-        ap_spin.setValue(int(getattr(self.scene, "_halo_aperture_px",
-                                     HALO_APERTURE_PX)))
-        ap_spin.valueChanged.connect(
-            lambda v: (
-                setattr(self.scene, "_halo_aperture_px", int(v)),
-                self.settings.setValue("halo/aperture_px", int(v)),
-            )
-        )
-        ap_row.addWidget(ap_spin)
-        ap_row.addStretch()
-        halo_layout.addLayout(ap_row)
-
-        halo_layout.addStretch()
-        tabs.addTab(halo_tab, "HALO")
-
-        # ── Buttons ──────────────────────────────────────────────────
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        outer.addWidget(buttons)
-
-        if not modal:
-            return dlg
-
-        # Snapshot for cancel
-        old_tol = snap_engine.SNAP_TOLERANCE_PX
-        old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
-        old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        old_align_enabled = self.scene.get_align_enabled()
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Persist SNAP settings
-            self.settings.setValue("snap/tolerance_px", snap_engine.SNAP_TOLERANCE_PX)
-            self.settings.setValue("snap/grip_tolerance_px",
-                                  getattr(self.scene, "_grip_tolerance_px", 200))
-            for _, attr in checkboxes:
-                self.settings.setValue(f"snap/{attr}", getattr(eng, attr))
-            # ALIGN setting already saved live via the checkbox toggled signal
-        else:
-            # Revert SNAP
-            snap_engine.SNAP_TOLERANCE_PX = old_tol
-            self.scene._grip_tolerance_px = old_grip
-            for attr, val in old_flags.items():
-                setattr(eng, attr, val)
-            # Revert ALIGN
-            self.scene.set_align_enabled(old_align_enabled)
-            QSettings().setValue("align/enabled", old_align_enabled)
-
-        # Keep the SNAP toolbar in sync with whatever the dialog left set.
-        self.snap_toolbar.refresh_from_engine()
-        return dlg
-
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
     def _build_units_menu(self) -> QMenu:
@@ -2552,7 +2297,8 @@ class MainWindow(QMainWindow):
 
     def _set_display_unit(self, unit):
         self.scene.set_display_unit(unit)
-        self.settings.setValue("display/unit", unit.value)
+        self._modified = True
+        self._update_title()
 
     def _build_precision_menu(self) -> QMenu:
         m = QMenu(self)
@@ -3955,8 +3701,6 @@ class MainWindow(QMainWindow):
             from firepro3d.constants import DEFAULT_LEVEL
             active = DEFAULT_LEVEL
         self._activate_plan_view(active)
-        # Override display unit and precision with user's persistent preference
-        self._apply_persistent_unit_prefs()
         # Restore sheet from loaded project, resolver first so rebuilt
         # viewports capture it (resolver-rebind fix).
         self._view_resolver = ViewResolver(
@@ -4128,7 +3872,8 @@ class MainWindow(QMainWindow):
         # Apply saved display defaults to the new project
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
-        self._apply_persistent_unit_prefs()
+        from firepro3d.settings import template as _settings_template
+        _settings_template.apply_template_settings(self.scene)
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -4330,7 +4075,8 @@ class MainWindow(QMainWindow):
     def _set_precision(self, places: int):
         self.scene.scale_manager.precision = places
         self.scene._refresh_all_labels()
-        self.settings.setValue("display/precision", places)
+        self._modified = True
+        self._update_title()
 
     # ─────────────────────────────────────────────────────────────────────────
     # HYDRAULICS HELPERS
