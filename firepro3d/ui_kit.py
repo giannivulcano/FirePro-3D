@@ -183,6 +183,7 @@ class ToggleSwitch(QWidget):
 
     def __init__(self, label, checked=False, parent=None):
         super().__init__(parent)
+        self._label_text = label
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(M.SM)
@@ -201,6 +202,10 @@ class ToggleSwitch(QWidget):
 
     def setChecked(self, on):
         self._sw.setChecked(on)
+
+    def text(self) -> str:
+        """Return the label text (mirrors QCheckBox.text() for compatibility)."""
+        return self._label_text
 
 
 class Pill(QPushButton):

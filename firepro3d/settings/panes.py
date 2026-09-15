@@ -12,7 +12,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+    QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QPushButton, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
@@ -24,6 +24,7 @@ from firepro3d.constants import (
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
 )
 from firepro3d.app_data import default_root, ROOT_KEY as _DATA_ROOT_KEY
+from firepro3d.ui_kit import ToggleSwitch
 
 
 class SettingsPane(QWidget):
@@ -160,9 +161,9 @@ class UXPane(SettingsPane):
         # Snap types group
         types_group = QGroupBox("Snap Types")
         types_layout = QVBoxLayout(types_group)
-        self._snap_cbs: dict[str, QCheckBox] = {}
+        self._snap_cbs: dict[str, ToggleSwitch] = {}
         for label, attr in _SNAP_TYPES:
-            cb = QCheckBox(label)
+            cb = ToggleSwitch(label)
             types_layout.addWidget(cb)
             self._snap_cbs[attr] = cb
         snap_layout.addWidget(types_group)
@@ -174,7 +175,7 @@ class UXPane(SettingsPane):
         align_page = QWidget()
         align_layout = QVBoxLayout(align_page)
 
-        self._align_cb = QCheckBox("ALIGN (master on/off · F11)")
+        self._align_cb = ToggleSwitch("ALIGN (master on/off · F11)")
         self._align_cb.setObjectName("align_enabled")
         align_layout.addWidget(self._align_cb)
 
@@ -204,10 +205,10 @@ class UXPane(SettingsPane):
         # Per-direction ray-kind toggles
         dir_group = QGroupBox("Tracking Directions")
         dir_layout = QVBoxLayout(dir_group)
-        self._align_hv_cb = QCheckBox("Horizontal / Vertical")
-        self._align_ext_cb = QCheckBox("Extension (collinear)")
-        self._align_par_cb = QCheckBox("Parallel")
-        self._align_perp_cb = QCheckBox("Perpendicular")
+        self._align_hv_cb = ToggleSwitch("Horizontal / Vertical")
+        self._align_ext_cb = ToggleSwitch("Extension (collinear)")
+        self._align_par_cb = ToggleSwitch("Parallel")
+        self._align_perp_cb = ToggleSwitch("Perpendicular")
         for cb in (self._align_hv_cb, self._align_ext_cb, self._align_par_cb,
                    self._align_perp_cb):
             dir_layout.addWidget(cb)
@@ -223,7 +224,7 @@ class UXPane(SettingsPane):
         halo_group = QGroupBox("Halo Selection")
         halo_form = QFormLayout(halo_group)
 
-        self._halo_enable = QCheckBox("Enable halo highlight")
+        self._halo_enable = ToggleSwitch("Enable halo highlight")
         self._halo_enable.setChecked(True)
         halo_form.addRow(self._halo_enable)
 
@@ -875,7 +876,7 @@ class GeneralPane(SettingsPane):
     def __init__(self, parent=None):
         super().__init__("General", parent)
         self._snapshot: dict = {}
-        self._dock_checks: dict[str, QCheckBox] = {}
+        self._dock_checks: dict[str, ToggleSwitch] = {}
         self._build_ui()
 
     # ── UI construction ──────────────────────────────────────────────────────
@@ -888,7 +889,7 @@ class GeneralPane(SettingsPane):
 
         for label, _key, _default in _DOCK_ITEMS:
             short_key = _key.split("/", 1)[1]  # "browser", "properties", etc.
-            cb = QCheckBox(label)
+            cb = ToggleSwitch(label)
             cb.setChecked(_default)
             dock_layout.addWidget(cb)
             self._dock_checks[short_key] = cb
@@ -1016,10 +1017,10 @@ class UIPane(SettingsPane):
             self._theme_combo.addItem(label)
         form.addRow("Theme:", self._theme_combo)
 
-        self._crosshair_cb = QCheckBox("Show crosshair cursor")
+        self._crosshair_cb = ToggleSwitch("Show crosshair cursor")
         form.addRow(self._crosshair_cb)
 
-        self._immersive_cb = QCheckBox("Maximize window on startup")
+        self._immersive_cb = ToggleSwitch("Maximize window on startup")
         form.addRow(self._immersive_cb)
 
         hint = QLabel(
