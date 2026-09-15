@@ -19,6 +19,21 @@ from tests.test_titleblock_arrange import _drag_on_canvas, _mouse
 _app = QApplication.instance() or QApplication([])
 
 
+def _roster_count(dlg):
+    """Number of rows in the Fields roster rail."""
+    return len(dlg._field_ids)
+
+
+def _roster_text(dlg, i):
+    """Label text of roster row *i* (e.g. '● Sheet Title')."""
+    return dlg._field_rail._rows[dlg._field_ids[i]]._name.text()
+
+
+def _roster_id(dlg, i):
+    """Field id backing roster row *i*."""
+    return dlg._field_ids[i]
+
+
 class TestEditorSession:
     def _dlg(self, tmp_path, monkeypatch, template=None):
         monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
@@ -823,9 +838,9 @@ class TestFieldsTab:
         """All fields should appear in the roster; seeded default has all placed (●)."""
         dlg = self._dlg(tmp_path, monkeypatch)
         lay = dlg.working.layout
-        assert dlg._field_list.count() == len(lay.fields)
-        assert all("●" in dlg._field_list.item(i).text()
-                   for i in range(dlg._field_list.count()))
+        assert _roster_count(dlg) == len(lay.fields)
+        assert all("●" in _roster_text(dlg, i)
+                   for i in range(_roster_count(dlg)))
 
     def test_new_field_starts_unplaced(self, tmp_path, monkeypatch):
         """New fields start unplaced (○ indicator, id not in placed_ids)."""
@@ -835,12 +850,12 @@ class TestFieldsTab:
         lay = dlg.working.layout
         assert len(lay.fields) == n + 1
         assert lay.fields[-1].id not in lay.placed_ids()
-        assert "○" in dlg._field_list.item(n).text()
+        assert "○" in _roster_text(dlg, n)
 
     def test_form_edit_writes_working_and_snapshots(self, tmp_path, monkeypatch):
         """Editing the name field writes working and pushes a snapshot."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         depth = len(dlg._undo_stack)
         dlg._fname_edit.setText("Renamed")
         dlg._fname_edit.editingFinished.emit()
@@ -852,7 +867,7 @@ class TestFieldsTab:
     def test_text_edit_multiline_commit(self, tmp_path, monkeypatch):
         """QPlainTextEdit text commits as multi-line text to the field."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         dlg._ftext_edit.setPlainText("Line1\nLine2")
         dlg._commit_field_text()
         assert dlg.working.layout.fields[1].text == "Line1\nLine2"
@@ -860,7 +875,7 @@ class TestFieldsTab:
     def test_insert_token_at_cursor(self, tmp_path, monkeypatch):
         """_insert_token appends @[Key] at cursor and commits the text."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         dlg._ftext_edit.setPlainText("By ")
         cur = dlg._ftext_edit.textCursor()
         cur.movePosition(cur.MoveOperation.End)
@@ -873,7 +888,7 @@ class TestFieldsTab:
         """Deleting a placed field shows a warning, then removes it and unplaces it."""
         dlg = self._dlg(tmp_path, monkeypatch)
         monkeypatch.setattr(_te, "themed_confirm", lambda *a, **kw: True)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         fid = dlg.working.layout.fields[1].id
         dlg._delete_field_btn.click()
         lay = dlg.working.layout
@@ -883,13 +898,13 @@ class TestFieldsTab:
     def test_single_field_preview_populates(self, tmp_path, monkeypatch):
         """Selecting a field populates the single-field preview scene."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         assert len(dlg._field_preview_scene.items()) > 0
 
     def test_kind_combo_swaps_inputs(self, tmp_path, monkeypatch):
         """Switching to 'revision_table' enables revision_rows and disables text/image."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         dlg._fkind_combo.setCurrentText("revision_table")
         assert dlg._frev_rows.isEnabled()
         assert not dlg._ftext_edit.isEnabled()
@@ -901,7 +916,7 @@ class TestFieldsTab:
     def test_dup_field_gets_fresh_id_and_copy_suffix(self, tmp_path, monkeypatch):
         """Duplicate creates a new unplaced field with a fresh id and ' (copy)' suffix."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         orig_id = dlg.working.layout.fields[0].id
         orig_name = dlg.working.layout.fields[0].name
         n = len(dlg.working.layout.fields)
@@ -927,7 +942,7 @@ class TestFieldsTab:
         monkeypatch.setattr(_te, "themed_confirm",
                             lambda *a, **kw: question_called.append(1) or True)
 
-        dlg._field_list.setCurrentRow(new_row)
+        dlg._field_select_row(new_row)
         dlg._delete_field_btn.click()
         assert not question_called, "No warning dialog for unplaced field"
         assert fid not in {f.id for f in dlg.working.layout.fields}
@@ -935,7 +950,7 @@ class TestFieldsTab:
     def test_field_prop_no_snapshot_when_unchanged(self, tmp_path, monkeypatch):
         """_field_prop must NOT push a snapshot when the value is unchanged."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         f = dlg.working.layout.fields[0]
         current_name = f.name
         depth_before = len(dlg._undo_stack)
@@ -961,7 +976,7 @@ class TestFieldsTab:
         slot.min_height_mm = 5.0
         row_idx = next(i for i, f in enumerate(lay.fields)
                        if f.id == slot.field_id)
-        dlg._field_list.setCurrentRow(row_idx)
+        dlg._field_select_row(row_idx)
         # Solver only needs truthy image_data; decodability is a paint concern.
         dlg._field_prop("image_data", "AAAA")
         dlg._field_prop("image_height_mm", 40.0)
@@ -987,40 +1002,41 @@ class TestFieldsTab:
     def test_field_preview_has_white_background(self, tmp_path, monkeypatch):
         """Single-field preview scene must contain a white rect behind the item."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(1)
+        dlg._field_select_row(1)
         from PyQt6.QtWidgets import QGraphicsRectItem
         rects = [it for it in dlg._field_preview_scene.items()
                  if isinstance(it, QGraphicsRectItem)]
         assert any(r.brush().color().name() == "#ffffff" for r in rects)
 
-    def test_fields_form_grouped_into_containers(self, tmp_path, monkeypatch):
-        """The Fields intrinsics form is organised into four titled group boxes
-        (grill 2026-08-04 item 5), and each widget lives in its expected group."""
-        from PyQt6.QtWidgets import QGroupBox
+    def test_fields_form_grouped_into_sections(self, tmp_path, monkeypatch):
+        """The Fields intrinsics form is organised into house Sections
+        (uppercase overline headers, no boxes — DD-18 / convention rollout),
+        and each widget lives in its expected section."""
+        from firepro3d.ui_kit import Section
 
         dlg = self._dlg(tmp_path, monkeypatch)
-        groups = {g.title(): g for g in
-                  dlg._field_form_widget.findChildren(QGroupBox)}
-        assert {"Identity", "Content", "Text Style",
-                "Fill & Border", "Cell Border"} <= set(groups)
+        headers = {s._hdr.text() for s in
+                   dlg._field_form_widget.findChildren(Section)}
+        assert {"IDENTITY", "CONTENT", "TEXT STYLE",
+                "FILL & BORDER", "CELL BORDER"} <= headers
 
         def owner(widget):
             p = widget.parent()
-            while p is not None and not isinstance(p, QGroupBox):
+            while p is not None and not isinstance(p, Section):
                 p = p.parent()
-            return p.title() if p is not None else None
+            return p._hdr.text() if p is not None else None
 
-        assert owner(dlg._fname_edit) == "Identity"
-        assert owner(dlg._fkind_combo) == "Identity"
-        assert owner(dlg._ftext_edit) == "Content"
-        assert owner(dlg._fimg_btn) == "Content"
-        assert owner(dlg._frev_rows) == "Content"
-        assert owner(dlg._ffont_combo) == "Text Style"
-        assert owner(dlg._fbold) == "Text Style"
-        assert owner(dlg._fitalic) == "Text Style"
-        assert owner(dlg._ffield_fill_swatch) == "Fill & Border"
-        assert owner(dlg._field_border_group._visible) == "Cell Border"
-        assert owner(dlg._field_border_group) == "Fill & Border"
+        assert owner(dlg._fname_edit) == "IDENTITY"
+        assert owner(dlg._fkind_combo) == "IDENTITY"
+        assert owner(dlg._ftext_edit) == "CONTENT"
+        assert owner(dlg._fimg_btn) == "CONTENT"
+        assert owner(dlg._frev_rows) == "CONTENT"
+        assert owner(dlg._ffont_combo) == "TEXT STYLE"
+        assert owner(dlg._fbold) == "TEXT STYLE"
+        assert owner(dlg._fitalic) == "TEXT STYLE"
+        assert owner(dlg._ffield_fill_swatch) == "FILL & BORDER"
+        assert owner(dlg._field_border_group._visible) == "CELL BORDER"
+        assert owner(dlg._field_border_group) == "FILL & BORDER"
 
     def test_text_color_swatch_commits(self, tmp_path, monkeypatch):
         """Clicking the text-colour swatch commits text_color via one snapshot
@@ -1029,7 +1045,7 @@ class TestFieldsTab:
         import firepro3d.titleblock_editor as tbe
 
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         depth = len(dlg._undo_stack)
         monkeypatch.setattr(
             tbe.QColorDialog, "getColor",
@@ -1043,7 +1059,7 @@ class TestFieldsTab:
         """Edge checkboxes commit per-edge flags (one snapshot per click) and
         gate the Corner/Fillet controls (grill 2026-08-04 item 3)."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         depth = len(dlg._undo_stack)
         grp = dlg._field_border_group
 
@@ -1066,7 +1082,7 @@ class TestFieldsTab:
         via _BorderGroup.load → _sync_fillet_enabled)."""
         dlg = self._dlg(tmp_path, monkeypatch)
         dlg.working.layout.fields[0].border.edge_top = False
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         grp = dlg._field_border_group
         assert not grp._edge_top.isChecked()
         assert not grp._corner.isEnabled()
@@ -1112,7 +1128,7 @@ class TestDuplicateNamesDeduped:
 
     def test_duplicate_names_deduped(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         orig_name = dlg.working.layout.fields[0].name
 
         # First duplicate → "X (copy)"
@@ -1123,7 +1139,7 @@ class TestDuplicateNamesDeduped:
         )
 
         # Select the copy just created (last item) and duplicate it
-        dlg._field_list.setCurrentRow(len(dlg.working.layout.fields) - 1)
+        dlg._field_select_row(len(dlg.working.layout.fields) - 1)
         dlg._dup_field_btn.click()
         names2 = [f.name for f in dlg.working.layout.fields]
         assert orig_name + " (copy) 2" in names2, (
@@ -1143,7 +1159,7 @@ class TestBorderGroupReemitNoSnapshot:
     def test_border_group_reemit_no_snapshot(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
         # Select first field (it will have a default border)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         f = dlg.working.layout.fields[0]
         # Load the group with the field's current border (matches current state)
         dlg._field_border_group.load(f.border)
@@ -1172,7 +1188,7 @@ class TestFontComboCommitSemantics:
     def test_mid_type_no_snapshot(self, tmp_path, monkeypatch):
         """setText mid-typing must NOT push additional snapshots."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         depth_before = len(dlg._undo_stack)
         # Simulate partial typing — "Tim" then "Times New Roman"
         dlg._ffont_combo.lineEdit().setText("Tim")
@@ -1185,7 +1201,7 @@ class TestFontComboCommitSemantics:
     def test_editing_finished_commits_and_snapshots(self, tmp_path, monkeypatch):
         """editingFinished must commit the typed font family and push exactly one snapshot."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         depth_before = len(dlg._undo_stack)
         dlg._ffont_combo.lineEdit().setText("Times New Roman")
         dlg._ffont_combo.lineEdit().editingFinished.emit()
@@ -1210,7 +1226,7 @@ class TestImageGroupUI:
     def test_image_height_input_commits_and_snapshots_once(
             self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         depth = len(dlg._undo_stack)
         # Widget-driven edit (setText + editingFinished, like other dim tests)
         dlg._fimg_height.setText("12")
@@ -1237,7 +1253,7 @@ class TestInPlaceRosterUpdate:
     def test_single_preview_refresh_per_field_prop(self, tmp_path, monkeypatch):
         """_field_prop for bold toggle must call _refresh_field_preview exactly once."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
 
         call_count = [0]
         original = dlg._refresh_field_preview
@@ -1264,7 +1280,7 @@ class TestInPlaceRosterUpdate:
         from PyQt6.QtCore import QBuffer, QIODevice
 
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
 
         # Inject a 1×1 white pixel PNG as image_data
         img = QImage(1, 1, QImage.Format.Format_RGB32)
@@ -1303,7 +1319,7 @@ class TestFocusOutCommit:
         from PyQt6.QtGui import QFocusEvent
 
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         dlg._ftext_edit.setPlainText("Via focus")
 
         from PyQt6.QtWidgets import QApplication
@@ -1331,7 +1347,7 @@ class TestBorderGroupWiring:
         """Toggling the border visible checkbox must flip field.border.visible
         and push exactly one snapshot."""
         dlg = self._dlg(tmp_path, monkeypatch)
-        dlg._field_list.setCurrentRow(0)
+        dlg._field_select_row(0)
         f = dlg.working.layout.fields[0]
         orig_visible = f.border.visible
         depth_before = len(dlg._undo_stack)
@@ -1423,9 +1439,8 @@ class TestArrangementsTab:
         assert len(dlg._undo_stack) == depth + 1
         assert dlg._arrange_tab.pool.count() == 1      # back in the pool
         # Roster indicator flipped to unplaced (○) for that field
-        roster = {dlg._field_list.item(i).data(Qt.ItemDataRole.UserRole):
-                  dlg._field_list.item(i).text()
-                  for i in range(dlg._field_list.count())}
+        roster = {_roster_id(dlg, i): _roster_text(dlg, i)
+                  for i in range(_roster_count(dlg))}
         assert "○" in roster[fid]
 
     def test_delete_stale_selection_noop(self, tmp_path, monkeypatch):
