@@ -92,6 +92,11 @@ class SystemSettingsDialog(HouseDialog):
     def _apply_all(self) -> None:
         for p in self._panes.values():
             p.apply()
+        # E3: offer to migrate existing content when the data folder changed
+        # (interactive; kept out of pane.apply() so headless apply never blocks).
+        gen = self._panes.get("general")
+        if gen is not None and hasattr(gen, "migrate_prompt_if_needed"):
+            gen.migrate_prompt_if_needed()
 
     def _on_ok(self) -> None:
         self._apply_all()

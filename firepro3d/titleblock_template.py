@@ -25,7 +25,7 @@ from .constants import (
     TB_STRIP_MIN_MM, TB_AREA_MIN_MM, TEXT_METRIC_REF_PX,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM,
 )
-from .app_data import app_data_dir
+from .app_data import titleblock_library_dir
 
 KINDS = ("field", "revision_table")
 
@@ -943,7 +943,7 @@ def validate(layout: TemplateLayout, paper_w_mm: float,
 # ── User-library I/O ─────────────────────────────────────────────────────────
 
 def _library_dir() -> str:
-    return app_data_dir("titleblocks")
+    return titleblock_library_dir()
 
 
 def _library_path(uuid: str) -> str:

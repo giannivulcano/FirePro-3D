@@ -94,6 +94,10 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 - **Clone semantics — "untitled":** a clone loads the template *content* but sets the project to **no file path + not-dirty**; a subsequent Save prompts for a location and can **never overwrite the template**. The `"template": true` marker is **stripped on clone**.
 - **Corrupt/unreadable:** log to `error.log`, regenerate a factory-default template, proceed — **never crash** (guards the qFatal/silent-crash class).
 
+### 4.5b Data-folder location + migration (General pane; Task E, 2026-09-15)
+- **Data folder** (`paths/user_data_root`) relocates the whole data root; **Title block library** (`paths/titleblock_dir`, **E2**) is a dedicated override *just* for the title-block `<uuid>.json` files. Precedence (`app_data.titleblock_library_dir`): explicit title-block override → `<data root>/titleblocks` → default. Both fields live in `GeneralPane`; blank = inherit.
+- **Migrate-on-change (E3):** changing the data folder used to silently strand existing content (`app_data` docstring: "existing content is NOT moved"). Now the **System Settings dialog** — after `_apply_all()` (Apply/OK), **not** inside `pane.apply()` — calls `GeneralPane.migrate_prompt_if_needed()`, which offers **Copy / Move / Leave** to bring the whole data root's content (`app_data._MIGRATABLE`: titleblocks/, blocks/, sprinklers.json, default.fpdt) to the new folder via `app_data.migrate_data_root` (best-effort, **never clobbers** an existing destination item; Move deletes the source after copy). Kept out of `apply()` so headless `apply()` never blocks on a modal.
+
 ### 4.6 Ribbon + icons
 - Manage→Settings group: two large buttons — **"System Settings"** (gear) and **"Project Settings"** (gear-with-document). Remove the old "Preferences" button + `info_icon.svg` usage and the "Snap Settings" button.
 - Icons: 2D-symbol two-token themed SVGs (`settings_system_icon.svg`, `settings_project_icon.svg`) in `graphics/Ribbon/`, authored per `icon-style-guide.md` and **mockup-gated** (rendered 54/27px light+dark for approval) before wiring.

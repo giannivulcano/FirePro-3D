@@ -9,7 +9,11 @@ import os
 
 _QSETTINGS_ORG = "GV"
 _QSETTINGS_APP = "FirePro3D"
-ROOT_KEY = "paths/user_data_root"   # Preferences data-folder override
+ROOT_KEY = "paths/user_data_root"       # Preferences data-folder override
+TITLEBLOCK_DIR_KEY = "paths/titleblock_dir"   # dedicated title-block library dir
+
+# Known content under a data root, migrated together when the root changes (E3).
+_MIGRATABLE = ("titleblocks", "blocks", "sprinklers.json", "default.fpdt")
 
 
 def default_root() -> str:
@@ -52,3 +56,74 @@ def app_data_dir(subdir: str = "") -> str:
     """
     root = user_data_root()
     return os.path.join(root, subdir) if subdir else root
+
+
+def _configured_titleblock_dir() -> str | None:
+    """The dedicated title-block library override, or None when unset."""
+    try:
+        from PyQt6.QtCore import QSettings
+        raw = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(
+            TITLEBLOCK_DIR_KEY, "", type=str)
+        raw = (raw or "").strip()
+        return raw or None
+    except Exception:
+        return None
+
+
+def titleblock_library_dir() -> str:
+    """Directory holding the title-block ``<uuid>.json`` library files.
+
+    Precedence (E2): an explicit override (Settings → *Title block library*) →
+    else ``<user_data_root>/titleblocks`` (which itself honors the data-folder
+    override). Lets the title-block library live somewhere shared independent of
+    the general data folder.
+    """
+    return _configured_titleblock_dir() or app_data_dir("titleblocks")
+
+
+def migrate_data_root(old_root: str, new_root: str, *, move: bool = False) -> list[str]:
+    """Copy (or move) known data content from *old_root* to *new_root* (E3).
+
+    Copies each of ``_MIGRATABLE`` (titleblocks/, blocks/, sprinklers.json,
+    default.fpdt) that exists under *old_root* and is **absent** under
+    *new_root* — never clobbers content already at the destination. With
+    ``move=True`` the source is removed after a successful copy.
+
+    Args:
+        old_root: The previous data root (source).
+        new_root: The new data root (destination).
+        move: When True, delete each source after copying.
+
+    Returns:
+        The list of item names actually migrated.
+    """
+    import shutil
+    migrated: list[str] = []
+    if not old_root or not new_root or os.path.abspath(old_root) == os.path.abspath(new_root):
+        return migrated
+    os.makedirs(new_root, exist_ok=True)
+    for name in _MIGRATABLE:
+        src = os.path.join(old_root, name)
+        dst = os.path.join(new_root, name)
+        if not os.path.exists(src) or os.path.exists(dst):
+            continue    # nothing to copy, or destination already has it
+        try:
+            if os.path.isdir(src):
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+            if move:
+                if os.path.isdir(src):
+                    shutil.rmtree(src, ignore_errors=True)
+                else:
+                    os.remove(src)
+            migrated.append(name)
+        except OSError:
+            continue    # best-effort; a failed item never aborts the rest
+    return migrated
+
+
+def data_root_has_content(root: str) -> bool:
+    """True when *root* holds any migratable FirePro3D content (E3 gate)."""
+    return bool(root) and any(
+        os.path.exists(os.path.join(root, name)) for name in _MIGRATABLE)
