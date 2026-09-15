@@ -77,12 +77,11 @@ _FACTORY_DEFAULTS: dict = {
 
 
 class UXPane(SettingsPane):
-    """Preferences pane for SNAP / snap-tolerance / grid / ALIGN settings.
-
-    Ports the two existing snap dialogs in ``main.py``:
-    - ``_open_snap_tolerance_dialog`` — snap radius, grip radius, 8 snap-type
-      checkboxes, alignment-guides toggle.
-    - ``_open_snap_settings`` — grid spacing (mm), angle-snap increment.
+    """System Settings → UX pane: SNAP / ALIGN / HALO (a ``SwitchBar`` over
+    three sub-pages). This is the single home for snap tolerances, snap-type
+    toggles, angle-snap, ALIGN knobs, and HALO enable/aperture — it replaced the
+    two legacy inline snap dialogs (``_open_snap_tolerance_dialog`` /
+    ``_open_snap_settings``), which were retired. See docs/specs/settings-dialog.md §4.4.
 
     When constructed with live ``scene``, ``view``, and ``snap_toolbar``
     references the pane applies changes live (mirroring the old dialogs) and
