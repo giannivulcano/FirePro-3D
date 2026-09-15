@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!--
+    settings_system_icon.svg — 8-tooth gear (system settings)
+    Two-token: #1A1A1A = gear body, #004CFF = accent hub disc
+    viewBox 0 0 48 48; all geometry ≥6 units from every edge (well within ≥2 limit)
+    Center 24,24 | Outer tip r=16, root r=12, hole r=8.5, hub r=5.5
+    8 teeth × 45° period; tip ±10°, root transition ±15°
+  -->
+
+  <!-- Gear body: 8-tooth outline with inner-hole punch via evenodd fill rule -->
+  <path fill="#1A1A1A" fill-rule="evenodd" stroke="none" d="
+    M 35.591,27.106
+    L 39.757,26.778
+    L 39.757,21.222
+    L 35.591,20.894
+    L 34.392,18.000
+    L 37.106,14.823
+    L 33.177,10.894
+    L 30.000,13.608
+    L 27.106,12.409
+    L 26.778,8.243
+    L 21.222,8.243
+    L 20.894,12.409
+    L 18.000,13.608
+    L 14.823,10.894
+    L 10.894,14.823
+    L 13.608,18.000
+    L 12.409,20.894
+    L 8.243,21.222
+    L 8.243,26.778
+    L 12.409,27.106
+    L 13.608,30.000
+    L 10.894,33.177
+    L 14.823,37.106
+    L 18.000,34.392
+    L 20.894,35.591
+    L 21.222,39.757
+    L 26.778,39.757
+    L 27.106,35.591
+    L 30.000,34.392
+    L 33.177,37.106
+    L 37.106,33.177
+    L 34.392,30.000
+    Z
+    M 32.5,24
+    A 8.5,8.5 0 0 0 15.5,24
+    A 8.5,8.5 0 0 0 32.5,24
+    Z
+  "/>
+
+  <!-- Accent hub disc (fills center hole with accent colour) -->
+  <circle cx="24" cy="24" r="5.5" fill="#004CFF" stroke="none"/>
+</svg>

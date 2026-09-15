@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!--
+    settings_project_icon.svg — Document sheet with one centered gear (project settings).
+    Two-token: #1A1A1A = sheet outline + gear hub, #004CFF = gear body/teeth.
+    viewBox 0 0 48 48; all geometry >=2 units from every edge.
+    Family match: same 8-tooth gear motif as settings_system_icon.svg, centered on the sheet.
+  -->
+
+  <!-- Document sheet outline (stroked, primary) -->
+  <rect x="10.5" y="4" width="27" height="40" rx="2.5"
+        fill="none" stroke="#1A1A1A" stroke-width="2.5" stroke-linejoin="round"/>
+
+  <!-- Centered gear: 8 accent teeth + accent body disc -->
+  <g fill="#004CFF">
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(45 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(90 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(135 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(180 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(225 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(270 24 24)"/>
+    <rect x="21.8" y="13.3" width="4.4" height="5" rx="1" transform="rotate(315 24 24)"/>
+    <circle cx="24" cy="24" r="7"/>
+  </g>
+
+  <!-- Gear hub (primary dot) -->
+  <circle cx="24" cy="24" r="3" fill="#1A1A1A"/>
+</svg>
