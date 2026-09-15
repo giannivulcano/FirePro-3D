@@ -334,13 +334,16 @@ bar / merges with the content):
 
 ## Deferred waves (recorded so the leash covers the whole system)
 
-1. **20 native-title-bar dialogs → `HouseDialog`** conversion waves (checklist:
-   `PreferencesDialog`, `DisplayManager`, `TitleBlockEditorDialog`,
+1. **20 native-title-bar dialogs → `HouseDialog`** conversion waves. **Migrated
+   2026-09-15 (title-block bundle Task D): `TitleBlockEditorDialog` +
+   `RevisionsDialog`** (both wrap existing content into `set_body`; the editor
+   keeps its 3-button `Save / Save && Close / Close` box in-body). Remaining:
+   `PreferencesDialog`, `DisplayManager`,
    `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,
    `PaperExportDialog`, `ArrayDialog`, `CalibrateDialog`, `LevelDialog`,
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,
    `FSVisibilityDialog`, `SectionPatternDialog`, `SheetViewPropertiesDialog`,
-   `RevisionsDialog`, `_RecordEditDialog`, `AlgorithmParamsDialog`).
+   `_RecordEditDialog`, `AlgorithmParamsDialog`.
 2. **MainWindow re-shell** + custom header strip + frameless-fullscreen
    (`todo_open.md:47`). Enabler step 1: parameterize `FramelessShellMixin`
    `window_type` (currently hardcoded `FramelessWindowHint | Dialog`). Watch the

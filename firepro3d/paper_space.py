@@ -26,6 +26,7 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
 )
 from .scale_manager import ScaleManager
+from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
@@ -4291,25 +4292,26 @@ def format_date_display(stored: str, fmt_label: str) -> str:
     return d.strftime(DATE_FORMATS.get(fmt_label, DATE_FORMATS[DEFAULT_DATE_FORMAT]))
 
 
-class RevisionsDialog(QDialog):
+class RevisionsDialog(HouseDialog):
     """Rev./Description/Date table editor for a sheet's revision history.
 
-    Works on a copy of the input list; the caller reads result_revisions()
-    and selected_date_format() on accept. Dates are edited with a QDateEdit
-    (Task C): stored ISO, displayed in the project's chosen format; empty is
-    allowed ("—"); an unparseable legacy value is preserved until the user
-    actively picks a new date.
+    House-chrome dialog (Task D). Works on a copy of the input list; the caller
+    reads result_revisions() and selected_date_format() on accept. Dates are
+    edited with a QDateEdit (Task C): stored ISO, displayed in the project's
+    chosen format; empty is allowed ("—"); an unparseable legacy value is
+    preserved until the user actively picks a new date.
     """
 
     _HEADERS = ["Rev.", "Description", "Date"]
     _KEYS = ("no", "description", "date")
 
     def __init__(self, revisions: list[dict], parent=None, *, project_info=None):
-        super().__init__(parent)
-        self.setWindowTitle("Sheet Revisions")
-        self.setMinimumSize(460, 320)
+        super().__init__(parent, title="Sheet Revisions", resizable=True,
+                         min_width=460)
         self._project_info = project_info if project_info is not None else {}
-        lay = QVBoxLayout(self)
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
 
         # Project-scoped display-format chooser.
         fmt_row = QHBoxLayout()
@@ -4343,11 +4345,10 @@ class RevisionsDialog(QDialog):
         btns.addWidget(rem)
         btns.addStretch()
         lay.addLayout(btns)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                              | QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+
+        self.set_body(body)
+        self.set_footer_buttons(primary=("OK", self.accept), cancel=True)
+        self.setMinimumSize(460, 360)
 
     def _make_date_editor(self, stored: str) -> QDateEdit:
         """A date picker seeded from *stored* (ISO or legacy). Minimum date is

@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 from .themed_message import themed_confirm, themed_warn
+from .house_dialog import HouseDialog
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QPen
 
 from .titleblock_template import (
@@ -250,7 +251,7 @@ class _BorderGroup(QGroupBox):
 # Main dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TitleBlockEditorDialog(QDialog):
+class TitleBlockEditorDialog(HouseDialog):
     """Library manager + per-template editor for TitleBlockTemplate objects.
 
     Usage::
@@ -279,8 +280,8 @@ class TitleBlockEditorDialog(QDialog):
     def __init__(self, project_template: TitleBlockTemplate | None = None,
                  parent: QWidget | None = None,
                  project_info: dict | None = None):
-        super().__init__(parent)
-        self.setWindowTitle("Title Block Template Editor")
+        super().__init__(parent, title="Title Block Template Editor",
+                         resizable=True)
         self.setMinimumSize(640, 760)
 
         # ── Public state ──────────────────────────────────────────────────
@@ -325,7 +326,11 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
-        root = QHBoxLayout(self)
+        # House chrome (Task D): build the editor content into a body widget and
+        # hand it to HouseDialog (the dialog's own layout is HouseDialog._root).
+        body = QWidget()
+        root = QHBoxLayout(body)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(8)
 
         # ── Left panel: library list + actions ────────────────────────────
@@ -744,6 +749,9 @@ class TitleBlockEditorDialog(QDialog):
             "Close", QDialogButtonBox.ButtonRole.RejectRole)
         self.close_button.clicked.connect(self.reject)
         centre.addWidget(self._btn_box)
+
+        # Hand the assembled content to the HouseDialog body seam (Task D).
+        self.set_body(body)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Event filter (FocusOut on QPlainTextEdit commits the text)
