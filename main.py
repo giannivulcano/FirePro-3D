@@ -809,9 +809,10 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
-        # Maximized window — after restoreGeometry/State so it wins.
-        if self.settings.value("ui/immersive", False, type=bool):
-            self.showMaximized()
+        # Maximized window ("Maximize on startup"). Applied on the real first
+        # showEvent, NOT here: main() calls window.resize(800, 600) after __init__
+        # and before show(), which would clobber a showMaximized() called now.
+        self._start_maximized = self.settings.value("ui/immersive", False, type=bool)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -921,6 +922,10 @@ class MainWindow(QMainWindow):
             # Open Plan: Level 1 as the default view
             from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
+            # "Maximize on startup" — applied here (after main()'s resize) so it
+            # actually fits the screen instead of being clobbered.
+            if getattr(self, "_start_maximized", False):
+                self.showMaximized()
 
     def _switch_sheet(self, sheet):
         """Make *sheet* the active sheet and rebind the canonical widget.
