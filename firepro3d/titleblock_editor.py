@@ -376,14 +376,11 @@ class TitleBlockEditorDialog(HouseDialog):
         root.addWidget(self._rail)
 
         # ── Central content panel (its own distinct area) ─────────────────
-        # Tokenized surface via palette (a bare QFrame renders black; a bare-
-        # background stylesheet would bleed onto children like the tab divider).
-        from PyQt6.QtGui import QPalette
+        # Tokenized surface via a bare stylesheet (renders reliably under the
+        # house dialog QSS, unlike palette). The tab divider carries its OWN
+        # stylesheet so this parent bg can't bleed over it.
         content = QFrame()
-        content.setAutoFillBackground(True)
-        _cp = content.palette()
-        _cp.setColor(QPalette.ColorRole.Window, QColor(self._theme.surface))
-        content.setPalette(_cp)
+        content.setStyleSheet(f"background: {self._theme.surface};")
         centre = QVBoxLayout(content)
         centre.setContentsMargins(12, 10, 10, 8)
         centre.setSpacing(6)

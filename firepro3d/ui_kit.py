@@ -154,16 +154,13 @@ class TopTabs(QWidget):
         self._bar.setExpanding(False)
         self._bar.setUsesScrollButtons(True)
         self._bar.setElideMode(Qt.TextElideMode.ElideNone)
-        # Full-width divider under the strip. Painted via palette (autoFill) so a
-        # parent's bare-background stylesheet can't bleed over it.
+        # Full-width divider under the strip. A bare stylesheet set DIRECTLY on
+        # the divider paints it and beats any parent-background bleed (palette is
+        # overridden by the house dialog stylesheet, so use a stylesheet here).
         from .theme import detect
-        from PyQt6.QtGui import QPalette
         self._divider = QFrame()
         self._divider.setFixedHeight(1)
-        self._divider.setAutoFillBackground(True)
-        _dp = self._divider.palette()
-        _dp.setColor(QPalette.ColorRole.Window, QColor(detect().line_strong))
-        self._divider.setPalette(_dp)
+        self._divider.setStyleSheet(f"background: {detect().line_strong};")
         self._stack = QStackedWidget()
         v.addWidget(self._bar)
         v.addWidget(self._divider)
