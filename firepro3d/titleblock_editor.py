@@ -3,9 +3,8 @@
 Governing spec: docs/specs/titleblock-template-system.md §Editor (rev 3 proposal).
 The preview hosts the SAME renderer used on sheets (one render path).
 
-Tab organisation (rev3):
-  Overview      — paper-size + orientation + three margin/strip DimensionEdits
-  Drawing Area  — area-border group
+Tab organisation:
+  Overview      — info rail (paper setup + drawing-area border) | preview rail
   Fields        — roster + intrinsics form + single-field preview (DD-18)
   Arrangements  — pool | strip canvas | placement props + strip border (DD-17)
 """
@@ -18,7 +17,7 @@ import logging
 import re as _re
 import uuid as _uuid
 
-from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, pyqtSignal
+from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
@@ -313,6 +312,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self.result_saved: bool = False
         self._project_info = project_info or {}
         self._use_requested = False   # set by use_for_project(); read by _do_save
+        self._did_initial_maximize = False   # open maximized on first real show
         self._dirty = False           # unsaved working edits (close warning)
 
         # ── Snapshot undo/redo stacks ─────────────────────────────────────
@@ -421,12 +421,16 @@ class TitleBlockEditorDialog(HouseDialog):
         self._component_tabs = TopTabs()      # house top-tab strip
         centre.addWidget(self._component_tabs, stretch=1)
 
-        # ── Tab 0: Overview ────────────────────────────────────────────────
-        # House convention: SECTION (uppercase header label, no box) + a
-        # left-labelled two-column form (matches the underlay import dialog).
+        # ── Tab 0: Overview (info rail | preview rail) ─────────────────────
+        # House convention: SECTIONs (uppercase header label, no box) + a
+        # left-labelled form. Two rails: settings on the left (Paper Setup +
+        # Drawing Area Border), the live preview on the right.
         overview_widget = QWidget()
-        overview_layout = QVBoxLayout(overview_widget)
-        overview_layout.setSpacing(14)
+        overview_root = QHBoxLayout(overview_widget)
+        overview_root.setContentsMargins(0, 0, 0, 0)
+        overview_root.setSpacing(14)
+        info_col = QVBoxLayout()
+        info_col.setSpacing(14)
 
         form_container = QWidget()
         overview_form = QFormLayout(form_container)
@@ -476,32 +480,12 @@ class TitleBlockEditorDialog(HouseDialog):
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
         overview_form.addRow("Strip width (mm)", self._strip_width_edit)
 
-        overview_layout.addWidget(Section("Paper Setup", form_container))
+        info_col.addWidget(Section("Paper Setup", form_container))
 
-        # Preview section — uppercase header + the live preview view.
-        self._preview_view = QGraphicsView(self._preview_scene)
-        self._preview_view.setMinimumHeight(280)
-        self._preview_view.setRenderHint(
-            self._preview_view.renderHints().__class__.Antialiasing)
-        self._preview_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        overview_layout.addWidget(Section("Preview", self._preview_view), stretch=1)
-
-        self._component_tabs.add_tab("overview", "Overview", overview_widget)
-
-        # Refresh fitInView when the Overview tab becomes visible so the fit
-        # runs with a realized viewport (avoids the empty-rect on first show).
-        self._component_tabs.currentChanged.connect(self._on_tab_changed)
-
-        # ── Tab 1: Drawing Area ────────────────────────────────────────────
-        area_widget = QWidget()
-        area_layout = QVBoxLayout(area_widget)
-        area_layout.setSpacing(6)
-
+        # Drawing Area border — merged into the Overview info rail (formerly a
+        # separate tab). House Section (uppercase overline, no box).
         self._area_border = _BorderGroup("Drawing Area Border", section=True)
-        area_layout.addWidget(self._area_border)
-        area_layout.addStretch()
-
+        info_col.addWidget(self._area_border)
         # Wire border change signals
         self._area_border._visible.toggled.connect(self._on_border_changed)
         self._area_border._width.valueChanged.connect(
@@ -511,8 +495,23 @@ class TitleBlockEditorDialog(HouseDialog):
             lambda _: self._on_border_changed())
         self._area_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
+        info_col.addStretch()
+        overview_root.addLayout(info_col)
 
-        self._component_tabs.add_tab("drawing_area", "Drawing Area", area_widget)
+        # Preview rail — uppercase header + the live preview view.
+        self._preview_view = QGraphicsView(self._preview_scene)
+        self._preview_view.setMinimumHeight(280)
+        self._preview_view.setRenderHint(
+            self._preview_view.renderHints().__class__.Antialiasing)
+        self._preview_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        overview_root.addWidget(Section("Preview", self._preview_view), stretch=1)
+
+        self._component_tabs.add_tab("overview", "Overview", overview_widget)
+
+        # Refresh fitInView when the Overview tab becomes visible so the fit
+        # runs with a realized viewport (avoids the empty-rect on first show).
+        self._component_tabs.currentChanged.connect(self._on_tab_changed)
 
         # ── Strip border group — lives on the Arrangements tab (DD-17) ─────
         # Constructed here so its change signals wire alongside the area
@@ -1725,6 +1724,22 @@ class TitleBlockEditorDialog(HouseDialog):
     # ═════════════════════════════════════════════════════════════════════════
     # Tab change handler
     # ═════════════════════════════════════════════════════════════════════════
+
+    def showEvent(self, event):
+        """Open maximized (full screen) on the first real show.
+
+        Applied here — not in ``__init__`` — because ``showMaximized()`` in the
+        constructor fires ``showEvent`` before the UI is realized (project trap:
+        showmaximized_init_fires_showevent). Guarded so it runs once; a deferred
+        refit lets the preview fill the maximized viewport.
+        """
+        super().showEvent(event)
+        if not self._did_initial_maximize:
+            self._did_initial_maximize = True
+            self.showMaximized()
+            QTimer.singleShot(
+                0, lambda: self._on_tab_changed(
+                    self._component_tabs.currentIndex()))
 
     def _on_tab_changed(self, index: int) -> None:
         """Re-fit the preview when the Overview tab (index 0) becomes visible.

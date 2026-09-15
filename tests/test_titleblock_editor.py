@@ -570,18 +570,21 @@ class TestPickerDisplayName:
 
 
 class TestComponentTabsExist:
-    """Editor must have Overview, Drawing Area, and Fields tabs (rev 3)."""
+    """Editor must have Overview, Fields, and Arrangements tabs.
 
-    def test_three_component_tabs(self, tmp_path, monkeypatch):
+    Drawing Area was merged into the Overview info rail (no longer its own tab).
+    """
+
+    def test_component_tabs(self, tmp_path, monkeypatch):
         monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
         dlg = TitleBlockEditorDialog(project_template=None)
         tab = dlg._component_tabs
         titles = [tab.tabText(i) for i in range(tab.count())]
         assert "Overview" in titles, f"Missing 'Overview' tab; got {titles}"
-        assert "Drawing Area" in titles, (
-            f"Missing 'Drawing Area' tab; got {titles}")
-        assert "Fields" in titles, (
-            f"Missing 'Fields' tab; got {titles}")
+        assert "Fields" in titles, f"Missing 'Fields' tab; got {titles}"
+        # Drawing Area merged into Overview — must NOT be a standalone tab.
+        assert "Drawing Area" not in titles, (
+            f"'Drawing Area' should be merged into Overview; got {titles}")
 
     def test_no_info_strip_tab(self, tmp_path, monkeypatch):
         """The old Info Strip tab must be gone (replaced by Fields)."""
@@ -1405,7 +1408,7 @@ class TestArrangementsTab:
         dlg = self._dlg(tmp_path, monkeypatch)
         tabs = [dlg._component_tabs.tabText(i)
                 for i in range(dlg._component_tabs.count())]
-        assert tabs == ["Overview", "Drawing Area", "Fields", "Arrangements"]
+        assert tabs == ["Overview", "Fields", "Arrangements"]
 
     def test_pool_shows_only_unplaced(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
