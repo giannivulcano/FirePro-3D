@@ -9,8 +9,6 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QDialog
-
 from firepro3d import snap_engine
 
 import main as _main_module
@@ -114,33 +112,6 @@ def test_indicator_click_toggles(main_window):
     assert main_window.scene._snap_enabled is True
 
 
-def test_dialog_cancel_syncs_toolbar(main_window, monkeypatch):
-    """Open the Snap Settings dialog, change a type, cancel -> the SNAP
-    toolbar reflects the reverted (pre-dialog) engine state.
-
-    Lives here (not in test_osnap_toolbar.py) so it reuses this module's
-    single shared MainWindow — building a second MainWindow in the suite
-    leaks a VTK GL context and crashes the later 3D-render tests.
-    """
-    win = main_window
-    eng = win.scene._snap_engine
-    eng.snap_endpoint = True
-    win.snap_toolbar.refresh_from_engine()
-    assert win.snap_toolbar._actions["snap_endpoint"].isChecked() is True
-
-    def fake_exec(self):
-        # Simulate the dialog's live setattr, then the user cancels.
-        eng.snap_endpoint = False
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
-    win._open_snap_tolerance_dialog()
-
-    # Cancel reverts the engine, and the toolbar must be re-synced.
-    assert eng.snap_endpoint is True
-    assert win.snap_toolbar._actions["snap_endpoint"].isChecked() is True
-
-
 def test_snap_bar_button_toggles_toolbar(main_window):
     """The Snap-group 'SNAP Bar' button shows/hides the toolbar, and the
     button stays in sync with the toolbar's visibility."""
@@ -154,22 +125,6 @@ def test_snap_bar_button_toggles_toolbar(main_window):
 
 
 # ── Inference / Alignment Guides toggle tests ─────────────────────────────
-
-
-def test_align_checkbox_drives_flag(main_window):
-    """The Inference tab checkbox in Snap Settings drives _align_enabled.
-
-    Uses modal=False test seam to build the dialog without exec().
-    Drives the checkbox with .click() (not by calling slots directly).
-    """
-    from PyQt6.QtWidgets import QCheckBox
-    mw = main_window
-    mw.scene.set_align_enabled(True)
-    dlg = mw._open_snap_tolerance_dialog(modal=False)
-    cb = dlg.findChild(QCheckBox, "align_enabled")
-    assert cb is not None and cb.isChecked() is True
-    cb.click()
-    assert mw.scene._align_enabled is False
 
 
 def test_guides_indicator_exists_and_initial_state(main_window):

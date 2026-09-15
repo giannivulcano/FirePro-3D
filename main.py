@@ -312,7 +312,7 @@ class _SnapToolbar(QToolBar):
         menu.addAction("Disable All", lambda: self._set_all(False))
         menu.addSeparator()
         menu.addAction("Snap Settings…",
-                       self._main_window._open_snap_tolerance_dialog)
+                       self._main_window._open_system_settings)
         menu.exec(event.globalPos())
 
 
@@ -1501,9 +1501,13 @@ class MainWindow(QMainWindow):
         # --- Settings ---
         g_set = manage_page.add_group("Settings")
         _btn = g_set.add_large_button(
-            "Preferences", _I("info_icon.svg"),
-            self._open_preferences)
-        _btn.setToolTip("Open application preferences")
+            "System Settings", _I("settings_system_icon.svg"),
+            self._open_system_settings)
+        _btn.setToolTip("Application-wide settings (General / UX / UI / Import)")
+        _btn = g_set.add_large_button(
+            "Project Settings", _I("settings_project_icon.svg"),
+            self._open_project_settings)
+        _btn.setToolTip("Settings for the current project (Project Info / Units)")
 
         # --- Edit (Undo/Redo always accessible) ---
         g_edit = manage_page.add_group("Edit")
@@ -1529,11 +1533,6 @@ class MainWindow(QMainWindow):
             _I("placeholder_icon.svg"),
             self._build_snap_angle_menu())
         _btn.setToolTip("Set Ctrl-drag angle snap increment")
-        _btn = g_snap.add_small_button(
-            "Snap\nSettings",
-            _I("placeholder_icon.svg"),
-            self._open_snap_tolerance_dialog)
-        _btn.setToolTip("Adjust snap tolerance and type settings")
         # Toggle for the SNAP snap-type toolbar (hidden on first launch).
         self._snap_bar_btn = g_snap.add_small_button(
             "SNAP\nBar",
@@ -2233,11 +2232,6 @@ class MainWindow(QMainWindow):
             parent=self,
         ).exec()
 
-    def _open_preferences(self) -> None:
-        # Interim: single ribbon button opens System Settings.
-        # Split into two ribbon buttons in the ribbon phase.
-        self._open_system_settings()
-
     def _apply_theme(self) -> None:
         """Re-apply the app + ribbon stylesheets for the current theme preference.
 
@@ -2277,247 +2271,6 @@ class MainWindow(QMainWindow):
             self.showMaximized()
         else:
             self.showNormal()
-
-    def _open_preferences(self) -> None:
-        """Open the unified Preferences dialog and block until closed."""
-        self._build_preferences_dialog().exec()
-
-    # ── Snap Settings ────────────────────────────────────────────────────────
-
-    def _open_snap_settings(self):
-        """Open dialog to configure grid spacing and angle snap increment."""
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Snap Settings")
-        dlg.setMinimumWidth(300)
-        layout = QFormLayout(dlg)
-
-        grid_spin = QDoubleSpinBox()
-        grid_spin.setRange(1, 1000)
-        grid_spin.setDecimals(1)
-        grid_spin.setValue(self.view._grid_size)
-        grid_spin.setSuffix(" mm")
-        layout.addRow("Grid spacing:", grid_spin)
-
-        angle_spin = QDoubleSpinBox()
-        angle_spin.setRange(1, 90)
-        angle_spin.setDecimals(1)
-        angle_spin.setValue(self.scene._snap_angle_deg)
-        angle_spin.setSuffix("°")
-        layout.addRow("Angle snap:", angle_spin)
-
-        # Angle presets
-        preset_combo = QComboBox()
-        preset_combo.addItems(["15", "30", "45", "90"])
-        idx = preset_combo.findText(str(int(self.scene._snap_angle_deg)))
-        if idx >= 0:
-            preset_combo.setCurrentIndex(idx)
-        preset_combo.currentTextChanged.connect(
-            lambda t: angle_spin.setValue(float(t)))
-        layout.addRow("Angle preset:", preset_combo)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_grid = grid_spin.value()
-            new_angle = angle_spin.value()
-            self.view.set_grid(self.view._grid_visible, new_grid)
-            self.scene._snap_angle_deg = new_angle
-            # Persist
-            self.settings.setValue("snap/grid_size", new_grid)
-            self.settings.setValue("snap/angle_deg", new_angle)
-
-    def _open_snap_tolerance_dialog(self, modal: bool = True):
-        """Live-adjustable snap settings dialog with per-type toggles.
-
-        Args:
-            modal: When True (default), shows the dialog via exec() and blocks.
-                When False, builds and returns the dialog without calling exec()
-                (test seam — mirrors how other dialogs expose a non-modal path).
-
-        Returns:
-            The QDialog instance (always).  In modal mode the dialog has
-            already been exec()'d and closed before the return.
-        """
-        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                      QDialogButtonBox, QGroupBox, QCheckBox,
-                                      QTabWidget, QWidget, QLabel)
-        from firepro3d import snap_engine
-
-        eng = self.scene._snap_engine
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Snap Settings")
-        dlg.setMinimumWidth(340)
-        outer = QVBoxLayout(dlg)
-
-        tabs = QTabWidget()
-        outer.addWidget(tabs)
-
-        # ── Tab 1: SNAP ──────────────────────────────────────────────
-        snap_tab = QWidget()
-        snap_layout = QVBoxLayout(snap_tab)
-
-        # Tolerance
-        tol_group = QGroupBox("Tolerance")
-        tol_layout = QFormLayout(tol_group)
-        tol_spin = QSpinBox()
-        tol_spin.setRange(5, 1000)
-        tol_spin.setSingleStep(5)
-        tol_spin.setValue(snap_engine.SNAP_TOLERANCE_PX)
-        tol_spin.setSuffix(" px")
-        tol_spin.valueChanged.connect(
-            lambda v: setattr(snap_engine, "SNAP_TOLERANCE_PX", v))
-        tol_layout.addRow("Snap radius:", tol_spin)
-
-        grip_spin = QSpinBox()
-        grip_spin.setRange(100, 1000)
-        grip_spin.setSingleStep(50)
-        grip_spin.setValue(int(getattr(self.scene, "_grip_tolerance_px", 200)))
-        grip_spin.setSuffix(" px")
-        grip_spin.valueChanged.connect(
-            lambda v: setattr(self.scene, "_grip_tolerance_px", v))
-        tol_layout.addRow("Grip handle radius:", grip_spin)
-        snap_layout.addWidget(tol_group)
-
-        # Snap types
-        types_group = QGroupBox("Snap Types")
-        types_layout = QVBoxLayout(types_group)
-
-        snap_types = [
-            ("Endpoint",      "snap_endpoint"),
-            ("Midpoint",      "snap_midpoint"),
-            ("Intersection",  "snap_intersection"),
-            ("Center",        "snap_center"),
-            ("Quadrant",      "snap_quadrant"),
-            ("Nearest",       "snap_nearest"),
-            ("Perpendicular", "snap_perpendicular"),
-            ("Tangent",       "snap_tangent"),
-        ]
-
-        checkboxes: list[tuple[QCheckBox, str]] = []
-        for label, attr in snap_types:
-            cb = QCheckBox(label)
-            cb.setChecked(getattr(eng, attr, True))
-            cb.toggled.connect(
-                lambda v, a=attr: setattr(eng, a, v))  # a=attr captures per-iter
-            types_layout.addWidget(cb)
-            checkboxes.append((cb, attr))
-
-        snap_layout.addWidget(types_group)
-        tabs.addTab(snap_tab, "SNAP")
-
-        # ── Tab 2: ALIGN ─────────────────────────────────────────────
-        inf_tab = QWidget()
-        inf_layout = QVBoxLayout(inf_tab)
-
-        align_cb = QCheckBox("ALIGN")
-        align_cb.setObjectName("align_enabled")
-        align_cb.setChecked(self.scene.get_align_enabled())
-        align_cb.toggled.connect(
-            lambda checked: (
-                self.scene.set_align_enabled(checked),
-                QSettings().setValue("align/enabled", checked),
-            )
-        )
-        inf_layout.addWidget(align_cb)
-
-        coming_soon_group = QGroupBox("Dynamic Input · Equal Spacing")
-        coming_soon_group.setEnabled(False)
-        cs_layout = QVBoxLayout(coming_soon_group)
-        cs_label = QLabel("Coming soon")
-        cs_label.setStyleSheet("color: #888;")
-        cs_layout.addWidget(cs_label)
-        inf_layout.addWidget(coming_soon_group)
-        inf_layout.addStretch()
-
-        tabs.addTab(inf_tab, "ALIGN")
-
-        # ── Tab 3: HALO ──────────────────────────────────────────────
-        # Minimal enable toggle only; the full HALO UX pane is a deferred
-        # task. Bound to the same halo/enabled setting + scene.halo_enabled
-        # as the status-bar pill, and keeps the pill in sync.
-        halo_tab = QWidget()
-        halo_layout = QVBoxLayout(halo_tab)
-        halo_cb = QCheckBox("Enable HALO")
-        halo_cb.setObjectName("halo_enabled")
-        halo_cb.setChecked(bool(self.scene.halo_enabled))
-        halo_cb.toggled.connect(
-            lambda checked: (
-                setattr(self.scene, "halo_enabled", checked),
-                self.settings.setValue("halo/enabled", checked),
-                self._halo_pill.setChecked(checked),
-                [v.viewport().update() for v in self.scene.views()],
-            )
-        )
-        halo_layout.addWidget(halo_cb)
-
-        # Aperture (pick tolerance) — px half-size of the HALO pick box. Writes
-        # halo/aperture_px and updates scene._halo_aperture_px live (the view
-        # reads it each mouse move).
-        from firepro3d.constants import HALO_APERTURE_PX
-        ap_row = QHBoxLayout()
-        ap_row.addWidget(QLabel("Aperture (px):"))
-        ap_spin = QSpinBox()
-        ap_spin.setObjectName("halo_aperture_px")
-        ap_spin.setRange(2, 20)
-        ap_spin.setValue(int(getattr(self.scene, "_halo_aperture_px",
-                                     HALO_APERTURE_PX)))
-        ap_spin.valueChanged.connect(
-            lambda v: (
-                setattr(self.scene, "_halo_aperture_px", int(v)),
-                self.settings.setValue("halo/aperture_px", int(v)),
-            )
-        )
-        ap_row.addWidget(ap_spin)
-        ap_row.addStretch()
-        halo_layout.addLayout(ap_row)
-
-        halo_layout.addStretch()
-        tabs.addTab(halo_tab, "HALO")
-
-        # ── Buttons ──────────────────────────────────────────────────
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        outer.addWidget(buttons)
-
-        if not modal:
-            return dlg
-
-        # Snapshot for cancel
-        old_tol = snap_engine.SNAP_TOLERANCE_PX
-        old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
-        old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        old_align_enabled = self.scene.get_align_enabled()
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Persist SNAP settings
-            self.settings.setValue("snap/tolerance_px", snap_engine.SNAP_TOLERANCE_PX)
-            self.settings.setValue("snap/grip_tolerance_px",
-                                  getattr(self.scene, "_grip_tolerance_px", 200))
-            for _, attr in checkboxes:
-                self.settings.setValue(f"snap/{attr}", getattr(eng, attr))
-            # ALIGN setting already saved live via the checkbox toggled signal
-        else:
-            # Revert SNAP
-            snap_engine.SNAP_TOLERANCE_PX = old_tol
-            self.scene._grip_tolerance_px = old_grip
-            for attr, val in old_flags.items():
-                setattr(eng, attr, val)
-            # Revert ALIGN
-            self.scene.set_align_enabled(old_align_enabled)
-            QSettings().setValue("align/enabled", old_align_enabled)
-
-        # Keep the SNAP toolbar in sync with whatever the dialog left set.
-        self.snap_toolbar.refresh_from_engine()
-        return dlg
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
