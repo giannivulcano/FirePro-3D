@@ -33,7 +33,8 @@ class ProjectSettingsDialog(HouseDialog):
         on_changed: Callable[[], None] | None = None,
         parent=None,
     ):
-        super().__init__(parent, title="Project Settings", resizable=True, min_width=560)
+        super().__init__(parent, title="Project Settings", resizable=True,
+                         controls=("min", "max", "close"), min_width=560)
 
         self._scene = scene
         self._panes = {
@@ -48,7 +49,7 @@ class ProjectSettingsDialog(HouseDialog):
         h.setContentsMargins(0, 0, 0, 0)
 
         self._rail = SideTabs()
-        self._stack = QStackedWidget()
+        self._stack = QStackedWidget(objectName="detailsPanel")
 
         for key, label in self._TABS:
             self._rail.add_tab(key, label)
@@ -59,7 +60,7 @@ class ProjectSettingsDialog(HouseDialog):
         self._rail.tabSelected.connect(self._on_rail)
         h.addWidget(self._rail)
         h.addWidget(self._stack, 1)
-        self.set_body(body)
+        self.set_body(body, margin=(0, 0, 0, 0))
 
         # extra_left is a QWidget (QPushButton subclasses QWidget) — accepted directly
         save_default = QPushButton("Save as default for new projects")

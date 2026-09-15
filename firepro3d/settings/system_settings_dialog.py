@@ -35,7 +35,8 @@ class SystemSettingsDialog(HouseDialog):
         on_immersive_changed=None,
         parent=None,
     ):
-        super().__init__(parent, title="System Settings", resizable=True, min_width=620)
+        super().__init__(parent, title="System Settings", resizable=True,
+                         controls=("min", "max", "close"), min_width=620)
 
         self._panes = {
             "general": GeneralPane(),
@@ -53,7 +54,7 @@ class SystemSettingsDialog(HouseDialog):
         h.setContentsMargins(0, 0, 0, 0)
 
         self._rail = SideTabs()
-        self._stack = QStackedWidget()
+        self._stack = QStackedWidget(objectName="detailsPanel")
 
         for key, label in self._TABS:
             self._rail.add_tab(key, label)
@@ -64,7 +65,7 @@ class SystemSettingsDialog(HouseDialog):
         self._rail.tabSelected.connect(self._on_rail)
         h.addWidget(self._rail)
         h.addWidget(self._stack, 1)
-        self.set_body(body)
+        self.set_body(body, margin=(0, 0, 0, 0))
 
         # extra_left is a QWidget (QPushButton subclasses QWidget) — accepted directly
         apply_btn = QPushButton("Apply")
