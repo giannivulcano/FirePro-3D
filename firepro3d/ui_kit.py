@@ -143,7 +143,7 @@ class TopTabs(QWidget):
     tabSelected = pyqtSignal(str)          # key of the newly-current tab
     currentChanged = pyqtSignal(int)       # mirrors QTabWidget (index)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, page_inset=12):
         super().__init__(parent)
         self.setObjectName("topTabs")
         v = QVBoxLayout(self)
@@ -162,9 +162,23 @@ class TopTabs(QWidget):
         self._divider.setFixedHeight(1)
         self._divider.setStyleSheet(f"background: {detect().line_strong};")
         self._stack = QStackedWidget()
-        v.addWidget(self._bar)
-        v.addWidget(self._divider)
-        v.addWidget(self._stack, 1)
+        # Tabs + pages are inset by *page_inset* so they align with padded
+        # content; the divider stays FULL-BLEED to the widget's edges (so the
+        # adopter zeroes its horizontal margins around TopTabs).
+        _bar_row = QWidget()
+        _bl = QHBoxLayout(_bar_row)
+        _bl.setContentsMargins(page_inset, 0, page_inset, 0)
+        _bl.setSpacing(0)
+        _bl.addWidget(self._bar)
+        _bl.addStretch(1)
+        _stack_row = QWidget()
+        _sl = QVBoxLayout(_stack_row)
+        _sl.setContentsMargins(page_inset, 0, page_inset, 0)
+        _sl.setSpacing(0)
+        _sl.addWidget(self._stack)
+        v.addWidget(_bar_row)
+        v.addWidget(self._divider)      # full-bleed
+        v.addWidget(_stack_row, 1)
         self._keys: list[str] = []
         self._bar.currentChanged.connect(self._on_current)
 

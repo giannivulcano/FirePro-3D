@@ -382,7 +382,9 @@ class TitleBlockEditorDialog(HouseDialog):
         content = QFrame()
         content.setStyleSheet(f"background: {self._theme.surface};")
         centre = QVBoxLayout(content)
-        centre.setContentsMargins(12, 10, 10, 8)
+        # Zero horizontal margins so the TopTabs divider is full-bleed; the tabs
+        # + pages keep their inset internally via TopTabs' page_inset.
+        centre.setContentsMargins(0, 10, 0, 8)
         centre.setSpacing(6)
 
         # ── Component tabs (Overview / Drawing Area / Fields) ─────────────
@@ -751,6 +753,7 @@ class TitleBlockEditorDialog(HouseDialog):
         self._warning_label.setWordWrap(True)
         self._warning_label.setStyleSheet(f"color: {detect().warn}; font-size: 11px;")
         self._warning_label.setVisible(False)
+        self._warning_label.setContentsMargins(12, 0, 12, 0)   # match page inset
         centre.addWidget(self._warning_label)
 
         # Hand the assembled content to the HouseDialog body seam (Task D).
