@@ -675,7 +675,12 @@ class UnitsPane(SettingsPane):
         self._precision_spin.setValue(precision)
 
     def apply(self) -> None:
-        """Write widget values to live ScaleManager and QSettings."""
+        """Write widget values to live ScaleManager only (units are project-scoped).
+
+        Display unit and precision are stored in the project file (.fpd), not in
+        QSettings.  The ribbon menus and settings pane both write to the live
+        scale_manager; the project serialiser persists them on save.
+        """
         from firepro3d.scale_manager import DisplayUnit
 
         idx      = self._unit_combo.currentIndex()
@@ -686,11 +691,6 @@ class UnitsPane(SettingsPane):
         if self._sm is not None:
             self._sm.display_unit = DisplayUnit(unit_str)
             self._sm.precision    = precision
-
-        # Persist
-        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
-        s.setValue("display/unit",      unit_str)
-        s.setValue("display/precision", precision)
 
         if self._on_changed is not None:
             self._on_changed()

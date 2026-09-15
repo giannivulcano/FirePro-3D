@@ -95,13 +95,14 @@ def test_snapping_pane_revert_restores_live(qapp):
 
 # ── UnitsPane tests (Task D3) ─────────────────────────────────────────────────
 
-def test_units_pane_persists_to_qsettings(qapp):
+def test_units_pane_does_not_write_precision_to_qsettings(qapp):
+    # Units are project-scoped: apply() must NOT persist precision to QSettings.
+    from PyQt6.QtCore import QSettings
     pane = UnitsPane()
     pane.load()
     pane._precision_spin.setValue(3)
     pane.apply()
-    from PyQt6.QtCore import QSettings
-    assert int(QSettings("GV", "FirePro3D").value("display/precision", 2)) == 3
+    assert QSettings("GV", "FirePro3D").value("display/precision", None) is None
 
 
 def test_units_pane_applies_live_precision(qapp):
@@ -152,8 +153,8 @@ def test_units_pane_applies_live_unit(qapp):
     assert sm.display_unit == DisplayUnit.IMPERIAL
 
 
-def test_units_pane_persists_unit_to_qsettings(qapp):
-    """apply() must persist the unit string value to QSettings display/unit."""
+def test_units_pane_does_not_write_unit_to_qsettings(qapp):
+    """apply() must NOT persist the unit to QSettings (units are project-scoped)."""
     from PyQt6.QtCore import QSettings
     pane = UnitsPane()
     pane.load()
@@ -161,7 +162,7 @@ def test_units_pane_persists_unit_to_qsettings(qapp):
     pane._unit_combo.setCurrentIndex(1)
     pane.apply()
     saved = QSettings("GV", "FirePro3D").value("display/unit")
-    assert saved == "m"  # DisplayUnit.METRIC_M.value
+    assert saved is None  # NOT written to QSettings
 
 
 def test_units_pane_revert_restores_live(qapp):

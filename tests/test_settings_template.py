@@ -1,6 +1,20 @@
 import os, json, pytest
 
 
+def test_apply_template_settings_overlays_units(tmp_path, monkeypatch, model_scene):
+    from firepro3d import app_data
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    from firepro3d.settings import template
+    from firepro3d.scale_manager import DisplayUnit
+    # Seed a template with imperial units via save_current_as_default.
+    seed = model_scene(); seed.scale_manager.display_unit = DisplayUnit("imperial")
+    template.save_current_as_default(seed)
+    # A fresh metric scene picks up the template's imperial units.
+    scene = model_scene()
+    template.apply_template_settings(scene)
+    assert scene.scale_manager.display_unit == DisplayUnit("imperial")
+
+
 def test_template_path_under_app_data(tmp_path, monkeypatch):
     from firepro3d import app_data
     monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))

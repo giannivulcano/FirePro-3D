@@ -163,6 +163,39 @@ def clone_template_into(scene) -> None:
         scene._project_path = None
 
 
+def apply_template_settings(scene) -> None:
+    """Apply the template's SETTINGS (scale/units + project_info) onto an
+    already-built scene — used by startup/New-Project, which construct their
+    default scene procedurally (levels, gridlines) BEFORE seeding units.
+    Full-scene cloning would wipe those; this only overlays settings.
+
+    Args:
+        scene: A ``Model_Space`` instance (or compatible) exposing
+            ``scale_manager`` and ``_project_info``.
+    """
+    import json as _json
+    import logging as _logging
+    from firepro3d.scale_manager import ScaleManager
+    path = ensure_template()
+    try:
+        with open(path) as f:
+            data = _json.load(f)
+    except (OSError, ValueError):
+        _logging.getLogger(__name__).exception("Corrupt .fpdt; regenerating")
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        path = ensure_template()
+        with open(path) as f:
+            data = _json.load(f)
+    if "scale" in data:
+        scene.scale_manager = ScaleManager.from_dict(data["scale"])
+    info = data.get("project_info")
+    if isinstance(info, dict):
+        scene._project_info = dict(info)
+
+
 def save_current_as_default(scene) -> str:
     """Persist *scene*'s current scale and project_info into the default template.
 

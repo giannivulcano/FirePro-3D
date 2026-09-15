@@ -744,7 +744,8 @@ class MainWindow(QMainWindow):
         self._create_elevation_markers()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
-        self._apply_persistent_unit_prefs()
+        from firepro3d.settings import template as _settings_template
+        _settings_template.apply_template_settings(self.scene)
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -863,8 +864,6 @@ class MainWindow(QMainWindow):
             perpendicular=self.settings.value("align/dir_perpendicular",
                                               ALIGN_DIR_PERPENDICULAR_DEFAULT,
                                               type=bool))
-        # Restore display unit and precision from user preference
-        self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
         if self.settings.contains("template/pipe"):
             pipe_props = self.settings.value("template/pipe", {})
@@ -907,20 +906,6 @@ class MainWindow(QMainWindow):
         # Restore floor placement template (modes/offsets/thickness); level
         # names + absolute-Z re-seed from the active level inside the helper.
         self.scene.load_floor_template_settings(self.settings)
-
-    def _apply_persistent_unit_prefs(self):
-        """Override the scale manager's display unit and precision with the
-        user's persistent QSettings preference.  Called after project load
-        so the file's stored units don't override the user's choice."""
-        if self.settings.contains("display/unit"):
-            unit_str = self.settings.value("display/unit", "mm", type=str)
-            try:
-                self.scene.scale_manager.display_unit = DisplayUnit(unit_str)
-            except ValueError:
-                pass
-        if self.settings.contains("display/precision"):
-            self.scene.scale_manager.precision = self.settings.value(
-                "display/precision", 3, type=int)
 
     def showEvent(self, event):
         """Fit the view after the window is fully shown for the first time."""
@@ -2552,7 +2537,8 @@ class MainWindow(QMainWindow):
 
     def _set_display_unit(self, unit):
         self.scene.set_display_unit(unit)
-        self.settings.setValue("display/unit", unit.value)
+        self._modified = True
+        self._update_title()
 
     def _build_precision_menu(self) -> QMenu:
         m = QMenu(self)
@@ -3955,8 +3941,6 @@ class MainWindow(QMainWindow):
             from firepro3d.constants import DEFAULT_LEVEL
             active = DEFAULT_LEVEL
         self._activate_plan_view(active)
-        # Override display unit and precision with user's persistent preference
-        self._apply_persistent_unit_prefs()
         # Restore sheet from loaded project, resolver first so rebuilt
         # viewports capture it (resolver-rebind fix).
         self._view_resolver = ViewResolver(
@@ -4128,7 +4112,8 @@ class MainWindow(QMainWindow):
         # Apply saved display defaults to the new project
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
-        self._apply_persistent_unit_prefs()
+        from firepro3d.settings import template as _settings_template
+        _settings_template.apply_template_settings(self.scene)
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -4330,7 +4315,8 @@ class MainWindow(QMainWindow):
     def _set_precision(self, places: int):
         self.scene.scale_manager.precision = places
         self.scene._refresh_all_labels()
-        self.settings.setValue("display/precision", places)
+        self._modified = True
+        self._update_title()
 
     # ─────────────────────────────────────────────────────────────────────────
     # HYDRAULICS HELPERS
