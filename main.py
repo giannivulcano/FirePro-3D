@@ -361,6 +361,12 @@ class MainWindow(QMainWindow):
         self.current_opening_template = WallOpening(wall=None, feature_id="door_914")
         self._current_file: str | None = None
         self._modified: bool = False
+        # Init True so a premature showEvent (e.g. immersive showMaximized() fired
+        # inside restore_settings, before the cold-start block builds the views)
+        # SKIPS the deferred fit; the cold-start block re-arms it to False so the
+        # real post-__init__ window.show() performs the fit. (Fixes an AttributeError
+        # crash when "Maximize window on startup" is enabled — pre-existing.)
+        self._initial_fit_done = True
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
         self._last_feature: dict[str, str] = {}  # type_ → last-used feature id
