@@ -249,6 +249,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self._lineweight = lineweight   # restored (solid) by finalize() after a dashed ghost
 
         self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
@@ -291,7 +292,16 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.setPath(path)
 
     def finalize(self):
-        """Snap the path to the committed points and stop accepting input."""
+        """Snap the path to the committed points and stop accepting input.
+
+        Restores the committed SOLID pen at the item's lineweight — during
+        placement the polyline is ghosted in the width-1 dashed reference style
+        (set by ``_press_polyline``); a finalized polyline renders solid.
+        """
+        p = QPen(self.pen())
+        p.setStyle(Qt.PenStyle.SolidLine)
+        p.setWidthF(getattr(self, "_lineweight", 1.0))
+        self.setPen(p)
         self._rebuild_path()
 
     # ── Grip protocol ─────────────────────────────────────────────────────────

@@ -131,6 +131,13 @@ class GeometryDrawingController:
         anchor = self._scene._draw_line_anchor
         if anchor is None:
             return
+        # Ghost the line in the canonical reference-line style (geom colour,
+        # width-1 dashed) so it matches the other 2D-geo previews — not the
+        # shared preview_pipe's darkGray pipe default. set_mode resets the pen
+        # for pipe/set_scale.
+        _pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        _pen.setCosmetic(True)
+        self._scene.preview_pipe.setPen(_pen)
         self._scene.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
         self._scene.preview_pipe.show()
 
@@ -558,6 +565,11 @@ class GeometryDrawingController:
             tmpl = self._scene._get_geometry_template()
             _c, _lw = self._scene._geom_color_lw()
             pl = PolylineItem(snapped, _c, _lw)
+            # Ghost the in-progress polyline in the canonical reference-line style
+            # (width-1 dashed); finalize() restores the committed solid pen.
+            _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
+            _ghost.setCosmetic(True)
+            pl.setPen(_ghost)
             pl.level = tmpl.level
             pl._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
             self._scene.addItem(pl)

@@ -1088,6 +1088,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.clearSelection()
         self.preview_node.hide()
         self.preview_pipe.hide()
+        # Reset the shared preview-pipe pen to its darkGray default so pipe /
+        # set_scale keep their look; line/gridline re-set the width-1 dashed
+        # reference style per move (_preview_from_line).
+        _pp = QPen(Qt.GlobalColor.darkGray, 3, Qt.PenStyle.DashLine)
+        _pp.setCosmetic(True)
+        self.preview_pipe.setPen(_pp)
         self._cal_point1 = None
         # (design_area mode suppresses snapping entirely in
         # get_effective_position — sprinkler centres only)
