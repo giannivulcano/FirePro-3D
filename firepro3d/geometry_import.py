@@ -69,9 +69,11 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
     """Convert kind-tagged import geom dicts to editable primitives.
 
     Handles ``line`` -> LineItem, ``circle`` -> CircleItem, ``path_points`` ->
-    PolylineItem (closed flag honoured). All coordinates are multiplied by
-    *import_scale* (``real_mm / source_units``). Unsupported kinds (text,
-    ellipse_full, unknown) are skipped and counted, never raised.
+    PolylineItem (closed flag honoured), ``arc`` -> ArcItem, ``ellipse_full`` ->
+    EllipseItem, ``spline`` -> SplineItem. Coordinates are multiplied by
+    *import_scale* (``real_mm / source_units``); spline knots and weights are
+    parametric and are not scaled. Unsupported kinds (``text``, ``unknown``)
+    are skipped and counted, never raised.
 
     A malformed dict of a *supported* kind (missing required keys, wrong value
     type) increments ``skipped`` and continues — KeyError/TypeError never abort
