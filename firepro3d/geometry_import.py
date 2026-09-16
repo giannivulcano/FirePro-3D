@@ -123,6 +123,17 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 items.append(poly)
             except (KeyError, TypeError):
                 skipped += 1
+        elif kind == "spline":
+            pts = g.get("control_points", [])
+            if len(pts) < 2:
+                skipped += 1
+                continue
+            try:
+                cps = [QPointF(px * s, py * s) for px, py in pts]
+                items.append(SplineItem(cps, int(g.get("degree", 3)),
+                                        g.get("knots"), g.get("weights"), color))
+            except (KeyError, TypeError):
+                skipped += 1
         elif kind == "arc":
             try:
                 cx = (g["rx"] + g["rw"] / 2.0) * s

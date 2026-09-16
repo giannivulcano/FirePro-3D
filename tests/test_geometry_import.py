@@ -107,6 +107,22 @@ def test_primitives_roundtrip_to_block_type_keys(qapp):
     assert items[2].to_dict()["type"] == "polyline"
 
 
+def test_spline_dict_maps_to_splineitem_endpoints(qapp):
+    cps = [[0, 0], [10, 20], [30, -20], [40, 0]]
+    geoms = [{"kind": "spline", "control_points": cps, "degree": 3,
+              "knots": None, "weights": None, "closed": False, "color": "#abcdef"}]
+    items, skipped = geom_dicts_to_primitives(geoms, import_scale=2.0)
+    assert skipped == 0 and len(items) == 1
+    sp = items[0]
+    assert isinstance(sp, SplineItem)
+    assert len(sp._control_points) == 4
+    assert (sp._control_points[0].x(), sp._control_points[0].y()) == (0.0, 0.0)
+    assert (sp._control_points[-1].x(), sp._control_points[-1].y()) == (80.0, 0.0)
+    p0 = sp.path().pointAtPercent(0.0)
+    assert (round(p0.x()), round(p0.y())) == (0, 0)
+    assert sp.pen().color().name() == "#abcdef"
+
+
 def test_malformed_line_dict_skipped_not_raised(qapp):
     """A malformed line dict (missing 'x2') among valid dicts: skip + count, no exception."""
     geoms = [
