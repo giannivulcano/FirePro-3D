@@ -37,6 +37,7 @@ class BlockImportDialog(UnderlayImportDialog):
         )
         self.setObjectName("BlockImportDialog")
         self.setWindowTitle("Import Geometry")
+        self._preserve_curves = True
         # Retitle the HouseDialog shell header (best-effort; harmless if absent).
         try:
             self._shell_title_lbl.setText("Import Geometry")

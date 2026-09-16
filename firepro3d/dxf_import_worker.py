@@ -270,7 +270,8 @@ class DxfImportWorker(QThread):
 
     def __init__(self, file_path: str, layers: list | None = None,
                  layout: str = "", parent=None,
-                 skip_sanitize: bool = False):
+                 skip_sanitize: bool = False,
+                 preserve_curves: bool = False):
         super().__init__(parent)
         self.file_path = file_path
         self.layers = layers
@@ -278,6 +279,7 @@ class DxfImportWorker(QThread):
         # ODA-converted DXFs are machine-generated and never need the
         # sanitise pass — skipping avoids re-reading huge files.
         self.skip_sanitize = skip_sanitize
+        self._preserve_curves = preserve_curves
         self._cancelled = False
 
     def cancel(self):
@@ -475,9 +477,6 @@ class DxfImportWorker(QThread):
                     "x": cx - r, "y": -cy - r, "w": 2 * r, "h": 2 * r}
 
         elif etype == "ARC":
-            # Convert arc to polyline points to avoid angle-convention
-            # mismatches between DXF, QGraphicsEllipseItem, and
-            # QPainterPath.arcTo (which disagree on Y-flip semantics).
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
             r = entity.dxf.radius
             start_deg = entity.dxf.start_angle
@@ -486,6 +485,10 @@ class DxfImportWorker(QThread):
             sweep = end_deg - start_deg
             if sweep <= 0:
                 sweep += 360
+            if getattr(self, "_preserve_curves", False):
+                return {"kind": "arc", "layer": layer, "color": color,
+                        "rx": cx - r, "ry": -cy - r, "rw": 2 * r, "rh": 2 * r,
+                        "start": start_deg, "span": sweep}
             steps = max(16, int(sweep / 2))
             points = []
             for i in range(steps + 1):
@@ -546,6 +549,16 @@ class DxfImportWorker(QThread):
             }
 
         elif etype == "SPLINE":
+            if getattr(self, "_preserve_curves", False):
+                cps = [(p[0], -p[1]) for p in entity.control_points]
+                if len(cps) < 2:
+                    return None
+                knots = list(entity.knots) if entity.knots else None
+                weights = list(entity.weights) if entity.weights else None
+                closed = bool(entity.closed)
+                return {"kind": "spline", "layer": layer, "color": color,
+                        "control_points": cps, "degree": entity.dxf.degree,
+                        "knots": knots, "weights": weights, "closed": closed}
             pts = list(entity.flattening(0.5))
             if not pts:
                 return None

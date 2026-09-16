@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
 
-from .construction_geometry import LineItem, CircleItem, PolylineItem
+from .construction_geometry import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
 
 
 def _geometric_bbox(item):
@@ -69,9 +69,11 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
     """Convert kind-tagged import geom dicts to editable primitives.
 
     Handles ``line`` -> LineItem, ``circle`` -> CircleItem, ``path_points`` ->
-    PolylineItem (closed flag honoured). All coordinates are multiplied by
-    *import_scale* (``real_mm / source_units``). Unsupported kinds (text,
-    ellipse_full, unknown) are skipped and counted, never raised.
+    PolylineItem (closed flag honoured), ``arc`` -> ArcItem, ``ellipse_full`` ->
+    EllipseItem, ``spline`` -> SplineItem. Coordinates are multiplied by
+    *import_scale* (``real_mm / source_units``); spline knots and weights are
+    parametric and are not scaled. Unsupported kinds (``text``, ``unknown``)
+    are skipped and counted, never raised.
 
     A malformed dict of a *supported* kind (missing required keys, wrong value
     type) increments ``skipped`` and continues — KeyError/TypeError never abort
@@ -121,6 +123,36 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 if g.get("closed"):
                     poly.close()
                 items.append(poly)
+            except (KeyError, TypeError):
+                skipped += 1
+        elif kind == "spline":
+            pts = g.get("control_points", [])
+            if len(pts) < 2:
+                skipped += 1
+                continue
+            try:
+                cps = [QPointF(px * s, py * s) for px, py in pts]
+                items.append(SplineItem(cps, int(g.get("degree", 3)),
+                                        g.get("knots"), g.get("weights"), color))
+            except (KeyError, TypeError):
+                skipped += 1
+        elif kind == "arc":
+            try:
+                cx = (g["rx"] + g["rw"] / 2.0) * s
+                cy = (g["ry"] + g["rh"] / 2.0) * s
+                r = (g["rw"] / 2.0) * s
+                items.append(ArcItem(QPointF(cx, cy), r,
+                                     g["start"], g["span"], color))
+            except (KeyError, TypeError):
+                skipped += 1
+        elif kind == "ellipse_full":
+            try:
+                cx = g["pos_cx"] * s
+                cy = g["pos_cy"] * s
+                rx = (g["w"] / 2.0) * s
+                ry = (g["h"] / 2.0) * s
+                items.append(EllipseItem(QPointF(cx, cy), rx, ry,
+                                         g.get("rotation", 0.0), color))
             except (KeyError, TypeError):
                 skipped += 1
         else:

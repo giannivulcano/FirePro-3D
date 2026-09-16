@@ -380,6 +380,8 @@ def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
             points = [(g["pos_cx"], g["pos_cy"])]
         elif kind == "path_points":
             points = [(p[0], p[1]) for p in g.get("points", [])]
+        elif kind == "spline":
+            points = [(p[0], p[1]) for p in g.get("control_points", [])]
         elif kind == "text":
             points = [(g["x"], g["y"])]
         for px, py in points:
@@ -401,12 +403,15 @@ def apply_import_transform(
     s: float,
     bx: float,
     by: float,
+    rot: float = 0.0,
 ) -> list[dict]:
     """Bake an underlay's stored import transform into geometry dicts.
 
     Applies the base-point shift then the uniform import scale
     (``coord -> (coord - base) * s``) to every geometric field of each
-    geometry dict, returning new dicts (the input is not mutated).
+    geometry dict, returning new dicts (the input is not mutated).  When
+    *rot* is non-zero, a scene rotation (Y-down, clockwise-positive) is
+    applied about the origin **after** scale+shift.
 
     This is the single home for a transform that was previously inlined —
     byte-identically — in four ``model_space`` sites
@@ -423,11 +428,24 @@ def apply_import_transform(
         s: Import scale (``real_mm / source_units``).
         bx: Base-point X (subtracted before scaling).
         by: Base-point Y (subtracted before scaling).
+        rot: Optional scene rotation in degrees (default 0.0 = no rotation).
+            Applied after scale+shift about the scene origin, using Qt's
+            Y-down clockwise-positive convention
+            (``x' = x*cos - y*sin``, ``y' = x*sin + y*cos``).
 
     Returns:
-        A new list of transformed geometry dicts. When ``s == 1`` and the
-        base point is the origin the returned dicts equal the inputs.
+        A new list of transformed geometry dicts. When ``s == 1``, the
+        base point is the origin, and ``rot == 0`` the returned dicts equal
+        the inputs.
     """
+    import math as _math
+    if rot:
+        rad = _math.radians(rot)
+        cos_r, sin_r = _math.cos(rad), _math.sin(rad)
+
+        def _rot(x, y):
+            return (x * cos_r - y * sin_r, x * sin_r + y * cos_r)
+
     out: list[dict] = []
     for g in geoms:
         kind = g.get("kind")
@@ -437,6 +455,9 @@ def apply_import_transform(
             t["y1"] = (g["y1"] - by) * s
             t["x2"] = (g["x2"] - bx) * s
             t["y2"] = (g["y2"] - by) * s
+            if rot:
+                t["x1"], t["y1"] = _rot(t["x1"], t["y1"])
+                t["x2"], t["y2"] = _rot(t["x2"], t["y2"])
         elif kind in ("circle", "arc"):
             xk = "x" if kind == "circle" else "rx"
             yk = "y" if kind == "circle" else "ry"
@@ -446,6 +467,16 @@ def apply_import_transform(
             t[yk] = (g[yk] - by) * s
             t[wk] = g[wk] * s
             t[hk] = g[hk] * s
+            if rot:
+                # Rotate the bbox centre; w/h are unchanged (uniform scale, no
+                # shear — a rotated circle/arc keeps the same bbox dimensions).
+                cx = t[xk] + t[wk] / 2
+                cy = t[yk] + t[hk] / 2
+                cx, cy = _rot(cx, cy)
+                t[xk] = cx - t[wk] / 2
+                t[yk] = cy - t[hk] / 2
+                if kind == "arc":
+                    t["start"] = t["start"] - rot
         elif kind == "ellipse_full":
             t["pos_cx"] = (g["pos_cx"] - bx) * s
             t["pos_cy"] = (g["pos_cy"] - by) * s
@@ -453,9 +484,21 @@ def apply_import_transform(
             t["y"] = g["y"] * s
             t["w"] = g["w"] * s
             t["h"] = g["h"] * s
+            if rot:
+                t["pos_cx"], t["pos_cy"] = _rot(t["pos_cx"], t["pos_cy"])
+                t["rotation"] = t["rotation"] - rot
         elif kind == "path_points":
             t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
                            for p in g["points"]]
+            if rot:
+                t["points"] = [_rot(px, py) for px, py in t["points"]]
+        elif kind == "spline":
+            t["control_points"] = [((p[0] - bx) * s, (p[1] - by) * s)
+                                   for p in g["control_points"]]
+            # knots/weights are parametric — never scaled.
+            if rot:
+                t["control_points"] = [_rot(px, py)
+                                       for px, py in t["control_points"]]
         elif kind == "text":
             t["x"] = (g["x"] - bx) * s
             t["y"] = (g["y"] - by) * s
@@ -466,6 +509,8 @@ def apply_import_transform(
             # MUST scale with s or the text's horizontal fit breaks.
             if g.get("twidth") is not None:
                 t["twidth"] = g["twidth"] * s
+            if rot:
+                t["x"], t["y"] = _rot(t["x"], t["y"])
         out.append(t)
     return out
 
@@ -511,6 +556,13 @@ def append_geom_to_path(path, g: dict) -> None:
         rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
         path.arcMoveTo(rect, g["start"])
         path.arcTo(rect, g["start"], g["span"])
+    elif kind == "spline":
+        from .construction_geometry import _bspline_path
+        from PyQt6.QtCore import QPointF as _QPointF
+        cps = [_QPointF(px, py) for px, py in g["control_points"]]
+        sp = _bspline_path(cps, int(g.get("degree", 3)),
+                           g.get("knots"), g.get("weights"))
+        path.addPath(sp)
     elif kind == "ellipse_full":
         path.addEllipse(
             g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
@@ -637,6 +689,8 @@ def _geom_in_any_bound(
         points = [(g["pos_cx"], g["pos_cy"])]
     elif kind == "path_points":
         points = [(p[0], p[1]) for p in g.get("points", [])]
+    elif kind == "spline":
+        points = [(p[0], p[1]) for p in g.get("control_points", [])]
     elif kind == "text":
         points = [(g["x"], g["y"])]
 
@@ -776,6 +830,9 @@ def extract_layout_entities(
             t["rw"] = new_w; t["rh"] = new_h
         elif kind == "path_points":
             t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
+        elif kind == "spline":
+            t["control_points"] = [(_tx(p[0]), _ty(p[1])) for p in g["control_points"]]
+            # knots/weights are parametric — pass through unscaled via the dict copy.
         elif kind == "text":
             t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
             if "size" in g:

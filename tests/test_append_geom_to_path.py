@@ -125,3 +125,14 @@ def test_model_space_matches_dialog(qapp):
         dlg = _build(UnderlayImportDialog._append_geom_to_path, g)
         assert ms.elementCount() == dlg.elementCount(), name
         assert _rect_approx(ms.boundingRect(), dlg.boundingRect()), name
+
+
+def test_spline_kind_adds_to_path(qapp):
+    from PyQt6.QtGui import QPainterPath
+    from firepro3d.dwg_converter import append_geom_to_path
+    path = QPainterPath()
+    append_geom_to_path(path, {"kind": "spline",
+        "control_points": [[0, 0], [10, 20], [30, -20], [40, 0]],
+        "degree": 3, "knots": None, "weights": None})
+    assert not path.isEmpty()
+    assert round(path.pointAtPercent(0.0).x()) == 0

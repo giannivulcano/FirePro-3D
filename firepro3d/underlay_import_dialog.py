@@ -472,11 +472,13 @@ class _DialogExtractWorker(QThread):
     aborted = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, doc, layout_name: str, parent=None):
+    def __init__(self, doc, layout_name: str, parent=None, *,
+                 preserve_curves: bool = False):
         super().__init__(parent)
         self._doc = doc
         self._layout = layout_name
         self._cancelled = False
+        self._preserve_curves = preserve_curves
 
     def cancel(self):
         self._cancelled = True
@@ -521,6 +523,7 @@ class _DialogExtractWorker(QThread):
 
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
+        worker_ref._preserve_curves = getattr(self, "_preserve_curves", False)
         worker_ref._layer_colors = _build_layer_colors(doc)
 
         total = len(all_ents)
@@ -965,6 +968,7 @@ class UnderlayImportDialog(HouseDialog):
         # Per-layout extraction memo: layout name -> (geoms, layers).
         # Revisiting Model→Layout1→Model previously re-extracted thrice.
         self._layout_cache: dict[str, tuple[list[dict], list[str]]] = {}
+        self._preserve_curves = False   # BlockImportDialog overrides to True
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
@@ -2225,7 +2229,8 @@ class UnderlayImportDialog(HouseDialog):
         self._extracting = True
         self._extract_total = None
         self._set_loading("Preparing extraction…")
-        w = _DialogExtractWorker(self._doc, layout_name)
+        w = _DialogExtractWorker(self._doc, layout_name,
+                                 preserve_curves=getattr(self, "_preserve_curves", False))
         self._extract_worker = w
         w.progress.connect(self._on_extract_progress)
         w.status.connect(self._on_extract_status)
