@@ -4591,7 +4591,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._text_preview = preview
         else:
-            # Second click — commit text box
+            # Second click — commit text box at the DRAGGED size (width AND
+            # height), mirroring rectangle placement.  Previously only the width
+            # was captured, so the box auto-fit to one line and read as "zero
+            # height".  Height is clamped to the content height (like the resize
+            # path) so a tiny drag never clips the text.
             rect = QRectF(self._text_anchor, snapped).normalized()
             text_width = max(rect.width(), 20)  # minimum 20px width
             note = NoteAnnotation(
@@ -4600,6 +4604,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             note.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextEditorInteraction)
             self.addItem(note)
+            note._box_height = max(rect.height(), note._content_size()[1])
+            note.prepareGeometryChange()
+            note.update()
             self.annotations.notes.append(note)
             self.requestPropertyUpdate.emit(note)
             # Remove preview
