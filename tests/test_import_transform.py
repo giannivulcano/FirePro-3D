@@ -163,19 +163,35 @@ def test_rotation_rotates_line_endpoints():
     assert (round(out["x1"]), round(out["y1"])) == (0, 10)   # Qt rotate(+90): (10,0)->(0,10)
 
 
-def test_rotation_shifts_arc_start_angle_and_centre():
+def test_rotation_rotates_arc_rigidly_observable(qapp):
+    from firepro3d.geometry_import import geom_dicts_to_primitives
+    from firepro3d.construction_geometry import ArcItem
+    # centre (100,0), r=10, start-point at (110,0); rotate whole drawing +90 deg.
     g = {"kind": "arc", "rx": 90, "ry": -10, "rw": 20, "rh": 20, "start": 0, "span": 45}
-    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=90.0)[0]
-    assert (round(out["rx"] + out["rw"] / 2), round(out["ry"] + out["rh"] / 2)) == (0, 100)
-    assert round(out["start"]) == 90
-    assert round(out["span"]) == 45
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=90.0)
+    a = geom_dicts_to_primitives(out, import_scale=1.0)[0][0]
+    assert isinstance(a, ArcItem)
+    grips = a.grip_points()                       # [centre, start-pt, end-pt]
+    assert (round(grips[0].x()), round(grips[0].y())) == (0, 100)     # centre (100,0)->R(90)->(0,100)
+    assert (round(grips[1].x()), round(grips[1].y())) == (0, 110)     # start-pt (110,0)->R(90)->(0,110)
 
 
-def test_rotation_shifts_ellipse_rotation_field():
+def test_rotation_rotates_ellipse_major_axis_observable(qapp):
+    import math
+    from firepro3d.geometry_import import geom_dicts_to_primitives
+    from firepro3d.construction_geometry import EllipseItem
+    # axis-aligned ellipse at origin, rx=20 ry=10; rotate whole drawing +30 deg.
     g = {"kind": "ellipse_full", "x": -20, "y": -10, "w": 40, "h": 20,
-         "pos_cx": 0, "pos_cy": 0, "rotation": 15}
-    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=30.0)[0]
-    assert round(out["rotation"]) == 45
+         "pos_cx": 0, "pos_cy": 0, "rotation": 0}
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=30.0)
+    e = geom_dicts_to_primitives(out, import_scale=1.0)[0][0]
+    assert isinstance(e, EllipseItem)
+    # major-axis endpoint of the unrotated ellipse is (20,0); rigid rotation R(30):
+    rad = math.radians(30.0)
+    ex = 20 * math.cos(rad) - 0 * math.sin(rad)
+    ey = 20 * math.sin(rad) + 0 * math.cos(rad)
+    grips = e.grip_points()          # [centre, major+, major-, minor+, minor-]
+    assert round(grips[1].x()) == round(ex) and round(grips[1].y()) == round(ey)
 
 
 def test_rotation_defaults_to_identity():

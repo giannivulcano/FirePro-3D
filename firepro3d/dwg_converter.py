@@ -476,7 +476,7 @@ def apply_import_transform(
                 t[xk] = cx - t[wk] / 2
                 t[yk] = cy - t[hk] / 2
                 if kind == "arc":
-                    t["start"] = t["start"] + rot
+                    t["start"] = t["start"] - rot
         elif kind == "ellipse_full":
             t["pos_cx"] = (g["pos_cx"] - bx) * s
             t["pos_cy"] = (g["pos_cy"] - by) * s
@@ -486,7 +486,7 @@ def apply_import_transform(
             t["h"] = g["h"] * s
             if rot:
                 t["pos_cx"], t["pos_cy"] = _rot(t["pos_cx"], t["pos_cy"])
-                t["rotation"] = t["rotation"] + rot
+                t["rotation"] = t["rotation"] - rot
         elif kind == "path_points":
             t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
                            for p in g["points"]]
