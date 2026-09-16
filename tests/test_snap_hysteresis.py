@@ -5,7 +5,7 @@ from PyQt6.QtGui import QTransform
 from PyQt6.QtWidgets import QGraphicsScene
 from firepro3d import snap_engine
 from firepro3d.snap_engine import SnapEngine, OsnapResult
-from firepro3d.construction_geometry import LineItem, CircleItem
+from firepro3d.geometry_2d import LineItem, CircleItem
 
 
 def _x(scale=1.0):
@@ -93,7 +93,7 @@ def test_held_reemitted_with_fields_preserved_when_no_candidate(qapp):
 def test_model_hysteresis_sticky_then_reset(make_model_space):
     """Two close endpoints: first snap is held on second call (sticky);
     toggle_snap resets _snap_result to None."""
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from PyQt6.QtCore import QPointF
 
     ms = make_model_space()

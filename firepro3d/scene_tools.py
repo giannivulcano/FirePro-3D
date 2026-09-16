@@ -27,7 +27,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QApplication
 
-from .construction_geometry import (
+from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from .constants import DEFAULT_LEVEL
@@ -752,7 +752,7 @@ class SceneTools:
 
     def _all_geometry_items(self):
         """Return a flat list of all construction geometry items in the scene."""
-        from .construction_geometry import (
+        from .geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
             RegularPolygonItem, EllipseItem, SplineItem,
         )
@@ -769,7 +769,7 @@ class SceneTools:
 
     def _find_geometry_at(self, pos: QPointF):
         """Find the geometry item nearest to pos (within tolerance)."""
-        from .construction_geometry import (
+        from .geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
         )
         tol = 8.0
@@ -799,7 +799,7 @@ class SceneTools:
     def _find_endpoint_hit(self, pos: QPointF):
         """Find endpoint grip on any geometry item near pos (not just selected).
         Returns (item, grip_index, QPointF) or None."""
-        from .construction_geometry import (
+        from .geometry_2d import (
             LineItem, PolylineItem, ArcItem,
         )
         views = self._scene.views()
@@ -867,7 +867,7 @@ class SceneTools:
 
     def _handle_trim_click(self, pos: QPointF):
         """Handle mouse click during trim mode."""
-        from .construction_geometry import (
+        from .geometry_2d import (
             LineItem, CircleItem, ArcItem, PolylineItem,
         )
 
@@ -1027,7 +1027,7 @@ class SceneTools:
 
     def _handle_extend_click(self, pos: QPointF):
         """Handle mouse click during extend mode."""
-        from .construction_geometry import LineItem, ArcItem, PolylineItem
+        from .geometry_2d import LineItem, ArcItem, PolylineItem
 
         if self._scene.mode == "extend":
             item = self._find_geometry_at(pos)
@@ -1105,7 +1105,7 @@ class SceneTools:
 
     def _handle_constraint_concentric_click(self, pos: QPointF):
         """Handle mouse click during concentric constraint mode."""
-        from .construction_geometry import CircleItem, ArcItem
+        from .geometry_2d import CircleItem, ArcItem
         item = self._find_geometry_at(pos)
         if item is None or not isinstance(item, (CircleItem, ArcItem)):
             self._scene._show_status("Please select a circle or arc")

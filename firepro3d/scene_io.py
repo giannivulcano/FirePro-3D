@@ -201,7 +201,7 @@ class SceneIOMixin:
         from .annotations import _rebuild_path_from_elements
         from .underlay import Underlay
         from .scale_manager import ScaleManager
-        from .construction_geometry import (
+        from .geometry_2d import (
             PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem, EllipseItem, SplineItem,
         )

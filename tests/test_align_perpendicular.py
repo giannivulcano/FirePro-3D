@@ -19,7 +19,7 @@ import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 
 
 def _left_click(view, scene, scene_pt: QPointF) -> None:

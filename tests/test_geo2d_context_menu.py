@@ -18,7 +18,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.construction_geometry import RectangleItem, LineItem
+from firepro3d.geometry_2d import RectangleItem, LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 

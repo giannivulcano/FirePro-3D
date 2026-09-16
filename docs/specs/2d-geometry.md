@@ -2,24 +2,24 @@
 title: 2D Geometry System
 status: current
 applies-to:
-  - firepro3d/construction_geometry.py
+  - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-15
-verified-commit: aca3220
+last-verified: 2026-09-16
+verified-commit: 30c3313
 ---
 
 # 2D Geometry System
 
 Governing spec for the reference / drawing-geometry subsystem: the item models in
-`construction_geometry.py` and their placement layer in `model_space.py`. Closes
-the long-standing `construction_geometry.py` orphan (former backlog "Spec session:
-construction geometry system"). Seeded from the 2026-08-22 (level-plane + fill) and
+`geometry_2d.py` and their placement layer in `model_space.py`. Closes
+the long-standing 2D-geometry orphan (formerly `construction_geometry.py`; former
+backlog "Spec session: construction geometry system"). Seeded from the 2026-08-22 (level-plane + fill) and
 2026-08-24 (polish cluster) design-of-records under `docs/superpowers/specs/`.
 
-> **Naming:** the module is still `construction_geometry.py` for legacy reasons
-> (it began with the now-retired `ConstructionLine`). Everything user-facing says
-> "2D Geometry" (the ribbon group, the Display-Manager category, `Geometry2DMixin`).
-> A rename to `geometry_2d.py` is a filed follow-up.
+> **Naming:** the module was renamed `construction_geometry.py` → `geometry_2d.py`
+> (2026-09-16) — it began with the now-retired `ConstructionLine`. Everything
+> user-facing already said "2D Geometry" (the ribbon group, the Display-Manager
+> category, `Geometry2DMixin`).
 
 ## 1. Scope & item models
 
@@ -215,7 +215,7 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   variants (Line / Polyline / Corner Rect / Center Rect) via `_PLACEMENT_VARIANTS`;
   the rect variants share the same **3-step** pattern (anchor → size → rotate)
   and use the shared **"rotation"** HUD schema for the rotate step (step-aware
-  `active_schema`). `rect_sizing_points()` in `construction_geometry.py` is now
+  `active_schema`). `rect_sizing_points()` in `geometry_2d.py` is now
   **shared** between the 2D-geo rectangle and the wall rectangle. See
   `wall-room-floor-system.md §4.4` for the full wall-placement contract.
 - **Floor (2026-08-28):** floor placement registers into the same dispatch as a
@@ -278,4 +278,3 @@ Fill is a per-item property, independent of the category.
   filled 2D profiles; hatch scale control; per-category 2D-geometry line-weight.
 - Parametric-polygon polish (explode → editable polyline; "Sides" as a HUD COUNT
   field); Line+Polyline single ←/→ cycle tool (retire the `K` placeholder).
-- Module rename `construction_geometry.py → geometry_2d.py`.

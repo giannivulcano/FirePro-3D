@@ -23,7 +23,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QImage, QPainter, QColor
 from PyQt6.QtWidgets import QGraphicsScene, QLineEdit, QComboBox
 
-from firepro3d.construction_geometry import RectangleItem, CircleItem, LineItem
+from firepro3d.geometry_2d import RectangleItem, CircleItem, LineItem
 from firepro3d.level_manager import LevelManager
 from firepro3d.property_manager import PropertyManager
 from firepro3d.scale_manager import ScaleManager
@@ -298,7 +298,7 @@ def test_opacity_alpha_value_used_in_draw_fill(qapp):
     We intercept draw_fill to capture the alpha argument and verify it
     matches the expected formula for fill_opacity=0.6.
     """
-    import firepro3d.construction_geometry as cg_mod
+    import firepro3d.geometry_2d as cg_mod
     import firepro3d.displayable_item as di_mod
 
     captured_alphas: list[int] = []
@@ -311,11 +311,11 @@ def test_opacity_alpha_value_used_in_draw_fill(qapp):
         return original_draw_fill(painter, closed_path, scene, fill_type,
                                   pattern, colour, alpha)
 
-    # Patch into the construction_geometry local namespace
+    # Patch into the geometry_2d local namespace
     import firepro3d.displayable_item as _di
     original = _di.draw_fill
 
-    # We need to patch in the module where it's imported (construction_geometry)
+    # We need to patch in the module where it's imported (geometry_2d)
     # by patching the module-level name that paint() calls via "from .displayable_item import draw_fill"
     # Since it's imported at call time (inside paint()), we patch at the source module.
     _di.draw_fill = spy_draw_fill

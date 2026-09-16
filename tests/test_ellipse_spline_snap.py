@@ -2,7 +2,7 @@ import math
 import pytest
 from PyQt6.QtCore import QPointF
 from firepro3d.snap_engine import SnapEngine
-from firepro3d.construction_geometry import EllipseItem
+from firepro3d.geometry_2d import EllipseItem
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_ellipse_center_only_when_flag_off(eng):
 
 
 # ── SplineItem snap (appended) ──────────────────────────────────────────────
-from firepro3d.construction_geometry import SplineItem
+from firepro3d.geometry_2d import SplineItem
 
 
 def test_spline_emits_endpoints_and_control_points(eng):

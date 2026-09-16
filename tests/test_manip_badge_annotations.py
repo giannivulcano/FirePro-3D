@@ -6,7 +6,7 @@ Governing spec: docs/specs/selection-manipulator.md.  These items are
 translate-ONLY under the manipulator in v1 (no scale/rotate handles): a badge
 carries a fixed table layout, annotations are parametric.  The manipulator
 frame becomes the sole selection boundary — each geometry item gates its own
-dashed boundary (in paint) on ``construction_geometry._manip_wraps`` so a
+dashed boundary (in paint) on ``geometry_2d._manip_wraps`` so a
 wrapped item draws no second boundary while grip squares keep rendering.
 """
 import json
@@ -229,7 +229,7 @@ def test_dimension_annotation_moves_via_manipulator(qapp, scene_and_view):
 
 def test_manipulator_frame_is_sole_boundary(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem, _manip_wraps
+    from firepro3d.geometry_2d import LineItem, _manip_wraps
     item = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(item)
     item.setSelected(True)
@@ -245,7 +245,7 @@ def test_manipulator_frame_is_sole_boundary(qapp, scene_and_view):
 
 def test_boundary_predicate_true_for_unwrapped(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem, _manip_wraps
+    from firepro3d.geometry_2d import LineItem, _manip_wraps
     item = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(item)          # NOT selected → not wrapped
     qapp.processEvents()

@@ -2674,7 +2674,7 @@ class TestArcProperties:
     """Arc must surface real properties (Centre/Radius/Start/Span/…), not blank."""
 
     def test_get_properties_is_rich(self, qapp):
-        from firepro3d.construction_geometry import ArcItem
+        from firepro3d.geometry_2d import ArcItem
         arc = ArcItem(QPointF(10, 20), 1000.0, 0.0, 90.0)
         props = arc.get_properties()
         assert props["Type"]["value"] == "Arc"

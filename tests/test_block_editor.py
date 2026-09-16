@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QTabWidget
 
 from firepro3d.model_space import Model_Space
 from firepro3d.block_editor import BlockEditorManager, BlockEditorWidget
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 
 
 def test_open_new_adds_isolated_level_less_editor_tab(qapp):
@@ -93,7 +93,7 @@ def test_commit_new_blank_registers_without_instance(qapp):
 def test_commit_seeded_create_replaces_source_with_instance(qapp):
     project = Model_Space(); tabs = QTabWidget()
     # source items live in the PROJECT scene
-    from firepro3d.construction_geometry import LineItem as LI
+    from firepro3d.geometry_2d import LineItem as LI
     s1 = LI(QPointF(0, 0), QPointF(100, 0)); project.addItem(s1); project._draw_lines.append(s1)
     s2 = LI(QPointF(100, 0), QPointF(100, 50)); project.addItem(s2); project._draw_lines.append(s2)
     mgr = BlockEditorManager(tabs, project)
@@ -147,7 +147,7 @@ def test_gather_includes_directly_added_drawn_primitive(qapp):
     # simulate a live draw: an item appended to a tracking list (as the draw tools do)
     project = Model_Space(); tabs = QTabWidget()
     w = BlockEditorManager(tabs, project).open_new()
-    from firepro3d.construction_geometry import CircleItem as CI
+    from firepro3d.geometry_2d import CircleItem as CI
     c = CI(QPointF(0, 0), 5); w.editor_scene.addItem(c); w.editor_scene._draw_circles.append(c)
     w.seed_from_dicts(_seed_dicts())                  # plus 2 seeded lines
     kinds = sorted(p.to_dict()["type"] for p in w.gather_primitives())
@@ -234,7 +234,7 @@ def test_manager_open_in_editor_uses_editor_manager(qapp):
     from firepro3d.model_space import Model_Space
     from PyQt6.QtWidgets import QTabWidget
     from firepro3d.block_editor import BlockEditorManager
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from PyQt6.QtCore import QPointF
     project = Model_Space()
     a = LineItem(QPointF(0, 0), QPointF(10, 0))

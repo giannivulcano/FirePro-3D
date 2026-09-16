@@ -16,7 +16,7 @@ from PyQt6.QtGui import QImage, QPainter, QColor
 from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.model_space import Model_Space
-from firepro3d.construction_geometry import RectangleItem, CircleItem
+from firepro3d.geometry_2d import RectangleItem, CircleItem
 from tests._paper_iso_helpers import _DetailMgrStub
 
 

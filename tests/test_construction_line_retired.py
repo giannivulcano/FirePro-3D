@@ -1,7 +1,7 @@
 """tests/test_construction_line_retired.py
 
 Verify that ConstructionLine has been fully retired:
-- class no longer exists in construction_geometry
+- class no longer exists in geometry_2d
 - not exported from the package
 - legacy .fpd payloads with construction_lines are silently dropped on load
 """
@@ -14,7 +14,7 @@ import tempfile
 
 
 def test_construction_line_class_gone():
-    import firepro3d.construction_geometry as cg
+    import firepro3d.geometry_2d as cg
     assert not hasattr(cg, "ConstructionLine")
 
 

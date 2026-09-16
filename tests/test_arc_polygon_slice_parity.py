@@ -76,7 +76,7 @@ def test_arc_polygon_shells_present(shown_model_view):
 
 
 def test_draw_arc_three_click_creates_arc(shown_model_view):
-    from firepro3d.construction_geometry import ArcItem
+    from firepro3d.geometry_2d import ArcItem
 
     view, scene = shown_model_view
     scene.set_mode("draw_arc")
@@ -97,7 +97,7 @@ def test_draw_arc_three_click_creates_arc(shown_model_view):
 
 
 def test_draw_polygon_three_click_creates_polygon(shown_model_view):
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
 
     view, scene = shown_model_view
     scene.set_mode("polygon")

@@ -331,7 +331,7 @@ def _category_for_item(item) -> str | None:
     # self.pen() directly in paint(), so they default to white (#ffffff) and
     # are invisible on white paper unless remapped (see _apply_construction).
     try:
-        from .construction_geometry import (
+        from .geometry_2d import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
         )

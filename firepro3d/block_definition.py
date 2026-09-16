@@ -11,7 +11,7 @@ import uuid
 
 from PyQt6.QtGui import QPainterPath, QPen
 
-from .construction_geometry import (
+from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
     EllipseItem, SplineItem,
 )
@@ -65,7 +65,7 @@ class BlockDefinition:
         scale_mode: v1 sole value "real_size" ("annotative" reserved for v2).
         origin: Definition-local insertion origin, in scene millimetres.
         attributes: Reserved slot list; no UI in v1.
-        primitives: List of 2D-primitive dicts (construction_geometry to_dict form).
+        primitives: List of 2D-primitive dicts (geometry_2d to_dict form).
     """
 
     def __init__(self, *, id: str, version: int, name: str, library: str,
@@ -95,7 +95,7 @@ class BlockDefinition:
         """Replace captured primitives, bump version, invalidate + notify instances.
 
         Args:
-            primitives: The new list of 2D-primitive dicts (construction_geometry
+            primitives: The new list of 2D-primitive dicts (geometry_2d
                 to_dict form) that replaces the definition's geometry.
         """
         self.primitives = list(primitives)

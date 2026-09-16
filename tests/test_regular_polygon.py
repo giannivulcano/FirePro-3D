@@ -1,6 +1,6 @@
 import math
 from PyQt6.QtCore import QPointF
-from firepro3d.construction_geometry import RegularPolygonItem
+from firepro3d.geometry_2d import RegularPolygonItem
 
 def _approx(a, b, tol=1e-6):
     return abs(a - b) < tol

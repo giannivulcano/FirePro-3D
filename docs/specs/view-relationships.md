@@ -21,7 +21,7 @@ applies-to:
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
 > **§7.3 (Z-order) last-verified:** 2026-08-22 against `constants.py` + `level_manager.apply_to_scene` (commit `ce37220`, 2D-geometry level+fill task — added `Z_CAT_CONSTRUCTION`; 2D geometry now elevation-based). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
-> **§3.3 (world-Z table) last-verified:** 2026-08-22 against `construction_geometry.py` `Geometry2DMixin` (commit `ce37220`) — 2D geometry gained `level` + `_level_offset_mm` + `z_range_mm()`.
+> **§3.3 (world-Z table) last-verified:** 2026-08-22 against `geometry_2d.py` `Geometry2DMixin` (commit `ce37220`) — 2D geometry gained `level` + `_level_offset_mm` + `z_range_mm()`.
 > **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against `view_marker.py` (`PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
 
 ---
@@ -130,8 +130,8 @@ This table enumerates every property in the data model that contributes to an ob
 | **Roof** | `level` (inherited) | str | "Level 1" | Roof base elevation | `roof.py:23` |
 | **Roof** | (slope/pitch) | — | flat | Pitch affects 3D only; 2D treats roof as flat at level elevation | `roof.py:28-30` |
 | **Underlay** (DXF/PDF) | (none) | — | Z = 0 | Always at world Z = 0; not configurable | `underlay.py` |
-| **2D geometry** (Line/Polyline/Rectangle/Circle/Arc) | `level` | str | "Level 1" | Placement level (dropdown; new items default to the active level via `GeometryTemplate`) | `construction_geometry.py` (`Geometry2DMixin`) |
-| **2D geometry** | `_level_offset_mm` | float (mm) | 0 | Offset above the level plane; world-Z = `level.elevation + offset`; `z_range_mm()` returns the zero-thickness point `(E, E)` (added 2026-08-22) | `construction_geometry.py` |
+| **2D geometry** (Line/Polyline/Rectangle/Circle/Arc) | `level` | str | "Level 1" | Placement level (dropdown; new items default to the active level via `GeometryTemplate`) | `geometry_2d.py` (`Geometry2DMixin`) |
+| **2D geometry** | `_level_offset_mm` | float (mm) | 0 | Offset above the level plane; world-Z = `level.elevation + offset`; `z_range_mm()` returns the zero-thickness point `(E, E)` (added 2026-08-22) | `geometry_2d.py` |
 | **ViewMarker** (elevation/section) | `level` | str | "Level 1" | Marker sits on this level (no Z extent) | `view_marker.py:159` |
 | **DetailMarker** | `level` | str | "Level 1" | Same | `detail_view.py:81` |
 | **DetailMarker** | `_view_height` / `_view_depth` | float \| None | None | Optional Z-range override; inherits from parent plan if None | `detail_view.py:61-62` |

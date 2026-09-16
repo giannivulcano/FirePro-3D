@@ -5,7 +5,7 @@ Task 4: edit-in-place propagation guard.
 """
 from PyQt6.QtCore import QPointF
 from firepro3d.model_space import Model_Space
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 
 
 def _line_dicts():

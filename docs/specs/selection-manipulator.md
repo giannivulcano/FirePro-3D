@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/scene_tools.py             # legacy _find_grip_hit retired U4 (no grip code remains)
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
+  - firepro3d/geometry_2d.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
   - firepro3d/view_marker.py             # U3: ViewMarkerArrow manip adapter -> shared SharedCropBox (parametric crop, translate-only caps, own outline dropped)
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
@@ -830,6 +830,6 @@ Prototype: `D:\Custom Code\FPD Design\selection box\selection_box.py`.
 Seams: `model_view.py` (`drawForeground`, grip press pipeline),
 `scene_tools.py` (`_find_grip_hit`), `model_space.py` (drag lifecycle,
 `push_undo_state`, `move_items`), `paper_space.py` (retiring handle code),
-`paper_commands.py`, `construction_geometry.py` (RectangleItem),
+`paper_commands.py`, `geometry_2d.py` (RectangleItem),
 `dynamic_input.py`, `snap_engine.py`, `constants.py` `SELECTION_*`,
 `theme.py` selection tokens.

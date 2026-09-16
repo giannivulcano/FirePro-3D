@@ -2,7 +2,7 @@ import math
 
 from PyQt6.QtCore import QPointF
 
-from firepro3d.construction_geometry import RectangleItem
+from firepro3d.geometry_2d import RectangleItem
 
 
 def test_set_angle_stores_and_applies(qapp):

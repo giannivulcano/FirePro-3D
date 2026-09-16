@@ -255,7 +255,7 @@ def test_polygon_family_key_is_geo2d(main_window):
     RED-VERIFY: before adding RegularPolygonItem to the isinstance tuple in
     _family_key_for, this test would return None and the assert would fail.
     """
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
     from PyQt6.QtCore import QPointF
 
     poly = RegularPolygonItem(center=QPointF(0, 0), sides=6, radius_mm=50.0)
@@ -267,7 +267,7 @@ def test_polygon_family_key_is_geo2d(main_window):
 
 def test_selecting_polygon_shows_geo2d_tab(main_window, qapp, clean_scene):
     """Selecting a RegularPolygonItem must insert a 'Modify | Polygon' contextual tab."""
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
     from PyQt6.QtCore import QPointF
 
     poly = RegularPolygonItem(center=QPointF(0, 0), sides=6, radius_mm=50.0)
@@ -293,7 +293,7 @@ def test_title_updates_on_element_switch_within_family(main_window, qapp, clean_
     """Switching between two element types in the SAME family (Rectangle →
     Circle, both geo2d) must retitle the contextual tab, not silently leave the
     old element name — the guard tracks (key, title), not key alone."""
-    from firepro3d.construction_geometry import RectangleItem, CircleItem
+    from firepro3d.geometry_2d import RectangleItem, CircleItem
     mw = main_window
     rect = RectangleItem(QPointF(0, 0), QPointF(500, 300))
     circ = CircleItem(QPointF(0, 0), 100.0)

@@ -1,7 +1,7 @@
 import pytest
 from PyQt6.QtCore import QPointF
 from firepro3d.model_space import Model_Space
-from firepro3d.construction_geometry import EllipseItem
+from firepro3d.geometry_2d import EllipseItem
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def test_ellipse_in_2d_geometry_display_category(scene):
 
 
 # ── SplineItem integration (appended) ───────────────────────────────────────
-from firepro3d.construction_geometry import SplineItem
+from firepro3d.geometry_2d import SplineItem
 
 
 def _add_spline(scene):

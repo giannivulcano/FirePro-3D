@@ -2531,7 +2531,7 @@ class MainWindow(QMainWindow):
 
     def _make_block_from_selection(self):
         """Ribbon handler: turn the selected 2D drafting geometry into a block."""
-        from firepro3d.construction_geometry import (
+        from firepro3d.geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         from firepro3d.make_block_dialog import MakeBlockDialog
         from PyQt6.QtCore import QPointF
@@ -2581,7 +2581,7 @@ class MainWindow(QMainWindow):
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""
-        from firepro3d.construction_geometry import (
+        from firepro3d.geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
@@ -3259,7 +3259,7 @@ class MainWindow(QMainWindow):
         is moot since they don't share a base, but the order is kept
         consistent with the taxonomy).
         """
-        from firepro3d.construction_geometry import (
+        from firepro3d.geometry_2d import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
             RegularPolygonItem, EllipseItem, SplineItem,
@@ -3326,7 +3326,7 @@ class MainWindow(QMainWindow):
         2-D-geometry type gets its own name (Rectangle/Circle/Ellipse/…) rather
         than the shared "2D Geometry" group name, per the 2026-09-08 request.
         """
-        from firepro3d.construction_geometry import (
+        from firepro3d.geometry_2d import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
             RegularPolygonItem, EllipseItem, SplineItem,

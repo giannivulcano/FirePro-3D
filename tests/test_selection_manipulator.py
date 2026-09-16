@@ -78,7 +78,7 @@ def test_manipulator_attached_once_per_scene(qapp, scene_and_view):
 
 def test_frame_appears_on_selection_and_hides_on_clear(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(item)
     manip = _manip(scene)
@@ -93,7 +93,7 @@ def test_frame_appears_on_selection_and_hides_on_clear(qapp, scene_and_view):
 
 def test_interior_drag_moves_item_baked(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     item.setSelected(True)
@@ -107,7 +107,7 @@ def test_interior_drag_moves_item_baked(qapp, scene_and_view):
 
 def test_noop_press_release_is_byte_identical(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     item.setSelected(True)
@@ -120,7 +120,7 @@ def test_noop_press_release_is_byte_identical(qapp, scene_and_view):
 
 def test_click_through_selects_item_under_frame(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     # Diagonal `a` gives the frame real height, so (100, 40) is inside the
     # frame yet off a's own shape (a passes through (100, 20)) and on b.
     a = LineItem(QPointF(0, 0), QPointF(300, 60))
@@ -136,7 +136,7 @@ def test_click_through_selects_item_under_frame(qapp, scene_and_view):
 
 def test_group_move_bakes_all_and_one_undo_restores(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     items = [LineItem(QPointF(x, 0), QPointF(x + 30, 0)) for x in (0, 60, 120)]
     for it in items:
         scene.addItem(it)
@@ -168,7 +168,7 @@ def test_group_move_bakes_all_and_one_undo_restores(qapp, scene_and_view):
 
 def test_escape_mid_drag_restores_byte_identical(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     item.setSelected(True)
@@ -187,7 +187,7 @@ def test_escape_mid_drag_restores_byte_identical(qapp, scene_and_view):
 
 def test_shift_mid_drag_is_ortho(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     item.setSelected(True)
@@ -228,7 +228,7 @@ def test_sprinkler_selection_resolves_to_node(qapp, scene_and_view):
 
 def test_hud_shows_live_move_values_then_returns_inactive(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     item.setSelected(True)
@@ -250,7 +250,7 @@ def test_hud_shows_live_move_values_then_returns_inactive(qapp, scene_and_view):
 
 def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     item = LineItem(QPointF(100, 100), QPointF(200, 100))
     scene.addItem(item)
     scene._draw_lines.append(item)               # register in serialized net
@@ -289,7 +289,7 @@ def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
 
 def test_rect_shows_8_handles_and_knob(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
     r.setSelected(True)
@@ -301,7 +301,7 @@ def test_rect_shows_8_handles_and_knob(qapp, scene_and_view):
 
 def test_line_shows_no_resize_handles(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from firepro3d.manip_math import HandleRole, _RESIZE_ROLES
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(ln)
@@ -318,7 +318,7 @@ def test_line_shows_no_resize_handles(qapp, scene_and_view):
 
 def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     from firepro3d.manip_math import HandleRole
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
@@ -339,7 +339,7 @@ def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
 
 def test_resize_gesture_bakes_scale_no_transform(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     from firepro3d.manip_math import HandleRole
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
@@ -385,7 +385,7 @@ def test_rotate_knob_press_starts_rotation_via_gate(qapp, scene_and_view):
     on the knob must begin a rotate gesture — not fall through to selection
     (which is why 'rotation doesn't work')."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
     r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
     scene.addItem(r)
@@ -410,7 +410,7 @@ def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view)
     and (b) steals the handle press, which deselected the item. Pressing a
     corner handle must keep the rect selected and start a resize gesture."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
     scene.addItem(r)
     r.setSelected(True)

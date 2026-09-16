@@ -1,6 +1,6 @@
 # tests/test_polyline_closed.py
 from PyQt6.QtCore import QPointF
-from firepro3d.construction_geometry import PolylineItem
+from firepro3d.geometry_2d import PolylineItem
 
 def _tri(closed=False):
     pl = PolylineItem(QPointF(0, 0))

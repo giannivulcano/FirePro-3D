@@ -7,7 +7,7 @@ per move. A smaller aperture misses an item that a larger one would catch.
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 from firepro3d.constants import HALO_APERTURE_PX
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 
 

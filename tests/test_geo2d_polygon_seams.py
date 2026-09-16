@@ -24,7 +24,7 @@ from PyQt6.QtCore import QPointF
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
 from firepro3d.display_manager import _apply_to_scene_items
-from firepro3d.construction_geometry import RegularPolygonItem
+from firepro3d.geometry_2d import RegularPolygonItem
 from PyQt6.QtWidgets import QGraphicsScene
 
 

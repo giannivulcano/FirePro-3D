@@ -98,7 +98,7 @@ def test_noop_press_release_byte_identical(qapp, scene_and_view):
     """A _begin / _finish at the same point (below drag threshold) must leave
     the item's serialisation unchanged — no spurious bake, no undo entry."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
 
     rect = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(rect)
@@ -126,7 +126,7 @@ def test_escape_mid_drag_byte_identical(qapp, scene_and_view):
     """cancel_drag() mid-resize must restore the item to byte-identical
     pre-gesture state (no bake, no undo geometry churn)."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
 
     rect = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(rect)
@@ -165,7 +165,7 @@ def test_resize_posted_matches_slot(qapp, scene_and_view, role):
     differs from before-gesture AND equals the slot result.
     """
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
 
     # ── Item A: slot-level resize ──────────────────────────────────────────
     rect_a = RectangleItem(QPointF(100, 100), QPointF(200, 150))
@@ -262,7 +262,7 @@ def test_rotate_posted_matches_slot(qapp, scene_and_view):
     from the pre-gesture state AND equals the slot result.
     """
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
 
     # ── Item A: slot-level rotate ──────────────────────────────────────────

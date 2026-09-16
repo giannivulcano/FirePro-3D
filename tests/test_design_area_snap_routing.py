@@ -14,7 +14,7 @@ def _install_view_scale(ms, scale):
 def test_design_area_snaps_only_to_sprinkler_center(qapp, make_model_space):
     ms = make_model_space()
     ms.mode = "design_area"
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     ms.addItem(LineItem(QPointF(0.0, 0.0), QPointF(100.0, 0.0)))  # endpoint at (0,0) — must be IGNORED
     node = ms.add_node(50.0, 0.0)
     ms.add_sprinkler(node)

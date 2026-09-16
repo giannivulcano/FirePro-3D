@@ -61,7 +61,7 @@ def test_mode_switch_clears_ellipse_state(scene):
 
 
 # ── Spline draw tool (appended) ─────────────────────────────────────────────
-from firepro3d.construction_geometry import SplineItem
+from firepro3d.geometry_2d import SplineItem
 
 
 def test_nclick_spline_placement(scene):
@@ -239,7 +239,7 @@ def _px_count(scene, item, selected):
 
 def test_ellipse_ref_guides_render_when_manip_wrapped(qapp):
     from PyQt6.QtWidgets import QGraphicsScene
-    from firepro3d.construction_geometry import EllipseItem
+    from firepro3d.geometry_2d import EllipseItem
     sc = QGraphicsScene()
     e = EllipseItem(QPointF(90, 70), 60, 24, 0.0)
     sc.addItem(e)
@@ -250,7 +250,7 @@ def test_ellipse_ref_guides_render_when_manip_wrapped(qapp):
 
 def test_spline_ref_guides_render_when_manip_wrapped(qapp):
     from PyQt6.QtWidgets import QGraphicsScene
-    from firepro3d.construction_geometry import SplineItem
+    from firepro3d.geometry_2d import SplineItem
     sc = QGraphicsScene()
     s = SplineItem([QPointF(10, 10), QPointF(60, 90), QPointF(130, 20),
                     QPointF(180, 70)])

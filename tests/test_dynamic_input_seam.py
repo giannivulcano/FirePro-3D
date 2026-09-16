@@ -14,7 +14,7 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.construction_geometry import PolylineItem
+from firepro3d.geometry_2d import PolylineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 from firepro3d.node import Node

@@ -10,7 +10,7 @@ from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
-from firepro3d.construction_geometry import RegularPolygonItem
+from firepro3d.geometry_2d import RegularPolygonItem
 from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
 

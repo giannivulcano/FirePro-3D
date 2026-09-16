@@ -1127,7 +1127,7 @@ class PlacementInputCoordinator:
 
     def _get_geometry_template(self):
         """Return (lazily-created) geometry template for line/rect/circle/polyline."""
-        from .construction_geometry import GeometryTemplate
+        from .geometry_2d import GeometryTemplate
         if self._scene._geometry_template is None:
             self._scene._geometry_template = GeometryTemplate()
         # Sync with active level

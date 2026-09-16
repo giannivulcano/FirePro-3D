@@ -4,7 +4,7 @@ from firepro3d.block_definition import BlockDefinition
 
 
 def _line_dict(x1=0.0, y1=0.0, x2=100.0, y2=0.0):
-    """A minimal draw_line primitive dict (see construction_geometry.LineItem.to_dict)."""
+    """A minimal draw_line primitive dict (see geometry_2d.LineItem.to_dict)."""
     return {"type": "draw_line", "pt1": [x1, y1], "pt2": [x2, y2],
             "color": "#ffffff", "lineweight": 1.0}
 

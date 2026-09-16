@@ -12,7 +12,7 @@
 - `firepro3d/floor_slab.py` -- Floor slab polygons
 - `firepro3d/roof.py` -- Roof polygons
 - `firepro3d/wall_opening.py` -- Door and window openings in walls
-- `firepro3d/construction_geometry.py` -- Lines, polylines, rectangles, circles, arcs
+- `firepro3d/geometry_2d.py` -- Lines, polylines, rectangles, circles, arcs
 - `firepro3d/annotations.py` -- Dimensions, notes, hatches
 
 ## DisplayableItemMixin
@@ -200,7 +200,7 @@ Polygon-based entities for floor slabs and roofs. Both support section-cut hatch
 
 ### Construction geometry
 
-Non-printing geometric aids defined in `construction_geometry.py`:
+Non-printing geometric aids defined in `geometry_2d.py`:
 
 - `ConstructionLine` -- infinite reference lines
 - `PolylineItem` -- connected line segments

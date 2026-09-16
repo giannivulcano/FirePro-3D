@@ -165,7 +165,7 @@ def test_rotation_rotates_line_endpoints():
 
 def test_rotation_rotates_arc_rigidly_observable(qapp):
     from firepro3d.geometry_import import geom_dicts_to_primitives
-    from firepro3d.construction_geometry import ArcItem
+    from firepro3d.geometry_2d import ArcItem
     # centre (100,0), r=10, start-point at (110,0); rotate whole drawing +90 deg.
     g = {"kind": "arc", "rx": 90, "ry": -10, "rw": 20, "rh": 20, "start": 0, "span": 45}
     out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=90.0)
@@ -179,7 +179,7 @@ def test_rotation_rotates_arc_rigidly_observable(qapp):
 def test_rotation_rotates_ellipse_major_axis_observable(qapp):
     import math
     from firepro3d.geometry_import import geom_dicts_to_primitives
-    from firepro3d.construction_geometry import EllipseItem
+    from firepro3d.geometry_2d import EllipseItem
     # axis-aligned ellipse at origin, rx=20 ry=10; rotate whole drawing +30 deg.
     g = {"kind": "ellipse_full", "x": -20, "y": -10, "w": 40, "h": 20,
          "pos_cx": 0, "pos_cy": 0, "rotation": 0}

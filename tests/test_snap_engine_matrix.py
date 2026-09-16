@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
 )
 
-from firepro3d.construction_geometry import (
+from firepro3d.geometry_2d import (
     ArcItem,
     CircleItem,
     LineItem,

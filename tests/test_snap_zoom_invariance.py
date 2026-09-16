@@ -5,7 +5,7 @@ from PyQt6.QtGui import QTransform
 from PyQt6.QtWidgets import QGraphicsScene
 from firepro3d import snap_engine
 from firepro3d.snap_engine import SnapEngine
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 
 
 @pytest.fixture

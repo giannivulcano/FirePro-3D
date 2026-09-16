@@ -557,7 +557,7 @@ def append_geom_to_path(path, g: dict) -> None:
         path.arcMoveTo(rect, g["start"])
         path.arcTo(rect, g["start"], g["span"])
     elif kind == "spline":
-        from .construction_geometry import _bspline_path
+        from .geometry_2d import _bspline_path
         from PyQt6.QtCore import QPointF as _QPointF
         cps = [_QPointF(px, py) for px, py in g["control_points"]]
         sp = _bspline_path(cps, int(g.get("degree", 3)),

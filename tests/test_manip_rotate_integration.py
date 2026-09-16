@@ -84,7 +84,7 @@ def test_lone_room_hides_rotate_knob(qapp, scene_and_view):
 def test_room_in_group_shows_rotate_knob(qapp, scene_and_view):
     scene, view = scene_and_view
     from firepro3d.room import Room
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from firepro3d.manip_math import HandleRole
     r = Room(boundary=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 80)])
     ln = LineItem(QPointF(0, 0), QPointF(60, 0))
@@ -151,7 +151,7 @@ def test_group_rotate_one_undo_restores_all(qapp, scene_and_view):
     """One baked rotate gesture = one undo step; a single undo restores every
     item's coordinates to their pre-rotate values."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
 
     a = LineItem(QPointF(0, 0), QPointF(80, 0))
     b = LineItem(QPointF(0, 40), QPointF(80, 40))
@@ -192,7 +192,7 @@ def test_rotate_noop_is_byte_identical(qapp, scene_and_view):
     """A rotate gesture with no drag (press then release) bakes nothing, so the
     serialized network is byte-identical before and after."""
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
     from firepro3d.manip_math import HandleRole
 
     rp = RegularPolygonItem(QPointF(50, 20), sides=6, radius_mm=30.0)
@@ -243,7 +243,7 @@ def test_rotate_knob_hittable_at_nonidentity_zoom(qapp, scene_and_view, zoom):
     to _press_select_item -> empty pick -> clear selection.
     """
     from PyQt6.QtCore import QPoint
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from firepro3d.manip_math import HandleRole
     from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
     scene, view = scene_and_view

@@ -20,7 +20,7 @@ from PyQt6.QtCore import QLineF, QPointF
 from PyQt6.QtGui import QTransform
 from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-from firepro3d.construction_geometry import RegularPolygonItem
+from firepro3d.geometry_2d import RegularPolygonItem
 from firepro3d.snap_engine import SnapEngine
 
 

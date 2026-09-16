@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 
 from .annotations import DimensionAnnotation, NoteAnnotation
 from .underlay_snap_index import UnderlaySnapIndex
-from .construction_geometry import (
+from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem,
     PolylineItem, RegularPolygonItem, EllipseItem, SplineItem,
 )
