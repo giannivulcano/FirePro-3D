@@ -1079,6 +1079,13 @@ class MainWindow(QMainWindow):
         plan_view = Model_View(self.scene)
         plan_view.setObjectName(f"plan_view_{level_name}")
         plan_view.plan_view_name = tab_name  # link widget to PlanView
+        # The accent crosshair is applied once at startup (_apply_crosshair) over
+        # the views that exist THEN — but every plan tab is created here, later,
+        # so a fresh plan view would never get it (the crosshair only showed on
+        # the vestigial startup view).  Seed it from the live preference so every
+        # plan tab has the crosshair from creation.
+        plan_view.set_crosshair_enabled(
+            self.settings.value("ui/crosshair", True, type=bool))
         idx = self.central_tabs.addTab(plan_view, tab_name)
         self.central_tabs.setCurrentIndex(idx)
         self._apply_plan_level(level_name)
