@@ -365,6 +365,7 @@ class SelectionManipulator(QGraphicsObject):
         self._moved = False
         self._base_angle = 0.0
         self._last_factors: Tuple[float, float] = (1.0, 1.0)
+        self._last_from_center: bool = False   # Ctrl state of the last resize drag frame
         self._items0: List[Tuple[QGraphicsItem, QTransform,
                                  QTransform, QTransform]] = []
         self._D = QTransform()
@@ -996,6 +997,7 @@ class SelectionManipulator(QGraphicsObject):
         self._moved = False
         self._base_angle = 0.0            # frame is unrotated at rest (baked)
         self._last_factors = (1.0, 1.0)
+        self._last_from_center = False
         self._D = QTransform()
         self._held_snap = None
         self._snapshot_items()
@@ -1123,20 +1125,26 @@ class SelectionManipulator(QGraphicsObject):
 
     def _bake_scale(self, items, role: HandleRole,
                     factors: Tuple[float, float], r0: QRectF,
-                    b0: QTransform) -> None:
+                    b0: QTransform, from_center: bool = False) -> None:
         """Bake a resize of *items* by ``factors`` about the fixed anchor.
 
-        The anchor is the corner diagonally opposite the dragged handle (or the
-        centre when Ctrl/from-centre was used — captured in ``factors`` already
-        via the resize math), mapped to scene coords through the resting frame
-        ``b0``.  Only single-item ``manip_scale`` items reach here (handle
-        gating), but the loop is written generically.  One undo per gesture.
+        The anchor must match the anchor the *preview* scaled about
+        (``manip_math.resize_factors``): the frame **centre** when Ctrl/from-
+        centre was used, otherwise the corner diagonally opposite the dragged
+        handle.  It is expressed in the frame's local (== scene at rest) coords
+        then mapped to scene through the resting frame ``b0``.  ``factors`` alone
+        does NOT encode the anchor — an earlier version always baked about the
+        opposite corner, so a Ctrl-resize (previewed about the centre) jumped
+        ~the handle displacement on release.  Only single-item ``manip_scale``
+        items reach here (handle gating), but the loop is written generically.
+        One undo per gesture.
         """
         fx, fy = factors
         u, v, _dx, _dy = _ROLE_GEOM[role]
-        # Fixed anchor = opposite corner of the dragged handle, in the frame's
-        # local (== scene at rest) coords, then to scene through b0.
-        anchor_local = _rect_point(r0, 1.0 - u, 1.0 - v)
+        # Fixed anchor: the frame centre for from-centre (Ctrl) resizes, else the
+        # corner opposite the dragged handle — in local coords, then to scene.
+        anchor_local = (r0.center() if from_center
+                        else _rect_point(r0, 1.0 - u, 1.0 - v))
         anchor = b0.map(anchor_local)
         for it in items:
             fn = getattr(it, "manip_scale", None)

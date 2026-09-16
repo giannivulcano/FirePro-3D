@@ -143,17 +143,20 @@ class ResizeHandle(Handle):
         d, fx, fy = resize_delta(m._B0, m._R0, self.role, m._start_scene, snapped,
                                  keep_aspect=shift, from_center=ctrl)
         m._last_factors = (fx, fy)
+        m._last_from_center = ctrl   # bake must anchor about the same point the preview did
         m._apply(d)
         m._feed_hud(self.hud_values(m))
 
     def on_release(self, m, scene_pos, mods) -> None:
         moved = m._moved
         factors = m._last_factors
+        from_center = m._last_from_center
         m._restore_preview()
         m._end_drag()
         if moved:
             m._bake_scale([r[0] for r in m._items0_at_press], self.role,
-                          factors, m._R0_at_press, m._B0_at_press)
+                          factors, m._R0_at_press, m._B0_at_press,
+                          from_center=from_center)
 
     def commit_typed(self, m, values) -> None:
         from .dynamic_input import resolve_manip_resize
