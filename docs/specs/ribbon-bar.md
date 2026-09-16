@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-08
-verified-commit: 1c988d5
+last-verified: 2026-09-16
+verified-commit: e7fe388
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -73,7 +73,9 @@ The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was
 
 ### 3.5 Mode-button protocol
 
-Checkable tool buttons that enter a scene mode register in `self._mode_buttons[mode_name] = btn`; clicking calls `scene.set_mode(mode_name)`. The reverse edge is `scene.modeChanged → _sync_mode_buttons(mode)`: every registered button gets `blockSignals(True); setChecked(btn is active_btn)` — deduped by `id(btn)` because split buttons may register under multiple mode names. New mode buttons must join this dict or they'll stay stuck checked.
+Checkable tool buttons that enter a scene mode register in `self._mode_buttons[mode_name] = btn`; clicking calls `scene.set_mode(mode_name)`. The reverse edge is `scene.modeChanged → _sync_mode_buttons(mode)`: every registered button gets `blockSignals(True); setChecked(...)` — deduped by `id(btn)` because split buttons may register under multiple mode names. New mode buttons must join this dict or they'll stay stuck checked.
+
+**Two registries (#217, 2026-09-16):** the Block Editor's contextual ribbon registers its draw-mode buttons in a **separate** `self._block_mode_buttons` (rebuilt per contextual-page build), NOT the main `_mode_buttons` — sharing one dict under the same mode keys (`draw_rectangle`/…) evicted the Create-tab buttons, so after the editor page was torn down `_sync_mode_buttons` could never un-check them (they stuck lit). `_sync_mode_buttons` now syncs **both** registries: the active mode's button in either stays checked; every other button in both clears.
 
 > **As-built (2026-08-25):** the Wall button (Architecture → Building) is a **single checkable button** calling `set_mode("wall")`. It registers under the key `"wall"` only. The old split-button `wall` / `wall_rect` pair is retired; `set_mode("wall_rect")` remains as a backward-compat alias in `Model_Space.set_mode` (folds to `wall + rect primitive`) but is no longer used by the ribbon. The **W** shortcut is a scene-focus-gated window-level binding in `Model_View._TOOL_SHORTCUTS` — not a `shortcut=` ribbon param (§3.3). ←/→ cycles the wall primitive (Line/Polyline/Corner Rect/Center Rect) at step 0; Spacebar cycles alignment; see `wall-room-floor-system.md §4.4`.
 

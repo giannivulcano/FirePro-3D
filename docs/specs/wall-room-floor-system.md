@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-09-03
-verified-commit: cd27d77
+last-verified: 2026-09-16
+verified-commit: e7fe388
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -19,6 +19,7 @@ applies-to:
 **Status:** Current
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
+**Impl note (2026-09-16):** wall/floor/roof/opening placement is now **single-placement** (returns to Select with the placed item selected after a completed placement) — via `Model_Space._end_placement_switch` gated on `_SINGLE_PLACEMENT_MODES` (see `2d-geometry.md §4`). Chain gestures (wall-polyline, floor-polygon) switch only when the chain completes (loop-close / Enter / close-near-first); a wall rectangle commits its 4 segments and selects them all.
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
 **Design note (2026-08-23):** §7 rewritten as a **first-principles redesign** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill).
 **Impl note (2026-08-28):** §11 (Floor Slab) **rewritten as-built** on `feat/floor-workflow-elevation-model` — the floor gains a **two-boundary elevation model** (independent top + bottom, each with a reference mode), the owning `.level`-for-geometry is **retired** (visibility is pure z-range), and placement is folded onto the unified 2D-geometry dispatch (mirrors the wall §4.4 pattern: one checkable **Floor** button, `F`, ←/→ primitive cycle, rect rotate-step, polygon, continuous placement). §11.10 records the plan view-range upper-bound derivation cross-reference. Verified against commit `579e841`; tests `tests/test_floor_{elevation_model,elevation_projection,serialization,visibility,placement_workflow,panel_display,template_persistence}.py`, `tests/test_graphic_override.py`.

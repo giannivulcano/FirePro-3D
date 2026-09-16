@@ -5,7 +5,7 @@ applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-16
-verified-commit: c0e1c28
+verified-commit: e7fe388
 ---
 
 # 2D Geometry System
@@ -187,8 +187,15 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 
 ## 4. Placement workflows (`model_space.py`)
 
-Placement is **always continuous** (the `single_place_mode` opt-in was removed
-2026-08-24): every commit re-arms the tool; **Esc** exits to select. A mode is
+Placement is **single-placement** for 2D geometry + Architecture (user,
+2026-09-16, reverting the 2026-08-24 always-continuous default): a completed
+placement returns to **Select** with the just-placed item selected (so its
+manipulator frame shows), via `Model_Space._end_placement_switch(item)` called as
+the last step of each commit, gated on `_SINGLE_PLACEMENT_MODES`. Chain tools
+(polyline, wall-polyline, floor-polygon) switch only when the chain **completes**
+(Enter / double-click / close-near-first / loop-close); mid-chain keeps drawing.
+Continuous modes (pipe/sprinkler/gridline) still re-arm every commit. **Esc**
+exits to Select in all modes. A mode is
 registered by adding rows to the dispatch tables: `_PRESS_DISPATCH`,
 `_MOVE_DISPATCH` (mouse-move preview — distinct from `_PREVIEW_DISPATCH`, the HUD
 field-commit path), the instruction map, cursor map (`model_view.py`),

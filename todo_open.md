@@ -214,8 +214,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 > `EllipseItem` + `SplineItem` native 2D-geometry primitives LANDED 2026-09-08 on `feat/ellipse-spline-primitives` (landed items in `todo_closed.md`). Follow-ups below.
 
-- [ ] [type:bug] Block Editor ribbon registers its mode buttons into the main ribbon's dict, dangling on tab close [P2] [subject:UX]
-  - Details: Ribbon `_mode_buttons` dual-registration root fix (surfaced 2026-09-08 — `_sync_mode_buttons` crashed on a deleted Block-Editor `RibbonSmallButton`). A `sip.isdeleted` self-heal guard landed 2026-09-08, but the ROOT cause is the Block Editor ribbon's `_mode()` helper (`main.py:4488`) registering its buttons into the SAME `self._mode_buttons` dict as the main ribbon (overwriting shared-mode keys `draw_circle`/`draw_arc`/`draw_ellipse`/…); closing a Block Editor tab deletes them, dangling the dict. Separate the Block-Editor button registry from the main ribbon (per-surface `_mode_buttons`). `main.py`.
 - [ ] [type:feature] Geometric snaps (perpendicular/nearest/tangent, intersection) for ellipse and spline [P3] [subject:CAD]
   - Details: deferred in the 2026-09-08 build, logged in `2d-geometry.md §5` — perpendicular / nearest / tangent on a rotated ellipse (ellipse-segment = quartic) + nearest/perpendicular on a NURBS (numerical projection) + phase-4 intersection participation for both. Named-point snaps (centre/quadrants/endpoints/control-points) already ship. `snap_engine.py`.
 - [ ] [type:feature] Block-editor import: preserve partial ellipses (elliptical arcs) as a curve primitive [P3] [subject:CAD]
@@ -249,6 +247,10 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: user, 2026-09-16 — a model-space `NoteAnnotation` places with **zero height** on a single click; it should use a **two-click** rubber-band placement mirroring the rectangle (drag sets the box). Distinct from the sheet-text rubber-band item (that's paper-space). NOTE: the separate "text isn't visible live / `QPainter engine==0`" half is already filed (todo_open.md, `NoteAnnotation.paint` live-only render bug) — this item is the placement half only. `model_space.py` (`_press_add_text`), `annotations.py`.
 - [ ] [type:maint] Restyle the polyline ribbon icon to the icon style guide [P3] [subject:UX]
   - Details: user, 2026-09-16 — `graphics/Ribbon/polyline_icon.svg` is authored (blue endpoint circles + diagonal) but off-style vs the current ribbon icon standard (axo/two-token, `icon-style-guide.md`). Re-author mockup-gated (render-through-loader, light+dark). `graphics/Ribbon/polyline_icon.svg`. ref: icon-style-guide.
+- [ ] [type:feature] Preference to choose the placement cursor style (simple vs accent crosshair) [P3] [subject:UX]
+  - Details: user, 2026-09-16 — the accent crosshair is now placement-mode gated (`ui/crosshair`), but the user wants a setting to pick the *simple* OS cross cursor vs the full-viewport accent crosshair. Add a System-Settings UX option; `_resolve_cursor`/drawForeground already branch on `_crosshair_enabled` — thread a style enum. `firepro3d/model_view.py`, `firepro3d/settings/panes.py`, `main.py`. ref: settings-dialog.
+- [ ] [type:maint] Single-placement: cover the remaining floor/roof close gestures [P3] [subject:UX]
+  - Details: 2026-09-16 single-placement wired the common commit endpoints (2D geo all; wall line/rect; opening; floor rect + polygon close-near-first; roof polygon-close + rect). The floor/roof polygon **Enter** and **double-click** finish gestures do NOT yet call `_end_placement_switch`, so those specific finishes stay in the tool (minor inconsistency; Esc still exits). Wire `_end_placement_switch` into the floor/roof Enter + double-click close paths (`model_space.py` keyPress/doubleClick handlers) for full parity. `model_space.py`.
 
 ## Ribbon overhaul
 
