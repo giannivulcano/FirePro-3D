@@ -521,6 +521,7 @@ class _DialogExtractWorker(QThread):
 
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
+        worker_ref._preserve_curves = getattr(self, "_preserve_curves", False)
         worker_ref._layer_colors = _build_layer_colors(doc)
 
         total = len(all_ents)
@@ -965,6 +966,7 @@ class UnderlayImportDialog(HouseDialog):
         # Per-layout extraction memo: layout name -> (geoms, layers).
         # Revisiting Model→Layout1→Model previously re-extracted thrice.
         self._layout_cache: dict[str, tuple[list[dict], list[str]]] = {}
+        self._preserve_curves = False   # BlockImportDialog overrides to True
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)

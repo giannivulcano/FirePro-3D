@@ -49,3 +49,21 @@ def test_spline_native_when_preserving():
 def test_spline_tessellated_when_not_preserving():
     g = _worker(False)._extract_geometry(_spline_entity())
     assert g["kind"] == "path_points"     # underlay regression guard
+
+
+def test_block_import_dialog_sets_preserve_curves(qapp):
+    from firepro3d.block_import_dialog import BlockImportDialog
+    dlg = BlockImportDialog(None)
+    try:
+        assert dlg._preserve_curves is True
+    finally:
+        dlg.deleteLater()
+
+
+def test_underlay_import_dialog_defaults_no_preserve(qapp):
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+    dlg = UnderlayImportDialog(None)
+    try:
+        assert dlg._preserve_curves is False
+    finally:
+        dlg.deleteLater()
