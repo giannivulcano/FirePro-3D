@@ -111,6 +111,7 @@ class SceneIOMixin:
         # --- Construction geometry ---
         polylines_data = [pl.to_dict() for pl in self._polylines]
         draw_lines_data = [l.to_dict() for l in self._draw_lines]
+        reference_lines_data = [r.to_dict() for r in self._reference_lines]
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
         draw_circles_data = [c.to_dict() for c in self._draw_circles]
         draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
@@ -152,6 +153,7 @@ class SceneIOMixin:
             "design_areas":        design_areas_data,
             "polylines":           polylines_data,
             "draw_lines":          draw_lines_data,
+            "reference_lines":     reference_lines_data,
             "draw_rectangles":     draw_rects_data,
             "draw_circles":        draw_circles_data,
             "draw_arcs":           draw_arcs_data,
@@ -202,7 +204,7 @@ class SceneIOMixin:
         from .underlay import Underlay
         from .scale_manager import ScaleManager
         from .geometry_2d import (
-            PolylineItem, LineItem, RectangleItem,
+            PolylineItem, LineItem, ReferenceLineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem, EllipseItem, SplineItem,
         )
         from .gridline import GridlineItem
@@ -413,6 +415,10 @@ class SceneIOMixin:
             item = LineItem.from_dict(entry)
             self.addItem(item)
             self._draw_lines.append(item)
+        for entry in payload.get("reference_lines", []):
+            item = ReferenceLineItem.from_dict(entry)
+            self.addItem(item)
+            self._reference_lines.append(item)
         for entry in payload.get("draw_rectangles", []):
             item = RectangleItem.from_dict(entry)
             self.addItem(item)
@@ -583,6 +589,7 @@ class SceneIOMixin:
         self._polylines = []
         self._polyline_active = None
         self._draw_lines = []
+        self._reference_lines = []
         self._draw_rects = []
         self._draw_circles = []
         self._draw_arcs = []

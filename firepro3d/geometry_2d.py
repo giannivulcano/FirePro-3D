@@ -616,6 +616,80 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ReferenceLineItem — non-printing finite reference/construction line
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ReferenceLineItem(LineItem):
+    """A finite 2-point *reference* line: a non-printing drafting aid.
+
+    Subclasses :class:`LineItem`, inheriting all grip/manipulator/translate/
+    rotate behaviour AND snap participation for free (the snap engine matches
+    ``isinstance(item, LineItem)``). Differences:
+
+    * Always rendered in the canonical width-1 dashed reference style.
+    * Carries a per-item ``printed`` flag (default False). ``printed=False``
+      excludes it from paper-space plots/exports AND from a saved block
+      definition (pure scaffolding); ``printed=True`` graduates it to real
+      output geometry (still dashed).
+    * Its own "Reference Lines" Display-Manager category.
+    """
+
+    def __init__(self, pt1: QPointF, pt2: QPointF,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0,
+                 printed: bool = False):
+        super().__init__(pt1, pt2, color, lineweight)
+        self.printed = bool(printed)
+        # Canonical reference-line style: width-1 dashed cosmetic, geom colour.
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(1.0)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        self.setPen(pen)
+
+    # ── Properties ────────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type": {"type": "label", "value": "Reference Line"},
+            "Colour": {"type": "label", "value": self.pen().color().name()},
+            "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
+            "Printed": {"type": "toggle", "value": bool(self.printed)},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if key == "Printed":
+            self.printed = bool(value)
+            self.update()
+            return
+        if self._geom2d_set(key, value):
+            return
+
+    # ── Serialisation ──────────────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":        "reference_line",
+            "pt1":         [self._pt1.x(), self._pt1.y()],
+            "pt2":         [self._pt2.x(), self._pt2.y()],
+            "color":       self.pen().color().name(),
+            "lineweight":  self.pen().widthF(),
+            "printed":     bool(self.printed),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ReferenceLineItem":
+        pt1 = QPointF(data["pt1"][0], data["pt1"][1])
+        pt2 = QPointF(data["pt2"][0], data["pt2"][1])
+        obj = cls(pt1, pt2, data.get("color", "#ffffff"),
+                  data.get("lineweight", 1.0), data.get("printed", False))
+        obj._geom2d_from_dict(data)
+        return obj
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # RectangleItem  — axis-aligned rectangle (two corner clicks)
 # ─────────────────────────────────────────────────────────────────────────────
 

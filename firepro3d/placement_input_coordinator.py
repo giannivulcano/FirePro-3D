@@ -43,6 +43,12 @@ class PlacementInputCoordinator:
         from firepro3d.model_space import _ARC_VARIANT_CENTER, _ARC_VARIANT_START
 
         self._PLACEMENT_VARIANTS = {
+            "draw_line": [
+                ("Line", "Pick first point",
+                 lambda s: setattr(s, "_draw_line_variant", "line")),
+                ("Reference Line", "Pick reference start point",
+                 lambda s: setattr(s, "_draw_line_variant", "reference")),
+            ],
             "draw_arc": [
                 ("Center Point Arc", "Select center point to begin",
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
@@ -86,6 +92,8 @@ class PlacementInputCoordinator:
         point is down the geometry is committed to a variant.
         """
         s = self._scene
+        if s.mode == "draw_line":
+            return s._draw_line_anchor is None
         if s.mode == "draw_arc":
             return s._draw_arc_step == 0
         if s.mode == "draw_rectangle":

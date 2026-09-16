@@ -28,7 +28,7 @@ from .dxf_import_worker import DxfImportWorker
 from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .geometry_2d import (
-    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .snap_engine import SnapEngine, OsnapResult
@@ -220,6 +220,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # close-cue ring
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
+        self._reference_lines: list[ReferenceLineItem] = []
         self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state (Block S2 T3): 2-step position→rotate
@@ -234,6 +235,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
         self._draw_line_anchor: "QPointF | None" = None       # first click for line
+        self._draw_line_variant: str = "line"                 # "line" | "reference" (←/→ variant)
         self._draw_rect_anchor: "QPointF | None" = None       # first click for rectangle
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
         self._draw_rect_from_center: bool = False                # center vs corner rectangle
@@ -835,6 +837,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             DimensionAnnotation: self.annotations.dimensions,
             NoteAnnotation:      self.annotations.notes,
             PolylineItem:        self._polylines,
+            ReferenceLineItem:   self._reference_lines,   # subclass — must precede LineItem
             LineItem:            self._draw_lines,
             RectangleItem:       self._draw_rects,
             CircleItem:          self._draw_circles,
@@ -1900,6 +1903,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ── Draw geometry ──────────────────────────────────────────────
             "polylines":          [pl.to_dict() for pl in self._polylines],
             "draw_lines":         [l.to_dict()  for l in self._draw_lines],
+            "reference_lines":    [r.to_dict()  for r in self._reference_lines],
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
@@ -2022,6 +2026,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_lines.clear()
 
+            for item in list(self._reference_lines):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._reference_lines.clear()
+
             for item in list(self._draw_rects):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -2104,6 +2113,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 li = LineItem.from_dict(d)
                 self.addItem(li)
                 self._draw_lines.append(li)
+
+            for d in state.get("reference_lines", []):
+                rli = ReferenceLineItem.from_dict(d)
+                self.addItem(rli)
+                self._reference_lines.append(rli)
 
             for d in state.get("draw_rectangles", []):
                 ri = RectangleItem.from_dict(d)
@@ -5500,11 +5514,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return gl
         tmpl = self._get_geometry_template()
         _c, _lw = self._geom_color_lw()
-        item = LineItem(anchor, tip, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
-        self.addItem(item)
-        self._draw_lines.append(item)
+        # draw_line ←/→ variant: "reference" builds a non-printing ReferenceLine
+        # into _reference_lines; "line" (default) builds a normal LineItem. Only
+        # applies in draw_line mode (draw_gridline returns above).
+        if getattr(self, "_draw_line_variant", "line") == "reference":
+            item = ReferenceLineItem(anchor, tip, _c, _lw)
+            item.level = tmpl.level
+            item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+            self.addItem(item)
+            self._reference_lines.append(item)
+        else:
+            item = LineItem(anchor, tip, _c, _lw)
+            item.level = tmpl.level
+            item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+            self.addItem(item)
+            self._draw_lines.append(item)
         self.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         return item
@@ -6718,7 +6742,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for pipe in self.sprinkler_system.pipes:
             if getattr(pipe, "level", None) == level_name:
                 result.append(pipe)
-        for lst in [self._polylines, self._draw_lines,
+        for lst in [self._polylines, self._draw_lines, self._reference_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._gridlines,
@@ -7228,6 +7252,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._draw_lines.append(item)
 
+            elif obj_type == "reference_line":
+                item = ReferenceLineItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.level = self.active_level
+                self.addItem(item)
+                self._reference_lines.append(item)
+
             elif obj_type == "draw_rectangle":
                 item = RectangleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
@@ -7345,7 +7376,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
         without adding anything to the scene. Covers the copyable types."""
         from .geometry_2d import (
-            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+            LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
             RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
             SplineItem as _SplineItem,
         )
@@ -7353,7 +7384,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if not data:
             return paths
         geom_ctors = {
-            "draw_line": LineItem, "draw_rectangle": RectangleItem,
+            "draw_line": LineItem, "reference_line": ReferenceLineItem,
+            "draw_rectangle": RectangleItem,
             "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
             "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
             "draw_spline": _SplineItem,

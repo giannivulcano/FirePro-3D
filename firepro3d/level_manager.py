@@ -531,6 +531,9 @@ class LevelManager:
         for item in getattr(scene, "_draw_lines", []):
             _set_level_vis(item)
 
+        for item in getattr(scene, "_reference_lines", []):
+            _set_level_vis(item)
+
         for item in getattr(scene, "_draw_rects", []):
             _set_level_vis(item)
 

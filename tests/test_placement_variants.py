@@ -80,9 +80,11 @@ class TestRectangleVariantCycle:
 
 
 class TestNonVariantModes:
-    def test_draw_line_does_not_cycle(self, scene):
+    def test_draw_line_cycles_line_reference(self, scene):
+        # D (2026-09-16): draw_line now has a Line <-> Reference Line variant.
         scene.set_mode("draw_line")
-        assert scene.cycle_placement_variant(+1) is False
+        assert scene.cycle_placement_variant(+1) is True
+        assert scene._draw_line_variant == "reference"
 
     def test_select_does_not_cycle(self, scene):
         scene.set_mode("select")
@@ -194,7 +196,7 @@ class TestArrowKeyWiring:
         assert not ev.isAccepted()
 
     def test_no_consume_in_non_variant_mode(self, scene):
-        scene.set_mode("draw_line")
+        scene.set_mode("draw_circle")   # draw_circle has no ←/→ variants
         ev = _arrow(Qt.Key.Key_Right)
         scene.keyPressEvent(ev)
         # Variant machinery untouched; event falls through (not accepted here).

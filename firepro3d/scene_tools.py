@@ -758,6 +758,7 @@ class SceneTools:
         )
         items = []
         items.extend(self._scene._draw_lines)
+        items.extend(getattr(self._scene, "_reference_lines", []))
         items.extend(self._scene._draw_rects)
         items.extend(self._scene._draw_circles)
         items.extend(self._scene._draw_arcs)
