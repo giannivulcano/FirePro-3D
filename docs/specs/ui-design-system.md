@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is future/unbuilt
-last-verified: 2026-09-06  # metrics + build_dialog_qss + HouseDialog + ui_kit + ThemedMessageDialog + 5 migrations + 39-site sweep all landed
-verified-commit: 241106f   # branch feat/ui-design-system (P1–P6 built)
+last-verified: 2026-09-15  # 2026-09-15: TopTabs refactored to composed QWidget (bar+divider+stack), SwitchBar expanding=False, multi-rail tab-page recipe (Title Block editor rollout); prior: 2026-09-06 core system
+verified-commit: 9fe9985   # branch feat/titleblock-ansi-d-default (TopTabs/SwitchBar/Section conventions)
 applies-to:
   - firepro3d/theme.py
   - firepro3d/frameless_shell.py
@@ -188,14 +188,28 @@ class SideTabs(QFrame):                 # #stepRail — vertical exclusive tab r
     def set_header(self, widget); def clear()  # header strip / rebuild dynamic rails
     tabSelected = pyqtSignal(str)
 
-class TopTabs(QTabWidget):              # #topTabs/#topTabsBar — peer pages in a section
-    # Styled QTabWidget: muted default, accent-underline + semibold selected,
-    # accent-soft hover, no base line, scroll-on-overflow. Key API mirrors
-    # SideTabs; native QTabWidget methods (addTab/count/widget/currentChanged)
-    # stay usable. Rail → tabs is the MAX depth — never nest TopTabs.
+class TopTabs(QWidget):                 # #topTabs/#topTabsBar — peer pages in a section
+    # COMPOSED (not a QTabWidget subclass — a QTabWidget's ::pane border is
+    # unreliable and its bar sizes to the tabs, so its own underline stops short
+    # of the content width): QTabBar(#topTabsBar) + full-bleed 1px divider
+    # (#topTabsDivider, line_strong) + QStackedWidget(#topTabsStack). Bar muted
+    # default, accent-underline + semibold selected, accent-soft hover. Key API
+    # mirrors SideTabs; a QTabWidget-COMPAT subset (count/tabText/widget/
+    # currentWidget/setCurrentWidget/currentChanged) keeps callers+tests working.
+    def __init__(self, *, page_inset=12, page_top=14): ...
+    #   page_inset — horizontal inset on the tab BAR only; the STACK is full-bleed
+    #                (0 horizontal) so a page that leads with a rail sits flush-
+    #                left like the main dialog rail — each page owns its padding.
+    #   page_top   — top inset on page content (breathing room below the divider
+    #                so Section overline labels don't crowd the tab ribbon).
     def add_tab(self, key, label, widget, *, icon=None) -> int: ...
     def set_current(self, key); def current(self) -> str | None
     tabSelected = pyqtSignal(str)
+    # Rail → tabs is the MAX depth — never nest TopTabs.
+    # BG: container/rows/stack AND every page are pinned the OPAQUE dialog
+    # `surface` via targeted objectName selectors (unstyled QStackedWidget pages
+    # paint BLACK live; transparent does NOT fix it — see the black-bar note in
+    # the canonical recipe below).
 
 class DetailsPanel(QFrame):             # #detailsPanel — fixed-width bordered side panel
     def __init__(self, *, width=M.PANEL_W, title=None): ...
@@ -207,7 +221,11 @@ class Section(QWidget):                 # overline UPPERCASE label + content
     def set_content(self, widget): ...
 
 class SwitchBar(QWidget):               # segmented single-select (switch/segpos)
-    def __init__(self, options: list[tuple]): ...     # [(key, label), …]
+    def __init__(self, options: list[tuple], *, expanding=True): ...  # [(key,label),…]
+    #   expanding=False → content-fit: every segment = widest label's width, then
+    #   a trailing stretch keeps the compact switch left-aligned (use for small
+    #   fixed choice-sets: orientation, corner, alignment, sizing). Selected
+    #   segment is SOLID accent (:checked). Bind the SAME token as ToggleSwitch.
     def set_current(self, key); def current(self) -> str
     changed = pyqtSignal(str)
 
@@ -281,7 +299,7 @@ feedback memory.)
 ## Tab-style catalog (documented; scope-flagged)
 
 - **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized**. Table of contents / stepped sequence / 4+ sections.
-- **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
+- **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Composed** (QTabBar + full-bleed `#topTabsDivider` + QStackedWidget), NOT a `QTabWidget` subclass — a QTabWidget's `::pane` line is unreliable and its bar underline stops short of the content width. The **tab bar** is inset by `page_inset`; the **stack is full-bleed** so a page that leads with a rail sits flush-left (each page owns its padding); `page_top` keeps Section overlines off the ribbon. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
 - **App/plan `QTabBar`** — `build_app_qss` (main-window plan tabs); documented, **untouched**.
 - **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); documented, **untouched**.
 
@@ -307,12 +325,50 @@ bar / merges with the content):
 4. **Content background:** the rail-adjacent content stack **must** carry a themed
    objectName — `railContent` (rail-adjacent, no left border) or `detailsPanel` (when a
    column sits between it and the rail, e.g. Underlay Import's preview). A bare
-   `QStackedWidget()` paints the default (black) brush live (transparent only offscreen) —
-   the #1 recurring defect for this layout.
+   `QStackedWidget()` — and equally a bare `QStackedWidget`/`QWidget` **page inside
+   `TopTabs`** — paints the default (black) brush live (transparent only offscreen), the
+   #1 recurring defect for this layout. `TopTabs` pins its container/rows/stack and every
+   page the OPAQUE `surface` via targeted objectName selectors; **transparent does NOT
+   fix it — the bg must be opaque** (`project_unstyled_qwidget_black_live`). ⚠ **Open
+   defect (todo):** even opaque-surface pinning left the Title Block editor pages black
+   live in one report — leading hypothesis is that a stylesheet `background:` is ignored
+   on a *plain* `QWidget` without `WA_StyledBackground`; verify at the paint seam in the
+   running app before trusting either route.
 5. **Sequential vs not:** use `add_tab(key, label, step_no=N)` for wizards (numbered
    chips); plain `add_tab(key, label)` for non-sequential sections (settings).
 6. Binary on/off controls inside the panes use **`ToggleSwitch`**, never `QCheckBox`
    (theming.md binary-toggle mandate).
+
+### Multi-rail tab pages (Title Block editor pattern, 2026-09-15)
+
+A `TopTabs` page that is itself a **multi-column workspace** (roster | form | preview)
+follows these rules so every column reads as a proper rail:
+
+1. **Sections, never `QGroupBox`.** Group a page's controls with `Section` (uppercase
+   overline `role="header"` label, **no box**), not a titled `QGroupBox`. Left-align the
+   form labels (`AlignLeft`) and cap input widths (they needn't be full-bleed).
+2. **Dynamic roster → `SideTabs` rail**, not a `QListWidget`. A page's item roster
+   (fields, layers, …) uses `SideTabs` keyed by a stable id, with `+/−/⧉` action buttons
+   in `set_header(...)` — the SAME chrome as the dialog's main rail (extract one helper).
+   Its manual-drag variant (e.g. the arrangements pool) stays a `QListWidget` but is
+   **restyled to the rail look** via a targeted `#…Rail` stylesheet (surface field,
+   accent-soft hover, `accent` left-bar on `:selected`) so the drag machinery survives.
+3. **Full-height rail dividers.** A rail's `border-right` (or a column divider) must span
+   the whole column height. Two gotchas: (a) give the rail **Expanding vertical** size
+   policy — `Preferred` stops at the rows' content height; (b) `Section` adds its content
+   **without a stretch factor**, so a list inside a Section needs an explicit
+   `layout().setStretchFactor(list, 1)` or it stops short.
+4. **Column dividers use one tokenized `_vrule()`** — a 1px `QFrame`, `line_strong`,
+   Expanding-vertical — between the info/form rail and the preview rail (matches the rail
+   `border-right`). Same token as the canonical rail separator.
+5. **Full-bleed stack → per-page padding.** Because the `TopTabs` stack is full-bleed, a
+   page that leads with a rail sets its own `contentsMargins` (small left gap for the
+   rail, right padding for the content) so the rail sits near the left edge like the main
+   dialog rail — not double-inset. Roster rails get a tighter internal top margin than the
+   default (they're nested one level deeper than the main rail).
+6. **Small fixed choice-sets → `SwitchBar(expanding=False)`** (orientation, corner,
+   alignment, sizing): content-fit segments, selected segment SOLID accent. Larger/open
+   sets stay a `QComboBox`.
 
 ## Acceptance Criteria
 
