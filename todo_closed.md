@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Reference / construction line (D) — 2026-09-16
+
+Shipped on `feat/reference-line` off `main` (/todo Medium feature; grill → reuse-sweep integration map → build in two commits). Spec locked via `/grill-me`. `2d-geometry.md` stamped `@ 428752f`.
+
+- [x] **Finite non-printing reference/construction line** — `ReferenceLineItem` (subclasses `LineItem`; inherits grips/manipulator/translate/rotate + SNAP via `isinstance` for free). Per-item `printed` flag (default False, `ui_kit.ToggleSwitch` in the property panel — new "toggle" field type): not-printed → excluded from paper plots (`apply_paper_overrides` hides it) AND from saved block definitions (`gather_primitives`); printed → plots dashed at the "Reference Lines" paper weight + embeds in the block. Own "Reference Lines" Display category (colour + show/hide-all). First-class persisted through scene_io (`.fpd`) + undo capture/restore + paste; level-scoped; plan-only. Placement: a `draw_line` ←/→ variant (Line ↔ Reference Line). Supersedes the removed `ConstructionLine` xline (closes the stale "retire construction lines" item). Guards: `tests/test_reference_line.py` (placement variant, serialization + undo round-trip, delete routing, paper exclusion, block exclusion, display category, toggle field); placement-variant tests updated. `geometry_2d.py`, `model_space.py`, `placement_input_coordinator.py`, `scene_io.py`, `block_editor.py`, `paper_display.py`, `display_manager.py`, `property_manager.py`, `level_manager.py`, `scene_tools.py` [ref:2d-geometry] [type:feature] [P2] [subject:CAD] [done:2026-09-16]
+
 ## 2D-geometry polish batch 2 — 2026-09-16
 
 Shipped on `feat/2d-geo-polish-batch2` off `main` (/todo cluster; the remaining items from the 2026-09-16 user list). Each TDD-guarded through real paths; icon/ribbon changes mockup-gated + user-approved. Specs stamped `@ 1a70632`: `2d-geometry.md`, `ribbon-bar.md`, `icon-style-guide.md`.

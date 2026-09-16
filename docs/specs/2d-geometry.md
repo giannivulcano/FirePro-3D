@@ -5,7 +5,7 @@ applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-16
-verified-commit: 1a70632
+verified-commit: 428752f
 ---
 
 # 2D Geometry System
@@ -28,6 +28,7 @@ Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a 
 | Class | Base | Shape |
 |---|---|---|
 | `LineItem` | `QGraphicsLineItem` | finite 2-point line |
+| `ReferenceLineItem` | `LineItem` | **non-printing** finite reference/construction line (per-item `printed` flag) |
 | `PolylineItem` | `QGraphicsPathItem` | multi-segment polyline, **open or closed** |
 | `RectangleItem` | `QGraphicsRectItem` | axis-aligned rect + optional rotation |
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
@@ -37,6 +38,28 @@ Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a 
 | `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights) |
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
+
+**`ReferenceLineItem` (task D, 2026-09-16)** — a non-printing finite reference /
+construction line. Subclasses `LineItem`, so it inherits grips, manipulator
+transforms, translate/rotate, **and SNAP participation** for free (the snap
+engine matches `isinstance(item, LineItem)`); edits/selects/deletes identically
+to a line. Differences:
+- Always rendered in the width-1 dashed reference style; tracked in its own
+  `scene._reference_lines` list (serialized under `"reference_lines"` in `.fpd`,
+  undo capture/restore, and paste — type `"reference_line"`; `_remove_item_from_lists`
+  routes it via `type_to_list` **before** `LineItem`, subclass-ordered).
+- Per-item **`printed` flag, default False.** `printed=False` → excluded from
+  paper-space plots (`paper_display.apply_paper_overrides` hides `printed is False`
+  during the render pass) AND from a saved block definition
+  (`BlockEditor.gather_primitives` includes reference lines only when printed);
+  `printed=True` → plots dashed at the "Reference Lines" paper weight + embeds in
+  the block. Edited via a **`ToggleSwitch`** ("toggle" property-field type).
+- Own **"Reference Lines"** Display-Manager category (colour + show/hide-all;
+  `display_manager._CATEGORIES` + `_items_for_category_static`;
+  `paper_display._category_for_item` maps it before `LineItem`). Level-scoped;
+  plan-only (no elevation/3D). Placement: a `draw_line` ←/→ variant
+  (Line ↔ Reference Line, `_draw_line_variant`) building via `_make_line_like`.
+  Supersedes the removed AutoCAD-style `ConstructionLine` xline.
 
 ### 1.1 `Geometry2DMixin` (the shared contract)
 Provides level-plane placement + fill for all six classes:
