@@ -733,6 +733,8 @@ class PlacementInputCoordinator:
         """
         if self._scene._draw_rect_rotating:
             return SCHEMAS.get("rotation")
+        if self._scene._draw_rect_from_center:
+            return SCHEMAS.get("rectangle_center")
         return SCHEMAS.get("rectangle")
 
     def _polygon_schema_for_step(self):
@@ -786,6 +788,8 @@ class PlacementInputCoordinator:
         if self._scene._wall_primitive == "rect":
             if self._scene._wall_rect_rotating:
                 return SCHEMAS.get("rotation")
+            if self._scene._wall_rect_from_center:
+                return SCHEMAS.get("rectangle_center")
             return SCHEMAS.get("rectangle")
         return SCHEMAS.get("line")
 
@@ -800,6 +804,8 @@ class PlacementInputCoordinator:
         if self._scene._floor_primitive == "rect":
             if self._scene._floor_rect_rotating:
                 return SCHEMAS.get("rotation")
+            if self._scene._floor_rect_from_center:
+                return SCHEMAS.get("rectangle_center")
             return SCHEMAS.get("rectangle")
         return SCHEMAS.get("line")
 

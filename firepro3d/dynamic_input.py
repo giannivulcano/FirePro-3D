@@ -180,6 +180,32 @@ def seed_rectangle(anchor: QPointF, point: QPointF) -> dict:
             "Y": -(point.y() - anchor.y())}
 
 
+def resolve_rectangle_center(anchor: QPointF, values: dict) -> QPointF:
+    """Return a corner *W*/*H* apart for a centre-anchored rectangle.
+
+    Unlike the corner-mode ``rectangle`` schema (whose X/Y are the signed
+    extents corner-to-corner), the centre variant's fields are the **full**
+    width and height of the rectangle centred on *anchor*.  The corner returned
+    lands half a width right and half a height up so that
+    ``rect_sizing_points(anchor, corner, from_center=True)`` — which takes
+    ``abs(corner - anchor)`` as the half-extents — rebuilds a W×H rectangle.
+    Centre mode is symmetric, so the up-right quadrant is arbitrary.
+    """
+    return QPointF(anchor.x() + values["W"] / 2.0,
+                   anchor.y() - values["H"] / 2.0)
+
+
+def seed_rectangle_center(anchor: QPointF, point: QPointF) -> dict:
+    """Return the FULL width/height of a centre-anchored rectangle to *point*.
+
+    The cursor gives one corner; the centre is *anchor*, so the full extent is
+    twice the anchor→corner half-extent.  Magnitudes only — centre mode ignores
+    the drag quadrant (``resolve``/``rect_sizing_points`` both ``abs()`` it).
+    """
+    return {"W": 2.0 * abs(point.x() - anchor.x()),
+            "H": 2.0 * abs(point.y() - anchor.y())}
+
+
 # ── Circle ────────────────────────────────────────────────────────────────
 
 def resolve_circle(anchor: QPointF, values: dict) -> QPointF:
@@ -305,6 +331,17 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_rectangle,
         seed=seed_rectangle,
+    ),
+    "rectangle_center": Schema(
+        name="rectangle_center",
+        fields=(
+            # Full width/height (magnitudes) — centre mode is symmetric, so the
+            # drag direction carries no geometry and zero is a degenerate rect.
+            FieldSpec("W", "W", FieldKind.DIMENSION, minimum=0.0),
+            FieldSpec("H", "H", FieldKind.DIMENSION, minimum=0.0),
+        ),
+        resolve=resolve_rectangle_center,
+        seed=seed_rectangle_center,
     ),
     "circle": Schema(
         name="circle",
