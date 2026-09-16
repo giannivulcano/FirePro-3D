@@ -1464,7 +1464,8 @@ class MainWindow(QMainWindow):
         _I = lambda name: themed_icon(name, _theme)
 
         # Draw-mode buttons are checkable so the active tool stays highlighted
-        self._mode_buttons = {}  # mode_name → QToolButton
+        self._mode_buttons = {}  # mode_name → QToolButton (main ribbon)
+        self._block_mode_buttons = {}  # mode_name → QToolButton (Block Editor page; #217)
 
         def _mode_btn(group, label, icon, mode_name, large=True):
             """Create a checkable draw-mode button."""
@@ -2614,31 +2615,39 @@ class MainWindow(QMainWindow):
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode.
 
-        Resilient to deleted buttons: the main ribbon and each Block Editor tab
-        both register into ``_mode_buttons`` under the same mode keys, so closing
-        a Block Editor tab leaves dead C++ wrappers behind for the shared draw
-        modes. Skip (and prune) any whose underlying object has been deleted —
-        the same self-heal pattern used by ``_manip_wraps``.
+        Syncs BOTH registries — the main ribbon's ``_mode_buttons`` and the Block
+        Editor's separate ``_block_mode_buttons`` (kept apart since #217: sharing
+        one dict evicted the Create-tab buttons so they could never be unchecked).
+        The active mode's button in EITHER registry stays checked; every other
+        button in both is cleared. Resilient to deleted C++ wrappers (a torn-down
+        Block Editor page): skip and prune them — the ``_manip_wraps`` self-heal
+        pattern.
         """
         from PyQt6 import sip
-        active_btn = self._mode_buttons.get(mode)
-        if active_btn is not None and sip.isdeleted(active_btn):
-            active_btn = None
-        seen: set[int] = set()
-        dead: list[str] = []
-        for m, btn in self._mode_buttons.items():
-            if btn is None or sip.isdeleted(btn):
-                dead.append(m)
-                continue
-            btn_id = id(btn)
-            if btn_id in seen:
-                continue
-            seen.add(btn_id)
-            btn.blockSignals(True)
-            btn.setChecked(btn is active_btn)
-            btn.blockSignals(False)
-        for m in dead:
-            self._mode_buttons.pop(m, None)
+        registries = [self._mode_buttons, getattr(self, "_block_mode_buttons", {})]
+        # The mode's button(s) across both registries (a shared mode has one in
+        # each) stay checked.
+        active_ids: set[int] = set()
+        for reg in registries:
+            b = reg.get(mode)
+            if b is not None and not sip.isdeleted(b):
+                active_ids.add(id(b))
+        for reg in registries:
+            seen: set[int] = set()
+            dead: list[str] = []
+            for m, btn in reg.items():
+                if btn is None or sip.isdeleted(btn):
+                    dead.append(m)
+                    continue
+                btn_id = id(btn)
+                if btn_id in seen:
+                    continue
+                seen.add(btn_id)
+                btn.blockSignals(True)
+                btn.setChecked(btn_id in active_ids)
+                btn.blockSignals(False)
+            for m in dead:
+                reg.pop(m, None)
 
     # ── Contextual tab catalog + shared Edit group ─────────────────────────
 
@@ -4484,11 +4493,19 @@ class MainWindow(QMainWindow):
 
         g = page.add_group("2D Geometry")
 
+        # Block Editor mode buttons live in their OWN registry, NOT the main
+        # ribbon's _mode_buttons — registering into the shared dict overwrote the
+        # Create-tab buttons for the same modes (draw_rectangle/…), and when this
+        # contextual page was torn down those Create-tab entries were gone, so
+        # _sync_mode_buttons could never un-check them (they stuck lit — #217).
+        # Rebuilt fresh each time this contextual page is (re)built.
+        self._block_mode_buttons = {}
+
         def _mode(label, icon, mode, tip):
             cb = lambda: self._active_scene().set_mode(mode)
             b = g.add_small_button(label, _I(icon), cb, checkable=True)
             b.setToolTip(tip)
-            self._mode_buttons[mode] = b
+            self._block_mode_buttons[mode] = b
             return b
 
         _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")

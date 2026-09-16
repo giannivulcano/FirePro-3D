@@ -107,11 +107,20 @@ class Model_View(QGraphicsView):
 
     def _mode_wants_crosshair(self, mode) -> bool:
         """True for placement/insertion modes — the accent crosshair shows only
-        while actually inserting geometry, never in select/transform modes.
+        while actually inserting geometry, never in select/relocate modes.
 
-        Reuses the CrossCursor mode set (any mode whose OS cursor is a cross is a
-        placement/pick mode) so the two can't drift.
+        Sourced from the scene's authoritative placement-mode set
+        (`Model_Space._ALIGN_PLACEMENT_MODES`) so Architecture (wall/floor/roof/
+        opening/…) and Sprinkler (pipe/sprinkler/…) modes are covered, not just
+        the 2D-geo subset. `move`/`paste` relocate existing geometry (not
+        insertion) → excluded. Falls back to the CrossCursor map for scenes
+        without the set.
         """
+        if mode in (None, "select", "move", "paste"):
+            return False
+        placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
+        if placement is not None:
+            return mode in placement
         return self._mode_cursors.get(mode) == Qt.CursorShape.CrossCursor
 
     def _resolve_cursor(self, mode):

@@ -29,6 +29,22 @@ def test_crosshair_blanks_cursor_only_in_placement_mode(qapp):
     view.close()
 
 
+def test_crosshair_covers_architecture_and_sprinkler_modes(qapp):
+    """Placement modes beyond the 2D-geo subset (wall/floor/roof/pipe/sprinkler)
+    must also blank the cursor for the accent crosshair; relocate modes must not."""
+    scene, view = _make_view(qapp)
+    view.set_crosshair_enabled(True)
+    for mode in ("wall", "floor", "roof", "pipe", "sprinkler", "opening"):
+        scene.set_mode(mode)
+        view.set_crosshair_enabled(True)   # re-resolve cursor for this mode
+        assert view.cursor().shape() == Qt.CursorShape.BlankCursor, mode
+    for mode in ("move", "select"):
+        scene.set_mode(mode)
+        view.set_crosshair_enabled(True)
+        assert view.cursor().shape() != Qt.CursorShape.BlankCursor, mode
+    view.close()
+
+
 def test_crosshair_not_shown_in_select_mode(qapp):
     scene, view = _make_view(qapp)
     scene.set_mode("select")
