@@ -1,13 +1,14 @@
-"""Tests for the geo2d contextual ribbon tab — Placement + Fill groups.
+"""Tests for the geo2d contextual ribbon tab (redesign 2026-09-16).
 
 Verifies:
   1. Selecting a RectangleItem shows the 'Modify | Rectangle' contextual tab
-     containing groups named 'Placement' and 'Fill'.
+     with groups Edit + Constraints + Graphic Override — and NO Placement/Fill
+     (Placement dropped as property-panel redundant; Fill folded into the
+     condensed Graphic Override group).
   2. Driving the Fill-type control to 'solid' routes through the undo path:
      rect.fill_type == 'solid' AND exactly one undo step was pushed.
-  3. Driving the Level Offset control commits the parsed mm to
-     rect._level_offset_mm.
-  4. Fill group is DISABLED when a LineItem (non-fillable) is selected.
+  3. The fill controls are DISABLED when a LineItem (non-fillable) is selected
+     (the Graphic Override group stays enabled — stroke override applies).
 """
 from __future__ import annotations
 
@@ -98,9 +99,9 @@ def _group_titles(page):
     return titles
 
 
-def test_geo2d_tab_has_placement_and_fill_groups(main_window, qapp, clean_scene):
-    """Selecting a RectangleItem must show a 'Modify | Rectangle' tab with
-    'Placement' and 'Fill' groups."""
+def test_geo2d_tab_has_edit_constraints_graphic_override(main_window, qapp, clean_scene):
+    """Selecting a RectangleItem must show 'Modify | Rectangle' with Edit +
+    Constraints + Graphic Override groups, and NO Placement/Fill groups."""
     rect = _make_rect(main_window.scene)
     rect.setSelected(True)
     qapp.processEvents()
@@ -108,17 +109,16 @@ def test_geo2d_tab_has_placement_and_fill_groups(main_window, qapp, clean_scene)
     tabs = _titles(main_window)
     assert "Modify | Rectangle" in tabs, f"Expected 'Modify | Rectangle' contextual tab; got {tabs}"
 
-    # Find the contextual page
     idx = tabs.index("Modify | Rectangle")
     page = main_window.ribbon._stack.widget(idx)
     group_titles = _group_titles(page)
 
-    assert "Placement" in group_titles, (
-        f"Expected 'Placement' group; found groups: {group_titles}"
-    )
-    assert "Fill" in group_titles, (
-        f"Expected 'Fill' group; found groups: {group_titles}"
-    )
+    assert "Edit" in group_titles, group_titles
+    assert "Constraints" in group_titles, group_titles
+    assert "Graphic Override" in group_titles, group_titles
+    # Dropped / folded away:
+    assert "Placement" not in group_titles, group_titles
+    assert "Fill" not in group_titles, group_titles  # a 'Fill:' field label is fine (has colon)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,45 +165,12 @@ def test_fill_type_control_routes_through_undo(main_window, qapp, clean_scene):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Test 3: Level Offset control commits parsed mm to rect._level_offset_mm
+# Test 3: fill controls disabled for a non-fillable item (LineItem)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_level_offset_control_commits_mm(main_window, qapp, clean_scene):
-    """Entering a value into the Level Offset field must commit the parsed mm
-    value to rect._level_offset_mm."""
-    rect = _make_rect(main_window.scene)
-    rect.setSelected(True)
-    qapp.processEvents()
-
-    from firepro3d.dimension_edit import DimensionEdit
-    tabs = _titles(main_window)
-    idx = tabs.index("Modify | Rectangle")
-    page = main_window.ribbon._stack.widget(idx)
-
-    dim_edits = page.findChildren(DimensionEdit)
-    assert dim_edits, "Expected at least one DimensionEdit (Level Offset) on geo2d page"
-
-    # Use the first DimensionEdit (Level Offset)
-    offset_edit = dim_edits[0]
-
-    # Simulate the user typing "100 mm" — setText changes the display text
-    # so it no longer matches _seed_text, and _on_editing_finished will parse it.
-    offset_edit.setText("100 mm")
-    offset_edit._on_editing_finished()
-    qapp.processEvents()
-
-    assert rect._level_offset_mm == pytest.approx(100.0, abs=0.1), (
-        f"Expected _level_offset_mm ≈ 100.0; got {rect._level_offset_mm}"
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Test 4: Fill group is disabled when a non-fillable item (LineItem) is selected
-# ─────────────────────────────────────────────────────────────────────────────
-
-def test_fill_group_disabled_for_non_fillable(main_window, qapp, clean_scene):
-    """When only a LineItem (non-fillable) is selected, the Fill group must be
-    disabled (all its controls inert)."""
+def test_fill_controls_disabled_for_non_fillable(main_window, qapp, clean_scene):
+    """A LineItem (non-fillable) disables the fill-type control in the Graphic
+    Override group (the group itself stays enabled — stroke override applies)."""
     ln = _make_line(main_window.scene)
     ln.setSelected(True)
     qapp.processEvents()
@@ -214,19 +181,14 @@ def test_fill_group_disabled_for_non_fillable(main_window, qapp, clean_scene):
     idx = tabs.index("Modify | Line")
     page = main_window.ribbon._stack.widget(idx)
 
-    from firepro3d.ribbon_bar import RibbonGroup
-    from PyQt6.QtWidgets import QLabel
-
-    def _find_group_by_title(pg, title):
-        for g in pg.findChildren(RibbonGroup):
-            for lbl in g.findChildren(QLabel):
-                if lbl.text() == title:
-                    return g
-        return None
-
-    fill_group = _find_group_by_title(page, "Fill")
-    assert fill_group is not None, "Fill group not found on page"
-
-    assert not fill_group.isEnabled(), (
-        "Fill group should be disabled when a non-fillable item is selected"
+    from PyQt6.QtWidgets import QComboBox
+    fill_combo = None
+    for c in page.findChildren(QComboBox):
+        items = {c.itemText(i) for i in range(c.count())}
+        if {"none", "solid", "hatch"} <= items:
+            fill_combo = c
+            break
+    assert fill_combo is not None, "fill-type combo not found in Graphic Override group"
+    assert not fill_combo.isEnabled(), (
+        "fill controls must be disabled when a non-fillable line is selected"
     )

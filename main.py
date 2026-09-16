@@ -2654,14 +2654,211 @@ class MainWindow(QMainWindow):
     # ── Geo2D contextual builders ──────────────────────────────────────────────
 
     def _build_geo2d_context(self, page) -> None:
-        """Build the '2D Geometry' contextual tab: Placement + Fill + Edit.
+        """Build the '2D Geometry' contextual tab: Edit + Constraints + Graphic
+        Override (redesign 2026-09-16, user [Image #3]).
+
+        Placement (Level / Level Offset) was dropped — redundant with the
+        property panel. Fill folded into a condensed Graphic Override group.
+        Order: Edit → Constraints → Graphic Override.
 
         Args:
             page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
         """
-        self._build_placement_group(page)
-        self._build_fill_group(page)
         self._build_contextual_edit_group(page)
+        self._build_geo2d_constraints_group(page)
+        self._build_geo2d_graphic_override_group(page)
+
+    #: Constraint tools placed on the 2D-geo contextual tab. The first two are
+    #: wired to scene modes; the rest are placeholders for the parametric-
+    #: constraint-system spec's future types (shown disabled to signal intent).
+    _GEO2D_CONSTRAINT_TOOLS = (
+        ("Concentric", "constraint_concentric", "Make two circles concentric"),
+        ("Dimensional", "constraint_dimensional", "Add a dimensional constraint between two grips"),
+    )
+    _GEO2D_CONSTRAINT_PLACEHOLDERS = (
+        "H/V Lock", "Equal Spacing", "Parallel", "Perpendicular", "Tangent", "Fix/Pin",
+    )
+
+    def _build_geo2d_constraints_group(self, page) -> None:
+        """Add a 'Constraints' group: the two built constraint tools + disabled
+        placeholders for the spec's future types.
+
+        The two live tools are plain ACTION buttons (click → ``set_mode``), NOT
+        registered in ``_mode_buttons`` — this contextual page is rebuilt on every
+        selection change, and a mode-button registry there dangles on rebuild
+        (the #217 failure mode). Placeholders are disabled with a 'coming soon'
+        tooltip.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        g = page.add_group("Constraints")
+        for label, mode, tip in self._GEO2D_CONSTRAINT_TOOLS:
+            b = g.add_small_button(label, _I("placeholder_icon.svg"),
+                                   (lambda m=mode: self.scene.set_mode(m)))
+            b.setToolTip(tip)
+        for label in self._GEO2D_CONSTRAINT_PLACEHOLDERS:
+            b = g.add_small_button(label, _I("placeholder_icon.svg"), lambda: None)
+            b.setEnabled(False)
+            b.setToolTip(f"{label} constraint — coming soon")
+
+    def _build_geo2d_graphic_override_group(self, page) -> None:
+        """Condensed 'Graphic Override' group: stroke + fill overrides in one
+        narrow group (folds the old wide 'Fill' group + the stroke/clear
+        override actions). All writes route through ``set_property`` /
+        the override handlers + ``push_undo_state``; an empty/non-fillable
+        selection disables the group."""
+        from PyQt6.QtWidgets import (
+            QComboBox, QLabel, QToolButton, QLineEdit,
+            QWidget, QVBoxLayout, QHBoxLayout,
+        )
+        from PyQt6.QtGui import QColor
+        from PyQt6.QtWidgets import QColorDialog
+        from firepro3d import theme as _th
+        from firepro3d.hatch_patterns import PATTERN_NAMES
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+
+        _syncing = [False]
+        t = _th.detect()
+        _theme = DARK if t.name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        g = page.add_group("Graphic Override")
+
+        def _swatch_style(hex_color: str) -> str:
+            t2 = _th.detect()
+            return (f"QToolButton {{ border: 1px solid {t2.border_strong}; "
+                    f"background: {hex_color}; }}"
+                    f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
+
+        # Row 1: Stroke swatch + Fill type + Pattern
+        row1 = QWidget(); r1 = QHBoxLayout(row1)
+        r1.setContentsMargins(2, 2, 2, 0); r1.setSpacing(3)
+        stroke_btn = QToolButton(); stroke_btn.setFixedSize(24, 22)
+        stroke_btn.setToolTip("Override the stroke (line) colour")
+        stroke_btn.setStyleSheet(_swatch_style("#ffffff"))
+        fill_combo = QComboBox(); fill_combo.addItems(["none", "solid", "hatch"])
+        fill_combo.setMaximumWidth(62); fill_combo.setToolTip("Fill type")
+        pattern_combo = QComboBox(); pattern_combo.addItems(list(PATTERN_NAMES))
+        pattern_combo.setMaximumWidth(78); pattern_combo.setToolTip("Hatch pattern")
+        r1.addWidget(QLabel("Stroke:")); r1.addWidget(stroke_btn)
+        r1.addWidget(QLabel("Fill:")); r1.addWidget(fill_combo); r1.addWidget(pattern_combo)
+
+        # Row 2: Fill swatch + Opacity + Clear
+        row2 = QWidget(); r2 = QHBoxLayout(row2)
+        r2.setContentsMargins(2, 0, 2, 2); r2.setSpacing(3)
+        fill_btn = QToolButton(); fill_btn.setFixedSize(24, 22)
+        fill_btn.setToolTip("Override the fill colour"); fill_btn.setStyleSheet(_swatch_style("#888888"))
+        opacity_edit = QLineEdit("45"); opacity_edit.setMaximumWidth(36)
+        opacity_edit.setToolTip("Fill opacity 0–100 %")
+        clear_btn = QToolButton(); clear_btn.setText("Clear")
+        clear_btn.setToolTip("Revert stroke/fill overrides to category defaults")
+        r2.addWidget(QLabel("Fill:")); r2.addWidget(fill_btn)
+        r2.addWidget(QLabel("Opa%:")); r2.addWidget(opacity_edit)
+        r2.addWidget(clear_btn)
+
+        outer = QWidget(); ol = QVBoxLayout(outer)
+        ol.setContentsMargins(0, 0, 0, 0); ol.setSpacing(2)
+        ol.addWidget(row1); ol.addWidget(row2)
+        g.add_widget(outer)
+
+        def _fillable_targets():
+            return [it for it in self.scene.selectedItems()
+                    if callable(getattr(it, "is_fillable", None))
+                    and it.is_fillable() and hasattr(it, "set_property")]
+
+        def _sync():
+            _syncing[0] = True
+            try:
+                targets = _fillable_targets()
+                g.setEnabled(bool(self.scene.selectedItems()))
+                if not targets:
+                    fill_combo.setEnabled(False); pattern_combo.setEnabled(False)
+                    fill_btn.setEnabled(False); opacity_edit.setEnabled(False)
+                    return
+                fill_combo.setEnabled(True); pattern_combo.setEnabled(True)
+                fill_btn.setEnabled(True); opacity_edit.setEnabled(True)
+
+                def uniform(getter):
+                    vals = {getter(it) for it in targets}
+                    return vals.pop() if len(vals) == 1 else None
+                ft = uniform(lambda it: it.fill_type)
+                fill_combo.setCurrentText(ft if ft is not None else "")
+                pat = uniform(lambda it: it.fill_pattern)
+                pattern_combo.setCurrentText(pat if pat is not None else "")
+                col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
+                if col:
+                    fill_btn.setStyleSheet(_swatch_style(col))
+                opa = uniform(lambda it: round(it.fill_opacity * 100))
+                opacity_edit.setText("" if opa is None else str(opa))
+            finally:
+                _syncing[0] = False
+
+        _sync()
+
+        def _on_fill_type(_i):
+            if _syncing[0]:
+                return
+            new_val = fill_combo.currentText()
+            apply = [t for t in _fillable_targets() if t.fill_type != new_val]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Fill", new_val)
+            _sync()
+
+        def _on_pattern(_i):
+            if _syncing[0]:
+                return
+            new_val = pattern_combo.currentText()
+            apply = [t for t in _fillable_targets() if t.fill_pattern != new_val]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Pattern", new_val)
+
+        def _on_fill_colour():
+            targets = _fillable_targets()
+            if not targets:
+                return
+            existing = getattr(targets[0], "_display_fill_color", None) or "#888888"
+            c = QColorDialog.getColor(QColor(existing), page, "Fill Colour")
+            if c.isValid():
+                hex_val = c.name()
+                apply = [t for t in targets
+                         if (getattr(t, "_display_fill_color", None) or "#888888") != hex_val]
+                if not apply:
+                    return
+                self.scene.push_undo_state()
+                for t in apply:
+                    t.set_property("Fill Colour", hex_val)
+                fill_btn.setStyleSheet(_swatch_style(hex_val))
+
+        def _on_opacity():
+            if _syncing[0]:
+                return
+            try:
+                pct = float(opacity_edit.text())
+            except (ValueError, TypeError):
+                return
+            pct = max(0.0, min(100.0, pct))
+            apply = [t for t in _fillable_targets() if abs(t.fill_opacity * 100 - pct) > 0.5]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Fill Opacity", pct)
+
+        fill_combo.activated.connect(_on_fill_type)
+        pattern_combo.activated.connect(_on_pattern)
+        fill_btn.clicked.connect(_on_fill_colour)
+        opacity_edit.editingFinished.connect(_on_opacity)
+        stroke_btn.clicked.connect(self._graphic_override_stroke)
+        clear_btn.clicked.connect(self._graphic_override_clear)
 
     def _build_opening_context(self, page) -> None:
         """Build the 'Opening' contextual tab: Placement + Orientation + Edit.
