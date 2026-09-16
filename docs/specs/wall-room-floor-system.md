@@ -183,7 +183,7 @@ Wall placement is a first-class client of the unified 2D-geometry placement disp
 
 **Corner / Center Rectangle — 3-step placement:**
 1. **Anchor** — first click sets the first corner (Corner variant) or the centre (Center variant).
-2. **Sizing** — second click fixes the opposite corner; produces an axis-aligned bounding rectangle. `rect_sizing_points()` (shared with 2D-geo rect, see `construction_geometry.py`) computes `pt1/pt2` from anchor + corner + the `from_center` flag.
+2. **Sizing** — second click fixes the opposite corner; produces an axis-aligned bounding rectangle. `rect_sizing_points()` (shared with 2D-geo rect, see `geometry_2d.py`) computes `pt1/pt2` from anchor + corner + the `from_center` flag.
 3. **Rotate step** — third click sets the rectangle's orientation. Ctrl snaps to 45° increments (pivot = rectangle centroid). HUD uses the `rotation` schema (Y-up CCW, seeded live from the wall pivot). Commit at the desired angle; four mitered `WallSegment`s are built and auto-joined.
 
 **Dynamic Input HUD:** wall is a built HUD client. `active_schema()` dispatches by primitive and step:

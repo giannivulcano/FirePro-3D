@@ -185,7 +185,7 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
   "scale_mode": "real_size",        // enum; v1 sole value; "annotative" reserved
   "origin": [x_mm, y_mm],           // definition-local insertion origin
   "attributes": [],                 // reserved; no UI in v1
-  "primitives": [ { /* each primitive's own to_dict() */ } ]   // reuse construction_geometry items
+  "primitives": [ { /* each primitive's own to_dict() */ } ]   // reuse geometry_2d items
 }
 ```
 
@@ -213,7 +213,7 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - **REUSE:** `titleblock_template.py` (library I/O + embed + divergence), `titleblock_editor.py`
   (working-copy/snapshot — informs v2 Editor), `underlay_manager*.py` + `frameless_shell.py`
   (Manager), `feature_browser.py` (browser tree), `icons.py`/`svg_utils.py` + `tests/test_icon_theming.py`
-  (icons), `ribbon_bar.py` (group/button API), `construction_geometry.py` (the captured primitives'
+  (icons), `ribbon_bar.py` (group/button API), `geometry_2d.py` (the captured primitives'
   `to_dict`/`from_dict` + `DisplayableItemMixin`), `snap_engine.py` (insertion snap).
 - **GENERALIZE:** extract `app_data.py::_app_data_dir()` from the duplicated `%APPDATA% or ~` +
   `FirePro3D` resolution in `sprinkler_db._default_db_path` and `titleblock_template._library_dir`
