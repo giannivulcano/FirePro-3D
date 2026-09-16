@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
 last-verified: 2026-09-16
-verified-commit: e7fe388
+verified-commit: 1a70632
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -124,7 +124,9 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 **Reusable Graphic Override group (2026-08-28):** `_build_graphic_override_group(page)` adds a "Graphic Override" group of three small buttons — **Stroke Colour** / **Fill Colour** / **Clear** — surfacing the existing per-instance Display-Manager override machinery (`item._display_overrides` keyed `"color"` / `"fill"`; serialized). Stroke/Fill open a `QColorDialog` and write the picked hex onto every eligible selected item (those carrying a `_display_overrides` dict — the `DisplayableItemMixin` protocol); Clear empties the dict → reverts to the Display Manager category default. Each gesture pushes **one** undo snapshot (`scene.push_undo_state()`), re-applies via `display_manager.apply_saved_display_settings`, and emits `sceneModified`; an empty selection (or cancelled dialog) is a no-op that pushes nothing. Built on the Floor contextual tab first (via `_build_floor_context`) and designed to generalize to other entity families.
 
-**Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. It is on **every** contextual tab. The **`geo2d`** tab additionally carries a **Placement group** (Level combo + Level Offset `DimensionEdit`, via the reusable `_build_placement_group`) and a **Fill group** (Fill type / Pattern / Fill Colour / Fill Opacity, enabled only when a fillable shape is selected) — the first type-specific contextual tools (2026-08-22); writes route through the scene undo path (`push_undo_state` + `set_property`). Remaining families' type-specific tools are a filed follow-up. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
+**Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. It is on **every** contextual tab. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
+
+**`geo2d` tab redesign (2026-09-16, `_build_geo2d_context`):** order is **Edit → Constraints → Graphic Override** (Placement dropped — Level/Level Offset are redundant with the property panel; the old wide Fill group folded into a condensed Graphic Override group). `_build_geo2d_constraints_group` adds **Concentric** + **Dimensional** as plain action buttons (`set_mode("constraint_*")`, NOT `_mode_buttons`-registered — this page rebuilds per selection, so a mode-button registry there dangles: the #217 failure mode) plus **disabled placeholders** (H/V Lock, Equal Spacing, Parallel, Perpendicular, Tangent, Fix/Pin) for the parametric-constraint-system spec's future types. `_build_geo2d_graphic_override_group` is the condensed group: a stroke swatch + fill type/pattern/colour/opacity + Clear, in one narrow group (fill controls disable for a non-fillable selection; the group stays enabled so stroke override still applies). Writes route through the scene undo path. Remaining families' type-specific tools are a filed follow-up.
 
 **Scope note:** the contextual tab mechanism is currently **model-scene-driven only** (`scene.selectionChanged`). Paper-scene parity (paper items triggering `viewport`/`sheet_text` contextual tabs) is a filed follow-up.
 

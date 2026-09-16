@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-05
-verified-commit: 5d6206a
+last-verified: 2026-09-16
+verified-commit: 1a70632
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
@@ -101,6 +101,14 @@ Recolouring is performed by `svg_utils.svg_recolor(svg_text, color_map)`:
 - Caps and joins: `stroke-linecap="round"` and `stroke-linejoin="round"`.
 - Prefer **stroked glyphs over filled shapes** where both are readable. Stroked glyphs stay crisp at the 27×27 small-button render size; heavy fills tend to blob.
 - When a fill is needed (e.g. arrowhead, solid dot), use a filled path with `stroke="none"` rather than a filled-and-stroked shape at the same colour (avoids double-draw artefacts at small sizes).
+
+### 5.1 2D-geometry icon family (40-unit legacy canvas, 2026-09-16)
+
+The 2D-geo primitive icons (`line`, `polyline`, `circle`, `rectangle`, `arc`, `ellipse`, `spline`) share a canvas and marker convention distinct from the 48-unit axo set:
+- **Canvas:** 40-unit `viewBox` (legacy; match the family, not the 48-unit guide).
+- **Main glyph:** the primary sentinel `#1a1a1a` (→ ink), `stroke-width:2.4`. (Legacy line/circle/rect/arc previously used `#ffffff`, which vanished on light backgrounds — fixed to the ink sentinel.)
+- **Vertex/endpoint markers:** hollow accent rings with a **white centre** — `fill:#ffffff;stroke:#004cff` (accent), `r=1.8`, `stroke-width:1.6`. The white fill keeps the centre readable in both themes (a `fill:none` hollow ring shows the dark background through on the dark theme, reading as a black centre).
+- Every icon in the family uses these exact metrics (polyline is the reference).
 
 ## 6. Loader Contract
 

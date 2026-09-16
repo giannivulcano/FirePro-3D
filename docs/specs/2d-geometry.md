@@ -5,7 +5,7 @@ applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-16
-verified-commit: e7fe388
+verified-commit: 1a70632
 ---
 
 # 2D Geometry System
@@ -172,18 +172,23 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 
 **Invariants:**
 - The **placement-time** guide and the **selection-time** guide for the same
-  primitive MUST use this identical style (a placement radial must not be a
-  thicker "preview" line than the axis it becomes). Preview *rubber-bands* that
-  track the cursor toward a not-yet-committed point may still use the heavier
-  width-2 preview pen (circle/arc radius line); a *reference* line (a guide that
-  represents committed defining geometry) is always width-1.
+  primitive MUST use this identical style. **All 2D-geo ghosts are width-1
+  dashed (2026-09-16):** the shape-preview rubber-bands (rect/circle/arc/polygon)
+  were standardized from width-2 to width-1, and the line/polyline ghosts were
+  brought onto it too — the line ghost stops reusing the shared `preview_pipe`
+  darkGray/width-3 pipe pen (`_preview_from_line` re-pens it per move; `set_mode`
+  resets `preview_pipe` to the darkGray default so pipe/set_scale keep their
+  look), and the polyline is ghosted width-1 dashed during placement with
+  `PolylineItem.finalize()` restoring the committed solid pen at its lineweight.
 - Selection-time reference guides are drawn **whenever the item `isSelected()`**,
   independent of `_manip_wraps()` — they are a content aid, not the selection
   highlight (only the lighter highlight outline is gated on `not _manip_wraps`,
   to avoid double-drawing with the manipulator frame).
 - Items that expose defining geometry render it as reference lines on selection:
   `EllipseItem` (major + minor axes), `SplineItem` (control polygon),
-  `RegularPolygonItem` (circumradius circle).
+  `RegularPolygonItem` (circumradius circle), **`RectangleItem` (corner
+  diagonals), `CircleItem` (radius guide + bounding box)** — the latter two via
+  `_selection_ref_segments()`.
 
 ## 4. Placement workflows (`model_space.py`)
 
