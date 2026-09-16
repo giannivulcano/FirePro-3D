@@ -153,3 +153,32 @@ def test_placed_text_scales_isotropically_with_import_scale(qapp):
     # both axes scale by ~10x -> aspect ratio preserved (isotropic)
     assert math.isclose(w10 / w1, 10.0, rel_tol=0.02)
     assert math.isclose(h10 / h1, 10.0, rel_tol=0.02)
+
+
+# ── Rotation tests ───────────────────────────────────────────────────────────
+
+def test_rotation_rotates_line_endpoints():
+    g = {"kind": "line", "x1": 10, "y1": 0, "x2": 0, "y2": 0}
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=90.0)[0]
+    assert (round(out["x1"]), round(out["y1"])) == (0, 10)   # Qt rotate(+90): (10,0)->(0,10)
+
+
+def test_rotation_shifts_arc_start_angle_and_centre():
+    g = {"kind": "arc", "rx": 90, "ry": -10, "rw": 20, "rh": 20, "start": 0, "span": 45}
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=90.0)[0]
+    assert (round(out["rx"] + out["rw"] / 2), round(out["ry"] + out["rh"] / 2)) == (0, 100)
+    assert round(out["start"]) == 90
+    assert round(out["span"]) == 45
+
+
+def test_rotation_shifts_ellipse_rotation_field():
+    g = {"kind": "ellipse_full", "x": -20, "y": -10, "w": 40, "h": 20,
+         "pos_cx": 0, "pos_cy": 0, "rotation": 15}
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0, rot=30.0)[0]
+    assert round(out["rotation"]) == 45
+
+
+def test_rotation_defaults_to_identity():
+    g = {"kind": "line", "x1": 10, "y1": 0, "x2": 0, "y2": 0}
+    out = apply_import_transform([g], s=1.0, bx=0.0, by=0.0)[0]
+    assert (out["x1"], out["y1"]) == (10.0, 0.0)   # no rot arg == unchanged

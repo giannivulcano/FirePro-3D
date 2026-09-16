@@ -392,11 +392,9 @@ class BlockEditorWidget(QWidget):
         underlay). The dialog owns its own async extraction, so no worker is
         needed here.
 
-        Fidelity note: today LINE/CIRCLE arrive as native LineItem/CircleItem and
-        arcs/splines/ellipses as high-resolution PolylineItem (the shared
-        extraction tessellates them). Native Arc/Ellipse/Spline import is a P1
-        follow-up — see todo_open.md 'revise the block-editor import' + the new
-        EllipseItem/SplineItem primitives.
+        Fidelity note: native Arc/Ellipse/Spline import and dialog rotation
+        (``ImportParams.rotation``) are both applied via
+        ``apply_import_transform``.
         """
         from PyQt6.QtWidgets import QDialog
         from .block_import_dialog import BlockImportDialog
@@ -412,7 +410,7 @@ class BlockEditorWidget(QWidget):
         # layer-filtered) geom dicts, then convert to native primitives. Scale is
         # already applied here, so pass 1.0 to the factory.
         geoms = dwg_converter.apply_import_transform(
-            p.geom_list, p.scale, p.base_x, p.base_y)
+            p.geom_list, p.scale, p.base_x, p.base_y, p.rotation)
         self._add_imported_geoms(geoms, 1.0)
 
     def _save_to_library(self, defn, parent):
