@@ -5449,6 +5449,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self.addItem(item)
         self._draw_lines.append(item)
+        self.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         return item
 
@@ -6403,6 +6404,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 pl.finalize()
                 self._polyline_active = None
                 self._hide_polyline_close_indicator()
+                self.clearSelection()  # only the just-placed item stays selected
                 pl.setSelected(True)
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
@@ -6948,6 +6950,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     pl.finalize()
                     self._polyline_active = None
                     self._hide_polyline_close_indicator()
+                    self.clearSelection()  # only the just-placed item stays selected
                     pl.setSelected(True)
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first point")

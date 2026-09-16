@@ -279,6 +279,7 @@ class GeometryDrawingController:
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self._scene.addItem(item)
         self._scene._draw_circles.append(item)
+        self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
@@ -573,6 +574,7 @@ class GeometryDrawingController:
                     pl.finalize()
                     self._scene._polyline_active = None
                     self._hide_polyline_close_indicator()
+                    self._scene.clearSelection()  # only the just-placed item stays selected
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
                     for v in self._scene.views(): v.viewport().update()
@@ -844,6 +846,7 @@ class GeometryDrawingController:
         item.set_angle(angle_deg, self._scene._draw_rect_pivot)
         self._scene.addItem(item)
         self._scene._draw_rects.append(item)
+        self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
@@ -1160,6 +1163,7 @@ class GeometryDrawingController:
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_arcs.append(item)
+        s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         for v in s.views(): v.viewport().update()
         # Clean up previews
@@ -1315,6 +1319,7 @@ class GeometryDrawingController:
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_polygons.append(item)
+        s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         # Remove preview ghost.
         if s._polygon_preview is not None:
