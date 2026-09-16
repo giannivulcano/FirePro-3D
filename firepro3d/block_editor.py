@@ -127,6 +127,11 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space()    # isolated scratchpad; no managers injected
+        # The blue placement preview-node is a pipe/sprinkler affordance the plan
+        # scene suppresses while the crosshair owns the cursor (main._apply_crosshair).
+        # The block editor authors only 2D geometry (which has its own ghost), so
+        # suppress it here too — otherwise a stray blue dot rode every placement.
+        self.editor_scene._suppress_preview_node = True
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
