@@ -63,6 +63,25 @@ def test_unsupported_kinds_skipped_and_counted(qapp):
     assert len(items) == 1 and skipped == 2
 
 
+def test_arc_dict_maps_to_arcitem_observable_endpoints(qapp):
+    geoms = [{"kind": "arc", "rx": -100, "ry": -100, "rw": 200, "rh": 200,
+              "start": 30, "span": 90, "color": "#123456"}]
+    items, skipped = geom_dicts_to_primitives(geoms, import_scale=1.0)
+    assert skipped == 0 and len(items) == 1
+    a = items[0]
+    assert isinstance(a, ArcItem)
+    grips = a.grip_points()
+    assert (round(grips[0].x()), round(grips[0].y())) == (0, 0)
+    assert round(grips[1].x()) == round(100 * math.cos(math.radians(30)))
+    assert round(grips[1].y()) == round(-100 * math.sin(math.radians(30)))
+    assert round(grips[2].x()) == round(100 * math.cos(math.radians(120)))
+    assert round(grips[2].y()) == round(-100 * math.sin(math.radians(120)))
+    # pointAtPercent(0.5) uses Bezier approximation — within 2 units of analytic midpoint
+    mid = a.path().pointAtPercent(0.5)
+    assert abs(mid.x() - 100 * math.cos(math.radians(75))) < 2.0
+    assert abs(mid.y() - (-100 * math.sin(math.radians(75)))) < 2.0
+
+
 def test_ellipse_full_dict_maps_to_ellipse_item(qapp):
     geoms = [{"kind": "ellipse_full", "x": -20, "y": -10, "w": 40, "h": 20,
               "pos_cx": 100, "pos_cy": 50, "rotation": 30, "color": "#00aa00"}]

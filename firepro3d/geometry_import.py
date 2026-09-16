@@ -123,6 +123,15 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 items.append(poly)
             except (KeyError, TypeError):
                 skipped += 1
+        elif kind == "arc":
+            try:
+                cx = (g["rx"] + g["rw"] / 2.0) * s
+                cy = (g["ry"] + g["rh"] / 2.0) * s
+                r = (g["rw"] / 2.0) * s
+                items.append(ArcItem(QPointF(cx, cy), r,
+                                     g["start"], g["span"], color))
+            except (KeyError, TypeError):
+                skipped += 1
         elif kind == "ellipse_full":
             try:
                 cx = g["pos_cx"] * s
