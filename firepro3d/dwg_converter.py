@@ -380,6 +380,8 @@ def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
             points = [(g["pos_cx"], g["pos_cy"])]
         elif kind == "path_points":
             points = [(p[0], p[1]) for p in g.get("points", [])]
+        elif kind == "spline":
+            points = [(p[0], p[1]) for p in g.get("control_points", [])]
         elif kind == "text":
             points = [(g["x"], g["y"])]
         for px, py in points:
@@ -648,6 +650,8 @@ def _geom_in_any_bound(
         points = [(g["pos_cx"], g["pos_cy"])]
     elif kind == "path_points":
         points = [(p[0], p[1]) for p in g.get("points", [])]
+    elif kind == "spline":
+        points = [(p[0], p[1]) for p in g.get("control_points", [])]
     elif kind == "text":
         points = [(g["x"], g["y"])]
 
@@ -787,6 +791,9 @@ def extract_layout_entities(
             t["rw"] = new_w; t["rh"] = new_h
         elif kind == "path_points":
             t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
+        elif kind == "spline":
+            t["control_points"] = [(_tx(p[0]), _ty(p[1])) for p in g["control_points"]]
+            # knots/weights are parametric — pass through unscaled via the dict copy.
         elif kind == "text":
             t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
             if "size" in g:

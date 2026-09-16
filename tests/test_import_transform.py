@@ -115,6 +115,16 @@ def test_apply_import_transform_scales_spline_control_points():
     assert out["control_points"] == [(0.0, 0.0), (20.0, 20.0)]
 
 
+def test_apply_import_transform_does_not_scale_spline_knots_weights():
+    from firepro3d.dwg_converter import apply_import_transform
+    g = {"kind": "spline", "control_points": [[0, 0], [10, 10]],
+         "degree": 1, "knots": [0.0, 0.0, 1.0, 1.0], "weights": [1.0, 2.0]}
+    out = apply_import_transform([g], s=5.0, bx=0.0, by=0.0)[0]
+    assert out["knots"] == [0.0, 0.0, 1.0, 1.0]     # parametric — unscaled
+    assert out["weights"] == [1.0, 2.0]
+    assert out["control_points"] == [(0.0, 0.0), (50.0, 50.0)]   # coords scaled
+
+
 # ── Render-level guard: the full chain (transform -> _append_geom_to_path) ──
 # The pure-function tests above prove twidth scales; this proves the scaled
 # twidth actually flows through the batched text-path builder so on-canvas text
