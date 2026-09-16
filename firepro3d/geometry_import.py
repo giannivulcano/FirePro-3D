@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
 
-from .construction_geometry import LineItem, CircleItem, PolylineItem
+from .construction_geometry import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
 
 
 def _geometric_bbox(item):
@@ -121,6 +121,16 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 if g.get("closed"):
                     poly.close()
                 items.append(poly)
+            except (KeyError, TypeError):
+                skipped += 1
+        elif kind == "ellipse_full":
+            try:
+                cx = g["pos_cx"] * s
+                cy = g["pos_cy"] * s
+                rx = (g["w"] / 2.0) * s
+                ry = (g["h"] / 2.0) * s
+                items.append(EllipseItem(QPointF(cx, cy), rx, ry,
+                                         g.get("rotation", 0.0), color))
             except (KeyError, TypeError):
                 skipped += 1
         else:

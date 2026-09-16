@@ -3,9 +3,11 @@
 Tests for bbox_top_left and geom_dicts_to_primitives.
 """
 
+import math
+
 from PyQt6.QtCore import QPointF
 from firepro3d.geometry_import import bbox_top_left, geom_dicts_to_primitives
-from firepro3d.construction_geometry import LineItem, CircleItem, PolylineItem
+from firepro3d.construction_geometry import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
 
 
 def test_bbox_top_left_over_mixed_primitives(qapp):
@@ -54,11 +56,24 @@ def test_path_points_open_and_closed(qapp):
 def test_unsupported_kinds_skipped_and_counted(qapp):
     geoms = [
         {"kind": "text", "x": 0, "y": 0, "text": "A"},
-        {"kind": "ellipse_full", "x": 0, "y": 0, "w": 4, "h": 2},
+        {"kind": "hatch", "x": 0, "y": 0},
         {"kind": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1},
     ]
     items, skipped = geom_dicts_to_primitives(geoms, import_scale=1.0)
     assert len(items) == 1 and skipped == 2
+
+
+def test_ellipse_full_dict_maps_to_ellipse_item(qapp):
+    geoms = [{"kind": "ellipse_full", "x": -20, "y": -10, "w": 40, "h": 20,
+              "pos_cx": 100, "pos_cy": 50, "rotation": 30, "color": "#00aa00"}]
+    items, skipped = geom_dicts_to_primitives(geoms, import_scale=2.0)
+    assert skipped == 0 and len(items) == 1
+    e = items[0]
+    assert isinstance(e, EllipseItem)
+    assert (round(e._center.x()), round(e._center.y())) == (200, 100)
+    assert (round(e._rx), round(e._ry)) == (40, 20)
+    assert round(e._rotation_deg) == 30
+    assert e.pen().color().name() == "#00aa00"
 
 
 def test_primitives_roundtrip_to_block_type_keys(qapp):
