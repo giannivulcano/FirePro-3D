@@ -162,34 +162,36 @@ class TopTabs(QWidget):
         self._divider.setFixedHeight(1)
         self._divider.setStyleSheet(f"background: {detect().line_strong};")
         self._stack = QStackedWidget()
-        # Tabs + pages are inset by *page_inset* so they align with padded
-        # content; the divider stays FULL-BLEED to the widget's edges (so the
-        # adopter zeroes its horizontal margins around TopTabs).
+        # The tab BAR is inset by *page_inset*; the stack is FULL-BLEED (0
+        # horizontal) so a page that leads with a rail can sit flush-left like
+        # the main dialog rail — each page owns its own content padding. Only
+        # *page_top* is applied (breathing room below the divider so Section
+        # overline labels don't crowd the tab ribbon). The divider is full-bleed.
         _bar_row = QWidget(objectName="topTabsBarRow")
         _bl = QHBoxLayout(_bar_row)
         _bl.setContentsMargins(page_inset, 0, page_inset, 0)
         _bl.setSpacing(0)
         _bl.addWidget(self._bar)
         _bl.addStretch(1)
-        # page_top gives the page content breathing room below the divider so
-        # Section overline labels don't crowd the tab ribbon.
         _stack_row = QWidget(objectName="topTabsStackRow")
         self._stack.setObjectName("topTabsStack")
         _sl = QVBoxLayout(_stack_row)
-        _sl.setContentsMargins(page_inset, page_top, page_inset, 0)
+        _sl.setContentsMargins(0, page_top, 0, 0)
         _sl.setSpacing(0)
         _sl.addWidget(self._stack)
         v.addWidget(_bar_row)
         v.addWidget(self._divider)      # full-bleed
         v.addWidget(_stack_row, 1)
-        # The container + its rows/stack stay TRANSPARENT (targeted selectors so
-        # nothing bleeds onto child controls) — the adopter's surface shows
-        # through. Explicit `transparent` is required because unstyled
-        # QStackedWidget/QWidget paint BLACK when shown live (project trap);
+        # Paint the container + rows/stack the OPAQUE dialog surface (targeted
+        # selectors so nothing bleeds onto child controls). Opaque `surface`
+        # (not transparent) is required because unstyled QStackedWidget/QWidget
+        # paint BLACK when shown live (project trap: unstyled_qwidget_black_live);
         # add_tab() pins each page the same way.
+        from .theme import detect as _detect
+        _s = _detect().surface
         self.setStyleSheet(
-            "QWidget#topTabs, QWidget#topTabsBarRow, QWidget#topTabsStackRow,"
-            " QStackedWidget#topTabsStack { background: transparent; }")
+            f"QWidget#topTabs, QWidget#topTabsBarRow, QWidget#topTabsStackRow,"
+            f" QStackedWidget#topTabsStack {{ background: {_s}; }}")
         self._keys: list[str] = []
         self._bar.currentChanged.connect(self._on_current)
 
@@ -205,13 +207,15 @@ class TopTabs(QWidget):
             self._bar.addTab(label)
         else:
             self._bar.addTab(icon, label)
-        # Pin the page transparent (unstyled QStackedWidget pages render BLACK
-        # live — project trap). Targeted objectName selector so it never bleeds
-        # onto child controls; the adopter's surface shows through.
+        # Pin the page to the OPAQUE dialog surface (unstyled QStackedWidget
+        # pages render BLACK live — project trap; transparent does NOT fix it,
+        # an opaque bg is required). Targeted objectName selector so it never
+        # bleeds onto child controls.
+        from .theme import detect as _detect
         name = widget.objectName() or f"topTabsPage{len(self._keys)}"
         widget.setObjectName(name)
         prior = widget.styleSheet()
-        rule = f"QWidget#{name} {{ background: transparent; }}"
+        rule = f"QWidget#{name} {{ background: {_detect().surface}; }}"
         widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
         self._stack.addWidget(widget)
         self._keys.append(key)

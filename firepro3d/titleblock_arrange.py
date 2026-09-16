@@ -1198,7 +1198,10 @@ class ArrangementsTab(QWidget):
         """
         super().__init__(parent)
         cols = QHBoxLayout(self)
-        cols.setSpacing(16)     # gap around the rail borders/dividers
+        # Full-bleed stack → the page owns its padding: the pool rail sits near
+        # the left edge, the props rail gets right padding.
+        cols.setContentsMargins(6, 0, 16, 0)
+        cols.setSpacing(12)     # gap around the rail borders/dividers
 
         # ── Column 1: unplaced-field pool (house Section + SideTabs-rail look)
         self.pool = PoolList()
@@ -1206,11 +1209,15 @@ class ArrangementsTab(QWidget):
         self.pool.setFixedWidth(TB_POOL_CARD_W)
         self.pool.setFrameShape(QFrame.Shape.NoFrame)
         self.pool.setStyleSheet(_pool_rail_qss())
+        self.pool.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         pool_section = Section("Unplaced Fields", self.pool)
-        # Expanding vertical so the pool's border-right divider spans the full
-        # column height (Preferred would stop at the cards' content height).
+        # Expanding vertical + a stretch on the pool so its border-right divider
+        # spans the full column height (Section adds content without stretch, so
+        # the list would otherwise stop at the cards' content height).
         pool_section.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        pool_section.layout().setStretchFactor(self.pool, 1)
         cols.addWidget(pool_section)
 
         # ── Column 2: warning banner + strip canvas + Fit ─────────────────

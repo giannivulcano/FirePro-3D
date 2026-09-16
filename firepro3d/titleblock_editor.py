@@ -440,7 +440,9 @@ class TitleBlockEditorDialog(HouseDialog):
         # Drawing Area Border), the live preview on the right.
         overview_widget = QWidget()
         overview_root = QHBoxLayout(overview_widget)
-        overview_root.setContentsMargins(0, 0, 0, 0)
+        # Full-bleed stack → the page owns its padding (left for the info form,
+        # right for the preview).
+        overview_root.setContentsMargins(16, 0, 16, 0)
         overview_root.setSpacing(16)     # gap around the info|preview divider
         info_col = QVBoxLayout()
         info_col.setSpacing(14)
@@ -545,8 +547,12 @@ class TitleBlockEditorDialog(HouseDialog):
             lambda _: self._on_border_changed())
 
         # ── Tab 2: Fields (DD-18) ─────────────────────────────────────────
+        # The stack is full-bleed; the page owns its padding. The roster rail
+        # sits near the left edge (small gap from the main rail); the form and
+        # preview get right padding.
         fields_widget = QWidget()
         fields_layout = QHBoxLayout(fields_widget)
+        fields_layout.setContentsMargins(6, 0, 16, 0)
         fields_layout.setSpacing(6)
 
         # ── LEFT: roster (SideTabs rail — same convention as the template rail;
@@ -564,7 +570,10 @@ class TitleBlockEditorDialog(HouseDialog):
         # column height (Preferred would stop at the rows' content height).
         self._field_rail.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        fields_layout.setSpacing(16)     # gap around the rail borders/dividers
+        # Tighter top margin than the default rail (nested inside a padded page
+        # → the +/−/⧉ header shouldn't sit far below the tab ribbon).
+        self._field_rail.layout().setContentsMargins(6, 6, 6, 8)
+        fields_layout.setSpacing(12)     # gap around the rail borders/dividers
         fields_layout.addWidget(self._field_rail)
 
         # ── MIDDLE: intrinsics form (grouped — grill 2026-08-04) ──────────
