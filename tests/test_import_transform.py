@@ -107,6 +107,14 @@ def test_unknown_kind_passed_through_untouched():
     assert out == g
 
 
+def test_apply_import_transform_scales_spline_control_points():
+    from firepro3d.dwg_converter import apply_import_transform
+    g = {"kind": "spline", "control_points": [[0, 0], [10, 10]],
+         "degree": 1, "knots": None, "weights": None}
+    out = apply_import_transform([g], s=2.0, bx=0.0, by=0.0)[0]
+    assert out["control_points"] == [(0.0, 0.0), (20.0, 20.0)]
+
+
 # ── Render-level guard: the full chain (transform -> _append_geom_to_path) ──
 # The pure-function tests above prove twidth scales; this proves the scaled
 # twidth actually flows through the batched text-path builder so on-canvas text

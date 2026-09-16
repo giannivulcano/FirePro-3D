@@ -456,6 +456,10 @@ def apply_import_transform(
         elif kind == "path_points":
             t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
                            for p in g["points"]]
+        elif kind == "spline":
+            t["control_points"] = [((p[0] - bx) * s, (p[1] - by) * s)
+                                   for p in g["control_points"]]
+            # knots/weights are parametric — never scaled.
         elif kind == "text":
             t["x"] = (g["x"] - bx) * s
             t["y"] = (g["y"] - by) * s
@@ -511,6 +515,13 @@ def append_geom_to_path(path, g: dict) -> None:
         rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
         path.arcMoveTo(rect, g["start"])
         path.arcTo(rect, g["start"], g["span"])
+    elif kind == "spline":
+        from .construction_geometry import _bspline_path
+        from PyQt6.QtCore import QPointF as _QPointF
+        cps = [_QPointF(px, py) for px, py in g["control_points"]]
+        sp = _bspline_path(cps, int(g.get("degree", 3)),
+                           g.get("knots"), g.get("weights"))
+        path.addPath(sp)
     elif kind == "ellipse_full":
         path.addEllipse(
             g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],

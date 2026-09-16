@@ -549,6 +549,16 @@ class DxfImportWorker(QThread):
             }
 
         elif etype == "SPLINE":
+            if getattr(self, "_preserve_curves", False):
+                cps = [(p[0], -p[1]) for p in entity.control_points]
+                if len(cps) < 2:
+                    return None
+                knots = list(entity.knots) if entity.knots else None
+                weights = list(entity.weights) if entity.weights else None
+                closed = bool(entity.closed)
+                return {"kind": "spline", "layer": layer, "color": color,
+                        "control_points": cps, "degree": entity.dxf.degree,
+                        "knots": knots, "weights": weights, "closed": closed}
             pts = list(entity.flattening(0.5))
             if not pts:
                 return None

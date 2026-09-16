@@ -27,3 +27,25 @@ def test_arc_tessellated_when_not_preserving():
     g = _worker(False)._extract_geometry(_arc_entity())
     assert g["kind"] == "path_points"          # underlay regression guard: unchanged
     assert len(g["points"]) > 2
+
+
+def _spline_entity():
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    # add_spline(fit_points=...) leaves control_points empty until the CAD app
+    # constructs them, so build the entity directly with control_points assigned.
+    ent = msp.add_spline(fit_points=None, degree=3)
+    ent.control_points = [(0, 0, 0), (10, 20, 0), (30, -20, 0), (40, 0, 0)]
+    return ent
+
+
+def test_spline_native_when_preserving():
+    g = _worker(True)._extract_geometry(_spline_entity())
+    assert g["kind"] == "spline"
+    assert len(g["control_points"]) >= 2
+    assert g["degree"] >= 1
+
+
+def test_spline_tessellated_when_not_preserving():
+    g = _worker(False)._extract_geometry(_spline_entity())
+    assert g["kind"] == "path_points"     # underlay regression guard
