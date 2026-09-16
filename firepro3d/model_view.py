@@ -105,9 +105,20 @@ class Model_View(QGraphicsView):
         # Accent crosshair cursor (MainWindow flips this on from ui/crosshair).
         self._crosshair_enabled = False
 
+    def _mode_wants_crosshair(self, mode) -> bool:
+        """True for placement/insertion modes — the accent crosshair shows only
+        while actually inserting geometry, never in select/transform modes.
+
+        Reuses the CrossCursor mode set (any mode whose OS cursor is a cross is a
+        placement/pick mode) so the two can't drift.
+        """
+        return self._mode_cursors.get(mode) == Qt.CursorShape.CrossCursor
+
     def _resolve_cursor(self, mode):
-        """Cursor for *mode*: blank while the crosshair owns the pointer."""
-        if getattr(self, "_crosshair_enabled", False):
+        """Cursor for *mode*: blank while the crosshair owns the pointer (only in
+        placement modes), else the mode's own cursor."""
+        if (getattr(self, "_crosshair_enabled", False)
+                and self._mode_wants_crosshair(mode)):
             return Qt.CursorShape.BlankCursor
         return self._mode_cursors.get(mode, Qt.CursorShape.ArrowCursor)
 
@@ -547,7 +558,9 @@ class Model_View(QGraphicsView):
             painter.restore()
 
         # ── 9. Crosshair cursor (viewport coords; accent read live) ───────────
-        if getattr(self, "_crosshair_enabled", False) and not self._panning:
+        # Only while inserting geometry (placement modes) — never in select mode.
+        if (getattr(self, "_crosshair_enabled", False) and not self._panning
+                and self._mode_wants_crosshair(getattr(self.scene(), "mode", None))):
             vp = getattr(self, "_last_vp_pos", None)
             if vp is not None:
                 painter.save()

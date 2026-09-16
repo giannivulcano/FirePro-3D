@@ -4380,6 +4380,12 @@ class MainWindow(QMainWindow):
         wiring (model browser, contextual ribbon) is intentionally NOT adopted.
         """
         sc = widget.editor_scene
+        # Crosshair parity with plan views: the accent crosshair (placement-mode
+        # gated in Model_View) should show while inserting geometry in the editor
+        # too, not only in plan views.
+        if hasattr(widget, "view") and hasattr(widget.view, "set_crosshair_enabled"):
+            widget.view.set_crosshair_enabled(
+                self.settings.value("ui/crosshair", True, type=bool))
         sc.modeChanged.connect(self._update_mode_label)
         sc.modeChanged.connect(self._sync_mode_buttons)
         sc.modeChanged.connect(self._on_mode_changed_template)

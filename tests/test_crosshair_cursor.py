@@ -19,8 +19,9 @@ def _make_view(qapp):
     return scene, view
 
 
-def test_crosshair_enabled_blanks_cursor(qapp):
+def test_crosshair_blanks_cursor_only_in_placement_mode(qapp):
     scene, view = _make_view(qapp)
+    scene.set_mode("draw_line")               # a placement/insertion mode
     view.set_crosshair_enabled(True)
     assert view.cursor().shape() == Qt.CursorShape.BlankCursor
     view.set_crosshair_enabled(False)
@@ -28,8 +29,30 @@ def test_crosshair_enabled_blanks_cursor(qapp):
     view.close()
 
 
+def test_crosshair_not_shown_in_select_mode(qapp):
+    scene, view = _make_view(qapp)
+    scene.set_mode("select")
+    view.set_crosshair_enabled(True)
+    # Even with the crosshair enabled, select mode keeps a normal cursor...
+    assert view.cursor().shape() != Qt.CursorShape.BlankCursor
+    # ...and renders no accent crosshair lines.
+    view._last_vp_pos = view.viewport().rect().center()
+    img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.black)
+    p = QPainter(img)
+    view.drawForeground(p, view.mapToScene(view.viewport().rect()).boundingRect())
+    p.end()
+    accent = QColor(_th.detect().accent)
+    cy = view._last_vp_pos.y()
+    found = any(QColor(img.pixel(x, cy)).getRgb()[:3] == accent.getRgb()[:3]
+                for x in range(0, img.width()))
+    assert not found, "accent crosshair must not render in select mode"
+    view.close()
+
+
 def test_crosshair_renders_accent_lines(qapp):
     scene, view = _make_view(qapp)
+    scene.set_mode("draw_line")               # placement mode → crosshair shows
     view.set_crosshair_enabled(True)
     view._last_vp_pos = view.viewport().rect().center()
     img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
