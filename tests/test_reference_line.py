@@ -88,3 +88,57 @@ def test_undo_restore_preserves_reference_line(shown_model_view):
     scene.redo()
     assert len(scene._reference_lines) == 1
     assert scene._reference_lines[0].printed == printed_flag
+
+
+# ── commit 2: printed exclusion + display category + property toggle ──────────
+
+
+def test_paper_export_excludes_non_printed_includes_printed(shown_model_view):
+    from PyQt6.QtCore import QRectF
+    from firepro3d import paper_display
+    view, scene = shown_model_view
+    off = ReferenceLineItem(QPointF(0, 0), QPointF(100, 0), printed=False)
+    on = ReferenceLineItem(QPointF(0, 50), QPointF(100, 50), printed=True)
+    for it in (off, on):
+        scene.addItem(it); scene._reference_lines.append(it)
+    saved = paper_display.apply_paper_overrides(scene, QRectF(-1000, -1000, 3000, 3000))
+    assert off.isVisible() is False, "non-printing reference line must be excluded from plots"
+    assert on.isVisible() is True, "printed reference line must plot"
+    paper_display.restore_model_display(saved)
+    assert off.isVisible() is True, "visibility must be restored after the render pass"
+
+
+def test_block_definition_excludes_non_printed_includes_printed(qapp):
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.model_space import Model_Space
+    from firepro3d.block_editor import BlockEditorManager
+    w = BlockEditorManager(QTabWidget(), Model_Space()).open_new()
+    s = w.editor_scene
+    off = ReferenceLineItem(QPointF(0, 0), QPointF(100, 0), printed=False)
+    on = ReferenceLineItem(QPointF(0, 50), QPointF(100, 50), printed=True)
+    for it in (off, on):
+        s.addItem(it); s._reference_lines.append(it)
+    prims = w.gather_primitives()
+    assert on in prims, "printed reference line must be in the block definition"
+    assert off not in prims, "non-printing reference line must be excluded from the block"
+
+
+def test_reference_lines_display_category(shown_model_view):
+    from firepro3d import display_manager
+    view, scene = shown_model_view
+    assert "Reference Lines" in display_manager._CATEGORY_MAP
+    rl = ReferenceLineItem(QPointF(0, 0), QPointF(10, 0))
+    scene.addItem(rl); scene._reference_lines.append(rl)
+    members = display_manager._items_for_category_static(scene, "Reference Lines")
+    assert rl in members
+    # It must NOT double up in the 2D Geometry category.
+    assert rl not in display_manager._items_for_category_static(scene, "2D Geometry")
+
+
+def test_printed_property_uses_toggle_field():
+    rl = ReferenceLineItem(QPointF(0, 0), QPointF(10, 0))
+    props = rl.get_properties()
+    assert props["Printed"]["type"] == "toggle"
+    assert props["Printed"]["value"] is False
+    rl.set_property("Printed", True)
+    assert rl.printed is True

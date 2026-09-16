@@ -281,6 +281,15 @@ class PropertyManager(QWidget):
                 )
                 widget = chk
 
+            # ── toggle (sliding switch — house style for booleans) ────────
+            elif prop_type == "toggle":
+                from .ui_kit import ToggleSwitch
+                sw = ToggleSwitch("", bool(meta["value"]))
+                sw.toggled.connect(
+                    lambda v, k=key: self._apply_property(k, bool(v))
+                )
+                widget = sw
+
             # ── font (family picker) ──────────────────────────────────────
             elif prop_type == "font":
                 fcombo = QFontComboBox()

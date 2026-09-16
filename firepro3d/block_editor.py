@@ -257,6 +257,10 @@ class BlockEditorWidget(QWidget):
         for attr in ("_draw_lines", "_draw_rects", "_draw_circles",
                      "_draw_arcs", "_draw_ellipses", "_draw_splines", "_polylines", "_draw_polygons"):
             items.extend(getattr(s, attr))
+        # Reference lines are scaffolding: included in the block ONLY when
+        # explicitly printed; a non-printing reference line is dropped (task D).
+        items.extend(r for r in getattr(s, "_reference_lines", [])
+                     if getattr(r, "printed", False))
         return items
 
     def commit_block(self, name, library, series, *, replace_source=True,

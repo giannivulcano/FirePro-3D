@@ -332,13 +332,17 @@ def _category_for_item(item) -> str | None:
     # are invisible on white paper unless remapped (see _apply_construction).
     try:
         from .geometry_2d import (
-            PolylineItem, LineItem,
+            PolylineItem, LineItem, ReferenceLineItem,
             RectangleItem, CircleItem, ArcItem,
         )
+        if isinstance(item, ReferenceLineItem):   # subclass — check before LineItem
+            return "Reference Lines"
         if isinstance(item, (PolylineItem, LineItem,
                              RectangleItem, CircleItem, ArcItem)):
             return "Construction"
     except ImportError:  # pragma: no cover - defensive fallback
+        if cls_name == "ReferenceLineItem":
+            return "Reference Lines"
         if cls_name in ("PolylineItem", "LineItem",
                         "RectangleItem", "CircleItem", "ArcItem"):
             return "Construction"
@@ -584,6 +588,13 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 continue
             if item.data(0) == "origin":
                 # Model origin cross — authoring aid, never plots (§9.9.1).
+                saved.append({"item": item, "cat_key": None,
+                              "visible": item.isVisible()})
+                item.setVisible(False)
+                continue
+            if getattr(item, "printed", True) is False:
+                # Non-printing reference line (task D): scaffolding, never plots.
+                # (`printed` exists only on ReferenceLineItem; other items → True.)
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
                 item.setVisible(False)

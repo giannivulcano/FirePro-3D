@@ -238,6 +238,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "2D Geometry",      "color": "#ffffff", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
+    {"key": "Reference Lines",  "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
 ]
 
 # Group display order
@@ -2813,4 +2814,6 @@ def _items_for_category_static(scene, key: str) -> list:
         items.extend(getattr(scene, "_draw_splines", []))
         items.extend(getattr(scene, "_draw_polygons", []))
         return items
+    elif key == "Reference Lines":
+        return list(getattr(scene, "_reference_lines", []))
     return []
