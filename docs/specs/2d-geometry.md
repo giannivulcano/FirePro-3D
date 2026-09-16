@@ -4,8 +4,8 @@ status: current
 applies-to:
   - firepro3d/construction_geometry.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-07
-verified-commit: 554e67b
+last-verified: 2026-09-15
+verified-commit: aca3220
 ---
 
 # 2D Geometry System

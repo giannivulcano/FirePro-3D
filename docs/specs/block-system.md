@@ -1,7 +1,7 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
-last-verified: 2026-09-07
-verified-commit: a3904ce
+last-verified: 2026-09-15
+verified-commit: aca3220
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity

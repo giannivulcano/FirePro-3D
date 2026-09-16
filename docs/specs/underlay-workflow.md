@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-08  # §10.7 reconciled: `levels`/`scale_verified`/`name` are dialog-authored placement (OVERWRITTEN on Modify), NOT preserved management fields — matched to underlay._GEOMETRY_PLACEMENT_FIELDS + apply_import_params_preserving_management (fix/failing-test-baseline). Prior: §10 Polish v2 2026-09-02.
-verified-commit: 263758e
+last-verified: 2026-09-15  # 2026-09-15: DxfImportWorker gained a `preserve_curves` flag (default False → underlay path byte-identical); when set (BlockImportDialog only) ARC/SPLINE emit native `arc`/`spline` dicts instead of tessellating, and dwg_converter bounds/viewport/layout helpers + append_geom_to_path/apply_import_transform handle the `spline` kind. The block-editor curve-import CONTRACT (schemas, rotation) lives in `2d-geometry.md §3.5.3` (Rule A). Prior: §10.7 reconciled 2026-09-08.
+verified-commit: aca3220
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
