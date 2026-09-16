@@ -574,6 +574,18 @@ class SelectionManipulator(QGraphicsObject):
             return False
         if self.shape().contains(self.mapFromScene(scene_pos)):
             return True
+        return self.hit_handle(scene_pos)
+
+    def hit_handle(self, scene_pos: QPointF) -> bool:
+        """True only if *scene_pos* is over a visible HANDLE (not plain interior).
+
+        Lets the press router distinguish a handle press from an empty-interior
+        press: a Shift-press on a handle must start the constrained gesture
+        (Shift = aspect/ortho/15°), while a Shift-press on the bare interior
+        still falls through to additive/rubber-band selection.
+        """
+        if not self.isVisible():
+            return False
         # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
         # the item's scene transform and ignores the view zoom, so it only
         # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the

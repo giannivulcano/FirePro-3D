@@ -4275,6 +4275,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         elif action_id == "elev_mismatch_end":
             self._pipe_ctl.resume_elev_mismatch("end", result)
 
+    def _manip_press_should_route(self, scene_pos, modifiers) -> bool:
+        """Whether a left-press at *scene_pos* should go to the manipulator.
+
+        Routes to the manipulator (z=1e6) when the press lands on its frame:
+        drag = group move, plain click = click-through picking, handle = the
+        rigid gesture.  A Shift-press on a HANDLE still routes (Shift = aspect/
+        ortho/15deg constraint), but a Shift-press on the bare frame INTERIOR is
+        excluded so Shift-click floor-vertex editing / additive selection keeps
+        working.  Select mode only.
+        """
+        m = self._live_manip()
+        if (m is None or not m.isVisible()
+                or self.mode not in (None, "select")
+                or not m.hit_test(scene_pos)):
+            return False
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        return m.hit_handle(scene_pos) or not shift
+
     def mousePressEvent(self, event):
         # Inert in input mode (see mouseMoveEvent): a click must not commit
         # geometry behind an open HUD.
@@ -4337,14 +4355,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Grip hits above stay first (spec §event-routing: grip beats
         # interior-move).  Route the press through normal item dispatch so
         # the manipulator (z=1e6, shape = frame rect) receives it: drag =
-        # group move, plain click = click-through picking.  Shift-presses
-        # are excluded so Shift-click floor vertex editing keeps working
-        # (mirrors the grip-check gate above).
-        _manip = self._live_manip()
-        if (_manip is not None and _manip.isVisible()
-                and self.mode in (None, "select")
-                and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                and _manip.hit_test(scene_pos)):
+        # group move, plain click = click-through picking.  A Shift-press on a
+        # HANDLE must still start the constrained gesture (Shift = aspect/ortho/
+        # 15°), so it routes to the manipulator; a Shift-press on the bare frame
+        # INTERIOR is excluded so Shift-click floor vertex editing / additive
+        # selection keeps working (mirrors the grip-check gate above).
+        if self._manip_press_should_route(scene_pos, event.modifiers()):
             super().mousePressEvent(event)
             return
 
