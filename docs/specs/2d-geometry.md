@@ -5,7 +5,7 @@ applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-16
-verified-commit: 30c3313
+verified-commit: c0e1c28
 ---
 
 # 2D Geometry System
@@ -198,6 +198,16 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   handlers. Rectangle & Arc expose ←/→ placement variants; rectangle & polygon
   have a rotate step whose HUD uses the shared **"rotation"** schema (step-aware
   `active_schema`; the rotation seed dispatches by mode to the correct pivot).
+  **Centre-mode rectangles** (2D-geo, wall, floor) use a dedicated
+  **`rectangle_center`** HUD schema whose `W`/`H` fields are the **full** width
+  and height (not the corner-mode signed half-extents) — `active_schema` picks it
+  when the primitive's `_*_rect_from_center` flag is set. See
+  `dynamic_input.py` (`seed_rectangle_center`/`resolve_rectangle_center`).
+- **Placement selection (no accumulation):** every primitive is
+  `setSelected(True)` on commit, and the commit **clears the prior selection
+  first** so placing several in a row leaves only the last-placed item selected
+  (commit sites in `geometry_drawing_controller.py` + the `model_space.py` line
+  factory / polyline-finalize paths).
 - **Polyline:** multi-click; **click the START vertex (≥3 verts) to close** (a
   distinct blue close-ring cues it near the first vertex); double-click / Enter
   finish *open*; **Delete** pops the last vertex (routed via a `Model_View`

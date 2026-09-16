@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains
-last-verified: 2026-09-14
-verified-commit: 98466ef   # U5 Leg B: elevation manipulator + HALO + scene-drawn band; HaloSelectionMixin extracted; _active_handles honours declared-empty manip_handles; read-only proxies wrapped via no-op manip_translate
+last-verified: 2026-09-16
+verified-commit: c0e1c28   # bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -109,6 +109,19 @@ group move only.
 - Styling: accent-styled from theme `selection` / `selection_active` tokens
   (theming.md owns the tokens). Final handle/knob look is **mockup-gated**
   (rendered candidates → user picks) before implementation binds.
+- **Shift+press routing (2026-09-16):** the model-scene press guard
+  (`Model_Space._manip_press_should_route`) routes a press to the manipulator
+  when it lands on the frame; a **Shift-press on a HANDLE** still routes (Shift =
+  aspect/ortho/15° constraint), while a Shift-press on the bare frame **interior**
+  is excluded so additive-select / floor-vertex editing keep working.
+  `SelectionManipulator.hit_handle(scene_pos)` is the handle-only hit test the
+  guard uses (vs `hit_test` = interior **or** handle).
+- **Ctrl/from-centre resize bake (2026-09-16):** `_bake_scale` takes a
+  `from_center` flag and anchors about `r0.center()` when set (else the opposite
+  corner), matching `manip_math.resize_factors`' preview anchor — the factors
+  alone do not encode the anchor. `ResizeHandle` records the Ctrl state of the
+  last drag frame (`_last_from_center`) and forwards it, so a Ctrl-resize keeps
+  the item centred on release instead of jumping ~the handle displacement.
 
 ### Transform lifecycle (held preview, bake on release)
 
