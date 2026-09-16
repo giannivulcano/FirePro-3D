@@ -894,12 +894,28 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawRect(self.rect())
+        if self.isSelected():
+            if not _manip_wraps(self):
+                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                highlight.setCosmetic(True)
+                painter.setPen(highlight)
+                painter.drawRect(self.rect())
+            # Corner-diagonal reference guides — shown whenever selected (a content
+            # aid, NOT the selection highlight). Canonical width-1 dashed style,
+            # matching EllipseItem's axis guides.
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for a, b in self._selection_ref_segments():
+                painter.drawLine(a, b)
         painter.restore()
+
+    def _selection_ref_segments(self):
+        """Corner-diagonal reference guides, in the rect's LOCAL (axis-aligned)
+        frame — the paint rotation transform orients them for a rotated rect."""
+        r = self.rect()
+        return [(r.topLeft(), r.bottomRight()), (r.topRight(), r.bottomLeft())]
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -1170,11 +1186,26 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawEllipse(self.rect())
+        if self.isSelected():
+            if not _manip_wraps(self):
+                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                highlight.setCosmetic(True)
+                painter.setPen(highlight)
+                painter.drawEllipse(self.rect())
+            # Radius guide + bounding box — shown whenever selected (a content aid,
+            # NOT the selection highlight). Canonical width-1 dashed style.
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.rect())               # bounding box
+            for a, b in self._selection_ref_segments():
+                painter.drawLine(a, b)                  # radius guide
+
+    def _selection_ref_segments(self):
+        """A single radius guide from the centre to the right edge (local coords)."""
+        r = self.rect()
+        return [(r.center(), QPointF(r.right(), r.center().y()))]
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 

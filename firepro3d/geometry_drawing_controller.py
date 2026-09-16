@@ -239,7 +239,7 @@ class GeometryDrawingController:
             self._scene.instructionChanged.emit("Pick radius point")
             # Create preview circle
             preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-            _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -734,7 +734,7 @@ class GeometryDrawingController:
             self._scene.instructionChanged.emit(_instr)
             # Create preview rect
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -999,7 +999,7 @@ class GeometryDrawingController:
             # Create radius preview line (centre → cursor)
             line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                      snapped.x(), snapped.y())
-            _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             line.setPen(_prev_pen)
             line.setZValue(200)
@@ -1033,7 +1033,7 @@ class GeometryDrawingController:
             s.removeItem(s._draw_arc_radius_line)
             s._draw_arc_radius_line = None
         preview = QGraphicsPathItem()
-        _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+        _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         _prev_pen.setCosmetic(True)
         preview.setPen(_prev_pen)
         preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -1367,7 +1367,7 @@ class GeometryDrawingController:
                                    rotation_deg=rotation_deg,
                                    inscribed=s._polygon_inscribed,
                                    color=_c, lineweight=_lw)
-        pen = QPen(QColor(_c), 2, Qt.PenStyle.DashLine)
+        pen = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
         ghost.setZValue(200)
