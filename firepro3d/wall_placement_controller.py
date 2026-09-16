@@ -154,6 +154,9 @@ class WallPlacementController:
                 self._scene._wall_chain_start = None
                 self._scene.instructionChanged.emit(
                     f"Pick wall start point [{self._scene._wall_alignment}]")
+                # Single-placement: a completed wall returns to Select selected
+                # (a mid-chain polyline segment keeps drawing — the else branch).
+                self._scene._end_placement_switch(wall)
             else:
                 # Polyline: end of this wall becomes start of next.
                 self._scene._wall_anchor = QPointF(tip)
@@ -572,6 +575,8 @@ class WallPlacementController:
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit(
             "Pick centre point" if _from_centre else "Pick first corner")
+        # Single-placement: the completed rectangle (4 segments) returns to Select.
+        self._scene._end_placement_switch(walls_created)
         return True
 
     # ── Variant setter ──────────────────────────────────────────────────────

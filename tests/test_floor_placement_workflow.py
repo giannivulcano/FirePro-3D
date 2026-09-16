@@ -139,18 +139,17 @@ def test_polygon_closes_and_commits(qapp, shown_model_view):
 
 # ── Test 5: continuous placement + Esc exits ──────────────────────────────────
 
-def test_continuous_placement(qapp, shown_model_view):
-    """After a rect commit, mode is still 'floor'; Esc exits placement."""
+def test_single_placement_returns_to_select(qapp, shown_model_view):
+    """Single-placement (2026-09-16): after a rect commit the tool returns to
+    Select with the slab selected (was continuous re-arm)."""
     view, scene = shown_model_view
     scene.set_mode("floor")
     _click(view, QPointF(0, 0))
     _click(view, QPointF(1000, 800))
     _click(view, QPointF(1200, 0))          # commit
     assert len(scene._floor_slabs) == 1
-    assert scene.mode == "floor"            # continuous — still armed
-    view.setFocus()
-    _key(view, Qt.Key.Key_Escape)
-    assert scene.mode in (None, "select")
+    assert scene.mode == "select"           # single-placement → Select
+    assert scene._floor_slabs[-1].isSelected()
 
 
 # ── Test 6: Space / ↑ / ↓ are inert during floor placement ────────────────────
@@ -320,6 +319,9 @@ def _place_polygon_floor(view, scene, origin=(0.0, 0.0)):
     Drives ``_press_floor`` through posted clicks: 3 vertices then a
     close-near-first click.  Returns the newly committed FloorSlab.
     """
+    # Single-placement (2026-09-16) returns to Select after each commit; re-enter
+    # floor mode (the sticky polygon variant persists) so repeated calls place.
+    scene.set_mode("floor")
     ox, oy = origin
     _click(view, QPointF(ox, oy))
     _click(view, QPointF(ox + 1000, oy))

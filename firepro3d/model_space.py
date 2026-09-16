@@ -4133,6 +4133,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ``move``/``paste`` are placement (destination point) AND self-exclude the
     # moved item; they stay armed here and the press path swaps the sentinel for
     # the real self-exclude item.
+    # Single-placement modes (user, 2026-09-16): place ONE item, then return to
+    # Select with the item selected (so its manipulator frame shows) — instead of
+    # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
+    # gridline stay continuous (network/array building). See `_end_placement`.
+    _SINGLE_PLACEMENT_MODES = frozenset({
+        "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
+        "polygon", "draw_spline", "polyline",
+        "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
+    })
+
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
@@ -4292,6 +4302,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         return m.hit_handle(scene_pos) or not shift
+
+    def _end_placement_switch(self, item=None) -> None:
+        """After a committed placement in a single-placement mode, return to
+        Select with the just-placed item(s) selected (so the manipulator frame
+        shows and the tool does not re-arm). *item* may be a single item or an
+        iterable (a wall rectangle commits four segments). No-op in continuous
+        modes (pipe/sprinkler/gridline). Call as the LAST step of a commit —
+        set_mode runs its teardown, so nothing mode-specific may run after it.
+        """
+        if self.mode not in self._SINGLE_PLACEMENT_MODES:
+            return
+        self.set_mode("select")          # select mode preserves selection (see set_mode)
+        self.clearSelection()
+        items = item if isinstance(item, (list, tuple, set)) else [item]
+        for it in items:
+            if it is not None and it.scene() is self:
+                it.setSelected(True)     # fires selectionChanged -> manipulator rebake
 
     def mousePressEvent(self, event):
         # Inert in input mode (see mouseMoveEvent): a click must not commit
@@ -5912,14 +5939,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
-                    self._floor_active.close_polygon()
-                    apply_category_defaults(self._floor_active)
-                    self._floor_active.setSelected(True)
+                    slab = self._floor_active
+                    slab.close_polygon()
+                    apply_category_defaults(slab)
+                    slab.setSelected(True)
                     self._floor_active = None
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first boundary point (←/→ to change)")
+                    self._end_placement_switch(slab)   # single-placement → Select
                     return
             self._floor_active.add_point(snapped)
 
@@ -6041,6 +6070,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.push_undo_state()
         self.instructionChanged.emit(
             "Pick centre point" if _from_centre else "Pick first corner")
+        self._end_placement_switch(slab)   # single-placement → Select
         return True
 
     def _clear_floor_rect_ref_lines(self) -> None:
@@ -6200,6 +6230,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    self._end_placement_switch(roof)   # single-placement → Select
                     return
             if len(pts) >= 2:
                 scale = self._active_view_scale()
@@ -6292,6 +6323,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             for v in self.views(): v.viewport().update()
             self.push_undo_state()
             self.instructionChanged.emit("Pick first corner for rectangular roof")
+            self._end_placement_switch(roof)   # single-placement → Select
 
     # ── Door placement ────────────────────────────────────────────────
     def _press_opening(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C1)
@@ -6425,6 +6457,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
                 self.instructionChanged.emit("Pick first point")
+                self._end_placement_switch(pl)
             event.accept()
             return
 
@@ -6970,7 +7003,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     pl.setSelected(True)
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first point")
-                    # Stay in polyline mode so user can draw another
+                    self._end_placement_switch(pl)
+                    # (single-placement now returns to select; see _end_placement_switch)
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:
                 if len(self._floor_active._points) >= 3:

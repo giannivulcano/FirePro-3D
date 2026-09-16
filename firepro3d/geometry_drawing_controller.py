@@ -194,13 +194,15 @@ class GeometryDrawingController:
                 "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
                 timeout=2000)
             return False
-        self._scene._make_line_like(anchor, tip)
+        item = self._scene._make_line_like(anchor, tip)
         for v in self._scene.views(): v.viewport().update()
         self._scene._draw_line_anchor = None
         self._scene.clear_placement_state()
         self._scene.preview_pipe.hide()
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
+        # draw_line is single-placement (draw_gridline is NOT — no-op there).
+        self._scene._end_placement_switch(item)
         return True
 
     # ── Circle ────────────────────────────────────────────────────────────────
@@ -290,6 +292,7 @@ class GeometryDrawingController:
         self._scene.clear_placement_state()
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Pick center point")
+        self._scene._end_placement_switch(item)
         return True
 
     # ── Ellipse (3-click: centre → major endpoint (rx+angle) → minor extent).
@@ -468,6 +471,7 @@ class GeometryDrawingController:
         s.clear_placement_state()
         s.push_undo_state()
         s.instructionChanged.emit("Pick centre point")
+        s._end_placement_switch(item)
         return True
 
     # ── Polyline (the dual-concern Delete-pop helper
@@ -580,6 +584,7 @@ class GeometryDrawingController:
                     for v in self._scene.views(): v.viewport().update()
                     self._scene.push_undo_state()
                     self._scene.instructionChanged.emit("Pick first point")
+                    self._scene._end_placement_switch(pl)
                     return
             # Subsequent clicks — append vertex (apply Ctrl constraint if held)
             tip = snapped
@@ -865,6 +870,7 @@ class GeometryDrawingController:
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit(
             "Pick center point" if _from_centre else "Pick first corner")
+        self._scene._end_placement_switch(item)
         return True
 
     # ── Arc (3-step centre→radius/start→span; variant-aware. The generic
@@ -1177,6 +1183,7 @@ class GeometryDrawingController:
         s._draw_arc_step = 0
         s.push_undo_state()
         s.instructionChanged.emit("Pick center point")
+        s._end_placement_switch(item)
         return True
 
     # ── Polygon (3-step centre→radius→rotate, ↑/↓ sides + ←/→ inscribed. The
@@ -1336,6 +1343,7 @@ class GeometryDrawingController:
         s.push_undo_state()
         s.instructionChanged.emit(
             f"Pick centre point  |  {self._polygon_readout()}")
+        s._end_placement_switch(item)
         return True
 
     def _commit_polygon_at(self, rim):
@@ -1588,6 +1596,7 @@ class GeometryDrawingController:
         s.clear_placement_state()
         s.push_undo_state()
         s.instructionChanged.emit("Pick first control point")
+        s._end_placement_switch(item)
         return True
 
     def _pop_draw_spline_vertex(self):

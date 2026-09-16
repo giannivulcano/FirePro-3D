@@ -95,6 +95,8 @@ class FeaturePlacementController:
         self._scene.addItem(op)
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Click on a wall to place an opening")
+        # Single-placement: return to Select with the new opening selected.
+        self._scene._end_placement_switch(op)
 
     def _press_door(self, event, pos, snapped, item_under, node_under, pipe_under):
         """Legacy door dispatch — retarget onto the unified opening path so the

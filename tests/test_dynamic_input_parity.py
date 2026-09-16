@@ -96,19 +96,21 @@ class TestCommitDrawLineAt:
         scene._commit_draw_line_at(QPointF(100, 0))
         assert scene.get_resolved_point() is None
 
-    def test_repeat_mode_rearms(self, scene):
+    def test_single_placement_returns_to_select(self, scene):
+        # Single-placement (2026-09-16): a committed line returns to Select mode
+        # with the line selected, instead of re-arming draw_line.
         scene.set_mode("draw_line")
         scene._draw_line_anchor = QPointF(0, 0)
         scene._commit_draw_line_at(QPointF(100, 0))
-        assert scene.mode == "draw_line"
+        assert scene.mode == "select"
+        assert scene._draw_lines[-1].isSelected()
 
-    def test_repeat_mode_emits_start_instruction(self, scene):
+    def test_single_placement_selects_only_the_line(self, scene):
         scene.set_mode("draw_line")
-        seen = []
-        scene.instructionChanged.connect(seen.append)
         scene._draw_line_anchor = QPointF(0, 0)
         scene._commit_draw_line_at(QPointF(100, 0))
-        assert seen[-1] == "Pick first point"
+        sel = scene.selectedItems()
+        assert len(sel) == 1 and sel[0] is scene._draw_lines[-1]
 
     def test_gridline_repeat_mode_emits_gridline_wording(self, scene):
         scene.set_mode("draw_gridline")
@@ -1532,9 +1534,11 @@ class TestPolylineDoubleClickFinish:
 
         assert scene._polyline_active is None, "polyline should be finished"
         assert seen, "instructionChanged must have fired at least once"
-        assert seen[-1] == "Pick first point", (
-            f"Expected last instruction 'Pick first point', got {seen[-1]!r}"
-        )
+        # Single-placement (2026-09-16): a finished polyline returns to Select
+        # with the polyline selected (the mid-commit "Pick first point" narration
+        # is superseded by set_mode('select')).
+        assert scene.mode == "select"
+        assert scene._polylines[-1].isSelected()
 
 
 class TestPolylineReadout:
@@ -2156,13 +2160,13 @@ class TestCommitArcAt:
         assert scene._commit_draw_arc_at(QPointF(0, -1000)) is False
         assert not _arcs(scene)
 
-    def test_repeat_mode_rearms(self, scene):
+    def test_single_placement_returns_to_select(self, scene):
+        # Single-placement (2026-09-16): a committed arc returns to Select with
+        # the arc selected, instead of re-arming draw_arc.
         _arm_arc(scene)
-        seen = []
-        scene.instructionChanged.connect(seen.append)
         scene._commit_draw_arc_at(QPointF(0, -1000))
-        assert scene.mode == "draw_arc"
-        assert seen[-1] == "Pick center point"
+        assert scene.mode == "select"
+        assert scene._draw_arcs[-1].isSelected()
 
 
 # ── Task 7: step-aware arc schema + rim applier + span router ──────────────
