@@ -131,9 +131,34 @@ shapes) so their geometry is data-parametric and paint-applied.
   == last control point.
 
 Both register in `block_definition._PRIMITIVE_FACTORY` and thread through the
-full dual-path persistence + enumeration set (§6). *Import extraction*
-(DXF `ellipse_full` / SPLINE → these primitives) is owned by the separate
-block-editor curve-fidelity task, **not** this subsystem.
+full dual-path persistence + enumeration set (§6).
+
+### 3.5.3 Curve import-extraction contract (block-editor only)
+
+DXF/DWG import into the **Block Editor** preserves arcs, full ellipses and
+splines as these editable primitives (partial ellipses + PDF Béziers still
+tessellate — no primitive exists / disproportionate effort). It is gated by a
+`preserve_curves` flag on `DxfImportWorker` (default **False**, so the underlay
+import path is byte-identical); `BlockImportDialog` sets it True. The shared
+geom-dict schemas (scene-space; DXF `y` already negated) are:
+
+```jsonc
+// ARC — Qt-arcTo bounding-rect schema. append_geom_to_path + apply_import_transform
+// already consume it; ArcItem._rebuild_path feeds start/span into the IDENTICAL
+// QPainterPath.arcTo, so the factory mapping needs NO Y-flip.
+{ "kind": "arc", "rx": cx-r, "ry": -cy-r, "rw": 2r, "rh": 2r,
+  "start": start_angle_dxf, "span": sweep_dxf }
+// ELLIPSE (full) — already emitted today (underlay renders it); only the factory changed.
+{ "kind": "ellipse_full", "x": -maj, "y": -min, "w": 2maj, "h": 2min,
+  "pos_cx": cx, "pos_cy": -cy, "rotation": -rot_deg }
+// SPLINE — native NURBS payload; control points scene-space, knots/weights parametric.
+{ "kind": "spline", "control_points": [[x,-y],…], "degree": d,
+  "knots": [...]|null, "weights": [...]|null, "closed": bool }
+```
+
+`ArcItem`/`EllipseItem`/`SplineItem` are the editable targets; the extraction
+maps these dicts via `geometry_import.geom_dicts_to_primitives`. Import rotation
+(`ImportParams.rotation`) is applied to **all** kinds in `apply_import_transform`.
 
 ## 3.6 Reference lines (placement + selection guides) — invariant
 

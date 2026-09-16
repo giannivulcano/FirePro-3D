@@ -360,8 +360,10 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 > Status: **built — BE1–BE5** (2026-09-07, branch `feat/block-editor-v2`). WHAT locked via
 > `/grill-me`; HOW in `docs/superpowers/specs/2026-09-07-block-editor-v2-design.md`. This section is
 > the durable contract; the dated doc holds the fork rationale + slice plan. Fills the Editor that
-> DD-10 and the "Open in Editor" stub reserve. **Deferred (P1 follow-ups):** native-curve import
-> (arc/ellipse/spline need `EllipseItem`/`SplineItem` primitives + a curve-preserving extraction),
+> DD-10 and the "Open in Editor" stub reserve. Native-curve import (arc / full-ellipse / spline →
+> editable primitives, `preserve_curves`-gated on the DXF worker so the underlay path is unchanged;
+> schema in `2d-geometry.md §3.5.3`) + import rotation **ship in the curve-fidelity task**.
+> **Deferred (P1 follow-ups):** partial-ellipse + PDF-Bézier curve import (no primitive / curve-fitting),
 > block attribute authoring, thumbnails, strict ribbon-tab hiding.
 
 The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
