@@ -19,7 +19,7 @@ import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
 _main_module.View3D = View3D
 from firepro3d import snap_engine
-from firepro3d.construction_geometry import RectangleItem, LineItem
+from firepro3d.geometry_2d import RectangleItem, LineItem
 from main import MainWindow
 
 

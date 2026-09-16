@@ -1,6 +1,6 @@
 """RectangleItem bake-at-rest: no Qt transform at rest; angle is data."""
 from PyQt6.QtCore import QPointF
-from firepro3d.construction_geometry import RectangleItem
+from firepro3d.geometry_2d import RectangleItem
 
 
 def test_set_angle_holds_no_qt_transform(qapp):

@@ -1,7 +1,7 @@
 import math
 import pytest
 from PyQt6.QtCore import QPointF
-from firepro3d.construction_geometry import EllipseItem
+from firepro3d.geometry_2d import EllipseItem
 
 
 def _make(rx=40.0, ry=20.0, rot=0.0):

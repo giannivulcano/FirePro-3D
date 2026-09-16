@@ -433,7 +433,7 @@ def test_rotated_rect_corners_parity_with_rectangle_item():
     """
     import math
     from PyQt6.QtCore import QPointF
-    from firepro3d.construction_geometry import RectangleItem, rotated_rect_corners
+    from firepro3d.geometry_2d import RectangleItem, rotated_rect_corners
 
     pt1 = QPointF(0.0, 0.0)
     pt2 = QPointF(200.0, 100.0)

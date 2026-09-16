@@ -151,7 +151,7 @@ def test_roof_manip_rotate_points(scene):
 
 
 def test_polyline_manip_rotate(scene):
-    from firepro3d.construction_geometry import PolylineItem
+    from firepro3d.geometry_2d import PolylineItem
     pl = PolylineItem(QPointF(0, 0))
     pl._points = [QPointF(0, 0), QPointF(50, 0), QPointF(50, 50)]
     pl._rebuild_path()
@@ -164,7 +164,7 @@ def test_polyline_manip_rotate(scene):
 
 
 def test_line_manip_rotate(scene):
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(ln)
     pivot = QPointF(50, 0)
@@ -176,7 +176,7 @@ def test_line_manip_rotate(scene):
 
 
 def test_circle_manip_rotate_moves_center_only(scene):
-    from firepro3d.construction_geometry import CircleItem
+    from firepro3d.geometry_2d import CircleItem
     c = CircleItem(QPointF(100, 0), 20.0)
     scene.addItem(c)
     pivot = QPointF(0, 0)
@@ -187,7 +187,7 @@ def test_circle_manip_rotate_moves_center_only(scene):
 
 
 def test_arc_manip_rotate_center_and_angle(scene):
-    from firepro3d.construction_geometry import ArcItem
+    from firepro3d.geometry_2d import ArcItem
     a = ArcItem(QPointF(0, 0), 50.0, 0.0, 90.0)
     scene.addItem(a)
     pivot = QPointF(0, 0)
@@ -200,7 +200,7 @@ def test_arc_manip_rotate_center_and_angle(scene):
 
 
 def test_regular_polygon_manip_rotate(scene):
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
     rp = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=40.0,
                             rotation_deg=0.0)
     scene.addItem(rp)

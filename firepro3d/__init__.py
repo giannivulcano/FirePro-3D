@@ -42,11 +42,11 @@ _LAZY: dict[str, tuple[str, str]] = {
     "Underlay":          (".underlay",          "Underlay"),
     "Fitting":           (".fitting",           "Fitting"),
     # Construction geometry
-    "LineItem":          (".construction_geometry", "LineItem"),
-    "RectangleItem":     (".construction_geometry", "RectangleItem"),
-    "CircleItem":        (".construction_geometry", "CircleItem"),
-    "ArcItem":           (".construction_geometry", "ArcItem"),
-    "PolylineItem":      (".construction_geometry", "PolylineItem"),
+    "LineItem":          (".geometry_2d", "LineItem"),
+    "RectangleItem":     (".geometry_2d", "RectangleItem"),
+    "CircleItem":        (".geometry_2d", "CircleItem"),
+    "ArcItem":           (".geometry_2d", "ArcItem"),
+    "PolylineItem":      (".geometry_2d", "PolylineItem"),
     # Annotations
     "DimensionAnnotation": (".annotations",     "DimensionAnnotation"),
     "NoteAnnotation":    (".annotations",       "NoteAnnotation"),

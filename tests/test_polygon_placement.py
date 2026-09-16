@@ -16,7 +16,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtGui import QPixmap
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
-from firepro3d.construction_geometry import RegularPolygonItem
+from firepro3d.geometry_2d import RegularPolygonItem
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

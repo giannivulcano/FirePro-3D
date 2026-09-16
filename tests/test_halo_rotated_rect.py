@@ -1,7 +1,7 @@
 from PyQt6.QtCore import QPointF
 from firepro3d.model_space import Model_Space
 from firepro3d.halo import halo_scene_path
-from firepro3d.construction_geometry import RectangleItem
+from firepro3d.geometry_2d import RectangleItem
 
 
 def _approx_rect(a, b, tol=6.0):

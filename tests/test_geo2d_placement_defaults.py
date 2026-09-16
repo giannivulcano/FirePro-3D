@@ -1,7 +1,7 @@
 """Tests for GeometryTemplate level-offset default and copy-to-item contract."""
 
 import pytest
-from firepro3d.construction_geometry import GeometryTemplate
+from firepro3d.geometry_2d import GeometryTemplate
 
 
 def test_template_has_offset_default_zero():
@@ -12,7 +12,7 @@ def test_template_has_offset_default_zero():
 def test_template_offset_and_level_copy_to_new_item(qapp):
     # Simulate the create-site copy contract used by model_space.
     from PyQt6.QtCore import QPointF
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
 
     tmpl = GeometryTemplate()
     tmpl.level = "Level 2"

@@ -56,7 +56,7 @@ def test_place_block_reentry_clears_stale_ghost(model_space):
 
 
 def test_make_block_from_selection_consumes_and_places(model_space):
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from PyQt6.QtCore import QPointF
     li = LineItem.from_dict({"type": "draw_line", "pt1": [0, 0], "pt2": [100, 0],
                              "color": "#ffffff", "lineweight": 1.0})

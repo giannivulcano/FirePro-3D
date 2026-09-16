@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
-from firepro3d.construction_geometry import RectangleItem, RegularPolygonItem, PolylineItem
+from firepro3d.geometry_2d import RectangleItem, RegularPolygonItem, PolylineItem
 from firepro3d.scale_manager import ScaleManager
 
 
@@ -324,7 +324,7 @@ def test_polygon_paste(qapp):
 def test_polygon_included_in_items_on_level(qapp):
     """_items_on_level must include RegularPolygonItem entries."""
     scene = _make_scene(qapp)
-    from firepro3d.construction_geometry import RegularPolygonItem
+    from firepro3d.geometry_2d import RegularPolygonItem
     p = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=40.0)
     p.level = "Level 1"
     scene.addItem(p)

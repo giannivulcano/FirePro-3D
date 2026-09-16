@@ -814,7 +814,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         self._project_floor_slabs()
         self._project_roofs()
         self._project_gridlines()
-        self._project_construction_geometry()
+        self._project_geometry_2d()
         self._assign_depth_z_values()
 
     def _register_depth_item(self, depth: float, *items):
@@ -1418,7 +1418,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
 
     # ── Construction geometry ────────────────────────────────────────────
 
-    def _project_construction_geometry(self):
+    def _project_geometry_2d(self):
         ppm = self._ppm()
         constr_color = QColor("#666666")
         pen = QPen(constr_color, 1, Qt.PenStyle.DashLine)

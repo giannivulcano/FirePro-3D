@@ -29,7 +29,7 @@ from firepro3d.display_manager import (
     _read_category_from_settings,
     apply_display_to_item,
 )
-from firepro3d.construction_geometry import (
+from firepro3d.geometry_2d import (
     LineItem,
     PolylineItem,
     RectangleItem,

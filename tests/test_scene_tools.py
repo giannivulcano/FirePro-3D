@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QApplication, QGraphicsScene, QGraphicsView, QGraphicsRectItem,
 )
 
-from firepro3d.construction_geometry import (
+from firepro3d.geometry_2d import (
     LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, SplineItem,
 )
 from firepro3d.scene_tools import SceneTools, extract_edges

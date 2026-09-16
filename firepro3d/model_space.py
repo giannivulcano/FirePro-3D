@@ -27,7 +27,7 @@ from .underlay_context_menu import UnderlayContextMenu
 from .dxf_import_worker import DxfImportWorker
 from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
-from .construction_geometry import (
+from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
@@ -1677,7 +1677,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             name: Human-readable block name.
             library: Library taxonomy tier-1.
             series: Library taxonomy tier-2.
-            primitives: List of 2D-primitive dicts (construction_geometry
+            primitives: List of 2D-primitive dicts (geometry_2d
                 to_dict form).
             origin: ``(x, y)`` insertion origin in scene millimetres.
             place_instance: When True, place one BlockInstance at *origin*.
@@ -3852,7 +3852,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
-            from .construction_geometry import rect_sizing_points
+            from .geometry_2d import rect_sizing_points
             anc = self._floor_rect_anchor
             pt1, pt2 = rect_sizing_points(anc, snapped, self._floor_rect_from_center)
             rect = QRectF(pt1, pt2).normalized()
@@ -5959,7 +5959,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         pt1/pt2 via ``rect_sizing_points``, rejects extents <0.5, stores state,
         snaps the preview rect, creates ref guides, emits instruction.
         """
-        from .construction_geometry import rect_sizing_points
+        from .geometry_2d import rect_sizing_points
         anc = self._floor_rect_anchor
         if anc is None:
             return False
@@ -5989,7 +5989,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         which builds 4 walls — a floor is a single closed polygon).  Clears all
         rect state and re-arms continuous placement.
         """
-        from .construction_geometry import rotated_rect_corners
+        from .geometry_2d import rotated_rect_corners
         pt1 = self._floor_rect_sized_pt1
         pt2 = self._floor_rect_sized_pt2
         pivot = self._floor_rect_pivot
@@ -7278,7 +7278,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _clipboard_ghost_paths(self, data):
         """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
         without adding anything to the scene. Covers the copyable types."""
-        from .construction_geometry import (
+        from .geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
             RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
             SplineItem as _SplineItem,

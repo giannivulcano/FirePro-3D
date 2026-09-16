@@ -25,7 +25,7 @@ import math
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d.construction_geometry import LineItem
+from firepro3d.geometry_2d import LineItem
 
 
 def _acquire_real_endpoint(scene, line_item, endpoint):

@@ -369,7 +369,7 @@ class WallPlacementController:
             self._scene.preview_node.hide()
         self._scene.preview_pipe.hide()
         if self._scene._wall_rect_anchor is not None and self._scene._wall_rect_preview is not None:
-            from .construction_geometry import rect_sizing_points
+            from .geometry_2d import rect_sizing_points
             anc = self._scene._wall_rect_anchor
             pt1, pt2 = rect_sizing_points(anc, snapped, self._scene._wall_rect_from_center)
             rect = QRectF(pt1, pt2).normalized()
@@ -473,7 +473,7 @@ class WallPlacementController:
         Returns:
             True when the step advanced, False when refused (no anchor / too-small).
         """
-        from .construction_geometry import rect_sizing_points
+        from .geometry_2d import rect_sizing_points
         anc = self._scene._wall_rect_anchor
         if anc is None:
             return False
@@ -517,7 +517,7 @@ class WallPlacementController:
         Returns:
             True when 4 walls were committed; False when sizing state is missing.
         """
-        from .construction_geometry import rotated_rect_corners
+        from .geometry_2d import rotated_rect_corners
         pt1 = self._scene._wall_rect_sized_pt1
         pt2 = self._scene._wall_rect_sized_pt2
         pivot = self._scene._wall_rect_pivot

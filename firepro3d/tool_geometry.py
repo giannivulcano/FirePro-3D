@@ -12,7 +12,7 @@ computed geometry — they hold **no** scene state, mutate **no** scene, and do
 Layering: this module sits *above* the item-agnostic primitives in
 ``cad_math.py`` (raw point math) and ``geometry_intersect.py`` (raw intersection
 math) and *below* the interactive tool state-machines that remain on the scene.
-It dispatches on ``construction_geometry`` item types, so it cannot live in
+It dispatches on ``geometry_2d`` item types, so it cannot live in
 those lower modules without creating an import cycle.
 
 ``SceneTools`` retains thin wrappers that delegate here, so every existing
@@ -26,7 +26,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QGraphicsPathItem
 
-from .construction_geometry import (
+from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from .constants import DEFAULT_LEVEL
@@ -54,7 +54,7 @@ def extract_edges(item) -> list[tuple[QPointF, QPointF]]:
     from .gridline import GridlineItem
     from .wall import WallSegment
     from .pipe import Pipe
-    from .construction_geometry import LineItem, PolylineItem
+    from .geometry_2d import LineItem, PolylineItem
 
     # GridlineItem — single line segment
     if isinstance(item, GridlineItem):
@@ -434,7 +434,7 @@ def get_item_segments(item):
     """Return geometric representation of an item as list of tuples.
     Returns: [("line", p1, p2), ("circle", center, radius),
               ("arc", center, radius, start_deg, span_deg)]"""
-    from .construction_geometry import (
+    from .geometry_2d import (
         LineItem, CircleItem, ArcItem, RectangleItem, PolylineItem,
     )
     segs = []
@@ -506,7 +506,7 @@ def compute_extend_intersections(item, grip_idx, boundary):
     Only returns intersections in the forward direction from the
     extending endpoint (away from the interior of the item).
     """
-    from .construction_geometry import LineItem, PolylineItem
+    from .geometry_2d import LineItem, PolylineItem
 
     raw_results: list[QPointF] = []
     extend_pt: QPointF | None = None

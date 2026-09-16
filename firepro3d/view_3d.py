@@ -27,7 +27,7 @@ from .constants import DEFAULT_LEVEL
 from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
-from .construction_geometry import (
+from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem, EllipseItem, SplineItem,
 )
 from .gridline import GridlineItem
@@ -599,7 +599,7 @@ class View3D(QWidget):
             self._extract_pipes()
             self._extract_sprinklers()
             self._extract_water_supply()
-            self._extract_construction_geometry()
+            self._extract_geometry_2d()
             self._extract_level_floors()
             self._extract_walls()
             self._extract_openings()
@@ -789,7 +789,7 @@ class View3D(QWidget):
 
     # ── Extract: Construction Geometry ─────────────────────────────────────
 
-    def _extract_construction_geometry(self):
+    def _extract_geometry_2d(self):
         self._clear_actors("construction")
         lines_data = []
 

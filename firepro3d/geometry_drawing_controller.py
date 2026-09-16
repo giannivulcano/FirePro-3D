@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (QGraphicsRectItem, QGraphicsEllipseItem,
                              QGraphicsLineItem, QGraphicsPathItem,
                              QGraphicsItem)
 
-from .construction_geometry import (CircleItem, PolylineItem, RectangleItem,
+from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     ArcItem, RegularPolygonItem)
 from .constants import SELECTION_OUTLINE_COLOR
 
@@ -374,7 +374,7 @@ class GeometryDrawingController:
         if s._ellipse_radius_line is not None:
             s.removeItem(s._ellipse_radius_line)
             s._ellipse_radius_line = None
-        from .construction_geometry import EllipseItem
+        from .geometry_2d import EllipseItem
         prev = EllipseItem(s._ellipse_center, rx, 0.5, s._ellipse_rot,
                            s._geom_color_lw()[0], 2)
         prev.setZValue(200)
@@ -444,7 +444,7 @@ class GeometryDrawingController:
         if rx < 0.5 or ry < 0.5:
             s._show_status("Ellipse axis too small — skipped", timeout=2000)
             return False
-        from .construction_geometry import EllipseItem
+        from .geometry_2d import EllipseItem
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = EllipseItem(s._ellipse_center, rx, ry, rot, _c, _lw)
@@ -757,7 +757,7 @@ class GeometryDrawingController:
         Delegates to ``rect_sizing_points`` (shared with wall-rect placement).
         Returns ``(None, None)`` when unarmed.
         """
-        from .construction_geometry import rect_sizing_points
+        from .geometry_2d import rect_sizing_points
         anc = self._scene._draw_rect_anchor
         if anc is None:
             return None, None
@@ -1477,7 +1477,7 @@ class GeometryDrawingController:
     def _refresh_spline_preview(self) -> None:
         """Rebuild the smooth B-spline curve preview from the control points."""
         s = self._scene
-        from .construction_geometry import SplineItem
+        from .geometry_2d import SplineItem
         if len(s._spline_points) < 2:
             return
         if s._spline_preview is None:
@@ -1568,7 +1568,7 @@ class GeometryDrawingController:
         if len(pts) < 2:
             s._spline_points = []
             return False
-        from .construction_geometry import SplineItem
+        from .geometry_2d import SplineItem
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = SplineItem(pts, 3, None, None, _c, _lw)

@@ -124,7 +124,7 @@ def test_lifecycle_admits_live_apply(qapp, scene_and_view):
     applied, proving live-apply not held-preview), and edits==3 / commits==1.
     """
     from firepro3d.selection_manipulator import SelectionManipulator
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
 
     scene, view = scene_and_view
 
@@ -257,7 +257,7 @@ def test_box_native_ownership(qapp, scene_and_view):
     _is_box_native_single(r) is True, so _active_handles returns the rigid
     resize set rather than the item's parametric grips.
     """
-    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.geometry_2d import RectangleItem
     from firepro3d.selection_manipulator import SelectionManipulator
 
     scene, view = scene_and_view

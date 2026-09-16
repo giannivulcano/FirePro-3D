@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
 
 from .model_space import Model_Space
 from .model_view import Model_View
-from .construction_geometry import (
+from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
     EllipseItem, SplineItem,
 )

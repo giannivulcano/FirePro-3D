@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
-from firepro3d.construction_geometry import RectangleItem
+from firepro3d.geometry_2d import RectangleItem
 from firepro3d.wall import WallSegment
 
 

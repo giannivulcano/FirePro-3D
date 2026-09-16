@@ -15,7 +15,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d import tool_geometry as tg
-from firepro3d.construction_geometry import (
+from firepro3d.geometry_2d import (
     LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem,
 )
 

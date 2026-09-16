@@ -15,7 +15,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QImage, QPainter, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsScene
 
-from firepro3d.construction_geometry import (
+from firepro3d.geometry_2d import (
     RectangleItem,
     CircleItem,
     ArcItem,

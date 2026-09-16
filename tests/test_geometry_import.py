@@ -7,7 +7,7 @@ import math
 
 from PyQt6.QtCore import QPointF
 from firepro3d.geometry_import import bbox_top_left, geom_dicts_to_primitives
-from firepro3d.construction_geometry import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
+from firepro3d.geometry_2d import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
 
 
 def test_bbox_top_left_over_mixed_primitives(qapp):

@@ -1,6 +1,6 @@
 import pytest
 from PyQt6.QtCore import QPointF
-from firepro3d.construction_geometry import SplineItem
+from firepro3d.geometry_2d import SplineItem
 
 
 def _cp(*xy):

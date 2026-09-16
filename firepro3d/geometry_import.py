@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
 
-from .construction_geometry import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
+from .geometry_2d import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
 
 
 def _geometric_bbox(item):

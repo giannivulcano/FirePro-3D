@@ -69,7 +69,7 @@ def test_corrupt_fpdb_skipped(tmp_path):
 
 
 def test_make_then_save_to_library(model_space, tmp_path):
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.geometry_2d import LineItem
     from PyQt6.QtCore import QPointF
     li = LineItem.from_dict({"type": "draw_line", "pt1": [0, 0], "pt2": [100, 0],
                              "color": "#ffffff", "lineweight": 1.0})
