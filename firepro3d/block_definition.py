@@ -70,7 +70,8 @@ class BlockDefinition:
 
     def __init__(self, *, id: str, version: int, name: str, library: str,
                  series: str, scale_mode: str, origin: tuple[float, float],
-                 attributes: list, primitives: list[dict]):
+                 attributes: list, primitives: list[dict],
+                 render_mode: str = "default"):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -80,6 +81,12 @@ class BlockDefinition:
         self.origin = (float(origin[0]), float(origin[1]))
         self.attributes = list(attributes)
         self.primitives = list(primitives)
+        # Render mode (reference-graphic unification, constraint #1):
+        #   "default"   — one render op per primitive (authored blocks).
+        #   "reference" — one render op per distinct source `layer` tag; the
+        #                 batched-per-layer compile that keeps a 437k-geom DXF
+        #                 interactive. See docs/specs/reference-graphic-model.md.
+        self.render_mode = render_mode or "default"
         self._render_ops: list[tuple[QPen, QPainterPath]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
 
@@ -117,7 +124,15 @@ class BlockDefinition:
         return self._render_ops
 
     def _compile(self) -> list[tuple[QPen, QPainterPath]]:
-        """Compile captured primitive dicts into origin-relative render ops."""
+        """Compile captured primitive dicts into origin-relative render ops.
+
+        In ``reference`` mode the ops are batched per source layer (one op per
+        distinct ``layer`` tag) — the binding perf constraint that keeps a
+        large imported reference interactive. In ``default`` mode each primitive
+        gets its own op (authored blocks, unchanged).
+        """
+        if self.render_mode == "reference":
+            return self._compile_reference()
         ox, oy = self.origin
         ops: list[tuple[QPen, QPainterPath]] = []
         for prim in self.primitives:
@@ -129,6 +144,35 @@ class BlockDefinition:
             path.translate(-ox, -oy)                       # origin-relative
             ops.append((QPen(item.pen()), path))
         return ops
+
+    def _compile_reference(self) -> list[tuple[QPen, QPainterPath]]:
+        """Batched compile: accumulate each layer's primitives into one path.
+
+        Groups primitives by their ``layer`` tag, unioning each layer's geometry
+        into a single cosmetic ``QPainterPath`` (subpaths kept separate via
+        ``addPath``). The result is one ``(QPen, QPainterPath)`` per distinct
+        layer — ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
+        Per-layer colour/weight is applied downstream by the reference bundle's
+        display pass, so the compile pen is a cosmetic default.
+        """
+        ox, oy = self.origin
+        by_layer: dict[str, QPainterPath] = {}
+        pens: dict[str, QPen] = {}
+        for prim in self.primitives:
+            cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
+            if cls is None:
+                continue
+            item = cls.from_dict(prim)
+            path = item.mapToParent(_local_path(item))
+            path.translate(-ox, -oy)                       # origin-relative
+            layer = prim.get("layer", "")
+            if layer not in by_layer:
+                by_layer[layer] = QPainterPath()
+                pen = QPen(item.pen())
+                pen.setCosmetic(True)
+                pens[layer] = pen
+            by_layer[layer].addPath(path)
+        return [(pens[layer], by_layer[layer]) for layer in by_layer]
 
     def to_dict(self) -> dict:
         return {
@@ -142,6 +186,7 @@ class BlockDefinition:
             "origin": [self.origin[0], self.origin[1]],
             "attributes": list(self.attributes),
             "primitives": list(self.primitives),
+            "render_mode": self.render_mode,
         }
 
     @classmethod
@@ -155,4 +200,5 @@ class BlockDefinition:
             origin=(origin[0], origin[1]),
             attributes=data.get("attributes", []),
             primitives=data.get("primitives", []),
+            render_mode=data.get("render_mode", "default"),
         )
