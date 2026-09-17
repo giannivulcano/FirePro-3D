@@ -74,6 +74,15 @@ from .network_codec import (
     serialize_note, serialize_water_supply, serialize_design_area,
 )
 
+# Modes that constitute "loose geometry / text / dimension authoring" — not
+# permitted in plan scenes (containment contract C1).  Block-Editor scratchpads
+# allow all of these.
+_LOOSE_AUTHORING_MODES = frozenset({
+    "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse",
+    "draw_spline", "polyline", "draw_arc", "polygon",
+    "text", "dimension",
+})
+
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
@@ -163,8 +172,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
     originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
 
-    def __init__(self):
+    def __init__(self, scene_role: str = "plan"):
         super().__init__()
+        self.scene_role = scene_role
         self._tools = SceneTools(self)   # composed geometry-tool collaborator (decomposition slice B)
         self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
         # One-time repair: fix display/*/visible stored as bool instead of string
@@ -502,6 +512,33 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # per baked gesture via push_undo_state.
         self._manipulator = None
         self._create_manipulator()
+
+    def authoring_allowed(self, mode: str) -> bool:
+        """Whether *mode* may be entered in this scene's role.
+
+        Plan scenes forbid loose-geometry/text/dimension authoring
+        (containment contract C1); the Block-Editor scratchpad permits it.
+
+        Args:
+            mode: The mode name string to test.
+
+        Returns:
+            True if the mode is permitted in this scene's role.
+        """
+        if mode in _LOOSE_AUTHORING_MODES:
+            return self.scene_role == "block_editor"
+        return True
+
+    def device_independent_text(self) -> bool:
+        """Text sizing-mode hook (containment C5).
+
+        Model and Block-Editor scenes render text at scene-mm (scales with
+        zoom); PaperScene overrides this to return True (device-independent).
+
+        Returns:
+            False for all Model_Space roles; True only in PaperScene.
+        """
+        return False
 
     @property
     def underlays(self):
