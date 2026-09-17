@@ -23,6 +23,13 @@ related-contract: model-space-containment-contract.md   # SUPERSEDES the framing
 > items today) and stays accurate for grounding until the containment-contract implementation lands.
 > Per-section pointers flag the specific deltas; the invariants live once in the contract (Rule A).
 
+> **Reference-graphic unification (2026-09-17, `3c3b00c`):** `Geometry2DMixin`
+> gained an optional `layer` tag (source-layer for imported reference geometry;
+> empty for authored primitives, omitted from `to_dict` when empty). It is
+> threaded by `geom_dicts_to_primitives` and consumed by the reference
+> `BlockDefinition`'s batched-per-layer compile. Owned by
+> `reference-graphic-model.md` (R1); noted here per Rule A.
+
 Governing spec for the reference / drawing-geometry subsystem: the item models in
 `geometry_2d.py` and their placement layer in `model_space.py`. Closes
 the long-standing 2D-geometry orphan (formerly `construction_geometry.py`; former

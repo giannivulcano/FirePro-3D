@@ -43,10 +43,14 @@ source-tasks:
 > `reference-graphic-model.md`. This spec is **not superseded**: it remains the
 > owner of underlay *mechanics* (import, render/cache, freeze-blit, Manager);
 > `reference-graphic-model.md` owns only the unification *target* (Rule A).
-> Underlay code is **unchanged** until the R4 performance spike + implementation
-> land (both filed as follow-ups). The Underlay ribbon group may move to the
-> **Architecture** tab (`model-space-containment-contract.md` C7) — *tentative,
-> pending the reference-graphic implementation*.
+> **Update (2026-09-17, `3c3b00c`):** the R4 spike passed and the
+> **core-internal unification slice landed** — the `Underlay` record now carries
+> a `record.definition` (a reference `BlockDefinition` owning its layer-tagged
+> geom-dicts); `_build_batched_underlay_group` + `UnderlaySnapIndex` + freeze are
+> **repointed at the definition** (render/snap/cache behavior byte-identical,
+> zero-UX). Underlay import still flattens curves (`_preserve_curves=False`) until
+> follow-up 4b. The Underlay ribbon group may still move to the **Architecture**
+> tab (`model-space-containment-contract.md` C7) — *tentative, deferred*.
 >
 > **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is current** (Underlay Manager shipped on `feat/underlay-manager`, 2026-08-29 @ `56c8148`). §17 PDF Import Polish shipped 2026-08-28. Sections tagged "(as-built)" reflect shipped code.
 >
