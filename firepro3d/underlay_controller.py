@@ -386,6 +386,14 @@ class UnderlayController:
         group.setZValue(Z_UNDERLAY)
         self._scene.setItemIndexMethod(old_method)
 
+        # Re-home the geometry onto a shared reference BlockDefinition (R3/RD2):
+        # the record now OWNS its geometry via a definition, and the batched
+        # render / snap / freeze machinery is repointed at it. Zero-UX — the
+        # group above renders exactly as before; the geoms just gained a home.
+        from .block_definition import BlockDefinition
+        record.definition = BlockDefinition.reference_from_geoms(
+            geom_list, name=record.name or "")
+
         all_layers = sorted(by_layer.keys())
         return group, all_layers
 
@@ -397,7 +405,12 @@ class UnderlayController:
         engine, replacing invisible QGraphicsItems in the scene BSP.
         """
         from .underlay_snap_index import UnderlaySnapIndex
-        index = UnderlaySnapIndex(geom_list, record.hidden_layers, record)
+        # Snap runs off the definition's geoms when the record has been re-homed
+        # (single owner); falls back to the passed list otherwise.
+        geoms = (record.definition.geoms
+                 if getattr(record, "definition", None) is not None
+                 else geom_list)
+        index = UnderlaySnapIndex(geoms, record.hidden_layers, record)
         group.setData(4, index)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):

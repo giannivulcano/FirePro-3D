@@ -1,7 +1,10 @@
 import os
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from .constants import DEFAULT_LEVEL
+
+if TYPE_CHECKING:
+    from .block_definition import BlockDefinition
 
 
 @dataclass
@@ -50,6 +53,13 @@ class Underlay:
     # User-authored display name (import dialog Source step). Blank falls back
     # to the file basename for display (Manager NAME column, browser node).
     name: str = ""
+    # Reference-graphic unification (R3/RD2): the shared reference BlockDefinition
+    # that OWNS this underlay's geometry (curve-preserving, layer-tagged geoms).
+    # Runtime + cache-backed — set when the batched group is built, reconstructed
+    # from the underlay cache on load; deliberately NOT serialized (to_dict) so
+    # .fpd stays lean. compare/repr excluded (not a value-identity field).
+    definition: "BlockDefinition | None" = field(
+        default=None, compare=False, repr=False)
 
     def to_dict(self) -> dict:
         d = {
