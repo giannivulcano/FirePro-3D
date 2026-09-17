@@ -88,15 +88,20 @@ text live in **Paper Space**. Model = the model; paper = the deliverable.
   any placed model entity (see `view-relationships.md §7.1`).
 - A **Paper-placed Block instance is sheet-scoped** (no level).
 
-### C4 — Underlay reference-graphic unification is DEFERRED
+### C4 — Underlay reference-graphic unification → RESOLVED into a target architecture
 
-The "Underlay = a kind of Block" idea is **out of scope for this contract** and
-gets its **own design session**. Rationale: a literal merge violates ~9
-invariants across both systems (flyweight shared render-ops vs. batched
-cosmetic-pen per-layer paths; selectable vs. non-selectable; single-level vs.
-multi-level list; per-record snap/cache/colour). For now Underlays are
-**unchanged** and remain governed solely by `underlay-workflow.md`. See
-*Deferred work → Underlay reference-graphic unification*.
+The C4 design session ran (2026-09-16) and produced a **target architecture**:
+an **Underlay is a special case of a Block** — both are *imported/placeable
+reference geometry* — recorded in **`reference-graphic-model.md`** (proposal).
+Key outcomes: one import front-end → native primitives + layers → a definition;
+in model space all instances are **locked references** (no primitive editing);
+Block-vs-Underlay is a **capability bundle** (Underlay adds lightweight render,
+per-layer/per-primitive visibility, multi-level), *not* an editable-vs-locked
+distinction; rendering targets unified native-primitive data + a batched
+`lightweight` render path **gated on a performance spike** (fallback = keep
+today's batched representation). Underlays remain **unchanged in code** until that
+spike + implementation land. Mechanics stay governed by `underlay-workflow.md`;
+the unification target is governed by `reference-graphic-model.md`.
 
 ### C5 — Text is a 2D primitive with a unified data model
 
@@ -244,10 +249,9 @@ tasks**, not part of this design-only deliverable.
 
 ## Deferred work (filed as follow-up tasks)
 
-1. **Underlay reference-graphic unification** (C4) — dedicated design session:
-   is Underlay a sibling of Block under a common "placeable reference graphic"
-   umbrella (shared import + placement UX + browse), keeping distinct
-   rendering/selection/level? Or stay fully separate?
+1. **Underlay reference-graphic unification** (C4) — ✅ **design done 2026-09-16**
+   → `reference-graphic-model.md` (target architecture). Remaining: the
+   **performance spike** (blocking) + implementation are filed as follow-ups.
 2. **Feature system build-out** — Feature Manager (Phase B) + Feature Editor
    (Phase C); adopt composed Blocks (C2) + reconcile existing openings (C2a).
 3. **Per-spec rewrites** — the six deltas in the reconciliation map.
