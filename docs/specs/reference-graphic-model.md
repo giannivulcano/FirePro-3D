@@ -1,7 +1,7 @@
 ---
 status: proposal
 last-verified: 2026-09-17
-verified-commit: a624ed3
+verified-commit: 1294ba4
 applies-to:
   - firepro3d/underlay.py
   - firepro3d/block_definition.py
