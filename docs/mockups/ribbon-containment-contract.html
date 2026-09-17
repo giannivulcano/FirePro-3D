@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ribbon mockup — Model Space Containment Contract</title>
+<style>
+  :root{
+    --bg:#1e2430; --panel:#28303d; --panel2:#2f3846; --edge:#3a4658;
+    --ink:#e6edf5; --dim:#9fb0c3; --accent:#63BE8B; --accent-ink:#10241a;
+    --retire:#c96b6b; --new:#63BE8B; --move:#d7a55b;
+    --radius:8px; --gap:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 "Segoe UI",system-ui,sans-serif;padding:24px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 18px;font-size:13px}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--edge);margin-bottom:0}
+  .tab{padding:8px 16px;border:1px solid transparent;border-bottom:none;
+    border-radius:6px 6px 0 0;cursor:pointer;color:var(--dim);font-weight:600;
+    background:transparent;user-select:none}
+  .tab:hover{color:var(--ink)}
+  .tab.active{background:var(--panel);color:var(--ink);border-color:var(--edge)}
+  .tab.ctx{color:var(--accent)}
+  .tab.ctx.active{color:var(--accent);border-color:var(--accent)}
+  .ribbon{background:var(--panel);border:1px solid var(--edge);border-top:none;
+    border-radius:0 0 var(--radius) var(--radius);padding:14px;
+    display:flex;gap:var(--gap);flex-wrap:wrap;min-height:120px;align-items:stretch}
+  .group{background:var(--panel2);border:1px solid var(--edge);border-radius:var(--radius);
+    padding:10px 12px 6px;display:flex;flex-direction:column;min-width:96px}
+  .group.new{border-color:var(--new);box-shadow:0 0 0 1px var(--new) inset}
+  .group.move{border-color:var(--move);box-shadow:0 0 0 1px var(--move) inset}
+  .btns{display:flex;gap:8px;flex:1;align-items:flex-start;flex-wrap:wrap}
+  .btn{display:flex;flex-direction:column;align-items:center;gap:4px;
+    width:64px;padding:6px 4px;border-radius:6px;cursor:default}
+  .btn .ic{width:34px;height:34px;border-radius:6px;background:#3b4657;
+    display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+  .btn small{font-size:11px;color:var(--dim);text-align:center;line-height:1.15}
+  .btn.wide{width:78px}
+  .glabel{margin-top:6px;text-align:center;font-size:11px;color:var(--dim);
+    letter-spacing:.04em;text-transform:uppercase;border-top:1px solid var(--edge);padding-top:5px}
+  .glabel.new{color:var(--new)} .glabel.move{color:var(--move)}
+  .note{margin:16px 0 0;padding:12px 14px;background:var(--panel);border:1px solid var(--edge);
+    border-radius:var(--radius);font-size:13px}
+  .note b{color:var(--ink)}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;
+    font-weight:700;vertical-align:middle;margin-left:6px}
+  .tag.new{background:var(--new);color:var(--accent-ink)}
+  .tag.move{background:var(--move);color:#241a08}
+  .tag.retire{background:var(--retire);color:#2a0d0d}
+  .legend{display:flex;gap:16px;margin:14px 0 6px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .panel-view{display:none} .panel-view.active{display:block}
+  .killed{margin-top:14px;color:var(--dim);font-size:13px}
+  .killed s{color:var(--retire)}
+  code{background:#0d1117;padding:1px 5px;border-radius:4px;color:#cbd5e1;font-size:12px}
+</style>
+</head>
+<body>
+  <h1>Ribbon reorganization — Model Space Containment Contract <span class="tag new">PROPOSAL</span></h1>
+  <p class="sub">Interactive mockup for <code>docs/specs/model-space-containment-contract.md</code> C7. Click the tabs. Colored borders = changed groups.</p>
+
+  <div class="legend">
+    <span><i class="sw" style="background:var(--new)"></i> new / added</span>
+    <span><i class="sw" style="background:var(--move)"></i> moved here</span>
+    <span><i class="sw" style="background:var(--retire)"></i> retired</span>
+    <span><i class="sw" style="background:var(--edge)"></i> unchanged</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-p="arch">Architecture</div>
+    <div class="tab" data-p="sprk">Sprinkler Systems</div>
+    <div class="tab" data-p="draft">Draft</div>
+    <div class="tab ctx" data-p="be">▤ Block Editor <em>(contextual)</em></div>
+    <div class="tab ctx" data-p="paper">▤ Paper Space <em>(contextual)</em></div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <div class="panel-view active" data-view="arch">
+    <div class="ribbon">
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">▨</div><small>Wall</small></div>
+          <div class="btn"><div class="ic">▤</div><small>Floor</small></div>
+          <div class="btn"><div class="ic">◹</div><small>Roof</small></div>
+          <div class="btn"><div class="ic">▢</div><small>Room</small></div>
+        </div>
+        <div class="glabel">Building Features</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">🚪</div><small>Door</small></div>
+          <div class="btn"><div class="ic">🪟</div><small>Window</small></div>
+          <div class="btn"><div class="ic">▭</div><small>Opening</small></div>
+        </div>
+        <div class="glabel">Architectural Features</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">≡</div><small>Levels</small></div>
+          <div class="btn"><div class="ic">⊹</div><small>Gridline</small></div>
+        </div>
+        <div class="glabel">Datums</div>
+      </div>
+      <div class="group new">
+        <div class="btns">
+          <div class="btn wide"><div class="ic">✎</div><small>Create Block</small></div>
+          <div class="btn wide"><div class="ic">⊞</div><small>Insert Block</small></div>
+          <div class="btn wide"><div class="ic">☰</div><small>Block Manager</small></div>
+        </div>
+        <div class="glabel new">Block ▸ new group</div>
+      </div>
+      <div class="group move">
+        <div class="btns">
+          <div class="btn wide"><div class="ic">▦</div><small>Underlay Manager</small></div>
+        </div>
+        <div class="glabel move">Underlay ▸ moved from Manage (tentative)</div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Architecture tab</b> is now the model-authoring home: <b>Building Features</b> ·
+      <b>Architectural Features</b> · <b>Datums</b> · <b>Block</b> (new) · <b>Underlay</b> (moved, tentative — pending the C4 Underlay session).
+      <b>Create Block</b> opens a Block Editor document; <b>Insert Block</b> places an existing definition.
+      No loose 2D-geometry tools here — the model is placement-only (C1).
+    </div>
+  </div>
+
+  <!-- SPRINKLER (unchanged placeholder) -->
+  <div class="panel-view" data-view="sprk">
+    <div class="ribbon"><div class="group"><div class="btns">
+      <div class="btn"><div class="ic">◦</div><small>Sprinkler</small></div>
+      <div class="btn"><div class="ic">╱</div><small>Pipe</small></div>
+      <div class="btn"><div class="ic">⬡</div><small>Fitting</small></div>
+    </div><div class="glabel">Systems</div></div></div>
+    <div class="note">Unchanged by this contract — shown for context.</div>
+  </div>
+
+  <!-- DRAFT (unchanged placeholder) -->
+  <div class="panel-view" data-view="draft">
+    <div class="ribbon"><div class="group"><div class="btns">
+      <div class="btn"><div class="ic">🖶</div><small>Print</small></div>
+      <div class="btn"><div class="ic">▤</div><small>Sheets</small></div>
+    </div><div class="glabel">Output</div></div></div>
+    <div class="note">Unchanged base tab — sheet/plot management. Annotation tooling surfaces in the Paper Space context.</div>
+  </div>
+
+  <!-- BLOCK EDITOR CONTEXT -->
+  <div class="panel-view" data-view="be">
+    <div class="ribbon">
+      <div class="group new">
+        <div class="btns">
+          <div class="btn"><div class="ic">╱</div><small>Line</small></div>
+          <div class="btn"><div class="ic">▭</div><small>Rect</small></div>
+          <div class="btn"><div class="ic">◯</div><small>Circle</small></div>
+          <div class="btn"><div class="ic">◠</div><small>Arc</small></div>
+          <div class="btn"><div class="ic">⬠</div><small>Polygon</small></div>
+          <div class="btn"><div class="ic">⌇</div><small>Polyline</small></div>
+          <div class="btn"><div class="ic">⬭</div><small>Ellipse</small></div>
+          <div class="btn"><div class="ic">∿</div><small>Spline</small></div>
+          <div class="btn"><div class="ic">T</div><small>Text</small></div>
+        </div>
+        <div class="glabel new">2D Geometry ▸ + Text (9th primitive)</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">💾</div><small>Save Block</small></div>
+          <div class="btn"><div class="ic">⊕</div><small>Set Origin</small></div>
+          <div class="btn"><div class="ic">📥</div><small>Import</small></div>
+          <div class="btn"><div class="ic">🏷</div><small>Attributes</small></div>
+        </div>
+        <div class="glabel">Block</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">⤢</div><small>Constraints</small></div>
+        </div>
+        <div class="glabel">Constraints</div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Block Editor</b> is the authoring surface (the dissolved "Create" tab lives here now).
+      All 9 2D primitives — including the <b>new Text primitive</b> (C5) — are drawn here, in
+      definition-local coordinates (level-less, C3). This is the <em>only</em> place loose 2D geometry is authored.
+    </div>
+  </div>
+
+  <!-- PAPER SPACE CONTEXT -->
+  <div class="panel-view" data-view="paper">
+    <div class="ribbon">
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">T</div><small>Text</small></div>
+          <div class="btn"><div class="ic">↔</div><small>Dimension</small></div>
+          <div class="btn"><div class="ic">⤵</div><small>Leader</small></div>
+          <div class="btn"><div class="ic">▱</div><small>Rev Cloud</small></div>
+        </div>
+        <div class="glabel">Annotate</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn"><div class="ic">╱</div><small>Line</small></div>
+          <div class="btn"><div class="ic">▭</div><small>Rect</small></div>
+          <div class="btn"><div class="ic">◯</div><small>Circle</small></div>
+        </div>
+        <div class="glabel">Detail linework</div>
+      </div>
+      <div class="group">
+        <div class="btns">
+          <div class="btn wide"><div class="ic">⊞</div><small>Insert Block</small></div>
+        </div>
+        <div class="glabel">Block</div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Paper Space</b> owns all markup + documentation (C1): text, dimensions, leaders,
+      revision clouds, detail linework, legends, north arrow. Uses the <b>same Text primitive</b>
+      as blocks (unified data model, C5) plus annotation-only affordances (leaders/borders).
+      Blocks are directly placeable here too.
+    </div>
+  </div>
+
+  <div class="killed">
+    <b>Retired / dissolved:</b>
+    <s>Create tab (loose 2D-geometry in the model)</s> <span class="tag retire">DISSOLVED</span>
+    &nbsp; <s>Quick Block button</s> <span class="tag retire">RETIRED</span>
+    &nbsp; <s>Text Block button</s> <span class="tag retire">RETIRED</span>
+    <br><small>Quick Block's premise (bake loose model geometry) no longer exists under C1. Text Block → the Text primitive (C5).</small>
+  </div>
+
+<script>
+  const tabs=[...document.querySelectorAll('.tab')];
+  const views=[...document.querySelectorAll('.panel-view')];
+  tabs.forEach(t=>t.addEventListener('click',()=>{
+    tabs.forEach(x=>x.classList.remove('active'));
+    views.forEach(v=>v.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelector(`.panel-view[data-view="${t.dataset.p}"]`).classList.add('active');
+  }));
+</script>
+</body>
+</html>
