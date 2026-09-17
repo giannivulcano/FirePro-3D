@@ -177,7 +177,17 @@ def build_rep1(scene, geoms):
     scene._attach_snap_index(group, geoms, record)
     scene._apply_underlay_display(group, record)
     scene.underlays.append((record, group))
-    return time.perf_counter() - t
+    dt = time.perf_counter() - t
+    # Post-unification: rep1 IS the shipped definition-backed path — the record
+    # now owns a reference BlockDefinition and snap runs off its geoms. Log it so
+    # the re-bench output proves the definition-backed path was measured.
+    d = record.definition
+    idx = group.data(4)
+    print(f"  definition : {'set' if d is not None else 'MISSING'}"
+          f"  render_mode={getattr(d, 'render_mode', '?')}"
+          f"  geoms={len(getattr(d, 'geoms', [])):,}"
+          f"  snap_over_def_geoms={idx is not None and idx._geom_list is d.geoms}")
+    return dt
 
 
 def build_rep2(scene, geoms):
