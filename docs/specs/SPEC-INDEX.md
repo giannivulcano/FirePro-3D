@@ -41,6 +41,7 @@
 | Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
 | **Test harness / fixtures** | `specs/test-harness.md` | `tests/`, `tests/conftest.py` | current (forged 2026-09-09 on first touch — #373/#367/#312/#375 test-infra cluster; QSettings isolation, async-worker sink lifetime, View3D stub, native-crash families) |
 | **Settings dialogs** (Project + System) | `specs/settings-dialog.md` | `settings/panes.py`, `settings/project_settings_dialog.py`, `settings/system_settings_dialog.py`, `settings/template.py`, `preferences_dialog.py` (shim), `main.py` (ribbon + startup/new wiring), `scene_io.py` (template clone), `scale_manager.py` (units source), `app_data.py` | current (built 2026-09-14 on `feat/settings-dialog`; closes the `preferences_dialog.py` orphan) |
+| **Scene I/O** (`.fpd` project format) | `specs/scene-io.md` | `scene_io.py`, `network_codec.py` (per-entity encode/decode; the `_capture_network`/`_restore_network` undo path in `model_space.py` shares the dual-serialization invariant) | **partial** (forged 2026-09-17 on first touch, containment orphan-gate; current format contract code-verified, the C8 clean-drop invariant is a target pending the C1/C8 slice) |
 
 ## Orphans — no governing spec (forge on first touch)
 
@@ -48,6 +49,5 @@
 |---|---|---|
 | Thermal radiation analysis | `thermal_radiation_solver.py`, `thermal_radiation_report.py`, `fire_curves.py` | Fully implemented, undocumented. Highest-value orphan. |
 | 3D view | `view_3d.py`, `view_cube.py` | PyVista/VTK; cross-test teardown hazards (see memory). |
-| Scene I/O / `.fpd` project format | `scene_io.py` | `architecture/io.md` exists but is thin/inaccurate; promote to a real spec on first touch. |
 
 _Backfill posture: **lazy** — these get a spec the first time a task touches them (blocking-prerequisite), not proactively._
