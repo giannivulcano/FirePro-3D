@@ -195,6 +195,50 @@ by the representation's **scene-item count**.
    **not** held as scene items and ideally materialized lazily to keep resident
    memory at baseline.
 
+## Implementation — Core Internal Unification (scope locked 2026-09-17)
+
+The first implementation slice, scoped + grilled 2026-09-17 (`/todo` Large, Phase 2).
+**Pure internal refactor — zero user-facing UX delta.** Payoff is architectural/enabling
+(one import pipeline, one data model), *not* a new gesture.
+
+**Structure (Option A — re-home, don't rebuild).** The `Underlay` record is re-homed onto a
+shared **`BlockDefinition`** that owns **native primitives (curves preserved) + per-layer
+metadata**. The existing **batched-render (`_UnderlayPathItem`) + freeze-blit + `UnderlaySnapIndex`**
+machinery is **kept** as the reference-bundle implementation and repointed at the definition — it
+already satisfies all three spike constraints, so Option B (retire `Underlay`, rebuild on the block
+stack) is rejected as a high-risk reinvention (churns ~47 tests + controller/manager/freeze/paper).
+The `Underlay` record slims to the **reference bundle** (placement, `levels`, per-layer visibility,
+`locked`, overrides) + a definition reference.
+
+**Key design seams:**
+- **Layer-tagged primitives:** primitive dicts (`geometry_2d` `to_dict` form) gain a `layer` tag;
+  DXF/DWG import preserves native curves (`geom_dicts_to_primitives` on the `_preserve_curves` path)
+  + per-source-layer tags. This is the R1 curve-fidelity win; cost is build-time tessellation only.
+- **Reference-mode compile (constraint #1):** the reference bundle needs a **batched-per-layer**
+  compile — group primitives by layer into a few cosmetic `QPainterPath`s — NOT `BlockDefinition._compile`'s
+  current one-render-op-per-primitive (fatal at 437k). Guard: `len(render_ops) == n_layers`, not
+  `n_primitives` (mutation-tested). **Authored small Blocks keep the per-primitive compile** (non-goal #9).
+- **Snap (constraint #2):** the reference group carries an `UnderlaySnapIndex` at `data(4)` built from
+  the definition's primitives — never `BlockInstance`'s per-vertex `render_ops()` iteration.
+- **Persistence (no `.fpd` bloat):** the reference definition persists via the **existing underlay
+  cache** (`.fpd.cache` + source path + re-extract), NOT inline in `.fpd` like a small authored block.
+- **Backing kinds:** vector (DXF/DWG native+layers; vector-PDF flattened single-layer) → definition-backed;
+  **raster PDF → unchanged raster reference** (a bitmap has no primitives — documented boundary).
+- **Migration (R8):** old `Underlay` records re-extract into definition-backed references on load;
+  source-missing → cached-geom fallback (flattened, warn/log); raster-PDF records load unchanged.
+
+**Non-goals (this slice):** ribbon C7 (Underlay→Architecture); selection-mode generalization (reuse
+the existing halo `_halo_is_underlay` de-prioritization as-is); edit-underlay-in-Block-Editor (it is
+rep-2 — its own perf problem); convert/promote underlay↔block; per-primitive visibility; native-curve
+PDF; paper-space placement of reference-blocks; import-dialog UX change; **authored-Block render/snap
+untouched**.
+
+**Acceptance gates:** the **batched-render-op-shape guard** (headless, mutation-tested) + the **live
+perf re-bench** on the Sleeman 437k DXF (`tools/perf_probe_reference_render.py` adapted to build the
+*definition-backed* underlay → snap sub-ms + paint parity, no regression vs baseline (1)). Plus:
+round-trip, migration (incl. source-missing fallback), per-layer visibility, multi-level, paper render,
+zero UX change, and the ~47 underlay tests green.
+
 ## Acceptance Criteria (design-only deliverable)
 
 - [x] Unified Reference-Graphic model recorded (R1–R8); Underlay = special-case Block.
