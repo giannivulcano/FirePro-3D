@@ -1,24 +1,31 @@
 ---
-status: proposal
+status: partial
 last-verified: 2026-09-17
-verified-commit: 1294ba4
+verified-commit: 3c3b00c
 applies-to:
   - firepro3d/underlay.py
+  - firepro3d/underlay_controller.py
   - firepro3d/block_definition.py
   - firepro3d/block_instance.py
-  - firepro3d/model_space.py   # placement + reference rendering
+  - firepro3d/geometry_2d.py       # layer-tagged primitives (R1)
+  - firepro3d/geometry_import.py   # unified import -> reference definition (R1)
+  - firepro3d/model_space.py       # placement + reference rendering
 source-tasks:
   - "todo_open.md → design: Underlay reference-graphic unification (contract C4)"
+  - "todo_closed.md → feature: reference-graphic unification core-internal slice (2026-09-17)"
 ---
 
 # Reference Graphic Model — Block ↔ Underlay Unification — Design Spec
 
-> **Status: proposal (target architecture).** Resolves the deferred **C4** of
-> `model-space-containment-contract.md`. Records the *intended* unification: an
-> Underlay is a **special case of a Block** — both are **imported/placeable
-> reference geometry**. Today they are two separate systems (see the Divergences
-> ledger); this spec is the direction they converge to. **Implementation is
-> gated on a performance spike (R4) and is not scheduled here.**
+> **Status: partial (core-internal unification landed 2026-09-17).** Resolves the
+> deferred **C4** of `model-space-containment-contract.md`. An Underlay is a
+> **special case of a Block** — both are **imported/placeable reference
+> geometry**. The **core-internal slice is built** (`3c3b00c`): the `Underlay`
+> record is re-homed onto a shared reference `BlockDefinition` that owns its
+> geometry; the batched render + `UnderlaySnapIndex` + freeze machinery is
+> repointed at the definition. Still deferred: curve-fidelity import flip (4b),
+> selection-mode ranking (R5), edit-underlay-in-Block-Editor, ribbon C7,
+> convert/promote. See the Divergences ledger for what remains.
 >
 > Rule A: mechanics owned elsewhere are linked, not restated — rendering/cache
 > mechanics → `underlay-workflow.md`; definition/flyweight → `block-system.md`;
@@ -233,6 +240,38 @@ rep-2 — its own perf problem); convert/promote underlay↔block; per-primitive
 PDF; paper-space placement of reference-blocks; import-dialog UX change; **authored-Block render/snap
 untouched**.
 
+### As-built reconciliation (2026-09-17, `3c3b00c`)
+
+Two deliberate deviations from the seams above, settled during implementation and
+recorded here so the spec matches shipped code (a wrong spec is worse than none):
+
+- **Geometry data model = import geom-dicts, not geometry_2d primitive dicts.**
+  The reference `BlockDefinition` owns a `geoms` list (the import-worker geom-dict
+  form: `kind`/coords/`layer`), NOT `primitives` (geometry_2d `to_dict` form).
+  *Why:* the existing batched builder (`dwg_converter.append_geom_to_path`) already
+  renders every kind **including text** (which has no geometry_2d primitive yet —
+  that is the separate containment-contract "Text = 9th primitive" task). Storing
+  geom-dicts lets the proven builder + `UnderlaySnapIndex` + freeze render the
+  definition verbatim and preserves text. The geometry_2d-primitive *view* (for a
+  future Block-Editor materialization) is derived on demand via
+  `geom_dicts_to_primitives` — already how `_compile_reference` builds batched
+  render-ops. The R1 "layer-tagged primitive dicts" seam still shipped
+  (`Geometry2DMixin.layer`); it is used by `_compile_reference`, not as the
+  definition's storage.
+- **No `SAVE_VERSION` bump; migration is transparent.** Because the definition is
+  NOT serialized (it reconstructs on load — cache-hit, source-reimport, or
+  source-missing→cached-fallback, all through the one builder seam), the `.fpd`
+  on-disk format is byte-identical. The anticipated version bump is moot → zero
+  migration risk for existing projects.
+
+**Deferred follow-up 4b — curve-fidelity import flip.** Underlay import still runs
+`_preserve_curves=False` (flattened, as today). `append_geom_to_path` already
+*renders* parametric arc/spline/ellipse, but flipping the import flag also routes
+those kinds into the snap path (`UnderlaySnapIndex._geom_bounds` +
+`snap_engine._collect_from_geom`), which underlays have never exercised — deferred
+to a slice that verifies snap parity on parametric underlay geoms first, to keep
+the core slice zero-UX. This is why RD1 is only *partially* closed.
+
 **Acceptance gates:** the **batched-render-op-shape guard** (headless, mutation-tested) + the **live
 perf re-bench** on the Sleeman 437k DXF (`tools/perf_probe_reference_render.py` adapted to build the
 *definition-backed* underlay → snap sub-ms + paint parity, no regression vs baseline (1)). Plus:
@@ -247,7 +286,16 @@ zero UX change, and the ~47 underlay tests green.
 - [x] Migration principle (migrate-not-drop) recorded.
 - [x] Performance spike run + target/fallback chosen — **(Z) accepted** on the
   Sleeman 437k-geom DXF (see Performance → Spike result, 2026-09-17).
-- [ ] Implementation (follow-up task) — unified import, reference bundle, render, selection ranking, migration.
+- [x] Implementation — **core-internal slice landed 2026-09-17** (`3c3b00c`):
+  layer-tagged primitives (Slice 1), batched reference-compile (Slice 2), unified
+  import→reference definition (Slice 3), Underlay re-homed on the definition
+  (Slice 4), transparent migration (Slice 5). Re-bench confirmed sub-ms snap +
+  batched render on a real DXF; full underlay+reference suite green (410); zero
+  suite-wide regressions (the 12 broad-suite failures proven pre-existing vs
+  branch point `0a634fe`).
+- [ ] Deferred follow-ups: curve-fidelity import flip (4b), selection-mode
+  de-prioritization ranking (R5), edit-underlay-in-Block-Editor, ribbon C7,
+  convert/promote, per-primitive visibility.
 
 ## Verification Checklist
 
@@ -261,15 +309,20 @@ zero UX change, and the ~47 underlay tests green.
 
 | # | Target | As-built today | Closes when |
 |---|---|---|---|
-| RD1 | R1 one import → native primitives + layers | Block import → native primitives; **underlay import → flattened/batched paths** (separate pipeline) | unified import lands |
-| RD2 | R3 Block/Underlay = capability bundle on one model | Two separate systems (`Underlay` record vs `BlockDefinition`/`BlockInstance`) | unification lands |
-| RD3 | R4 native-primitive data + dual render | underlay = batched paths only, no native primitives, non-editable | **spike passed 2026-09-17 → (Z)**; render batched + snap via index (never per-item scene objects); closes when the unified render/snap lands |
-| RD4 | R5 selectable-as-unit, de-prioritized | underlay non-selectable (managed only) | selection-mode ranking lands |
+| RD1 | R1 one import → native primitives + layers | **Partially closed 2026-09-17** (`3c3b00c`): underlay import now produces a reference `BlockDefinition` owning layer-tagged geom-dicts via the one builder seam; primitives carry a `layer` tag. **Remaining:** underlay import still flattens curves (`_preserve_curves=False`) | curve-fidelity flip (4b) lands |
+| RD2 | R3 Block/Underlay = capability bundle on one model | **Closed 2026-09-17** (`3c3b00c`): the `Underlay` record is re-homed onto a shared reference `BlockDefinition` (`record.definition`); one geometry data model | — |
+| RD3 | R4 native-primitive data + dual render | **Closed (render/snap) 2026-09-17** (`3c3b00c`): definition owns geoms; render = batched-per-layer cosmetic paths; snap runs off `UnderlaySnapIndex` built from `record.definition.geoms` (never per-item scene objects). **Remaining:** materialize-in-Block-Editor (rep-2, its own perf problem) is a non-goal | edit-in-editor lands |
+| RD4 | R5 selectable-as-unit, de-prioritized | underlay non-selectable (managed only) — unchanged; reuse existing halo de-prioritization | selection-mode ranking lands |
 
 ## Deferred work (follow-up tasks)
 
 1. ~~**Performance spike (blocking)** — R4 A/B on a real large DXF; choose (Z) or (Y).~~
    **DONE 2026-09-17 → (Z)** (`tools/perf_probe_reference_render.py`; numbers in Performance).
-2. **Implementation** — unified import front-end, reference capability bundle,
-   render path(s), selection de-prioritization + lock toggle, migration (R8).
+2. ~~**Implementation** — unified import, reference bundle, render, migration (R8).~~
+   **Core-internal slice DONE 2026-09-17** (`3c3b00c`, Slices 1–5). Remaining:
+   - **4b — curve-fidelity import flip**: flip underlay import to
+     `_preserve_curves=True` after verifying snap parity on parametric underlay
+     geoms (closes RD1).
+   - **Selection de-prioritization + lock toggle (R5)**: depends on selection-mode.
+   - **Edit-underlay-in-Block-Editor**: rep-2 materialization, its own perf problem.
 3. **Explicit block-layer authoring** (R6) — only if a use case appears.

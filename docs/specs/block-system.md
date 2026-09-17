@@ -45,6 +45,16 @@ source-tasks:
 > The rest of this spec — the flyweight def/instance core, `.fpdb` library, Manager, and Block
 > Editor — **stays current**. Invariants live once in the contract; this links up (Rule A).
 
+> **Reference-graphic unification (2026-09-17, `3c3b00c`).** `BlockDefinition`
+> gained a `render_mode` (`"default"` = per-primitive compile, unchanged for
+> authored blocks; `"reference"` = **batched-per-layer** compile, one render op
+> per distinct `layer` tag), an optional `geoms` field (import geom-dicts owned by
+> a *reference* definition; cache-backed, NOT serialized in `.fpdb`/`.fpd`), and
+> the `reference_from_geoms(...)` factory. Underlays are now re-homed onto such a
+> reference definition (`Underlay.definition`). Authored-block render/snap is
+> untouched. Target + rationale owned by `reference-graphic-model.md`; noted here
+> per Rule A.
+
 ## Goal
 
 Give the user a real, reusable **Block** system: define a named 2D symbol once (from drafting
