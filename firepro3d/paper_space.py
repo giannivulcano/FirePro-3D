@@ -26,6 +26,7 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
 )
 from .scale_manager import ScaleManager
+from .text_item import TextAnnotationData  # shared data model (C5); re-exported for callers
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
@@ -331,57 +332,6 @@ class SheetViewData:
             view_number=d.get("view_number", ""),
             crop_rect=crop,
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
-        )
-
-
-@dataclass
-class TextAnnotationData:
-    """Serializable data for one sheet text annotation. All lengths in paper mm.
-
-    Shared by reference with its TextAnnotationItem (never copied), exactly like
-    SheetViewData <-> SheetViewport.
-    """
-    text: str = ""
-    x: float = 0.0
-    y: float = 0.0
-    height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
-    wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
-    box_height_mm: float = 0.0                   # 0 = auto-fit content; >0 = stored box height
-    font_family: str = ""                        # "" => Arial default
-    bold: bool = False
-    italic: bool = False
-    underline: bool = False
-    color: str = "#000000"                       # authored hex, default black
-    align: str = "L"                             # 'L' | 'C' | 'R'
-    opaque_bg: bool = False
-    type: str = "text"                           # discriminator for future annotation types
-
-    def to_dict(self) -> dict:
-        return {
-            "type": self.type, "text": self.text,
-            "x": self.x, "y": self.y,
-            "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
-            "box_height_mm": self.box_height_mm,
-            "font_family": self.font_family,
-            "bold": self.bold, "italic": self.italic, "underline": self.underline,
-            "color": self.color, "align": self.align,
-            "opaque_bg": self.opaque_bg,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "TextAnnotationData":
-        return cls(
-            text=d.get("text", ""),
-            x=d.get("x", 0.0), y=d.get("y", 0.0),
-            height_mm=d.get("height_mm", DEFAULT_TEXT_HEIGHT_MM),
-            wrap_width_mm=d.get("wrap_width_mm", 0.0),
-            box_height_mm=float(d.get("box_height_mm", 0.0)),
-            font_family=d.get("font_family", ""),
-            bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
-            underline=bool(d.get("underline", False)),
-            color=d.get("color", "#000000"), align=d.get("align", "L"),
-            opaque_bg=bool(d.get("opaque_bg", False)),
-            type=d.get("type", "text"),
         )
 
 
