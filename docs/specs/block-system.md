@@ -2,6 +2,7 @@
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
 last-verified: 2026-09-15
 verified-commit: aca3220
+related-contract: model-space-containment-contract.md   # partially supersedes: "siblings"→C2 (Feature composes Blocks); Quick Block→C7 retirement. Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -32,6 +33,17 @@ source-tasks:
 > map) is **deferred to a later phase**; only the shared *naming/extension contract* below is locked
 > now so neither library migrates twice. Where this spec reuses an existing pattern it **links** to
 > that pattern's governing spec (Rule A) rather than restating it.
+>
+> **Partially superseded (2026-09-16 — `model-space-containment-contract.md`).** Two framings below
+> are superseded by the containment contract (both *target*, not yet built — contract `status:
+> proposal`; see its Divergences ledger): **(1)** the "Blocks and Features are **sibling libraries**"
+> premise (Motivation) → **C2: a Feature *composes* Blocks** (Features reference Block definitions for
+> their 2D representations; see `feature-system.md`); **(2)** the **Quick Block** entry point → **C7
+> retirement** (its premise — bake a selection of loose *model* geometry — is void under C1's
+> placement-only Model Space). Also per C7/C9, a standalone Block instance is placeable in **both**
+> Model Space *and* Paper Space (paper-placement rules pending — a known gap, see `paper-space.md`).
+> The rest of this spec — the flyweight def/instance core, `.fpdb` library, Manager, and Block
+> Editor — **stays current**. Invariants live once in the contract; this links up (Rule A).
 
 ## Goal
 
@@ -52,6 +64,9 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - Blocks and Features are **sibling libraries** (2D drafting content vs. modeled building elements).
   Settling the shared naming/extension contract now — and building Blocks first as the lower-risk,
   baggage-free sibling — de-risks the later Feature re-architecture.
+  → **Superseded by `model-space-containment-contract.md` C2** (pending implementation): a Feature
+  *composes* Blocks rather than being a disjoint sibling library. The naming/extension contract below
+  still holds; the "disjoint siblings" relationship does not.
 - Reusable plumbing already exists (title-block library I/O, underlay-manager MVC, frameless shell,
   icon loader, feature-browser tree), so v1 is mostly *assembly + one genuinely new piece*
   (a graphical thumbnail cache).
@@ -387,9 +402,11 @@ project registry — **disconnected from all model views**.
   **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
   same core.
 - **Entry points (6):** Create Block button (blank | seeded-with-selection-**copy** → new `id`);
-  **Quick Block** button (instant consume-and-bake, separate button, `MakeBlockDialog` name);
-  Manager → Create new (blank); Manager → Create new based off selected (clone geometry +
-  `attributes`, new `id`); Manager → **Open in Editor** (same `id`, edit-in-place).
+  **Quick Block** button (instant consume-and-bake, separate button, `MakeBlockDialog` name)
+  — → **slated for retirement by `model-space-containment-contract.md` C7** (pending implementation:
+  no loose *model* geometry to bake under C1); Manager → Create new (blank); Manager → Create new
+  based off selected (clone geometry + `attributes`, new `id`); Manager → **Open in Editor** (same
+  `id`, edit-in-place).
 - **Seeded create is non-destructive:** the editor works on a **copy**; the model is touched only at
   Save via a "replace source with an instance?" prompt (default yes), atomically in the one commit
   undo (source items passed as `source_items`).

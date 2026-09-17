@@ -2,6 +2,7 @@
 status: current
 last-verified: 2026-08-28
 verified-commit: 579e841
+related-contract: model-space-containment-contract.md   # partially superseded: §3.1 authoring framing + the §3.3/§7.3 2D-geometry level rows only (C1/C3). The levels/view-range/Z-model bulk stays current.
 applies-to:
   - firepro3d/level_manager.py
   - firepro3d/elevation_scene.py
@@ -21,6 +22,14 @@ applies-to:
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
 > **§7.3 (Z-order) last-verified:** 2026-08-22 against `constants.py` + `level_manager.apply_to_scene` (commit `ce37220`, 2D-geometry level+fill task — added `Z_CAT_CONSTRUCTION`; 2D geometry now elevation-based). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
+>
+> **Partially superseded (2026-09-16 — `model-space-containment-contract.md`).** Two things below are
+> superseded (target, not yet built — contract `status: proposal`): **§3.1's** "authored in plan view"
+> framing → **model geometry is composed by placing definitions**, not drawn loose (C1); and the
+> **§3.3/§7.3 2D-geometry `level`/`_level_offset_mm`/`Z_CAT_CONSTRUCTION` rows** → level scope becomes a
+> **Block-instance** property, not a primitive one (C3; `2d-geometry.md §1.1`). Everything else — the
+> two-Z-system model, view-range contract, floor/room/roof Z-model, elevation/detail projection — is
+> the **live** contract and is **not** superseded. Per-section pointers mark the two deltas (Rule A).
 > **§3.3 (world-Z table) last-verified:** 2026-08-22 against `geometry_2d.py` `Geometry2DMixin` (commit `ce37220`) — 2D geometry gained `level` + `_level_offset_mm` + `z_range_mm()`.
 > **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against `view_marker.py` (`PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
 
@@ -75,6 +84,11 @@ Note that **view widget** and **view scene** are *implementation details*. The s
 ### 3.1 Authoring contract: strict 2D-plan today, elevation editing planned
 
 > **Model geometry is authored in plan view. Z is set by property, never by direct manipulation in elevation or 3D. Elevation, section, detail, and 3D views are read-only projections of the model geometry.**
+
+> → **`model-space-containment-contract.md` C1** (pending implementation) reframes this: model
+> geometry is **composed by placing definitions** (Features, Block instances), not drawn loose in
+> plan. The "Z set by property / read-only elevation projections" rules still hold; the "loose plan
+> authoring" framing does not (loose 2D geometry leaves Model Space for the Block Editor / Paper).
 
 **View-furniture / annotation-extent editing is permitted in elevation** (reconciled 2026-09-14, U5 Leg B). Repositioning the *draw extent* of an elevation gridline (its vertical top/bottom, persisted as `_gridline_z_overrides`) or a level datum (its horizontal extent) is annotation adjustment, **not** geometry authoring — it never changes a model entity's plan position or Z. The read-only-**geometry** contract stands; the projected model proxies (walls/pipes/floors/…) remain non-editable in elevation.
 
@@ -132,6 +146,11 @@ This table enumerates every property in the data model that contributes to an ob
 | **Underlay** (DXF/PDF) | (none) | — | Z = 0 | Always at world Z = 0; not configurable | `underlay.py` |
 | **2D geometry** (Line/Polyline/Rectangle/Circle/Arc) | `level` | str | "Level 1" | Placement level (dropdown; new items default to the active level via `GeometryTemplate`) | `geometry_2d.py` (`Geometry2DMixin`) |
 | **2D geometry** | `_level_offset_mm` | float (mm) | 0 | Offset above the level plane; world-Z = `level.elevation + offset`; `z_range_mm()` returns the zero-thickness point `(E, E)` (added 2026-08-22) | `geometry_2d.py` |
+
+> → **`model-space-containment-contract.md` C3** (pending implementation): the two **2D geometry**
+> rows above are **superseded** — primitives become definition-local/level-less; `level` +
+> `_level_offset_mm` move onto the placed **Block instance**. As-built today the primitive carries
+> them (rows accurate); they relocate at the contract implementation.
 | **ViewMarker** (elevation/section) | `level` | str | "Level 1" | Marker sits on this level (no Z extent) | `view_marker.py:159` |
 | **DetailMarker** | `level` | str | "Level 1" | Same | `detail_view.py:81` |
 | **DetailMarker** | `_view_height` / `_view_depth` | float \| None | None | Optional Z-range override; inherits from parent plan if None | `detail_view.py:61-62` |
@@ -332,7 +351,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 | Doors/Windows | 0.35 | `DoorOpening`, `WindowOpening` |
 | Pipes | 0.4 | `Pipe` |
 | Nodes | 0.5 | `Node` |
-| 2D geometry | 0.6 (`Z_CAT_CONSTRUCTION` = `Z_CAT_NODE` + 0.1) | `LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem` — draws above building geometry at equal elevation (2026-08-22) |
+| 2D geometry | 0.6 (`Z_CAT_CONSTRUCTION` = `Z_CAT_NODE` + 0.1) | `LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem` — draws above building geometry at equal elevation (2026-08-22). → **Superseded by `model-space-containment-contract.md` C3** (pending impl): 2D primitives become level-less/definition-local; z-ordering derives from the placed **Block instance**, not a primitive `Z_CAT_CONSTRUCTION` band. |
 
 **Static z-values** (not elevation-based) for items outside the elevation system:
 

@@ -234,7 +234,12 @@ tasks**, not part of this design-only deliverable.
 - [x] Rule A honored — invariants live here once; subsystem specs link up, don't restate.
 - [x] No line/LOC counts.
 - [x] SPEC-INDEX updated (new row + stale block-system row fixed + Feature orphan promoted).
-- [ ] Per-spec rewrites (follow-up tasks) land + re-stamp their frontmatter.
+- [x] Per-spec **pointer-annotation stage** landed (2026-09-16): all six affected specs carry a
+      `related-contract:` frontmatter key + a scoped banner + C-invariant-specific section pointers
+      (no body rewrite; as-built bodies left accurate). Convention: uniform `related-contract:` key,
+      per-spec banner states superseded / partially-superseded / augmented / forward-pointer.
+- [ ] Per-spec **full body rewrites + frontmatter re-stamp** — deferred; binds to the containment-contract
+      implementation task (when the code migration lands and the bodies stop describing as-built).
 
 ## Divergences ledger (as-built today vs. this contract)
 
@@ -254,6 +259,8 @@ tasks**, not part of this design-only deliverable.
    **performance spike** (blocking) + implementation are filed as follow-ups.
 2. **Feature system build-out** — Feature Manager (Phase B) + Feature Editor
    (Phase C); adopt composed Blocks (C2) + reconcile existing openings (C2a).
-3. **Per-spec rewrites** — the six deltas in the reconciliation map.
+3. **Per-spec rewrites** — the six deltas in the reconciliation map. **Pointer-annotation stage done
+   2026-09-16** (all six specs carry `related-contract:` + banner + section pointers); the full body
+   rewrites + frontmatter re-stamp bind to the implementation task (item 4).
 4. **Implementation** — the code migration itself (remove loose-geometry model
    authoring, add the Text primitive, ribbon rework, clean-drop load path).

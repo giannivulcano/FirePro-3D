@@ -9,9 +9,20 @@ applies-to:
   # settings dialog internals now governed by specs/settings-dialog.md (this spec owns only the ribbon Settings-group surface that opens it)
   - main.py (init_ribbon + _init_*_tab helpers + contextual-tab mechanism + mode-button sync)
 source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (orphan-gate spec forged on first touch); ribbon-overhaul 2026-08-22 (7 tabs + contextual + Preferences + icons)"
+related-contract: model-space-containment-contract.md   # partially superseded: C7 dissolves Create, adds Architecture Block group, retires Quick/Text-Block. Rest of the ribbon spec stays current.
 ---
 
 # Ribbon Bar — Governing Spec
+
+> **Partially superseded (2026-09-16 — `model-space-containment-contract.md` C7).** The containment
+> contract reworks the ribbon *topology*: **dissolve the Create tab** (2D-geometry tools move to the
+> Block-Editor / Paper contexts, never a Model-space tab); add an **Architecture "Block" group**
+> (Create Block / Insert Block / Block Manager); move the **Underlay group → Architecture**
+> (*tentative*); and **retire the Quick-Block + Text-Block buttons**. This is *target*, not as-built —
+> the contract is `status: proposal` (unbuilt); the base-tab roster and everything else below still
+> describe **current** behavior. The topology change is tracked as **D10** in the Divergences ledger
+> (§7) and lands with the containment-contract ribbon rework (Rule A — the invariant lives in the
+> contract, not restated here).
 
 **Date forged:** 2026-07-16 (Phase 1b orphan gate — reverse-engineered from as-built code)
 **Adjacent docs:** `specs/snap-toolbar.md` (Snap group + SNAP toolbar toggle — owns that surface), `architecture/theming.md` (QSS ownership), `specs/paper-space.md` §17.4 (paper undo dispatch contract), `specs/property-panel.md` (the panel the ribbon must not bypass — see D2), `specs/icon-style-guide.md` (icon authoring contract — owns all icon token/color/naming facts)
@@ -172,3 +183,4 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 | D7 | **Near-zero test coverage** — only `test_osnap_ui.py` touches the ribbon (Snap group). Contextual-tab behavior covered by `test_ribbon_restructure.py` (Preferences, 7-tab roster); mode-button sync and contextual show/hide via real selection need more coverage. | Gap; add coverage opportunistically when touching the ribbon. |
 | D8 | ~~Modify tab always visible + force-switching on selection~~ vs intended Revit-style contextual tab. | **Resolved 2026-08-22** — contextual-tab mechanism built (§3.8); Modify tab removed; `_on_selection_changed_modify` replaced by `_on_selection_changed_contextual`. **Finalized 2026-09-08** — two coupled defects fixed: (1) `_contextual_index` was hardcoded `7` against a **6**-tab base roster, so the tab never auto-activated and never removed on deselect → now derived from the live tab count; (2) titles are now Revit-style **`"Modify | <Element>"`** (concrete element, not the family/`"2D Geometry"` label), resolving the confusion with the Create-tab "2D Geometry" *group*. |
 | D9 | **Paper-scene contextual parity deferred.** The `viewport` and `sheet_text` family keys exist in `_CONTEXTUAL_TABS` but `_on_selection_changed_contextual` only wires to `scene.selectionChanged` (model scene). Paper-space selection does not yet trigger contextual tabs. | Filed follow-up. |
+| D10 | **Containment-contract topology (`model-space-containment-contract.md` C7).** Target: dissolve the **Create** tab (§3.4 row 2 — its Geometry + Blocks groups leave Model Space; 2D-geometry authoring moves to the Block-Editor / Paper contexts); add an Architecture **Block** group (Create/Insert/Manager); move the Manage-tab **Underlay** group (§3.4 row 1) → Architecture (*tentative*); retire the **Quick-Block** + **Text-Block** buttons (the latter not currently documented here — Text becomes a 2D primitive, contract C5). | **Proposal** — contract unbuilt; lands with the containment-contract ribbon rework. |

@@ -6,9 +6,22 @@ applies-to:
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-16
 verified-commit: 428752f
+related-contract: model-space-containment-contract.md   # SUPERSEDES the framing: primitives become Block-definition-local/level-less (C3); Text = a primitive (C5); no model-space placement (C1/C7). Body below is as-built pending implementation.
 ---
 
 # 2D Geometry System
+
+> **Superseded pending implementation (2026-09-16 — `model-space-containment-contract.md`).** The
+> containment contract reframes this whole subsystem: 2D primitives become **Block-definition-local
+> and level-less** (authored inside a Block definition, not placed loose in Model Space — C1/C3);
+> **level scope moves to the Block instance**, so `level`/`_level_offset_mm`/`Z_CAT_CONSTRUCTION` /
+> elevation-z-ordering leave the primitive (C3); **Text becomes a first-class 2D primitive** with a
+> data model unified with paper annotation (C5); and **placement no longer occurs in Model Space** —
+> the 2D-geometry tools live only in the **Block Editor** and **Paper Space** contexts (C7). This is
+> the *target*; the contract is `status: proposal` (**unbuilt** — see its Divergences ledger D1/D3/D4).
+> **The body below still describes as-built, running code** (primitives are live level-scoped model
+> items today) and stays accurate for grounding until the containment-contract implementation lands.
+> Per-section pointers flag the specific deltas; the invariants live once in the contract (Rule A).
 
 Governing spec for the reference / drawing-geometry subsystem: the item models in
 `geometry_2d.py` and their placement layer in `model_space.py`. Closes
@@ -39,6 +52,13 @@ Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a 
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
 
+> → **`model-space-containment-contract.md` C5** (pending implementation) adds **Text** as a
+> first-class 2D primitive (a typeable box, Word-style font), with a data model unified with
+> paper-space annotation. It is authored inside Block definitions like any other primitive; standalone
+> model-space text is retired. *(Count note: the intro says "Eight item classes" but the table already
+> lists nine — a stale count predating `ReferenceLineItem`; corrected in the full body rewrite that
+> binds to the contract implementation, not this pointer stage.)*
+
 **`ReferenceLineItem` (task D, 2026-09-16)** — a non-printing finite reference /
 construction line. Subclasses `LineItem`, so it inherits grips, manipulator
 transforms, translate/rotate, **and SNAP participation** for free (the snap
@@ -67,6 +87,12 @@ Provides level-plane placement + fill for all six classes:
   `level.elevation + offset`; items participate in view-range + elevation-based
   z-ordering at **`Z_CAT_CONSTRUCTION`** (2D geometry wins over building geometry at
   equal elevation; below annotation/symbol/design bands).
+
+> → **`model-space-containment-contract.md` C3** (pending implementation): `level`,
+> `_level_offset_mm`, `Z_CAT_CONSTRUCTION`, and elevation-based z-ordering **move off the primitive**
+> — 2D primitives become definition-local and **level-less**; level scope becomes a property of the
+> placed **Block instance** (also `view-relationships.md §3.3/§7.3`, superseded there in parallel).
+> As-built today the primitive carries these; enforcement moves them at the contract implementation.
 - Fill state: `fill_type` (`none`/`solid`/`hatch`), `fill_pattern`, `fill_opacity`
   (default 0.45, solid only), fill colour on `_display_color`'s sibling
   `_display_fill_color`. `is_fillable()` is true iff `get_closed_path()` returns
@@ -214,6 +240,12 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
   `_selection_ref_segments()`.
 
 ## 4. Placement workflows (`model_space.py`)
+
+> → **`model-space-containment-contract.md` C1/C7** (pending implementation): 2D-geometry placement
+> **no longer occurs in Model Space**. The tools move to the **Block Editor** (authoring) and **Paper
+> Space** contexts; the Create tab is dissolved (`ribbon-bar.md` D10). This whole section describes the
+> as-built model-space placement layer, which is removed at the contract implementation (C8 clean-drop
+> of loose geometry). The 2D-geometry *placement-polish* batch still applies **inside the Block Editor**.
 
 Placement is **single-placement** for 2D geometry + Architecture (user,
 2026-09-16, reverting the 2026-08-24 always-continuous default): a completed

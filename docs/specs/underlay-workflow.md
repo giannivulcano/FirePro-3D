@@ -2,6 +2,7 @@
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
 last-verified: 2026-09-15  # 2026-09-15: DxfImportWorker gained a `preserve_curves` flag (default False → underlay path byte-identical); when set (BlockImportDialog only) ARC/SPLINE emit native `arc`/`spline` dicts instead of tessellating, and dwg_converter bounds/viewport/layout helpers + append_geom_to_path/apply_import_transform handle the `spline` kind. The block-editor curve-import CONTRACT (schemas, rotation) lives in `2d-geometry.md §3.5.3` (Rule A). Prior: §10.7 reconciled 2026-09-08.
 verified-commit: aca3220
+related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -36,6 +37,17 @@ source-tasks:
 
 # Underlay Workflow — Specification
 
+> **Forward-pointer (2026-09-16 containment contract, C4):** the C4 design
+> session resolved into a **target architecture** — an Underlay is a *special
+> case of a Block* (both are imported/placeable reference geometry). See
+> `reference-graphic-model.md`. This spec is **not superseded**: it remains the
+> owner of underlay *mechanics* (import, render/cache, freeze-blit, Manager);
+> `reference-graphic-model.md` owns only the unification *target* (Rule A).
+> Underlay code is **unchanged** until the R4 performance spike + implementation
+> land (both filed as follow-ups). The Underlay ribbon group may move to the
+> **Architecture** tab (`model-space-containment-contract.md` C7) — *tentative,
+> pending the reference-graphic implementation*.
+>
 > **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is current** (Underlay Manager shipped on `feat/underlay-manager`, 2026-08-29 @ `56c8148`). §17 PDF Import Polish shipped 2026-08-28. Sections tagged "(as-built)" reflect shipped code.
 >
 > **Structural note (2026-09-02 — Model_Space decomposition, underlay slice):** the underlay/import concern (~28 methods incl. `_build_batched_underlay_group`, `_on_dxf_finished`, `import_dxf`/`import_pdf`, `replace_underlay`, `refresh_underlay`, `_apply_underlay_display`, `repen_underlay`, `_commit_place_import`, the cache methods) was **relocated** from `model_space.py` into `firepro3d/underlay_controller.py` (`class UnderlayController(scene)`). This spec's `Model_Space.<method>` / `model_space.<method>` references now resolve as **thin delegating shells** on the scene (the real implementations live on the controller) — **behavior is unchanged** (pure relocation; `.fpd` byte-identical, undo untouched). `Model_Space.underlays` is a read-property → `self._underlay_ctl.items`; `underlaysChanged` and `abort_underlay_freeze` stay on the scene; the `UnderlayFreezeController` (§18) **deliberately stays owned by `Model_Space`** as `scene._underlay_freeze`. Governing structural spec: `model-space-architecture.md §5`.
