@@ -71,7 +71,7 @@ class BlockDefinition:
     def __init__(self, *, id: str, version: int, name: str, library: str,
                  series: str, scale_mode: str, origin: tuple[float, float],
                  attributes: list, primitives: list[dict],
-                 render_mode: str = "default"):
+                 render_mode: str = "default", geoms: list[dict] | None = None):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -81,6 +81,12 @@ class BlockDefinition:
         self.origin = (float(origin[0]), float(origin[1]))
         self.attributes = list(attributes)
         self.primitives = list(primitives)
+        # Reference definitions (render_mode="reference") own the curve-preserving,
+        # layer-tagged import geom-dict list. This is the geometry data model for
+        # imported references — rendered by the batched underlay builder (which
+        # also handles text) and persisted via the underlay cache, NOT via
+        # to_dict (keeps .fpd lean). Empty for authored blocks.
+        self.geoms: list[dict] = list(geoms) if geoms else []
         # Render mode (reference-graphic unification, constraint #1):
         #   "default"   — one render op per primitive (authored blocks).
         #   "reference" — one render op per distinct source `layer` tag; the
@@ -92,11 +98,36 @@ class BlockDefinition:
 
     @classmethod
     def new(cls, *, name: str, library: str, series: str,
-            primitives: list[dict], origin: tuple[float, float]) -> "BlockDefinition":
+            primitives: list[dict], origin: tuple[float, float],
+            render_mode: str = "default") -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
-                   attributes=[], primitives=primitives)
+                   attributes=[], primitives=primitives, render_mode=render_mode)
+
+    @classmethod
+    def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
+                             library: str = "", series: str = "") -> "BlockDefinition":
+        """Build a reference definition from imported geom dicts (R1).
+
+        The single import front-end (DXF/DWG/PDF) hands its curve-preserving,
+        layer-tagged geom dicts here. Geometry lives in ``geoms`` (rendered by the
+        batched underlay builder); ``primitives`` stays empty. Raster imports have
+        no geoms and produce a valid empty reference. See
+        docs/specs/reference-graphic-model.md.
+
+        Args:
+            geoms: import geom dicts (worker output; ``_preserve_curves`` path for
+                curve fidelity, each carrying a ``layer`` tag).
+            name/library/series: definition metadata.
+
+        Returns:
+            A ``BlockDefinition`` with ``render_mode="reference"`` and ``geoms`` set.
+        """
+        d = cls.new(name=name, library=library, series=series, primitives=[],
+                    origin=(0.0, 0.0), render_mode="reference")
+        d.geoms = list(geoms) if geoms else []
+        return d
 
     def set_primitives(self, primitives: list[dict]) -> None:
         """Replace captured primitives, bump version, invalidate + notify instances.
@@ -146,26 +177,26 @@ class BlockDefinition:
         return ops
 
     def _compile_reference(self) -> list[tuple[QPen, QPainterPath]]:
-        """Batched compile: accumulate each layer's primitives into one path.
+        """Batched compile: accumulate each layer's geometry into one path.
 
-        Groups primitives by their ``layer`` tag, unioning each layer's geometry
-        into a single cosmetic ``QPainterPath`` (subpaths kept separate via
-        ``addPath``). The result is one ``(QPen, QPainterPath)`` per distinct
-        layer — ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
+        Groups by ``layer`` tag, unioning each layer's geometry into a single
+        cosmetic ``QPainterPath`` (subpaths kept separate via ``addPath``). The
+        result is one ``(QPen, QPainterPath)`` per distinct *geometry* layer —
+        ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
         Per-layer colour/weight is applied downstream by the reference bundle's
         display pass, so the compile pen is a cosmetic default.
+
+        A geom-backed reference (imported) compiles from ``geoms``; text geoms
+        carry no geometry_2d primitive and are excluded here (the batched
+        underlay builder renders them). An authored reference (rare) falls back
+        to ``primitives``.
         """
         ox, oy = self.origin
         by_layer: dict[str, QPainterPath] = {}
         pens: dict[str, QPen] = {}
-        for prim in self.primitives:
-            cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
-            if cls is None:
-                continue
-            item = cls.from_dict(prim)
+        for item, layer in self._reference_items():
             path = item.mapToParent(_local_path(item))
             path.translate(-ox, -oy)                       # origin-relative
-            layer = prim.get("layer", "")
             if layer not in by_layer:
                 by_layer[layer] = QPainterPath()
                 pen = QPen(item.pen())
@@ -173,6 +204,25 @@ class BlockDefinition:
                 pens[layer] = pen
             by_layer[layer].addPath(path)
         return [(pens[layer], by_layer[layer]) for layer in by_layer]
+
+    def _reference_items(self):
+        """Yield ``(primitive_item, layer)`` for the reference compile.
+
+        Geom-backed definitions (imported references) compile from ``geoms`` via
+        the shared ``geom_dicts_to_primitives`` converter (curve-preserving,
+        layer-tagged); otherwise fall back to ``primitives`` (geometry_2d dicts).
+        """
+        if self.geoms:
+            from .geometry_import import geom_dicts_to_primitives
+            items, _ = geom_dicts_to_primitives(self.geoms)
+            for it in items:
+                yield it, getattr(it, "layer", "")
+        else:
+            for prim in self.primitives:
+                cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
+                if cls is None:
+                    continue
+                yield cls.from_dict(prim), prim.get("layer", "")
 
     def to_dict(self) -> dict:
         return {
