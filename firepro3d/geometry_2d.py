@@ -59,6 +59,11 @@ class Geometry2DMixin:
     def init_geometry2d(self, level: str = DEFAULT_LEVEL):
         """Initialise placement + fill state.  Call after init_displayable()."""
         self.level = level
+        # Source-layer tag for imported reference geometry (reference-graphic
+        # unification, R1). Empty for authored primitives — a reference
+        # definition batch-compiles per this tag. See
+        # docs/specs/reference-graphic-model.md.
+        self.layer: str = ""
         self._level_offset_mm: float = 0.0
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
@@ -176,6 +181,8 @@ class Geometry2DMixin:
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it."""
         d["level"] = self.level
+        if getattr(self, "layer", ""):
+            d["layer"] = self.layer
         if self._level_offset_mm != 0.0:
             d["level_offset_mm"] = self._level_offset_mm
         if self.fill_type != "none":
@@ -190,6 +197,7 @@ class Geometry2DMixin:
     def _geom2d_from_dict(self, data: dict):
         """Restore mixin fields from *data*."""
         self.level = data.get("level", DEFAULT_LEVEL)
+        self.layer = data.get("layer", "")
         self._level_offset_mm = data.get("level_offset_mm", 0.0)
         f = data.get("fill")
         if f:

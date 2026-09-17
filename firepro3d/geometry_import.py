@@ -97,10 +97,12 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
     for g in geoms:
         kind = g.get("kind")
         color = g.get("color", "#ffffff")
+        layer = g.get("layer", "")  # source-layer tag (reference-graphic R1)
+        it = None
         if kind == "line":
             try:
-                items.append(LineItem(QPointF(g["x1"] * s, g["y1"] * s),
-                                      QPointF(g["x2"] * s, g["y2"] * s), color))
+                it = LineItem(QPointF(g["x1"] * s, g["y1"] * s),
+                              QPointF(g["x2"] * s, g["y2"] * s), color)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "circle":
@@ -108,7 +110,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 cx = (g["x"] + g["w"] / 2.0) * s
                 cy = (g["y"] + g["h"] / 2.0) * s
                 r = (g["w"] / 2.0) * s
-                items.append(CircleItem(QPointF(cx, cy), r, color))
+                it = CircleItem(QPointF(cx, cy), r, color)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "path_points":
@@ -122,7 +124,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                     poly.append_point(QPointF(px * s, py * s))
                 if g.get("closed"):
                     poly.close()
-                items.append(poly)
+                it = poly
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "spline":
@@ -132,8 +134,8 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 continue
             try:
                 cps = [QPointF(px * s, py * s) for px, py in pts]
-                items.append(SplineItem(cps, int(g.get("degree", 3)),
-                                        g.get("knots"), g.get("weights"), color))
+                it = SplineItem(cps, int(g.get("degree", 3)),
+                                g.get("knots"), g.get("weights"), color)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "arc":
@@ -141,8 +143,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 cx = (g["rx"] + g["rw"] / 2.0) * s
                 cy = (g["ry"] + g["rh"] / 2.0) * s
                 r = (g["rw"] / 2.0) * s
-                items.append(ArcItem(QPointF(cx, cy), r,
-                                     g["start"], g["span"], color))
+                it = ArcItem(QPointF(cx, cy), r, g["start"], g["span"], color)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "ellipse_full":
@@ -151,10 +152,14 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 cy = g["pos_cy"] * s
                 rx = (g["w"] / 2.0) * s
                 ry = (g["h"] / 2.0) * s
-                items.append(EllipseItem(QPointF(cx, cy), rx, ry,
-                                         g.get("rotation", 0.0), color))
+                it = EllipseItem(QPointF(cx, cy), rx, ry,
+                                 g.get("rotation", 0.0), color)
             except (KeyError, TypeError):
                 skipped += 1
         else:
             skipped += 1
+        if it is not None:
+            if layer:
+                it.layer = layer
+            items.append(it)
     return items, skipped
