@@ -2685,7 +2685,9 @@ class TestArcProperties:
         assert props["Radius"]["value"] == "1000.0"
         assert props["Span"]["value"] == "90.0°"
         assert "Start Angle" in props and "Centre" in props
-        assert "Colour" in props and "Line Weight" in props and "Level" in props
+        # Level-less primitive (C3): no "Level" row.
+        assert "Colour" in props and "Line Weight" in props
+        assert "Level" not in props
 
 
 class TestArcReferenceGuides:

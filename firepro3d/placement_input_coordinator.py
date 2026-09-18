@@ -1144,6 +1144,5 @@ class PlacementInputCoordinator:
         from .geometry_2d import GeometryTemplate
         if self._scene._geometry_template is None:
             self._scene._geometry_template = GeometryTemplate()
-        # Sync with active level
-        self._scene._geometry_template.level = self._scene.active_level
+        # Geometry templates are level-less (containment C3) — no level sync.
         return self._scene._geometry_template

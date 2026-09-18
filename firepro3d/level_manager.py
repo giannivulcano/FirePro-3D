@@ -524,33 +524,10 @@ class LevelManager:
         for pipe in scene.sprinkler_system.pipes:
             _set_level_vis(pipe)
 
-        # ── Construction / draw geometry ──────────────────────────────────
-        for item in getattr(scene, "_polylines", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_lines", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_reference_lines", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_rects", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_circles", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_arcs", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_ellipses", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_splines", []):
-            _set_level_vis(item)
-
-        for item in getattr(scene, "_draw_polygons", []):
-            _set_level_vis(item)
+        # Loose 2D primitives no longer live in the plan scene (containment
+        # C1/C3): they are Block-definition-local and level-less, so no
+        # per-primitive level-visibility pass. Level scope is on the block
+        # instance below.
 
         # ── Placed block instances (level-scoped — containment C3) ────────
         for item in getattr(scene, "_block_instances", []):
@@ -640,16 +617,8 @@ class LevelManager:
             "WindowOpening":  Z_CAT_OPENING,
             "Pipe":           Z_CAT_PIPE,
             "Node":           Z_CAT_NODE,
-            # 2D draw / construction geometry — above all building geometry
-            "LineItem":       Z_CAT_CONSTRUCTION,
-            "PolylineItem":   Z_CAT_CONSTRUCTION,
-            "RectangleItem":  Z_CAT_CONSTRUCTION,
-            "CircleItem":     Z_CAT_CONSTRUCTION,
-            "ArcItem":        Z_CAT_CONSTRUCTION,
-            "EllipseItem":    Z_CAT_CONSTRUCTION,
-            "SplineItem":     Z_CAT_CONSTRUCTION,
-            # Placed 2D block instance — heir of the loose-2D-geometry band
-            # (primitives become level-less in C3; the instance is level-scoped).
+            # Placed 2D block instance — heir of the loose-2D-geometry band,
+            # above all building geometry (primitives are now level-less, C3).
             "BlockInstance":  Z_CAT_CONSTRUCTION,
         }
         # Items that always overlay on top regardless of elevation
@@ -737,20 +706,6 @@ class LevelManager:
         # ── Placed block instances (level-scoped — containment C3) ────────
         for item in getattr(scene, "_block_instances", []):
             _apply_elev_z(item)
-
-        # ── 2D draw / construction geometry ───────────────────────────────
-        for _lst in (
-            getattr(scene, "_polylines", []),
-            getattr(scene, "_draw_lines", []),
-            getattr(scene, "_draw_rects", []),
-            getattr(scene, "_draw_circles", []),
-            getattr(scene, "_draw_arcs", []),
-            getattr(scene, "_draw_ellipses", []),
-            getattr(scene, "_draw_splines", []),
-            getattr(scene, "_draw_polygons", []),
-        ):
-            for _it in _lst:
-                _apply_elev_z(_it)
 
         # ── Detail markers ────────────────────────────────────────────────
         dm = getattr(scene, "_detail_manager", None)

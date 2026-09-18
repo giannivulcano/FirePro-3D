@@ -51,14 +51,13 @@ def test_open_spline_not_fillable():
 
 def test_roundtrip_authored():
     s = SplineItem(_cp((0, 0), (10, 20), (30, -10), (40, 5)))
-    s.level = "Level 3"
     d = s.to_dict()
     assert d["type"] == "draw_spline"
+    assert "level" not in d           # level-less primitive (C3)
     s2 = SplineItem.from_dict(d)
     assert [(p.x(), p.y()) for p in s2._control_points] == \
            [(p.x(), p.y()) for p in s._control_points]
     assert s2._degree == s._degree
-    assert s2.level == "Level 3"
 
 
 def test_roundtrip_arbitrary_degree_rational():

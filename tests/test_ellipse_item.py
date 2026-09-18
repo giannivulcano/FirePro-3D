@@ -59,14 +59,13 @@ def test_is_fillable_and_closed_path():
 
 def test_to_from_dict_roundtrip():
     e = _make(40, 20, 30.0)
-    e.level = "Level 2"
     d = e.to_dict()
     assert d["type"] == "draw_ellipse"
+    assert "level" not in d           # level-less primitive (C3)
     e2 = EllipseItem.from_dict(d)
     assert e2._center == e._center
     assert e2._rx == e._rx and e2._ry == e._ry
     assert e2._rotation_deg == e._rotation_deg
-    assert e2.level == "Level 2"
 
 
 def test_translate_moves_center():

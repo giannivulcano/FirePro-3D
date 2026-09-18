@@ -284,8 +284,6 @@ class GeometryDrawingController:
         tmpl = self._scene._get_geometry_template()
         _c, _lw = self._scene._geom_color_lw()
         item = CircleItem(centre, r, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self._scene.addItem(item)
         self._scene._draw_circles.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
@@ -459,8 +457,6 @@ class GeometryDrawingController:
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = EllipseItem(s._ellipse_center, rx, ry, rot, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
@@ -570,8 +566,6 @@ class GeometryDrawingController:
             _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
             _ghost.setCosmetic(True)
             pl.setPen(_ghost)
-            pl.level = tmpl.level
-            pl._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
@@ -858,8 +852,6 @@ class GeometryDrawingController:
         tmpl = self._scene._get_geometry_template()
         _c, _lw = self._scene._geom_color_lw()
         item = RectangleItem(pt1, pt2, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         item.set_angle(angle_deg, self._scene._draw_rect_pivot)
         self._scene.addItem(item)
         self._scene._draw_rects.append(item)
@@ -1177,8 +1169,6 @@ class GeometryDrawingController:
         _c, _lw = s._geom_color_lw()
         item = ArcItem(s._draw_arc_center, s._draw_arc_radius,
                        s._draw_arc_start_deg, span, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1334,8 +1324,6 @@ class GeometryDrawingController:
                                   rotation_deg=angle_deg,
                                   inscribed=s._polygon_inscribed,
                                   color=_c, lineweight=_lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1597,8 +1585,6 @@ class GeometryDrawingController:
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = SplineItem(pts, 3, None, None, _c, _lw)
-        item.level = tmpl.level
-        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         s.addItem(item)
         s._draw_splines.append(item)
         s.clearSelection()            # only the just-placed item stays selected

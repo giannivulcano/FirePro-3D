@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
                          QPolygonF, QTransform)
-from .constants import DEFAULT_LEVEL, Z_CAT_CONSTRUCTION
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import PATTERN_NAMES
 
@@ -56,31 +55,23 @@ class Geometry2DMixin:
     task — do not render fill in paint().
     """
 
-    def init_geometry2d(self, level: str = DEFAULT_LEVEL):
-        """Initialise placement + fill state.  Call after init_displayable()."""
-        self.level = level
+    def init_geometry2d(self):
+        """Initialise fill state.  Call after ``init_displayable(level=None)``.
+
+        2D primitives are **definition-local and level-less** (containment C3):
+        they carry no level / elevation offset — that scope lives on the placed
+        BlockInstance. Only the reference-graphic ``layer`` tag + fill state live
+        here.
+        """
         # Source-layer tag for imported reference geometry (reference-graphic
         # unification, R1). Empty for authored primitives — a reference
         # definition batch-compiles per this tag. See
         # docs/specs/reference-graphic-model.md.
         self.layer: str = ""
-        self._level_offset_mm: float = 0.0
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
         self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
         # fill colour lives in DisplayableItemMixin._display_fill_color
-
-    def z_range_mm(self):
-        """Return ``(elevation, elevation)`` in mm, or ``None`` if unavailable."""
-        sc = self.scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return None
-        lvl = lm.get(getattr(self, "level", None))
-        if lvl is None:
-            return None
-        e = lvl.elevation + self._level_offset_mm
-        return (e, e)
 
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
@@ -111,21 +102,9 @@ class Geometry2DMixin:
         sm = self._g2d_sm()
         return sm.format_length(mm) if sm else f"{mm:.1f}"
 
-    def _elevation_str(self) -> str:
-        zr = self.z_range_mm()
-        if zr is None:
-            return "—"  # em dash
-        return self._fmt(zr[1])
-
     def _geom2d_properties(self) -> dict:
-        props = {
-            "Level":        {"type": "level_ref", "value": self.level},
-            "Level Offset": {"type": "dimension",
-                             "value": self._fmt(self._level_offset_mm),
-                             "value_mm": self._level_offset_mm},
-            "Elevation":    {"type": "string", "value": self._elevation_str(),
-                             "readonly": True},
-        }
+        # Level-less (containment C3): no Level / Level Offset / Elevation rows.
+        props: dict = {}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],
@@ -147,14 +126,6 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
-        if key == "Level":
-            self.level = str(value)
-            return True
-        if key == "Level Offset":
-            parsed = self._parse_dim(value)
-            if parsed is not None:
-                self._level_offset_mm = parsed
-            return True
         if key == "Fill":
             self.fill_type = str(value)
             self.update()
@@ -179,12 +150,9 @@ class Geometry2DMixin:
         return False
 
     def _geom2d_to_dict(self, d: dict) -> dict:
-        """Stamp mixin fields onto *d* and return it."""
-        d["level"] = self.level
+        """Stamp mixin fields onto *d* and return it (level-less — C3)."""
         if getattr(self, "layer", ""):
             d["layer"] = self.layer
-        if self._level_offset_mm != 0.0:
-            d["level_offset_mm"] = self._level_offset_mm
         if self.fill_type != "none":
             d["fill"] = {
                 "type":    self.fill_type,
@@ -195,10 +163,11 @@ class Geometry2DMixin:
         return d
 
     def _geom2d_from_dict(self, data: dict):
-        """Restore mixin fields from *data*."""
-        self.level = data.get("level", DEFAULT_LEVEL)
+        """Restore mixin fields from *data* (level-less — C3).
+
+        Pre-C3 dicts may carry ``level``/``level_offset_mm``; they are ignored.
+        """
         self.layer = data.get("layer", "")
-        self._level_offset_mm = data.get("level_offset_mm", 0.0)
         f = data.get("fill")
         if f:
             self.fill_type = f.get("type", "none")
@@ -249,8 +218,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._points: list[QPointF] = [start]
         self._closed: bool = False
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -258,8 +227,6 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self._lineweight = lineweight   # restored (solid) by finalize() after a dashed ghost
-
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -481,15 +448,13 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         self._pt1 = pt1
         self._pt2 = pt2
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
-
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -717,16 +682,14 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         rect = QRectF(pt1, pt2).normalized()
         super().__init__(rect)
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -1147,16 +1110,14 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         r = radius
         super().__init__(center.x() - r, center.y() - r, 2 * r, 2 * r)
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -1337,8 +1298,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._start_deg = start_deg
         self._span_deg = span_deg
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color), lineweight)
         pen.setCosmetic(True)
@@ -1533,15 +1494,14 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._rotation_deg = float(rotation_deg)
         self._inscribed = bool(inscribed)
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
         self._regenerate()
@@ -1777,15 +1737,14 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._ry = max(float(ry), _AXIS_MIN)
         self._rotation_deg = float(rotation_deg)
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
         self._regenerate()
@@ -2042,15 +2001,14 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                        else (_auto_knots(n, self._degree) if n >= 2 else None))
         self._weights = list(weights) if weights else None
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
         self._regenerate()
@@ -2268,19 +2226,13 @@ class GeometryTemplate:
     """
 
     def __init__(self):
-        self.level: str = DEFAULT_LEVEL
-        self._level_offset_mm: float = 0.0
+        # Level-less (containment C3): geometry templates carry no level.
         self.name: str = "(Template)"
 
     def get_properties(self) -> dict:
         return {
-            "Type":         {"type": "label",     "value": "Geometry"},
-            "Level":        {"type": "level_ref", "value": self.level},
-            "Level Offset": {"type": "dimension", "value": self._level_offset_mm},
+            "Type": {"type": "label", "value": "Geometry"},
         }
 
     def set_property(self, key: str, value):
-        if key == "Level":
-            self.level = str(value)
-        elif key == "Level Offset":
-            self._level_offset_mm = float(value)
+        return

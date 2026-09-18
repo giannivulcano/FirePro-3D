@@ -191,8 +191,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._angle: float = float(data.angle)
         self._pivot: QPointF | None = None
 
-        self.init_displayable(DEFAULT_LEVEL)
-        self.init_geometry2d(DEFAULT_LEVEL)
+        self.init_displayable(level=None)   # level-less primitive (C3)
+        self.init_geometry2d()
 
         self.setZValue(15)
         self.setTransformOriginPoint(0, 0)

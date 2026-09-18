@@ -1419,23 +1419,11 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
     # ── Construction geometry ────────────────────────────────────────────
 
     def _project_geometry_2d(self):
-        ppm = self._ppm()
-        constr_color = QColor("#666666")
-        pen = QPen(constr_color, 1, Qt.PenStyle.DashLine)
-        pen.setCosmetic(True)
-
-        for item in getattr(self._ms, "_draw_lines", []):
-            # These are DrawLine construction lines, never FloorSlabs — floors
-            # are projected via their two-boundary z_range in _project_floor_slabs.
-            z = self._level_z(getattr(item, "level", DEFAULT_LEVEL))
-            wx1, wy1 = self._scene_to_world(item._pt1.x(), item._pt1.y())
-            wx2, wy2 = self._scene_to_world(item._pt2.x(), item._pt2.y())
-            h1, v1 = self._world_to_elev(wx1, wy1, z)
-            h2, v2 = self._world_to_elev(wx2, wy2, z)
-            line = QGraphicsLineItem(h1, v1, h2, v2)
-            line.setPen(pen)
-            line.setZValue(-90)
-            self.addItem(line)
+        # Loose 2D primitives are Block-definition-local and level-less
+        # (containment C1/C3) — they no longer live in the plan scene, so there
+        # is nothing to project into elevation. Block-instance elevation
+        # projection is a deferred Feature-representation concern (grill fork B).
+        return
 
     # ── Level datums ─────────────────────────────────────────────────────
 

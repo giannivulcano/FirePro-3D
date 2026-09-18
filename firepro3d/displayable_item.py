@@ -178,12 +178,18 @@ class DisplayableItemMixin:
     * ``_scale_manager_ref`` — fallback ScaleManager for items not in a scene
     """
 
-    def init_displayable(self, level: str = DEFAULT_LEVEL):
+    def init_displayable(self, level: str | None = DEFAULT_LEVEL):
         """Initialise the shared display attributes.
 
         Call this early in ``__init__`` after the Qt base class constructor.
+
+        Pass ``level=None`` for **level-less** items (the 2D-geometry primitives,
+        which are definition-local per containment C3): no ``level`` attribute is
+        created, so ``hasattr(item, "level")`` is False and the item is never
+        level-filtered. All other display attributes are still set.
         """
-        self.level: str = level
+        if level is not None:
+            self.level: str = level
         self._display_color: str | None = None
         self._display_fill_color: str | None = None
         self._display_overrides: dict = {}

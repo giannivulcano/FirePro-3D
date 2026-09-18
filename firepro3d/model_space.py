@@ -5423,14 +5423,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # applies in draw_line mode (draw_gridline returns above).
         if getattr(self, "_draw_line_variant", "line") == "reference":
             item = ReferenceLineItem(anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
             self.addItem(item)
             self._reference_lines.append(item)
         else:
             item = LineItem(anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
             self.addItem(item)
             self._draw_lines.append(item)
         self.clearSelection()  # only the just-placed item stays selected
@@ -7152,63 +7148,54 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "draw_line":
                 item = LineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_lines.append(item)
 
             elif obj_type == "reference_line":
                 item = ReferenceLineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._reference_lines.append(item)
 
             elif obj_type == "draw_rectangle":
                 item = RectangleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_rects.append(item)
 
             elif obj_type == "draw_circle":
                 item = CircleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_circles.append(item)
 
             elif obj_type == "arc":
                 item = ArcItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_arcs.append(item)
 
             elif obj_type == "draw_ellipse":
                 item = EllipseItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_ellipses.append(item)
 
             elif obj_type == "draw_spline":
                 item = SplineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_splines.append(item)
 
             elif obj_type == "polyline":
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._polylines.append(item)
 
             elif obj_type == "polygon":
                 item = RegularPolygonItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.level = self.active_level
                 self.addItem(item)
                 self._draw_polygons.append(item)
 

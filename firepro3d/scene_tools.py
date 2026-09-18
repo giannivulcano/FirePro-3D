@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem,
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
-from .constants import DEFAULT_LEVEL
 from .node import Node
 
 from .cad_math import CAD_Math
@@ -351,7 +350,6 @@ class SceneTools:
                 for pt in rotated[1:]:
                     pl.append_point(pt)
                 pl.finalize()
-                pl.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(pl)
                 self._scene._polylines.append(pl)
                 # Remove original rect
@@ -414,7 +412,6 @@ class SceneTools:
                 p2 = mp(item._pt2, axis_p1, axis_p2)
                 ln = LineItem(p1, p2, color=item.pen().color().name(),
                               lineweight=item.pen().widthF())
-                ln.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(ln)
                 self._scene._draw_lines.append(ln)
                 new_items.append(ln)
@@ -425,7 +422,6 @@ class SceneTools:
                 for pt in pts[1:]:
                     pl.append_point(pt)
                 pl.finalize()
-                pl.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(pl)
                 self._scene._polylines.append(pl)
                 new_items.append(pl)
@@ -433,7 +429,6 @@ class SceneTools:
                 c = mp(item._center, axis_p1, axis_p2)
                 ci = CircleItem(c, item._radius, color=item.pen().color().name(),
                                 lineweight=item.pen().widthF())
-                ci.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(ci)
                 self._scene._draw_circles.append(ci)
                 new_items.append(ci)
@@ -443,7 +438,6 @@ class SceneTools:
                 br = mp(rect.bottomRight(), axis_p1, axis_p2)
                 ri = RectangleItem(tl, br, color=item.pen().color().name(),
                                    lineweight=item.pen().widthF())
-                ri.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(ri)
                 self._scene._draw_rects.append(ri)
                 new_items.append(ri)
@@ -453,7 +447,6 @@ class SceneTools:
                 ai = ArcItem(c, item._radius, item._start_deg,
                              -item._span_deg, color=item.pen().color().name(),
                              lineweight=item.pen().widthF())
-                ai.level = getattr(item, "level", DEFAULT_LEVEL)
                 self._scene.addItem(ai)
                 self._scene._draw_arcs.append(ai)
                 new_items.append(ai)
@@ -509,7 +502,6 @@ class SceneTools:
         for pt in chain[1:]:
             pl.append_point(pt)
         pl.finalize()
-        pl.level = getattr(items[0], "level", DEFAULT_LEVEL)
         # Remove originals
         for item in items:
             if item.scene() is self._scene:
@@ -595,7 +587,6 @@ class SceneTools:
             arc = ArcItem(QPointF(item._center), item._radius, a2, span,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
-            arc.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_circles:
@@ -626,7 +617,6 @@ class SceneTools:
                           a + 0.5, 359.0,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
-            arc.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_circles:
@@ -648,8 +638,6 @@ class SceneTools:
                          item._start_deg + rel, s - rel,
                          color=item.pen().color().name(),
                          lineweight=item.pen().widthF())
-            a1.level = getattr(item, "level", DEFAULT_LEVEL)
-            a2.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_arcs:
@@ -672,7 +660,6 @@ class SceneTools:
         arc = ArcItem(data["center"], data["radius"], data["start"], data["span"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
-        arc.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
         self._scene.addItem(arc)
         self._scene._draw_arcs.append(arc)
         # Trim lines to tangent points
@@ -694,7 +681,6 @@ class SceneTools:
         ln = LineItem(data["cp1"], data["cp2"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
-        ln.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
         self._scene.addItem(ln)
         self._scene._draw_lines.append(ln)
         setattr(data["item1"], data["near1"], QPointF(data["cp1"]))
@@ -984,7 +970,6 @@ class SceneTools:
                 color = item.pen().color().name()
                 lw = item.pen().widthF()
                 arc = ArcItem(center, r, start, span, color, lw)
-                arc.level = getattr(item, 'level', 'Level 1')
                 self._scene.addItem(arc)
                 self._scene._draw_arcs.append(arc)
 

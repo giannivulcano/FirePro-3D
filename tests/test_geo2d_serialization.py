@@ -138,32 +138,26 @@ def test_undo_roundtrip_offset_and_fill(qapp):
     )
     restored = scene._draw_rects[0]
 
-    assert restored.level == "Level 3"
-    assert restored._level_offset_mm == pytest.approx(99.0)
+    # Level/offset are gone from primitives (C3); fill still round-trips.
     assert restored.fill_type == "hatch"
     assert restored._display_fill_color == "#ffcc00"
 
 
 def test_undo_roundtrip_multiple_rects(qapp):
-    """Multiple rects with different offsets all survive the undo round-trip."""
+    """Multiple rects with different fills all survive the undo round-trip."""
     scene = _make_scene(qapp)
-    _add_rect(scene, level="Level 1", offset=0.0, fill="none", color="#ffffff")
-    _add_rect(scene, level="Level 2", offset=150.0, fill="solid", color="#336699")
+    _add_rect(scene, fill="none", color="#ffffff")
+    _add_rect(scene, fill="solid", color="#336699")
 
     state = scene._capture_network()
 
-    # Wipe both rects' mixin fields
+    # Wipe both rects' fill fields
     for r in scene._draw_rects:
-        r._level_offset_mm = 999.0
-        r.fill_type = "solid"
+        r.fill_type = "hatch"
 
     scene._restore_network(state)
 
     assert len(scene._draw_rects) == 2
-
-    offsets = sorted(r._level_offset_mm for r in scene._draw_rects)
-    assert offsets[0] == pytest.approx(0.0)
-    assert offsets[1] == pytest.approx(150.0)
 
     fill_types = {r.fill_type for r in scene._draw_rects}
     assert "none" in fill_types
@@ -171,24 +165,21 @@ def test_undo_roundtrip_multiple_rects(qapp):
 
 
 def test_to_dict_from_dict_direct(qapp):
-    """Unit-level check: to_dict / from_dict alone round-trip all mixin fields."""
+    """Unit-level check: to_dict / from_dict round-trip fill (level-less — C3)."""
     r = RectangleItem(QPointF(10, 20), QPointF(110, 120))
-    r.level = "Level 2"
-    r._level_offset_mm = 777.5
     r.fill_type = "solid"
     r.fill_pattern = "grid"
     r._display_fill_color = "#deadbe"
 
     d = r.to_dict()
 
-    assert d["level"] == "Level 2"
-    assert d["level_offset_mm"] == pytest.approx(777.5)
+    # Level-less primitive: no level keys in the payload (C3).
+    assert "level" not in d
+    assert "level_offset_mm" not in d
     assert d["fill"]["type"] == "solid"
     assert d["fill"]["color"] == "#deadbe"
 
     r2 = RectangleItem.from_dict(d)
-    assert r2.level == "Level 2"
-    assert r2._level_offset_mm == pytest.approx(777.5)
     assert r2.fill_type == "solid"
     assert r2._display_fill_color == "#deadbe"
 

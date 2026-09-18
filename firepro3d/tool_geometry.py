@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
-from .constants import DEFAULT_LEVEL
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 
@@ -301,7 +300,6 @@ def make_offset_item(source, signed_dist: float):
         new_p1 = QPointF(p1.x() + signed_dist * nx, p1.y() + signed_dist * ny)
         new_p2 = QPointF(p2.x() + signed_dist * nx, p2.y() + signed_dist * ny)
         item = LineItem(new_p1, new_p2, color, lw)
-        item.level = getattr(source, "level", DEFAULT_LEVEL)
         return item
 
     if isinstance(source, PolylineItem):
@@ -314,7 +312,6 @@ def make_offset_item(source, signed_dist: float):
             item.append_point(p)
         if source.is_closed():
             item.close()
-        item.level = getattr(source, "level", DEFAULT_LEVEL)
         return item
 
     if isinstance(source, CircleItem):
@@ -327,7 +324,6 @@ def make_offset_item(source, signed_dist: float):
         cx = scene_rect.center().x()
         cy = scene_rect.center().y()
         item = CircleItem(QPointF(cx, cy), new_r, color, lw)
-        item.level = getattr(source, "level", DEFAULT_LEVEL)
         return item
 
     if isinstance(source, RectangleItem):
@@ -336,7 +332,6 @@ def make_offset_item(source, signed_dist: float):
         if new_r.width() <= 0 or new_r.height() <= 0:
             return None
         item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
-        item.level = getattr(source, "level", DEFAULT_LEVEL)
         return item
 
     if isinstance(source, ArcItem):
@@ -345,7 +340,6 @@ def make_offset_item(source, signed_dist: float):
             return None
         item = ArcItem(source._center, new_r,
                        source._start_deg, source._span_deg, color, lw)
-        item.level = getattr(source, "level", DEFAULT_LEVEL)
         return item
     return None
 
