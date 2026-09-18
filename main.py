@@ -1671,7 +1671,7 @@ class MainWindow(QMainWindow):
         _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
              self._open_block_manager, tip="Manage blocks")
 
-        # --- Underlay (moved from Manage; contract C7 — tentative, pending C4) ---
+        # --- Underlay (moved from Manage to Architecture; contract C7, shipped) ---
         g_ul = build_page.add_group("Underlay")
         _b = g_ul.add_large_button(
             "Underlay\nManager", _I("underlay_manager_icon.svg"),

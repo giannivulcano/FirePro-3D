@@ -238,13 +238,14 @@ tasks**, not part of this design-only deliverable.
       `related-contract:` frontmatter key + a scoped banner + C-invariant-specific section pointers
       (no body rewrite; as-built bodies left accurate). Convention: uniform `related-contract:` key,
       per-spec banner states superseded / partially-superseded / augmented / forward-pointer.
-- [ ] Per-spec **full body rewrites + frontmatter re-stamp** — **in progress**. Done: `scene-io.md`
-      (forged + stamped, C1/C8 slice) and `ribbon-bar.md` (§3.4 roster + D10 resolved + stamped,
-      C7 slice, 2026-09-18). **Remaining** (bind to their governing invariants, now landed): `2d-geometry.md`
-      (definition-local, level-less primitives + Text as 9th — C1/C3/C5), `view-relationships.md` (§3.1
-      compose-by-placement — C1), `block-system.md` ("Feature composes Blocks" + Quick-Block retirement —
-      C2/C7), `model-space-architecture.md` (placement-only + deleted loose paths — C1/C8),
-      `underlay-workflow.md` (ribbon-home move — C7). Tracked as a follow-up doc-reconciliation task.
+- [x] Per-spec **full body rewrites + frontmatter re-stamp** — **complete (2026-09-18, `5cd5941`)**.
+      `scene-io.md` (forged/stamped, C1/C8) + `ribbon-bar.md` (§3.4 roster + D10, C7) landed earlier;
+      the remaining five reconciled with the C3 slice: `2d-geometry.md` (definition-local/level-less
+      primitives + Text as 9th — C1/C3/C5), `view-relationships.md` (§3.1 compose-by-placement + §3.3/
+      §7.3 level-on-instance — C1/C3), `block-system.md` ("Feature composes Blocks" + Quick-Block
+      retirement + BlockInstance level-scope — C2/C3/C7), `model-space-architecture.md` (placement-only
+      via scene_role gate + file-path clean-drop — C1/C8), `underlay-workflow.md` (ribbon-home move —
+      C7). All six affected specs + `scene-io.md` re-stamped `last-verified: 2026-09-18`.
 
 ## Divergences ledger (as-built today vs. this contract)
 
@@ -252,10 +253,10 @@ tasks**, not part of this design-only deliverable.
 |---|---|---|---|
 | D1 | C1 model = placement-only | ✅ **Landed** (feat/containment-contract) — plan `Model_Space.set_mode` refuses the 8 loose primitives + text + dimension via `authoring_allowed()` (scene role) | ~~loose-geometry authoring removed from Model Space~~ |
 | D2 | C2 Feature composes Blocks | Block & Feature are disjoint sibling libraries (`.fpdb`/`.fpdf`) | Feature-system build (Phase B/C) adopts composed Blocks — **deferred** |
-| D3 | C3 level on the instance | 2D primitives are definition-local (level dropped from `TextItem`); full level-on-instance model still pending | primitives fully migrated + level moved to the instance — **deferred** |
+| D3 | C3 level on the instance | ✅ **Landed 2026-09-18** (`feat/containment-c3`) — the 8 non-text primitives + `GeometryTemplate` + `TextItem` are definition-local/level-less (no `level`/`_level_offset_mm`/`z_range_mm`/`Z_CAT_CONSTRUCTION`); `BlockInstance` carries `level` + `_level_offset_mm` + `z_range_mm()`, is filtered by `LevelManager`, exposes Level/Offset/Rotation rows, and round-trips both serialization paths. Dead primitive-level readers deleted across level_manager/view_3d/elevation_scene/scene_tools/tool_geometry | ~~primitives level-less + level moved to the instance~~ |
 | D4 | C5 Text = 9th primitive, unified | ✅ **Landed** — one `TextItem` on `TextAnnotationData` replaces `NoteAnnotation` + `TextAnnotationItem`; compiles to outlined glyphs in `render_ops` | ~~Text primitive added + data model unified~~ |
 | D5 | C7 ribbon topology | ✅ **Landed 2026-09-18** (commit 8c887aa) — Create dissolved (5-tab roster); Architecture Block group; Underlay→Architecture; Quick/Text-Block retired; Text in the Block-Editor palette | ~~ribbon rework lands~~ |
-| D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints are read-but-discarded on load; both serialization paths shed them; legacy paths deleted | ~~legacy load paths deleted~~ |
+| D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints are read-but-discarded on the **`.fpd` file path** (`scene_io` save omits + load discards, one info log); legacy load blocks (incl. hatch migration) deleted. *(The undo path `_capture_network`/`_restore_network` deliberately retains these — it is the shared undo mechanism the Block-Editor `scene_role` depends on; clean-drop is a file-persistence boundary, not an undo boundary.)* | ~~legacy load paths deleted~~ |
 
 ## Deferred work (filed as follow-up tasks)
 

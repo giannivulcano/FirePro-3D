@@ -4,24 +4,24 @@ status: current
 applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-16
-verified-commit: 428752f
-related-contract: model-space-containment-contract.md   # SUPERSEDES the framing: primitives become Block-definition-local/level-less (C3); Text = a primitive (C5); no model-space placement (C1/C7). Body below is as-built pending implementation.
+last-verified: 2026-09-18
+verified-commit: 5cd5941
+related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
 # 2D Geometry System
 
-> **Superseded pending implementation (2026-09-16 — `model-space-containment-contract.md`).** The
-> containment contract reframes this whole subsystem: 2D primitives become **Block-definition-local
-> and level-less** (authored inside a Block definition, not placed loose in Model Space — C1/C3);
-> **level scope moves to the Block instance**, so `level`/`_level_offset_mm`/`Z_CAT_CONSTRUCTION` /
-> elevation-z-ordering leave the primitive (C3); **Text becomes a first-class 2D primitive** with a
-> data model unified with paper annotation (C5); and **placement no longer occurs in Model Space** —
-> the 2D-geometry tools live only in the **Block Editor** and **Paper Space** contexts (C7). This is
-> the *target*; the contract is `status: proposal` (**unbuilt** — see its Divergences ledger D1/D3/D4).
-> **The body below still describes as-built, running code** (primitives are live level-scoped model
-> items today) and stays accurate for grounding until the containment-contract implementation lands.
-> Per-section pointers flag the specific deltas; the invariants live once in the contract (Rule A).
+> **Containment contract landed (C1/C3/C5/C7).** As-built: the 2D primitives are
+> **Block-definition-local and level-less** — authored inside a Block definition (or Paper
+> Space), never placed loose in Model Space (C1). **Level scope lives on the placed Block
+> instance**, not the primitive: `level`/`_level_offset_mm`/`z_range_mm`/`Z_CAT_CONSTRUCTION`/
+> elevation-z-ordering have left `Geometry2DMixin` (C3 — see `block-system.md` +
+> `view-relationships.md §7.3` for the instance-level model). **Text is a first-class 2D
+> primitive** (the 9th) with a data model unified with paper annotation — `TextItem` in
+> `text_item.py` (C5). The 2D-geometry tools live only in the **Block Editor** and **Paper
+> Space** contexts; the Create tab is dissolved (C7 — `ribbon-bar.md`). The containment
+> invariants live once in `model-space-containment-contract.md` (Rule A); this spec links to
+> the C-numbers and owns the primitive mechanics.
 
 > **Reference-graphic unification (2026-09-17, `3c3b00c`):** `Geometry2DMixin`
 > gained an optional `layer` tag (source-layer for imported reference geometry;
@@ -43,7 +43,12 @@ backlog "Spec session: construction geometry system"). Seeded from the 2026-08-2
 
 ## 1. Scope & item models
 
-Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a Qt base:
+**Eight primitive types** live in `geometry_2d.py`, all built on `Geometry2DMixin` +
+`DisplayableItemMixin` + a Qt base (`ReferenceLineItem` is a non-printing variant of `LineItem`,
+listed separately below). **Text is the 9th primitive** (C5) — `TextItem` in `text_item.py`,
+sharing `Geometry2DMixin` but with its own renderer + data model unified with paper annotation
+(governed here for its primitive-family membership; the text data model + paper affordances are in
+`paper-space.md`).
 
 | Class | Base | Shape |
 |---|---|---|
@@ -59,12 +64,13 @@ Eight item classes, all built on `Geometry2DMixin` + `DisplayableItemMixin` + a 
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
 
-> → **`model-space-containment-contract.md` C5** (pending implementation) adds **Text** as a
-> first-class 2D primitive (a typeable box, Word-style font), with a data model unified with
-> paper-space annotation. It is authored inside Block definitions like any other primitive; standalone
-> model-space text is retired. *(Count note: the intro says "Eight item classes" but the table already
-> lists nine — a stale count predating `ReferenceLineItem`; corrected in the full body rewrite that
-> binds to the contract implementation, not this pointer stage.)*
+> **Text (the 9th primitive — C5, landed).** `TextItem` (`text_item.py`) is a typeable box
+> (position, box W/H, wrap, Word-style font) authored inside Block definitions and Paper Space like
+> any other primitive; standalone model-space text is retired. One `TextItem` on `TextAnnotationData`
+> replaces the former `NoteAnnotation` (model) + `TextAnnotationItem` (paper); it compiles to outlined
+> glyphs inside block definitions. Sizing follows the scene (`device_independent_text()`): paper text
+> is zoom-invariant, block-editor text scales with the scene. See `model-space-containment-contract.md`
+> C5 + `paper-space.md`.
 
 **`ReferenceLineItem` (task D, 2026-09-16)** — a non-printing finite reference /
 construction line. Subclasses `LineItem`, so it inherits grips, manipulator
@@ -89,17 +95,20 @@ to a line. Differences:
   Supersedes the removed AutoCAD-style `ConstructionLine` xline.
 
 ### 1.1 `Geometry2DMixin` (the shared contract)
-Provides level-plane placement + fill for all six classes:
-- `level` + `_level_offset_mm` (default 0, +up); `z_range_mm()` → `(elev, elev)` at
-  `level.elevation + offset`; items participate in view-range + elevation-based
-  z-ordering at **`Z_CAT_CONSTRUCTION`** (2D geometry wins over building geometry at
-  equal elevation; below annotation/symbol/design bands).
+Provides **fill + a reference-graphic `layer` tag** for all primitive classes. It is
+**level-less** (containment C3): the mixin carries **no** `level`, `_level_offset_mm`,
+`z_range_mm()` override, or `Z_CAT_CONSTRUCTION` — those left the primitive when level scope
+moved to the placed **Block instance**. `init_geometry2d()` takes no level; primitives call
+`init_displayable(level=None)` so **no `.level` attribute is created** (a level-less primitive's
+`z_range_mm()` falls back to the `DisplayableItemMixin` base → `None`). A pre-C3 primitive dict
+carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
 
-> → **`model-space-containment-contract.md` C3** (pending implementation): `level`,
-> `_level_offset_mm`, `Z_CAT_CONSTRUCTION`, and elevation-based z-ordering **move off the primitive**
-> — 2D primitives become definition-local and **level-less**; level scope becomes a property of the
-> placed **Block instance** (also `view-relationships.md §3.3/§7.3`, superseded there in parallel).
-> As-built today the primitive carries these; enforcement moves them at the contract implementation.
+> → **Level / elevation / Z-order model is owned by the placed Block instance**, not the primitive
+> (`model-space-containment-contract.md` C3): `BlockInstance` carries `level` + `_level_offset_mm` +
+> `z_range_mm()` and is filtered by active level / view-range via `LevelManager`. See
+> `block-system.md` (instance level-scope) + `view-relationships.md §7.3` (Z model) — Rule A.
+- `layer` — source-layer tag for imported reference geometry (empty for authored primitives;
+  omitted from `to_dict` when empty). Owned by `reference-graphic-model.md` (R1); noted here per Rule A.
 - Fill state: `fill_type` (`none`/`solid`/`hatch`), `fill_pattern`, `fill_opacity`
   (default 0.45, solid only), fill colour on `_display_color`'s sibling
   `_display_fill_color`. `is_fillable()` is true iff `get_closed_path()` returns
@@ -248,11 +257,13 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 
 ## 4. Placement workflows (`model_space.py`)
 
-> → **`model-space-containment-contract.md` C1/C7** (pending implementation): 2D-geometry placement
-> **no longer occurs in Model Space**. The tools move to the **Block Editor** (authoring) and **Paper
-> Space** contexts; the Create tab is dissolved (`ribbon-bar.md` D10). This whole section describes the
-> as-built model-space placement layer, which is removed at the contract implementation (C8 clean-drop
-> of loose geometry). The 2D-geometry *placement-polish* batch still applies **inside the Block Editor**.
+> → **Placement is authoring-context only (C1/C7, landed).** 2D-geometry placement **does not occur
+> in the plan Model Space** — the plan scene's `set_mode` refuses the loose primitives via the
+> `scene_role`/`authoring_allowed()` gate (`model-space-containment-contract.md` C1). The tools run in
+> the **Block Editor** scene (`Model_Space(scene_role="block_editor")`) and the **Paper Space** context;
+> the Create tab is dissolved (`ribbon-bar.md`). The dispatch-table + placement mechanics described
+> below are shared machinery, now exercised in those authoring contexts (not the plan scene). Legacy
+> loose plan-scene geometry is clean-dropped on load (C8).
 
 Placement is **single-placement** for 2D geometry + Architecture (user,
 2026-09-16, reverting the 2026-08-24 always-continuous default): a completed
@@ -336,13 +347,16 @@ numerical effort (ellipse-segment = quartic; NURBS projection) for rare use.
 
 Every item type persists through **both** hand-written serializers (memory: dual
 serialization): `_capture_network`/`_restore_network` (undo) **and** `scene_io.py`
-(file), plus copy/paste dispatch and the clipboard-ghost ctors. A new item list
-(e.g. `_draw_polygons`) must also be added to the read/collect helpers that
-enumerate the sibling lists: `_items_on_level`, `_all_geometry_items`
-(`scene_tools.py`), the level-visibility + elevation-z passes (`level_manager.py`),
-`_all_scene_items` (`level_widget.py`), the "2D Geometry" category collector
-(`display_manager.py`), and the 3D renderer (`view_3d.py`). Grep `_draw_arcs`
-across `firepro3d/` to find them all.
+(file), plus copy/paste dispatch and the clipboard-ghost ctors. Serialized dicts are
+**level-less** (C3) — no `level`/`level_offset_mm` keys (the `layer` tag + `fill` block
+persist). These lists live/serialize in the **Block Editor** authoring scene; in the
+**plan** scene they are permanently empty (loose geometry is gated out by C1 and
+clean-dropped on load by C8), so the primitives no longer participate in the plan-scene
+level-visibility / elevation-z / 3D-projection passes (those readers were deleted in the
+C3 slice from `level_manager.py`, `view_3d.py`, `elevation_scene.py`). A new item list
+still threads the collect helpers that enumerate the sibling lists: `_items_on_level`,
+`_all_geometry_items` (`scene_tools.py`), the "2D Geometry" category collector
+(`display_manager.py`). Grep `_draw_arcs` across `firepro3d/` to find them all.
 
 ## 7. Display
 
@@ -351,9 +365,11 @@ for all six item types (mirrors Design Area; no per-category line-weight yet).
 Fill is a per-item property, independent of the category.
 
 ## Cross-references (Rule A — these own the linked facts)
-- Z-order / elevation model → `view-relationships.md §7.3` + `constants.py`.
-- Level-plane placement + fill design → `view-relationships.md §3.3/§7.3`.
-- Ribbon "2D Geometry" group + contextual tab → `ribbon-bar.md §3.8`.
+- **Level / elevation / Z-order model** (now on the placed Block instance, not the primitive) →
+  `block-system.md` (BlockInstance level scope) + `view-relationships.md §7.3` + `constants.py`.
+- **Containment invariants** (placement-only, level-on-instance, Text primitive) →
+  `model-space-containment-contract.md` C1/C3/C5/C7.
+- Ribbon topology (Create dissolved; Block-Editor/Paper authoring contexts) → `ribbon-bar.md`.
 - Snapping engine → `snapping-engine.md`.
 - Units / dimension parsing → `units-and-formatting.md`.
 

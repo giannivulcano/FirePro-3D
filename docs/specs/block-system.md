@@ -1,8 +1,8 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
-last-verified: 2026-09-15
-verified-commit: aca3220
-related-contract: model-space-containment-contract.md   # partially supersedes: "siblings"→C2 (Feature composes Blocks); Quick Block→C7 retirement. Flyweight/library/Manager/Editor bulk stays current.
+last-verified: 2026-09-18
+verified-commit: 5cd5941
+related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
@@ -34,16 +34,17 @@ source-tasks:
 > now so neither library migrates twice. Where this spec reuses an existing pattern it **links** to
 > that pattern's governing spec (Rule A) rather than restating it.
 >
-> **Partially superseded (2026-09-16 — `model-space-containment-contract.md`).** Two framings below
-> are superseded by the containment contract (both *target*, not yet built — contract `status:
-> proposal`; see its Divergences ledger): **(1)** the "Blocks and Features are **sibling libraries**"
-> premise (Motivation) → **C2: a Feature *composes* Blocks** (Features reference Block definitions for
-> their 2D representations; see `feature-system.md`); **(2)** the **Quick Block** entry point → **C7
-> retirement** (its premise — bake a selection of loose *model* geometry — is void under C1's
-> placement-only Model Space). Also per C7/C9, a standalone Block instance is placeable in **both**
-> Model Space *and* Paper Space (paper-placement rules pending — a known gap, see `paper-space.md`).
-> The rest of this spec — the flyweight def/instance core, `.fpdb` library, Manager, and Block
-> Editor — **stays current**. Invariants live once in the contract; this links up (Rule A).
+> **Reconciled to the containment contract (2026-09-18 — `model-space-containment-contract.md`,
+> LANDED in code).** The contract's Block-touching invariants are shipped and woven into the body
+> below: **(1)** the old "Blocks and Features are **sibling libraries**" premise is replaced by **C2:
+> a Feature *composes* Blocks** (a Feature references Block definitions for its 2D representations —
+> Feature build-out itself is still deferred; see `feature-system.md`); **(2)** the **Quick Block**
+> entry point is **retired (C7)** — its premise (bake a selection of loose *model* geometry) is void
+> under C1's placement-only Model Space; **(3)** a placed **`BlockInstance` is level-scoped (C3)** —
+> see the "BlockInstance level scope" subsection below. Per C7/C9 a standalone Block instance is
+> placeable in **both** Model Space *and* Paper Space (paper-placement rules pending — a known gap,
+> see `paper-space.md`). The flyweight def/instance core, `.fpdb` library, Manager, and Block Editor
+> **stay current**. Invariants live once in the contract; this links up (Rule A).
 
 > **Reference-graphic unification (2026-09-17, `3c3b00c`).** `BlockDefinition`
 > gained a `render_mode` (`"default"` = per-primitive compile, unchanged for
@@ -71,12 +72,12 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
   loose-`.json` file-dialog Insert/Create buttons. It is **not** in `scene_io` (blocks don't survive
   a project save), **not** in undo, **orphaned on paste** (`todo_open.md:18/286`), and has no
   library, manager, or tests. It cannot support real drafting content.
-- Blocks and Features are **sibling libraries** (2D drafting content vs. modeled building elements).
-  Settling the shared naming/extension contract now — and building Blocks first as the lower-risk,
-  baggage-free sibling — de-risks the later Feature re-architecture.
-  → **Superseded by `model-space-containment-contract.md` C2** (pending implementation): a Feature
-  *composes* Blocks rather than being a disjoint sibling library. The naming/extension contract below
-  still holds; the "disjoint siblings" relationship does not.
+- A **Feature composes Blocks** (`model-space-containment-contract.md` C2): a Feature references Block
+  definitions for its 2D representations rather than being a disjoint sibling library. (This supersedes
+  the earlier "Blocks and Features are sibling `.fpdb`/`.fpdf` libraries" premise; the shared
+  naming/extension contract below still holds, the disjoint-siblings relationship does not. Feature
+  build-out remains deferred — only the relationship framing is settled.) Building Blocks first as the
+  lower-risk, baggage-free half de-risks the later Feature re-architecture.
 - Reusable plumbing already exists (title-block library I/O, underlay-manager MVC, frameless shell,
   icon loader, feature-browser tree), so v1 is mostly *assembly + one genuinely new piece*
   (a graphical thumbnail cache).
@@ -113,11 +114,37 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - `_block_definitions: dict[str, BlockDefinition]` — project-scoped flyweight registry.
 - `_block_instances: list[BlockInstance]` — placed instances (parallels the existing entity lists).
 - Instances integrate as first-class entities: **selectable, movable, snappable** (`snap_engine`
-  snaps the insertion origin), **level-aware** (active level on place; participates in level
-  visibility), **pre-highlightable**, **display-manager aware**, and **Z-ordered** per the elevation
-  z-model (Z-order is owned by `view-relationships.md §7.3` + `constants.py` — not restated here).
+  snaps the insertion origin), **level-scoped** (see "BlockInstance level scope" below — active level
+  on place; participates in level visibility), **pre-highlightable**, **display-manager aware**, and
+  **Z-ordered** per the elevation z-model (Z-order is owned by `view-relationships.md §7.3` +
+  `constants.py` — not restated here).
+- **Placement surfaces (contract C7/C9):** a standalone Block instance is placeable in **both** Model
+  Space *and* Paper Space. Paper-space placement rules are still a known gap (see `paper-space.md`);
+  the placement mechanics documented here cover the Model-Space path.
 - **`BlockItem` is retired** (class + loose-`.json` Insert/Create buttons + paste path). Removal is
   grep-verified repo-wide and launch-smoked.
+
+### BlockInstance level scope (containment contract C3)
+
+The block **definition** is reusable and context-free — its primitives are **level-less**. "Which
+level does this block show on?" is an **instance** question, so level scope lives on the placed
+`BlockInstance`, not on the definition (`model-space-containment-contract.md` C3).
+
+- **State on the instance:** `level` (defaults to the active level on place) and `_level_offset_mm`
+  (Z/elevation offset from the level plane, `0.0` by default).
+- **Elevation:** `z_range_mm()` returns a degenerate point `(e, e)` where `e =` the level's elevation
+  `+ _level_offset_mm` (a block is a flat 2D graphic pinned to its level plane), mirroring
+  `wall.z_range_mm`; `None` when no `LevelManager` is reachable. The level / elevation / Z model is
+  owned by `view-relationships.md` (§7.3 for Z-order) — not restated here (Rule A).
+- **Filtering:** `LevelManager` filters and z-orders instances exactly like any placed model entity —
+  active-level/view-range visibility over `_block_instances`, and elevation-based z from `z_range_mm()`
+  (heir of the loose-2D band, above all building geometry). Level rename remaps instances too.
+- **Property rows:** the instance exposes **Level**, **Level Offset**, and **Rotation** rows via
+  `get_properties()`/`set_property()` (Level Offset as a `ScaleManager`-formatted dimension; Rotation
+  as a numeric line-edit matching the `RegularPolygonItem`/`EllipseItem` convention).
+- **Serialization (both paths):** level + offset round-trip through **both** the `.fpd` file path
+  (`scene_io`) **and** the undo path (`_capture_network`/`_restore_network`) — `to_dict()` always
+  emits `level` and emits `level_offset_mm` only when non-zero.
 
 ### Reuse (link, don't reinvent)
 
@@ -411,12 +438,13 @@ project registry — **disconnected from all model views**.
   + repaint-all + metadata update); optional delete of `source_items` + one instance at `origin`;
   **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
   same core.
-- **Entry points (6):** Create Block button (blank | seeded-with-selection-**copy** → new `id`);
-  **Quick Block** button (instant consume-and-bake, separate button, `MakeBlockDialog` name)
-  — → **slated for retirement by `model-space-containment-contract.md` C7** (pending implementation:
-  no loose *model* geometry to bake under C1); Manager → Create new (blank); Manager → Create new
-  based off selected (clone geometry + `attributes`, new `id`); Manager → **Open in Editor** (same
-  `id`, edit-in-place).
+- **Entry points:** Create Block button (blank | seeded-with-selection-**copy** → new `id`); Manager →
+  Create new (blank); Manager → Create new based off selected (clone geometry + `attributes`, new
+  `id`); Manager → **Open in Editor** (same `id`, edit-in-place). **Quick Block is retired**
+  (`model-space-containment-contract.md` C7): under C1's placement-only Model Space there is no loose
+  *model* geometry to consume-and-bake, so the separate Quick Block button and its `MakeBlockDialog`
+  instant-bake path are gone. The Create/Insert Block + Block Manager entry commands live in the
+  Architecture "Block" ribbon group (the Create tab is dissolved).
 - **Seeded create is non-destructive:** the editor works on a **copy**; the model is touched only at
   Save via a "replace source with an instance?" prompt (default yes), atomically in the one commit
   undo (source items passed as `source_items`).
@@ -445,5 +473,6 @@ annotative `scale_mode`; text-in-blocks.
 ### Build order
 
 BE1 `geometry_import` + `commit_block_definition` (headless core) · BE2 editor shell + entry-point
-wiring + `BlockSaveDialog` · BE3 Set-Origin tool · BE4 import-into-editor · BE5 Quick Block button +
+wiring + `BlockSaveDialog` · BE3 Set-Origin tool · BE4 import-into-editor · BE5 polish (its Quick
+Block button was retired by containment contract C7) +
 polish. Full slice detail + acceptance criteria in the dated design doc.

@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-15  # 2026-09-15: DxfImportWorker gained a `preserve_curves` flag (default False → underlay path byte-identical); when set (BlockImportDialog only) ARC/SPLINE emit native `arc`/`spline` dicts instead of tessellating, and dwg_converter bounds/viewport/layout helpers + append_geom_to_path/apply_import_transform handle the `spline` kind. The block-editor curve-import CONTRACT (schemas, rotation) lives in `2d-geometry.md §3.5.3` (Rule A). Prior: §10.7 reconciled 2026-09-08.
-verified-commit: aca3220
+last-verified: 2026-09-18  # 2026-09-18: C7 ribbon rework reconciled — the Underlay ribbon group moved from Manage to the Architecture tab (`8c887aa`); the forward-pointer's "tentative/deferred" ribbon-home clause corrected to as-shipped (ribbon topology → `ribbon-bar.md`, Rule A). Prior 2026-09-15: DxfImportWorker gained a `preserve_curves` flag (default False → underlay path byte-identical); when set (BlockImportDialog only) ARC/SPLINE emit native `arc`/`spline` dicts instead of tessellating, and dwg_converter bounds/viewport/layout helpers + append_geom_to_path/apply_import_transform handle the `spline` kind. The block-editor curve-import CONTRACT (schemas, rotation) lives in `2d-geometry.md §3.5.3` (Rule A). Prior: §10.7 reconciled 2026-09-08.
+verified-commit: 5cd5941
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
@@ -49,8 +49,9 @@ source-tasks:
 > geom-dicts); `_build_batched_underlay_group` + `UnderlaySnapIndex` + freeze are
 > **repointed at the definition** (render/snap/cache behavior byte-identical,
 > zero-UX). Underlay import still flattens curves (`_preserve_curves=False`) until
-> follow-up 4b. The Underlay ribbon group may still move to the **Architecture**
-> tab (`model-space-containment-contract.md` C7) — *tentative, deferred*.
+> follow-up 4b. The Underlay ribbon group now lives in the **Architecture** tab
+> (`model-space-containment-contract.md` C7, shipped `8c887aa`; ribbon topology
+> owned by `ribbon-bar.md` — Rule A).
 >
 > **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is current** (Underlay Manager shipped on `feat/underlay-manager`, 2026-08-29 @ `56c8148`). §17 PDF Import Polish shipped 2026-08-28. Sections tagged "(as-built)" reflect shipped code.
 >

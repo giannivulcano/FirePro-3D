@@ -1,10 +1,11 @@
 ---
 status: partial            # current: as-built composition §2/§3 ; proposal: target decomposition §5/§6
-last-verified: 2026-09-06
-verified-commit: ed54d58   # + Feature-placement slice landed (slice 11, new FeaturePlacementController — concern #7 arch-placement: wall + feature done; behavior home §5.3; completes slice-10's _find_wall_at/_offset_along_wall earmark); prior: Wall-placement (slice 10), Arc+Polygon (slice 9), slice 8 (Line/Rect/Circle/Polyline), Placement-input (slice 7), Sprinkler/DA/hydraulic (slice 6), Pipe/Node (slice 5), slices 1 (A+C), 2 (B), 4a+4b (codec), Underlay
-related-contract: model-space-containment-contract.md   # AUGMENTS this spec — records the C1 containment invariant + C8 loose-path deletion (not superseded)
+last-verified: 2026-09-18
+verified-commit: 5cd5941   # + Containment contract LANDED (C1/C5/C7/C8 prior + C3 this session): plan Model_Space is placement-only via scene_role+authoring_allowed; file path clean-drops loose content; 2D primitives are definition-local/level-less. Prior decomposition: Feature-placement (slice 11), Wall-placement (slice 10), Arc+Polygon (slice 9), slice 8 (Line/Rect/Circle/Polyline), Placement-input (slice 7), Sprinkler/DA/hydraulic (slice 6), Pipe/Node (slice 5), slices 1 (A+C), 2 (B), 4a+4b (codec), Underlay
+related-contract: model-space-containment-contract.md   # AUGMENTS this spec — governs the C1 containment invariant + C8 loose-path deletion (LANDED; not superseded)
 applies-to:
   - firepro3d/model_space.py
+  - firepro3d/block_editor.py
   - firepro3d/scene_tools.py
   - firepro3d/scene_io.py
   - firepro3d/pipe_network_controller.py
@@ -21,7 +22,14 @@ source-tasks:
 
 > **Scope of this spec.** This is the *structural* governing spec for the `Model_Space` scene object — its composition, the seams between the concerns living on it, and the contract any decomposition must honor. It does **not** restate the behavior each concern already owns; those are governed by their own specs (see §7) and linked per Rule A. The detailed per-concern method/state census is the dated analysis artifact `docs/superpowers/specs/2026-08-28-model-space-decomposition-map.md`.
 >
-> **Containment invariant (augmented 2026-09-16 — `model-space-containment-contract.md` C1/C8).** A cross-subsystem contract now governs *what may exist in Model Space*: **placed model entities only** (Features, Block instances, Underlays) — **no loose authored 2D geometry, no free markup, no free model-space text** (C1). Consequence for this spec: the loose-geometry drawing paths mapped in §6 (the `GeometryDrawingController` behavior-home slices, the persisted `_draw_*`/`_polylines`/`_draw_arcs`/`_draw_polygons` lists) and the model-space text-note path are **slated for deletion** (C8, clean-drop — no migration), and the §4 `paste_items` loose-geometry drops become moot once those entities no longer exist in the model. **This is a target, not as-built:** today's code still creates and serializes loose geometry (contract `status: proposal`, unbuilt; see its Divergences ledger D1/D6). The invariant lives once, in the contract; this note links up (Rule A) and does not restate C1–C9. Enforcement lands with the containment-contract implementation task (loose-geometry authoring removed from Model Space).
+> **Containment invariant (LANDED 2026-09-18 — `model-space-containment-contract.md` C1/C3/C5/C7/C8).** A cross-subsystem contract governs *what may exist in Model Space*: **placed model entities only** (Features, Block instances, Underlays) — **no loose authored 2D geometry, no free markup, no free model-space text** (C1). This is now **as-built**, enforced on the `Model_Space` core:
+>
+> - **`scene_role` + `authoring_allowed(mode)` gate (C1).** `Model_Space.__init__(scene_role="plan")` tags the scene, and `authoring_allowed(mode)` refuses the loose-authoring modes (`_LOOSE_AUTHORING_MODES` — the draw-* primitives, polyline/polygon/arc, text, dimension) unless `scene_role == "block_editor"`. `set_mode` short-circuits when the gate denies, so the plan scene cannot enter any loose-authoring tool. The invariant lives once, in the contract; this links up (Rule A) and does not restate C1–C9.
+> - **One class, two roles (dual-use).** The *same* `Model_Space` class is reused by the Block Editor with `scene_role="block_editor"` (`block_editor.py`), which **does** permit loose-primitive authoring — Block definitions are built from loose 2D geometry inside the scratchpad. So the persisted geometry lists and the `GeometryDrawingController`/text behavior-homes mapped in §6 are **not deleted** — they remain live for the block-editor role; only *plan-scene authoring* is gated off.
+> - **File path clean-drops loose content (C8).** On the `.fpd` file path (`scene_io.save_to_file` omits the keys; `load_from_file` reads-but-discards) loose 2D geometry, model notes/dimensions, and constraints are silently dropped (one info log on load); legacy load blocks (incl. the retired-hatch migration) deleted. **The undo path (`_capture_network`/`_restore_network`) is deliberately NOT gated** — it still round-trips the geometry lists because it is the shared undo mechanism the block-editor role depends on. **Clean-drop is a `.fpd`-persistence boundary, not an undo boundary.**
+> - **2D primitives are definition-local / level-less (C3).** Level scope moved off loose primitives onto the placed `BlockInstance`; the loose-geometry level readers were deleted across `level_manager`/`view_3d`/`elevation_scene`/`scene_tools`/`tool_geometry`.
+>
+> Consequence for §4: the loose-geometry `paste_items` drops noted there are unreachable in the plan scene (the entities can't be authored there).
 
 ## 1. Goal
 
@@ -52,6 +60,7 @@ These are real gaps between the two serializers / dispatch paths, banked as foll
 - ~~`NoteAnnotation.text_width` lost on undo~~ — **RESOLVED**: both paths pass `text_width` to the ctor via `network_codec.deserialize_note` (slice 4b). Verified by `test_note_text_width_survives_undo`.
 - `wall`/`room`/`floor_slab`/`roof` are captured by copy but have **no `paste_items` branch** → silently dropped on paste. *(Still open — the paste path is Tier-3, deferred out of 4b.)* ~~`block_item` pastes but isn't tracked in any list → orphaned from undo~~ — **RESOLVED** (2026-09-04): the legacy `BlockItem` was retired and replaced by first-class `BlockInstance`/`BlockDefinition` entities tracked in `_block_instances`/`_block_definitions`, undo-captured, and `.fpd`-serialized (see `block-system.md`).
 - Gridline paste is detected by structural heuristic (`"origin"+"angle"`, no `"type"`) — fragile. *(Still open — Tier-3 paste path.)*
+- **Containment note (C1, landed).** Loose-geometry paste rows are unreachable in the *plan* scene (`authoring_allowed` gates the authoring modes; the file path clean-drops on load — C8). They remain live only for the block-editor `scene_role`; treat the loose-geometry paste-path gaps as block-editor-scoped, not plan-scoped.
 - `Room.z_range_mm()` still reads the retired floor `.level`, which new two-boundary slabs don't reliably write. *(Still open — separate bug, not a deserialize-path issue.)*
 
 ## 5. Target composition (proposal — `status: proposal`)
