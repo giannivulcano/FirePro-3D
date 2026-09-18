@@ -27,9 +27,11 @@ source-tasks:
 > [`model-space-containment-contract.md`](model-space-containment-contract.md);
 > this doc does not restate them (Rule A), it links to the C-numbers.
 >
-> **This session's scope:** C5, C1/C8, C7. **Deferred (filed follow-ups):** C3
-> (level-on-instance), C2/C6 (Feature composition), Block-Editor constraints,
-> Paper-space dimension annotations.
+> **This session's scope:** C5, C1/C8, C7. **C3 (level-on-instance) added
+> 2026-09-18** — see [§A5](#a5--c3-level-moves-off-the-primitive-onto-the-block-instance).
+> **Deferred (filed follow-ups):** C2/C6 (Feature composition), Block-Editor
+> constraints, Paper-space dimension annotations, block-instance elevation/3D
+> projection (C3 is plan-view level-filtering only).
 
 ## Goal
 
@@ -145,6 +147,58 @@ Architecture; retire the Quick-Block and Text-Block buttons; add the Text tool t
 the Block-Editor "2D Geometry" group (`_block_mode_buttons`) and the Paper
 context. `_contextual_index` auto-derives from tab count. Governed by
 `ribbon-bar.md` (close D10).
+
+### A5 — C3: level moves off the primitive onto the Block instance
+
+Added 2026-09-18 (grill + reuse sweep on `feat/containment-contract`). Closes
+divergence **D3**. The *what* is contract [C3](model-space-containment-contract.md);
+this is the *how*. **Scope decision (grill):** plan-view active-level / view-range
+filtering only — block-instance **elevation/3D projection is deferred** (a Feature-
+representation concern, C2), so the old primitive→3D and primitive→elevation
+projection paths are *deleted*, not repointed at blocks.
+
+**The 8 non-text primitives become genuinely level-less.** `Geometry2DMixin` sheds
+`level`, `_level_offset_mm`, its `z_range_mm()` override, the Level/Level-Offset/
+Elevation property rows, and the `level`/`level_offset_mm` serialization stamps
+(the `layer` reference-graphic tag stays — R1). Each primitive drops
+`setZValue(Z_CAT_CONSTRUCTION)`. `init_geometry2d()` loses its `level` param;
+primitives call `init_displayable(level=None)` so **no `.level` attribute is created**
+(the param becomes `str | None`; `None` skips the assignment). `GeometryTemplate`
+(the pre-placement default holder) sheds level identically. `TextItem` (the 9th
+primitive, already level-stripped in serialization) rides the same `init_geometry2d`
+change. Inside a `BlockDefinition`, `_compile` never read a primitive's level
+(confirmed), so primitives are inert-level-less there; a pre-C3 definition dict
+carrying `level` is read-and-ignored (no migration, no version bump).
+
+**Full-removal of the now-dead readers (grill fork A).** Every reader of a
+primitive's level is deleted, each A/B'd against branch-point `ac74e67` to prove
+pre-existing-vs-regression: `level_manager` (the 9 loose-list visibility loops +
+the primitive rows in `_Z_CATEGORY` + the loose-list elev-z loop),
+`view_3d` (loose-geo→3D-Z projection), `elevation_scene` (loose-geo level reads),
+`scene_tools` + `tool_geometry` (edit-op level-preservation copies),
+`geometry_drawing_controller` + `model_space` paste (`item.level = …` assignments),
+`placement_input_coordinator` (template.level sync), `property_manager` (the
+primitive level combo). Safe because loose lists are permanently empty in the plan
+scene post-C8, and the Block-Editor scene — the only place primitives live — never
+calls `level_manager`/`view_3d`/`elevation_scene` and doesn't level-filter.
+
+**`BlockInstance` becomes level-scoped by matching the Wall pattern** (reuse, not
+fork): it already has `.level` (serialized); add `_level_offset_mm` and
+`z_range_mm()` → `(elev+off, elev+off)` reading the scene's `_level_manager`
+exactly like `wall.z_range_mm()`. Wire it into `level_manager`: the `_set_level_vis`
+visibility loop (it is already duck-typed on `.level` + `z_range_mm()`, so just add
+a `_block_instances` iteration), the `rename_level` remap set, and `_apply_elev_z`
++ a `_Z_CATEGORY["BlockInstance"]` row — **`BlockInstance` inherits the freed
+`Z_CAT_CONSTRUCTION` band** (a placed 2D block is the heir of loose 2D geometry:
+above building geometry, elevation-ordered by its level). `place_block_instance`
+already assigns `active_level` on placement. Add minimal `get_properties`/
+`set_property` (Level `level_ref` + Level Offset `dimension` + Rotation) so the
+mandated Z-offset is user-reachable (the property panel duck-types `get_properties`).
+Level + offset round-trip through **both** serialization paths (file `to_dict`/
+`from_dict` + `_capture_network`/`_restore_network` — the blocks are already in the
+undo snapshot; extend the dict). **Paper-placed instances:** `PaperScene` never
+level-filters, so a paper block's `.level` is simply inert — no model/paper split
+this slice (grill edge-case 2).
 
 ## Design Decisions
 
