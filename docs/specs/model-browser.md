@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-27
-verified-commit: 3865f77
+last-verified: 2026-09-18   # + Blocks category (placed BlockInstances) added — C3 made blocks first-class level-scoped model entities
+verified-commit: 5cd5941
 applies-to:
   - firepro3d/model_browser.py
 source-tasks: "TODO.md: model browser right-click / Delete-key entity deletion (orphan-gate spec forged on first touch, 2026-08-27)"
@@ -33,7 +33,7 @@ A CAD scene at architectural density is hard to navigate by clicking geometry al
 - The `_syncing` guard brackets every programmatic selection/rebuild so `itemSelectionChanged` / `itemChanged` handlers don't recurse into the scene and back.
 
 ### 3.3 Categories listed
-Walls, Floors, Roofs, Rooms, Doors, Windows, Pipes, Nodes, Gridlines, Design Areas, Water Supply, and Underlays (file nodes + DXF layer children / PDF page child). Category roots show live counts and are bold.
+Walls, Floors, Roofs, Rooms, **Blocks** (placed `BlockInstance`s — labelled by definition name, tooltip = level; C3), Doors, Windows, Pipes, Nodes, Gridlines, Design Areas, Water Supply, and Underlays (file nodes + DXF layer children / PDF page child). Category roots show live counts and are bold; the optional categories (Blocks, Gridlines, Design Areas, Underlays) appear only when non-empty.
 
 ### 3.4 Selection sync (two-way)
 - **Tree → scene:** `_on_selection_changed` clears the scene selection and `setSelected(True)` on each resolved entity, then emits `entitySelected` (single entity or list) so the property panel updates. Underlay **file** nodes route to `_on_underlay_selected` (pan + select-if-unlocked) instead.

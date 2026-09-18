@@ -233,6 +233,21 @@ class ModelBrowser(QWidget):
                 item.setToolTip(0, f"Level: {room.level}  Tag: {getattr(room, '_tag', '')}")
                 self._style_hidden(item, room)
 
+            # -- Blocks --
+            blocks = getattr(self._scene, "_block_instances", [])
+            if blocks:
+                blocks_root = QTreeWidgetItem(self._tree, [f"Blocks ({len(blocks)})"])
+                blocks_root.setFont(0, f_bold)
+                blocks_root.setExpanded(True)
+                for i, inst in enumerate(blocks, 1):
+                    defn = inst.definition()
+                    label = (defn.name if defn and getattr(defn, "name", "")
+                             else getattr(inst, "block_id", f"Block {i}"))
+                    item = QTreeWidgetItem(blocks_root, [label])
+                    item.setData(0, _ROLE_ENTITY, id(inst))
+                    item.setToolTip(0, f"Level: {inst.level}")
+                    self._style_hidden(item, inst)
+
             # -- Doors --
             doors: list = []
             for wall in walls:
@@ -438,6 +453,9 @@ class ModelBrowser(QWidget):
         for room in getattr(self._scene, "_rooms", []):
             if id(room) == entity_id:
                 return room
+        for inst in getattr(self._scene, "_block_instances", []):
+            if id(inst) == entity_id:
+                return inst
         for da in getattr(self._scene, "design_areas", []):
             if id(da) == entity_id:
                 return da
