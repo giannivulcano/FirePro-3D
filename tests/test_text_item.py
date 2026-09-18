@@ -93,3 +93,21 @@ def test_text_item_has_no_level_properties(qapp):
     assert "Level" not in keys
     assert "Level Offset" not in keys
     assert "Elevation" not in keys
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# render_outline_path — glyph-outline path for block-content compile (C5.4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_outline_path_nonempty_and_positive_height(qapp):
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    t = TextItem(TextAnnotationData(text="A", x=0.0, y=0.0, height_mm=10.0))
+    path = t.render_outline_path()
+    assert not path.isEmpty()
+    assert path.boundingRect().height() > 0.0
+
+
+def test_empty_text_outline_is_empty(qapp):
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    t = TextItem(TextAnnotationData(text="", height_mm=10.0))
+    assert t.render_outline_path().isEmpty()

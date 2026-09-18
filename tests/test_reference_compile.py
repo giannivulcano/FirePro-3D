@@ -49,7 +49,7 @@ def test_reference_mode_emits_one_op_per_layer(qapp):
     ops = d.render_ops()
     assert len(ops) == 3          # 3 distinct layers, NOT 5 primitives
     # And each op has real geometry (union path non-empty).
-    for _pen, path in ops:
+    for _pen, _brush, path in ops:
         assert not path.boundingRect().isNull()
 
 

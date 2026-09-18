@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import uuid
 
-from PyQt6.QtGui import QPainterPath, QPen
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
 
 from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
     EllipseItem, SplineItem,
 )
+from .text_item import TextItem
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
 _PRIMITIVE_FACTORY = {
@@ -26,6 +28,7 @@ _PRIMITIVE_FACTORY = {
     "polygon": RegularPolygonItem,
     "draw_ellipse": EllipseItem,
     "draw_spline": SplineItem,
+    "text": TextItem,
 }
 
 
@@ -38,6 +41,10 @@ def _local_path(item) -> QPainterPath:
     Returns:
         A ``QPainterPath`` describing the primitive in its local coordinate frame.
     """
+    # TextItem contributes filled glyph outlines (bake-at-rest rotation already
+    # applied inside render_outline_path — see its docstring).
+    if hasattr(item, "render_outline_path"):
+        return item.render_outline_path()
     from PyQt6.QtWidgets import (
         QGraphicsLineItem, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsPathItem,
     )
@@ -93,7 +100,7 @@ class BlockDefinition:
         #                 batched-per-layer compile that keeps a 437k-geom DXF
         #                 interactive. See docs/specs/reference-graphic-model.md.
         self.render_mode = render_mode or "default"
-        self._render_ops: list[tuple[QPen, QPainterPath]] | None = None
+        self._render_ops: list[tuple[QPen, QBrush, QPainterPath]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
 
     @classmethod
@@ -142,19 +149,21 @@ class BlockDefinition:
         for inst in list(self._instances):
             inst.on_definition_changed()
 
-    def render_ops(self) -> list[tuple[QPen, QPainterPath]]:
-        """Return the cached, shared (pen, path) render-op list (compiled once).
+    def render_ops(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
+        """Return the cached, shared (pen, brush, path) render-op list.
 
         Returns:
-            A list of ``(QPen, QPainterPath)`` tuples in definition-local,
-            origin-relative coordinates. The same list identity is returned on
-            every call until :meth:`set_primitives` invalidates the cache.
+            A list of ``(QPen, QBrush, QPainterPath)`` tuples in definition-local,
+            origin-relative coordinates. Stroked geometry carries a ``NoBrush``;
+            text carries a ``NoPen`` + a solid colour brush (filled glyph
+            outlines). The same list identity is returned on every call until
+            :meth:`set_primitives` invalidates the cache.
         """
         if self._render_ops is None:
             self._render_ops = self._compile()
         return self._render_ops
 
-    def _compile(self) -> list[tuple[QPen, QPainterPath]]:
+    def _compile(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
         """Compile captured primitive dicts into origin-relative render ops.
 
         In ``reference`` mode the ops are batched per source layer (one op per
@@ -165,24 +174,34 @@ class BlockDefinition:
         if self.render_mode == "reference":
             return self._compile_reference()
         ox, oy = self.origin
-        ops: list[tuple[QPen, QPainterPath]] = []
+        ops: list[tuple[QPen, QBrush, QPainterPath]] = []
         for prim in self.primitives:
             cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
             if cls is None:
                 continue
             item = cls.from_dict(prim)
+            # _local_path returns the glyph outline for text (rotation baked);
+            # mapToParent applies the item's pos (data.x/y) in both cases.
             path = item.mapToParent(_local_path(item))   # honor prim pos/rotation
             path.translate(-ox, -oy)                       # origin-relative
-            ops.append((QPen(item.pen()), path))
+            if hasattr(item, "render_outline_path"):
+                # Text primitive: fill the glyph outline (no stroke). pen() does
+                # not exist on TextItem; the fill colour is the authored colour.
+                pen = QPen(Qt.PenStyle.NoPen)
+                brush = QBrush(QColor(item.data.color))
+            else:
+                pen = QPen(item.pen())
+                brush = QBrush(Qt.BrushStyle.NoBrush)
+            ops.append((pen, brush, path))
         return ops
 
-    def _compile_reference(self) -> list[tuple[QPen, QPainterPath]]:
+    def _compile_reference(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
         """Batched compile: accumulate each layer's geometry into one path.
 
         Groups by ``layer`` tag, unioning each layer's geometry into a single
         cosmetic ``QPainterPath`` (subpaths kept separate via ``addPath``). The
-        result is one ``(QPen, QPainterPath)`` per distinct *geometry* layer —
-        ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
+        result is one ``(QPen, QBrush, QPainterPath)`` per distinct *geometry*
+        layer — ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
         Per-layer colour/weight is applied downstream by the reference bundle's
         display pass, so the compile pen is a cosmetic default.
 
@@ -203,7 +222,10 @@ class BlockDefinition:
                 pen.setCosmetic(True)
                 pens[layer] = pen
             by_layer[layer].addPath(path)
-        return [(pens[layer], by_layer[layer]) for layer in by_layer]
+        # Reference geometry is stroked (text is excluded here — see docstring),
+        # so every op carries a NoBrush for a consistent 3-tuple shape.
+        no_brush = QBrush(Qt.BrushStyle.NoBrush)
+        return [(pens[layer], no_brush, by_layer[layer]) for layer in by_layer]
 
     def _reference_items(self):
         """Yield ``(primitive_item, layer)`` for the reference compile.

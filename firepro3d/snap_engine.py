@@ -1122,7 +1122,7 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _pen, path in item.render_ops():
+                for _pen, _brush, path in item.render_ops():
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
                         if el.type in _on_curve:

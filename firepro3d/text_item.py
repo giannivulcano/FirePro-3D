@@ -423,6 +423,60 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             painter.drawRect(box)
         painter.restore()
 
+    # ── Glyph-outline path (block-content compile; containment C5.4) ────────
+
+    def render_outline_path(self) -> QPainterPath:
+        """Return the text as filled glyph outlines in the item's LOCAL frame.
+
+        Document-faithful: laid out through the live ``QTextDocument`` so wrap
+        width, alignment, box height and line breaks are honoured (per design
+        §A2 — NOT a single ``addText`` of the raw string).  The glyph runs are
+        outlined at the layout-computed baseline of each line and united into
+        one path.
+
+        The path is in the same LOCAL, unscaled coordinate frame that
+        ``_box_rect_local``/``grip_points`` use (font pixel size is baked so the
+        cap height equals ``height_mm`` in local units; ``setScale`` is 1 for a
+        model/block-editor scene — the surface a block is authored on).  The
+        item's bake-at-rest rotation (``self._angle`` about its pivot) is applied
+        to the returned path directly, because ``BlockDefinition._compile`` maps
+        primitives via Qt ``mapToParent`` which does NOT see the data-baked
+        rotation.
+
+        Returns an empty ``QPainterPath`` for empty text.
+        """
+        text = self._data.text or ""
+        if text.strip() == "":
+            return QPainterPath()
+
+        doc = self.document()
+        doc.documentLayout().documentSize()   # force the lazy layout to run
+        font = self.font()
+        outline = QPainterPath()
+        block = doc.begin()
+        while block.isValid():
+            layout = block.layout()
+            block_pos = layout.position()      # block's offset within the document
+            block_text = block.text()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                # Each newline starts a NEW block (not a new line in one block),
+                # so the baseline is block_offset + intra-block line y + ascent.
+                base_x = block_pos.x() + line.x()
+                base_y = block_pos.y() + line.y() + line.ascent()
+                start = line.textStart()
+                length = line.textLength()
+                # A block never contains a newline (Qt splits blocks on \n), so
+                # the run text is used as-is.
+                run_text = block_text[start:start + length].rstrip("  \n")
+                if run_text:
+                    outline.addText(QPointF(base_x, base_y), font, run_text)
+            block = block.next()
+
+        if self._angle != 0.0:
+            outline = self._rotation_transform().map(outline)
+        return outline
+
     # ── Grip protocol (9 box grips) ─────────────────────────────────────────
     # Indices (clockwise from top-left, matching RectangleItem/NoteAnnotation):
     #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
