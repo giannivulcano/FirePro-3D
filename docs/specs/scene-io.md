@@ -1,7 +1,7 @@
 ---
-status: partial
+status: current
 last-verified: 2026-09-17
-verified-commit: b6fd17f
+verified-commit: 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -12,16 +12,13 @@ source-tasks:
 
 # Scene I/O — the `.fpd` project format
 
-> **Status: partial.** The *current* format contract below is code-verified. The
-> **clean-drop invariant** (§5) is a **target** introduced by containment
-> contract [C8](model-space-containment-contract.md) and is **not yet built** —
-> today loose geometry / model text / model dimensions still serialize and
-> restore normally (see Divergences). This spec is forged on first touch
-> (orphan-gate) so the format contract is pinned before the C1/C8 migration edits
-> both serialization paths.
->
-> Promotes the thin `architecture/io.md`. Project extension is `.fpd`
-> (see [`project_file_extension_fpd`]).
+> **Status: current.** The format contract (§2/§3) and the **clean-drop
+> invariant** (§5, containment [C8](model-space-containment-contract.md)) are both
+> code-verified as of the C1/C8 slice: standalone loose geometry / model text /
+> model dimensions no longer serialize, and legacy ones are silently discarded on
+> load. Forged on first touch (orphan-gate); promotes the thin
+> `architecture/io.md`. Project extension is `.fpd` (see
+> [`project_file_extension_fpd`]).
 
 ## Goal
 
@@ -81,10 +78,10 @@ dropped; a legacy `HatchItem` block is migrated by re-creating filled
 `PolylineItem`s; title-block address keys are migrated one-way. These are
 load-only — save never writes the legacy shapes.
 
-### §5 — Clean-drop invariant (TARGET — containment C8, not yet built)
+### §5 — Clean-drop invariant (containment C8 — built)
 
 Under containment contract [C1/C8](model-space-containment-contract.md), Model
-Space becomes placement-only. The format contract gains a **clean-drop
+Space is placement-only. The format contract enforces a **clean-drop
 invariant**:
 
 - **Forbidden content is read-but-discarded, silently.** On load, the payload
@@ -113,21 +110,24 @@ invariant**:
   metadata persist normally.
 
 ## Acceptance Criteria
-- [ ] (current) Save→load round-trips every listed entity collection; `.bak`
+- [x] Save→load round-trips every surviving entity collection; `.bak`
       atomic-write behaviour holds.
-- [ ] (target C8) A legacy `.fpd` with loose geometry / notes / dimensions /
+- [x] (C8) A legacy `.fpd` with loose geometry / model text / notes / dimensions /
       constraints / hatch loads with those discarded, no exceptions, counts
-      logged; a re-save omits them; `_restore_network` does not reintroduce them.
-- [ ] (target C8) Both serialization paths edited together (§1 invariant intact).
+      logged; a re-save omits them.
+- [x] (C8) Clean-drop is FILE-path only; the undo path retains loose-geometry/text
+      capture for the Block-Editor scratchpad (§5) — plan scenes are empty via the
+      gate so nothing is reintroduced.
 
 ## Verification Checklist
-- [ ] Format claims match `scene_io.py` at the stamped commit.
-- [ ] §1 dual-path invariant honoured by any entity-set change.
-- [ ] Rule A: Z-order/level/units facts are linked to their owning specs, not
+- [x] Format claims match `scene_io.py` at the stamped commit.
+- [x] §1 dual-path invariant honoured, with the deliberate file-vs-undo asymmetry
+      documented in §5 (clean-drop is file-path only).
+- [x] Rule A: Z-order/level/units facts are linked to their owning specs, not
       restated here.
 
-## Divergences ledger (as-built today vs. this spec's §5 target)
+## Divergences ledger
 
-| # | Target (§5) | As-built today | Closes when |
+| # | Target (§5) | Status | Closed |
 |---|---|---|---|
-| S1 | Forbidden content read-but-discarded | Loose geometry / notes / dimensions / constraints deserialize and restore normally; legacy hatch re-creates `PolylineItem`s | C1/C8 slice lands the authoring gate + clean-drop |
+| S1 | Forbidden content read-but-discarded on load; save omits it | **CLOSED** — authoring gate + silent clean-drop landed in the C1/C8 slice (`scene_io.py`); undo path retains loose-geometry capture for the Block-Editor scratchpad (file-vs-undo asymmetry, §5) | C1/C8 slice |
