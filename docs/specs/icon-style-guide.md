@@ -1,7 +1,7 @@
 ---
 status: current
 last-verified: 2026-09-18
-verified-commit: cf6e8fd
+verified-commit: b9feafb
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
@@ -61,6 +61,8 @@ Every colour value in an SVG icon **MUST** be exactly one of two authoring senti
 `fill:none` and `stroke:none` are allowed and survive recolouring untouched. Any other literal hex colour value (e.g. `#FF0000`, `#888888`) is **forbidden** — it will not retheme and will produce a visual defect in one or both themes.
 
 8-digit hex values (e.g. `#1A1A1A80`) are ignored by the substitution engine (see §4.3) and therefore also forbidden.
+
+**Carve-out — white grip fill on 2D-geometry control-point markers.** The 2D-geometry icon family (`line`, `rectangle`, `circle`, `arc`, `polyline`, `polygon`, `ellipse`, `spline`) draws its control-point / node markers as **white-filled accent-ringed dots** — `fill:#ffffff` inside a `stroke:#004CFF` ring — mirroring the CAD grip convention (a white grip with a coloured border). `#ffffff` is therefore an **allowed** literal *for those marker fills only*. It is intentionally non-rethemeing: the accent ring carries the marker in the light theme (where the white fill blends into the light ribbon surface), and the white pops in the dark theme. This is the sole permitted non-sentinel colour, scoped to grip fills on geo icons; the guard `test_geom2d_icons_exist_and_are_two_token_compliant` encodes it via `_GEOM2D_ALLOWED_HEX`. Everywhere else (glyph strokes, main fills, all non-geo icons) the two-token rule stands unmodified.
 
 ### 4.2 Per-theme token table
 
