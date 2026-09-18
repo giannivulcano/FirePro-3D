@@ -145,9 +145,10 @@ def test_edit_revisions_via_callback_updates_and_undoable(qapp, monkeypatch):
     new_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
 
     class _FakeRevDlg:
-        def __init__(self, revisions, parent=None): pass
+        def __init__(self, revisions, parent=None, *, project_info=None): pass
         def exec(self): return 1  # Accepted
         def result_revisions(self): return list(new_revs)
+        def selected_date_format(self): return "MM/DD/YYYY"
 
     monkeypatch.setattr("firepro3d.paper_space.RevisionsDialog", _FakeRevDlg)
 
@@ -169,12 +170,91 @@ def test_edit_revisions_no_change_guard(qapp, monkeypatch):
     count_before = scene.undo_stack.count()
 
     class _FakeRevDlgIdentical:
-        def __init__(self, revisions, parent=None): self._r = list(revisions)
+        def __init__(self, revisions, parent=None, *, project_info=None):
+            self._r = list(revisions)
         def exec(self): return 1
         def result_revisions(self): return list(self._r)
+        def selected_date_format(self): return "MM/DD/YYYY"
 
     monkeypatch.setattr("firepro3d.paper_space.RevisionsDialog", _FakeRevDlgIdentical)
 
     sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
     sp.get_properties()[""]["callback"]()
     assert scene.undo_stack.count() == count_before, "no-op revisions must not push undo"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task C: date picker + project-scoped date format
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_parse_date_to_iso():
+    from firepro3d.paper_space import parse_date_to_iso
+    assert parse_date_to_iso("2026-09-15") == "2026-09-15"
+    assert parse_date_to_iso("09/15/2026") == "2026-09-15"
+    assert parse_date_to_iso("") == ""
+    assert parse_date_to_iso("not a date") is None       # → caller preserves raw
+
+
+def test_format_date_display():
+    from firepro3d.paper_space import format_date_display
+    assert format_date_display("2026-09-15", "MM/DD/YYYY") == "09/15/2026"
+    assert format_date_display("2026-09-15", "DD MMM YYYY") == "15 Sep 2026"
+    assert format_date_display("", "MM/DD/YYYY") == ""
+    assert format_date_display("Q3-2026", "MM/DD/YYYY") == "Q3-2026"   # legacy kept
+
+
+def test_build_field_values_formats_revision_dates_display_only(qapp):
+    from firepro3d.paper_space import build_field_values, Sheet
+    sheet = Sheet.create_default()
+    sheet.revisions = [{"no": "1", "description": "IFC", "date": "2026-09-15"}]
+    vals = build_field_values(sheet, {"date_format": "DD MMM YYYY"})
+    assert vals["__revisions__"][0]["date"] == "15 Sep 2026"   # display formatted
+    assert sheet.revisions[0]["date"] == "2026-09-15"          # storage untouched
+
+
+def test_revisions_dialog_date_picker_stores_iso(qapp):
+    from firepro3d.paper_space import RevisionsDialog
+    dlg = RevisionsDialog([{"no": "1", "description": "IFC", "date": "2026-09-15"}],
+                          project_info={"date_format": "MM/DD/YYYY"})
+    out = dlg.result_revisions()
+    assert out[0]["date"] == "2026-09-15"      # ISO storage regardless of display
+
+
+def test_revisions_dialog_empty_date_defaults_today(qapp):
+    from firepro3d.paper_space import RevisionsDialog
+    from PyQt6.QtCore import QDate
+    dlg = RevisionsDialog([{"no": "1", "description": "IFC", "date": ""}],
+                          project_info={})
+    today = QDate.currentDate().toString("yyyy-MM-dd")
+    assert dlg.result_revisions()[0]["date"] == today   # empty → today (Task D)
+
+
+def test_revisions_dialog_preserves_legacy_unparseable_date(qapp):
+    from firepro3d.paper_space import RevisionsDialog
+    dlg = RevisionsDialog([{"no": "1", "description": "IFC", "date": "Q3-2026"}],
+                          project_info={})
+    assert dlg.result_revisions()[0]["date"] == "Q3-2026"     # untouched → kept
+
+
+def test_revisions_dialog_reports_selected_format(qapp):
+    from firepro3d.paper_space import RevisionsDialog
+    dlg = RevisionsDialog([], project_info={"date_format": "DD MMM YYYY"})
+    assert dlg.selected_date_format() == "DD MMM YYYY"
+
+
+def test_open_revisions_dialog_format_only_change_writes_project_info(qapp, monkeypatch):
+    from firepro3d import paper_space
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sheet.revisions = [{"no": "1", "description": "IFC", "date": "2026-09-15"}]
+
+    class _FakeFmtDlg:
+        def __init__(self, revisions, parent=None, *, project_info=None):
+            self._r = list(revisions)
+        def exec(self): return 1
+        def result_revisions(self): return list(self._r)     # revisions unchanged
+        def selected_date_format(self): return "DD MMM YYYY"
+
+    monkeypatch.setattr(paper_space, "RevisionsDialog", _FakeFmtDlg)
+    paper_space.open_revisions_dialog(scene, sheet, None)
+    assert scene._scene_project_info.get("date_format") == "DD MMM YYYY"

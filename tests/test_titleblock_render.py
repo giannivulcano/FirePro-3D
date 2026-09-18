@@ -634,10 +634,12 @@ from firepro3d.paper_space import PaperScene, ViewResolver
 
 
 class TestResolutionChain:
-    """§8.1 template-first resolution chain tests.
+    """Title-block resolution tests (Task A).
 
-    These tests exercise PaperScene.set_template() and the _setup priority
-    ordering: template → DXF → PDF → programmatic.
+    A project template that MATCHES the sheet renders; otherwise the sheet is
+    BLANK and sets ``titleblock_warning`` (status-bar nudge). The legacy CEL
+    DXF/PDF and the programmatic fallback were removed — the programmatic
+    ``TitleBlockItem`` is kept but always hidden.
     """
 
     def _scene(self, template=None, size="ANSI D"):
@@ -656,21 +658,26 @@ class TestResolutionChain:
         assert "TitleBlockTemplateItem" in kinds
         assert "TitleBlockDxfItem" not in kinds
 
-    def test_no_template_renders_legacy_chain(self):
+    def test_no_template_renders_blank_with_warning(self):
+        """Task A: no template → BLANK sheet + nudge (no CEL DXF/PDF fallback)."""
         sc, _ = self._scene(None)
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds
-        # ANSI D has a CEL DXF on disk in this repo
-        assert "TitleBlockDxfItem" in kinds or "TitleBlockItem" in kinds
+        assert "TitleBlockDxfItem" not in kinds
+        assert "TitleBlockPdfItem" not in kinds
+        # Programmatic block kept for the title_block property but hidden.
+        assert sc.title_block is not None and not sc.title_block.isVisible()
+        assert sc.titleblock_warning           # status-bar nudge to build one
 
-    def test_size_mismatch_falls_back_with_warning(self):
-        """Rev2: template with ANSI D paper_size on an ANSI B sheet → warning + fallback."""
+    def test_size_mismatch_blank_with_warning(self):
+        """Task A: template on the wrong-size sheet → BLANK + mismatch warning."""
         t = make_default_template()  # paper_size="ANSI D"
-        # Put it on an ANSI B sheet → mismatch
-        sc, _ = self._scene(t, size="ANSI B")
+        sc, _ = self._scene(t, size="ANSI B")  # mismatch
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds
-        assert sc.titleblock_warning          # surfaced for the status bar
+        assert "TitleBlockDxfItem" not in kinds
+        assert not sc.title_block.isVisible()
+        assert sc.titleblock_warning           # surfaced for the status bar
 
     def test_set_template_none_restores_legacy(self):
         sc, _ = self._scene(make_default_template())
@@ -685,6 +692,80 @@ class TestResolutionChain:
         sc.sheetModified.connect(lambda *a: emitted.append(1))
         sc.set_template(make_default_template(), project_info={})
         assert not emitted
+
+
+class TestRevisionColumns:
+    """Task B: revision table renders as true columns (Rev./Description/Date)."""
+
+    def _rev_scene(self, revisions):
+        sheet = Sheet.create_default()
+        sheet.revisions = list(revisions)
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        sc = PaperScene(sheet, resolver)
+        sc.set_template(make_default_template(), project_info={})
+        return sc
+
+    def _rev_draw_calls(self, sc):
+        """Render the scene and capture the revision-table _draw_text_mm calls.
+
+        Returns a list of (text, align, left, right, width) for every call the
+        title-block item makes at the revision cap height — the observable
+        ground truth of the per-column layout.
+        """
+        from PyQt6.QtGui import QImage, QPainter
+        from PyQt6.QtCore import Qt
+        from firepro3d.constants import TB_REV_CAP_MM
+        item = sc._title_tb
+        assert type(item).__name__ == "TitleBlockTemplateItem"
+        calls = []
+        orig = item._draw_text_mm
+
+        def spy(painter, rect, lines, fdef, **kw):
+            if kw.get("cap_mm") == TB_REV_CAP_MM:
+                calls.append((lines[0], kw.get("align"),
+                              rect.left(), rect.right(), rect.width()))
+            return orig(painter, rect, lines, fdef, **kw)
+
+        item._draw_text_mm = spy
+        img = QImage(2400, 1600, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.white)
+        p = QPainter(img)
+        sc.render(p)
+        p.end()
+        return calls
+
+    def test_header_is_three_columns_rev_not_no(self, qapp):
+        sc = self._rev_scene([
+            {"no": "1", "description": "Issued for review", "date": "09/15/2026"},
+        ])
+        calls = self._rev_draw_calls(sc)
+        texts = [c[0] for c in calls]
+        # "No" (and the old faked single-string header) are gone.
+        assert "Rev." in texts and "Description" in texts and "Date" in texts
+        assert "No  Description  Date" not in texts
+        header = {c[0]: c for c in calls[:3]}    # first 3 calls = header row
+        assert header["Rev."][1] == "center"
+        assert header["Description"][1] == "left"
+        assert header["Date"][1] == "right"
+
+    def test_columns_are_ordered_and_description_widest(self, qapp):
+        sc = self._rev_scene([
+            {"no": "1", "description": "Issued for review", "date": "09/15/2026"},
+            {"no": "2", "description": "Revised per AHJ comments", "date": "09/20/2026"},
+        ])
+        calls = self._rev_draw_calls(sc)
+        header = {c[0]: c for c in calls[:3]}
+        rev, desc, date = header["Rev."], header["Description"], header["Date"]
+        # Left-x order: Rev < Description < Date.
+        assert rev[2] < desc[2] < date[2]
+        # Date is right-justified against the cell's right edge; Rev starts left.
+        assert date[3] >= desc[3] and rev[2] <= desc[2]
+        # Description takes the most width (Rev/Date are minimized to content).
+        assert desc[4] > rev[4] and desc[4] > date[4]
+        # Every data cell carries its column's justification.
+        data = calls[3:]
+        assert all(c[1] in ("center", "left", "right") for c in data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -993,23 +1074,29 @@ class TestPanelAndUndo:
 class TestRevisionsDialog:
     def test_dialog_round_trips_rows(self):
         from firepro3d.paper_space import RevisionsDialog
+        from PyQt6.QtCore import Qt
         revs = [{"no": "1", "description": "Issued", "date": "07-21"}]
         dlg = RevisionsDialog(revs)
         dlg._add_row()
         dlg.table.item(1, 0).setText("2")
         dlg.table.item(1, 1).setText("As-built")
-        dlg.table.item(1, 2).setText("07-22")
+        # The date is a delegate-edited item (UserRole = stored ISO).
+        dlg.table.item(1, 2).setData(Qt.ItemDataRole.UserRole, "2026-07-22")
         out = dlg.result_revisions()
         assert out[0]["no"] == "1" and out[1]["description"] == "As-built"
+        assert out[1]["date"] == "2026-07-22"       # picked date stored ISO
+        assert out[0]["date"] == "07-21"            # legacy value preserved
 
     def test_blank_rows_dropped(self):
         from firepro3d.paper_space import RevisionsDialog
+        from PyQt6.QtCore import QDate
         dlg = RevisionsDialog([])
-        dlg._add_row()          # left blank
+        dlg._add_row()          # left blank → dropped (no rev#/description)
         dlg._add_row()
         dlg.table.item(1, 0).setText("1")
+        today = QDate.currentDate().toString("yyyy-MM-dd")
         assert dlg.result_revisions() == [{"no": "1", "description": "",
-                                           "date": ""}]
+                                           "date": today}]
 
     def test_remove_row(self):
         from firepro3d.paper_space import RevisionsDialog
@@ -1089,7 +1176,7 @@ class TestMainWindowWiring:
         )
 
     def test_new_file_clears_template_from_paper_scene(self, _mw):
-        """File→New clears template and restores the legacy chain in the paper scene."""
+        """File→New clears the template; the paper scene renders blank (Task A)."""
         _fresh(_mw)
         # Set a template so there's something to clear.
         _mw.scene._titleblock_template = make_default_template().to_dict()
@@ -1170,19 +1257,19 @@ class TestMainWindowWiring:
             f"got {saved.get('modified')!r}"
         )
 
-    def test_push_corrupt_embed_no_raise_legacy_chain(self, _mw):
-        """Corrupt embedded template (missing required 'name' key triggers TypeError)
-        must not raise and must show legacy chain.
+    def test_push_corrupt_embed_no_raise_blank(self, _mw):
+        """Task A: a corrupt embedded template must not raise, must render BLANK
+        (no TitleBlockTemplateItem), and must surface the 'unreadable' message
+        (which takes precedence over the generic blank nudge).
         """
         _fresh(_mw)
-        # Use a dict that causes from_dict to raise (None name triggers error in
-        # to_dict/copy downstream; better: use a non-dict to force TypeError)
+        # A non-dict embed forces from_dict to fail → treated as None.
         _mw.scene._titleblock_template = "this is not a dict"
         _mw._push_titleblock_template()
         sc = _mw.paper_space_widget.paper_scene
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds, (
-            "Corrupt embed must fall back to legacy chain (no TitleBlockTemplateItem)"
+            "Corrupt embed must render blank (no TitleBlockTemplateItem)"
         )
         msg = _mw.statusBar().currentMessage()
         assert "unreadable" in msg.lower(), (

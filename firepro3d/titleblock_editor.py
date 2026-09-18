@@ -3,9 +3,8 @@
 Governing spec: docs/specs/titleblock-template-system.md §Editor (rev 3 proposal).
 The preview hosts the SAME renderer used on sheets (one render path).
 
-Tab organisation (rev3):
-  Overview      — paper-size + orientation + three margin/strip DimensionEdits
-  Drawing Area  — area-border group
+Tab organisation:
+  Overview      — info rail (paper setup + drawing-area border) | preview rail
   Fields        — roster + intrinsics form + single-field preview (DD-18)
   Arrangements  — pool | strip canvas | placement props + strip border (DD-17)
 """
@@ -18,15 +17,16 @@ import logging
 import re as _re
 import uuid as _uuid
 
-from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, pyqtSignal
+from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPushButton, QPlainTextEdit, QRadioButton,
-    QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMenu, QPushButton, QPlainTextEdit,
+    QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 from .themed_message import themed_confirm, themed_warn
+from .house_dialog import HouseDialog
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QPen
 
 from .titleblock_template import (
@@ -44,7 +44,10 @@ from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
-from .theme import detect
+from .theme import detect, M
+from . import theme as _th
+from .ui_kit import SideTabs, ToggleSwitch, TopTabs, Section, SwitchBar
+from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
 # ScaleManager() is standalone (pixels_per_mm=1 → 1 px = 1 mm, display_unit=mm),
@@ -129,7 +132,7 @@ def _update_swatch(btn: QPushButton, color: str) -> None:
 # Border sub-group widget
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _BorderGroup(QGroupBox):
+class _BorderGroup(QWidget):
     """Reusable widget for editing a BorderStyle (visible, width, color, corner, fillet).
 
     With ``show_edges=True`` (field cells only) an "Edges:" row of four
@@ -138,14 +141,17 @@ class _BorderGroup(QGroupBox):
     """
 
     def __init__(self, title: str, parent: QWidget | None = None, *,
-                 show_edges: bool = False):
-        super().__init__(title, parent)
+                 show_edges: bool = False, section: bool = False):
+        super().__init__(parent)
         self._show_edges = show_edges
-        form = QFormLayout(self)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        _FW = 240
+        form_container = QWidget()
+        form = QFormLayout(form_container)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self._visible = QCheckBox()
-        form.addRow("Visible:", self._visible)
+        self._visible = ToggleSwitch("")     # house toggle, per standard
+        form.addRow("Visible", self._visible)
 
         if show_edges:
             edges_row = QHBoxLayout()
@@ -159,24 +165,38 @@ class _BorderGroup(QGroupBox):
                 cb.toggled.connect(self._sync_fillet_enabled)
                 edges_row.addWidget(cb)
             edges_row.addStretch()
-            form.addRow("Edges:", edges_row)
+            form.addRow("Edges", edges_row)
 
         self._width = DimensionEdit(None, initial_mm=0.5,
                                     parser=_sm.parse_dimension, minimum=0.0)
-        form.addRow("Width (mm):", self._width)
+        self._width.setMaximumWidth(_FW)
+        form.addRow("Width (mm)", self._width)
 
         self._color_btn = _make_swatch("#000000", self)
-        form.addRow("Color:", self._color_btn)
+        form.addRow("Color", self._color_btn)
         self._color_btn.clicked.connect(self._pick_color)
 
-        self._corner = QComboBox()
-        self._corner.addItems(["Sharp", "Fillet"])
-        form.addRow("Corner:", self._corner)
+        self._corner = SwitchBar(
+            [("sharp", "Sharp"), ("fillet", "Fillet")], expanding=False)
+        form.addRow("Corner", self._corner)
 
         self._fillet = DimensionEdit(None, initial_mm=0.0,
                                      parser=_sm.parse_dimension, minimum=0.0)
-        form.addRow("Fillet radius (mm):", self._fillet)
-        self._corner.currentIndexChanged.connect(self._on_corner_changed)
+        self._fillet.setMaximumWidth(_FW)
+        form.addRow("Fillet radius (mm)", self._fillet)
+        self._corner.changed.connect(self._on_corner_changed)
+
+        # Presentation: house Section (uppercase header, no box) for the frame
+        # groups; a titled QGroupBox for the nested Fields "Cell Border".
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        if section:
+            outer.addWidget(Section(title, form_container))
+        else:
+            box = QGroupBox(title)
+            box_layout = QVBoxLayout(box)
+            box_layout.addWidget(form_container)
+            outer.addWidget(box)
 
     def _pick_color(self):
         cur = QColor(self._color_btn.property("_color") or "#000000")
@@ -184,9 +204,9 @@ class _BorderGroup(QGroupBox):
         if c.isValid():
             _update_swatch(self._color_btn, c.name())
 
-    def _on_corner_changed(self, _):
+    def _on_corner_changed(self, _=None):
         self._fillet.setEnabled(
-            self._all_edges_on() and self._corner.currentText() == "Fillet")
+            self._all_edges_on() and self._corner.current() == "fillet")
 
     def _all_edges_on(self) -> bool:
         if not self._show_edges:
@@ -200,7 +220,7 @@ class _BorderGroup(QGroupBox):
         full = self._all_edges_on()
         self._corner.setEnabled(full)
         self._fillet.setEnabled(
-            full and self._corner.currentText() == "Fillet")
+            full and self._corner.current() == "fillet")
         tip = "" if full else "Fillet requires all four edges"
         self._corner.setToolTip(tip)
         self._fillet.setToolTip(tip)
@@ -214,8 +234,8 @@ class _BorderGroup(QGroupBox):
         self._visible.setChecked(style.visible)
         self._width.set_value_mm(style.width_mm)
         _update_swatch(self._color_btn, style.color)
-        self._corner.setCurrentText(
-            "Fillet" if style.corner == "fillet" else "Sharp")
+        self._corner.set_current(
+            "fillet" if style.corner == "fillet" else "sharp")
         self._fillet.set_value_mm(style.fillet_radius_mm)
         self._fillet.setEnabled(style.corner == "fillet")
         if self._show_edges:
@@ -235,7 +255,7 @@ class _BorderGroup(QGroupBox):
             "visible": self._visible.isChecked(),
             "width_mm": self._width.value_mm(),
             "color": self._color_btn.property("_color") or "#000000",
-            "corner": "fillet" if self._corner.currentText() == "Fillet" else "sharp",
+            "corner": "fillet" if self._corner.current() == "fillet" else "sharp",
             "fillet_radius_mm": self._fillet.value_mm(),
         }
         if self._show_edges:
@@ -250,7 +270,7 @@ class _BorderGroup(QGroupBox):
 # Main dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TitleBlockEditorDialog(QDialog):
+class TitleBlockEditorDialog(HouseDialog):
     """Library manager + per-template editor for TitleBlockTemplate objects.
 
     Usage::
@@ -279,8 +299,8 @@ class TitleBlockEditorDialog(QDialog):
     def __init__(self, project_template: TitleBlockTemplate | None = None,
                  parent: QWidget | None = None,
                  project_info: dict | None = None):
-        super().__init__(parent)
-        self.setWindowTitle("Title Block Template Editor")
+        super().__init__(parent, title="Title Block Template Editor",
+                         resizable=True, icon="titleblock_icon.svg")
         self.setMinimumSize(640, 760)
 
         # ── Public state ──────────────────────────────────────────────────
@@ -292,6 +312,8 @@ class TitleBlockEditorDialog(QDialog):
         self.result_saved: bool = False
         self._project_info = project_info or {}
         self._use_requested = False   # set by use_for_project(); read by _do_save
+        self._did_initial_maximize = False   # open maximized on first real show
+        self._dirty = False           # unsaved working edits (close warning)
 
         # ── Snapshot undo/redo stacks ─────────────────────────────────────
         # Each entry is a dict snapshot from TitleBlockTemplate.to_dict()
@@ -324,220 +346,276 @@ class TitleBlockEditorDialog(QDialog):
     # UI construction
     # ═════════════════════════════════════════════════════════════════════════
 
+    def _vrule(self) -> QFrame:
+        """A 1px full-height vertical divider, tokenized (matches rail borders).
+
+        Bare stylesheet with a runtime token value (hexguard-safe, same pattern
+        as the TopTabs divider); Expanding vertical policy so it spans the whole
+        column height regardless of neighbour content.
+        """
+        rule = QFrame()
+        rule.setFixedWidth(1)
+        rule.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        rule.setStyleSheet(f"background: {self._theme.line_strong};")
+        return rule
+
+    def _build_rail_header(self, new_cb, del_cb, dup_cb, *,
+                           new_tip: str, del_tip: str, dup_tip: str):
+        """Return a transparent +/−/⧉ action header for a SideTabs rail.
+
+        Shared chrome for every roster rail (template list, field roster):
+        transparent container (a bare QWidget renders black on the rail),
+        green-accent hover using theme tokens (hexguard-safe), and pt font
+        (px makes pointSize()==-1 → QFont::setPointSize warnings — project
+        trap). Returns ``(container, new_btn, del_btn, dup_btn)``.
+        """
+        theme_name = "dark" if self._theme is _th.DARK else "light"
+        act_w = QWidget()
+        act = QHBoxLayout(act_w)
+        act.setContentsMargins(0, 0, 0, 6)
+        act.setSpacing(4)
+        new_btn = QToolButton()
+        new_btn.setText("+")
+        new_btn.setToolTip(new_tip)
+        new_btn.clicked.connect(new_cb)
+        del_btn = QToolButton()
+        del_btn.setText("−")       # minus glyph
+        del_btn.setToolTip(del_tip)
+        del_btn.clicked.connect(del_cb)
+        dup_btn = QToolButton()
+        dup_btn.setIcon(themed_icon("duplicate_icon.svg", theme_name))
+        dup_btn.setToolTip(dup_tip)
+        dup_btn.clicked.connect(dup_cb)
+        for b in (new_btn, del_btn, dup_btn):   # requested order
+            act.addWidget(b)
+        act.addStretch(1)
+        _c = detect()
+        act_w.setStyleSheet(
+            "QWidget { background: transparent; }"
+            "QToolButton { border: none; border-radius: 4px; padding: 3px 8px;"
+            f" font-size: 12pt; color: {_c.ink}; }}"
+            f"QToolButton:hover {{ background: {_c.accent_soft}; border: 1px solid {_c.accent}; }}"
+            f"QToolButton:pressed {{ background: {_c.accent_soft2}; }}")
+        return act_w, new_btn, del_btn, dup_btn
+
     def _build_ui(self) -> None:
-        root = QHBoxLayout(self)
-        root.setSpacing(8)
+        # House chrome (Task D): build the editor content into a body widget and
+        # hand it to HouseDialog (the dialog's own layout is HouseDialog._root).
+        body = QWidget()
+        root = QHBoxLayout(body)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)   # rail border-right sits flush against the content
 
-        # ── Left panel: library list + actions ────────────────────────────
-        left = QVBoxLayout()
-        left.setSpacing(4)
-        left.addWidget(QLabel("Templates:"))
-        self._template_list = QListWidget()
-        self._template_list.setMinimumWidth(180)
-        self._template_list.setMaximumWidth(220)
-        self._template_list.currentItemChanged.connect(self._on_list_selection)
-        left.addWidget(self._template_list, stretch=1)
+        # ── Left selection rail: +/−/duplicate actions above a SideTabs list ──
+        self._rail = SideTabs()
+        self._rail.tabSelected.connect(self._on_template_selected)
+        act_w, self._new_btn, self._del_btn, self._dup_btn = self._build_rail_header(
+            self.new_template, self.delete_template, self.duplicate_template,
+            new_tip="New template", del_tip="Delete template",
+            dup_tip="Duplicate template")
+        self._rail.set_header(act_w)             # buttons share the rail chrome
+        root.addWidget(self._rail)
 
-        btn_row = QHBoxLayout()
-        self._new_btn = QPushButton("New")
-        self._new_btn.clicked.connect(self.new_template)
-        self._dup_btn = QPushButton("Duplicate")
-        self._dup_btn.clicked.connect(self.duplicate_template)
-        btn_row.addWidget(self._new_btn)
-        btn_row.addWidget(self._dup_btn)
-        left.addLayout(btn_row)
-
-        btn_row2 = QHBoxLayout()
-        self._del_btn = QPushButton("Delete")
-        self._del_btn.clicked.connect(self.delete_template)
-        self._use_btn = QPushButton("Use for project")
-        self._use_btn.clicked.connect(self.use_for_project)
-        btn_row2.addWidget(self._del_btn)
-        btn_row2.addWidget(self._use_btn)
-        left.addLayout(btn_row2)
-
-        root.addLayout(left)
-
-        # ── Centre: form (single column — tabs full width) ────────────────
-        centre = QVBoxLayout()
+        # ── Central content panel (its own distinct area) ─────────────────
+        # Tokenized surface via a TARGETED stylesheet (objectName selector) so it
+        # styles only this frame — a bare `background:` would bleed onto children
+        # (e.g. the SwitchBar segments, killing their :checked accent).
+        content = QFrame()
+        content.setObjectName("tbEditorContent")
+        content.setStyleSheet(
+            f"QFrame#tbEditorContent {{ background: {self._theme.surface}; }}")
+        centre = QVBoxLayout(content)
+        # Zero horizontal margins so the TopTabs divider is full-bleed; the tabs
+        # + pages keep their inset internally via TopTabs' page_inset.
+        centre.setContentsMargins(0, 10, 0, 8)
         centre.setSpacing(6)
 
         # ── Component tabs (Overview / Drawing Area / Fields) ─────────────
-        self._component_tabs = QTabWidget()
+        self._component_tabs = TopTabs()      # house top-tab strip
         centre.addWidget(self._component_tabs, stretch=1)
 
-        # ── Tab 0: Overview ────────────────────────────────────────────────
+        # ── Tab 0: Overview (info rail | preview rail) ─────────────────────
+        # House convention: SECTIONs (uppercase header label, no box) + a
+        # left-labelled form. Two rails: settings on the left (Paper Setup +
+        # Drawing Area Border), the live preview on the right.
         overview_widget = QWidget()
-        overview_layout = QVBoxLayout(overview_widget)
-        overview_layout.setSpacing(6)
+        overview_root = QHBoxLayout(overview_widget)
+        # Full-bleed stack → the page owns its padding (left for the info form,
+        # right for the preview).
+        overview_root.setContentsMargins(16, 0, 16, 0)
+        overview_root.setSpacing(16)     # gap around the info|preview divider
+        info_col = QVBoxLayout()
+        info_col.setSpacing(14)
 
-        overview_form_group = QGroupBox("Paper Setup")
-        overview_form = QFormLayout(overview_form_group)
-        overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_container = QWidget()
+        overview_form = QFormLayout(form_container)
+        overview_form.setContentsMargins(0, 0, 0, 0)
+        overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        _FIELD_W = 240        # fields are a fixed sensible width, not full-bleed
 
-        # Name row — first inside Paper Setup (Fix 3)
+        # Name row
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("Template name")
+        self._name_edit.setMaximumWidth(_FIELD_W)
         self._name_edit.editingFinished.connect(
             lambda: self.set_name(self._name_edit.text()))
-        overview_form.addRow("Name:", self._name_edit)
+        overview_form.addRow("Name", self._name_edit)
 
         # Paper size combo
         self._paper_size_combo = QComboBox()
         self._paper_size_combo.addItems(list(PAPER_SIZES.keys()))
+        self._paper_size_combo.setMaximumWidth(_FIELD_W)
         self._paper_size_combo.currentTextChanged.connect(
             lambda t: self.set_paper_size(t))
-        overview_form.addRow("Paper size:", self._paper_size_combo)
+        overview_form.addRow("Paper size", self._paper_size_combo)
 
-        # Orientation toggle (two radio buttons)
-        orient_widget = QWidget()
-        orient_row = QHBoxLayout(orient_widget)
-        orient_row.setContentsMargins(0, 0, 0, 0)
-        self._orient_landscape = QRadioButton("Landscape")
-        self._orient_portrait = QRadioButton("Portrait")
-        self._orient_landscape.setChecked(True)
-        orient_row.addWidget(self._orient_landscape)
-        orient_row.addWidget(self._orient_portrait)
-        orient_row.addStretch()
-        self._orient_landscape.toggled.connect(self._on_orientation_toggled)
-        self._orient_portrait.toggled.connect(self._on_orientation_toggled)
-        overview_form.addRow("Orientation:", orient_widget)
+        # Orientation — house segmented switch (content-fit: segments = "Landscape")
+        self._orient_bar = SwitchBar(
+            [("landscape", "Landscape"), ("portrait", "Portrait")],
+            expanding=False)
+        self._orient_bar.changed.connect(self._on_orient_changed)
+        overview_form.addRow("Orientation", self._orient_bar)
 
         # Three margin/strip DimensionEdits
         self._edge_edit = DimensionEdit(None, initial_mm=10.0,
                                         parser=_sm.parse_dimension, minimum=0.0)
+        self._edge_edit.setMaximumWidth(_FIELD_W)
         self._edge_edit.valueChanged.connect(self.set_margin_edge)
-        overview_form.addRow("Edge margin (mm):", self._edge_edit)
+        overview_form.addRow("Edge margin (mm)", self._edge_edit)
 
         self._strip_margin_edit = DimensionEdit(None, initial_mm=5.0,
                                                 parser=_sm.parse_dimension, minimum=0.0)
+        self._strip_margin_edit.setMaximumWidth(_FIELD_W)
         self._strip_margin_edit.valueChanged.connect(self.set_margin_strip)
-        overview_form.addRow("Strip gap (mm):", self._strip_margin_edit)
+        overview_form.addRow("Strip gap (mm)", self._strip_margin_edit)
 
         self._strip_width_edit = DimensionEdit(None, initial_mm=90.0,
                                                parser=_sm.parse_dimension, minimum=0.0)
+        self._strip_width_edit.setMaximumWidth(_FIELD_W)
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
-        overview_form.addRow("Strip width (mm):", self._strip_width_edit)
+        overview_form.addRow("Strip width (mm)", self._strip_width_edit)
 
-        overview_layout.addWidget(overview_form_group)
+        info_col.addWidget(Section("Paper Setup", form_container))
 
-        # Preview group — below Paper Setup, inside Overview tab (Fix 2)
-        preview_group = QGroupBox("Preview")
-        preview_group_layout = QVBoxLayout(preview_group)
-        preview_group_layout.setContentsMargins(4, 4, 4, 4)
+        # Drawing Area border — merged into the Overview info rail (formerly a
+        # separate tab). House Section (uppercase overline, no box).
+        self._area_border = _BorderGroup("Drawing Area Border", section=True)
+        info_col.addWidget(self._area_border)
+        # Wire border change signals
+        self._area_border._visible.toggled.connect(self._on_border_changed)
+        self._area_border._width.valueChanged.connect(
+            lambda _: self._on_border_changed())
+        self._area_border._color_btn.clicked.connect(self._on_border_changed)
+        self._area_border._corner.changed.connect(
+            lambda _: self._on_border_changed())
+        self._area_border._fillet.valueChanged.connect(
+            lambda _: self._on_border_changed())
+        info_col.addStretch()
+        overview_root.addLayout(info_col)
 
+        # Divider between the info rail and the preview rail.
+        overview_root.addWidget(self._vrule())
+
+        # Preview rail — uppercase header + the live preview view.
         self._preview_view = QGraphicsView(self._preview_scene)
         self._preview_view.setMinimumHeight(280)
         self._preview_view.setRenderHint(
             self._preview_view.renderHints().__class__.Antialiasing)
         self._preview_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        preview_group_layout.addWidget(self._preview_view)
+        overview_root.addWidget(Section("Preview", self._preview_view), stretch=1)
 
-        overview_layout.addWidget(preview_group, stretch=1)
-
-        self._component_tabs.addTab(overview_widget, "Overview")
+        self._component_tabs.add_tab("overview", "Overview", overview_widget)
 
         # Refresh fitInView when the Overview tab becomes visible so the fit
         # runs with a realized viewport (avoids the empty-rect on first show).
         self._component_tabs.currentChanged.connect(self._on_tab_changed)
 
-        # ── Tab 1: Drawing Area ────────────────────────────────────────────
-        area_widget = QWidget()
-        area_layout = QVBoxLayout(area_widget)
-        area_layout.setSpacing(6)
-
-        self._area_border = _BorderGroup("Drawing Area Border")
-        area_layout.addWidget(self._area_border)
-        area_layout.addStretch()
-
-        # Wire border change signals
-        self._area_border._visible.toggled.connect(self._on_border_changed)
-        self._area_border._width.valueChanged.connect(
-            lambda _: self._on_border_changed())
-        self._area_border._color_btn.clicked.connect(self._on_border_changed)
-        self._area_border._corner.currentIndexChanged.connect(
-            lambda _: self._on_border_changed())
-        self._area_border._fillet.valueChanged.connect(
-            lambda _: self._on_border_changed())
-
-        self._component_tabs.addTab(area_widget, "Drawing Area")
-
         # ── Strip border group — lives on the Arrangements tab (DD-17) ─────
         # Constructed here so its change signals wire alongside the area
         # border's; re-parented into the Arrangements tab's third column.
-        self._strip_border = _BorderGroup("Info Strip Border")
+        self._strip_border = _BorderGroup("Info Strip Border", section=True)
 
         # Wire strip border change signals (writes strip_border to working + snapshot)
         self._strip_border._visible.toggled.connect(self._on_border_changed)
         self._strip_border._width.valueChanged.connect(
             lambda _: self._on_border_changed())
         self._strip_border._color_btn.clicked.connect(self._on_border_changed)
-        self._strip_border._corner.currentIndexChanged.connect(
+        self._strip_border._corner.changed.connect(
             lambda _: self._on_border_changed())
         self._strip_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
 
         # ── Tab 2: Fields (DD-18) ─────────────────────────────────────────
+        # The stack is full-bleed; the page owns its padding. The roster rail
+        # sits near the left edge (small gap from the main rail); the form and
+        # preview get right padding.
         fields_widget = QWidget()
         fields_layout = QHBoxLayout(fields_widget)
+        fields_layout.setContentsMargins(6, 0, 16, 0)
         fields_layout.setSpacing(6)
 
-        # ── LEFT: roster ─────────────────────────────────────────────────
-        roster_col = QVBoxLayout()
-        roster_col.addWidget(QLabel("Fields:"))
-        self._field_list = QListWidget()
-        self._field_list.setMinimumWidth(140)
-        self._field_list.setMaximumWidth(180)
-        self._field_list.currentRowChanged.connect(self._on_field_selected)
-        roster_col.addWidget(self._field_list, stretch=1)
-
-        roster_btns = QHBoxLayout()
-        self._new_field_btn = QPushButton("New")
-        self._new_field_btn.clicked.connect(self._new_field)
-        self._dup_field_btn = QPushButton("Duplicate")
-        self._dup_field_btn.clicked.connect(self._duplicate_field)
-        self._delete_field_btn = QPushButton("Delete")
-        self._delete_field_btn.clicked.connect(self._delete_field)
-        roster_btns.addWidget(self._new_field_btn)
-        roster_btns.addWidget(self._dup_field_btn)
-        roster_btns.addWidget(self._delete_field_btn)
-        roster_col.addLayout(roster_btns)
-        fields_layout.addLayout(roster_col)
+        # ── LEFT: roster (SideTabs rail — same convention as the template rail;
+        # +/−/⧉ actions in the header, one row per field keyed by field id) ──
+        self._field_rail = SideTabs()
+        self._field_ids: list[str] = []          # rail order → field id (row map)
+        self._field_rail.tabSelected.connect(self._on_field_rail_selected)
+        field_hdr, self._new_field_btn, self._delete_field_btn, self._dup_field_btn = \
+            self._build_rail_header(
+                self._new_field, self._delete_field, self._duplicate_field,
+                new_tip="New field", del_tip="Delete field",
+                dup_tip="Duplicate field")
+        self._field_rail.set_header(field_hdr)
+        # Expanding vertical so the rail's border-right divider spans the full
+        # column height (Preferred would stop at the rows' content height).
+        self._field_rail.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        # Tighter top margin than the default rail (nested inside a padded page
+        # → the +/−/⧉ header shouldn't sit far below the tab ribbon).
+        self._field_rail.layout().setContentsMargins(6, 6, 6, 8)
+        fields_layout.setSpacing(12)     # gap around the rail borders/dividers
+        fields_layout.addWidget(self._field_rail)
 
         # ── MIDDLE: intrinsics form (grouped — grill 2026-08-04) ──────────
         self._field_form_widget = QWidget()
-        self._field_form_widget.setMinimumWidth(260)
+        self._field_form_widget.setMinimumWidth(360)   # identity rail — roomier
         self._field_form_widget.setEnabled(False)
         form_col = QVBoxLayout(self._field_form_widget)
         form_col.setSpacing(6)
+        _FFW = 300   # field-input width cap (inputs needn't be full-bleed)
 
         def _group(title):
-            box = QGroupBox(title)
-            f = QFormLayout(box)
-            f.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-            return box, f
+            """House Section (uppercase overline header, no box) wrapping a
+            left-labelled form. Returns ``(section_widget, form_layout)``."""
+            container = QWidget()
+            f = QFormLayout(container)
+            f.setContentsMargins(0, 0, 0, 0)
+            f.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+            return Section(title, container), f
 
         # ── Identity group ────────────────────────────────────────────────
         identity_box, identity_form = _group("Identity")
 
         # Name
         self._fname_edit = QLineEdit()
+        self._fname_edit.setMaximumWidth(_FFW)
         self._fname_edit.editingFinished.connect(
             lambda: self._field_prop("name", self._fname_edit.text()))
-        identity_form.addRow("Name:", self._fname_edit)
+        identity_form.addRow("Name", self._fname_edit)
 
         # Label
         self._flabel_edit = QLineEdit()
+        self._flabel_edit.setMaximumWidth(_FFW)
         self._flabel_edit.editingFinished.connect(
             lambda: self._field_prop("label", self._flabel_edit.text()))
-        identity_form.addRow("Label:", self._flabel_edit)
+        identity_form.addRow("Label", self._flabel_edit)
 
         # Kind combo
         self._fkind_combo = QComboBox()
+        self._fkind_combo.setMaximumWidth(_FFW)
         self._fkind_combo.addItems(list(KINDS))
         self._fkind_combo.currentTextChanged.connect(self._on_kind_changed)
-        identity_form.addRow("Kind:", self._fkind_combo)
+        identity_form.addRow("Kind", self._fkind_combo)
 
         form_col.addWidget(identity_box)
 
@@ -549,12 +627,14 @@ class TitleBlockEditorDialog(QDialog):
         text_vbox.setSpacing(2)
         self._ftext_edit = QPlainTextEdit()
         self._ftext_edit.setFixedHeight(72)
+        self._ftext_edit.setMaximumWidth(_FFW)
         self._ftext_edit.installEventFilter(self)
         text_vbox.addWidget(self._ftext_edit)
         self._insert_btn = QPushButton("Insert field ▾")
+        self._insert_btn.setMaximumWidth(_FFW)
         self._insert_btn.clicked.connect(self._show_insert_menu)
         text_vbox.addWidget(self._insert_btn)
-        content_form.addRow("Text:", text_vbox)
+        content_form.addRow("Text", text_vbox)
 
         # Image controls (grill 2026-08-04 item 4): real thumbnail,
         # Choose/Clear, and an explicit height input (0 = auto band).
@@ -589,7 +669,7 @@ class TitleBlockEditorDialog(QDialog):
         height_row.addWidget(QLabel("(0 = auto)"))
         height_row.addStretch()
         img_row.addLayout(height_row)
-        content_form.addRow("Image:", img_row)
+        content_form.addRow("Image", img_row)
 
         # Revision rows spinbox (revision_table only)
         self._frev_rows = QSpinBox()
@@ -597,7 +677,8 @@ class TitleBlockEditorDialog(QDialog):
         self._frev_rows.setKeyboardTracking(False)
         self._frev_rows.valueChanged.connect(
             lambda v: self._field_prop("revision_rows", v))
-        content_form.addRow("Revision rows:", self._frev_rows)
+        self._frev_rows.setMaximumWidth(_FFW)
+        content_form.addRow("Revision rows", self._frev_rows)
 
         form_col.addWidget(content_box)
 
@@ -611,50 +692,54 @@ class TitleBlockEditorDialog(QDialog):
         self._ffont_combo.setEditable(True)
         # Commit only on dropdown pick (activated) or typed entry (editingFinished)
         # to avoid per-keystroke snapshots from currentTextChanged.
+        self._ffont_combo.setMaximumWidth(_FFW)
         self._ffont_combo.activated.connect(self._commit_font_family)
         self._ffont_combo.lineEdit().editingFinished.connect(self._commit_font_family)
-        style_form.addRow("Font:", self._ffont_combo)
+        style_form.addRow("Font", self._ffont_combo)
 
         # Cap height
         self._fcap_height = DimensionEdit(None, initial_mm=3.0,
                                           parser=_sm.parse_dimension, minimum=0.0)
+        self._fcap_height.setMaximumWidth(_FFW)
         self._fcap_height.valueChanged.connect(
             lambda v: self._field_prop("cap_height_mm", v))
-        style_form.addRow("Cap height (mm):", self._fcap_height)
+        style_form.addRow("Cap height (mm)", self._fcap_height)
 
-        # Bold / italic checkboxes (one row)
-        self._fbold = QCheckBox()
+        # Bold / Italic toggles (house ToggleSwitch, per standard)
+        self._fbold = ToggleSwitch("Bold")
         self._fbold.toggled.connect(
             lambda b: self._field_prop("bold", b))
-        self._fitalic = QCheckBox()
+        self._fitalic = ToggleSwitch("Italic")
         self._fitalic.toggled.connect(
             lambda b: self._field_prop("italic", b))
         bi_row = QHBoxLayout()
         bi_row.addWidget(self._fbold)
-        bi_row.addWidget(QLabel("Italic:"))
         bi_row.addWidget(self._fitalic)
         bi_row.addStretch()
-        style_form.addRow("Bold:", bi_row)
+        style_form.addRow("Style", bi_row)
 
-        # Alignment
-        self._falign = QComboBox()
-        self._falign.addItems(["left", "center", "right"])
-        self._falign.currentTextChanged.connect(
-            lambda t: self._field_prop("alignment", t))
-        style_form.addRow("Alignment:", self._falign)
+        # Alignment (segmented switch, per house convention)
+        self._falign = SwitchBar(
+            [("left", "Left"), ("center", "Center"), ("right", "Right")],
+            expanding=False)
+        self._falign.changed.connect(
+            lambda key: self._field_prop("alignment", key))
+        style_form.addRow("Alignment", self._falign)
 
         # Text colour (label + body + revision text; grill 2026-08-04 item 6)
         self._ftext_color_swatch = _make_swatch("#000000", self)
         self._ftext_color_swatch.clicked.connect(self._pick_text_color)
-        style_form.addRow("Text colour:", self._ftext_color_swatch)
+        style_form.addRow("Text colour", self._ftext_color_swatch)
 
         form_col.addWidget(style_box)
 
-        # ── Fill & Border group ───────────────────────────────────────────
-        fb_box = QGroupBox("Fill & Border")
-        fb_col = QVBoxLayout(fb_box)
+        # ── Fill & Border group (house Section, no box) ───────────────────
+        fb_container = QWidget()
+        fb_col = QVBoxLayout(fb_container)
+        fb_col.setContentsMargins(0, 0, 0, 0)
         fb_form = QFormLayout()
-        fb_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        fb_form.setContentsMargins(0, 0, 0, 0)
+        fb_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Fill color swatch + None clear
         fill_row = QHBoxLayout()
@@ -667,11 +752,12 @@ class TitleBlockEditorDialog(QDialog):
             lambda: self._field_prop("fill_color", ""))
         fill_row.addWidget(fill_clear_btn)
         fill_row.addStretch()
-        fb_form.addRow("Fill:", fill_row)
+        fb_form.addRow("Fill", fill_row)
         fb_col.addLayout(fb_form)
 
-        # Cell border group
-        self._field_border_group = _BorderGroup("Cell Border", show_edges=True)
+        # Cell border sub-section (overline header, no box)
+        self._field_border_group = _BorderGroup(
+            "Cell Border", show_edges=True, section=True)
         self._field_border_group._visible.toggled.connect(
             self._on_field_border_changed)
         for cb in (self._field_border_group._edge_top,
@@ -683,34 +769,36 @@ class TitleBlockEditorDialog(QDialog):
             lambda _: self._on_field_border_changed())
         self._field_border_group._color_btn.clicked.connect(
             self._on_field_border_changed)
-        self._field_border_group._corner.currentIndexChanged.connect(
+        self._field_border_group._corner.changed.connect(
             lambda _: self._on_field_border_changed())
         self._field_border_group._fillet.valueChanged.connect(
             lambda _: self._on_field_border_changed())
         fb_col.addWidget(self._field_border_group)
 
-        form_col.addWidget(fb_box)
+        form_col.addWidget(Section("Fill & Border", fb_container))
         form_col.addStretch()
 
-        fields_layout.addWidget(self._field_form_widget)
+        fields_layout.addWidget(self._field_form_widget, stretch=1)
 
-        # ── RIGHT: single-field preview ───────────────────────────────────
-        preview_col = QVBoxLayout()
-        preview_col.addWidget(QLabel("Preview:"))
+        # Divider between the identity (form) rail and the preview rail.
+        fields_layout.addWidget(self._vrule())
+
+        # ── RIGHT: single-field preview (house Section, matches Overview) ──
         self._field_preview_view = QGraphicsView(self._field_preview_scene)
         self._field_preview_view.setMinimumWidth(180)
         self._field_preview_view.setRenderHint(
             self._field_preview_view.renderHints().__class__.Antialiasing)
         self._field_preview_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        preview_col.addWidget(self._field_preview_view, stretch=1)
-        fields_layout.addLayout(preview_col)
+        preview_section = Section("Preview", self._field_preview_view)
+        preview_section.setMaximumWidth(760)   # less wide (was: eating all space)
+        fields_layout.addWidget(preview_section, stretch=1)
 
-        self._component_tabs.addTab(fields_widget, "Fields")
+        self._component_tabs.add_tab("fields", "Fields", fields_widget)
 
         # ── Tab 3: Arrangements (DD-17) ───────────────────────────────────
         self._arrange_tab = ArrangementsTab(self._strip_border)
-        self._component_tabs.addTab(self._arrange_tab, "Arrangements")
+        self._component_tabs.add_tab("arrangements", "Arrangements", self._arrange_tab)
         canvas = self._arrange_tab.canvas
         canvas.set_provider(self._arrange_provider)
         canvas.gestureStarting.connect(self.push_snapshot)
@@ -719,31 +807,41 @@ class TitleBlockEditorDialog(QDialog):
         canvas.unplaceRequested.connect(self._unplace_from_canvas)
         self._arrange_tab.min_height.valueChanged.connect(
             self._on_placement_min_height)
-        self._arrange_tab.sizing.currentTextChanged.connect(
+        self._arrange_tab.sizing.changed.connect(
             self._on_placement_sizing)
 
-        root.addLayout(centre, stretch=1)
+        root.addWidget(content, stretch=1)
 
         # ── Bottom: warnings + Save / Save && Close / Close (outside tabs) ──
         self._warning_label = QLabel()
         self._warning_label.setWordWrap(True)
         self._warning_label.setStyleSheet(f"color: {detect().warn}; font-size: 11px;")
         self._warning_label.setVisible(False)
+        self._warning_label.setContentsMargins(12, 0, 12, 0)   # match page inset
         centre.addWidget(self._warning_label)
 
-        self._btn_box = QDialogButtonBox()
-        self.save_button = self._btn_box.addButton(
-            "Save", QDialogButtonBox.ButtonRole.ApplyRole)
-        self.save_button.setEnabled(False)   # disabled until a valid template is loaded
+        # Hand the assembled content to the HouseDialog body seam (Task D).
+        self.set_body(body, margin=(0, 0, 0, 0))
+
+        # ── Footer rail: Load to Project · Save · Save && Close · Close ──────
+        # Custom footer (the primary+cancel helper can't hold four right-grouped
+        # actions). All grouped at the right.
+        footer = QFrame(objectName="footerBar")
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(*M.FOOTER_MARGIN)
+        fl.setSpacing(M.FOOTER_BTN_GAP)
+        fl.addStretch(1)
+        self._use_btn = QPushButton("Apply Template")
+        self._use_btn.clicked.connect(self._apply_template)
+        self.save_button = QPushButton("Save Template")
+        self.save_button.setProperty("variant", "primary")
+        self.save_button.setEnabled(False)   # disabled until a valid template loads
         self.save_button.clicked.connect(self._on_save_clicked)
-        self.save_close_button = self._btn_box.addButton(
-            "Save && Close", QDialogButtonBox.ButtonRole.AcceptRole)
-        self.save_close_button.setEnabled(False)
-        self.save_close_button.clicked.connect(self._on_save_close_clicked)
-        self.close_button = self._btn_box.addButton(
-            "Close", QDialogButtonBox.ButtonRole.RejectRole)
-        self.close_button.clicked.connect(self.reject)
-        centre.addWidget(self._btn_box)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self._confirm_close)
+        for b in (self._use_btn, self.save_button, self.close_button):
+            fl.addWidget(b)
+        self._root.addWidget(footer)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Event filter (FocusOut on QPlainTextEdit commits the text)
@@ -765,18 +863,15 @@ class TitleBlockEditorDialog(QDialog):
         "Name (SIZE, Portrait)") with the uuid stored in UserRole.
         """
         self._loading = True
-        self._template_list.clear()
+        self._rail.clear()
         for tmpl in load_library():
-            item = QListWidgetItem(tmpl.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, tmpl.uuid)
-            self._template_list.addItem(item)
+            self._rail.add_tab(tmpl.uuid, tmpl.display_name)
         self._loading = False
 
-    def _on_list_selection(self, current, _previous) -> None:
-        if self._loading or current is None:
+    def _on_template_selected(self, uuid: str) -> None:
+        if self._loading or not uuid:
             return
-        uid = current.data(Qt.ItemDataRole.UserRole)
-        self.select_template(uid)
+        self.select_template(uuid)
 
     # ── Public session API ────────────────────────────────────────────────
 
@@ -785,13 +880,9 @@ class TitleBlockEditorDialog(QDialog):
         for tmpl in load_library():
             if tmpl.uuid == uuid:
                 self._edit_copy_of(tmpl)
-                # Sync list selection without retriggering
+                # Sync rail selection without retriggering.
                 self._loading = True
-                for i in range(self._template_list.count()):
-                    if self._template_list.item(i).data(
-                            Qt.ItemDataRole.UserRole) == uuid:
-                        self._template_list.setCurrentRow(i)
-                        break
+                self._rail.set_current(uuid)
                 self._loading = False
                 return
 
@@ -800,6 +891,7 @@ class TitleBlockEditorDialog(QDialog):
         self.working = tmpl.copy()
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._dirty = False           # freshly loaded — no unsaved edits
         self._populate_form()
 
     def new_template(self) -> None:
@@ -864,13 +956,9 @@ class TitleBlockEditorDialog(QDialog):
                         f"Could not save template:\n{exc}")
             return False
         self._reload_library()
-        # Re-sync list selection
-        uid = self.working.uuid
+        # Re-sync rail selection to the just-saved template.
         self._loading = True
-        for i in range(self._template_list.count()):
-            if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
-                self._template_list.setCurrentRow(i)
-                break
+        self._rail.set_current(self.working.uuid)
         self._loading = False
         return True
 
@@ -885,6 +973,20 @@ class TitleBlockEditorDialog(QDialog):
         self._use_requested = True
         self.project_template_result = self.working.copy()
 
+    def _apply_template(self) -> None:
+        """Apply the working template to the project and close (Apply Template)."""
+        self.use_for_project()
+        self.accept()
+
+    def _confirm_close(self) -> None:
+        """Close — warn first if the template has unsaved working edits."""
+        if getattr(self, "_dirty", False):
+            if not themed_confirm(
+                    self, "Discard changes?",
+                    "This template has unsaved changes. Close without saving?"):
+                return
+        self.reject()
+
     # ═════════════════════════════════════════════════════════════════════════
     # Snapshot undo / redo
     # ═════════════════════════════════════════════════════════════════════════
@@ -897,6 +999,7 @@ class TitleBlockEditorDialog(QDialog):
         """
         if self.working is None:
             return
+        self._dirty = True            # a user edit — arm the close warning
         self._undo_stack.append(copy.deepcopy(self.working.to_dict()))
         if len(self._undo_stack) > _UNDO_STACK_MAX:
             self._undo_stack.pop(0)
@@ -956,7 +1059,6 @@ class TitleBlockEditorDialog(QDialog):
         if self.working is None:
             self._warning_label.setVisible(False)
             self.save_button.setEnabled(False)
-            self.save_close_button.setEnabled(False)
             return
 
         # Single-size model: use the template's layout and oriented paper dims
@@ -981,7 +1083,6 @@ class TitleBlockEditorDialog(QDialog):
             warnings.append(f"Layout error: {exc}")
             self._show_warnings(warnings)
             self.save_button.setEnabled(False)
-            self.save_close_button.setEnabled(False)
             return
 
         warnings.extend(layout.warnings)
@@ -995,7 +1096,6 @@ class TitleBlockEditorDialog(QDialog):
 
         self._show_warnings(warnings)
         self.save_button.setEnabled(enabled)
-        self.save_close_button.setEnabled(enabled)
         # Use itemsBoundingRect (not sceneRect) so the rect shrinks when
         # switching from a large paper size (e.g. ANSI D) to a small one
         # (e.g. A4). QGraphicsScene.clear() resets sceneRect lazily; stale
@@ -1029,7 +1129,8 @@ class TitleBlockEditorDialog(QDialog):
     def _populate_form_inner(self) -> None:
         if self.working is None:
             self._name_edit.clear()
-            self._field_list.clear()
+            self._field_rail.clear()
+            self._field_ids = []
             self._field_form_widget.setEnabled(False)
             self._field_preview_scene.clear()
             # Clear the Arrangements tab gracefully: refresh against an empty
@@ -1051,18 +1152,16 @@ class TitleBlockEditorDialog(QDialog):
         self._on_canvas_selection(self._arrange_tab.canvas.selected_field_id)
 
     def _populate_overview_fields(self) -> None:
-        """Populate paper-size combo + orientation radios from working template."""
+        """Populate paper-size combo + orientation switch from working template."""
         if self.working is None:
             return
         # Paper size combo
         idx = self._paper_size_combo.findText(self.working.paper_size)
         if idx >= 0:
             self._paper_size_combo.setCurrentIndex(idx)
-        # Orientation radios
-        if self.working.orientation == "portrait":
-            self._orient_portrait.setChecked(True)
-        else:
-            self._orient_landscape.setChecked(True)
+        # Orientation switch (set_current does not emit changed — no snapshot).
+        self._orient_bar.set_current(
+            "portrait" if self.working.orientation == "portrait" else "landscape")
 
     def _populate_variant_fields(self) -> None:
         """Update margin/border widgets from the active layout (no snapshot)."""
@@ -1080,26 +1179,52 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _rebuild_field_list(self, keep_row: bool = False) -> None:
-        """Repopulate the field roster list from active layout's fields.
+        """Repopulate the field roster rail from active layout's fields.
+
+        Rows are keyed by field id in ``self._field_ids`` (rail order → id),
+        keeping the rest of the tab addressable by integer row. The rail's
+        ``set_current`` never emits, so no selection re-fire (mirrors the old
+        blockSignals guard); ``add_tab`` auto-selects the first row, so the
+        intended selection is applied explicitly after the rebuild.
 
         Args:
-            keep_row: When True, restore the current row after clearing.
+            keep_row: When True, restore the previously-selected field.
         """
-        prev_row = self._field_list.currentRow() if keep_row else -1
-        self._field_list.blockSignals(True)
-        self._field_list.clear()
+        prev_id = self._field_rail.current() if keep_row else None
+        self._field_rail.clear()
+        self._field_ids = []
         if self.working is None:
-            self._field_list.blockSignals(False)
             return
         placed = self.working.layout.placed_ids()
         for f in self.working.layout.fields:
             indicator = "●" if f.id in placed else "○"
-            item = QListWidgetItem(f"{indicator} {f.name}")
-            item.setData(Qt.ItemDataRole.UserRole, f.id)
-            self._field_list.addItem(item)
-        self._field_list.blockSignals(False)
-        if keep_row and 0 <= prev_row < self._field_list.count():
-            self._field_list.setCurrentRow(prev_row)
+            self._field_rail.add_tab(f.id, f"{indicator} {f.name}")
+            self._field_ids.append(f.id)
+        if keep_row and prev_id in self._field_ids:
+            self._field_rail.set_current(prev_id)
+        else:
+            self._field_rail.set_current(None)
+
+    # ── Field roster helpers (SideTabs rail, index-addressable by field id) ──
+
+    def _on_field_rail_selected(self, key: str) -> None:
+        """Rail click → route to the row-based selection handler."""
+        row = self._field_ids.index(key) if key in self._field_ids else -1
+        self._on_field_selected(row)
+
+    def _field_current_row(self) -> int:
+        """Row index of the selected field, or -1 (mirrors currentRow())."""
+        key = self._field_rail.current()
+        return self._field_ids.index(key) if key in self._field_ids else -1
+
+    def _field_select_row(self, row: int) -> None:
+        """Select roster *row* and populate the form (mirrors setCurrentRow)."""
+        if 0 <= row < len(self._field_ids):
+            self._field_rail.set_current(self._field_ids[row])
+            self._on_field_selected(row)
+        else:
+            self._field_rail.set_current(None)
+            self._on_field_selected(-1)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Fields tab — selection helper
@@ -1107,7 +1232,7 @@ class TitleBlockEditorDialog(QDialog):
 
     def _sel_field(self) -> FieldDef | None:
         """Return the currently selected FieldDef, or None if no selection."""
-        i = self._field_list.currentRow()
+        i = self._field_current_row()
         flds = self.working.layout.fields if self.working else []
         return flds[i] if 0 <= i < len(flds) else None
 
@@ -1137,7 +1262,7 @@ class TitleBlockEditorDialog(QDialog):
             self._fcap_height.set_value_mm(f.cap_height_mm)
             self._fbold.setChecked(f.bold)
             self._fitalic.setChecked(f.italic)
-            self._falign.setCurrentText(f.alignment)
+            self._falign.set_current(f.alignment)
             _update_swatch(self._ftext_color_swatch, f.text_color)
             _update_swatch(self._ffield_fill_swatch, f.fill_color)
             self._frev_rows.setValue(f.revision_rows)
@@ -1192,13 +1317,13 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _update_roster_row(self) -> None:
-        """Update only the currently selected roster item's text in-place.
+        """Update only the currently selected roster row's label in-place.
 
-        Uses a blockSignals guard so no currentRowChanged re-fires (no rebuild,
-        no double preview solve, no form repopulate).
+        ``set_label`` mutates the row text without touching selection, so no
+        re-fire (no rebuild, no double preview solve, no form repopulate).
         """
-        row = self._field_list.currentRow()
-        if self.working is None or row < 0 or row >= self._field_list.count():
+        row = self._field_current_row()
+        if self.working is None or row < 0 or row >= len(self._field_ids):
             return
         flds = self.working.layout.fields
         if row >= len(flds):
@@ -1206,11 +1331,7 @@ class TitleBlockEditorDialog(QDialog):
         f = flds[row]
         placed = self.working.layout.placed_ids()
         indicator = "●" if f.id in placed else "○"
-        item = self._field_list.item(row)
-        if item is not None:
-            self._field_list.blockSignals(True)
-            item.setText(f"{indicator} {f.name}")
-            self._field_list.blockSignals(False)
+        self._field_rail.set_label(self._field_ids[row], f"{indicator} {f.name}")
 
     def _field_prop(self, prop: str, value) -> None:
         """Snapshot + mutate a FieldDef property on the selected field.
@@ -1427,7 +1548,7 @@ class TitleBlockEditorDialog(QDialog):
         self._rebuild_field_list()
         # Select the new field
         new_row = len(self.working.layout.fields) - 1
-        self._field_list.setCurrentRow(new_row)
+        self._field_select_row(new_row)
         self._arrange_tab.refresh(self.working.layout)   # new field → pool
         self.refresh_preview()
 
@@ -1443,7 +1564,7 @@ class TitleBlockEditorDialog(QDialog):
         self.working.layout.fields.append(new_f)
         self._rebuild_field_list()
         new_row = len(self.working.layout.fields) - 1
-        self._field_list.setCurrentRow(new_row)
+        self._field_select_row(new_row)
         self._arrange_tab.refresh(self.working.layout)   # copy starts in pool
         self.refresh_preview()
 
@@ -1609,8 +1730,7 @@ class TitleBlockEditorDialog(QDialog):
         self._loading = True
         try:
             self._arrange_tab.min_height.set_value_mm(slot.min_height_mm)
-            self._arrange_tab.sizing.setCurrentText(
-                "Dynamic" if slot.sizing == "dynamic" else "Static")
+            self._arrange_tab.sizing.set_current(slot.sizing)
         finally:
             self._loading = prev_loading
 
@@ -1623,10 +1743,13 @@ class TitleBlockEditorDialog(QDialog):
         slot.min_height_mm = mm
         self._after_arrange_gesture()
 
-    def _on_placement_sizing(self, text: str) -> None:
-        """Snapshot + write the selected slot's sizing mode (no-op guarded)."""
+    def _on_placement_sizing(self, key: str) -> None:
+        """Snapshot + write the selected slot's sizing mode (no-op guarded).
+
+        *key* is the SwitchBar segment key ("static"/"dynamic").
+        """
         slot = self._selected_slot()
-        val = text.lower()
+        val = key.lower()
         if self._loading or slot is None or slot.sizing == val:
             return
         self.push_snapshot()
@@ -1636,6 +1759,22 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
     # Tab change handler
     # ═════════════════════════════════════════════════════════════════════════
+
+    def showEvent(self, event):
+        """Open maximized (full screen) on the first real show.
+
+        Applied here — not in ``__init__`` — because ``showMaximized()`` in the
+        constructor fires ``showEvent`` before the UI is realized (project trap:
+        showmaximized_init_fires_showevent). Guarded so it runs once; a deferred
+        refit lets the preview fill the maximized viewport.
+        """
+        super().showEvent(event)
+        if not self._did_initial_maximize:
+            self._did_initial_maximize = True
+            self.showMaximized()
+            QTimer.singleShot(
+                0, lambda: self._on_tab_changed(
+                    self._component_tabs.currentIndex()))
 
     def _on_tab_changed(self, index: int) -> None:
         """Re-fit the preview when the Overview tab (index 0) becomes visible.
@@ -1675,21 +1814,11 @@ class TitleBlockEditorDialog(QDialog):
         if tab is not None and self.working is not None:
             tab.refresh(self.working.layout)
 
-    def _on_orientation_toggled(self, checked: bool) -> None:
-        """Called when either orientation radio button's toggled signal fires.
-
-        Both Landscape and Portrait radios connect here.  Only acts on the
-        ``checked=True`` transition to avoid double-fire (each toggle emits
-        once for the button becoming checked and once for the other becoming
-        unchecked).
-        """
+    def _on_orient_changed(self, key: str) -> None:
+        """Orientation SwitchBar selection ("landscape"/"portrait")."""
         if self._loading or self.working is None:
             return
-        # Only act on the "becoming checked" transition to avoid double-fire
-        if not checked:
-            return
-        orientation = "landscape" if self._orient_landscape.isChecked() else "portrait"
-        self.set_orientation(orientation)
+        self.set_orientation(key)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Public form slots (API; tested directly)
@@ -1701,13 +1830,8 @@ class TitleBlockEditorDialog(QDialog):
             return
         self.push_snapshot()
         self.working.name = text
-        # Update list widget label with the full display_name ("Name (SIZE)" or
-        # "Name (SIZE, Portrait)") so the suffix is always current.
-        uid = self.working.uuid
-        for i in range(self._template_list.count()):
-            if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
-                self._template_list.item(i).setText(self.working.display_name)
-                break
+        # Keep the rail label's display_name ("Name (SIZE)") current as you type.
+        self._rail.set_label(self.working.uuid, self.working.display_name)
 
     def set_paper_size(self, size: str) -> None:
         """Snapshot + set template paper_size; re-solves preview at new dims.
@@ -1797,6 +1921,7 @@ class TitleBlockEditorDialog(QDialog):
             return False
         if not self.save():
             return False
+        self._dirty = False           # saved — clear the close warning
         if self._use_requested or self.project_template_result is not None:
             self.project_template_result = self.working.copy()
             # Mark the result as saved: a saved use-intent survives a later
@@ -1808,8 +1933,3 @@ class TitleBlockEditorDialog(QDialog):
     def _on_save_clicked(self) -> None:
         """Save mid-session: library write + live refresh, dialog stays open."""
         self._do_save()
-
-    def _on_save_close_clicked(self) -> None:
-        """Save then accept (the pre-2026-08-04 Save behavior)."""
-        if self._do_save():
-            self.accept()

@@ -63,6 +63,11 @@ def _blank_template_payload(sm: ScaleManager | None = None) -> dict:
         "template": True,
         "project_info": {},
         "scale": sm.to_dict(),
+        # Linked default title-block: a library uuid (not an embedded copy).
+        # New projects resolve this against the library and embed the CURRENT
+        # version, so edits to the linked template flow into future projects
+        # (existing saved projects keep their embedded copy — DD-5). "" = none.
+        "titleblock_template_uuid": "",
     }
     for key in _BLANK_GEOMETRY_KEYS:
         payload[key] = []
@@ -194,6 +199,35 @@ def apply_template_settings(scene) -> None:
     info = data.get("project_info")
     if isinstance(info, dict):
         scene._project_info = dict(info)
+    apply_template_titleblock(scene, data)
+
+
+def apply_template_titleblock(scene, data: dict) -> None:
+    """Resolve the template's linked title-block uuid and embed the CURRENT
+    library version into *scene* (Task A: linked default that auto-reflects
+    library edits into new projects).
+
+    A missing/blank/unresolvable uuid leaves ``scene._titleblock_template``
+    untouched (``None`` after ``_clear_scene`` → the sheet renders blank and
+    prompts the user to build one). Never raises into the caller.
+
+    Args:
+        scene: A ``Model_Space`` exposing ``_titleblock_template``.
+        data: The parsed ``.fpdt`` payload.
+    """
+    uuid = (data.get("titleblock_template_uuid") or "").strip()
+    if not uuid:
+        return
+    try:
+        from firepro3d.titleblock_template import load_library
+        match = next((t for t in load_library() if t.uuid == uuid), None)
+        if match is not None:
+            scene._titleblock_template = match.to_dict()
+        else:
+            log.info("Linked title-block template %s not in library — "
+                     "new project starts with no title block.", uuid)
+    except Exception:
+        log.exception("Failed to resolve linked title-block template %s", uuid)
 
 
 def save_current_as_default(scene) -> str:
@@ -214,6 +248,12 @@ def save_current_as_default(scene) -> str:
     payload = _blank_template_payload()
     payload["scale"] = scene.scale_manager.to_dict()
     payload["project_info"] = dict(getattr(scene, "_project_info", {}) or {})
+    # Capture the current project's linked title-block by uuid (reference, not
+    # embed): "Save as default" is how the user sets which library template new
+    # projects inherit (Task A).
+    raw_tb = getattr(scene, "_titleblock_template", None)
+    if isinstance(raw_tb, dict) and raw_tb.get("uuid"):
+        payload["titleblock_template_uuid"] = raw_tb["uuid"]
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
     log.debug("Saved current settings as default template: %s", path)

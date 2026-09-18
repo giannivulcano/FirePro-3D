@@ -401,14 +401,13 @@ class TestVectorPlotParity:
         assert scene._underlay_freeze.frozen is False   # aborted by paint
         doc = fitz.open(str(out))
         drawings = doc[0].get_drawings()
-        assert len(drawings) >= 40, (
-            f"expected >=40 vector paths in plotted page, got {len(drawings)} "
-            "- underlay was rasterized or missing")
-        # The title block alone contributes thousands of drawings, so the
-        # count above can't distinguish underlay presence. Count the underlay's
-        # OWN vectors: 40 horizontal bait lines, each 390 mm long on paper
-        # (crop x 10..400 at viewport scale 1.0). Probed values: 40 unfrozen,
-        # 0 when the freeze leaks (rasterized).
+        # NOTE: the total drawing-GROUP count is NOT a valid underlay-presence
+        # proxy — PyMuPDF groups the 40 bait lines into a handful of drawing
+        # dicts, and with no title block on the page (Task A retired the CEL
+        # fallback; a template-less sheet renders blank) nothing else inflates
+        # the count. Assert on the underlay's OWN vectors instead: 40 horizontal
+        # bait lines, each 390 mm long on paper (crop x 10..400 at viewport
+        # scale 1.0). Probed values: 40 unfrozen, 0 when the freeze leaks.
         mm = 72.0 / 25.4  # pt per paper mm
         n_bait = sum(
             1

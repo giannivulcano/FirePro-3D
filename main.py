@@ -756,6 +756,10 @@ class MainWindow(QMainWindow):
         apply_default_display_settings(self.scene)
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
+        # Render the linked default title block on the startup sheet (Task A);
+        # the CEL DXF/PDF fallback was removed, so without this the startup
+        # paper view would be blank even when the .fpdt links a template.
+        self._push_titleblock_template()
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -1780,7 +1784,7 @@ class MainWindow(QMainWindow):
         _btn.setToolTip("Change paper sheet size")
         _btn = g_pg.add_large_button(
             "Title Block",
-            _I("placeholder_icon.svg"),
+            _I("titleblock_icon.svg"),
             self._open_titleblock_editor)
         _btn.setToolTip("Edit title block template / fields")
 
@@ -2020,20 +2024,25 @@ class MainWindow(QMainWindow):
         replaces the entire dict — see _open_project_info).
         """
         t, project_info = self._current_template()
+        corrupt = False
         if t is None:
-            # Warn only when a raw dict was present but un-parseable; otherwise
-            # None is expected (no template assigned yet).
+            # A raw-but-unparseable embed signals a corrupt file; a plain None
+            # is the expected "no template assigned yet" case (Task A: blank).
             raw = getattr(self.scene, "_titleblock_template", None)
             if raw is not None:
                 import logging
+                corrupt = True
                 logging.getLogger(__name__).warning(
-                    "Embedded title block template unreadable — using built-in title block.")
-                self.statusBar().showMessage(
-                    "Embedded title block template unreadable — using built-in title block.",
-                    8000)
+                    "Embedded title block template unreadable — no title block shown.")
         ps = self.paper_space_widget.paper_scene
         ps.set_template(t, project_info=project_info)
-        if ps.titleblock_warning:
+        # The corrupt-embed message is more specific than the generic blank
+        # nudge (_setup sets ps.titleblock_warning), so it takes precedence.
+        if corrupt:
+            self.statusBar().showMessage(
+                "Embedded title block template unreadable — no title block "
+                "shown. Open Draft → Title Block to apply one.", 8000)
+        elif ps.titleblock_warning:
             self.statusBar().showMessage(ps.titleblock_warning, 8000)
 
     def _maybe_offer_template_push(self) -> None:
@@ -4030,7 +4039,8 @@ class MainWindow(QMainWindow):
         self.sheet_mgr = SheetManager(self.scene._sheets)
         self._sheet = self.sheet_mgr.sheets[0]
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
-        # Push the template (None after _clear_scene → restores legacy chain).
+        # Push the linked default template embedded by apply_template_settings
+        # (Task A); blank + prompt when the .fpdt links nothing / can't resolve.
         self._push_titleblock_template()
         self._push_sheet_list()
         self._recompute_placed_views()

@@ -27,15 +27,19 @@ from .constants import (
 )
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem  # shared data model + unified text primitive (C5); re-exported for callers
+from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
-    QMenu, QCheckBox, QColorDialog,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+    QMenu, QCheckBox, QColorDialog, QLabel, QDateEdit,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
+    QAbstractItemView,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, QDate, pyqtSignal,
+)
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
     QPainterPath, QImage, QUndoStack,
@@ -2455,7 +2459,13 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     vals["Sheet No"] = sheet.number                       # auto wins (§19.7)
     vals["Drawing No"] = sheet.number                     # synonym of Sheet No
     vals["Title"] = sheet.name                            # sheet identity owns it
-    vals["__revisions__"] = list(sheet.revisions)
+    # Revision dates are stored ISO; render them in the project display format
+    # (Task C). Storage is untouched — only the copy handed to the solver.
+    _fmt = project_info.get("date_format") or DEFAULT_DATE_FORMAT
+    vals["__revisions__"] = [
+        {**r, "date": format_date_display(r.get("date", ""), _fmt)}
+        for r in sheet.revisions
+    ]
     return vals
 
 
@@ -2521,15 +2531,31 @@ def open_revisions_dialog(scene, sheet, parent_widget=None) -> None:
     if parent_widget is None:
         views = scene.views()
         parent_widget = views[0] if views else None
-    dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
+    project_info = getattr(scene, "_scene_project_info", None)
+    if project_info is None:
+        project_info = {}
+    dlg = RevisionsDialog(list(sheet.revisions), parent_widget,
+                          project_info=project_info)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return
     new_revisions = dlg.result_revisions()
-    # No-change guard: skip the command (and sheetModified) when nothing changed.
-    if new_revisions == [dict(r) for r in sheet.revisions]:
-        return
-    if not getattr(scene, "_applying_command", False):
-        stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+    new_fmt = dlg.selected_date_format()
+    old_fmt = project_info.get("date_format") or DEFAULT_DATE_FORMAT
+    fmt_changed = new_fmt != old_fmt
+    revs_changed = new_revisions != [dict(r) for r in sheet.revisions]
+    if fmt_changed:
+        project_info["date_format"] = new_fmt      # project-scoped display fmt
+    if revs_changed:
+        # Revision edits ride the undo stack (§17.7); the redo re-renders and
+        # picks up any new format written just above.
+        if not getattr(scene, "_applying_command", False):
+            stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+    elif fmt_changed:
+        # Format-only change: re-render + dirty (non-undoable project setting,
+        # like Display Manager settings — see the filed DM-undo follow-up).
+        if hasattr(scene, "_refresh_titleblock"):
+            scene._refresh_titleblock()
+        scene.sheetModified.emit()
 
 
 class TitleBlockTemplateItem(QGraphicsItem):
@@ -2618,7 +2644,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
 
     def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
                       fdef, *, cap_mm: float | None = None,
-                      bold: bool | None = None) -> None:
+                      bold: bool | None = None, align: str | None = None) -> None:
         """Draw wrapped lines at a paper-mm cap height (mm primitive).
 
         Args:
@@ -2629,6 +2655,9 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 alignment.
             cap_mm: Override cap height (mm); defaults to fdef.cap_height_mm.
             bold: Override bold flag; defaults to fdef.bold.
+            align: Override horizontal alignment ("left"/"center"/"right");
+                defaults to fdef.alignment. Used by the revision table's
+                per-column justification (Task B).
         """
         f = QFont(fdef.font_family or "Arial")
         f.setBold(fdef.bold if bold is None else bold)
@@ -2647,7 +2676,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
         align = {"left": Qt.AlignmentFlag.AlignLeft,
                  "center": Qt.AlignmentFlag.AlignHCenter,
                  "right": Qt.AlignmentFlag.AlignRight}.get(
-                     fdef.alignment, Qt.AlignmentFlag.AlignLeft)
+                     align if align is not None else fdef.alignment,
+                     Qt.AlignmentFlag.AlignLeft)
         y = 0.0
         for line in lines:
             painter.drawText(
@@ -2655,6 +2685,21 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 align | Qt.AlignmentFlag.AlignVCenter, line)
             y += fm.lineSpacing()
         painter.restore()
+
+    @staticmethod
+    def _rev_text_width_mm(fdef, text: str, *, bold: bool) -> float:
+        """On-paper width (mm) of *text* at the revision-row cap height.
+
+        Auto-sizes the Rev. and Date columns to their widest content (header +
+        data) so the Description column fills the remainder (Task B).
+        """
+        f = QFont(fdef.font_family or "Arial")
+        f.setBold(bold)
+        f.setItalic(fdef.italic)
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        fm = QFontMetricsF(f)
+        cap_px = fm.capHeight() or 1.0
+        return fm.horizontalAdvance(text or "") * (TB_REV_CAP_MM / cap_px)
 
     def _draw_label(self, painter: QPainter, rect: QRectF, fdef) -> None:
         """Draw the small-caps label row for a FieldDef.
@@ -2701,33 +2746,64 @@ class TitleBlockTemplateItem(QGraphicsItem):
                     QRectF(img_rect.left() + dx, img_rect.top() + dy,
                            scaled.width(), scaled.height()),
                     pm, QRectF(pm.rect()))
-            # Revision table (kind-specific; ignores text/image sub-rects)
+            # Revision table (kind-specific; ignores text/image sub-rects).
+            # True columns (Task B): Rev. (centre) + Date (right) auto-size to
+            # their widest content incl. header; Description (left) fills the
+            # remainder. Headers are integral + per-column aligned. No vertical
+            # dividers (B5a) — whitespace between columns, horizontal row rules.
             if f.kind == "revision_table":
                 inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
                                       -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
                 content = inner.adjusted(
                     0, TB_LABEL_ROW_MM if f.label else 0.0, 0, 0)
                 rows = lay.cell_revision_rows.get(i, [])
-                y = content.top()
+                pad = TB_CELL_PAD_MM
+                # Content-driven minimum widths (header sets the floor).
+                rev_w = self._rev_text_width_mm(f, "Rev.", bold=True)
+                date_w = self._rev_text_width_mm(f, "Date", bold=True)
+                for rev in rows:
+                    rev_w = max(rev_w, self._rev_text_width_mm(
+                        f, str(rev.get("no", "")), bold=False))
+                    date_w = max(date_w, self._rev_text_width_mm(
+                        f, str(rev.get("date", "")), bold=False))
+                rev_w += 2 * pad
+                date_w += 2 * pad
+                # Never let Description collapse in a narrow strip: cap the
+                # Rev+Date pair at 3/4 of the width, scaling both if needed.
+                if rev_w + date_w > content.width() * 0.75:
+                    scale = (content.width() * 0.75) / (rev_w + date_w)
+                    rev_w *= scale
+                    date_w *= scale
+                rev_x = content.left()
+                date_x = content.right() - date_w
+                desc_x = rev_x + rev_w
+                desc_w = max(date_x - desc_x, 0.0)
+                cols = ((rev_x, rev_w, "center"),
+                        (desc_x, desc_w, "left"),
+                        (date_x, date_w, "right"))
+                keys = ("no", "description", "date")
+                headers = ("Rev.", "Description", "Date")
+
+                # Vertically centre the header+rows block within the cell so the
+                # rows aren't stranded at the top when the cell is taller.
+                block_h = (1 + len(rows)) * TB_REV_ROW_MM
+                y = content.top() + max(0.0, (content.height() - block_h) / 2.0)
                 painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
                 # Header row — the solver's +1 reservation is this header band.
-                self._draw_text_mm(
-                    painter,
-                    QRectF(content.left(), y, content.width(), TB_REV_ROW_MM),
-                    ["No  Description  Date"], f,
-                    cap_mm=TB_REV_CAP_MM, bold=True)
+                for (cx, cw, calign), htext in zip(cols, headers):
+                    self._draw_text_mm(
+                        painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
+                        [htext], f, cap_mm=TB_REV_CAP_MM, bold=True,
+                        align=calign)
                 y += TB_REV_ROW_MM
                 painter.drawLine(QPointF(content.left(), y),
                                  QPointF(content.right(), y))
                 for rev in rows:
-                    line = (f'{rev.get("no", "")}  '
-                            f'{rev.get("description", "")}  '
-                            f'{rev.get("date", "")}')
-                    self._draw_text_mm(
-                        painter,
-                        QRectF(content.left(), y, content.width(),
-                               TB_REV_ROW_MM),
-                        [line], f, cap_mm=TB_REV_CAP_MM, bold=False)
+                    for (cx, cw, calign), key in zip(cols, keys):
+                        self._draw_text_mm(
+                            painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
+                            [str(rev.get(key, ""))], f, cap_mm=TB_REV_CAP_MM,
+                            bold=False, align=calign)
                     y += TB_REV_ROW_MM
                     painter.drawLine(QPointF(content.left(), y),
                                      QPointF(content.right(), y))
@@ -2914,7 +2990,7 @@ class PaperScene(QGraphicsScene):
 
         Never rebuilds the whole sheet (spec §4.12) — safe to call from
         undo commands and viewport-event frames.  No-op when no template
-        item is active (legacy chain items don't consume live values).
+        item is active (a blank sheet has no live values to refresh).
         """
         if not isinstance(self._title_tb, TitleBlockTemplateItem):
             return
@@ -2965,7 +3041,11 @@ class PaperScene(QGraphicsScene):
         )
         self._bg_item.setZValue(0)
 
-        # Title block resolution: template → DXF → PDF → programmatic (§8.1)
+        # Title block resolution (Task A): a project template that MATCHES the
+        # sheet renders; otherwise the sheet is BLANK and a status-bar nudge
+        # prompts the user to build/apply one. The legacy CEL DXF/PDF and the
+        # programmatic fallback were removed — a title block is now always an
+        # authored parametric template.
         use_external_title = False
         self.titleblock_warning = ""
 
@@ -2977,28 +3057,16 @@ class PaperScene(QGraphicsScene):
                 self.titleblock_warning = (
                     f"Template '{self._template.name}' "
                     f"({self._template.paper_size}) does not match "
-                    f"sheet size {self._sheet.paper_size} — using built-in "
-                    "title block."
+                    f"sheet size {self._sheet.paper_size} — no title block "
+                    "shown. Open Draft → Title Block to apply a matching one."
                 )
+        if not use_external_title and not self.titleblock_warning:
+            self.titleblock_warning = (
+                "No title block on this sheet — open Draft → Title Block to "
+                "create or apply one."
+            )
 
-        dxf_path = TITLE_BLOCK_DXFS.get(self._sheet.paper_size)
-        if not use_external_title and dxf_path and os.path.isfile(dxf_path):
-            tb_dxf = TitleBlockDxfItem(dxf_path, w, h)
-            if tb_dxf.is_valid():
-                self.addItem(tb_dxf)
-                self._title_tb = tb_dxf
-                use_external_title = True
-
-        if not use_external_title:
-            pdf_path = TITLE_BLOCK_PDFS.get(self._sheet.paper_size)
-            if pdf_path:
-                tb_pdf = TitleBlockPdfItem(pdf_path, w, h)
-                if tb_pdf.pixmap() is not None and not tb_pdf.pixmap().isNull():
-                    self.addItem(tb_pdf)
-                    self._title_tb = tb_pdf
-                    use_external_title = True
-
-        # Drawing border (skip when external DXF/PDF artwork provides its own)
+        # Drawing border (always drawn now that no external artwork frames it).
         bx, by = MARGIN, MARGIN
         bw, bh = w - 2 * MARGIN, h - 2 * MARGIN
         if not use_external_title:
@@ -3009,12 +3077,13 @@ class PaperScene(QGraphicsScene):
             )
             border.setZValue(2)
 
-        # Programmatic title block (fallback)
+        # Vestigial programmatic block: kept for the title_block property + the
+        # Scale-value refresh refs, but ALWAYS hidden — a no-template sheet
+        # renders blank (Task A). Full retirement of TitleBlockItem is filed.
         self._title = TitleBlockItem(w, h)
         self._title.fields = self._sheet.title_block_fields
         self.addItem(self._title)
-        if use_external_title:
-            self._title.hide()
+        self._title.hide()
 
         # Field overlay removed — DXF artwork already contains placeholder text
         # as geometry; the programmatic overlay produced misaligned duplicates.
@@ -3613,32 +3682,163 @@ class PaperScene(QGraphicsScene):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sheet Revisions dialog
+# Sheet Revisions dialog + date formatting (Task C)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class RevisionsDialog(QDialog):
-    """No/Description/Date table editor for a sheet's revision history.
+DEFAULT_DATE_FORMAT = "MM/DD/YYYY"
+# Display formats (labels) → strftime tokens. Revision dates are STORED as ISO
+# YYYY-MM-DD; these govern only how they render on the sheet + in the picker.
+DATE_FORMATS: dict[str, str] = {
+    "MM/DD/YYYY": "%m/%d/%Y",
+    "DD/MM/YYYY": "%d/%m/%Y",
+    "YYYY-MM-DD": "%Y-%m-%d",
+    "DD MMM YYYY": "%d %b %Y",
+    "MMM DD, YYYY": "%b %d, %Y",
+    "DD-MMM-YY": "%d-%b-%y",
+}
+# Same labels → Qt display-format tokens (for the QDateEdit picker WYSIWYG).
+_QT_DATE_TOKENS: dict[str, str] = {
+    "MM/DD/YYYY": "MM/dd/yyyy",
+    "DD/MM/YYYY": "dd/MM/yyyy",
+    "YYYY-MM-DD": "yyyy-MM-dd",
+    "DD MMM YYYY": "dd MMM yyyy",
+    "MMM DD, YYYY": "MMM dd, yyyy",
+    "DD-MMM-YY": "dd-MMM-yy",
+}
 
-    Works on a copy of the input list; the caller reads result_revisions()
-    on accept and pushes an EditRevisionsCommand (T13 wiring).
+
+def parse_date_to_iso(text: str) -> "str | None":
+    """Best-effort parse of a stored/typed date to ISO ``YYYY-MM-DD``.
+
+    Returns ``""`` for empty input and ``None`` when unparseable (so callers
+    can preserve a legacy free-text value verbatim rather than lose it).
+    """
+    import datetime as _dt
+    text = (text or "").strip()
+    if not text:
+        return ""
+    for f in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%d %b %Y", "%b %d, %Y",
+              "%d-%b-%y", "%m/%d/%y", "%Y/%m/%d"):
+        try:
+            return _dt.datetime.strptime(text, f).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def format_date_display(stored: str, fmt_label: str) -> str:
+    """Format an ISO stored date to the project display format.
+
+    Empty → ``""``. A non-ISO legacy value is returned **verbatim** (preserved,
+    never dropped). Unknown format labels fall back to the default.
+    """
+    import datetime as _dt
+    stored = (stored or "").strip()
+    if not stored:
+        return ""
+    try:
+        d = _dt.date.fromisoformat(stored)
+    except ValueError:
+        return stored   # legacy free-text preserved
+    return d.strftime(DATE_FORMATS.get(fmt_label, DATE_FORMATS[DEFAULT_DATE_FORMAT]))
+
+
+class _RevisionDateDelegate(QStyledItemDelegate):
+    """Renders a revision date as plain cell text; opens a QDateEdit only on
+    edit (double-click). The item's UserRole holds the stored value (ISO, or a
+    legacy string kept verbatim); DisplayRole holds the formatted text."""
+
+    def __init__(self, dialog):
+        super().__init__(dialog)
+        self._dialog = dialog
+
+    def createEditor(self, parent, option, index):
+        ed = QDateEdit(parent)
+        ed.setCalendarPopup(True)
+        ed.setDisplayFormat(_QT_DATE_TOKENS.get(
+            self._dialog.selected_date_format(),
+            _QT_DATE_TOKENS[DEFAULT_DATE_FORMAT]))
+        cal = ed.calendarWidget()
+        if cal is not None:                                # no red weekends
+            wk = cal.weekdayTextFormat(Qt.DayOfWeek.Monday)
+            cal.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, wk)
+            cal.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, wk)
+        return ed
+
+    def setEditorData(self, editor, index):
+        iso = parse_date_to_iso(index.data(Qt.ItemDataRole.UserRole) or "")
+        editor.setDate(QDate.fromString(iso, "yyyy-MM-dd")
+                       if iso else QDate.currentDate())
+
+    def setModelData(self, editor, model, index):
+        iso = editor.date().toString("yyyy-MM-dd")
+        model.setData(index, iso, Qt.ItemDataRole.UserRole)
+        model.setData(index, format_date_display(
+            iso, self._dialog.selected_date_format()), Qt.ItemDataRole.DisplayRole)
+
+
+class RevisionsDialog(HouseDialog):
+    """Rev./Description/Date table editor for a sheet's revision history.
+
+    House-chrome dialog (Task D). Works on a copy of the input list; the caller
+    reads result_revisions() and selected_date_format() on accept. The Date
+    column shows plain formatted text and opens a QDateEdit (via
+    _RevisionDateDelegate) only when edited; dates STORE as ISO and default to
+    **today** when empty; an unparseable legacy value renders + round-trips
+    verbatim. Content is added via body_layout() so the container matches the
+    dialog surface.
     """
 
-    _HEADERS = ["No", "Description", "Date"]
+    _HEADERS = ["Rev.", "Description", "Date"]
     _KEYS = ("no", "description", "date")
 
-    def __init__(self, revisions: list[dict], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Sheet Revisions")
-        self.setMinimumSize(420, 300)
-        lay = QVBoxLayout(self)
+    def __init__(self, revisions: list[dict], parent=None, *, project_info=None):
+        super().__init__(parent, title="Sheet Revisions", resizable=True,
+                         min_width=460, icon="titleblock_icon.svg")
+        self._project_info = project_info if project_info is not None else {}
+        # Add straight to the house body layout — wrapping in a bare QWidget
+        # renders a black container over the lighter dialog surface (the
+        # documented HouseDialog "use body_layout()" gotcha).
+        lay = self.body_layout()
+        lay.setSpacing(10)                                 # breathing room (ER1)
+
+        # Project-scoped display-format chooser.
+        fmt_row = QHBoxLayout()
+        fmt_row.addWidget(QLabel("Date format:"))
+        self.fmt_combo = QComboBox()
+        self.fmt_combo.addItems(list(DATE_FORMATS.keys()))
+        cur = self._project_info.get("date_format") or DEFAULT_DATE_FORMAT
+        idx = self.fmt_combo.findText(cur)
+        self.fmt_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.fmt_combo.currentTextChanged.connect(self._apply_display_format)
+        fmt_row.addWidget(self.fmt_combo)
+        fmt_row.addStretch()
+        lay.addLayout(fmt_row)
+
         self.table = QTableWidget(len(revisions), 3)
         self.table.setHorizontalHeaderLabels(self._HEADERS)
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch)
+        hdr = self.table.horizontalHeader()
+        # Columns are user-resizable; Rev./Date auto-fit their content (incl. the
+        # date widget), Description fills the remainder.
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.table.verticalHeader().setVisible(False)
+        self._date_delegate = _RevisionDateDelegate(self)
+        self.table.setItemDelegateForColumn(2, self._date_delegate)
+        # Open editors on a single click; re-fit the Date column after each edit
+        # commits (so the column grows to the picked date, not only on reopen).
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
+        self._date_delegate.commitData.connect(
+            lambda *_: self.table.resizeColumnToContents(2))
         for r, rev in enumerate(revisions):
-            for c, key in enumerate(self._KEYS):
-                self.table.setItem(r, c, QTableWidgetItem(rev.get(key, "")))
+            self.table.setItem(r, 0, QTableWidgetItem(rev.get("no", "")))
+            self.table.setItem(r, 1, QTableWidgetItem(rev.get("description", "")))
+            self.table.setItem(r, 2, self._date_item(rev.get("date", "")))
+        self.table.resizeColumnToContents(0)
+        self.table.resizeColumnToContents(2)
+        # Floor the Date column so the picker never renders cramped.
+        self.table.setColumnWidth(2, max(self.table.columnWidth(2), 116))
         lay.addWidget(self.table)
         btns = QHBoxLayout()
         add = QPushButton("+ Add")
@@ -3649,29 +3849,62 @@ class RevisionsDialog(QDialog):
         btns.addWidget(rem)
         btns.addStretch()
         lay.addLayout(btns)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                              | QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+
+        _out = self.set_footer_buttons(primary=("OK", self.accept), cancel=True)
+        _ok = _out.get("primary")
+        _cancel = self._footer_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if _ok is not None and _cancel is not None:      # OK matches Cancel width
+            _w = max(_ok.sizeHint().width(), _cancel.sizeHint().width())
+            _ok.setMinimumWidth(_w)
+            _cancel.setMinimumWidth(_w)
+        self.setMinimumSize(460, 360)
+
+    def _date_item(self, stored: str) -> QTableWidgetItem:
+        """A Date cell: UserRole = stored ISO/legacy/today; text = formatted."""
+        item = QTableWidgetItem()
+        raw = (stored or "").strip()
+        iso = parse_date_to_iso(raw)
+        value = iso or (raw if raw else QDate.currentDate().toString("yyyy-MM-dd"))
+        item.setData(Qt.ItemDataRole.UserRole, value)
+        item.setText(format_date_display(value, self.selected_date_format()))
+        return item
+
+    def _apply_display_format(self, label: str) -> None:
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 2)
+            if it is not None:
+                stored = it.data(Qt.ItemDataRole.UserRole) or ""
+                it.setText(format_date_display(str(stored), label))
 
     def _add_row(self):
         r = self.table.rowCount()
         self.table.insertRow(r)
-        for c in range(len(self._KEYS)):
-            self.table.setItem(r, c, QTableWidgetItem(""))
+        self.table.setItem(r, 0, QTableWidgetItem(""))
+        self.table.setItem(r, 1, QTableWidgetItem(""))
+        self.table.setItem(r, 2, self._date_item(""))
 
     def _remove_row(self):
         if self.table.currentRow() >= 0:
             self.table.removeRow(self.table.currentRow())
 
+    def selected_date_format(self) -> str:
+        return self.fmt_combo.currentText()
+
     def result_revisions(self) -> list[dict]:
         out = []
         for r in range(self.table.rowCount()):
-            row = {k: str(self.table.item(r, c).text().strip()
-                          if self.table.item(r, c) else "")
-                   for c, k in enumerate(self._KEYS)}
-            if any(row.values()):
+            date_it = self.table.item(r, 2)
+            row = {
+                "no": (self.table.item(r, 0).text().strip()
+                       if self.table.item(r, 0) else ""),
+                "description": (self.table.item(r, 1).text().strip()
+                                if self.table.item(r, 1) else ""),
+                "date": (str(date_it.data(Qt.ItemDataRole.UserRole) or "")
+                         if date_it else ""),
+            }
+            # A row is a real revision only if it has a number or description —
+            # the date always carries today's default, so it can't gate empties.
+            if row["no"] or row["description"]:
                 out.append(row)
         return out
 

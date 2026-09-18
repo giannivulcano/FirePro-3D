@@ -1,4 +1,5 @@
-from firepro3d.ui_kit import SideTabs, DetailsPanel, Section, SwitchBar, ToggleSwitch, Pill
+from firepro3d.ui_kit import (SideTabs, DetailsPanel, Section, SwitchBar,
+                              ToggleSwitch, TopTabs, Pill)
 from firepro3d.theme import M
 
 
@@ -54,3 +55,20 @@ def test_toggle_switch(qapp):
 def test_pill_props(qapp):
     p = Pill("Calibrate")
     assert p.property("pill") == "true"
+
+
+def test_toptabs_key_api_and_signal(qapp):
+    from PyQt6.QtWidgets import QLabel
+    tt = TopTabs()
+    pa, pb = QLabel("A"), QLabel("B")
+    tt.add_tab("a", "Alpha", pa)
+    tt.add_tab("b", "Bravo", pb)
+    seen = []
+    tt.tabSelected.connect(seen.append)
+    tt.set_current("b")
+    assert tt.current() == "b"
+    assert tt.currentWidget() is pb
+    assert seen[-1] == "b"
+    # Native QTabWidget API stays available (drop-in for the editor + tests).
+    assert tt.count() == 2 and tt.tabText(0) == "Alpha"
+    assert tt.tabBar().objectName() == "topTabsBar"

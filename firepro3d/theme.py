@@ -74,6 +74,8 @@ class _Metrics:
     PANEL_W_WIDE = 324
     SEAM = 1
     SECTION_GAP = 8
+    TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
+    TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
@@ -851,6 +853,17 @@ QDialog[houseDialog="true"] QLabel[stepName="true"] {{ font-size: 12px; font-wei
 QDialog[houseDialog="true"] QLabel[stepStatus="true"] {{ font-size: 10px; color: {t.faint}; background: transparent; }}
 QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="warn"], QDialog[houseDialog="true"] QLabel[stepStatus="true"][warn="true"] {{ color: {t.warn}; }}
 QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[houseDialog="true"] QLabel[stepStatus="true"][done="true"] {{ color: {t.muted}; }}
+
+/* ── Kit: TopTabs (peer pages within a section; DIALOG_TABS_SPEC) ────────── */
+QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
+    padding: 7px 11px 8px; margin-right: 2px; color: {t.muted}; background: transparent;
+    border: none; border-bottom: 2px solid transparent; font-size: 12px; }}
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:hover {{
+    color: {t.ink}; background: {t.accent_soft}; border-top-left-radius: 5px; border-top-right-radius: 5px; }}
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
+    color: {t.ink}; font-weight: 600; border-bottom: 2px solid {t.accent}; }}
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:disabled {{ color: {t.faint}; }}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}

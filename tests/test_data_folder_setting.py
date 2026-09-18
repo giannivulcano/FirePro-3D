@@ -52,3 +52,23 @@ def test_blank_clears_override(qapp, tmp_path, monkeypatch):
     stored = QSettings(ini, QSettings.Format.IniFormat).value(
         pd._DATA_ROOT_KEY, "?", type=str)
     assert stored == ""
+
+
+def test_titleblock_dir_persists(qapp, tmp_path, monkeypatch):
+    """E2: the dedicated title-block library path persists to QSettings."""
+    from firepro3d import preferences_dialog as pd
+    ini = str(tmp_path / "s.ini")
+    _ini_settings(monkeypatch, ini)
+
+    pane = pd.GeneralPane()
+    pane.load()
+    tb = str(tmp_path / "tb")
+    pane._tb_dir_edit.setText(tb)
+    pane.apply()                                  # pure — no migration prompt
+
+    pane2 = pd.GeneralPane()
+    pane2.load()
+    assert pane2._tb_dir_edit.text() == tb
+    stored = QSettings(ini, QSettings.Format.IniFormat).value(
+        "paths/titleblock_dir", "?", type=str)
+    assert stored == tb

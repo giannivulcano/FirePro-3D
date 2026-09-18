@@ -7,7 +7,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-                             QPushButton, QButtonGroup, QSizePolicy)
+                             QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
+                             QTabBar, QStackedWidget)
 
 from .theme import M
 
@@ -51,6 +52,9 @@ class _StepRow(QFrame):
                 w.setProperty("current", "true" if on else "false")
                 w.style().unpolish(w); w.style().polish(w)
 
+    def set_label(self, text):
+        self._name.setText(text)
+
     def set_status(self, text, state):
         self._status.setText(text)
         self._status.setProperty("state", state or "")
@@ -88,6 +92,15 @@ class SideTabs(QFrame):
         if self._current is None:
             self.set_current(key)
 
+    def clear(self):
+        """Remove every tab — for dynamic rails rebuilt when their data changes."""
+        for row in list(self._rows.values()):
+            self._v.removeWidget(row)
+            row.setParent(None)
+            row.deleteLater()
+        self._rows.clear()
+        self._current = None
+
     def _on_click(self, key):
         self.set_current(key)
         self.tabSelected.emit(key)
@@ -102,6 +115,134 @@ class SideTabs(QFrame):
 
     def set_status(self, key, text, state):
         self._rows[key].set_status(text, state)
+
+    def set_label(self, key, text):
+        row = self._rows.get(key)
+        if row is not None:
+            row.set_label(text)
+
+    def set_header(self, widget):
+        """Insert a header widget (e.g. action buttons) above the tab rows,
+        INSIDE the rail frame (shares its background + border)."""
+        self.layout().insertWidget(0, widget)
+
+
+class TopTabs(QWidget):
+    """House top-tab strip (peer pages inside one section; DIALOG_TABS_SPEC).
+
+    Composed of a ``QTabBar`` + a **full-width divider** + a ``QStackedWidget``
+    (the reference's design — a QTabWidget's ``::pane`` border is unreliable and
+    the bar sizes to its tabs, so its own line stops short of the content width).
+    Styled ``#topTabsBar`` (muted default, accent-underline + semibold selected,
+    accent-soft hover) with a ``#topTabsDivider`` line under the strip. The
+    key-based API mirrors SideTabs; a QTabWidget-compatible subset
+    (``count``/``tabText``/``widget``/``currentWidget``/``setCurrentWidget``/
+    ``currentChanged``) keeps callers + tests working. Rail → tabs is the max
+    depth: never nest TopTabs.
+    """
+    tabSelected = pyqtSignal(str)          # key of the newly-current tab
+    currentChanged = pyqtSignal(int)       # mirrors QTabWidget (index)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("topTabs")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        self._bar = QTabBar(objectName="topTabsBar")
+        self._bar.setDrawBase(False)
+        self._bar.setExpanding(False)
+        self._bar.setUsesScrollButtons(True)
+        self._bar.setElideMode(Qt.TextElideMode.ElideNone)
+        # Full-width divider under the strip. A bare stylesheet set DIRECTLY on
+        # the divider paints it and beats any parent-background bleed (palette is
+        # overridden by the house dialog stylesheet, so use a stylesheet here).
+        from .theme import detect
+        self._divider = QFrame()
+        self._divider.setFixedHeight(M.SEAM)
+        self._divider.setStyleSheet(f"background: {detect().line_strong};")
+        self._stack = QStackedWidget()
+        # The tab BAR is inset by *page_inset*; the stack is FULL-BLEED (0
+        # horizontal) so a page that leads with a rail can sit flush-left like
+        # the main dialog rail — each page owns its own content padding. Only
+        # *page_top* is applied (breathing room below the divider so Section
+        # overline labels don't crowd the tab ribbon). The divider is full-bleed.
+        _bar_row = QWidget(objectName="topTabsBarRow")
+        _bl = QHBoxLayout(_bar_row)
+        _bl.setContentsMargins(M.TOPTABS_BAR_INSET, 0, M.TOPTABS_BAR_INSET, 0)
+        _bl.setSpacing(0)
+        _bl.addWidget(self._bar)
+        _bl.addStretch(1)
+        _stack_row = QWidget(objectName="topTabsStackRow")
+        self._stack.setObjectName("topTabsStack")
+        _sl = QVBoxLayout(_stack_row)
+        _sl.setContentsMargins(0, M.TOPTABS_PAGE_TOP, 0, 0)
+        _sl.setSpacing(0)
+        _sl.addWidget(self._stack)
+        v.addWidget(_bar_row)
+        v.addWidget(self._divider)      # full-bleed
+        v.addWidget(_stack_row, 1)
+        # Paint the container + rows/stack the OPAQUE dialog surface (targeted
+        # selectors so nothing bleeds onto child controls). Opaque `surface`
+        # (not transparent) is required because unstyled QStackedWidget/QWidget
+        # paint BLACK when shown live (project trap: unstyled_qwidget_black_live);
+        # add_tab() pins each page the same way.
+        from .theme import detect as _detect
+        _s = _detect().surface
+        self.setStyleSheet(
+            f"QWidget#topTabs, QWidget#topTabsBarRow, QWidget#topTabsStackRow,"
+            f" QStackedWidget#topTabsStack {{ background: {_s}; }}")
+        self._keys: list[str] = []
+        self._bar.currentChanged.connect(self._on_current)
+
+    def _on_current(self, idx):
+        self._stack.setCurrentIndex(idx)
+        self.currentChanged.emit(idx)
+        if 0 <= idx < len(self._keys):
+            self.tabSelected.emit(self._keys[idx])
+
+    def add_tab(self, key, label, widget, *, icon=None):
+        """Add a page keyed by *key*; returns the tab index."""
+        if icon is None:
+            self._bar.addTab(label)
+        else:
+            self._bar.addTab(icon, label)
+        # Pin the page to the OPAQUE dialog surface (unstyled QStackedWidget
+        # pages render BLACK live — project trap; transparent does NOT fix it,
+        # an opaque bg is required). Targeted objectName selector so it never
+        # bleeds onto child controls.
+        from .theme import detect as _detect
+        name = widget.objectName() or f"topTabsPage{len(self._keys)}"
+        widget.setObjectName(name)
+        prior = widget.styleSheet()
+        rule = f"QWidget#{name} {{ background: {_detect().surface}; }}"
+        widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
+        self._stack.addWidget(widget)
+        self._keys.append(key)
+        return len(self._keys) - 1
+
+    # ── SideTabs-style key API ─────────────────────────────────────────────
+    def set_current(self, key):
+        if key in self._keys:
+            self.setCurrentIndex(self._keys.index(key))
+
+    def current(self):
+        i = self.currentIndex()
+        return self._keys[i] if 0 <= i < len(self._keys) else None
+
+    # ── QTabWidget-compatible subset (callers + tests) ─────────────────────
+    def tabBar(self): return self._bar
+    def count(self): return self._bar.count()
+    def tabText(self, i): return self._bar.tabText(i)
+    def widget(self, i): return self._stack.widget(i)
+    def currentIndex(self): return self._bar.currentIndex()
+    def setCurrentIndex(self, i): self._bar.setCurrentIndex(i)
+    def currentWidget(self): return self._stack.currentWidget()
+
+    def setCurrentWidget(self, w):
+        i = self._stack.indexOf(w)
+        if i >= 0:
+            self._bar.setCurrentIndex(i)
 
 
 class DetailsPanel(QFrame):
@@ -140,7 +281,7 @@ class Section(QWidget):
 class SwitchBar(QWidget):
     changed = pyqtSignal(str)
 
-    def __init__(self, options, parent=None):
+    def __init__(self, options, parent=None, *, expanding=True):
         super().__init__(parent)
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
@@ -150,16 +291,24 @@ class SwitchBar(QWidget):
         self._btns = {}
         self._current = None
         n = len(options)
+        pol = (QSizePolicy.Policy.Expanding if expanding
+               else QSizePolicy.Policy.Preferred)
         for i, (key, label) in enumerate(options):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setProperty("switch", "true")
             b.setProperty("segpos", "left" if i == 0 else "right" if i == n - 1 else "mid")
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.setSizePolicy(pol, QSizePolicy.Policy.Fixed)
             b.clicked.connect(lambda _=False, k=key: self._select(k))
             self._grp.addButton(b, i)
             h.addWidget(b)
             self._btns[key] = b
+        if not expanding and self._btns:
+            # Content-fit: every segment equal width = the widest label.
+            w = max(b.sizeHint().width() for b in self._btns.values())
+            for b in self._btns.values():
+                b.setFixedWidth(w)
+            h.addStretch(1)              # keep the compact switch left-aligned
         if options:
             self.set_current(options[0][0])
 
@@ -195,6 +344,9 @@ class _PaintedSwitch(QWidget):
             self._checked = v
             self.update()
             self.toggled.emit(v)
+
+    def toggle(self) -> None:
+        self.setChecked(not self._checked)
 
     def mousePressEvent(self, event):
         self.setChecked(not self._checked)
@@ -243,6 +395,9 @@ class ToggleSwitch(QWidget):
 
     def setChecked(self, on: bool) -> None:
         self._sw.setChecked(on)
+
+    def toggle(self) -> None:
+        self._sw.toggle()
 
     def text(self) -> str:
         """Return the label text (mirrors QCheckBox.text() for compatibility)."""

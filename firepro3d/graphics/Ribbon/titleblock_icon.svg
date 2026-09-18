@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
+     stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- drawing sheet (ANSI D landscape) -->
+  <rect x="6" y="11" width="36" height="26" rx="2" ry="2"/>
+  <!-- right-edge title-block strip, divided into cells (accent) -->
+  <path stroke="#004CFF" d="M 32 12 L 32 36"/>
+  <path stroke="#004CFF" d="M 32 20 L 40 20"/>
+  <path stroke="#004CFF" d="M 32 29 L 40 29"/>
+</svg>

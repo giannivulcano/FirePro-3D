@@ -181,3 +181,32 @@ def test_geom2d_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
                 ic = icons.themed_icon(name, theme)
             assert isinstance(ic, QIcon) and not ic.isNull()
             assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
+# Draft-tab Title Block icon (Task F, 2026-09-15) — user-approved mockup.
+_DRAFT_ICONS = ["titleblock_icon.svg"]
+
+
+def test_titleblock_icon_two_token_compliant():
+    """Title Block icon is 48-unit + uses only the two authoring sentinels."""
+    import os
+    for name in _DRAFT_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing from graphics/Ribbon"
+        raw = open(path, "r", encoding="utf-8").read()
+        assert 'viewBox="0 0 48 48"' in raw, f"{name}: not the 48-unit canvas (§4)"
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval} forbidden (§4.1)"
+            assert hexval.lower() in _ALLOWED_HEX, \
+                f"{name}: non-sentinel colour {hexval} will not retheme (§4.1)"
+
+
+def test_titleblock_icon_renders_both_themes_no_fallback(qapp, caplog):
+    icons._cache.clear()
+    for name in _DRAFT_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"

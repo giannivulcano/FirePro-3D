@@ -23,7 +23,10 @@ from firepro3d.constants import (
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
 )
-from firepro3d.app_data import default_root, ROOT_KEY as _DATA_ROOT_KEY
+from firepro3d.app_data import (
+    default_root, ROOT_KEY as _DATA_ROOT_KEY,
+    TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, migrate_data_root, data_root_has_content,
+)
 from firepro3d.ui_kit import ToggleSwitch
 
 
@@ -901,8 +904,8 @@ class GeneralPane(SettingsPane):
         dv = QVBoxLayout(data_group)
         hint = QLabel(
             "Where FirePro3D stores your block, sprinkler and title-block "
-            "libraries. Leave blank for the default. Changing this does not move "
-            "existing content — copy it over yourself if needed.")
+            "libraries. Leave blank for the default. When you change this, "
+            "FirePro3D offers to bring your existing content to the new folder.")
         hint.setWordWrap(True)
         dv.addWidget(hint)
         row = QHBoxLayout()
@@ -916,6 +919,25 @@ class GeneralPane(SettingsPane):
         row.addWidget(browse)
         row.addWidget(reset)
         dv.addLayout(row)
+
+        # Dedicated title-block library location (E2) — overrides the default
+        # ``<data folder>/titleblocks`` so the templates can live on a share.
+        tb_hint = QLabel(
+            "Title block library (optional): a separate folder for your title-"
+            "block templates. Leave blank to use the data folder above.")
+        tb_hint.setWordWrap(True)
+        dv.addWidget(tb_hint)
+        tb_row = QHBoxLayout()
+        self._tb_dir_edit = QLineEdit()
+        self._tb_dir_edit.setPlaceholderText("(data folder)/titleblocks")
+        tb_browse = QPushButton("Browse…")
+        tb_browse.clicked.connect(self._pick_titleblock_dir)
+        tb_reset = QPushButton("Reset")
+        tb_reset.clicked.connect(self._tb_dir_edit.clear)
+        tb_row.addWidget(self._tb_dir_edit, 1)
+        tb_row.addWidget(tb_browse)
+        tb_row.addWidget(tb_reset)
+        dv.addLayout(tb_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -926,6 +948,47 @@ class GeneralPane(SettingsPane):
             self, "Choose FirePro3D data folder", start)
         if chosen:
             self._data_folder_edit.setText(chosen)
+
+    def _pick_titleblock_dir(self) -> None:
+        start = (self._tb_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose title block library folder", start)
+        if chosen:
+            self._tb_dir_edit.setText(chosen)
+
+    def migrate_prompt_if_needed(self) -> None:
+        """After Apply/OK: if the data root changed and the old root still holds
+        content, offer Copy / Move / Leave to bring it to the new folder (E3).
+
+        Called by the settings dialog (not by ``apply()``) so the modal never
+        fires from a headless ``apply()`` — and never against real AppData in
+        tests. Best-effort; updates the snapshot so a re-Apply won't re-prompt.
+        """
+        import os
+        old_root = (getattr(self, "_data_folder_snapshot", "") or "").strip() \
+            or default_root()
+        new_root = self._data_folder_edit.text().strip() or default_root()
+        if os.path.abspath(old_root) == os.path.abspath(new_root):
+            return
+        if not data_root_has_content(old_root):
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Move FirePro3D data?")
+        box.setText(
+            f"The data folder changed to:\n{new_root}\n\n"
+            f"Your existing libraries are still in:\n{old_root}\n\n"
+            "Bring them to the new folder?")
+        copy_btn = box.addButton("Copy", QMessageBox.ButtonRole.AcceptRole)
+        move_btn = box.addButton("Move", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Leave", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(copy_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked in (copy_btn, move_btn):
+            migrate_data_root(old_root, new_root, move=(clicked is move_btn))
+        self._data_folder_snapshot = self._data_folder_edit.text().strip()
 
     # ── SettingsPane protocol ─────────────────────────────────────────────────
 
@@ -949,24 +1012,33 @@ class GeneralPane(SettingsPane):
         df = s.value(_DATA_ROOT_KEY, "", type=str) or ""
         self._data_folder_snapshot = df
         self._data_folder_edit.setText(df)
+        tb = s.value(_TB_DIR_KEY, "", type=str) or ""
+        self._tb_dir_snapshot = tb
+        self._tb_dir_edit.setText(tb)
 
     def apply(self) -> None:
-        """Write checkbox states + the data-folder override to QSettings."""
+        """Write checkbox states + the data-folder/title-block overrides.
+
+        Pure (no migration/prompt) so headless ``apply()`` never blocks; the
+        settings dialog calls ``migrate_prompt_if_needed()`` afterward (E3).
+        """
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         for _label, qkey, _default in _DOCK_ITEMS:
             short_key = qkey.split("/", 1)[1]
             s.setValue(qkey, self._dock_checks[short_key].isChecked())
 
-        # Blank clears the override (falls back to the default root).
+        # Blank clears each override (falls back to the default root).
         s.setValue(_DATA_ROOT_KEY, self._data_folder_edit.text().strip())
+        s.setValue(_TB_DIR_KEY, self._tb_dir_edit.text().strip())
 
     def revert(self) -> None:
-        """Restore snapshot values to checkboxes + the data-folder field."""
+        """Restore snapshot values to checkboxes + the path fields."""
         for short_key, val in (self._snapshot or {}).items():
             if short_key in self._dock_checks:
                 self._dock_checks[short_key].setChecked(val)
         self._data_folder_edit.setText(getattr(self, "_data_folder_snapshot", ""))
+        self._tb_dir_edit.setText(getattr(self, "_tb_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.
