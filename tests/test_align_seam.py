@@ -10,7 +10,16 @@ that a mode change clears the controller.
 
 from __future__ import annotations
 
+import pytest
 from PyQt6.QtCore import QPointF
+
+
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: authors loose geometry (draw_line); flip the shared
+    scene to Block-Editor role (role only gates ``authoring_allowed``)."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
 
 
 def _acquire_origin_endpoint(scene):

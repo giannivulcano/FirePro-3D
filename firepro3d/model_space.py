@@ -1061,6 +1061,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        if not self.authoring_allowed(mode):
+            # containment C1: loose-geometry/text/dimension authoring is refused
+            # in the plan scene (permitted only in the Block-Editor scratchpad).
+            return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
         # primitive pre-selected so all downstream logic sees mode == "wall".

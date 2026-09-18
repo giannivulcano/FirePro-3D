@@ -10,7 +10,7 @@ from firepro3d import theme as _th
 
 
 def _make_view(qapp):
-    scene = Model_Space()
+    scene = Model_Space(scene_role="block_editor")   # containment C1: loose authoring
     view = Model_View(scene)
     view.resize(400, 300)
     view.show()

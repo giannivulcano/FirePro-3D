@@ -25,7 +25,7 @@ def test_stretch_mode_is_rubberband(qapp):
 
 
 def test_drawing_mode_cursor_routes_through_resolve(qapp):
-    sc = Model_Space()
+    sc = Model_Space(scene_role="block_editor")   # containment C1: loose authoring
     view = Model_View(sc)
     # crosshair on -> _resolve_cursor returns BlankCursor for any drawing mode
     view.set_crosshair_enabled(True)

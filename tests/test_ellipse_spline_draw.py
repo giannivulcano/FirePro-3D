@@ -6,7 +6,7 @@ from firepro3d.model_space import Model_Space
 
 @pytest.fixture
 def scene(qapp):
-    return Model_Space()
+    return Model_Space(scene_role="block_editor")   # containment C1: loose authoring
 
 
 def test_three_click_ellipse_placement(scene):

@@ -31,6 +31,15 @@ from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: authors loose geometry (line/circle/rect/polyline);
+    flip the shared scene to Block-Editor role (role only gates
+    ``authoring_allowed``, so placement mechanics are unchanged)."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+
+
 # ── real-entry-point drive helpers ───────────────────────────────────────────
 
 

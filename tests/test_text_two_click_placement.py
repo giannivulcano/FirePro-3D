@@ -26,6 +26,7 @@ def _press_at(view, scene_pt: QPointF) -> None:
 
 def test_two_click_text_captures_dragged_height(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"   # containment C1: loose text authoring
     scene.set_mode("text")
     _press_at(view, QPointF(0, 0))          # anchor
     _press_at(view, QPointF(400, 300))      # opposite corner → 400 x 300 box
@@ -40,6 +41,7 @@ def test_two_click_text_captures_dragged_height(shown_model_view):
 
 def test_taller_drag_gives_taller_box(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"   # containment C1: loose text authoring
     scene.set_mode("text")
     _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(400, 150))
     short = scene._texts[-1].data.box_height_mm

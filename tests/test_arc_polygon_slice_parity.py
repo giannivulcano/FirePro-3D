@@ -16,9 +16,20 @@ controller, exactly the seam this slice must not break.
 
 from __future__ import annotations
 
+import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
+
+
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: this file authors loose geometry (draw_arc/polygon),
+    which the plan scene refuses.  Flip the shared ``shown_model_view`` scene
+    to the Block-Editor role (the legitimate home for loose authoring); role
+    only affects ``authoring_allowed`` so placement mechanics are unchanged."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
 
 
 # ── real-entry-point drive helpers ───────────────────────────────────────────

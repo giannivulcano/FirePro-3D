@@ -14,9 +14,18 @@ placement re-enters the tool mode first.
 
 from __future__ import annotations
 
+import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
+
+
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: authors loose geometry; flip the shared scene to
+    Block-Editor role (role only gates ``authoring_allowed``)."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
 
 
 def _press_at(view, scene_pt: QPointF) -> None:

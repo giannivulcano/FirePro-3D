@@ -35,6 +35,15 @@ from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 
 
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: authors loose geometry (draw_rectangle/draw_line);
+    flip the shared scene to Block-Editor role (role only gates
+    ``authoring_allowed``, so HUD / placement mechanics are unchanged)."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+
+
 # ── local copy of the _drag_to helper (mirrors test_dynamic_input_lifecycle) ──
 
 

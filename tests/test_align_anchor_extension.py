@@ -23,6 +23,16 @@ from PyQt6.QtGui import QMouseEvent
 from firepro3d.geometry_2d import LineItem
 
 
+@pytest.fixture(autouse=True)
+def _block_editor_role(shown_model_view):
+    """Containment C1: this file authors loose geometry (draw_line), which the
+    plan scene refuses.  Flip the shared ``shown_model_view`` scene to the
+    Block-Editor role; role only affects ``authoring_allowed`` so ALIGN /
+    placement mechanics are unchanged."""
+    _view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+
+
 def _left_click(view, scene, scene_pt: QPointF) -> None:
     """Post a real LEFT press at *scene_pt* on the shown *view*."""
     vp = view.mapFromScene(scene_pt).toPointF()

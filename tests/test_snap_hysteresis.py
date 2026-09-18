@@ -104,6 +104,7 @@ def test_model_hysteresis_sticky_then_reset(make_model_space):
 
     # Enable SNAP and set a placement mode so snapping is active
     ms._snap_enabled = True
+    ms.scene_role = "block_editor"   # containment C1: loose authoring (draw_line)
     ms.set_mode("draw_line")
 
     # First call: cursor near A (at x=2) — should snap to A (0,0)
