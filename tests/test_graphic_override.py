@@ -73,10 +73,16 @@ def _make_slab(scene):
 
 
 def _floor_page(mw):
-    """Return the RibbonPage for the Floor contextual tab (must be shown)."""
+    """Return the RibbonPage for the Floor contextual tab (must be shown).
+
+    The contextual tab uses the ``Modify | <entity>`` title format (ribbon
+    spec D8 / 2026-09-16 redesign), so the floor tab reads ``Modify | Floor``.
+    """
     tabs = _titles(mw)
-    assert "Floor" in tabs, f"Expected 'Floor' contextual tab; got {tabs}"
-    idx = tabs.index("Floor")
+    assert "Modify | Floor" in tabs, (
+        f"Expected 'Modify | Floor' contextual tab; got {tabs}"
+    )
+    idx = tabs.index("Modify | Floor")
     return mw.ribbon._stack.widget(idx)
 
 
