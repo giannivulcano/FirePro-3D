@@ -98,8 +98,15 @@ invariant**:
   is **no UI**.
 - **Save stops writing them**, so a load→save of a legacy file cleanly sheds the
   forbidden content.
-- **Both paths comply** (§1): `_restore_network` likewise does not reintroduce
-  them, so no in-session undo round-trips forbidden content.
+- **Clean-drop is FILE-path only.** The undo path (`_capture_network` /
+  `_restore_network`) is *shared* with the Block-Editor scratchpad (a
+  `scene_role="block_editor"` `Model_Space`, which legitimately authors loose
+  geometry + text), so it **retains** loose-geometry/text capture — the Block
+  Editor needs authoring undo. This is a deliberate asymmetry to §1: in a **plan**
+  scene the loose-geometry/text/dimension collectors are always empty (the C1
+  authoring gate refuses those modes, and load clean-drops legacy content), so
+  the retained undo capture never reintroduces forbidden content into a project.
+  Dimensions are retired entirely (not a block primitive), so no scene captures them.
 - **Unaffected:** `block_definitions`, `blocks` (instances), `underlays`,
   `walls`/`rooms`/`floor_slabs`/`roofs`, `gridlines`, `nodes`/`pipes`, `sheets`
   (paper annotations, incl. the unified Text), `levels`, and all view/scale

@@ -2,13 +2,9 @@
 
 Verifies that:
   1. HatchItem class is gone from firepro3d.annotations.
-  2. Legacy "hatches" entries in .fpd files are migrated on load into
-     filled closed PolylineItems.
-
-Pattern-type map applied during migration:
-  "solid"    -> fill_type "solid"
-  "diagonal" -> fill_type "hatch", fill_pattern "diagonal"
-  "cross"    -> fill_type "hatch", fill_pattern "cross_hatch"
+  2. Under containment C8, legacy "hatches" entries in .fpd files are
+     read-but-discarded on load (they used to migrate into loose
+     PolylineItems, which are now forbidden loose content).
 """
 
 from __future__ import annotations
@@ -97,8 +93,8 @@ def test_hatch_item_class_gone():
     )
 
 
-def test_legacy_solid_hatch_migrates_to_filled_polyline(qapp, tmp_path):
-    """A 'solid' hatch entry becomes a closed PolylineItem with fill_type='solid'."""
+def test_legacy_solid_hatch_dropped_on_load(qapp, tmp_path):
+    """Containment C8: a legacy 'solid' hatch entry is discarded on load."""
     hatch_entry = {
         "type": "hatch",
         "path": _square_elements(),
@@ -118,21 +114,13 @@ def test_legacy_solid_hatch_migrates_to_filled_polyline(qapp, tmp_path):
     scene = _make_scene(qapp)
     scene.load_from_file(fp)
 
-    assert len(scene._polylines) == 1, (
-        f"Expected 1 PolylineItem after migration, got {len(scene._polylines)}"
+    assert scene._polylines == [], (
+        f"Legacy hatch must clean-drop, got {len(scene._polylines)} polyline(s)"
     )
-    pl = scene._polylines[0]
-    assert isinstance(pl, PolylineItem)
-    assert pl.is_closed(), "Migrated polyline must be closed (first == last vertex)"
-    assert pl.fill_type == "solid", f"fill_type should be 'solid', got {pl.fill_type!r}"
-    assert pl._display_fill_color == "#123456", (
-        f"fill color should be '#123456', got {pl._display_fill_color!r}"
-    )
-    assert pl.level == "Level 2", f"level should be 'Level 2', got {pl.level!r}"
 
 
-def test_legacy_diagonal_hatch_migrates_to_hatch_fill(qapp, tmp_path):
-    """A 'diagonal' hatch entry becomes fill_type='hatch' with fill_pattern='diagonal'."""
+def test_legacy_diagonal_hatch_dropped_on_load(qapp, tmp_path):
+    """Containment C8: a legacy 'diagonal' hatch entry is discarded on load."""
     hatch_entry = {
         "type": "hatch",
         "path": _square_elements(),
@@ -152,11 +140,6 @@ def test_legacy_diagonal_hatch_migrates_to_hatch_fill(qapp, tmp_path):
     scene = _make_scene(qapp)
     scene.load_from_file(fp)
 
-    assert len(scene._polylines) == 1, (
-        f"Expected 1 PolylineItem, got {len(scene._polylines)}"
-    )
-    pl = scene._polylines[0]
-    assert pl.fill_type == "hatch", f"fill_type should be 'hatch', got {pl.fill_type!r}"
-    assert pl.fill_pattern == "diagonal", (
-        f"fill_pattern should be 'diagonal', got {pl.fill_pattern!r}"
+    assert scene._polylines == [], (
+        f"Legacy hatch must clean-drop, got {len(scene._polylines)} polyline(s)"
     )

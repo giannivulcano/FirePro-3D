@@ -141,7 +141,10 @@ def test_text_survives_undo_capture_restore(qapp):
     assert any(getattr(i, "data", None) and i.data.text == "Zed" for i in s._texts)
 
 
-def test_text_survives_file_roundtrip(qapp, tmp_path):
+def test_standalone_model_text_dropped_on_load(qapp, tmp_path):
+    # Containment C8: standalone model text is forbidden loose content — it is
+    # read-but-discarded on load and no longer written on save (FILE path).
+    # (Undo capture still retains text — see test_text_survives_undo_capture_restore.)
     from firepro3d.model_space import Model_Space
     from firepro3d.text_item import TextItem, TextAnnotationData
     s = Model_Space(scene_role="block_editor")
@@ -149,4 +152,4 @@ def test_text_survives_file_roundtrip(qapp, tmp_path):
     s.addItem(t); s._texts.append(t)
     f = tmp_path / "p.fpd"; s.save_to_file(str(f))
     s2 = Model_Space(scene_role="block_editor"); s2.load_from_file(str(f))
-    assert any(getattr(i, "data", None) and i.data.text == "Zed" for i in s2._texts)
+    assert s2._texts == []

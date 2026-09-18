@@ -22,7 +22,12 @@ from firepro3d.design_area import DesignArea
 from firepro3d.level_manager import LevelManager
 
 # The hand-serialized entity types the NetworkCodec unifies (slice 4).
-_CODEC_KEYS = ("nodes", "pipes", "annotations", "water_supply", "design_areas")
+# NOTE (containment C8): "annotations" (dimensions/notes) is INTENTIONALLY
+# excluded — it is forbidden model content that the file path clean-drops on
+# save/load, while the undo path (_capture_network) still retains it for the
+# Block-Editor scratchpad. File-vs-undo therefore diverge on annotations by
+# design; see test_deserialize_parity_dimensions_notes for the divergence.
+_CODEC_KEYS = ("nodes", "pipes", "water_supply", "design_areas")
 
 
 def _scene_with_hand_serialized_entities(with_sprinkler=True):
@@ -173,19 +178,19 @@ def test_codec_sections_stable_across_file_roundtrip(qapp, tmp_path):
 # ── Slice 4b: deserialize field-application parity (undo-restore vs file-load) ──
 
 def test_deserialize_parity_dimensions_notes(qapp, tmp_path):
-    """Dimension + note field state is identical via undo-restore and file-load."""
+    """Containment C8: dimensions + model text are forbidden loose content —
+    the FILE path clean-drops them, while the UNDO path retains them (Block-
+    Editor scratchpad). The two paths therefore intentionally diverge here."""
     u, f = _capture_via_two_paths(
         lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
-    # dimensions
-    ud, fd = u.annotations.dimensions[0], f.annotations.dimensions[0]
-    assert (ud._p1.x(), ud._p1.y()) == (fd._p1.x(), fd._p1.y())
-    assert (ud._p2.x(), ud._p2.y()) == (fd._p2.x(), fd._p2.y())
-    assert ud._offset_dist == fd._offset_dist
-    assert ud.level == fd.level
-    # text (model text is a TextItem in _texts — containment C5)
-    un, fn = u._texts[0], f._texts[0]
-    assert abs(un.data.wrap_width_mm - fn.data.wrap_width_mm) < 1e-6
-    assert (un.scenePos().x(), un.scenePos().y()) == (fn.scenePos().x(), fn.scenePos().y())
+    # Undo-restore keeps the dimension + text...
+    ud = u.annotations.dimensions[0]
+    assert (ud._p1.x(), ud._p1.y()) == (0.0, 0.0)
+    assert (ud._p2.x(), ud._p2.y()) == (100.0, 0.0)
+    assert abs(u._texts[0].data.wrap_width_mm - 120.0) < 1e-6
+    # ...but the file-load path discards both (clean-drop).
+    assert f.annotations.dimensions == []
+    assert f._texts == []
 
 
 def test_deserialize_parity_water_supply(qapp, tmp_path):
