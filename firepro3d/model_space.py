@@ -31,6 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .text_item import TextItem, TextAnnotationData
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -291,6 +292,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._polygon_ref_circle: "QGraphicsEllipseItem | None" = None
         self._polygon_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_polygons: list[RegularPolygonItem] = []
+        # Text primitive (containment C5): the 9th 2D-geometry collector. Model
+        # text is placed as TextItem (not NoteAnnotation) and round-trips through
+        # BOTH scene_io (file) and _capture_network/_restore_network (undo).
+        self._texts: list[TextItem] = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
@@ -882,6 +887,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             EllipseItem:         self._draw_ellipses,
             SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
+            TextItem:            self._texts,   # containment C5 (no subclass)
             GridlineItem:        self._gridlines,
         }
         for cls, lst in type_to_list.items():
@@ -1947,6 +1953,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
             "draw_splines":       [s.to_dict()  for s in self._draw_splines],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
+            "texts":              [t.to_dict()  for t in self._texts],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
             "walls":              [w.to_dict()  for w in self._walls],
@@ -2098,6 +2105,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_polygons.clear()
 
+            for item in list(self._texts):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._texts.clear()
+
             for gl in list(self._gridlines):
                 if gl.scene() is self:
                     self.removeItem(gl)
@@ -2185,6 +2197,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 pg = RegularPolygonItem.from_dict(d)
                 self.addItem(pg)
                 self._draw_polygons.append(pg)
+
+            for d in state.get("texts", []):
+                ti = TextItem.from_dict(d)
+                self.addItem(ti)
+                self._texts.append(ti)
 
             for d in state.get("gridlines", []):
                 gl = GridlineItem.from_dict(d)
@@ -4655,17 +4672,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # path) so a tiny drag never clips the text.
             rect = QRectF(self._text_anchor, snapped).normalized()
             text_width = max(rect.width(), 20)  # minimum 20px width
-            note = NoteAnnotation(
+            # Containment C5: model text is a TextItem (backed by
+            # TextAnnotationData), tracked in self._texts and serialized via
+            # both the file and undo paths — NOT a NoteAnnotation any more.
+            data = TextAnnotationData(
                 text="Text", x=rect.x(), y=rect.y(),
-                text_width=text_width)
-            note.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextEditorInteraction)
-            self.addItem(note)
-            note._box_height = max(rect.height(), note._content_size()[1])
-            note.prepareGeometryChange()
-            note.update()
-            self.annotations.notes.append(note)
-            self.requestPropertyUpdate.emit(note)
+                wrap_width_mm=text_width)
+            text = TextItem(data)
+            self.addItem(text)
+            data.box_height_mm = max(rect.height(), text._content_size()[1])
+            text.prepareGeometryChange()
+            text._apply_format()
+            text.update()
+            self._texts.append(text)
+            self.requestPropertyUpdate.emit(text)
+            # Drop straight into inline-edit mode so the user can type (parity
+            # with the old NoteAnnotation TextEditorInteraction placement).
+            text.begin_edit()
             # Remove preview
             if self._text_preview is not None:
                 self.removeItem(self._text_preview)

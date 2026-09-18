@@ -17,6 +17,7 @@ from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
     EllipseItem, SplineItem,
 )
+from .text_item import TextItem
 from .block_definition import _PRIMITIVE_FACTORY
 from . import geometry_import
 from .house_dialog import HouseDialog
@@ -27,6 +28,7 @@ _CLS_TO_LIST = {
     EllipseItem: "_draw_ellipses",
     SplineItem: "_draw_splines",
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
+    TextItem: "_texts",
 }
 
 

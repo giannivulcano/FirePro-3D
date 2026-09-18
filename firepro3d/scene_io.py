@@ -118,6 +118,7 @@ class SceneIOMixin:
         draw_ellipses_data = [e.to_dict() for e in self._draw_ellipses]
         draw_splines_data = [s.to_dict() for s in self._draw_splines]
         polygons_data = [p.to_dict() for p in self._draw_polygons]
+        texts_data = [t.to_dict() for t in self._texts]
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
         floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]  # two-boundary schema via to_dict
@@ -160,6 +161,7 @@ class SceneIOMixin:
             "draw_ellipses":       draw_ellipses_data,
             "draw_splines":        draw_splines_data,
             "polygons":            polygons_data,
+            "texts":               texts_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
             "floor_slabs":         floor_slabs_data,
@@ -447,6 +449,13 @@ class SceneIOMixin:
             self.addItem(item)
             self._draw_polygons.append(item)
 
+        # --- Text (containment C5) ---
+        from .text_item import TextItem
+        for entry in payload.get("texts", []):
+            item = TextItem.from_dict(entry)
+            self.addItem(item)
+            self._texts.append(item)
+
         # --- Gridlines ---
         for entry in payload.get("gridlines", []):
             gl = GridlineItem.from_dict(entry)
@@ -596,6 +605,7 @@ class SceneIOMixin:
         self._draw_ellipses = []
         self._draw_splines = []
         self._draw_polygons = []
+        self._texts = []
         for inst in list(getattr(self, "_block_instances", [])):
             if inst.scene() is self:
                 self.removeItem(inst)

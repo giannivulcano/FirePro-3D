@@ -111,3 +111,42 @@ def test_empty_text_outline_is_empty(qapp):
     from firepro3d.text_item import TextItem, TextAnnotationData
     t = TextItem(TextAnnotationData(text="", height_mm=10.0))
     assert t.render_outline_path().isEmpty()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model_Space wiring (containment C5.5 + C5.6) — collector + dual serialization
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_text_placed_via_press_lands_in_texts(qapp):
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtCore import QPointF
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    # _press_text(self, event, pos, snapped, item_under, node_under, pipe_under)
+    # two-click place: first click anchors, second commits the box.
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+
+
+def test_text_survives_undo_capture_restore(qapp):
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    t = TextItem(TextAnnotationData(text="Zed", x=3.0, y=4.0, height_mm=2.5))
+    s.addItem(t); s._texts.append(t)
+    snap = s._capture_network()
+    s._restore_network(snap)
+    assert any(getattr(i, "data", None) and i.data.text == "Zed" for i in s._texts)
+
+
+def test_text_survives_file_roundtrip(qapp, tmp_path):
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    t = TextItem(TextAnnotationData(text="Zed", x=3.0, y=4.0, height_mm=2.5))
+    s.addItem(t); s._texts.append(t)
+    f = tmp_path / "p.fpd"; s.save_to_file(str(f))
+    s2 = Model_Space(scene_role="block_editor"); s2.load_from_file(str(f))
+    assert any(getattr(i, "data", None) and i.data.text == "Zed" for i in s2._texts)
