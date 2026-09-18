@@ -26,6 +26,7 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
 )
 from .scale_manager import ScaleManager
+from .text_item import TextAnnotationData, TextItem  # shared data model + unified text primitive (C5); re-exported for callers
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
@@ -331,57 +332,6 @@ class SheetViewData:
             view_number=d.get("view_number", ""),
             crop_rect=crop,
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
-        )
-
-
-@dataclass
-class TextAnnotationData:
-    """Serializable data for one sheet text annotation. All lengths in paper mm.
-
-    Shared by reference with its TextAnnotationItem (never copied), exactly like
-    SheetViewData <-> SheetViewport.
-    """
-    text: str = ""
-    x: float = 0.0
-    y: float = 0.0
-    height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
-    wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
-    box_height_mm: float = 0.0                   # 0 = auto-fit content; >0 = stored box height
-    font_family: str = ""                        # "" => Arial default
-    bold: bool = False
-    italic: bool = False
-    underline: bool = False
-    color: str = "#000000"                       # authored hex, default black
-    align: str = "L"                             # 'L' | 'C' | 'R'
-    opaque_bg: bool = False
-    type: str = "text"                           # discriminator for future annotation types
-
-    def to_dict(self) -> dict:
-        return {
-            "type": self.type, "text": self.text,
-            "x": self.x, "y": self.y,
-            "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
-            "box_height_mm": self.box_height_mm,
-            "font_family": self.font_family,
-            "bold": self.bold, "italic": self.italic, "underline": self.underline,
-            "color": self.color, "align": self.align,
-            "opaque_bg": self.opaque_bg,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "TextAnnotationData":
-        return cls(
-            text=d.get("text", ""),
-            x=d.get("x", 0.0), y=d.get("y", 0.0),
-            height_mm=d.get("height_mm", DEFAULT_TEXT_HEIGHT_MM),
-            wrap_width_mm=d.get("wrap_width_mm", 0.0),
-            box_height_mm=float(d.get("box_height_mm", 0.0)),
-            font_family=d.get("font_family", ""),
-            bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
-            underline=bool(d.get("underline", False)),
-            color=d.get("color", "#000000"), align=d.get("align", "L"),
-            opaque_bg=bool(d.get("opaque_bg", False)),
-            type=d.get("type", "text"),
         )
 
 
@@ -1373,526 +1323,10 @@ class SheetViewport(QGraphicsObject):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
             self.delete_requested.emit(self)
-            event.accept()   # mirror TextAnnotationItem: don't propagate Delete
+            event.accept()   # mirror TextItem: don't propagate Delete
         else:
             super().keyPressEvent(event)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TextAnnotationItem — free-placed, paper-fixed text block
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TextAnnotationItem(QGraphicsTextItem):
-    """A free-placed, paper-fixed text block on a PaperScene.
-
-    Purpose-built (NOT a reused model-space NoteAnnotation — spec §4.11). Holds
-    its TextAnnotationData by shared reference. Sizes via a device-independent
-    pixel-size font + geometric setScale on cap height, so a paper-mm height
-    renders identically on the 96-dpi screen and the 300-dpi PDF.
-
-    Sizing invariant (§9.4): font.setPixelSize(TEXT_METRIC_REF_PX) gives a
-    large, high-precision reference size; setScale then maps cap-height units
-    to paper-mm units. NEVER setPointSizeF (DPI-dependent), NEVER
-    ItemIgnoresTransformations (pins to device px, breaks zoom + export).
-    """
-
-    delete_requested = pyqtSignal(object)
-
-    _ALIGN = {
-        "L": Qt.AlignmentFlag.AlignLeft,
-        "C": Qt.AlignmentFlag.AlignCenter,
-        "R": Qt.AlignmentFlag.AlignRight,
-    }
-
-    def __init__(self, data: "TextAnnotationData", parent=None):
-        super().__init__(data.text, parent)
-        self._data = data
-        self._editing = False
-        self._text_before_edit = data.text
-        self._pos_at_press = None           # anchor (x, y) at the start of a native move
-        # Box resize is driven by the scene SelectionManipulator (manip_scale);
-        # the retired per-item grip drag state (_resizing / _grip_handle / the
-        # *_at_press edge seeds) is gone — see section C below.
-        self.setZValue(15)
-        self.setTransformOriginPoint(0, 0)
-        self.setFlags(
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
-            | QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
-        )
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.setPos(data.x, data.y)
-        self._apply_format()
-
-    @property
-    def data(self) -> "TextAnnotationData":
-        """Shared-reference access to the underlying TextAnnotationData."""
-        return self._data
-
-    def _apply_format(self) -> None:
-        """Rebuild font, colour, alignment, scale, and wrap from self._data.
-
-        Recompute all display properties from the data object. Call whenever
-        any formatting attribute on the data changes.
-        """
-        d = self._data
-        f = QFont(d.font_family) if d.font_family else QFont("Arial")
-        f.setBold(d.bold)
-        f.setItalic(d.italic)
-        f.setUnderline(d.underline)
-        f.setPixelSize(TEXT_METRIC_REF_PX)
-        self.setFont(f)
-        self.setDefaultTextColor(QColor(d.color))
-        opt = self.document().defaultTextOption()
-        opt.setAlignment(self._ALIGN.get(d.align, Qt.AlignmentFlag.AlignLeft))
-        self.document().setDefaultTextOption(opt)
-        cap = QFontMetricsF(f).capHeight()
-        h = d.height_mm if d.height_mm > 0 else DEFAULT_TEXT_HEIGHT_MM
-        scale = h / cap if cap > 0 else 1.0
-        self.setScale(scale)
-        # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
-        if scale > 0:
-            self.document().setDocumentMargin(TEXT_BOX_MARGIN_MM / scale)
-        if d.wrap_width_mm > 0 and scale > 0:
-            self.setTextWidth(d.wrap_width_mm / scale)
-        else:
-            self.setTextWidth(-1)
-            self.setTextWidth(self.document().idealWidth())
-
-    def _box_rect_local(self) -> QRectF:
-        """Return the box bounding rect in item-local unscaled coordinates.
-
-        Width comes from the text layout (textWidth already reflects wrap).
-        Height is max(content height, stored box_height_mm / scale) so the box
-        auto-grows with content but never shrinks below the stored height.
-
-        Returns:
-            QRectF(0, 0, width, effective_height) in local unscaled coords.
-        """
-        content = super().boundingRect()
-        width = content.width()
-        scale = self.scale() or 1.0
-        box_h_mm = self._data.box_height_mm
-        if box_h_mm > 0 and scale > 0:
-            height = max(content.height(), box_h_mm / scale)
-        else:
-            height = content.height()
-        return QRectF(0, 0, width, height)
-
-    def boundingRect(self) -> QRectF:
-        """Return the item's visual/selection extent — padded for the selection halo.
-
-        Grips are squares centred ON the box corners (half of each hangs outside
-        the box).  Without padding Qt's dirty-region tracking misses the overhang
-        and leaves stale trails when the item is dragged.  Padding is applied
-        unconditionally (not only when selected) so Qt never needs a
-        prepareGeometryChange on every selection toggle.
-
-        Everything that means "the visual box" (opaque-bg fill, selection boundary,
-        grip placement, resize math) keeps using _box_rect_local() — ONLY
-        boundingRect grows.
-
-        Returns:
-            The box rect expanded by the selection-grip halo in local unscaled
-            coordinates.
-        """
-        rect = self._box_rect_local()
-        s = self.scale() or 1.0
-        pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
-        return rect.adjusted(-pad, -pad, pad, pad)
-
-    def shape(self) -> QPainterPath:
-        """Full-box hit area — grab anywhere in the box, not just on the glyphs.
-
-        QGraphicsTextItem's default shape is the text-content rect, which makes
-        the empty area of a tall box miss the item entirely.  Widening it to the
-        logical box lets the user grab anywhere in the box (spec: grab-anywhere).
-        The resize grips are now the scene's SelectionManipulator handles, so
-        the shape no longer includes the grip halo.  Only ever WIDER than the
-        default — narrowing shape() breaks Qt's paint culling.
-        """
-        path = QPainterPath()
-        path.addRect(self._box_rect_local())
-        return path
-
-    def contains(self, point) -> bool:
-        """Point hit-test via shape() — QGraphicsTextItem overrides contains()
-        with its own text-content test, so scene point queries (itemAt, click
-        routing) would ignore the widened shape() without this override."""
-        return self.shape().contains(point)
-
-    def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block with opaque fill and the inline-edit frame.
-
-        Renders in order: (1) solid-white knockout over the box rect when
-        opaque_bg is set, (2) the text via super(), (3) the lighter #88aaff
-        cosmetic border while inline-editing (the EDITING state — distinct from
-        the SELECTED state).  The selected-but-not-editing dashed boundary + the
-        8 resize grips are now drawn by the scene's SelectionManipulator frame
-        (the per-item grip code is retired).
-
-        Args:
-            painter: Active QPainter for the scene.
-            option: Style option (passed through to super).
-            widget: Optional target widget (passed through to super).
-        """
-        box = self._box_rect_local()
-        if self._data.opaque_bg:
-            painter.fillRect(box, QColor("#ffffff"))
-        super().paint(painter, option, widget)
-        if self._editing:
-            pen = QPen(QColor("#88aaff"))
-            pen.setStyle(Qt.PenStyle.DashLine)
-            pen.setCosmetic(True)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(box)
-
-    # ── A. Edit lifecycle ──────────────────────────────────────────────────
-
-    def is_effectively_empty(self) -> bool:
-        """Return True when the block contains only whitespace.
-
-        Returns:
-            True when toPlainText().strip() is an empty string.
-        """
-        return self.toPlainText().strip() == ""
-
-    def begin_edit(self) -> None:
-        """Enter inline-edit mode: enable text interaction and take keyboard focus.
-
-        Saves the current text so that cancel_edit() can revert to it.
-        """
-        self._editing = True
-        self._text_before_edit = self._data.text
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-        self.setFocus(Qt.FocusReason.MouseFocusReason)
-        sc = self.scene()
-        if sc is not None:
-            sc._editing_item = self
-
-    def commit_edit(self) -> str:
-        """Commit the edited text into data and exit edit mode.
-
-        Returns:
-            The committed plain-text string (may be empty/whitespace).
-        """
-        self._editing = False
-        sc = self.scene()
-        if sc is not None and getattr(sc, "_editing_item", None) is self:
-            sc._editing_item = None
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        new_text = self.toPlainText()
-        self._data.text = new_text
-        self._apply_format()
-        return new_text
-
-    def cancel_edit(self) -> None:
-        """Revert to the pre-edit text and exit edit mode without committing.
-
-        For a pending placement item (scene._pending_text is self), also
-        discards the transient item so that Esc during place-mode leaves
-        nothing on the scene and nothing tracked. The reverted text is always
-        empty for a fresh placement, so commit_place_text() will auto-discard.
-        """
-        self._editing = False
-        scene = self.scene()
-        if scene is not None and getattr(scene, "_editing_item", None) is self:
-            scene._editing_item = None
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.setPlainText(self._text_before_edit)
-        self._data.text = self._text_before_edit
-        self._apply_format()
-        # Esc during place-mode: route through commit_place_text so the
-        # transient item is removed and nothing is left tracked.
-        if scene is not None and getattr(scene, "_pending_text", None) is self:
-            scene.commit_place_text(self)
-
-    def mouseDoubleClickEvent(self, event) -> None:
-        """Enter inline-edit mode on a double-click while not already editing."""
-        if not self._editing:
-            self.begin_edit()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
-
-    def focusOutEvent(self, event) -> None:
-        """Auto-commit the edit when the item loses keyboard focus."""
-        if self._editing:
-            self._on_edit_finished()
-        super().focusOutEvent(event)
-
-    def keyPressEvent(self, event) -> None:
-        """Route key events to the editor or to item-level commands.
-
-        While editing: Esc always commits — for a pending placement it routes
-        through commit_place_text() (empty still auto-discards); for an existing
-        block it calls _on_edit_finished() which commits and pushes an
-        EditTextCommand so the change is undoable. All other keys (Enter for
-        newline, Delete for character) pass through to the editor.
-        While not editing: Delete emits delete_requested; other keys delegate
-        to super().
-        """
-        if self._editing:
-            if event.key() == Qt.Key.Key_Escape:
-                self._on_edit_finished()
-                self.clearFocus()
-                event.accept()
-                return
-            super().keyPressEvent(event)   # Enter=newline, Delete=char
-            return
-        if event.key() == Qt.Key.Key_Delete:
-            self.delete_requested.emit(self)
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def _on_edit_finished(self) -> None:
-        """Called when inline editing ends (focus-out path).
-
-        For a pending placement item (scene._pending_text is self), routes to
-        commit_place_text() which discards the transient item when empty and
-        pushes an AddTextAnnotationCommand otherwise. For an existing tracked
-        annotation, commits the edit (which applies the new text live) and then
-        records the change on the undo stack via the scene's _push_text_edit
-        helper (empty content auto-deletes; an unchanged commit pushes nothing).
-        """
-        scene = self.scene()
-        if scene is not None and getattr(scene, "_pending_text", None) is self:
-            scene.commit_place_text(self)
-            return
-        old = self._text_before_edit
-        new = self.commit_edit()
-        if scene is not None and hasattr(scene, "_push_text_edit"):
-            scene._push_text_edit(self._data, old, new)
-
-    def sync_data_from_item(self) -> None:
-        """Write the current scene position back into the data object (paper mm)."""
-        self._data.x = self.pos().x()
-        self._data.y = self.pos().y()
-
-    # ── Property-panel protocol (spec property-panel.md §3.1) ────────────────
-
-    def get_properties(self) -> dict:
-        """Return the panel form dict (formatting only; content stays inline)."""
-        return _text_panel_properties(self._data)
-
-    def set_property(self, key: str, value) -> None:
-        """Apply a panel commit through the paper undo stack.
-
-        On a scene with an undo stack, pushes a FormatTextCommand (one command
-        per commit — the panel wraps multi-select in a macro). Off-scene
-        (template pattern) or while a command is being applied, writes the
-        field directly and reformats.
-
-        Args:
-            key: Panel property key.
-            value: The committed panel value.
-        """
-        change = _text_panel_change(self._data, key, value)
-        if change is None:
-            return
-        scene = self.scene()
-        stack = getattr(scene, "undo_stack", None) if scene is not None else None
-        if stack is not None and not getattr(scene, "_applying_command", False):
-            field = next(iter(change))
-            old = {field: getattr(self._data, field)}
-            stack.push(FormatTextCommand(scene, self._data, old, change))
-        else:
-            for f, v in change.items():
-                setattr(self._data, f, v)
-            self.prepareGeometryChange()
-            self._apply_format()
-
-    def contextMenuEvent(self, event) -> None:
-        """Show the Delete context menu on right-click.
-
-        While inline-editing, delegates to super() so the native copy/paste
-        editor menu is shown instead. Formatting is edited via the property
-        panel (selection populates it) — there is no Properties dialog.
-        """
-        if self._editing:
-            super().contextMenuEvent(event)
-            return
-        menu = QMenu()
-        delete = menu.addAction("Delete")
-        action = menu.exec(event.screenPos())
-        if action == delete:
-            self.delete_requested.emit(self)
-
-    # ── B. itemChange: anchor clamp + live data sync ─────────────────────────
-
-    def itemChange(self, change, value):
-        """Clamp position to the paper rect and live-sync data on every move.
-
-        ItemPositionChange: clamps the proposed QPointF to [0, paper_width] ×
-        [0, paper_height] using PAPER_SIZES[scene.sheet.paper_size].
-        ItemPositionHasChanged: calls sync_data_from_item() so _data.x/y stays
-        current for export/print without a separate save step.
-
-        Args:
-            change: GraphicsItemChange enum value.
-            value: Proposed value (QPointF for position changes).
-
-        Returns:
-            The (possibly clamped) value for position changes; super()'s return
-            for all other changes.
-        """
-        Change = QGraphicsItem.GraphicsItemChange
-        if change == Change.ItemPositionChange and self.scene() is not None:
-            pw, ph = sheet_page_mm(self.scene().sheet)
-            return QPointF(max(0.0, min(value.x(), pw)),
-                           max(0.0, min(value.y(), ph)))
-        if change == Change.ItemPositionHasChanged:
-            self.sync_data_from_item()
-        return super().itemChange(change, value)
-
-    # ── C. Box resize via the scene SelectionManipulator ─────────────────────
-    #
-    # The 8-handle grips are RETIRED: the scene's SelectionManipulator draws the
-    # frame + handles and drives resize/move through the ``manip_*`` capability
-    # protocol below (selection-manipulator.md).  The retired per-item grip
-    # methods (``_corner_grip_rects`` / ``_hit_grip_handle``) and the resize
-    # branches in the mouse handlers are gone — their box/wrap/pinned-edge model
-    # now lives in the single home :meth:`_resize_box_on_paper`.  Sheet text does
-    # NOT rotate in v1 (no ``manip_rotate``).
-
-    def manip_capabilities(self) -> set:
-        """Manipulator capabilities: translate + scale, never rotate (v1)."""
-        return {"translate", "scale"}
-
-    def manip_bounds(self) -> QRectF:
-        """On-paper text-box rect the manipulator frame wraps (scene coords).
-
-        Width is ``wrap_width_mm`` when set, else the auto content width; height
-        is ``box_height_mm`` when set, else the auto content height — exactly the
-        seeds the retired resize used (``_apply_grip_resize`` press seeds).  This
-        makes ``manip_scale``'s ``fx``/``fy`` (frame-relative factors) reproduce
-        the old delta arithmetic to the millimetre.
-        """
-        x, y = self._data.x, self._data.y
-        w = self._data.wrap_width_mm
-        if w <= 0:
-            w = self.sceneBoundingRect().width()
-        h = self._data.box_height_mm
-        if h <= 0:
-            h = self._content_height_mm()
-        return QRectF(x, y, w, h)
-
-    def manip_translate(self, dx: float, dy: float) -> None:
-        """Baked on-paper move by (dx, dy) mm (mirrors the retired move path)."""
-        self._data.x += dx
-        self._data.y += dy
-        self.setPos(self._data.x, self._data.y)
-
-    def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
-        """Baked box resize about *anchor* — reproduces the retired grip-resize.
-
-        The manipulator supplies scene-space scale factors about the scene
-        anchor (the corner/edge opposite the dragged handle) and the current
-        frame is ``manip_bounds()``.  Only the axis that actually changed is
-        written: a mid-edge handle passes ``fx == 1`` or ``fy == 1`` and leaves
-        the other axis' fields untouched — mirroring the old per-handle axis
-        isolation (an MR drag never seeds ``box_height_mm``; a BM drag never
-        seeds ``wrap_width_mm``).  Which edge stays fixed is read from *anchor*.
-        Font ``height_mm`` is never touched.  All box/wrap/pinned-edge/min-clamp
-        bookkeeping is delegated to the one home :meth:`_resize_box_on_paper`.
-        """
-        box = self.manip_bounds()
-        x, y, w, h = box.x(), box.y(), box.width(), box.height()
-        eps = 1e-9
-        change_x = abs(fx - 1.0) > eps
-        change_y = abs(fy - 1.0) > eps
-        if not change_x and not change_y:
-            return
-        # Fixed edge = the one the anchor sits on (default left/top when ambiguous).
-        tol = max(1e-6, (abs(w) + abs(h)) * 1e-6)
-        anchor_left = abs(anchor.x() - x) <= abs(anchor.x() - (x + w)) + tol
-        anchor_top = abs(anchor.y() - y) <= abs(anchor.y() - (y + h)) + tol
-        new_w = abs(w * fx) if change_x else None
-        new_h = abs(h * fy) if change_y else None
-        self._resize_box_on_paper(new_w, new_h, anchor_left, anchor_top)
-
-    def _content_height_mm(self) -> float:
-        """Current text-content height in paper mm (the auto-height seed)."""
-        scale = self.scale() or 1.0
-        return super().boundingRect().height() * scale
-
-    def _resize_box_on_paper(self, new_w: "float | None", new_h: "float | None",
-                             anchor_left: bool, anchor_top: bool) -> None:
-        """The single home for the box/wrap resize (ex-mouse-move resize branch).
-
-        Sets ``wrap_width_mm`` / ``box_height_mm`` (and shifts ``x`` / ``y`` when
-        a left/top edge moves) so the anchored edge stays put on paper, applying
-        the same min clamps as the retired grip drag: horizontal ≥
-        ``MIN_TEXT_WRAP_WIDTH_MM``, vertical ≥ the current content height.  A
-        ``None`` target leaves that axis' fields untouched (mid-edge handle).
-
-        Args:
-            new_w: Target on-paper wrap width (mm), or None to skip the x axis.
-            new_h: Target on-paper box height (mm), or None to skip the y axis.
-            anchor_left: True keeps the left edge fixed (right edge moves);
-                False keeps the right edge fixed (left edge + x shift).
-            anchor_top: True keeps the top edge fixed (bottom edge moves);
-                False keeps the bottom edge fixed (top edge + y shift).
-        """
-        d = self._data
-        if new_w is not None:
-            new_w = max(MIN_TEXT_WRAP_WIDTH_MM, new_w)
-            if not anchor_left:
-                right = d.x + (d.wrap_width_mm
-                               if d.wrap_width_mm > 0
-                               else self.sceneBoundingRect().width())
-                d.x = right - new_w
-            d.wrap_width_mm = new_w
-        if new_h is not None:
-            new_h = max(self._content_height_mm(), new_h)
-            if not anchor_top:
-                bottom = d.y + (d.box_height_mm
-                                if d.box_height_mm > 0
-                                else self._content_height_mm())
-                d.y = bottom - new_h
-            d.box_height_mm = new_h
-        self.setPos(d.x, d.y)
-        self.prepareGeometryChange()
-        self._apply_format()
-
-    def mousePressEvent(self, event) -> None:
-        """Snapshot the pre-drag anchor, then begin a native move.
-
-        Box resize is now driven entirely by the scene's SelectionManipulator
-        (manip_scale); the retired per-item grip branch is gone.  A native
-        (non-manipulator) move release still pushes a MoveTextAnnotationCommand
-        via mouseReleaseEvent — the manipulator intercepts its own press first,
-        so the two never double-push.
-        """
-        self._pos_at_press = (self._data.x, self._data.y)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:
-        """Finish a native move drag and notify the undo hook."""
-        super().mouseReleaseEvent(event)
-        if self._pos_at_press is not None:
-            old = self._pos_at_press
-            self._pos_at_press = None
-            if old != (self._data.x, self._data.y):
-                self._on_moved(old, (self._data.x, self._data.y))
-
-    def _on_moved(self, old_xy: tuple, new_xy: tuple) -> None:
-        """Hook called after a completed free-drag move.
-
-        Routes to the scene's _push_text_move helper to record a
-        MoveTextAnnotationCommand on the undo stack. The data is already
-        updated live by itemChange; the command is for undo history only.
-
-        Args:
-            old_xy: (x, y) paper-mm position before the drag.
-            new_xy: (x, y) paper-mm position after the drag.
-        """
-        scene = self.scene()
-        if scene is not None and hasattr(scene, "_push_text_move"):
-            scene._push_text_move(self._data, old_xy, new_xy)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2422,7 +1856,7 @@ class PaperGraphicsView(QGraphicsView):
                 QTimer.singleShot(0, lambda v=vp: scene.remove_viewport(v))
             ann_selected = [
                 item for item in scene.selectedItems()
-                if isinstance(item, TextAnnotationItem)
+                if isinstance(item, TextItem)
                 and not getattr(item, "_editing", False)
             ]
             for it in ann_selected:
@@ -3349,9 +2783,9 @@ class PaperScene(QGraphicsScene):
         self._title_tb = None
         self._field_overlay = None
         self._viewports: list[SheetViewport] = []
-        self._annotations: list[TextAnnotationItem] = []
-        self._editing_item = None  # TextAnnotationItem currently in inline edit
-        self._pending_text: "TextAnnotationItem | None" = None
+        self._annotations: list[TextItem] = []
+        self._editing_item = None  # TextItem currently in inline edit
+        self._pending_text: "TextItem | None" = None
         self._undo_stack = QUndoStack(self)
         self._applying_command = False
         self._suppress_modified = False
@@ -3365,6 +2799,19 @@ class PaperScene(QGraphicsScene):
         self._manip_geom_at_press: dict = {}
         self._manipulator = None
         self._setup()   # builds items AND (re)creates the manipulator
+
+    def device_independent_text(self) -> bool:
+        """Text sizing-mode hook (containment C5).
+
+        A PaperScene sizes text device-independently (paper-mm cap height, zoom
+        invariant) — the counterpart to ``Model_Space.device_independent_text``
+        (which returns False for scene-mm text).  ``TextItem`` reads this to pick
+        its ``_apply_format`` sizing path.
+
+        Returns:
+            Always True for a paper layout.
+        """
+        return True
 
     def _create_manipulator(self):
         """(Re)create the scene-level SelectionManipulator (frame + baked
@@ -3714,13 +3161,13 @@ class PaperScene(QGraphicsScene):
         """Return the pre-drag snapshot fn for *item*, or None if unsupported.
 
         Dispatches on type so both SheetViewport (crop×scale geometry) and
-        TextAnnotationItem (box/wrap/anchor) share one gesture path.  The
+        TextItem (box/wrap/anchor) share one gesture path.  The
         snapshot tuple is the argument passed to the record's undo command
         (see :meth:`_manip_command_for`).
         """
         if isinstance(item, SheetViewport):
             return PaperScene._viewport_geom
-        if isinstance(item, TextAnnotationItem):
+        if isinstance(item, TextItem):
             return PaperScene._text_box_geom
         return None
 
@@ -3728,7 +3175,7 @@ class PaperScene(QGraphicsScene):
     def _manip_command_for(item, mode: str):
         """Return the QUndoCommand class for *item* under gesture *mode*.
 
-        SheetViewport always uses ViewportGeometryCommand.  TextAnnotationItem
+        SheetViewport always uses ViewportGeometryCommand.  TextItem
         uses ``_MoveTextBoxAdapter`` for a manipulator translate and
         ResizeTextBoxCommand for a resize — both consume the same 4-tuple
         snapshot (:meth:`_text_box_geom`), so an x/y-only move reuses the
@@ -3736,7 +3183,7 @@ class PaperScene(QGraphicsScene):
         """
         if isinstance(item, SheetViewport):
             return ViewportGeometryCommand
-        if isinstance(item, TextAnnotationItem):
+        if isinstance(item, TextItem):
             return (_MoveTextBoxAdapter if mode == "move"
                     else ResizeTextBoxCommand)
         return None
@@ -3754,7 +3201,7 @@ class PaperScene(QGraphicsScene):
         mutates it, so :meth:`_manip_commit` can build old->new undo commands.
         Keyed by ``id(record)`` (the persistent data object); the per-type
         snapshot fn (:meth:`_manip_snapshot`) covers both SheetViewport and
-        TextAnnotationItem.  Items with no snapshot are ignored.  The dragged
+        TextItem.  Items with no snapshot are ignored.  The dragged
         item is stashed alongside so the commit can pick the right command class
         for the gesture mode.
         """
@@ -3899,8 +3346,8 @@ class PaperScene(QGraphicsScene):
 
     # ── Annotation management ────────────────────────────────────────────
 
-    def _create_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
-        """Build a TextAnnotationItem from existing data.
+    def _create_annotation(self, data: TextAnnotationData) -> TextItem:
+        """Build a TextItem from existing data.
 
         Does NOT touch sheet.annotations — called from _setup() over an
         already-populated list, so appending here would double the data.
@@ -3910,22 +3357,22 @@ class PaperScene(QGraphicsScene):
                 reference (same pattern as _create_viewport / SheetViewData).
 
         Returns:
-            The newly created and added TextAnnotationItem.
+            The newly created and added TextItem.
         """
-        item = TextAnnotationItem(data)
+        item = TextItem(data)
         item.delete_requested.connect(self._on_delete_annotation)
         self.addItem(item)
         self._annotations.append(item)
         return item
 
-    def _do_add_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
+    def _do_add_annotation(self, data: TextAnnotationData) -> TextItem:
         """Silent primitive: ensure data is registered in the sheet, then build the item.
 
         Args:
             data: TextAnnotationData to add.
 
         Returns:
-            The newly created TextAnnotationItem.
+            The newly created TextItem.
         """
         # Identity check (not value `in`): TextAnnotationData has value-equality,
         # so two value-identical blocks must both be tracked separately.
@@ -3949,7 +3396,7 @@ class PaperScene(QGraphicsScene):
             a for a in self._sheet.annotations if a is not data
         ]
 
-    def add_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
+    def add_annotation(self, data: TextAnnotationData) -> TextItem:
         """Silently add a text annotation to the scene and persist it in the sheet.
 
         This is the non-undoable helper that wraps the _do_add_annotation
@@ -3962,30 +3409,30 @@ class PaperScene(QGraphicsScene):
             data: TextAnnotationData describing the new annotation.
 
         Returns:
-            The created TextAnnotationItem.
+            The created TextItem.
         """
         return self._do_add_annotation(data)
 
-    def remove_annotation(self, item: TextAnnotationItem) -> None:
+    def remove_annotation(self, item: TextItem) -> None:
         """Remove *item* from the scene and from sheet.annotations.
 
         Args:
-            item: The TextAnnotationItem to remove.
+            item: The TextItem to remove.
         """
         self._do_remove_annotation_by_data(item.data)
 
-    def get_annotations(self) -> list[TextAnnotationItem]:
-        """Return a snapshot list of all live TextAnnotationItems on this scene.
+    def get_annotations(self) -> list[TextItem]:
+        """Return a snapshot list of all live TextItems on this scene.
 
         Returns:
-            A new list (not the internal list) of TextAnnotationItem instances.
+            A new list (not the internal list) of TextItem instances.
         """
         return list(self._annotations)
 
     # ── Place-mode (Task 5) ──────────────────────────────────────────────
 
-    def begin_place_text(self, pos: QPointF) -> TextAnnotationItem:
-        """Place a transient TextAnnotationItem at *pos* and enter edit mode.
+    def begin_place_text(self, pos: QPointF) -> TextItem:
+        """Place a transient TextItem at *pos* and enter edit mode.
 
         The item is added to the scene but is NOT tracked in sheet.annotations
         until commit_place_text() confirms it is non-empty. This lets an empty
@@ -3997,7 +3444,7 @@ class PaperScene(QGraphicsScene):
             pos: Desired placement position in scene (paper-mm) coordinates.
 
         Returns:
-            The newly created TextAnnotationItem in inline-edit mode.
+            The newly created TextItem in inline-edit mode.
         """
         pw, ph = sheet_page_mm(self._sheet)
         x = max(0.0, min(pos.x(), pw))
@@ -4013,13 +3460,13 @@ class PaperScene(QGraphicsScene):
             data.color = t.color
             data.align = t.align
             data.opaque_bg = t.opaque_bg
-        item = TextAnnotationItem(data)  # TRANSIENT: not tracked, not in sheet
+        item = TextItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item
         item.begin_edit()
         return item
 
-    def commit_place_text(self, item: TextAnnotationItem) -> None:
+    def commit_place_text(self, item: TextItem) -> None:
         """Finalise or discard a pending placement item.
 
         Reads the current plain-text from *item*. If it is blank (empty or
@@ -4030,7 +3477,7 @@ class PaperScene(QGraphicsScene):
         synchronously.
 
         Args:
-            item: The TextAnnotationItem returned by begin_place_text().
+            item: The TextItem returned by begin_place_text().
         """
         self._pending_text = None
         text = item.toPlainText()
@@ -4042,7 +3489,7 @@ class PaperScene(QGraphicsScene):
         # command's redo() builds the tracked replacement item synchronously.
         self._undo_stack.push(AddTextAnnotationCommand(self, item.data))
 
-    def _on_delete_annotation(self, item: TextAnnotationItem) -> None:
+    def _on_delete_annotation(self, item: TextItem) -> None:
         """Slot: defer-remove *item* via QTimer to avoid reentrant scene changes.
 
         Mirrors _on_delete_viewport — uses QTimer.singleShot(0) to defer the
@@ -4050,7 +3497,7 @@ class PaperScene(QGraphicsScene):
         whose inline editor is still active.
 
         Args:
-            item: The TextAnnotationItem that emitted delete_requested.
+            item: The TextItem that emitted delete_requested.
         """
         if getattr(item, "_editing", False):
             return

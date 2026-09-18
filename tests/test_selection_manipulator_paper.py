@@ -246,16 +246,16 @@ def test_detail_viewport_has_no_scale_capability(qapp):
 #    BM content   -> box_h == 29.1703 (content-height clamp)
 # =========================================================================== #
 
-from firepro3d.paper_space import TextAnnotationItem, TextAnnotationData
+from firepro3d.paper_space import TextItem, TextAnnotationData
 
 
 def _text_scene(qapp, wrap=50.0, box_h=0.0):
-    """A real PaperScene + one selected TextAnnotationItem at (10, 10)."""
+    """A real PaperScene + one selected paper TextItem at (10, 10)."""
     from tests.test_paper_annotations import _stub_resolver
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
                               wrap_width_mm=wrap, box_height_mm=box_h)
-    item = TextAnnotationItem(data)
+    item = TextItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
     item.setSelected(True)
@@ -408,14 +408,19 @@ def test_text_manip_bounds_is_box_rect(qapp):
         pytest.approx((10.0, 10.0, 60.0, 40.0), abs=1e-4)
 
 
-def test_text_has_scale_translate_no_rotate(qapp):
-    """Sheet text exposes scale + translate but never rotate in v1."""
+def test_text_has_scale_translate_and_rotate(qapp):
+    """Sheet text exposes scale + translate + rotate on the unified TextItem.
+
+    Containment C5.7 repointed paper text onto ``TextItem`` and enabled the
+    paper rotate handle (the old paper ``TextAnnotationItem`` was v1
+    translate+scale only).
+    """
     from firepro3d.selection_manipulator import item_capabilities
     scene, item, data = _text_scene(qapp)
     caps = item_capabilities(item)
     assert "scale" in caps
     assert "translate" in caps
-    assert "rotate" not in caps
+    assert "rotate" in caps
 
 
 def test_text_resize_font_height_untouched(qapp):
@@ -424,7 +429,7 @@ def test_text_resize_font_height_untouched(qapp):
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
                               wrap_width_mm=50.0, height_mm=4.7625)
-    item = TextAnnotationItem(data)
+    item = TextItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
     orig_h = data.height_mm

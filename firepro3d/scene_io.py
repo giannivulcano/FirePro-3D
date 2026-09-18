@@ -23,8 +23,8 @@ import shutil
 from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
-    serialize_node, serialize_pipe, serialize_dimension,
-    serialize_note, serialize_water_supply, serialize_design_area,
+    serialize_node, serialize_pipe,
+    serialize_water_supply, serialize_design_area,
 )
 
 log = logging.getLogger("FirePro3D")
@@ -57,24 +57,13 @@ class SceneIOMixin:
                 continue
             pipes_data.append(serialize_pipe(pipe, node_id))
 
-        # --- Annotations ---
+        # --- Annotations: notes + dimensions are forbidden model content
+        # (containment C8) — no longer written.  Annotation only ever held
+        # notes/dimensions, so annotations serialise to [].
         annotations_data = []
-        for dim in self.annotations.dimensions:
-            annotations_data.append(serialize_dimension(dim))
-        for note in self.annotations.notes:
-            annotations_data.append(serialize_note(note))
 
-        # (HatchItem retired 2026-08-22 — no longer saved; migration on load only)
-
-        # --- Constraints ---
-        all_geom = self._tools._all_geometry_items()
-        geom_id = {item: i for i, item in enumerate(all_geom)}
-        constraints_data = []
-        for c in self._constraints:
-            try:
-                constraints_data.append(c.to_dict(geom_id))
-            except (KeyError, AttributeError):
-                pass
+        # (HatchItem retired 2026-08-22; legacy loose geometry / constraints /
+        #  standalone text no longer written under containment C8.)
 
         # --- Underlays ---
         underlays_data = []
@@ -108,16 +97,8 @@ class SceneIOMixin:
             else []
         )
 
-        # --- Construction geometry ---
-        polylines_data = [pl.to_dict() for pl in self._polylines]
-        draw_lines_data = [l.to_dict() for l in self._draw_lines]
-        reference_lines_data = [r.to_dict() for r in self._reference_lines]
-        draw_rects_data = [r.to_dict() for r in self._draw_rects]
-        draw_circles_data = [c.to_dict() for c in self._draw_circles]
-        draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
-        draw_ellipses_data = [e.to_dict() for e in self._draw_ellipses]
-        draw_splines_data = [s.to_dict() for s in self._draw_splines]
-        polygons_data = [p.to_dict() for p in self._draw_polygons]
+        # --- Construction geometry + standalone text: forbidden loose content
+        # (containment C8) — no longer written to the payload.
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
         floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]  # two-boundary schema via to_dict
@@ -151,15 +132,6 @@ class SceneIOMixin:
             "underlays":           underlays_data,
             "water_supply":        ws_data,
             "design_areas":        design_areas_data,
-            "polylines":           polylines_data,
-            "draw_lines":          draw_lines_data,
-            "reference_lines":     reference_lines_data,
-            "draw_rectangles":     draw_rects_data,
-            "draw_circles":        draw_circles_data,
-            "draw_arcs":           draw_arcs_data,
-            "draw_ellipses":       draw_ellipses_data,
-            "draw_splines":        draw_splines_data,
-            "polygons":            polygons_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
             "floor_slabs":         floor_slabs_data,
@@ -167,7 +139,6 @@ class SceneIOMixin:
             "rooms":               rooms_data,
             "block_definitions":   block_definitions_data,
             "blocks":              blocks_data,
-            "constraints":         constraints_data,
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
             "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
@@ -200,13 +171,8 @@ class SceneIOMixin:
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
         from .node import Node
-        from .annotations import _rebuild_path_from_elements
         from .underlay import Underlay
         from .scale_manager import ScaleManager
-        from .geometry_2d import (
-            PolylineItem, LineItem, ReferenceLineItem, RectangleItem,
-            CircleItem, ArcItem, RegularPolygonItem, EllipseItem, SplineItem,
-        )
         from .gridline import GridlineItem
         from .wall import WallSegment
         from .block_definition import BlockDefinition
@@ -214,7 +180,6 @@ class SceneIOMixin:
         from .roof import RoofItem
         from .room import Room
         from .wall_opening import WallOpening
-        from .constraints import Constraint as ConstraintBase
         from PyQt6.QtGui import QColor
 
         try:
@@ -302,14 +267,9 @@ class SceneIOMixin:
                 node.fitting._display_overrides = pending
                 del node._fitting_display_overrides_pending
 
-        # --- Annotations ---
-        from .network_codec import deserialize_dimension, deserialize_note
-        for entry in payload.get("annotations", []):
-            ann_type = entry.get("type")
-            if ann_type == "dimension":
-                deserialize_dimension(self, entry)
-            elif ann_type == "note":
-                deserialize_note(self, entry)
+        # --- Annotations: notes + dimensions are forbidden model content
+        # (containment C8) — read-but-discard silently.  Annotation only ever
+        # held notes/dimensions, so the restore loop is dropped entirely.
 
         # --- Underlays ---
         project_dir = os.path.dirname(os.path.abspath(filename))
@@ -405,47 +365,10 @@ class SceneIOMixin:
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles
 
-        # --- Construction geometry ---
-        # Note: legacy "construction_lines" key is silently dropped.
-        for entry in payload.get("polylines", []):
-            pl = PolylineItem.from_dict(entry)
-            self.addItem(pl)
-            self._polylines.append(pl)
-        for entry in payload.get("draw_lines", []):
-            item = LineItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_lines.append(item)
-        for entry in payload.get("reference_lines", []):
-            item = ReferenceLineItem.from_dict(entry)
-            self.addItem(item)
-            self._reference_lines.append(item)
-        for entry in payload.get("draw_rectangles", []):
-            item = RectangleItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_rects.append(item)
-        for entry in payload.get("draw_circles", []):
-            item = CircleItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_circles.append(item)
-        for entry in payload.get("draw_arcs", []):
-            item = ArcItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_arcs.append(item)
-
-        for entry in payload.get("draw_ellipses", []):
-            item = EllipseItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_ellipses.append(item)
-
-        for entry in payload.get("draw_splines", []):
-            item = SplineItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_splines.append(item)
-
-        for entry in payload.get("polygons", []):
-            item = RegularPolygonItem.from_dict(entry)
-            self.addItem(item)
-            self._draw_polygons.append(item)
+        # --- Construction geometry + standalone model text: forbidden loose
+        # content (containment C8) — read-but-discard silently.  The restore
+        # loops for polylines / draw_* / reference_lines / polygons / texts are
+        # dropped; the single info line below reports the total dropped count.
 
         # --- Gridlines ---
         for entry in payload.get("gridlines", []):
@@ -506,48 +429,25 @@ class SceneIOMixin:
         sync_grid_counters(self._gridlines)
         apply_duplicate_warnings(self._gridlines)
 
-        # --- Legacy hatch migration (HatchItem retired 2026-08-22) ---
-        # Old .fpd files have a "hatches" list of HatchItem dicts.  Migrate each
-        # entry into a filled closed PolylineItem so old drawings keep their fills.
-        _NEAREST = {"diagonal": "diagonal", "cross": "cross_hatch"}
-        for entry in payload.get("hatches", []):
-            try:
-                path = _rebuild_path_from_elements(entry["path"])
-                poly = path.toFillPolygon()
-                pts = [poly.at(i) for i in range(poly.count())]
-                if len(pts) >= 2 and pts[0] == pts[-1]:
-                    pts = pts[:-1]
-                if len(pts) < 3:
-                    continue
-                pl = PolylineItem(pts[0])
-                for p in pts[1:]:
-                    pl.append_point(p)
-                pl.close()
-                px, py = entry.get("pos", [0, 0])
-                pl.setPos(px, py)
-                pl.level = entry.get("level", DEFAULT_LEVEL)
-                pt = entry.get("pattern_type", "solid")
-                if pt == "solid":
-                    pl.fill_type = "solid"
-                else:
-                    pl.fill_type = "hatch"
-                    pl.fill_pattern = _NEAREST.get(pt, pl.fill_pattern)
-                pl._display_fill_color = entry.get("colour", "#888888")
-                self._polylines.append(pl)
-                self.addItem(pl)
-            except Exception:
-                continue  # tolerant: skip malformed legacy hatch
+        # --- Legacy hatch migration: retired under containment C8.  Legacy
+        # "hatches" recreated loose PolylineItems (forbidden loose geometry),
+        # so the migration block is dropped — those entries clean-drop too.
 
-        # --- Constraints ---
-        all_geom = self._tools._all_geometry_items()
-        id_to_geom = {i: item for i, item in enumerate(all_geom)}
-        for entry in payload.get("constraints", []):
-            try:
-                c = ConstraintBase.from_dict(entry, id_to_geom)
-                if c is not None:
-                    self._constraints.append(c)
-            except (ValueError, KeyError, TypeError):
-                pass
+        # --- Constraints: model-scene constraints are forbidden (containment
+        # C8) — read-but-discard silently.  The restore block is dropped.
+
+        # --- Clean-drop log (containment C1/C8) ---
+        # Report a single info line if any forbidden loose content was present.
+        _dropped = (len(payload.get("polylines", [])) + len(payload.get("draw_lines", []))
+                    + len(payload.get("reference_lines", [])) + len(payload.get("draw_rectangles", []))
+                    + len(payload.get("draw_circles", [])) + len(payload.get("draw_arcs", []))
+                    + len(payload.get("draw_ellipses", [])) + len(payload.get("draw_splines", []))
+                    + len(payload.get("polygons", [])) + len(payload.get("texts", []))
+                    + len(payload.get("hatches", []))
+                    + sum(1 for a in payload.get("annotations", []) if a.get("type") in ("note", "dimension"))
+                    + len(payload.get("constraints", [])))
+        if _dropped:
+            log.info("Clean-drop: discarded %d unsupported loose item(s) on load (containment C1/C8)", _dropped)
 
         # Apply level visibility
         if self._level_manager:
@@ -596,6 +496,7 @@ class SceneIOMixin:
         self._draw_ellipses = []
         self._draw_splines = []
         self._draw_polygons = []
+        self._texts = []
         for inst in list(getattr(self, "_block_instances", [])):
             if inst.scene() is self:
                 self.removeItem(inst)
@@ -625,11 +526,6 @@ class SceneIOMixin:
         self._roof_active = None
         self._constraints = []
         reset_grid_counters()
-        self.dimension_start = None
-        self._dim_line1 = None
-        self._dim_preview_line = None
-        self._dim_preview_label = None
-        self._dim_pending = None
         self.active_level = DEFAULT_LEVEL
         if self._level_manager:
             self._level_manager.reset()

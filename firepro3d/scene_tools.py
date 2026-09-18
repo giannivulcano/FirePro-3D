@@ -766,6 +766,9 @@ class SceneTools:
         items.extend(getattr(self._scene, "_draw_splines", []))
         items.extend(self._scene._polylines)
         items.extend(self._scene._draw_polygons)
+        # Text (containment C5) — APPENDED LAST so existing constraint indices
+        # (which key off this list order) are never shifted.
+        items.extend(getattr(self._scene, "_texts", []))
         return items
 
     def _find_geometry_at(self, pos: QPointF):

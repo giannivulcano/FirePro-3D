@@ -59,94 +59,58 @@ def _add_rect(scene, level="Level 2", offset=250.0, fill="solid",
 
 
 # ── Path A: file round-trip ───────────────────────────────────────────────────
+# Containment C8: loose construction geometry is forbidden model content. It is
+# no longer written on save and read-but-discarded on load, so the FILE path
+# clean-drops it (the undo-snapshot Path B below still round-trips it).
 
-def test_file_roundtrip_offset_and_fill(qapp, tmp_path):
-    """save_to_file / load_from_file preserves level, offset, fill, and color."""
+def test_file_save_omits_loose_geometry(qapp, tmp_path):
+    """save_to_file no longer writes loose draw geometry (containment C8)."""
     scene = _make_scene(qapp)
-    r = _add_rect(scene, level="Level 2", offset=250.0,
-                  fill="solid", color="#123456")
+    _add_rect(scene, level="Level 2", offset=250.0,
+              fill="solid", color="#123456")
 
     fp = str(tmp_path / "test_project.fpd")
     ok = scene.save_to_file(fp)
     assert ok, "save_to_file returned False"
 
-    # Load into a fresh scene
-    scene2 = _make_scene(qapp)
-    scene2.load_from_file(fp)
-
-    assert len(scene2._draw_rects) == 1, (
-        f"Expected 1 draw_rect after load, got {len(scene2._draw_rects)}"
-    )
-    loaded = scene2._draw_rects[0]
-
-    assert loaded.level == "Level 2"
-    assert loaded._level_offset_mm == pytest.approx(250.0)
-    assert loaded.fill_type == "solid"
-    assert loaded._display_fill_color == "#123456"
-
-
-def test_file_roundtrip_zero_offset_not_stored(qapp, tmp_path):
-    """A zero offset is omitted from the JSON (optimized dict path)."""
-    scene = _make_scene(qapp)
-    r = RectangleItem(QPointF(0, 0), QPointF(50, 50))
-    # leave _level_offset_mm at default 0.0
-    scene._draw_rects.append(r)
-    scene.addItem(r)
-
-    fp = str(tmp_path / "zero_offset.fpd")
-    scene.save_to_file(fp)
-
     with open(fp) as f:
         payload = json.load(f)
-
-    rects = payload.get("draw_rectangles", [])
-    assert len(rects) == 1
-    # _geom2d_to_dict omits level_offset_mm when it's 0.0
-    assert "level_offset_mm" not in rects[0], (
-        "Zero offset should be omitted from serialized dict"
-    )
+    assert payload.get("draw_rectangles", []) == []
+    assert "polylines" not in payload or payload["polylines"] == []
 
 
-def test_file_roundtrip_fill_none_not_stored(qapp, tmp_path):
-    """fill_type='none' is omitted from JSON."""
+def test_file_load_drops_loose_rect(qapp, tmp_path):
+    """A saved rect is clean-dropped on load (containment C8)."""
     scene = _make_scene(qapp)
-    r = RectangleItem(QPointF(0, 0), QPointF(50, 50))
-    # fill_type defaults to "none"
-    scene._draw_rects.append(r)
-    scene.addItem(r)
+    _add_rect(scene, level="Level 2", offset=250.0,
+              fill="solid", color="#123456")
 
-    fp = str(tmp_path / "fill_none.fpd")
-    scene.save_to_file(fp)
-
-    with open(fp) as f:
-        payload = json.load(f)
-
-    rects = payload.get("draw_rectangles", [])
-    assert len(rects) == 1
-    assert "fill" not in rects[0], "fill_type='none' should be omitted from dict"
-
-
-def test_file_roundtrip_hatch_fill(qapp, tmp_path):
-    """Hatch fill_type and pattern survive a file round-trip."""
-    scene = _make_scene(qapp)
-    r = RectangleItem(QPointF(0, 0), QPointF(80, 80))
-    r.fill_type = "hatch"
-    r.fill_pattern = "diagonal"
-    r._display_fill_color = "#aabbcc"
-    scene._draw_rects.append(r)
-    scene.addItem(r)
-
-    fp = str(tmp_path / "hatch.fpd")
+    fp = str(tmp_path / "test_project.fpd")
     scene.save_to_file(fp)
 
     scene2 = _make_scene(qapp)
     scene2.load_from_file(fp)
+    assert scene2._draw_rects == []
 
-    assert len(scene2._draw_rects) == 1
-    loaded = scene2._draw_rects[0]
-    assert loaded.fill_type == "hatch"
-    assert loaded.fill_pattern == "diagonal"
-    assert loaded._display_fill_color == "#aabbcc"
+
+def test_legacy_loose_rect_dropped_on_load(qapp, tmp_path):
+    """A legacy .fpd with a draw_rectangles entry clean-drops on load."""
+    payload = {
+        "version": 12,
+        "draw_rectangles": [{
+            "type": "rectangle", "p1": [0, 0], "p2": [80, 80],
+            "level": "Level 1", "fill": "hatch", "fill_pattern": "diagonal",
+            "fill_color": "#aabbcc",
+        }],
+        "walls": [],
+    }
+    fp = str(tmp_path / "legacy_rect.fpd")
+    with open(fp, "w") as f:
+        json.dump(payload, f)
+
+    scene2 = _make_scene(qapp)
+    scene2.load_from_file(fp)  # must not raise
+    assert scene2._draw_rects == []
 
 
 # ── Path B: undo snapshot round-trip ─────────────────────────────────────────
@@ -265,8 +229,8 @@ def test_restore_network_clears_existing_polygons(qapp):
     assert len(scene._draw_polygons) == 1
 
 
-def test_polygon_file_round_trip(qapp, tmp_path):
-    """save_to_file / load_from_file round-trips RegularPolygonItem."""
+def test_polygon_file_dropped_on_load(qapp, tmp_path):
+    """Containment C8: a loose RegularPolygonItem clean-drops through the file path."""
     scene = _make_scene(qapp)
     p = RegularPolygonItem(QPointF(0, 0), sides=8, radius_mm=60.0,
                            rotation_deg=30.0, inscribed=False)
@@ -279,15 +243,11 @@ def test_polygon_file_round_trip(qapp, tmp_path):
     scene2 = _make_scene(qapp)
     scene2.load_from_file(str(f))
 
-    assert len(scene2._draw_polygons) == 1
-    assert scene2._draw_polygons[0]._sides == 8
-    assert scene2._draw_polygons[0]._inscribed is False
-    assert math.isclose(scene2._draw_polygons[0]._radius_mm, 60.0, abs_tol=1e-6)
-    assert math.isclose(scene2._draw_polygons[0]._rotation_deg, 30.0, abs_tol=1e-6)
+    assert scene2._draw_polygons == []
 
 
-def test_closed_polyline_file_round_trip(qapp, tmp_path):
-    """Closed PolylineItem flag survives a file round-trip."""
+def test_closed_polyline_file_dropped_on_load(qapp, tmp_path):
+    """Containment C8: a loose PolylineItem clean-drops through the file path."""
     scene = _make_scene(qapp)
     pl = PolylineItem(QPointF(0, 0))
     pl.append_point(QPointF(100, 0))
@@ -303,8 +263,7 @@ def test_closed_polyline_file_round_trip(qapp, tmp_path):
     scene2 = _make_scene(qapp)
     scene2.load_from_file(str(f))
 
-    assert len(scene2._polylines) == 1
-    assert scene2._polylines[0].is_closed() is True
+    assert scene2._polylines == []
 
 
 def test_polygon_paste(qapp):

@@ -60,7 +60,7 @@ def test_reference_render_ops_batch_per_geometry_layer(qapp):
     ops = d.render_ops()
     # geometry layers = {A, B}; NOTES holds only text -> no geometry op.
     assert len(ops) == 2
-    for _pen, path in ops:
+    for _pen, _brush, path in ops:
         assert not path.boundingRect().isNull()
 
 

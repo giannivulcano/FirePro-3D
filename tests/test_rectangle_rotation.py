@@ -109,7 +109,12 @@ def test_centre_following_pivot_serialises_as_null_and_round_trips(qapp):
     assert abs(r2._angle - 15.0) < 1e-9
 
 
-def test_scene_io_round_trip_preserves_angle_pivot(qapp, tmp_path):
+def test_standalone_rect_dropped_on_file_load(qapp, tmp_path):
+    # Containment C1/C8: standalone loose geometry does not persist in a project
+    # .fpd — it is clean-dropped on load (authored geometry lives in block
+    # definitions). Angle/pivot serialization is still covered by
+    # test_to_dict_includes_angle_and_pivot / test_from_dict_restores_angle_and_pivot
+    # and the undo path (test_undo_path_preserves_angle_pivot).
     from firepro3d.model_space import Model_Space
     scene = Model_Space()
     r = RectangleItem(QPointF(10, 20), QPointF(110, 70))
@@ -121,12 +126,7 @@ def test_scene_io_round_trip_preserves_angle_pivot(qapp, tmp_path):
 
     scene2 = Model_Space()
     scene2.load_from_file(str(f))
-    assert len(scene2._draw_rects) == 1
-    r2 = scene2._draw_rects[0]
-    assert abs(r2._angle - 37.0) < 1e-9
-    assert r2.rotation() == 0.0                 # baked-at-rest through file I/O
-    assert r2._pivot.x() == 10.0
-    assert r2._pivot.y() == 20.0
+    assert scene2._draw_rects == []
 
 
 def test_undo_path_preserves_angle_pivot(qapp):

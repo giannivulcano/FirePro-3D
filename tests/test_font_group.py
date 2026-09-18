@@ -4,7 +4,7 @@ from PyQt6.QtGui import QFont
 from firepro3d.font_group import next_ladder_pt, prev_ladder_pt, FontGroupController
 from firepro3d.constants import FONT_SIZE_LADDER_PT
 from firepro3d.paper_space import (
-    PaperScene, Sheet, TextAnnotationData, TextAnnotationItem, ViewResolver,
+    PaperScene, Sheet, TextAnnotationData, TextItem, ViewResolver,
     _font_pt_from_mm,
 )
 
@@ -113,7 +113,10 @@ def test_sync_uniform_values_reflected(paper_text):
 
 def test_template_target_writes_direct_no_undo(paper_text, qapp):
     scene, _ = paper_text
-    template = TextAnnotationItem(TextAnnotationData())
+    template = TextItem(TextAnnotationData())
+    # Off-scene paper template: force the paper (device-independent) formatting
+    # mode so set_property routes as sheet text before placement (C5.7).
+    template._force_device_independent = True
     c = _controller([template])
     before = scene.undo_stack.count()
     c._commit("Italic", True)

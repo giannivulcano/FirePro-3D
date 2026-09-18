@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 from PyQt6.QtCore import QRectF, QPointF, Qt
-from PyQt6.QtGui import QPainterPath, QPen, QColor, QTransform
+from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
@@ -99,7 +99,7 @@ class BlockInstance(QGraphicsObject):
                 combined.moveTo(-h, -h)
                 combined.lineTo(h, h)
             return combined
-        for _pen, path in ops:
+        for _pen, _brush, path in ops:
             combined.addPath(path)
         return combined
 
@@ -127,15 +127,25 @@ class BlockInstance(QGraphicsObject):
                 painter.drawPath(self._posed_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
-        for pen, path in ops:
+        for pen, brush, path in ops:
+            is_text = pen.style() == Qt.PenStyle.NoPen  # filled glyph outline op
             p = QPen(pen)
             p.setCosmetic(True)
-            if override is not None:
-                p.setColor(override)
-            if self.isSelected():
-                p.setColor(QColor("#63BE8B"))  # accent; see icon-style-guide accent token
+            b = QBrush(brush)
+            if is_text:
+                # Text op: the fill (brush) carries the colour; the pen is NoPen,
+                # so selection/override tint must apply to the BRUSH, not the pen.
+                if override is not None:
+                    b.setColor(override)
+                if self.isSelected():
+                    b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+            else:
+                if override is not None:
+                    p.setColor(override)
+                if self.isSelected():
+                    p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
             painter.setPen(p)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setBrush(b)
             painter.drawPath(pose.map(path))
 
     def _display_pen_color(self) -> Optional[QColor]:

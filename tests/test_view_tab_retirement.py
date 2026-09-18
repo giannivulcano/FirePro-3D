@@ -34,7 +34,8 @@ def test_no_view_tab(win):
     tb = win.ribbon._tab_bar
     titles = [tb.tabText(i) for i in range(tb.count())]
     assert "View" not in titles
-    assert titles == ["Manage", "Create", "Architecture",
+    # Create was dissolved by the containment contract (C7).
+    assert titles == ["Manage", "Architecture",
                       "Sprinkler Systems", "Analyze", "Draft"]
 
 

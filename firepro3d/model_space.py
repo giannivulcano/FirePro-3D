@@ -17,7 +17,7 @@ from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_system import SprinklerSystem
 from .cad_math import CAD_Math
-from .annotations import Annotation, DimensionAnnotation, NoteAnnotation
+from .annotations import Annotation
 from .underlay import Underlay
 from .underlay_freeze import UnderlayFreezeController, _UnderlayPathItem
 from .scale_manager import ScaleManager
@@ -31,6 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .text_item import TextItem, TextAnnotationData
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -70,9 +71,18 @@ from .geometry_drawing_controller import GeometryDrawingController
 from .wall_placement_controller import WallPlacementController
 from .feature_placement_controller import FeaturePlacementController
 from .network_codec import (
-    serialize_node, serialize_pipe, serialize_dimension,
+    serialize_node, serialize_pipe,
     serialize_note, serialize_water_supply, serialize_design_area,
 )
+
+# Modes that constitute "loose geometry / text / dimension authoring" — not
+# permitted in plan scenes (containment contract C1).  Block-Editor scratchpads
+# allow all of these.
+_LOOSE_AUTHORING_MODES = frozenset({
+    "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse",
+    "draw_spline", "polyline", "draw_arc", "polygon",
+    "text", "dimension",
+})
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -163,8 +173,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
     originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
 
-    def __init__(self):
+    def __init__(self, scene_role: str = "plan"):
         super().__init__()
+        self.scene_role = scene_role
         self._tools = SceneTools(self)   # composed geometry-tool collaborator (decomposition slice B)
         self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
         # One-time repair: fix display/*/visible stored as bool instead of string
@@ -185,11 +196,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
-        self.dimension_start = None
-        self._dim_preview_line: "QGraphicsLineItem | None" = None
-        self._dim_preview_label: "QGraphicsTextItem | None" = None
-        self._dim_pending: "DimensionAnnotation | None" = None  # awaiting offset click (3-click mode)
-        self._dim_line1: "LineItem | None" = None  # line hit on dim click 1 (for perpendicular detection)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -281,6 +287,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._polygon_ref_circle: "QGraphicsEllipseItem | None" = None
         self._polygon_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_polygons: list[RegularPolygonItem] = []
+        # Text primitive (containment C5): the 9th 2D-geometry collector. Model
+        # text is placed as TextItem (not NoteAnnotation) and round-trips through
+        # BOTH scene_io (file) and _capture_network/_restore_network (undo).
+        self._texts: list[TextItem] = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
@@ -502,6 +512,33 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # per baked gesture via push_undo_state.
         self._manipulator = None
         self._create_manipulator()
+
+    def authoring_allowed(self, mode: str) -> bool:
+        """Whether *mode* may be entered in this scene's role.
+
+        Plan scenes forbid loose-geometry/text/dimension authoring
+        (containment contract C1); the Block-Editor scratchpad permits it.
+
+        Args:
+            mode: The mode name string to test.
+
+        Returns:
+            True if the mode is permitted in this scene's role.
+        """
+        if mode in _LOOSE_AUTHORING_MODES:
+            return self.scene_role == "block_editor"
+        return True
+
+    def device_independent_text(self) -> bool:
+        """Text sizing-mode hook (containment C5).
+
+        Model and Block-Editor scenes render text at scene-mm (scales with
+        zoom); PaperScene overrides this to return True (device-independent).
+
+        Returns:
+            False for all Model_Space roles; True only in PaperScene.
+        """
+        return False
 
     @property
     def underlays(self):
@@ -813,17 +850,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.addItem(h_line)
         self.addItem(v_line)
 
-    def _remove_dim_preview(self):
-        """Remove the temporary dimension placement preview items."""
-        if self._dim_preview_line is not None:
-            if self._dim_preview_line.scene() is self:
-                self.removeItem(self._dim_preview_line)
-            self._dim_preview_line = None
-        if self._dim_preview_label is not None:
-            if self._dim_preview_label.scene() is self:
-                self.removeItem(self._dim_preview_label)
-            self._dim_preview_label = None
-
     # -------------------------------------------------------------------------
     # DELETE
 
@@ -834,8 +860,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         # Map each geometry type to the list that tracks it
         type_to_list = {
-            DimensionAnnotation: self.annotations.dimensions,
-            NoteAnnotation:      self.annotations.notes,
             PolylineItem:        self._polylines,
             ReferenceLineItem:   self._reference_lines,   # subclass — must precede LineItem
             LineItem:            self._draw_lines,
@@ -845,6 +869,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             EllipseItem:         self._draw_ellipses,
             SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
+            TextItem:            self._texts,   # containment C5 (no subclass)
             GridlineItem:        self._gridlines,
         }
         for cls, lst in type_to_list.items():
@@ -1019,6 +1044,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        if not self.authoring_allowed(mode):
+            # containment C1: loose-geometry/text/dimension authoring is refused
+            # in the plan scene (permitted only in the Block-Editor scratchpad).
+            return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
         # primitive pre-selected so all downstream logic sees mode == "wall".
@@ -1121,14 +1150,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if self._text_preview.scene() is self:
                     self.removeItem(self._text_preview)
                 self._text_preview = None
-        if mode != "dimension":
-            self.dimension_start = None
-            self._dim_line1 = None
-            self._remove_dim_preview()
-            if self._dim_pending is not None:
-                # Finalize at current offset
-                self._dim_pending = None
-                self.push_undo_state()
         if mode in ("sprinkler", "pipe", "set_scale"):
             self.current_template = template
             if template:
@@ -1343,7 +1364,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_spline":    "Pick first control point",
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
-            "dimension":      "Pick first point",
             "text":           "Pick first corner",
             "set_scale":      "Pick first calibration point",
             "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
@@ -1883,8 +1903,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 continue
             pipes_data.append(serialize_pipe(pipe, node_id))
         annotations_data = []
-        for dim in self.annotations.dimensions:
-            annotations_data.append(serialize_dimension(dim))
         for note in self.annotations.notes:
             annotations_data.append(serialize_note(note))
         ws = self.water_supply_node
@@ -1910,6 +1928,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
             "draw_splines":       [s.to_dict()  for s in self._draw_splines],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
+            "texts":              [t.to_dict()  for t in self._texts],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
             "walls":              [w.to_dict()  for w in self._walls],
@@ -1993,12 +2012,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # Apply DM colours without re-aligning (align was done by update)
                 self._apply_fitting_dm_colors(node.fitting)
 
-            from .network_codec import deserialize_dimension, deserialize_note
+            from .network_codec import deserialize_note
             for entry in state.get("annotations", []):
                 ann_type = entry.get("type")
-                if ann_type == "dimension":
-                    deserialize_dimension(self, entry)
-                elif ann_type == "note":
+                if ann_type == "note":
                     deserialize_note(self, entry)
 
             # Restore water supply
@@ -2060,6 +2077,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if item.scene() is self:
                     self.removeItem(item)
             self._draw_polygons.clear()
+
+            for item in list(self._texts):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._texts.clear()
 
             for gl in list(self._gridlines):
                 if gl.scene() is self:
@@ -2148,6 +2170,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 pg = RegularPolygonItem.from_dict(d)
                 self.addItem(pg)
                 self._draw_polygons.append(pg)
+
+            for d in state.get("texts", []):
+                ti = TextItem.from_dict(d)
+                self.addItem(ti)
+                self._texts.append(ti)
 
             for d in state.get("gridlines", []):
                 gl = GridlineItem.from_dict(d)
@@ -3457,7 +3484,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_spline":              "_move_draw_spline",
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
-        "dimension":                "_move_dimension",
         "text":                     "_move_text",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
@@ -3609,55 +3635,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_draw_arc(self, event, snapped):  # shell → GeometryDrawingController (slice 9)
         return self._geom_ctl._move_draw_arc(event, snapped)
-
-    def _move_dimension(self, event, snapped):
-        sm = self.scale_manager
-        self.preview_pipe.hide()
-        if self._dim_pending is not None:
-            # Offset sub-mode: project cursor onto perpendicular of the base line
-            dim = self._dim_pending
-            p1 = dim._p1
-            p2 = dim._p2
-            mid_base = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-            line_angle = math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
-            perp = line_angle + math.pi / 2
-            dx = snapped.x() - mid_base.x()
-            dy = snapped.y() - mid_base.y()
-            projected = dx * math.cos(perp) + dy * math.sin(perp)
-            dim._offset_dist = projected
-            dim.update_geometry()
-            self.preview_node.hide()
-        elif self.dimension_start is None:
-            self.update_preview_node(snapped)
-        else:
-            self.preview_node.hide()
-            # Show live preview line from first point to cursor
-            p1 = self.dimension_start
-            p2 = snapped
-            if self._dim_preview_line is None:
-                preview_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
-                preview_pen.setCosmetic(True)
-                self._dim_preview_line = QGraphicsLineItem()
-                self._dim_preview_line.setPen(preview_pen)
-                self._dim_preview_line.setZValue(200)
-                self.addItem(self._dim_preview_line)
-            self._dim_preview_line.setLine(p1.x(), p1.y(), p2.x(), p2.y())
-            # Show live distance label
-            dist = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
-            dist_text = (sm.scene_to_display(dist) if sm.is_calibrated
-                         else f"{dist:.0f} mm")
-            if self._dim_preview_label is None:
-                self._dim_preview_label = QGraphicsTextItem()
-                self._dim_preview_label.setDefaultTextColor(QColor("#ffffff"))
-                f = QFont("Consolas", 10)
-                self._dim_preview_label.setFont(f)
-                self._dim_preview_label.setFlag(
-                    self._dim_preview_label.GraphicsItemFlag.ItemIgnoresTransformations, True)
-                self._dim_preview_label.setZValue(201)
-                self.addItem(self._dim_preview_label)
-            self._dim_preview_label.setPlainText(dist_text)
-            mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-            self._dim_preview_label.setPos(mid)
 
     def _move_text(self, event, snapped):
         sm = self.scale_manager
@@ -4166,7 +4143,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
-        "dimension", "text", "set_scale", "set_origin", "water_supply", "design_area",
+        "text", "set_scale", "set_origin", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
@@ -4180,7 +4157,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "pipe":                     "_press_pipe",
         "set_scale":                "_press_set_scale",
         "set_origin":               "_press_set_origin",
-        "dimension":                "_press_dimension",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
         "draw_gridline":            "_press_draw_line",
@@ -4518,85 +4494,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.originPicked.emit(snapped)
         self.set_mode("select")
 
-    def _press_dimension(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._dim_pending is not None:
-            # Click 3 — finalize offset
-            self._dim_pending = None
-            self.dimension_start = None
-            self.push_undo_state()
-            self.instructionChanged.emit("Pick first point")
-            return
-        elif self.dimension_start is None:
-            # Click 1 — check if clicking on a circle or arc for radius dim
-            hit_items = self.items(event.scenePos())
-            _radius_target = None
-            for hit in hit_items:
-                if isinstance(hit, CircleItem):
-                    _radius_target = (hit._center, snapped)
-                    break
-                elif isinstance(hit, ArcItem):
-                    _radius_target = (hit._center, snapped)
-                    break
-            if _radius_target is not None:
-                # Create radius dimension immediately (center → click point)
-                center_pt, edge_pt = _radius_target
-                self._remove_dim_preview()
-                dim = DimensionAnnotation(center_pt, edge_pt)
-                dim.is_radius = True
-                self.addItem(dim)
-                self.annotations.add_dimension(dim)
-                self.requestPropertyUpdate.emit(dim)
-                self._dim_pending = dim
-                self.instructionChanged.emit("Click to set offset position")
-                return
-            # Normal Click 1 — set start point; detect if on a LineItem
-            self.dimension_start = snapped
-            self._dim_line1 = None
-            for hit in hit_items:
-                if isinstance(hit, LineItem):
-                    self._dim_line1 = hit
-                    break
-            self.instructionChanged.emit("Pick second point")
-        else:
-            # Click 2 — check for parallel lines, then create dimension
-            p1 = self.dimension_start
-            p2 = snapped
-
-            # Detect if click 2 is on a LineItem and lines are parallel
-            hit2_items = self.items(event.scenePos())
-            _line2 = None
-            for hit in hit2_items:
-                if isinstance(hit, LineItem) and hit is not self._dim_line1:
-                    _line2 = hit
-                    break
-
-            if self._dim_line1 is not None and _line2 is not None:
-                # Both clicks on lines — check parallelism
-                l1 = self._dim_line1.line()
-                l2 = _line2.line()
-                a1 = math.atan2(l1.dy(), l1.dx())
-                a2 = math.atan2(l2.dy(), l2.dx())
-                angle_diff = abs(a1 - a2) % math.pi
-                if angle_diff < math.radians(5) or angle_diff > math.radians(175):
-                    # Parallel — compute perpendicular foot points
-                    # Project p2 onto the perpendicular from p1
-                    perp_angle = a1 + math.pi / 2
-                    nx, ny = math.cos(perp_angle), math.sin(perp_angle)
-                    # p2_foot = p1 + t * n where t = (p2 - p1) · n
-                    dx = p2.x() - p1.x()
-                    dy = p2.y() - p1.y()
-                    t = dx * nx + dy * ny
-                    p2 = QPointF(p1.x() + t * nx, p1.y() + t * ny)
-
-            self._dim_line1 = None  # reset
-            self._remove_dim_preview()
-            dim = DimensionAnnotation(p1, p2)
-            self.addItem(dim)
-            self.annotations.add_dimension(dim)
-            self.requestPropertyUpdate.emit(dim)
-            self._dim_pending = dim
-            self.instructionChanged.emit("Click to set offset position")
-
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:
             # First click — set anchor, create dashed preview rectangle
@@ -4618,17 +4515,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # path) so a tiny drag never clips the text.
             rect = QRectF(self._text_anchor, snapped).normalized()
             text_width = max(rect.width(), 20)  # minimum 20px width
-            note = NoteAnnotation(
+            # Containment C5: model text is a TextItem (backed by
+            # TextAnnotationData), tracked in self._texts and serialized via
+            # both the file and undo paths — NOT a NoteAnnotation any more.
+            data = TextAnnotationData(
                 text="Text", x=rect.x(), y=rect.y(),
-                text_width=text_width)
-            note.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextEditorInteraction)
-            self.addItem(note)
-            note._box_height = max(rect.height(), note._content_size()[1])
-            note.prepareGeometryChange()
-            note.update()
-            self.annotations.notes.append(note)
-            self.requestPropertyUpdate.emit(note)
+                wrap_width_mm=text_width)
+            text = TextItem(data)
+            self.addItem(text)
+            data.box_height_mm = max(rect.height(), text._content_size()[1])
+            text.prepareGeometryChange()
+            text._apply_format()
+            text.update()
+            self._texts.append(text)
+            self.requestPropertyUpdate.emit(text)
+            # Drop straight into inline-edit mode so the user can type (parity
+            # with the old NoteAnnotation TextEditorInteraction placement).
+            text.begin_edit()
             # Remove preview
             if self._text_preview is not None:
                 self.removeItem(self._text_preview)
@@ -6572,7 +6475,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _find_entity_at(self, pos):
         """Find the first selectable scene entity at the given position."""
         ENTITY_TYPES = (
-            Node, Pipe, DimensionAnnotation, NoteAnnotation,
+            Node, Pipe, TextItem,
             PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem, GridlineItem, WaterSupply,
             WallSegment, FloorSlab, DoorOpening, WindowOpening, Room,

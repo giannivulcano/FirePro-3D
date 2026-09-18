@@ -50,6 +50,7 @@ def test_reference_line_serialization_roundtrip():
 
 def test_placement_via_line_reference_variant(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"           # containment C1: loose authoring
     scene.set_mode("draw_line")
     scene.cycle_placement_variant(+1)           # Line -> Reference Line
     assert scene._draw_line_variant == "reference"
@@ -63,6 +64,7 @@ def test_placement_via_line_reference_variant(shown_model_view):
 
 def test_line_variant_still_makes_normal_line(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"           # containment C1: loose authoring
     scene.set_mode("draw_line")                 # default variant = "line"
     _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(600, 0))
     assert len(scene._draw_lines) == 1
@@ -79,6 +81,7 @@ def test_delete_routes_to_reference_lines(shown_model_view):
 
 def test_undo_restore_preserves_reference_line(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"           # containment C1: loose authoring
     scene.set_mode("draw_line"); scene.cycle_placement_variant(+1)
     _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(600, 0))
     assert len(scene._reference_lines) == 1

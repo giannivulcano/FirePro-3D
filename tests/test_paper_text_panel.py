@@ -1,7 +1,20 @@
-"""Panel-protocol tests for TextAnnotationItem (get_properties/set_property)."""
+"""Panel-protocol tests for paper TextItem (get_properties/set_property)."""
 from firepro3d.paper_space import (
-    PaperScene, Sheet, TextAnnotationData, TextAnnotationItem, ViewResolver,
+    PaperScene, Sheet, TextAnnotationData, TextItem, ViewResolver,
 )
+
+
+def TextAnnotationItem(data):
+    """Build a paper TextItem (containment C5.7 repoint).
+
+    Off-scene test items are forced into paper (device-independent) mode so the
+    Word-style paper panel form + undo-routed writes apply, exactly as the
+    retired paper ``TextAnnotationItem`` did.
+    """
+    t = TextItem(data)
+    t._force_device_independent = True
+    t._apply_format()      # re-format in the now-forced paper mode
+    return t
 
 
 def _stub_resolver():

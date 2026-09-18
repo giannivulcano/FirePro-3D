@@ -17,6 +17,7 @@ from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
     EllipseItem, SplineItem,
 )
+from .text_item import TextItem
 from .block_definition import _PRIMITIVE_FACTORY
 from . import geometry_import
 from .house_dialog import HouseDialog
@@ -27,6 +28,7 @@ _CLS_TO_LIST = {
     EllipseItem: "_draw_ellipses",
     SplineItem: "_draw_splines",
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
+    TextItem: "_texts",
 }
 
 
@@ -126,7 +128,7 @@ class BlockEditorWidget(QWidget):
         self._edit_block_id = block_id
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
-        self.editor_scene = Model_Space()    # isolated scratchpad; no managers injected
+        self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
         # The blue placement preview-node is a pipe/sprinkler affordance the plan
         # scene suppresses while the crosshair owns the cursor (main._apply_crosshair).
         # The block editor authors only 2D geometry (which has its own ghost), so

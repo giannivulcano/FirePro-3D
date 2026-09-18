@@ -23,7 +23,7 @@ from firepro3d.geometry_2d import RegularPolygonItem
 
 @pytest.fixture
 def scene(qapp):
-    return Model_Space()
+    return Model_Space(scene_role="block_editor")   # containment C1: loose authoring
 
 
 @pytest.fixture

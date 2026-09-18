@@ -45,13 +45,13 @@ _ALIGN_LABELS = ("Left", "Center", "Right")  # fixed display order
 class FontGroupController(QObject):
     """Word-style Font controls driving sheet-text targets via set_property.
 
-    Every commit routes through TextAnnotationItem.set_property, so
-    scene-attached targets get FormatTextCommand undo for free and the
-    off-scene template writes direct (paper-space.md §9.6). Multi-target
-    commits wrap in one undo-stack macro (property-panel.md §3.3 semantics).
+    Every commit routes through TextItem.set_property, so scene-attached
+    targets get FormatTextCommand undo for free and the off-scene template
+    writes direct (paper-space.md §9.6). Multi-target commits wrap in one
+    undo-stack macro (property-panel.md §3.3 semantics).
 
     Args:
-        get_targets: Callable returning a list of TextAnnotationItem targets.
+        get_targets: Callable returning a list of TextItem targets.
         parent: Optional QObject parent.
     """
 
@@ -180,8 +180,8 @@ class FontGroupController(QObject):
         not push an empty macro onto the undo stack.
 
         Args:
-            targets: List of TextAnnotationItem objects to apply the change to.
-            key: Property key accepted by TextAnnotationItem.set_property.
+            targets: List of TextItem objects to apply the change to.
+            key: Property key accepted by TextItem.set_property.
             value: New property value.
         """
         if not targets:
@@ -211,7 +211,7 @@ class FontGroupController(QObject):
         not push an empty macro onto the undo stack.
 
         Args:
-            key: Property key accepted by TextAnnotationItem.set_property.
+            key: Property key accepted by TextItem.set_property.
             value: New property value.
         """
         if self._syncing:

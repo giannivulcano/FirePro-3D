@@ -34,6 +34,11 @@ def _armed_line(scene, anchor=QPointF(0, 0), resolved=QPointF(1000, 0)):
     Mirrors the state a first click plus one mouse-move leaves behind, which
     is the only state a placement schema may engage from.
     """
+    # Containment C1: loose authoring (draw_line) is refused in a plan scene.
+    # These multi-view tests exercise placement mechanics, not the authoring
+    # gate; role only affects ``authoring_allowed`` so this is behaviour-
+    # preserving for both the standalone and the real-MainWindow scenes.
+    scene.scene_role = "block_editor"
     scene.set_mode("draw_line")
     scene._draw_line_anchor = QPointF(anchor)
     scene.publish_placement_state(anchor, resolved)

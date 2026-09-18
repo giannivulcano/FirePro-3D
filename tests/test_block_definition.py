@@ -42,7 +42,7 @@ def test_compile_produces_penpath_ops(qapp):
                             primitives=[_line_dict(0, 0, 100, 0)], origin=(0.0, 0.0))
     ops = d.render_ops()
     assert len(ops) == 1
-    pen, path = ops[0]
+    pen, brush, path = ops[0]
     assert isinstance(pen, QPen)
     assert isinstance(path, QPainterPath)
     assert abs(path.boundingRect().width() - 100.0) < 1e-6
@@ -57,7 +57,7 @@ def test_render_ops_is_cached_same_identity(qapp):
 def test_origin_is_subtracted(qapp):
     d = BlockDefinition.new(name="A", library="L", series="S",
                             primitives=[_line_dict(50, 0, 150, 0)], origin=(50.0, 0.0))
-    _, path = d.render_ops()[0]
+    _, _, path = d.render_ops()[0]
     assert abs(path.boundingRect().left() - 0.0) < 1e-6
 
 
@@ -68,5 +68,5 @@ def test_rebuild_bumps_version_and_recompiles(qapp):
     d.set_primitives([_line_dict(0, 0, 200, 0)])
     assert d.version == 2
     assert d.render_ops() is not ops_before
-    _, path = d.render_ops()[0]
+    _, _, path = d.render_ops()[0]
     assert abs(path.boundingRect().width() - 200.0) < 1e-6

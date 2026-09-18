@@ -14,14 +14,20 @@ import json
 from PyQt6.QtCore import QPointF
 
 from firepro3d.model_space import Model_Space
-from firepro3d.annotations import NoteAnnotation, DimensionAnnotation
+from firepro3d.text_item import TextItem, TextAnnotationData
 from firepro3d.wall import WallSegment
 from firepro3d.water_supply import WaterSupply
 from firepro3d.design_area import DesignArea
 from firepro3d.level_manager import LevelManager
 
 # The hand-serialized entity types the NetworkCodec unifies (slice 4).
-_CODEC_KEYS = ("nodes", "pipes", "annotations", "water_supply", "design_areas")
+# NOTE (containment C8): "annotations" (notes) is INTENTIONALLY excluded —
+# it is forbidden model content that the file path clean-drops on save/load,
+# while the undo path (_capture_network) still retains legacy notes. File-vs-
+# undo therefore diverge on annotations by design; see
+# test_deserialize_parity_dimensions_notes for the divergence.
+# DimensionAnnotation was DELETED in task 8.4 (C1/C8).
+_CODEC_KEYS = ("nodes", "pipes", "water_supply", "design_areas")
 
 
 def _scene_with_hand_serialized_entities(with_sprinkler=True):
@@ -38,12 +44,10 @@ def _scene_with_hand_serialized_entities(with_sprinkler=True):
     ms.add_pipe(n1, n2)
     if with_sprinkler:
         ms.add_sprinkler(n1)
-    note = NoteAnnotation(x=50.0, y=50.0, text_width=120.0)
+    note = TextItem(TextAnnotationData(text="Note", x=50.0, y=50.0,
+                                       wrap_width_mm=120.0))
     ms.addItem(note)
-    ms.annotations.add_note(note)
-    dim = DimensionAnnotation(QPointF(0.0, 0.0), QPointF(100.0, 0.0))
-    ms.addItem(dim)
-    ms.annotations.add_dimension(dim)
+    ms._texts.append(note)
     ws = WaterSupply(200.0, 200.0)
     ms.addItem(ws)
     ms.water_supply_node = ws
@@ -91,16 +95,20 @@ def test_undo_snapshot_pipe_props_are_stored_props(qapp):
 
 
 def test_note_text_width_survives_undo(qapp):
-    """#3: a note's wrap width must survive an undo round-trip (the file path
-    passes text_width to the ctor; _restore_network dropped it)."""
+    """#3: a text item's wrap width must survive an undo round-trip.
+
+    Model text is a TextItem tracked in ``_texts`` (containment C5); the wrap
+    width rides ``TextAnnotationData.wrap_width_mm`` through
+    ``_capture_network`` / ``_restore_network`` (the "texts" record)."""
     ms = Model_Space()
-    note = NoteAnnotation(x=10.0, y=20.0, text_width=150.0)
+    note = TextItem(TextAnnotationData(text="Note", x=10.0, y=20.0,
+                                       wrap_width_mm=150.0))
     ms.addItem(note)
-    ms.annotations.add_note(note)
+    ms._texts.append(note)
     snap = ms._capture_network()
     ms._restore_network(snap)
-    restored = ms.annotations.notes[0]
-    assert abs(restored.textWidth() - 150.0) < 1e-6
+    restored = ms._texts[0]
+    assert abs(restored.data.wrap_width_mm - 150.0) < 1e-6
 
 
 def test_name_counters_recomputed_after_undo(qapp):
@@ -167,20 +175,21 @@ def test_codec_sections_stable_across_file_roundtrip(qapp, tmp_path):
 # ── Slice 4b: deserialize field-application parity (undo-restore vs file-load) ──
 
 def test_deserialize_parity_dimensions_notes(qapp, tmp_path):
-    """Dimension + note field state is identical via undo-restore and file-load."""
+    """Containment C8 (post-8.4): DimensionAnnotation is DELETED — both the
+    file path and the undo path now produce an empty dimensions list.
+
+    Model text is still forbidden loose content on the FILE path (clean-drop),
+    while the UNDO path retains it (Block-Editor scratchpad). The two paths
+    diverge on text by design, but agree on dimensions (both empty)."""
     u, f = _capture_via_two_paths(
         lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
-    # dimensions
-    ud, fd = u.annotations.dimensions[0], f.annotations.dimensions[0]
-    assert (ud._p1.x(), ud._p1.y()) == (fd._p1.x(), fd._p1.y())
-    assert (ud._p2.x(), ud._p2.y()) == (fd._p2.x(), fd._p2.y())
-    assert ud._offset_dist == fd._offset_dist
-    assert ud.level == fd.level
-    # notes
-    un, fn = u.annotations.notes[0], f.annotations.notes[0]
-    assert abs(un.textWidth() - fn.textWidth()) < 1e-6
-    assert (un.scenePos().x(), un.scenePos().y()) == (fn.scenePos().x(), fn.scenePos().y())
-    assert un.level == fn.level
+    # Both paths: dimensions list is empty (class deleted, no serialization)
+    assert u.annotations.dimensions == []
+    assert f.annotations.dimensions == []
+    # Undo-restore retains model text (Block-Editor scratchpad)...
+    assert abs(u._texts[0].data.wrap_width_mm - 120.0) < 1e-6
+    # ...but the file-load path clean-drops it.
+    assert f._texts == []
 
 
 def test_deserialize_parity_water_supply(qapp, tmp_path):

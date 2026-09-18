@@ -26,22 +26,26 @@ def _press_at(view, scene_pt: QPointF) -> None:
 
 def test_two_click_text_captures_dragged_height(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"   # containment C1: loose text authoring
     scene.set_mode("text")
     _press_at(view, QPointF(0, 0))          # anchor
     _press_at(view, QPointF(400, 300))      # opposite corner → 400 x 300 box
-    note = scene.annotations.notes[-1]
+    # Containment C5: model text is now a TextItem in scene._texts backed by
+    # TextAnnotationData (box height = data.box_height_mm), not a NoteAnnotation.
+    note = scene._texts[-1]
     # The box height reflects the drag (not the auto one-line height).
-    assert note._box_height >= 250, f"box height not captured: {note._box_height}"
+    assert note.data.box_height_mm >= 250, f"box height not captured: {note.data.box_height_mm}"
     # And it is the stored box, not auto (0).
-    assert note._box_height > 0
+    assert note.data.box_height_mm > 0
 
 
 def test_taller_drag_gives_taller_box(shown_model_view):
     view, scene = shown_model_view
+    scene.scene_role = "block_editor"   # containment C1: loose text authoring
     scene.set_mode("text")
     _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(400, 150))
-    short = scene.annotations.notes[-1]._box_height
+    short = scene._texts[-1].data.box_height_mm
     scene.set_mode("text")
     _press_at(view, QPointF(0, 2000)); _press_at(view, QPointF(400, 2600))
-    tall = scene.annotations.notes[-1]._box_height
+    tall = scene._texts[-1].data.box_height_mm
     assert tall > short + 100

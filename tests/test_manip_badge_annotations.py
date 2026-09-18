@@ -1,6 +1,5 @@
-"""Manipulator translate adapters for the design-area badge and the model
-annotations (NoteAnnotation, DimensionAnnotation), plus the per-item
-selection-boundary de-duplication seam.
+"""Manipulator translate adapters for the design-area badge and model text
+annotations, plus the per-item selection-boundary de-duplication seam.
 
 Governing spec: docs/specs/selection-manipulator.md.  These items are
 translate-ONLY under the manipulator in v1 (no scale/rotate handles): a badge
@@ -149,16 +148,16 @@ def test_badge_manip_bounds_is_badge_box(qapp, scene_and_view):
     assert abs(b.center().y() - badge_box.center().y()) < 1e-3
 
 
-# ── NoteAnnotation ──────────────────────────────────────────────────────────
+# ── TextItem (model-space text — containment C5) ─────────────────────────────
 
 def test_note_annotation_moves_via_manipulator(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.annotations import NoteAnnotation
+    from firepro3d.text_item import TextItem, TextAnnotationData
     from firepro3d.selection_manipulator import item_capabilities
-    note = NoteAnnotation("Hello", x=100.0, y=100.0)
+    note = TextItem(TextAnnotationData(text="Hello", x=100.0, y=100.0))
     scene.addItem(note)
-    scene.annotations.add_note(note)
-    # U3: NoteAnnotation is now box-native (frame + resize + move + rotate).
+    scene._texts.append(note)
+    # Model text is box-native (frame + resize + move + rotate).
     assert item_capabilities(note) == {"translate", "scale", "rotate"}
 
     note.setSelected(True)
@@ -182,46 +181,6 @@ def test_note_annotation_moves_via_manipulator(qapp, scene_and_view):
     assert abs((p1.x() - p0.x()) - 60.0) < 2.0
     assert abs((p1.y() - p0.y()) - 30.0) < 2.0
     assert note.transform().isIdentity()
-    assert len(scene._undo_stack) == depth0 + 1
-
-
-def test_dimension_annotation_moves_via_manipulator(qapp, scene_and_view):
-    scene, view = scene_and_view
-    from firepro3d.annotations import DimensionAnnotation
-    from firepro3d.selection_manipulator import item_capabilities
-    dim = DimensionAnnotation(QPointF(0.0, 0.0), QPointF(1000.0, 0.0))
-    scene.addItem(dim)
-    scene.annotations.add_dimension(dim)
-    assert item_capabilities(dim) == {"translate"}
-
-    dim.setSelected(True)
-    qapp.processEvents()
-    manip = _manip(scene)
-    assert dim in manip.selection_items()
-    # U3: the dimension's offset grip is now manipulator-owned — a single round
-    # grip handle shows; translate-only, so no resize/rotate handles.
-    from firepro3d.manip_math import _RESIZE_ROLES
-    assert not manip._handles[HandleRole.ROTATE].isVisible()
-    assert all(not manip._handles[r].isVisible() for r in _RESIZE_ROLES)
-    assert len(_visible_handles(manip)) == 1          # the offset grip
-
-    scene.push_undo_state()
-    depth0 = len(scene._undo_stack)
-    p1_0 = QPointF(dim._p1)
-    p2_0 = QPointF(dim._p2)
-
-    manip._begin("move", QPointF(500, 0), QPointF(500, 0))
-    manip._update(QPointF(500, 200), Qt.KeyboardModifier.NoModifier,
-                  QPointF(500, 200))
-    manip._finish(QPointF(500, 200), Qt.KeyboardModifier.NoModifier)
-    qapp.processEvents()
-
-    # Endpoints translated by the same delta (internal-coord move, not moveBy).
-    assert abs((dim._p1.y() - p1_0.y()) - 200.0) < 2.0
-    assert abs((dim._p2.y() - p2_0.y()) - 200.0) < 2.0
-    assert abs(dim._p1.x() - p1_0.x()) < 2.0
-    assert abs(dim._p2.x() - p2_0.x()) < 2.0
-    assert dim.transform().isIdentity()
     assert len(scene._undo_stack) == depth0 + 1
 
 

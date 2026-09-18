@@ -58,6 +58,7 @@ def test_center_schema_has_full_width_height_fields():
 
 def test_draw_rectangle_center_mode_selects_center_schema(shown_model_view):
     _view, scene = shown_model_view
+    scene.scene_role = "block_editor"   # containment C1: loose authoring here
     scene.set_mode("draw_rectangle")
     scene._draw_rect_from_center = True
     assert scene._rectangle_schema_for_step() is SCHEMAS["rectangle_center"]

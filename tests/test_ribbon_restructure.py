@@ -57,7 +57,10 @@ def test_settings_dialogs_rails(qapp, make_model_space):
     sysdlg.deleteLater()
 
 
-EXPECTED_TABS = ["Manage", "Create", "Architecture",
+# The Create tab was dissolved by the containment contract (C7): the model is
+# placement-only, so loose 2D-geometry authoring moved to the Block-Editor /
+# Paper contexts and block entry commands moved to the Architecture "Block" group.
+EXPECTED_TABS = ["Manage", "Architecture",
                  "Sprinkler Systems", "Analyze", "Draft"]
 
 
@@ -70,6 +73,81 @@ def test_base_tabs_roster_and_order(main_window):
 def test_no_modify_base_tab(main_window):
     tb = main_window.ribbon._tab_bar
     assert "Modify" not in [tb.tabText(i) for i in range(tb.count())]
+
+
+# ── Containment-contract C7 ribbon topology ──────────────────────────────────
+
+def _page_by_title(main_window, title):
+    """Return the RibbonPage whose base tab has *title* (or None)."""
+    tb = main_window.ribbon._tab_bar
+    for i in range(tb.count()):
+        if tb.tabText(i) == title:
+            return main_window.ribbon._stack.widget(i)
+    return None
+
+
+def _group_titles(page):
+    from PyQt6.QtWidgets import QLabel
+    return {lbl.text() for lbl in page.findChildren(QLabel)}
+
+
+def _button_texts(page):
+    """Normalised (newline→space) texts of every button on the page."""
+    from PyQt6.QtWidgets import QToolButton
+    return {b.text().replace("\n", " ") for b in page.findChildren(QToolButton)}
+
+
+def test_no_create_base_tab(main_window):
+    """C7: the Create tab is dissolved (model is placement-only)."""
+    tb = main_window.ribbon._tab_bar
+    assert "Create" not in [tb.tabText(i) for i in range(tb.count())]
+
+
+def test_architecture_has_block_group(main_window):
+    """C7: block *entry* commands move to a new Architecture 'Block' group."""
+    arch = _page_by_title(main_window, "Architecture")
+    assert arch is not None
+    assert "Block" in _group_titles(arch)
+    btns = _button_texts(arch)
+    assert "Create Block" in btns
+    assert "Insert Block" in btns
+    assert "Block Manager" in btns
+
+
+def test_quick_and_text_block_buttons_retired(main_window):
+    """C7: Quick Block + Text Block are retired everywhere on the base ribbon."""
+    for title in ("Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft"):
+        page = _page_by_title(main_window, title)
+        assert page is not None
+        btns = _button_texts(page)
+        assert "Quick Block" not in btns, f"Quick Block still on {title}"
+        assert "Text Block" not in btns, f"Text Block still on {title}"
+
+
+def test_underlay_group_moved_to_architecture(main_window):
+    """C7: the Underlay group relocates from Manage to Architecture (tentative)."""
+    arch = _page_by_title(main_window, "Architecture")
+    manage = _page_by_title(main_window, "Manage")
+    assert "Underlay" in _group_titles(arch)
+    assert "Underlay" not in _group_titles(manage), "Underlay still in Manage"
+
+
+def test_block_editor_context_has_text_tool(main_window):
+    """C5/C7: Text is the 9th primitive in the Block-Editor palette.
+
+    Self-cleaning: this uses the module-scoped singleton, so it must not leave a
+    Block Editor tab current — `_active_scene()` keys off the current central tab
+    and would poison the mode-button dispatch tests that follow.
+    """
+    from firepro3d.block_editor import BlockEditorWidget
+    main_window._open_block_editor()
+    try:
+        assert "text" in main_window._block_mode_buttons
+    finally:
+        w = main_window.central_tabs.currentWidget()
+        if isinstance(w, BlockEditorWidget):
+            main_window.block_editor_manager.close(w)
+        main_window.central_tabs.setCurrentIndex(0)  # back to Model Space
 
 
 def test_undo_redo_present_on_manage(main_window):
@@ -85,9 +163,12 @@ def test_undo_redo_present_on_manage(main_window):
 # Note: wall_rect was removed in Task 6 (single wall button, no dropdown).
 # floor_rect was likewise collapsed into the single Floor button (floor-workflow
 # branch) — it survives as a set_mode alias, not a distinct mode button.
+# The loose 2D-geometry modes (draw_line/draw_rectangle/draw_circle/polyline/
+# draw_arc/…) and the standalone "text" mode left the MAIN ribbon _mode_buttons
+# with the Create tab (containment contract C7). They now live only in the
+# Block-Editor palette (_block_mode_buttons) — never a Model-space tab.
 _SURVIVING_MODES = [
-    "draw_line", "draw_rectangle", "draw_circle", "polyline", "draw_arc",
-    "draw_gridline", "dimension", "text",
+    "draw_gridline", "dimension",
     "wall", "floor", "roof", "roof_rect",
     "room", "room_manual", "door", "window", "detail",
     "pipe", "sprinkler", "water_supply", "design_area",

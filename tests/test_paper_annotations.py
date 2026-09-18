@@ -1,7 +1,21 @@
 from PyQt6.QtGui import QFontMetricsF
 
-from firepro3d.paper_space import TextAnnotationData, Sheet, TextAnnotationItem
+from firepro3d.paper_space import TextAnnotationData, Sheet, TextItem
 from firepro3d.paper_commands import ResizeTextBoxCommand
+
+
+def TextAnnotationItem(data):
+    """Build a paper TextItem (containment C5.7 repoint).
+
+    The retired paper ``TextAnnotationItem`` was always device-independent
+    (paper) sized; the unified ``TextItem`` derives that from its scene, so an
+    OFF-scene test item is forced into paper mode to preserve the prior
+    behaviour these guards assert.
+    """
+    t = TextItem(data)
+    t._force_device_independent = True
+    t._apply_format()      # re-format in the now-forced paper mode
+    return t
 
 
 # ─────────────────────────────────────────────────────────────────────────────

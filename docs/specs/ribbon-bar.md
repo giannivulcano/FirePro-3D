@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-16
-verified-commit: 1a70632
+last-verified: 2026-09-18
+verified-commit: 8c887aa
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -9,20 +9,20 @@ applies-to:
   # settings dialog internals now governed by specs/settings-dialog.md (this spec owns only the ribbon Settings-group surface that opens it)
   - main.py (init_ribbon + _init_*_tab helpers + contextual-tab mechanism + mode-button sync)
 source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (orphan-gate spec forged on first touch); ribbon-overhaul 2026-08-22 (7 tabs + contextual + Preferences + icons)"
-related-contract: model-space-containment-contract.md   # partially superseded: C7 dissolves Create, adds Architecture Block group, retires Quick/Text-Block. Rest of the ribbon spec stays current.
+related-contract: model-space-containment-contract.md   # C7 LANDED 2026-09-18: Create dissolved, Architecture Block group added, Underlay moved to Architecture, Quick/Text-Block retired. Rest of the ribbon spec stays current.
 ---
 
 # Ribbon Bar — Governing Spec
 
-> **Partially superseded (2026-09-16 — `model-space-containment-contract.md` C7).** The containment
-> contract reworks the ribbon *topology*: **dissolve the Create tab** (2D-geometry tools move to the
-> Block-Editor / Paper contexts, never a Model-space tab); add an **Architecture "Block" group**
-> (Create Block / Insert Block / Block Manager); move the **Underlay group → Architecture**
-> (*tentative*); and **retire the Quick-Block + Text-Block buttons**. This is *target*, not as-built —
-> the contract is `status: proposal` (unbuilt); the base-tab roster and everything else below still
-> describe **current** behavior. The topology change is tracked as **D10** in the Divergences ledger
-> (§7) and lands with the containment-contract ribbon rework (Rule A — the invariant lives in the
-> contract, not restated here).
+> **C7 landed (2026-09-18 — `model-space-containment-contract.md` C7).** The containment
+> contract's ribbon *topology* rework is now **as-built**: the **Create tab is dissolved**
+> (2D-geometry tools live only in the Block-Editor / Paper contexts, never a Model-space tab);
+> the **Architecture "Block" group** (Create Block / Insert Block / Block Manager) is added; the
+> **Underlay group moved Manage → Architecture** (*tentative*, pending the C4 Underlay session);
+> and the **Quick-Block + Text-Block buttons are retired**. The base-tab roster below reflects the
+> shipped **5-tab** structure. Text is authored as the 9th 2D primitive in the Block-Editor palette
+> (contract C5) and via the Draft "Add Text" button in Paper. Tracked as **D10** (§7, now resolved).
+> (Rule A — the invariant lives in the contract, not restated here.)
 
 **Date forged:** 2026-07-16 (Phase 1b orphan gate — reverse-engineered from as-built code)
 **Adjacent docs:** `specs/snap-toolbar.md` (Snap group + SNAP toolbar toggle — owns that surface), `architecture/theming.md` (QSS ownership), `specs/paper-space.md` §17.4 (paper undo dispatch contract), `specs/property-panel.md` (the panel the ribbon must not bypass — see D2), `specs/icon-style-guide.md` (icon authoring contract — owns all icon token/color/naming facts)
@@ -65,20 +65,19 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 ### 3.4 Content ownership (`main.py`)
 
-`init_ribbon()` builds **6 base tabs** in order via private `_init_<tab>_tab` helpers, then calls `_init_contextual_tabs()` to build the contextual-tab registry. Ribbon widgets wired to signals connected in `__init__` (pre-`init_ribbon`) must be reached through `getattr(self, ..., None)` guards — those signals can fire before the ribbon exists.
+`init_ribbon()` builds **5 base tabs** in order via private `_init_<tab>_tab` helpers, then calls `_init_contextual_tabs()` to build the contextual-tab registry. Ribbon widgets wired to signals connected in `__init__` (pre-`init_ribbon`) must be reached through `getattr(self, ..., None)` guards — those signals can fire before the ribbon exists.
 
 **Base-tab content overview:**
 
 | # | Tab | Groups |
 |---|-----|--------|
-| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) |
-| 2 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
-| 3 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) |
-| 4 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
-| 5 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
-| 6 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Text/Hatch + sheet Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
+| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (System/Project Settings) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Angle Snap/OSNAP Bar) · Display (Display Manager) |
+| 2 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) · **Block** (Create Block / Insert Block / Block Manager) · **Underlay** (Underlay Manager) |
+| 3 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
+| 4 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
+| 5 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
 
-The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was removed (D6 resolved). The **View tab was retired** (2026-09-05): Underlay + Display moved to Manage (above); Fit-to-Screen is now the **Home** key + middle-mouse double-click (`Model_View.keyPressEvent` / `mouseDoubleClickEvent`, no ribbon button); the Panels dock toggles were deleted (Browser/Properties reached via the `B` / `/` window shortcuts; the Hydraulic/Radiation report docks auto-show on their Run action and start hidden — GeneralPane no longer lists them as startup panels).
+The **Create tab was dissolved** (D10 resolved — containment contract C7, 2026-09-18): the model is placement-only (C1), so the loose 2D-geometry tools (the 9 primitives incl. Text) live **only** in the Block-Editor and Paper contexts. Block *entry* commands (Create/Insert/Manager) moved to the new Architecture **Block** group; the **Quick-Block** button (its premise — bake loose model geometry — is gone under C1) and the **Text-Block** button (Text is a primitive, C5) are retired. The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was removed (D6 resolved). The **View tab was retired** (2026-09-05): the Display group moved to Manage; the **Underlay group** (also ex-View→Manage) subsequently moved to **Architecture** with C7 (above); Fit-to-Screen is now the **Home** key + middle-mouse double-click (`Model_View.keyPressEvent` / `mouseDoubleClickEvent`, no ribbon button); the Panels dock toggles were deleted (Browser/Properties reached via the `B` / `/` window shortcuts; the Hydraulic/Radiation report docks auto-show on their Run action and start hidden — GeneralPane no longer lists them as startup panels).
 
 **Preferences button (Manage → Settings):** opens `firepro3d.preferences_dialog.PreferencesDialog` — a `QTabWidget`-based dialog with 6 panes: Snapping / Units & Precision / Import & Conversion / General / UI / Project Info. Each pane implements a `load()`/`apply()`/`revert()` protocol; OK = apply-all + close, Apply = apply-all + stay, Cancel = revert-all + close. The **UI pane** persists `ui/theme`, `ui/crosshair` (accent crosshair cursor, default ON), and `ui/immersive` (maximize the window — `showMaximized`, keeps the OS title bar); crosshair/immersive apply via MainWindow callbacks (`_apply_crosshair`/`_apply_immersive`) and are re-applied on startup in `restore_settings`. A dedicated governing spec for `PreferencesDialog` is a filed follow-up; for design-of-record see `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`.
 
@@ -107,7 +106,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 ### 3.8 Contextual tabs
 
-**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement *group* — the authoring group inside the **Create** tab, not a top-level tab — is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
+**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement *group* — the authoring group, now in the **Block-Editor** contextual page (`_block_mode_buttons`), not a base tab (the Create tab was dissolved, C7) — is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
 
 **Title model (Revit-style, 2026-09-08):** the tab title is **`"Modify | <Element>"`** where `<Element>` is the *concrete* element name of the selection (Rectangle / Circle / Ellipse / Spline / Wall / Pipe / …), not the family label. A selection that is **not homogeneous by element type** (mixed families *or* mixed 2-D-geometry types) titles the tab plain **`"Modify"`**. The family **key** still selects the page *builder* (`geo2d` → Placement+Fill+Edit, etc.); the **title** is decoupled and resolved per-selection by `_contextual_title()`.
 
@@ -163,7 +162,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 ## 6. Verification Checklist
 
-- [ ] Manual: all 7 base tabs render; group labels align; separators paint; both themes.
+- [ ] Manual: all 5 base tabs render (Manage · Architecture · Sprinkler Systems · Analyze · Draft); group labels align; separators paint; both themes.
 - [ ] Manual: enter each placement mode from its button — button checks; switching modes unchecks it (incl. split-button aliases).
 - [ ] Manual: select an entity — correct contextual tab appears and auto-activates; deselect — it disappears and the prior base tab is restored.
 - [ ] Manual: mixed-family selection shows the "Modify" tab; unchanged context is a no-op (no churn).
@@ -183,4 +182,4 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 | D7 | **Near-zero test coverage** — only `test_osnap_ui.py` touches the ribbon (Snap group). Contextual-tab behavior covered by `test_ribbon_restructure.py` (Preferences, 7-tab roster); mode-button sync and contextual show/hide via real selection need more coverage. | Gap; add coverage opportunistically when touching the ribbon. |
 | D8 | ~~Modify tab always visible + force-switching on selection~~ vs intended Revit-style contextual tab. | **Resolved 2026-08-22** — contextual-tab mechanism built (§3.8); Modify tab removed; `_on_selection_changed_modify` replaced by `_on_selection_changed_contextual`. **Finalized 2026-09-08** — two coupled defects fixed: (1) `_contextual_index` was hardcoded `7` against a **6**-tab base roster, so the tab never auto-activated and never removed on deselect → now derived from the live tab count; (2) titles are now Revit-style **`"Modify | <Element>"`** (concrete element, not the family/`"2D Geometry"` label), resolving the confusion with the Create-tab "2D Geometry" *group*. |
 | D9 | **Paper-scene contextual parity deferred.** The `viewport` and `sheet_text` family keys exist in `_CONTEXTUAL_TABS` but `_on_selection_changed_contextual` only wires to `scene.selectionChanged` (model scene). Paper-space selection does not yet trigger contextual tabs. | Filed follow-up. |
-| D10 | **Containment-contract topology (`model-space-containment-contract.md` C7).** Target: dissolve the **Create** tab (§3.4 row 2 — its Geometry + Blocks groups leave Model Space; 2D-geometry authoring moves to the Block-Editor / Paper contexts); add an Architecture **Block** group (Create/Insert/Manager); move the Manage-tab **Underlay** group (§3.4 row 1) → Architecture (*tentative*); retire the **Quick-Block** + **Text-Block** buttons (the latter not currently documented here — Text becomes a 2D primitive, contract C5). | **Proposal** — contract unbuilt; lands with the containment-contract ribbon rework. |
+| D10 | ~~**Containment-contract topology (`model-space-containment-contract.md` C7).** Dissolve the **Create** tab; add an Architecture **Block** group; move the **Underlay** group → Architecture; retire the **Quick-Block** + **Text-Block** buttons.~~ | **Resolved 2026-09-18** (C7 ribbon rework, commit 8c887aa) — §3.4 now describes the shipped 5-tab roster. Text is authored via the Block-Editor palette (C5) + the Draft "Add Text" button (Paper). Underlay→Architecture is *tentative* (pending the C4 Underlay session). A dedicated **Paper Space contextual tab** (mockup's Annotate/Detail-linework/Block groups) is **not** built — that remains the deferred D9 / "Viewport & Sheet Text tabs" work. |
