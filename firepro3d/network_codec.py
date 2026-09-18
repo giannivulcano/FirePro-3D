@@ -2,7 +2,7 @@
 network_codec.py
 ================
 Single serialize/deserialize home for the hand-serialized scene entities that
-lack their own ``to_dict``/``from_dict`` — **node, pipe, dimension, note,
+lack their own ``to_dict``/``from_dict`` — **node, pipe, note,
 water_supply, design_area**.
 
 Decomposition slice 4 (the ``NetworkCodec`` unify). Before this, ``save_to_file``
@@ -69,19 +69,6 @@ def serialize_pipe(pipe, node_id: dict) -> dict:
     return entry
 
 
-def serialize_dimension(dim) -> dict:
-    """Serialize a DimensionAnnotation."""
-    return {
-        "type":        "dimension",
-        "p1":          [dim._p1.x(), dim._p1.y()],
-        "p2":          [dim._p2.x(), dim._p2.y()],
-        "offset_dist": getattr(dim, "_offset_dist", 10),
-        "witness_ext_override": getattr(dim, "_witness_ext_override", None),
-        "properties":  {k: v["value"] for k, v in dim.get_properties().items()},
-        "level":       getattr(dim, "level", DEFAULT_LEVEL),
-    }
-
-
 def serialize_note(note) -> dict:
     """Serialize a legacy model note (retained for old in-memory notes only).
 
@@ -138,29 +125,6 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
 # (undo-restore applies display inline; file-load defers it to main). Local imports
 # mirror load_from_file's cycle-avoidance pattern.
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def deserialize_dimension(scene, entry):
-    """Create + register a DimensionAnnotation from a serialized entry.
-
-    Scene-referencing: adds the item to *scene* and its annotation store.
-    Mirror of ``serialize_dimension``. Returns the dimension.
-    """
-    from PyQt6.QtCore import QPointF
-    from .annotations import DimensionAnnotation
-    p1 = QPointF(entry["p1"][0], entry["p1"][1])
-    p2 = QPointF(entry["p2"][0], entry["p2"][1])
-    dim = DimensionAnnotation(p1, p2)
-    dim._offset_dist = entry.get(
-        "offset_dist", float(entry.get("properties", {}).get("Offset", "10")))
-    dim._witness_ext_override = entry.get("witness_ext_override", None)
-    scene.addItem(dim)
-    scene.annotations.add_dimension(dim)
-    for key, value in entry.get("properties", {}).items():
-        dim.set_property(key, value)
-    dim.update_geometry()
-    dim.level = entry.get("level", DEFAULT_LEVEL)
-    return dim
 
 
 def deserialize_note(scene, entry):

@@ -32,7 +32,6 @@ from .geometry_2d import (
 )
 from .gridline import GridlineItem
 from .water_supply import WaterSupply
-from .annotations import DimensionAnnotation
 from .wall import WallSegment
 from .floor_slab import FloorSlab
 from .view_cube import ViewCube

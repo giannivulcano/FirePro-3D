@@ -14,7 +14,6 @@ import json
 from PyQt6.QtCore import QPointF
 
 from firepro3d.model_space import Model_Space
-from firepro3d.annotations import DimensionAnnotation
 from firepro3d.text_item import TextItem, TextAnnotationData
 from firepro3d.wall import WallSegment
 from firepro3d.water_supply import WaterSupply
@@ -22,11 +21,12 @@ from firepro3d.design_area import DesignArea
 from firepro3d.level_manager import LevelManager
 
 # The hand-serialized entity types the NetworkCodec unifies (slice 4).
-# NOTE (containment C8): "annotations" (dimensions/notes) is INTENTIONALLY
-# excluded — it is forbidden model content that the file path clean-drops on
-# save/load, while the undo path (_capture_network) still retains it for the
-# Block-Editor scratchpad. File-vs-undo therefore diverge on annotations by
-# design; see test_deserialize_parity_dimensions_notes for the divergence.
+# NOTE (containment C8): "annotations" (notes) is INTENTIONALLY excluded —
+# it is forbidden model content that the file path clean-drops on save/load,
+# while the undo path (_capture_network) still retains legacy notes. File-vs-
+# undo therefore diverge on annotations by design; see
+# test_deserialize_parity_dimensions_notes for the divergence.
+# DimensionAnnotation was DELETED in task 8.4 (C1/C8).
 _CODEC_KEYS = ("nodes", "pipes", "water_supply", "design_areas")
 
 
@@ -48,9 +48,6 @@ def _scene_with_hand_serialized_entities(with_sprinkler=True):
                                        wrap_width_mm=120.0))
     ms.addItem(note)
     ms._texts.append(note)
-    dim = DimensionAnnotation(QPointF(0.0, 0.0), QPointF(100.0, 0.0))
-    ms.addItem(dim)
-    ms.annotations.add_dimension(dim)
     ws = WaterSupply(200.0, 200.0)
     ms.addItem(ws)
     ms.water_supply_node = ws
@@ -178,18 +175,20 @@ def test_codec_sections_stable_across_file_roundtrip(qapp, tmp_path):
 # ── Slice 4b: deserialize field-application parity (undo-restore vs file-load) ──
 
 def test_deserialize_parity_dimensions_notes(qapp, tmp_path):
-    """Containment C8: dimensions + model text are forbidden loose content —
-    the FILE path clean-drops them, while the UNDO path retains them (Block-
-    Editor scratchpad). The two paths therefore intentionally diverge here."""
+    """Containment C8 (post-8.4): DimensionAnnotation is DELETED — both the
+    file path and the undo path now produce an empty dimensions list.
+
+    Model text is still forbidden loose content on the FILE path (clean-drop),
+    while the UNDO path retains it (Block-Editor scratchpad). The two paths
+    diverge on text by design, but agree on dimensions (both empty)."""
     u, f = _capture_via_two_paths(
         lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
-    # Undo-restore keeps the dimension + text...
-    ud = u.annotations.dimensions[0]
-    assert (ud._p1.x(), ud._p1.y()) == (0.0, 0.0)
-    assert (ud._p2.x(), ud._p2.y()) == (100.0, 0.0)
-    assert abs(u._texts[0].data.wrap_width_mm - 120.0) < 1e-6
-    # ...but the file-load path discards both (clean-drop).
+    # Both paths: dimensions list is empty (class deleted, no serialization)
+    assert u.annotations.dimensions == []
     assert f.annotations.dimensions == []
+    # Undo-restore retains model text (Block-Editor scratchpad)...
+    assert abs(u._texts[0].data.wrap_width_mm - 120.0) < 1e-6
+    # ...but the file-load path clean-drops it.
     assert f._texts == []
 
 

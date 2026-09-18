@@ -2434,7 +2434,6 @@ class MainWindow(QMainWindow):
         "draw_circle":    "Click center, then radius point (Tab for exact input)",
         "draw_arc":       "Click center, then start angle, then end angle",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
-        "dimension":      "Click P1 \u2192 P2 \u2192 drag offset, click to finalize",
         "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
@@ -3481,9 +3480,6 @@ class MainWindow(QMainWindow):
             RectangleItem, CircleItem, ArcItem,
             RegularPolygonItem, EllipseItem, SplineItem,
         )
-        from firepro3d.annotations import (
-            DimensionAnnotation,
-        )
         from firepro3d.text_item import TextItem
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
@@ -3502,7 +3498,7 @@ class MainWindow(QMainWindow):
                               RegularPolygonItem, EllipseItem, SplineItem)):
             return "geo2d"
         # Annotation family (TextItem is the unified text primitive — C5)
-        if isinstance(item, (TextItem, DimensionAnnotation)):
+        if isinstance(item, TextItem):
             return "annotation"
         # Structural / architectural families
         if isinstance(item, WallSegment):
@@ -3549,7 +3545,6 @@ class MainWindow(QMainWindow):
             RectangleItem, CircleItem, ArcItem,
             RegularPolygonItem, EllipseItem, SplineItem,
         )
-        from firepro3d.annotations import DimensionAnnotation
         from firepro3d.text_item import TextItem
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
@@ -3575,8 +3570,6 @@ class MainWindow(QMainWindow):
         # Annotation family (TextItem is the unified text primitive — C5)
         if isinstance(item, TextItem):
             return "Text"
-        if isinstance(item, DimensionAnnotation):
-            return "Dimension"
         # Structural / architectural families
         if isinstance(item, WallSegment):
             return "Wall"

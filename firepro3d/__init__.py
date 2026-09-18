@@ -48,7 +48,6 @@ _LAZY: dict[str, tuple[str, str]] = {
     "ArcItem":           (".geometry_2d", "ArcItem"),
     "PolylineItem":      (".geometry_2d", "PolylineItem"),
     # Annotations
-    "DimensionAnnotation": (".annotations",     "DimensionAnnotation"),
     "TextItem":          (".text_item",         "TextItem"),
     # Managers
     "LevelManager":      (".level_manager",     "LevelManager"),

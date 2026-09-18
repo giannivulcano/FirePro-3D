@@ -526,11 +526,6 @@ class SceneIOMixin:
         self._roof_active = None
         self._constraints = []
         reset_grid_counters()
-        self.dimension_start = None
-        self._dim_line1 = None
-        self._dim_preview_line = None
-        self._dim_preview_label = None
-        self._dim_pending = None
         self.active_level = DEFAULT_LEVEL
         if self._level_manager:
             self._level_manager.reset()

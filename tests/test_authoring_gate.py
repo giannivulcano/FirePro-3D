@@ -21,3 +21,11 @@ def test_block_editor_allows_loose_modes(qapp):
     assert s.mode == "draw_line"
     s.set_mode("polygon")
     assert s.mode == "polygon"
+
+
+def test_dimension_press_handler_removed(qapp):
+    """C1/C8: the dimension press handler is retired — it must not appear in
+    _PRESS_DISPATCH.  The mode string stays in _LOOSE_AUTHORING_MODES so the
+    gate continues to refuse it; but there is no placement handler to call."""
+    s = Model_Space(scene_role="block_editor")   # even where loose modes are allowed
+    assert "dimension" not in s._PRESS_DISPATCH
