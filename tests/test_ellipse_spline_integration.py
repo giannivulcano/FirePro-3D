@@ -32,15 +32,17 @@ def test_ellipse_capture_restore_roundtrip(scene):
     assert e._rx == 40 and e._ry == 20 and e._rotation_deg == 30.0
 
 
-def test_ellipse_file_roundtrip(scene, tmp_path):
+def test_standalone_ellipse_dropped_on_file_load(scene, tmp_path):
+    # Containment C1/C8: standalone loose geometry does not persist in a project
+    # .fpd — it is clean-dropped on load (authored geometry lives in block
+    # definitions). The undo path retains it (test_ellipse_capture_restore_roundtrip)
+    # and to_dict/from_dict is covered by the geometry_2d serialization tests.
     _add_ellipse(scene)
     p = tmp_path / "e.fpd"
     scene.save_to_file(str(p))
     s2 = Model_Space()
     s2.load_from_file(str(p))
-    assert len(s2._draw_ellipses) == 1
-    e = s2._draw_ellipses[0]
-    assert e._rx == 40 and e._ry == 20 and e._rotation_deg == pytest.approx(30.0)
+    assert s2._draw_ellipses == []
 
 
 def test_ellipse_in_primitive_factory():
@@ -81,14 +83,15 @@ def test_spline_capture_restore_roundtrip(scene):
     assert len(scene._draw_splines[0]._control_points) == 4
 
 
-def test_spline_file_roundtrip(scene, tmp_path):
+def test_standalone_spline_dropped_on_file_load(scene, tmp_path):
+    # Containment C1/C8: standalone loose geometry is clean-dropped on file load
+    # (undo path retains it; to_dict/from_dict covered elsewhere).
     _add_spline(scene)
     p = tmp_path / "s.fpd"
     scene.save_to_file(str(p))
     s2 = Model_Space()
     s2.load_from_file(str(p))
-    assert len(s2._draw_splines) == 1
-    assert len(s2._draw_splines[0]._control_points) == 4
+    assert s2._draw_splines == []
 
 
 def test_spline_in_primitive_factory():
