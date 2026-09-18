@@ -30,11 +30,17 @@ class BlockInstance(QGraphicsObject):
 
     def __init__(self, *, block_id: str,
                  resolver: Callable[[str], Optional[BlockDefinition]],
-                 level: str = "Level 1"):
+                 level: str = "Level 1", level_offset_mm: float = 0.0):
         super().__init__()
         self.block_id = block_id
         self._resolver = resolver
+        # Level scope lives on the placed instance (containment C3): the block
+        # definition's primitives are level-less; the instance carries a level +
+        # Z/elevation offset and is filtered by the active level / view-range
+        # exactly like any placed model entity (mirrors wall.z_range_mm).
         self.level = level
+        self._level_offset_mm = float(level_offset_mm)
+        self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
         self._pose_x = 0.0
         self._pose_y = 0.0
@@ -156,9 +162,71 @@ class BlockInstance(QGraphicsObject):
         """
         return None
 
+    # ── Level scope (C3 — placed-instance property) ──────────────────────
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Elevation of this placed block in absolute mm, as a point ``(e, e)``.
+
+        A block is a flat 2D graphic pinned to its level plane; ``e`` is the
+        level elevation plus the instance offset. ``None`` when no LevelManager
+        is reachable (mirrors ``wall.z_range_mm``).
+        """
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return None
+        lvl = lm.get(self.level)
+        e = (lvl.elevation if lvl is not None else 0.0) + self._level_offset_mm
+        return (e, e)
+
+    def _scale_manager(self):
+        sc = self.scene()
+        return getattr(sc, "scale_manager", None) if sc else None
+
+    def _fmt(self, mm: float) -> str:
+        sm = self._scale_manager()
+        return sm.format_length(mm) if sm else f"{mm:.1f}"
+
+    def _parse_dim(self, value) -> Optional[float]:
+        if isinstance(value, (int, float)):
+            return float(value)
+        sm = self._scale_manager()
+        if sm is not None:
+            try:
+                return sm.parse_dimension(str(value))
+            except Exception:
+                return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def get_properties(self) -> dict:
+        return {
+            "Type":         {"type": "label",     "value": "Block"},
+            "Level":        {"type": "level_ref", "value": self.level},
+            "Level Offset": {"type": "dimension", "value": self._fmt(self._level_offset_mm),
+                             "value_mm": self._level_offset_mm},
+            # "string" type → editable numeric line-edit (matches the
+            # RegularPolygonItem / EllipseItem Rotation convention).
+            "Rotation":     {"type": "string",    "value": f"{self._pose_rot:.1f}"},
+        }
+
+    def set_property(self, key: str, value) -> None:
+        if key == "Level":
+            self.level = str(value)
+        elif key == "Level Offset":
+            parsed = self._parse_dim(value)
+            if parsed is not None:
+                self._level_offset_mm = parsed
+        elif key == "Rotation":
+            try:
+                self.set_block_rotation(float(value))
+            except (TypeError, ValueError):
+                pass
+
     # ── Serialization ────────────────────────────────────────────────────
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type": "block_instance",
             "block_id": self.block_id,
             "pos": [self._pose_x, self._pose_y],
@@ -166,12 +234,16 @@ class BlockInstance(QGraphicsObject):
             "level": self.level,
             "attributes": dict(self.attributes),
         }
+        if self._level_offset_mm != 0.0:
+            d["level_offset_mm"] = self._level_offset_mm
+        return d
 
     @classmethod
     def from_dict(cls, data: dict,
                   resolver: Callable[[str], Optional[BlockDefinition]]) -> "BlockInstance":
         inst = cls(block_id=data["block_id"], resolver=resolver,
-                   level=data.get("level", "Level 1"))
+                   level=data.get("level", "Level 1"),
+                   level_offset_mm=data.get("level_offset_mm", 0.0))
         pos = data.get("pos", [0.0, 0.0])
         inst._pose_x, inst._pose_y = float(pos[0]), float(pos[1])
         inst._pose_rot = float(data.get("rotation", 0.0))

@@ -552,6 +552,10 @@ class LevelManager:
         for item in getattr(scene, "_draw_polygons", []):
             _set_level_vis(item)
 
+        # ── Placed block instances (level-scoped — containment C3) ────────
+        for item in getattr(scene, "_block_instances", []):
+            _set_level_vis(item)
+
         # ── Gridlines (always visible on all levels) ─────────────────────
         for item in getattr(scene, "_gridlines", []):
             item.setVisible(True)
@@ -644,6 +648,9 @@ class LevelManager:
             "ArcItem":        Z_CAT_CONSTRUCTION,
             "EllipseItem":    Z_CAT_CONSTRUCTION,
             "SplineItem":     Z_CAT_CONSTRUCTION,
+            # Placed 2D block instance — heir of the loose-2D-geometry band
+            # (primitives become level-less in C3; the instance is level-scoped).
+            "BlockInstance":  Z_CAT_CONSTRUCTION,
         }
         # Items that always overlay on top regardless of elevation
         _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
@@ -725,6 +732,10 @@ class LevelManager:
             _apply_elev_z(item)
 
         for item in getattr(scene, "_gridlines", []):
+            _apply_elev_z(item)
+
+        # ── Placed block instances (level-scoped — containment C3) ────────
+        for item in getattr(scene, "_block_instances", []):
             _apply_elev_z(item)
 
         # ── 2D draw / construction geometry ───────────────────────────────

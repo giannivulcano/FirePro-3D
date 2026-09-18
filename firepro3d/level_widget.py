@@ -407,6 +407,7 @@ class LevelWidget(QWidget):
         items += getattr(self.scene, "_draw_ellipses", [])
         items += getattr(self.scene, "_draw_splines", [])
         items += getattr(self.scene, "_draw_polygons", [])
+        items += getattr(self.scene, "_block_instances", [])
         items += getattr(self.scene, "_gridlines", [])
         items += getattr(self.scene, "_roofs", [])
         ann = getattr(self.scene, "annotations", None)
