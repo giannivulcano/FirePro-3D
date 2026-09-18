@@ -1,11 +1,17 @@
-"""tests/test_ribbon_mode_button_sync.py — Create-tab mode buttons unhighlight (#217).
+"""tests/test_ribbon_mode_button_sync.py — 2D-geo mode buttons sync across registries.
 
-Bug (user, 2026-09-16): after opening the Block Editor, Create-tab mode buttons
-(Rectangle/Spline/Polyline…) stayed green-highlighted and never cleared on mode
-exit — the Block Editor registered its buttons into the SAME `_mode_buttons` dict
-under the same mode keys, evicting the Create-tab buttons, so `_sync_mode_buttons`
-could no longer un-check them.  Fix: the Block Editor uses its own
+History (#217, user 2026-09-16): when the Block Editor registered its mode
+buttons into the SAME `_mode_buttons` dict as the (then-existing) Create tab under
+the same mode keys, it evicted the Create-tab buttons so `_sync_mode_buttons`
+could no longer un-check them. Fix: the Block Editor uses its own
 `_block_mode_buttons` registry; `_sync_mode_buttons` syncs both.
+
+Post-containment-contract (C7): the Create tab is dissolved — the loose
+2D-geometry modes (draw_rectangle/…/text) left the MAIN ribbon entirely and now
+live ONLY in the Block-Editor palette (`_block_mode_buttons`). The #217 collision
+is therefore structurally impossible (the main ribbon has no 2D-geo modes), but
+the surviving invariant still matters: those modes are Block-Editor-only, and
+`_sync_mode_buttons` must check/clear them across BOTH registries.
 
 MainWindow-based (mirrors tests/test_stale_view_tabs.py) — pops a window.
 """
@@ -26,38 +32,40 @@ def mw(qapp, tmp_path, monkeypatch):
     w.close()
 
 
-def test_block_editor_does_not_evict_create_tab_buttons(mw, qapp):
-    create_btn = mw._mode_buttons.get("draw_rectangle")
-    assert create_btn is not None, "no Create-tab draw_rectangle button"
+def test_2d_geo_modes_are_block_editor_only(mw, qapp):
+    """C7: loose 2D-geometry modes belong to the Block Editor, not the main ribbon."""
+    # The main ribbon no longer carries the loose primitive modes.
+    assert "draw_rectangle" not in mw._mode_buttons
+    assert "text" not in mw._mode_buttons
 
     mw._open_block_editor()
     qapp.processEvents()
 
-    # The Create-tab button is untouched in the main registry...
-    assert mw._mode_buttons.get("draw_rectangle") is create_btn
-    # ...and the Block Editor registered its own, separate button.
+    # The Block Editor registered them in its own, separate registry.
     assert "draw_rectangle" in mw._block_mode_buttons
-    assert mw._block_mode_buttons["draw_rectangle"] is not create_btn
+    assert "text" in mw._block_mode_buttons, "Text is the 9th primitive (C5) in the palette"
 
 
-def test_sync_clears_create_tab_button_after_block_editor(mw, qapp):
-    create_btn = mw._mode_buttons["draw_rectangle"]
+def test_sync_clears_block_editor_button_after_exit(mw, qapp):
     mw._open_block_editor()
     qapp.processEvents()
 
-    # Simulate the Create-tab button left checked, then exit to select.
-    create_btn.setChecked(True)
+    block_btn = mw._block_mode_buttons["draw_rectangle"]
+    # Simulate the button left checked, then exit to select.
+    block_btn.setChecked(True)
     mw._sync_mode_buttons("select")
-    assert not create_btn.isChecked(), "Create-tab button stuck checked after mode exit"
+    assert not block_btn.isChecked(), "Block-Editor button stuck checked after mode exit"
 
 
 def test_sync_checks_only_active_mode_across_registries(mw, qapp):
     mw._open_block_editor()
     qapp.processEvents()
-    create_btn = mw._mode_buttons["draw_rectangle"]
-    other_btn = mw._mode_buttons.get("draw_circle")
+    block_btn = mw._block_mode_buttons["draw_rectangle"]
+    # A surviving main-ribbon mode button (Architecture) must stay unchecked
+    # when a Block-Editor mode is the active one.
+    wall_btn = mw._mode_buttons.get("wall")
 
     mw._sync_mode_buttons("draw_rectangle")
-    assert create_btn.isChecked()
-    if other_btn is not None:
-        assert not other_btn.isChecked()
+    assert block_btn.isChecked()
+    if wall_btn is not None:
+        assert not wall_btn.isChecked()

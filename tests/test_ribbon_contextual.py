@@ -49,9 +49,10 @@ def test_registry_has_expected_keys(main_window):
 
 
 def test_contextual_index_after_base_tabs(main_window):
-    # 6 base tabs → contextual insert slot is 6 (derived from the live tab
-    # count so it can't drift). Must equal the actual base-tab count.
-    assert main_window._contextual_index == 6
+    # 5 base tabs after the containment contract dissolved Create (C7) → the
+    # contextual insert slot is 5, derived from the live tab count so it can't
+    # drift. Must equal the actual base-tab count.
+    assert main_window._contextual_index == 5
     assert main_window._contextual_index == main_window.ribbon._tab_bar.count()
 
 
@@ -190,7 +191,7 @@ def test_deselect_removes_contextual_and_restores(main_window, qapp, clean_scene
     """Clearing the selection must remove the contextual tab and restore the
     previously active base tab."""
     mw = main_window
-    mw.ribbon._tab_bar.setCurrentIndex(2)            # 'Create' base tab
+    mw.ribbon._tab_bar.setCurrentIndex(2)            # an arbitrary base tab (Sprinkler Systems)
     wall = _make_wall(mw.scene)
     wall.setSelected(True)
     qapp.processEvents()
@@ -201,7 +202,7 @@ def test_deselect_removes_contextual_and_restores(main_window, qapp, clean_scene
     tabs = _titles(mw)
     assert "Modify | Wall" not in tabs, f"contextual tab should be gone; got {tabs}"
     assert mw.ribbon._tab_bar.currentIndex() == 2, (
-        f"Expected restore to tab 2 (Create); got {mw.ribbon._tab_bar.currentIndex()}"
+        f"Expected restore to base tab 2; got {mw.ribbon._tab_bar.currentIndex()}"
     )
 
 
@@ -210,7 +211,7 @@ def test_switch_wall_to_pipe_keeps_pre_tab(main_window, qapp, clean_scene):
     the contextual tab and, after final deselect, restore the original base tab
     (not the contextual index)."""
     mw = main_window
-    mw.ribbon._tab_bar.setCurrentIndex(2)            # remember 'Create'
+    mw.ribbon._tab_bar.setCurrentIndex(2)            # remember an arbitrary base tab
 
     w = _make_wall(mw.scene)
     w.setSelected(True)
@@ -226,12 +227,12 @@ def test_switch_wall_to_pipe_keeps_pre_tab(main_window, qapp, clean_scene):
     assert "Modify | Pipe" in tabs, f"Expected 'Modify | Pipe' tab; got {tabs}"
     assert "Modify | Wall" not in tabs, f"'Modify | Wall' tab should be gone; got {tabs}"
 
-    # Deselect everything — pre-tab must still be 2 (Create), not the
-    # contextual index that was active during the wall→pipe swap.
+    # Deselect everything — pre-tab must still be 2, not the contextual index
+    # that was active during the wall→pipe swap.
     mw.scene.clearSelection()
     qapp.processEvents()
     assert mw.ribbon._tab_bar.currentIndex() == 2, (
-        f"Expected restore to tab 2 (Create); got {mw.ribbon._tab_bar.currentIndex()}"
+        f"Expected restore to base tab 2; got {mw.ribbon._tab_bar.currentIndex()}"
     )
 
 
@@ -326,8 +327,8 @@ def test_title_updates_on_element_switch_within_family(main_window, qapp, clean_
 
 def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene):
     """Selecting only items that _family_key_for maps to None must NOT insert
-    any contextual tab — the tab count stays at 7 and the active tab is
-    unchanged."""
+    any contextual tab — the tab count stays at the 5-tab base roster and the
+    active tab is unchanged."""
     from PyQt6.QtWidgets import QGraphicsRectItem
     mw = main_window
     mw.ribbon._tab_bar.setCurrentIndex(2)
@@ -338,11 +339,11 @@ def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene
         r.setSelected(True)
         qapp.processEvents()
         titles = _titles(mw)
-        assert mw.ribbon._tab_bar.count() == 6, (
-            f"Expected 6 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
+        assert mw.ribbon._tab_bar.count() == 5, (
+            f"Expected 5 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
         )
         assert mw.ribbon._tab_bar.currentIndex() == 2, (
-            f"Expected active tab 2 (Create) to be unchanged; got {mw.ribbon._tab_bar.currentIndex()}"
+            f"Expected active tab 2 to be unchanged; got {mw.ribbon._tab_bar.currentIndex()}"
         )
     finally:
         mw.scene.removeItem(r)

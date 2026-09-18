@@ -1449,16 +1449,21 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build the six base workflow ribbon tabs and wire every button.
+        """Build the five base workflow ribbon tabs and wire every button.
 
         Tabs:
           1. Manage             — file I/O, import, preferences, undo/redo, snap,
-                                  underlay + display managers
-          2. Create             — geometry tools, blocks
-          3. Architecture       — walls/floors/roofs/rooms, datums (levels, gridlines)
-          4. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
-          5. Analyze            — thermal radiation
-          6. Draft              — annotate, font, page, plot
+                                  display manager
+          2. Architecture       — walls/floors/roofs/rooms, datums (levels,
+                                  gridlines), blocks, underlay
+          3. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
+          4. Analyze            — thermal radiation
+          5. Draft              — annotate, font, page, plot
+
+        The permanent "Create" tab was dissolved by the containment contract
+        (C7): the model is placement-only, so loose 2D-geometry authoring lives
+        only in the Block-Editor and Paper contexts, and block *entry* commands
+        moved to the Architecture "Block" group.
 
         Must be called *after* all dock widgets are created.
         """
@@ -1492,7 +1497,6 @@ class MainWindow(QMainWindow):
             return b
 
         self._init_manage_tab(_I, _btn)
-        self._init_create_tab(_I, _btn, _mode_btn)
         self._init_architecture_tab(_I, _btn, _mode_btn)
         self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
         self._init_analyze_tab(_I, _btn)
@@ -1563,57 +1567,12 @@ class MainWindow(QMainWindow):
             self._toggle_snap_bar, checkable=True)
         self._snap_bar_btn.setToolTip("Show/hide the SNAP snap-type toolbar")
 
-        # --- Underlay (moved from the retired View tab) ---
-        g_ul = manage_page.add_group("Underlay")
-        _b = g_ul.add_large_button(
-            "Underlay\nManager", _I("underlay_manager_icon.svg"),
-            self.open_underlay_manager)
-        _b.setToolTip("Import/manage PDF, DXF, or DWG underlays")
-
         # --- Display (moved from the retired View tab) ---
         g_disp = manage_page.add_group("Display")
         _b = g_disp.add_large_button(
             "Display\nManager", _I("placeholder_icon.svg"),
             self._open_display_manager)
         _b.setToolTip("Configure visibility, colour, scale and opacity for model items")
-
-    def _init_create_tab(self, _I, _btn, _mode_btn):
-        """Build Tab 3: Create — geometry tools, blocks."""
-        # ── Tab 3: Create ────────────────────────────────────────────────────
-        draw_page = self.ribbon.add_page("Create")
-
-        # --- 2D Geometry ---
-        g_geom = draw_page.add_group("2D Geometry")
-        _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip(
-            "Draw a line (L)")
-        # Plain Rectangle button — corner vs centre is chosen on-canvas with the
-        # ←/→ variant cycle (consistent with Arc), superseding the old dropdown.
-        _mode_btn(g_geom, "Rectangle", _I("rectangle_icon.svg"),
-                  "draw_rectangle").setToolTip(
-            "Draw a rectangle (R) — ←/→ toggles corner/centre")
-        _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
-        _mode_btn(g_geom, "Ellipse", _I("ellipse_icon.svg"), "draw_ellipse").setToolTip(
-            "Draw an ellipse (3-click: centre, major, minor)")
-        _mode_btn(g_geom, "Spline", _I("spline_icon.svg"), "draw_spline").setToolTip(
-            "Draw a spline (click control points; Enter/double-click to finish)")
-        _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
-        _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
-        _mode_btn(g_geom, "Polygon", _I("polygon_icon.svg"), "polygon").setToolTip(
-            "Draw a regular polygon — ↑/↓ sides, ←/→ inscribed/circumscribed (P)")
-
-        # --- Blocks ---
-        g_blocks = draw_page.add_group("Blocks")
-        _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
-            "Place a text note")
-        _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
-             self._open_block_editor, tip="Author a block in the Block Editor")
-        _btn(g_blocks, "Quick\nBlock", _I("make_block_icon.svg"),
-             self._make_block_from_selection,
-             tip="Instantly make a block from the selected 2D geometry")
-        _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
-             self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
-        _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
-             self._open_block_manager, tip="Manage blocks")
 
     def _init_architecture_tab(self, _I, _btn, _mode_btn):
         """Build Tab 4: Architecture — building elements + datums."""
@@ -1689,13 +1648,35 @@ class MainWindow(QMainWindow):
         self._mode_buttons["detail"] = _detail_btn
 
         # --- Datums ---
+        # NB: bind to a distinct local (not `_btn`) — rebinding `_btn` here would
+        # shadow the factory parameter for the Block group below (D5 gotcha).
         g_datum = build_page.add_group("Datums")
-        _btn = g_datum.add_large_button(
+        _levels_btn = g_datum.add_large_button(
             "Levels", _I("levels_icon.svg"),
             self._open_level_dialog)
-        _btn.setToolTip("Open Level Manager dialog")
+        _levels_btn.setToolTip("Open Level Manager dialog")
         _mode_btn(g_datum, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip(
             "Draw gridlines on canvas (2-click) (G)")
+
+        # --- Block (block *entry* commands; contract C7) ---
+        # Only entry/placement verbs live in the model surface — authoring of
+        # loose 2D geometry happens in the Block Editor (the dissolved Create
+        # tab). Quick Block + Text Block are retired (C7); Text is a primitive
+        # authored in the Block Editor / Paper contexts (C5).
+        g_blocks = build_page.add_group("Block")
+        _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
+             self._open_block_editor, tip="Author a block in the Block Editor")
+        _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
+             self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
+        _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
+             self._open_block_manager, tip="Manage blocks")
+
+        # --- Underlay (moved from Manage; contract C7 — tentative, pending C4) ---
+        g_ul = build_page.add_group("Underlay")
+        _b = g_ul.add_large_button(
+            "Underlay\nManager", _I("underlay_manager_icon.svg"),
+            self.open_underlay_manager)
+        _b.setToolTip("Import/manage PDF, DXF, or DWG underlays")
 
     def _init_sprinkler_systems_tab(self, _I, _btn, _mode_btn):
         """Build Tab 5: Sprinkler Systems — layout, tools, hydraulics."""
@@ -2539,56 +2520,6 @@ class MainWindow(QMainWindow):
     def _on_block_activated(self, block_id: str) -> None:
         """Enter place_block mode carrying the activated block id."""
         self.scene.set_mode("place_block", template=block_id)
-
-    def _make_block_from_selection(self):
-        """Ribbon handler: turn the selected 2D drafting geometry into a block."""
-        from firepro3d.geometry_2d import (
-            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
-        from firepro3d.make_block_dialog import MakeBlockDialog
-        from PyQt6.QtCore import QPointF
-        PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
-        items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
-        if not items:
-            # Themed popup (house shell), not a native QMessageBox / status line.
-            from firepro3d.themed_message import themed_info
-            themed_info(self, "Make Block",
-                        "Select 2D drafting geometry first, then click Make Block.")
-            return
-        dlg = MakeBlockDialog(self)
-        if not dlg.exec():
-            return
-        name, library, series = dlg.values()
-        if not name:
-            return
-        rect = items[0].sceneBoundingRect()
-        for it in items[1:]:
-            rect = rect.united(it.sceneBoundingRect())
-        origin = QPointF(rect.left(), rect.top())
-        inst = self.scene.make_block_from_selection(items, origin, name, library, series)
-        if inst is None:
-            return
-        from firepro3d.themed_message import themed_confirm, themed_info
-        from firepro3d import block_library
-        defn = self.scene.get_block_definition(inst.block_id)
-        if defn is not None and themed_confirm(
-                self, "Make Block",
-                f"Save “{name}” to the block library so other projects can use it?"):
-            try:
-                block_library.save_to_library(defn)
-            except block_library.BlockNameCollision as exc:
-                # The block is already made in the project; only the library push
-                # is at stake. Confirm before clobbering a different block's file.
-                if themed_confirm(
-                        self, "Make Block",
-                        f"A different block already uses the name “{exc.existing_name}”"
-                        " in the library. Overwrite it?"):
-                    try:
-                        block_library.save_to_library(defn, overwrite=True)
-                    except OSError as exc2:
-                        themed_info(self, "Make Block",
-                                    f"Could not save to library:\n{exc2}")
-            except OSError as exc:
-                themed_info(self, "Make Block", f"Could not save to library:\n{exc}")
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""
@@ -4719,6 +4650,9 @@ class MainWindow(QMainWindow):
         _mode("Polygon", "polygon_icon.svg", "polygon",
               "Draw a regular polygon — ↑/↓ sides, "
               "←/→ inscribed/circumscribed (P)")
+        # Text — the 9th primitive (contract C5). Authored here (and in Paper)
+        # via the unified TextItem; no longer a model-space "Text Block" mode.
+        _mode("Text", "text_icon.svg", "text", "Place a text note")
 
     def _be_save(self):
         w = self._active_editor_widget()
