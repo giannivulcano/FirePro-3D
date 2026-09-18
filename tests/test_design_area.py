@@ -351,6 +351,21 @@ def _fake_press(modifiers=Qt.KeyboardModifier.NoModifier):
     return SimpleNamespace(modifiers=lambda: modifiers)
 
 
+def _press_event(pos, modifiers=Qt.KeyboardModifier.NoModifier):
+    """Fake left-button press for driving ``Model_Space.mousePressEvent``.
+
+    PyQt6 refuses to instantiate ``QGraphicsSceneMouseEvent`` headlessly;
+    mousePressEvent only reads button()/buttons()/scenePos()/modifiers()
+    on the dispatch path (mirrors test_design_criteria._press_event)."""
+    return SimpleNamespace(
+        button=lambda: Qt.MouseButton.LeftButton,
+        buttons=lambda: Qt.MouseButton.LeftButton,
+        scenePos=lambda: QPointF(pos),
+        modifiers=lambda: modifiers,
+        accept=lambda: None,
+    )
+
+
 class TestPickMode:
     def test_click_toggles_nearest_sprinkler(self, qapp):
         ms = _model_scene(qapp)
@@ -394,11 +409,20 @@ class TestPickMode:
         assert ms.active_design_area is None   # wrong level → no pick
 
     def test_design_area_mode_skips_grips(self, qapp):
-        """Grip drags must not steal design-area clicks (gridline pull-tabs
-        were interfering)."""
-        import inspect
-        src = inspect.getsource(Model_Space.mousePressEvent)
-        assert '"design_area"' in src.split("_skip_grip_modes")[1].split(")")[0]
+        """A design-area-mode press must reach the pick handler, not be stolen
+        by grip / manipulator routing (gridline pull-tabs used to interfere).
+
+        Driven through the real ``mousePressEvent`` dispatch so the invariant
+        is observable behaviour, not a source-text assertion of a mechanism
+        (``_skip_grip_modes``) that no longer exists after grips moved onto the
+        selection manipulator (U4)."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[4].node.scenePos()
+        ms.mousePressEvent(_press_event(pos))
+        assert ms.active_design_area is not None
+        assert sprs[4] in ms.active_design_area.sprinklers
 
     def test_shift_rect_filters_by_level(self, qapp):
         ms = _model_scene(qapp)
