@@ -238,19 +238,24 @@ tasks**, not part of this design-only deliverable.
       `related-contract:` frontmatter key + a scoped banner + C-invariant-specific section pointers
       (no body rewrite; as-built bodies left accurate). Convention: uniform `related-contract:` key,
       per-spec banner states superseded / partially-superseded / augmented / forward-pointer.
-- [ ] Per-spec **full body rewrites + frontmatter re-stamp** — deferred; binds to the containment-contract
-      implementation task (when the code migration lands and the bodies stop describing as-built).
+- [ ] Per-spec **full body rewrites + frontmatter re-stamp** — **in progress**. Done: `scene-io.md`
+      (forged + stamped, C1/C8 slice) and `ribbon-bar.md` (§3.4 roster + D10 resolved + stamped,
+      C7 slice, 2026-09-18). **Remaining** (bind to their governing invariants, now landed): `2d-geometry.md`
+      (definition-local, level-less primitives + Text as 9th — C1/C3/C5), `view-relationships.md` (§3.1
+      compose-by-placement — C1), `block-system.md` ("Feature composes Blocks" + Quick-Block retirement —
+      C2/C7), `model-space-architecture.md` (placement-only + deleted loose paths — C1/C8),
+      `underlay-workflow.md` (ribbon-home move — C7). Tracked as a follow-up doc-reconciliation task.
 
 ## Divergences ledger (as-built today vs. this contract)
 
 | # | Contract | As-built today | Closes when |
 |---|---|---|---|
-| D1 | C1 model = placement-only | Model Space is a live 2D drawing surface; 8 loose primitives are first-class level-scoped entities | loose-geometry authoring removed from Model Space |
-| D2 | C2 Feature composes Blocks | Block & Feature are disjoint sibling libraries (`.fpdb`/`.fpdf`) | Feature-system build (Phase B/C) adopts composed Blocks |
-| D3 | C3 level on the instance | 2D primitives carry `level` + `_level_offset_mm` + `Z_CAT_CONSTRUCTION` | primitives made definition-local |
-| D4 | C5 Text = 9th primitive, unified | Text is a separate `NoteAnnotation` (model) + `TextAnnotationData` (paper); no Text primitive in blocks | Text primitive added + data model unified |
-| D5 | C7 ribbon topology | Create tab exists (2D-Geometry + Blocks groups); Quick/Text-Block buttons live; Underlay in Manage | ribbon rework lands |
-| D6 | C8 clean drop | loose geometry + model text serialize/load normally | legacy load paths deleted |
+| D1 | C1 model = placement-only | ✅ **Landed** (feat/containment-contract) — plan `Model_Space.set_mode` refuses the 8 loose primitives + text + dimension via `authoring_allowed()` (scene role) | ~~loose-geometry authoring removed from Model Space~~ |
+| D2 | C2 Feature composes Blocks | Block & Feature are disjoint sibling libraries (`.fpdb`/`.fpdf`) | Feature-system build (Phase B/C) adopts composed Blocks — **deferred** |
+| D3 | C3 level on the instance | 2D primitives are definition-local (level dropped from `TextItem`); full level-on-instance model still pending | primitives fully migrated + level moved to the instance — **deferred** |
+| D4 | C5 Text = 9th primitive, unified | ✅ **Landed** — one `TextItem` on `TextAnnotationData` replaces `NoteAnnotation` + `TextAnnotationItem`; compiles to outlined glyphs in `render_ops` | ~~Text primitive added + data model unified~~ |
+| D5 | C7 ribbon topology | ✅ **Landed 2026-09-18** (commit 8c887aa) — Create dissolved (5-tab roster); Architecture Block group; Underlay→Architecture; Quick/Text-Block retired; Text in the Block-Editor palette | ~~ribbon rework lands~~ |
+| D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints are read-but-discarded on load; both serialization paths shed them; legacy paths deleted | ~~legacy load paths deleted~~ |
 
 ## Deferred work (filed as follow-up tasks)
 
