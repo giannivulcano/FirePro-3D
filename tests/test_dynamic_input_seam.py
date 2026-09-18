@@ -796,14 +796,19 @@ class TestCommitAndCancel:
         assert not scene.is_input_mode()
         assert scene.dynamic_input is None
 
-    def test_continuous_commit_closes_cleanly(self, scene, view):
-        """Commit via HUD leaves no stale HUD and stays in placement mode."""
+    def test_hud_commit_closes_cleanly_and_returns_to_select(self, scene, view):
+        """Commit via HUD leaves no stale HUD and returns to Select.
+
+        draw_line is a single-placement mode (2026-09-16 — see 2d-geometry.md
+        §268): after a commit the scene returns to Select with the line placed,
+        rather than re-arming continuously.  The no-stale-HUD invariant (the
+        original point of this test) is unchanged."""
         _armed_line(scene)
         scene.begin_dynamic_input()
         scene.dynamic_input.set_values({"Length": 1000.0, "Angle": 0.0})
         scene.dynamic_input._accept()
         assert len(scene._draw_lines) == 1
-        assert scene.mode == "draw_line"   # stays continuous
+        assert scene.mode == "select"   # single-placement: returns to Select after commit
         assert scene.dynamic_input is None
 
     def test_unmapped_mode_applier_raises(self, scene, view):

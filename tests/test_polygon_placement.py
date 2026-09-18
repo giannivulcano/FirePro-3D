@@ -103,7 +103,7 @@ def test_three_step_state_cleared_after_commit(scene):
     assert scene._polygon_rotating is False
     assert scene._polygon_sized_radius is None
     assert scene._polygon_preview is None
-    assert scene.mode == "polygon"   # stays in placement mode
+    assert scene.mode == "select"   # single-placement: returns to Select after commit
 
 
 def test_rotate_click_points_reference_vertex_at_cursor(scene):
@@ -167,13 +167,16 @@ def test_radius_too_small_rejected_at_step1(scene):
     assert scene._polygon_center == QPointF(0, 0)
 
 
-def test_continuous_placement_after_commit(scene):
-    """After a 3-step commit the scene stays in polygon mode."""
+def test_single_placement_returns_to_select_after_commit(scene):
+    """After a 3-step commit the scene returns to Select with the polygon
+    selected (single-placement model, 2026-09-16 — see 2d-geometry.md §268)."""
     scene.set_mode("polygon")
     scene._press_polygon(None, None, QPointF(0, 0), None, None, None)
     scene._press_polygon(None, None, QPointF(100, 0), None, None, None)
     scene._press_polygon(None, None, QPointF(0, 100), None, None, None)
-    assert scene.mode == "polygon"
+    assert scene.mode == "select"
+    assert len(scene._draw_polygons) == 1
+    assert scene._draw_polygons[-1].isSelected()
 
 
 # ── Feature 6: reference circle ───────────────────────────────────────────────

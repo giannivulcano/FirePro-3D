@@ -19,7 +19,12 @@ from firepro3d.model_space import Model_Space
 
 @pytest.fixture
 def scene(qapp):
-    return Model_Space()
+    # containment C1: the loose draw modes in _ARMED_MODES (line/rect/circle/arc,
+    # polygon, polyline) are only authorable in the Block-Editor scratchpad; the
+    # plan scene refuses them so set_mode() would leave scene.mode == "select"
+    # and the ALIGN seam would never arm.  Non-loose modes (gridline/wall/pipe/
+    # design_area/move/paste) behave identically in either role.
+    return Model_Space(scene_role="block_editor")
 
 
 # Point-asking placement modes named by the review + spec acceptance criteria.

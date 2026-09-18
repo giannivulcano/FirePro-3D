@@ -29,7 +29,7 @@ def test_click_start_closes_with_3_points(scene):
     scene._press_polyline(None, None, QPointF(0.5, 0.5), None, None, None)
     assert pl.is_closed() is True
     assert scene._polyline_active is None
-    assert scene.mode == "polyline"
+    assert scene.mode == "select"   # single-placement: returns to Select after commit
     assert len(pl._points) == 3
 
 def test_click_start_ignored_with_2_points(scene):
@@ -71,7 +71,7 @@ def test_close_via_real_clicks(view, scene):
         click(sp)
     click((0, 0))
     assert scene._polylines and scene._polylines[-1].is_closed()
-    assert scene.mode == "polyline"
+    assert scene.mode == "select"   # single-placement: returns to Select after commit
 
 
 # ── ShortcutOverride routing tests (real entry point) ────────────────────────

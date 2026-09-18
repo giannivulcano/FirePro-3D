@@ -22,7 +22,7 @@ def test_three_click_ellipse_placement(scene):
     assert e._rx == pytest.approx(100, abs=1e-6)
     assert e._ry == pytest.approx(40, abs=1e-6)
     assert e._rotation_deg == pytest.approx(0, abs=1e-6)
-    assert scene.mode == "draw_ellipse"          # re-armed
+    assert scene.mode == "select"          # single-placement: returns to Select after commit
 
 
 def test_rotated_ellipse_from_angled_major(scene):

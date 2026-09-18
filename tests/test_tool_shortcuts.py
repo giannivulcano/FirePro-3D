@@ -18,7 +18,10 @@ from firepro3d.model_view import Model_View
 
 @pytest.fixture
 def scene(qapp):
-    return Model_Space()
+    # containment C1: loose draw modes (line/rect/circle/arc/polyline) are only
+    # authorable in the Block-Editor scratchpad; the plan scene refuses them, so
+    # the bare-key shortcut wiring is exercised on the surface where it's legal.
+    return Model_Space(scene_role="block_editor")
 
 
 @pytest.fixture
