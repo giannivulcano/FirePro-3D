@@ -17,11 +17,10 @@ _ARCH_ICONS = [
 _BLOCK_ICONS = [
     "make_block_icon.svg", "insert_block_icon.svg", "block_manager_icon.svg",
 ]
-# 2D-geometry icons authored on-contract (two-token). NOTE: the older
-# line/rectangle/circle/arc/polyline icons are LEGACY off-contract (hardcoded
-# #ffffff, 40mm canvas) and are intentionally NOT listed here — they predate the
-# style guide and are a separate re-authoring follow-up. polygon_icon was
-# authored against the two-token contract (2026-09-05).
+# 2D-geometry icons. The older line/rectangle/circle/arc/polyline icons are
+# LEGACY (40mm canvas) and are intentionally NOT listed here — a separate
+# re-authoring follow-up — but they share the family's white-filled control-point
+# convention. polygon/ellipse/spline are the on-contract members guarded below.
 _GEOM2D_ICONS = [
     "polygon_icon.svg",
     "ellipse_icon.svg",   # authored on-contract 2026-09-07 (ellipse primitive)
@@ -29,6 +28,11 @@ _GEOM2D_ICONS = [
 ]
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}
+# 2D-geometry icons additionally permit a white "paper" fill on control-point /
+# grip markers — the whole geo family draws grips as white-filled accent-ringed
+# dots (a CAD grip convention; §4.1). White is intentionally non-rethemeing there:
+# the #004cff accent ring carries the marker in the light theme.
+_GEOM2D_ALLOWED_HEX = _ALLOWED_HEX | {"#ffffff"}
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{6,8}")
 
 _SVG = (
@@ -154,7 +158,8 @@ def test_block_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
 
 
 def test_geom2d_icons_exist_and_are_two_token_compliant():
-    """On-contract 2D-geometry icons use only the two authoring sentinels (§4.1)."""
+    """On-contract 2D-geometry icons use the two authoring sentinels plus the
+    permitted white grip fill (§4.1)."""
     import os
     for name in _GEOM2D_ICONS:
         path = asset_path("Ribbon", name)
@@ -162,8 +167,8 @@ def test_geom2d_icons_exist_and_are_two_token_compliant():
         raw = open(path, "r", encoding="utf-8").read()
         for hexval in _HEX_RE.findall(raw):
             assert len(hexval) == 7, f"{name}: 8-digit hex {hexval} is forbidden (§4.1)"
-            assert hexval.lower() in _ALLOWED_HEX, \
-                f"{name}: non-sentinel colour {hexval} will not retheme (§4.1)"
+            assert hexval.lower() in _GEOM2D_ALLOWED_HEX, \
+                f"{name}: non-sentinel colour {hexval} is not permitted (§4.1)"
 
 
 def test_geom2d_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):

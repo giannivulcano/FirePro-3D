@@ -8,9 +8,9 @@
   <path d="M 13.01 34.75 L 26.99 34.75" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
   <path d="M 30.92 31.90 L 35.24 18.60" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
   <path d="M 33.74 13.98 L 22.43 5.76" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="20.00" cy="4.00" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
-  <circle cx="3.83" cy="15.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
-  <circle cx="10.01" cy="34.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
-  <circle cx="29.99" cy="34.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
-  <circle cx="36.17" cy="15.75" r="1.5" fill="none" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="20.00" cy="4.00" r="1.5" fill="#FFFFFF" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="3.83" cy="15.75" r="1.5" fill="#FFFFFF" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="10.01" cy="34.75" r="1.5" fill="#FFFFFF" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="29.99" cy="34.75" r="1.5" fill="#FFFFFF" stroke="#004CFF" stroke-width="2"/>
+  <circle cx="36.17" cy="15.75" r="1.5" fill="#FFFFFF" stroke="#004CFF" stroke-width="2"/>
 </svg>
