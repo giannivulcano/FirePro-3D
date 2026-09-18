@@ -1,7 +1,7 @@
 ---
 status: current
 last-verified: 2026-09-18
-verified-commit: b9feafb
+verified-commit: 1d18d07
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
