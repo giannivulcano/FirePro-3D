@@ -83,3 +83,13 @@ def test_text_item_fill_rows_suppressed(qapp):
     assert t.is_fillable() is False
     props = t.get_properties()
     assert "Fill" not in props
+
+
+def test_text_item_has_no_level_properties(qapp):
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    t = TextItem(TextAnnotationData(text="x"))
+    props = t.get_properties()
+    keys = set(props.keys()) if isinstance(props, dict) else {p.get("name") if isinstance(p, dict) else p for p in props}
+    assert "Level" not in keys
+    assert "Level Offset" not in keys
+    assert "Elevation" not in keys

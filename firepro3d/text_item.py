@@ -22,10 +22,13 @@ from .constants import DEFAULT_TEXT_HEIGHT_MM
 
 @dataclass
 class TextAnnotationData:
-    """Serialisable data for one text annotation.  All lengths in paper mm.
+    """Serialisable data for one text annotation.
 
-    Shared by reference with its ``TextAnnotationItem`` (never copied), exactly
-    like ``SheetViewData`` ↔ ``SheetViewport``.
+    Lengths are in the surface's own mm: paper-mm when the item lives on a
+    sheet, scene-mm when it lives in a model or block-editor scene.
+
+    Shared by reference with its ``TextItem`` (never copied), exactly like
+    ``SheetViewData`` ↔ ``SheetViewport``.
 
     Fields
     ------
@@ -174,7 +177,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data = data
         self._editing = False
         self._text_before_edit = data.text
-        self._pos_at_press = None            # anchor (x, y) at the start of a native move
 
         # Bake-at-rest rotation state (data-only — NO held Qt transform).
         # _angle mirrors self._data.angle for the map* overrides; _pivot is
@@ -563,7 +565,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                           "value": self._data.align},
             "Opaque Background": {"type": "toggle", "value": bool(self._data.opaque_bg)},
         }
-        props.update(self._geom2d_properties())
+        geom2d = self._geom2d_properties()
+        # Text carries no level semantics (containment spec) — strip the level
+        # rows that _geom2d_properties() always appends.
+        for key in ("Level", "Level Offset", "Elevation"):
+            geom2d.pop(key, None)
+        props.update(geom2d)
         return props
 
     def set_property(self, key: str, value) -> None:
@@ -691,4 +698,5 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             return
         menu = QMenu()
         menu.addAction("Delete")
+        # TODO(containment C7/deletion-routing): wire Delete action when deletion routing lands
         menu.exec(event.screenPos())
