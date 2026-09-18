@@ -203,7 +203,7 @@ GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radi
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 
 # ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
-# Used by SheetViewport and TextAnnotationItem to draw consistent selected-item
+# Used by SheetViewport and TextItem to draw consistent selected-item
 # dashed boundaries and 8-handle resize grips on all paper-space items.
 SELECTION_OUTLINE_COLOR = "#0055ff"         # selected-item dashed boundary + grip outline
 SELECTION_OUTLINE_WIDTH_MM = 0.8           # dashed boundary pen width (paper mm)

@@ -133,7 +133,7 @@ class TextAnnotationData:
 # Governing spec: docs/specs/2026-09-17-containment-implementation-design.md §A2.
 # Retirement of the two old classes and the paper repoint happen in a LATER task.
 
-from PyQt6.QtCore import Qt, QPointF, QRectF                      # noqa: E402
+from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal          # noqa: E402
 from PyQt6.QtGui import (                                          # noqa: E402
     QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTransform,
 )
@@ -163,6 +163,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     rendered/hit footprint tracks the rotated box.  ``_angle`` mirrors the data
     field for those overrides; ``_pivot`` is transient (recomputed at rest).
     """
+
+    # Emitted (with self) when the block requests its own deletion — a
+    # not-editing Delete key or a context-menu "Delete".  The paper scene
+    # connects this to route through DeleteTextAnnotationCommand (parity with
+    # the retired paper TextAnnotationItem); deletion routing on the model
+    # surface lands in a later containment task.
+    delete_requested = pyqtSignal(object)
 
     _ALIGN = {
         "L": Qt.AlignmentFlag.AlignLeft,
@@ -207,11 +214,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Sizing mode (follows the scene) ─────────────────────────────────────
 
     def is_device_independent(self) -> bool:
-        """True when the host scene sizes text device-independently (PaperScene).
+        """True when text is sized device-independently (paper surface).
 
-        A Model_Space / Block-Editor scene (or an off-scene item) sizes text in
-        plain scene units instead.
+        Follows the host scene's ``device_independent_text()`` hook (PaperScene
+        → True; Model_Space / Block-Editor → False).  An explicit
+        ``_force_device_independent`` overrides the scene lookup so an OFF-scene
+        paper template (``current_text_template``) sizes + formats as paper text
+        even though it has no scene yet.
         """
+        forced = getattr(self, "_force_device_independent", None)
+        if forced is not None:
+            return bool(forced)
         sc = self.scene()
         fn = getattr(sc, "device_independent_text", None)
         return bool(fn()) if callable(fn) else False
@@ -262,13 +275,24 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def itemChange(self, change, value):
         """Re-derive the sizing mode when the item lands on / leaves a scene,
-        and live-sync data.x/y on every move."""
+        clamp to the paper rect on a paper surface, and live-sync data.x/y."""
         Change = QGraphicsItem.GraphicsItemChange
         if change == Change.ItemSceneHasChanged:
             # The scene (hence the sizing mode) just changed — reformat so the
             # same data renders at the right physical size on this surface.
             self.prepareGeometryChange()
             self._apply_format()
+        elif change == Change.ItemPositionChange:
+            # Paper surface only: clamp the proposed position to the sheet rect
+            # (parity with the retired paper TextAnnotationItem).  A model scene
+            # has no sheet and imposes no clamp.
+            sc = self.scene()
+            sheet = getattr(sc, "sheet", None) if sc is not None else None
+            if sheet is not None:
+                from .paper_space import sheet_page_mm
+                pw, ph = sheet_page_mm(sheet)
+                return QPointF(max(0.0, min(value.x(), pw)),
+                               max(0.0, min(value.y(), ph)))
         elif change == Change.ItemPositionHasChanged:
             self.sync_data_from_item()
         return super().itemChange(change, value)
@@ -495,12 +519,25 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         ]
         return [self.mapToScene(p) for p in local]
 
+    # Which axes a grip drag touches (containment C5.7 review I2 — the
+    # axis-isolated box resize ported from the legacy paper
+    # ``_resize_box_on_paper``).  A left/right MID-edge (3,7) changes ONLY the
+    # width; a top/bottom MID-edge (1,5) changes ONLY the height; corners
+    # (0,2,4,6) change both.  Freezing the untouched axis is what keeps an
+    # auto-height (0) box auto-height after a pure-horizontal drag.
+    _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
+    _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
+
     def apply_grip(self, index: int, pos: QPointF):
         """Resize (edges/corners) or translate (centre) by dragging a grip.
 
         Reproduces the box-native resize: horizontal drags set wrap width,
         vertical drags set box height (content-min clamped); the opposite edge
-        stays fixed.  Font (``height_mm``) is never touched.
+        stays fixed.  Font (``height_mm``) is never touched.  A mid-edge drag is
+        axis-isolated (review I2): a left/right mid-edge writes ONLY
+        ``wrap_width_mm`` and a top/bottom mid-edge writes ONLY
+        ``box_height_mm`` — the untouched axis' stored field is left exactly as
+        it was (so an auto-height 0 box stays 0 after a horizontal drag).
         """
         local = self.mapFromScene(pos)
         r = self._box_rect_local()
@@ -524,16 +561,37 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         else:
             return
         new_r = QRectF(QPointF(nl, nt), QPointF(nr, nb)).normalized()
-        _, ch = self._content_size()
-        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
-        new_h = max(new_r.height(), ch)
         self._reanchor(new_r.left(), new_r.top())
         self.prepareGeometryChange()
-        self.setTextWidth(new_w)
-        scale = self.scale() or 1.0
-        self._data.wrap_width_mm = new_w * scale
-        self._data.box_height_mm = new_h * scale
+        self._commit_box_size(
+            new_r.width() if index in self._GRIP_CHANGES_X else None,
+            new_r.height() if index in self._GRIP_CHANGES_Y else None,
+        )
         self.sync_data_from_item()
+
+    def _content_height_mm(self) -> float:
+        """Current text-content height in surface mm (the auto-height seed)."""
+        scale = self.scale() or 1.0
+        return super().boundingRect().height() * scale
+
+    def _commit_box_size(self, local_w: "float | None", local_h: "float | None"):
+        """Write the box wrap/height for the changed axes, clamped in MM.
+
+        ``local_w``/``local_h`` are the proposed box extents in the item's LOCAL
+        (unscaled) frame; ``None`` skips that axis (mid-edge isolation, review
+        I2).  The min clamps are applied in SURFACE MM (``MIN_TEXT_WRAP_WIDTH_MM``
+        wrap, content-height for the box) — NOT local units — so a paper item
+        (scale != 1) clamps to the same physical minimum the retired paper
+        ``_resize_box_on_paper`` used.  Font ``height_mm`` is never touched.
+        """
+        scale = self.scale() or 1.0
+        if local_w is not None:
+            new_w_mm = max(local_w * scale, MIN_TEXT_WRAP_WIDTH_MM)
+            self.setTextWidth(new_w_mm / scale)
+            self._data.wrap_width_mm = new_w_mm
+        if local_h is not None:
+            new_h_mm = max(local_h * scale, self._content_height_mm())
+            self._data.box_height_mm = new_h_mm
 
     def _reanchor(self, local_dx: float, local_dy: float):
         """Shift pos() by a LOCAL-frame offset (honours rotation at angle != 0)."""
@@ -581,15 +639,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         top    = a.y() + (r.top()    - a.y()) * fy
         bottom = a.y() + (r.bottom() - a.y()) * fy
         new_r = QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
-        _, ch = self._content_size()
-        new_w = max(new_r.width(), MIN_TEXT_WRAP_WIDTH_MM)
-        new_h = max(new_r.height(), ch)
         self._reanchor(new_r.left(), new_r.top())
         self.prepareGeometryChange()
-        self.setTextWidth(new_w)
-        scale = self.scale() or 1.0
-        self._data.wrap_width_mm = new_w * scale
-        self._data.box_height_mm = new_h * scale
+        # Axis isolation (review I2): a mid-edge handle passes fx == 1 or
+        # fy == 1 — leave that axis' stored field untouched so an auto-height
+        # (0) box is not silently frozen by a pure-horizontal drag.  The min
+        # clamps are applied in MM inside _commit_box_size.
+        eps = 1e-9
+        self._commit_box_size(
+            new_r.width() if abs(fx - 1.0) > eps else None,
+            new_r.height() if abs(fy - 1.0) > eps else None,
+        )
         self.sync_data_from_item()
 
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
@@ -600,13 +660,31 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         suppresses the mixin's Fill property rows."""
         return None
 
-    # ── Primitive property protocol (geom2d level/offset; fill suppressed) ──
+    # ── Property protocol (scene-context-sized, like the font/box) ──────────
+    #
+    # PAPER (device-independent) surface: the panel + ribbon Font group expect
+    # the Word-style paper form (Font/Height-as-pt/Color/Alignment=Left|Center|
+    # Right) AND undo-routed writes (paper-space.md §9.6 — every commit pushes a
+    # FormatTextCommand keyed on the shared data).  This is the behaviour the
+    # retired paper ``TextAnnotationItem`` carried; the containment repoint (C5)
+    # moves it here so the one ``TextItem`` serves both surfaces.
+    #
+    # MODEL / block-editor surface: the geom2d primitive protocol (no undo
+    # stack of its own — the scene snapshots for undo), with L/C/R alignment.
+
+    def _on_paper(self) -> bool:
+        """True when the host scene is a paper (device-independent) surface."""
+        return self.is_device_independent()
 
     def get_properties(self) -> dict:
-        """Return the panel form dict — text formatting + the geom2d rows.
+        """Return the panel form dict for the current surface.
 
-        Fill rows stay suppressed because ``is_fillable()`` is False.
+        On a paper surface the Word-style paper form is returned (formatting
+        only; content is edited inline); otherwise the geom2d model form.
         """
+        if self._on_paper():
+            from .paper_space import _text_panel_properties
+            return _text_panel_properties(self._data)
         props = {
             "Type":      {"type": "label",  "value": "Text"},
             "Text":      {"type": "string", "value": self._data.text},
@@ -628,6 +706,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         return props
 
     def set_property(self, key: str, value) -> None:
+        if self._on_paper():
+            self._set_property_paper(key, value)
+            return
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)
@@ -651,6 +732,33 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             return
         self.prepareGeometryChange()
         self._apply_format()
+
+    def _set_property_paper(self, key: str, value) -> None:
+        """Apply a paper-panel commit through the paper undo stack (§9.6).
+
+        On a scene with an undo stack, pushes a FormatTextCommand (one command
+        per commit — the panel/ribbon wraps multi-select in a macro).  Off-scene
+        (the pre-placement template) or while a command is being applied, writes
+        the field directly and reformats.  Mirrors the retired paper
+        ``TextAnnotationItem.set_property`` exactly so the ribbon Font group and
+        the property panel keep undo-routed formatting for free.
+        """
+        from .paper_space import _text_panel_change
+        from .paper_commands import FormatTextCommand
+        change = _text_panel_change(self._data, key, value)
+        if change is None:
+            return
+        scene = self.scene()
+        stack = getattr(scene, "undo_stack", None) if scene is not None else None
+        if stack is not None and not getattr(scene, "_applying_command", False):
+            field = next(iter(change))
+            old = {field: getattr(self._data, field)}
+            stack.push(FormatTextCommand(scene, self._data, old, change))
+        else:
+            for f, v in change.items():
+                setattr(self._data, f, v)
+            self.prepareGeometryChange()
+            self._apply_format()
 
     # ── Serialisation ───────────────────────────────────────────────────────
 
@@ -707,7 +815,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         return new_text
 
     def cancel_edit(self) -> None:
-        """Revert to the pre-edit text and exit edit mode without committing."""
+        """Revert to the pre-edit text and exit edit mode without committing.
+
+        On a paper scene a still-pending placement (``scene._pending_text`` is
+        self) is routed through ``commit_place_text`` so an empty Esc leaves
+        nothing tracked (parity with the retired paper TextAnnotationItem).
+        """
         self._editing = False
         scene = self.scene()
         if scene is not None and getattr(scene, "_editing_item", None) is self:
@@ -717,6 +830,27 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data.text = self._text_before_edit
         self.prepareGeometryChange()
         self._apply_format()
+        if scene is not None and getattr(scene, "_pending_text", None) is self:
+            scene.commit_place_text(self)
+
+    def _on_edit_finished(self) -> None:
+        """End inline editing with paper undo bookkeeping.
+
+        A pending placement (``scene._pending_text`` is self) routes to
+        ``commit_place_text`` (discards empty, else pushes AddText).  An existing
+        tracked block commits the edit (applies the new text live) and records
+        the change via the scene's ``_push_text_edit`` helper.  Off a paper
+        scene (model surface) this is a plain ``commit_edit`` — the model scene
+        snapshots for undo separately.
+        """
+        scene = self.scene()
+        if scene is not None and getattr(scene, "_pending_text", None) is self:
+            scene.commit_place_text(self)
+            return
+        old = self._text_before_edit
+        new = self.commit_edit()
+        if scene is not None and hasattr(scene, "_push_text_edit"):
+            scene._push_text_edit(self._data, old, new)
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Enter inline-edit mode on a double-click while not already editing."""
@@ -729,18 +863,28 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def focusOutEvent(self, event) -> None:
         """Auto-commit the edit when the item loses keyboard focus."""
         if self._editing:
-            self.commit_edit()
+            self._on_edit_finished()
         super().focusOutEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        """Route key events to the editor or to item-level commands."""
+        """Route key events to the editor or to item-level commands.
+
+        While editing: Esc ends the edit (paper undo-routed via
+        ``_on_edit_finished``); other keys pass to the editor (Enter=newline).
+        While not editing: Delete emits ``delete_requested`` (the paper scene
+        routes it through DeleteTextAnnotationCommand); other keys delegate.
+        """
         if self._editing:
             if event.key() == Qt.Key.Key_Escape:
-                self.commit_edit()
+                self._on_edit_finished()
                 self.clearFocus()
                 event.accept()
                 return
             super().keyPressEvent(event)   # Enter=newline, Delete=char
+            return
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_requested.emit(self)
+            event.accept()
             return
         super().keyPressEvent(event)
 
@@ -751,6 +895,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             super().contextMenuEvent(event)
             return
         menu = QMenu()
-        menu.addAction("Delete")
-        # TODO(containment C7/deletion-routing): wire Delete action when deletion routing lands
-        menu.exec(event.screenPos())
+        delete = menu.addAction("Delete")
+        action = menu.exec(event.screenPos())
+        if action == delete:
+            self.delete_requested.emit(self)

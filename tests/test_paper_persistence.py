@@ -202,13 +202,13 @@ def test_load_and_new_end_clean(_mw, tmp_path):
 
 import main as _main_module
 
-from firepro3d.paper_space import TextAnnotationItem
+from firepro3d.paper_space import TextItem
 
 
 def _find_scene_text(mw, text):
     scene = mw.paper_space_widget.paper_scene
     return [it for it in scene.items()
-            if isinstance(it, TextAnnotationItem) and it.data.text == text]
+            if isinstance(it, TextItem) and it.data.text == text]
 
 
 def test_recovery_restores_paper_and_survives_save(_mw, tmp_path, monkeypatch):

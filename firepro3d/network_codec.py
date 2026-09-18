@@ -83,7 +83,12 @@ def serialize_dimension(dim) -> dict:
 
 
 def serialize_note(note) -> dict:
-    """Serialize a NoteAnnotation."""
+    """Serialize a legacy model note (retained for old in-memory notes only).
+
+    Model text is now a ``TextItem`` serialized under the ``"texts"`` key
+    (containment C5); this remains for the transitional read path's mirror and
+    any legacy in-memory ``annotations.notes`` entry.
+    """
     return {
         "type":       "note",
         "x":          note.scenePos().x(),
@@ -159,25 +164,63 @@ def deserialize_dimension(scene, entry):
 
 
 def deserialize_note(scene, entry):
-    """Create + register a NoteAnnotation from a serialized entry.
+    """Migrate a legacy ``"note"`` record onto the unified :class:`TextItem`.
 
-    Mirror of ``serialize_note``. Preserves the wrap-width contract
-    (text_width > 0 -> wrapped; else 0). Returns the note.
+    Transitional (containment C5): the model-space text primitive is now
+    ``TextItem`` (tracked in ``scene._texts``), so a legacy ``.fpd`` note is
+    read into a ``TextAnnotationData`` and built as a ``TextItem`` rather than
+    the retired ``NoteAnnotation``.  The legacy fields map as:
+
+      * ``text_width`` → ``wrap_width_mm`` (0 = auto-width, the old contract),
+      * ``box_height`` → ``box_height_mm`` (0 = auto-fit),
+      * ``angle``      → ``angle``,
+      * property ``Text`` → ``text``,
+      * property ``Color`` enum → hex ``color``,
+      * property ``FontSize`` pt → cap-height ``height_mm`` (metric-approx),
+      * properties ``Bold`` / ``Italic`` (``"On"``) → bool flags,
+      * property ``Alignment`` (Left/Center/Right) → ``align`` code (L/C/R).
+
+    A later containment task (C1/C8) replaces this with a clean drop; until
+    then this keeps legacy projects loading.  Returns the created ``TextItem``.
     """
-    from .annotations import NoteAnnotation
-    tw = entry.get("text_width", -1)
-    note = NoteAnnotation(x=entry["x"], y=entry["y"],
-                          text_width=tw if tw and tw > 0 else 0)
-    # Back-compat: pre-upgrade records lack angle/box_height — default to the
-    # identity (0.0 / auto-fit), which renders exactly as before.
-    note._angle = float(entry.get("angle", 0.0))
-    note._box_height = float(entry.get("box_height", 0.0))
-    scene.addItem(note)
-    scene.annotations.add_note(note)
-    for key, value in entry.get("properties", {}).items():
-        note.set_property(key, value)
-    note.level = entry.get("level", DEFAULT_LEVEL)
-    return note
+    from .text_item import TextItem, TextAnnotationData
+    from .paper_space import _mm_from_font_pt
+
+    props = entry.get("properties", {}) or {}
+    tw = entry.get("text_width", 0) or 0
+    data = TextAnnotationData(
+        text=str(props.get("Text", "")),
+        x=float(entry.get("x", 0.0)), y=float(entry.get("y", 0.0)),
+        wrap_width_mm=float(tw) if tw and tw > 0 else 0.0,
+        box_height_mm=float(entry.get("box_height", 0.0)),
+        angle=float(entry.get("angle", 0.0)),
+    )
+    # Color enum → hex (legacy NoteAnnotation palette).
+    _color_map = {"Black": "#000000", "Red": "#ff0000",
+                  "Blue": "#0000ff", "White": "#ffffff"}
+    color = props.get("Color")
+    if color is not None:
+        data.color = _color_map.get(color, color)
+    # FontSize (point) → cap-height mm (uses the font's own metrics, approx).
+    try:
+        pt = float(props.get("FontSize"))
+        if pt > 0:
+            data.height_mm = _mm_from_font_pt(data, pt)
+    except (TypeError, ValueError):
+        pass
+    data.bold = props.get("Bold") == "On"
+    data.italic = props.get("Italic") == "On"
+    data.align = {"Left": "L", "Center": "C", "Right": "R"}.get(
+        props.get("Alignment"), "L")
+
+    item = TextItem(data)
+    scene.addItem(item)
+    item.setPos(data.x, data.y)
+    if data.angle:
+        item.set_angle(data.angle)
+    # Append to the unified text collector (like the "text" load path).
+    scene._texts.append(item)
+    return item
 
 
 def deserialize_water_supply(scene, entry):

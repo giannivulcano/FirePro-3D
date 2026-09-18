@@ -20,7 +20,6 @@ from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 from firepro3d.sprinkler import Sprinkler
 from firepro3d.pipe import Pipe
-from firepro3d.annotations import NoteAnnotation
 from firepro3d.underlay_import_dialog import UnderlayImportDialog
 from firepro3d.property_manager import PropertyManager
 from firepro3d.sprinkler_db import SprinklerDatabase
@@ -31,7 +30,7 @@ from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import (
     PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
-    PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
+    PAPER_SIZES, TextAnnotationData, TextItem,
     SheetViewport, ViewportProperties,
     text_template_to_settings, apply_template_settings,
     native_orientation_from_dims, sheet_page_mm,
@@ -515,7 +514,12 @@ class MainWindow(QMainWindow):
             self._navigate_to_source_view)
 
         # Sheet-text template (pipe/sprinkler pattern) + paper selection wiring
-        self.current_text_template = TextAnnotationItem(TextAnnotationData())
+        self.current_text_template = TextItem(TextAnnotationData())
+        # Off-scene paper template: force the paper (device-independent) sizing +
+        # undo-routed formatting mode so the ribbon Font group / property panel
+        # treat it as sheet text before it is ever placed (containment C5).
+        self.current_text_template._force_device_independent = True
+        self.current_text_template._apply_format()   # re-format in paper mode
         self.current_text_template._scale_manager_ref = self.scene.scale_manager
         self.paper_space_widget.paper_scene.text_template = \
             self.current_text_template.data
@@ -3480,6 +3484,7 @@ class MainWindow(QMainWindow):
         from firepro3d.annotations import (
             DimensionAnnotation,
         )
+        from firepro3d.text_item import TextItem
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
         from firepro3d.roof import RoofItem
@@ -3496,8 +3501,8 @@ class MainWindow(QMainWindow):
                               RectangleItem, CircleItem, ArcItem,
                               RegularPolygonItem, EllipseItem, SplineItem)):
             return "geo2d"
-        # Annotation family
-        if isinstance(item, (NoteAnnotation, DimensionAnnotation)):
+        # Annotation family (TextItem is the unified text primitive — C5)
+        if isinstance(item, (TextItem, DimensionAnnotation)):
             return "annotation"
         # Structural / architectural families
         if isinstance(item, WallSegment):
@@ -3545,6 +3550,7 @@ class MainWindow(QMainWindow):
             RegularPolygonItem, EllipseItem, SplineItem,
         )
         from firepro3d.annotations import DimensionAnnotation
+        from firepro3d.text_item import TextItem
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
         from firepro3d.roof import RoofItem
@@ -3566,8 +3572,8 @@ class MainWindow(QMainWindow):
         name = _GEO2D_NAMES.get(type(item))
         if name is not None:
             return name
-        # Annotation family
-        if isinstance(item, NoteAnnotation):
+        # Annotation family (TextItem is the unified text primitive — C5)
+        if isinstance(item, TextItem):
             return "Text"
         if isinstance(item, DimensionAnnotation):
             return "Dimension"
@@ -4506,7 +4512,7 @@ class MainWindow(QMainWindow):
             selected = w.paper_scene.selectedItems()
         except RuntimeError:
             return
-        items = [it for it in selected if isinstance(it, TextAnnotationItem)]
+        items = [it for it in selected if isinstance(it, TextItem)]
         if items:
             self.prop_manager.show_properties(items)
             return
@@ -4553,7 +4559,7 @@ class MainWindow(QMainWindow):
             return [self.current_text_template]
         try:
             return [it for it in w.paper_scene.selectedItems()
-                    if isinstance(it, TextAnnotationItem)]
+                    if isinstance(it, TextItem)]
         except RuntimeError:
             return []
 

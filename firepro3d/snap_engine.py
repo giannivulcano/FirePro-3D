@@ -32,7 +32,8 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from .annotations import DimensionAnnotation, NoteAnnotation
+from .annotations import DimensionAnnotation
+from .text_item import TextItem
 from .underlay_snap_index import UnderlaySnapIndex
 from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem,
@@ -638,7 +639,7 @@ class SnapEngine:
                            exclude: QGraphicsItem | None,
                            item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
-        _skip_types = (DimensionAnnotation, NoteAnnotation)
+        _skip_types = (DimensionAnnotation, TextItem)
 
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 

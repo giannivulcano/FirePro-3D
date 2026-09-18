@@ -14,7 +14,8 @@ import json
 from PyQt6.QtCore import QPointF
 
 from firepro3d.model_space import Model_Space
-from firepro3d.annotations import NoteAnnotation, DimensionAnnotation
+from firepro3d.annotations import DimensionAnnotation
+from firepro3d.text_item import TextItem, TextAnnotationData
 from firepro3d.wall import WallSegment
 from firepro3d.water_supply import WaterSupply
 from firepro3d.design_area import DesignArea
@@ -38,9 +39,10 @@ def _scene_with_hand_serialized_entities(with_sprinkler=True):
     ms.add_pipe(n1, n2)
     if with_sprinkler:
         ms.add_sprinkler(n1)
-    note = NoteAnnotation(x=50.0, y=50.0, text_width=120.0)
+    note = TextItem(TextAnnotationData(text="Note", x=50.0, y=50.0,
+                                       wrap_width_mm=120.0))
     ms.addItem(note)
-    ms.annotations.add_note(note)
+    ms._texts.append(note)
     dim = DimensionAnnotation(QPointF(0.0, 0.0), QPointF(100.0, 0.0))
     ms.addItem(dim)
     ms.annotations.add_dimension(dim)
@@ -91,16 +93,20 @@ def test_undo_snapshot_pipe_props_are_stored_props(qapp):
 
 
 def test_note_text_width_survives_undo(qapp):
-    """#3: a note's wrap width must survive an undo round-trip (the file path
-    passes text_width to the ctor; _restore_network dropped it)."""
+    """#3: a text item's wrap width must survive an undo round-trip.
+
+    Model text is a TextItem tracked in ``_texts`` (containment C5); the wrap
+    width rides ``TextAnnotationData.wrap_width_mm`` through
+    ``_capture_network`` / ``_restore_network`` (the "texts" record)."""
     ms = Model_Space()
-    note = NoteAnnotation(x=10.0, y=20.0, text_width=150.0)
+    note = TextItem(TextAnnotationData(text="Note", x=10.0, y=20.0,
+                                       wrap_width_mm=150.0))
     ms.addItem(note)
-    ms.annotations.add_note(note)
+    ms._texts.append(note)
     snap = ms._capture_network()
     ms._restore_network(snap)
-    restored = ms.annotations.notes[0]
-    assert abs(restored.textWidth() - 150.0) < 1e-6
+    restored = ms._texts[0]
+    assert abs(restored.data.wrap_width_mm - 150.0) < 1e-6
 
 
 def test_name_counters_recomputed_after_undo(qapp):
@@ -176,11 +182,10 @@ def test_deserialize_parity_dimensions_notes(qapp, tmp_path):
     assert (ud._p2.x(), ud._p2.y()) == (fd._p2.x(), fd._p2.y())
     assert ud._offset_dist == fd._offset_dist
     assert ud.level == fd.level
-    # notes
-    un, fn = u.annotations.notes[0], f.annotations.notes[0]
-    assert abs(un.textWidth() - fn.textWidth()) < 1e-6
+    # text (model text is a TextItem in _texts — containment C5)
+    un, fn = u._texts[0], f._texts[0]
+    assert abs(un.data.wrap_width_mm - fn.data.wrap_width_mm) < 1e-6
     assert (un.scenePos().x(), un.scenePos().y()) == (fn.scenePos().x(), fn.scenePos().y())
-    assert un.level == fn.level
 
 
 def test_deserialize_parity_water_supply(qapp, tmp_path):

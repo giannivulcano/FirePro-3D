@@ -17,7 +17,7 @@ from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_system import SprinklerSystem
 from .cad_math import CAD_Math
-from .annotations import Annotation, DimensionAnnotation, NoteAnnotation
+from .annotations import Annotation, DimensionAnnotation
 from .underlay import Underlay
 from .underlay_freeze import UnderlayFreezeController, _UnderlayPathItem
 from .scale_manager import ScaleManager
@@ -877,7 +877,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Map each geometry type to the list that tracks it
         type_to_list = {
             DimensionAnnotation: self.annotations.dimensions,
-            NoteAnnotation:      self.annotations.notes,
             PolylineItem:        self._polylines,
             ReferenceLineItem:   self._reference_lines,   # subclass — must precede LineItem
             LineItem:            self._draw_lines,
@@ -6632,7 +6631,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _find_entity_at(self, pos):
         """Find the first selectable scene entity at the given position."""
         ENTITY_TYPES = (
-            Node, Pipe, DimensionAnnotation, NoteAnnotation,
+            Node, Pipe, DimensionAnnotation, TextItem,
             PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem, GridlineItem, WaterSupply,
             WallSegment, FloorSlab, DoorOpening, WindowOpening, Room,

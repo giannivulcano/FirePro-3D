@@ -149,16 +149,16 @@ def test_badge_manip_bounds_is_badge_box(qapp, scene_and_view):
     assert abs(b.center().y() - badge_box.center().y()) < 1e-3
 
 
-# ── NoteAnnotation ──────────────────────────────────────────────────────────
+# ── TextItem (model-space text — containment C5) ─────────────────────────────
 
 def test_note_annotation_moves_via_manipulator(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.annotations import NoteAnnotation
+    from firepro3d.text_item import TextItem, TextAnnotationData
     from firepro3d.selection_manipulator import item_capabilities
-    note = NoteAnnotation("Hello", x=100.0, y=100.0)
+    note = TextItem(TextAnnotationData(text="Hello", x=100.0, y=100.0))
     scene.addItem(note)
-    scene.annotations.add_note(note)
-    # U3: NoteAnnotation is now box-native (frame + resize + move + rotate).
+    scene._texts.append(note)
+    # Model text is box-native (frame + resize + move + rotate).
     assert item_capabilities(note) == {"translate", "scale", "rotate"}
 
     note.setSelected(True)
