@@ -3316,6 +3316,19 @@ class PaperScene(QGraphicsScene):
         self._manipulator = None
         self._setup()   # builds items AND (re)creates the manipulator
 
+    def device_independent_text(self) -> bool:
+        """Text sizing-mode hook (containment C5).
+
+        A PaperScene sizes text device-independently (paper-mm cap height, zoom
+        invariant) — the counterpart to ``Model_Space.device_independent_text``
+        (which returns False for scene-mm text).  ``TextItem`` reads this to pick
+        its ``_apply_format`` sizing path.
+
+        Returns:
+            Always True for a paper layout.
+        """
+        return True
+
     def _create_manipulator(self):
         """(Re)create the scene-level SelectionManipulator (frame + baked
         resize/move) — the one home for viewport/text handle interaction,

@@ -2,6 +2,20 @@
 from firepro3d.text_item import TextAnnotationData
 
 
+def _stub_resolver():
+    """A ViewResolver with all-None managers (safe for sheets with no views)."""
+    from firepro3d.paper_space import ViewResolver
+    return ViewResolver(None, None, None, None)
+
+
+def _make_text(scene, height_mm=2.5):
+    from firepro3d.text_item import TextItem
+    d = TextAnnotationData(text="Ag", x=0.0, y=0.0, height_mm=height_mm)
+    t = TextItem(d)
+    scene.addItem(t)
+    return t
+
+
 def test_data_defaults_and_rotation_roundtrip():
     d = TextAnnotationData(text="Hi", x=1.0, y=2.0, height_mm=2.5)
     assert d.angle == 0.0
@@ -13,3 +27,59 @@ def test_data_defaults_and_rotation_roundtrip():
     for f in ("font_family", "bold", "italic", "underline",
               "opaque_bg", "align", "wrap_width_mm", "box_height_mm", "color"):
         assert hasattr(d2, f)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TextItem — unified scene-context-sized text primitive (C5.3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_model_scene_text_scales_with_scene(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space()
+    t = _make_text(s, height_mm=10.0)
+    br = t.mapToScene(t.boundingRect()).boundingRect()
+    assert br.height() >= 10.0
+
+
+def test_paper_scene_text_is_device_independent(qapp):
+    from firepro3d.paper_space import PaperScene, Sheet
+    p = PaperScene(Sheet.create_default(), _stub_resolver())
+    t = _make_text(p, height_mm=2.5)
+    assert t.is_device_independent() is True
+
+
+def test_model_scene_text_is_not_device_independent(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space()
+    t = _make_text(s, height_mm=2.5)
+    assert t.is_device_independent() is False
+
+
+def test_text_item_to_dict_from_dict_roundtrip(qapp):
+    from firepro3d.text_item import TextItem
+    d = TextAnnotationData(text="Hi", x=3.0, y=4.0, height_mm=2.5)
+    d.angle = 15.0
+    t = TextItem(d)
+    t2 = TextItem.from_dict(t.to_dict())
+    assert t2.data.text == "Hi" and abs(t2.data.angle - 15.0) < 1e-6
+    assert t2.get_closed_path() is None
+    assert t.to_dict()["type"] == "text"
+    assert abs(t2.data.x - 3.0) < 1e-6 and abs(t2.data.y - 4.0) < 1e-6
+
+
+def test_text_item_capabilities_drop_scale_when_rotated(qapp):
+    from firepro3d.text_item import TextItem
+    d = TextAnnotationData(text="X", height_mm=2.5)
+    t = TextItem(d)
+    assert t.manip_capabilities() == {"translate", "scale", "rotate"}
+    t.set_angle(30.0)
+    assert t.manip_capabilities() == {"translate", "rotate"}
+
+
+def test_text_item_fill_rows_suppressed(qapp):
+    from firepro3d.text_item import TextItem
+    d = TextAnnotationData(text="X", height_mm=2.5)
+    t = TextItem(d)
+    assert t.is_fillable() is False
+    props = t.get_properties()
+    assert "Fill" not in props
