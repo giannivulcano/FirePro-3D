@@ -1,7 +1,7 @@
 ---
 status: partial
 last-verified: 2026-09-17
-verified-commit: ac74e67
+verified-commit: b6fd17f
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -56,7 +56,8 @@ design areas) or on each item's `to_dict`/`from_dict` (geometry, walls, blocks�
 collections: `nodes`, `pipes`, `annotations` (dimensions + notes), `underlays`,
 `water_supply`, `design_areas`, the construction-geometry keys (`polylines`,
 `draw_lines`, `reference_lines`, `draw_rectangles`, `draw_circles`, `draw_arcs`,
-`draw_ellipses`, `draw_splines`, `polygons`), `gridlines`, `walls`,
+`draw_ellipses`, `draw_splines`, `polygons`), `texts` (unified `TextItem`
+primitives, containment C5), `gridlines`, `walls`,
 `floor_slabs`, `roofs`, `rooms`, `block_definitions` (embedded by id),
 `blocks` (instances referencing definition ids), `constraints` (indexed against
 `_tools._all_geometry_items()`), `detail_views`, `sheets`, `titleblock_template`.
@@ -89,10 +90,12 @@ invariant**:
 - **Forbidden content is read-but-discarded, silently.** On load, the payload
   keys for loose geometry (`polylines`, `draw_lines`, `reference_lines`,
   `draw_rectangles`, `draw_circles`, `draw_arcs`, `draw_ellipses`,
-  `draw_splines`, `polygons`), the `note` and `dimension` entries in
-  `annotations`, the `constraints` block, and any legacy hatch are **not
-  reconstructed**. A single `logging` line records dropped counts; there is **no
-  UI**.
+  `draw_splines`, `polygons`), the top-level `texts` key (**standalone model
+  text** — C1 retires it; block-content text lives in `block_definitions` and
+  paper text in `sheets`, both of which survive), the `note` and `dimension`
+  entries in `annotations`, the `constraints` block, and any legacy hatch are
+  **not reconstructed**. A single `logging` line records dropped counts; there
+  is **no UI**.
 - **Save stops writing them**, so a load→save of a legacy file cleanly sheds the
   forbidden content.
 - **Both paths comply** (§1): `_restore_network` likewise does not reintroduce
