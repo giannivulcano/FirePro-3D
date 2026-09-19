@@ -103,7 +103,8 @@ class FramelessShellMixin:
 
     # ── setup ────────────────────────────────────────────────────────────────
     def init_frameless_shell(self, title, controls=("close",), resizable=False,
-                             build_titlebar=True, icon=None):
+                             build_titlebar=True, icon=None,
+                             window_type=Qt.WindowType.Dialog):
         """Apply frameless flags and initialise shell state.
 
         Args:
@@ -115,9 +116,11 @@ class FramelessShellMixin:
                 pass ``False`` and populate ``self._win_controls`` themselves.
             icon: Optional svg filename (e.g. ``"underlay_manager_icon.svg"``)
                 shown before the title in the mixin-built titlebar.
+            window_type: The base window flag OR'd with FramelessWindowHint —
+                ``Qt.WindowType.Dialog`` (default) for dialogs, or
+                ``Qt.WindowType.Window`` for a top-level MainWindow shell.
         """
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint
-                            | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | window_type)
         self.setWindowTitle(title)
         self._drag_pos = None
         self._resizable = resizable

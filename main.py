@@ -38,6 +38,8 @@ from firepro3d.paper_space import (
 from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.footer_rail import FooterRail
 from firepro3d.header_rail import HeaderRail
+from firepro3d.frameless_shell import FramelessShellMixin
+from firepro3d.main_helpers import migrate_fullscreen_pref
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
@@ -95,7 +97,7 @@ def install_excepthook():
 
 
 
-class MainWindow(QMainWindow):
+class MainWindow(FramelessShellMixin, QMainWindow):
     # ── Contextual-tab catalog ─────────────────────────────────────────────────
     # Maps entity-family key → the family's registry label. Used by
     # _init_contextual_tabs() to build _contextual_registry (the key selects the
@@ -125,6 +127,12 @@ class MainWindow(QMainWindow):
 
     def __init__(self, splash: FireProSplash | None = None):
         super().__init__()
+        # Frameless top-level shell (chrome revamp): the custom header rail is
+        # the titlebar (built later via setMenuWidget), so build_titlebar=False.
+        # window_type=Window keeps this a real top-level window (not a Dialog).
+        self.init_frameless_shell(
+            "FirePro 3D", build_titlebar=False, resizable=True,
+            window_type=Qt.WindowType.Window)
         self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 Untitled")
         # Window icon from logo
         from firepro3d.assets import asset_path as _asset_path
@@ -140,11 +148,10 @@ class MainWindow(QMainWindow):
         self.current_opening_template = WallOpening(wall=None, feature_id="door_914")
         self._current_file: str | None = None
         self._modified: bool = False
-        # Init True so a premature showEvent (e.g. immersive showMaximized() fired
-        # inside restore_settings, before the cold-start block builds the views)
-        # SKIPS the deferred fit; the cold-start block re-arms it to False so the
-        # real post-__init__ window.show() performs the fit. (Fixes an AttributeError
-        # crash when "Maximize window on startup" is enabled — pre-existing.)
+        # Init True so a premature showEvent (e.g. a startup show-state change
+        # fired before the cold-start block builds the views) SKIPS the deferred
+        # fit; the cold-start block re-arms it to False so the real post-__init__
+        # show performs the fit. (Fixes a pre-existing AttributeError crash.)
         self._initial_fit_done = True
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
@@ -587,10 +594,11 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
-        # Maximized window ("Maximize on startup"). Applied on the real first
-        # showEvent, NOT here: main() calls window.resize(800, 600) after __init__
-        # and before show(), which would clobber a showMaximized() called now.
-        self._start_maximized = self.settings.value("ui/immersive", False, type=bool)
+        # Startup window state (chrome revamp: frameless-fullscreen by default).
+        # Applied by main() AFTER its resize()+show(), NOT in showEvent — so the
+        # headless MainWindow tests (which call .show() directly, never main())
+        # never trigger the View3D/VTK fullscreen-resize crash class.
+        self._start_fullscreen = migrate_fullscreen_pref(self.settings.value)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -700,10 +708,8 @@ class MainWindow(QMainWindow):
             # Open Plan: Level 1 as the default view
             from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
-            # "Maximize on startup" — applied here (after main()'s resize) so it
-            # actually fits the screen instead of being clobbered.
-            if getattr(self, "_start_maximized", False):
-                self.showMaximized()
+            # NOTE: the startup fullscreen/normal state is applied by main()
+            # (after its resize), never here — see _start_fullscreen.
 
     def _switch_sheet(self, sheet):
         """Make *sheet* the active sheet and rebind the canonical widget.
@@ -2032,12 +2038,12 @@ class MainWindow(QMainWindow):
         self.scene._suppress_preview_node = enabled
 
     def _apply_immersive(self, enabled=None) -> None:
-        """Toggle a maximized window (fills the screen, keeps the OS title bar).
-        Reads QSettings when *enabled* is None."""
+        """Toggle frameless-fullscreen (chrome revamp — was maximize).
+        Reads the migrated fullscreen pref when *enabled* is None."""
         if enabled is None:
-            enabled = self.settings.value("ui/immersive", False, type=bool)
+            enabled = migrate_fullscreen_pref(self.settings.value)
         if bool(enabled):
-            self.showMaximized()
+            self.showFullScreen()
         else:
             self.showNormal()
 
@@ -3821,11 +3827,14 @@ class MainWindow(QMainWindow):
                            dirty=self._modified)
 
     def _toggle_max_or_fullscreen(self):
-        """Header maximize/restore dot. (Task 6 extends this for fullscreen.)"""
-        if self.isMaximized() or self.isFullScreen():
-            self.showNormal()
+        """Header maximize/restore dot: toggle frameless-fullscreen ↔ normal,
+        and persist the choice under ui/fullscreen."""
+        going_fullscreen = not (self.isFullScreen() or self.isMaximized())
+        if going_fullscreen:
+            self.showFullScreen()
         else:
-            self.showMaximized()
+            self.showNormal()
+        self.settings.setValue("ui/fullscreen", going_fullscreen)
 
     def _on_paper_modified(self):
         """A paper mutation dirties the project (save prompt + autosave)."""
@@ -4592,6 +4601,10 @@ class MainWindow(QMainWindow):
 
 def main():
     install_excepthook()
+    # Frameless MainWindow hosts a native VTK view; this attribute avoids extra
+    # native-window siblings that can crash the frameless/VTK combo (spike Task 0).
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True)
     app = QApplication(sys.argv)
     th.apply_app_font(app)          # house UI font (Arial) app-wide
 
@@ -4614,7 +4627,13 @@ def main():
     window = MainWindow(splash=splash)
     window.resize(800, 600)
     splash.close()
-    window.show()
+    # Apply the startup window state here (not in showEvent) so headless tests,
+    # which construct MainWindow() and call .show() directly, never trigger the
+    # fullscreen VTK-resize crash class. Fullscreen-first by default.
+    if getattr(window, "_start_fullscreen", True):
+        window.showFullScreen()
+    else:
+        window.show()
     sys.exit(app.exec())
 
 

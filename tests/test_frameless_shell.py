@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QDialog, QLabel
+from PyQt6.QtWidgets import QDialog, QLabel, QMainWindow
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QEvent
 from firepro3d.frameless_shell import FramelessShellMixin
@@ -9,6 +9,29 @@ class _Host(FramelessShellMixin, QDialog):
         super().__init__()
         self.init_frameless_shell(title="Host", controls=("min", "max", "close"),
                                   resizable=True, icon=icon)
+
+
+class _WinHost(FramelessShellMixin, QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.init_frameless_shell("t", build_titlebar=False,
+                                  window_type=Qt.WindowType.Window)
+
+
+def test_window_type_applied(qapp):
+    """window_type=Window makes a frameless top-level window (not a Dialog)."""
+    w = _WinHost()
+    flags = w.windowFlags()
+    assert bool(flags & Qt.WindowType.FramelessWindowHint)
+    assert bool(flags & Qt.WindowType.Window)
+    w.deleteLater()
+
+
+def test_window_type_defaults_to_dialog(qapp):
+    """Existing dialog callers (no window_type) still get the Dialog flag."""
+    h = _Host()
+    assert bool(h.windowFlags() & Qt.WindowType.Dialog)
+    h.deleteLater()
 
 
 def test_shell_is_frameless_with_three_controls(qapp):

@@ -27,18 +27,30 @@ def win(qapp):
 
 
 def test_apply_immersive_calls_show_methods(win, monkeypatch):
-    # Assert the enabled->showMaximized / disabled->showNormal wiring.
+    # Assert the enabled->showFullScreen / disabled->showNormal wiring (chrome
+    # revamp: immersive is now frameless-fullscreen, not maximize).
     # NOTE: we monkeypatch the show* methods rather than driving the real
-    # window-state change: maximizing a real MainWindow triggers a View3D/VTK
+    # window-state change: fullscreen-ing a real MainWindow triggers a View3D/VTK
     # resize that native-crashes the headless test process (the documented
-    # "MainWindow test mode without View3D" crash class). The actual maximize
+    # "MainWindow test mode without View3D" crash class). The actual fullscreen
     # behaviour is covered by the mandatory live-smoke checklist.
     calls = []
-    monkeypatch.setattr(win, "showMaximized", lambda: calls.append("max"))
+    monkeypatch.setattr(win, "showFullScreen", lambda: calls.append("fullscreen"))
     monkeypatch.setattr(win, "showNormal", lambda: calls.append("normal"))
     win._apply_immersive(True)
     win._apply_immersive(False)
-    assert calls == ["max", "normal"]
+    assert calls == ["fullscreen", "normal"]
+
+
+def test_migrate_fullscreen_pref_reads_and_migrates():
+    """ui/fullscreen wins when present; else fall back to legacy ui/immersive;
+    else default to True (fullscreen-first shell)."""
+    from firepro3d.main_helpers import migrate_fullscreen_pref
+    assert migrate_fullscreen_pref({"ui/immersive": True}.get) is True
+    assert migrate_fullscreen_pref({"ui/immersive": False}.get) is False
+    assert migrate_fullscreen_pref(
+        {"ui/fullscreen": True, "ui/immersive": False}.get) is True
+    assert migrate_fullscreen_pref({}.get) is True
 
 
 def test_uipane_immersive_persists_and_calls_back(qapp):
