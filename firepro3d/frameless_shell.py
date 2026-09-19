@@ -300,8 +300,14 @@ class FramelessShellMixin:
     # ── resize helpers ───────────────────────────────────────────────────────
     def _edge_at(self, pos):
         """Return an edge string ("l"/"r"/"t"/"b" combos) if *pos* is within
-        ``_RESIZE_MARGIN`` of a window edge, else None."""
-        if not self._resizable or self.isMaximized():
+        ``_RESIZE_MARGIN`` of a window edge, else None.
+
+        Edge-resize is inert while maximized OR fullscreen (a fullscreen
+        MainWindow fills the screen — resizing it is meaningless); it becomes
+        active once the window is restored. All resize paths route through here,
+        so this single guard governs the mouse-move cursor, the direct
+        mousePressEvent grab, and the child-widget eventFilter alike."""
+        if not self._resizable or self.isMaximized() or self.isFullScreen():
             return None
         m = self._RESIZE_MARGIN
         r = self.rect()
