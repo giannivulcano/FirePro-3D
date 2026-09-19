@@ -632,10 +632,3 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 - [ ] [type:bug] Investigate pre-existing render-test failure `test_paper_space.py::TestTemplateItemRev3::test_default_template_paints` [P2] [subject:Testing]
   - Details: QImage paint assert L743 — fails on clean `main`, surfaced during audit F1–F3 cleanup. live-smoke-required. (audit F#21, risk:med, effort:M)
 
-## MainWindow chrome revamp — follow-ups (feat/mainwindow-chrome, 2026-09-19)
-
-- [ ] [type:feature] Frameless MainWindow: edge-resize cursor over child widgets [P3] [subject:Chrome]
-  - Details: drag-by-header DONE (HeaderRail mousePress/Move drag + double-click→fullscreen, restored-window only). Remaining: the resize-edge cursor/press doesn't surface over child widgets on the MainWindow tree — the mixin's child event-filter (`project_frameless_resize_cursor_child_intercept`) isn't installed window-wide. Edge-resize works only on exposed MainWindow surface. (risk:med, effort:M)
-- [ ] [type:maint] Remove orphaned legacy icons `saveas_icon.svg` + `load_icon.svg` [P3] [subject:Cleanup]
-  - Details: chrome revamp re-homed Save As→`save_as_icon.svg`, Open/Recent→`open_icon.svg`/`recent_icon.svg`; the two legacy 40mm/#000000 files are now unreferenced. Grep repo (incl. dynamic `_I(...)`) before deleting. (risk:low, effort:S)
-  - DONE 2026-09-19: the 5-spec reconciliation (Account) is complete — ui-design-system / ribbon-bar / snap-toolbar / settings-dialog / icon-style-guide reconciled in place + SPEC-INDEX updated (branch docs/chrome-spec-reconcile).

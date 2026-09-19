@@ -113,6 +113,18 @@ def test_edge_at_detects_corners_and_sides(qapp):
     h.deleteLater()
 
 
+def test_edge_at_none_when_fullscreen(qapp, monkeypatch):
+    """Edge-resize is suppressed in fullscreen (a fullscreen window fills the
+    screen); it re-activates when restored. Governs the frameless MainWindow's
+    default fullscreen state."""
+    h = _Host()
+    h.setGeometry(100, 100, 400, 300)
+    assert h._edge_at(QPoint(1, 1)) == "tl"          # normally a corner edge
+    monkeypatch.setattr(h, "isFullScreen", lambda: True)
+    assert h._edge_at(QPoint(1, 1)) is None           # inert while fullscreen
+    h.deleteLater()
+
+
 def test_perform_resize_is_pixel_exact_and_respects_min_size(qapp):
     h = _Host()
     h.setMinimumSize(200, 150)
