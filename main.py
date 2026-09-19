@@ -1289,14 +1289,15 @@ class MainWindow(QMainWindow):
         manage_page = self.ribbon.add_page("Manage")
 
         # --- File ---
+        # Compact 3-stack of small buttons (Save migrated to the header rail) +
+        # a large Recent menu button (chrome revamp Task 4).
         g_file = manage_page.add_group("File")
-        _btn(g_file, "New",     _I("placeholder_icon.svg"), self.new_file, tip="Start a new project [Ctrl+N]")
-        _btn(g_file, "Open",    _I("load_icon.svg"),        self.open_file, tip="Open a saved project [Ctrl+O]")
-        # Save migrated to the header rail (chrome revamp); Save As stays here.
-        _btn(g_file, "Save As", _I("saveas_icon.svg"),      self.save_file_as, tip="Save as a new file")
+        _btn(g_file, "New",     _I("placeholder_icon.svg"), self.new_file, large=False, tip="Start a new project [Ctrl+N]")
+        _btn(g_file, "Open",    _I("load_icon.svg"),        self.open_file, large=False, tip="Open a saved project [Ctrl+O]")
+        _btn(g_file, "Save As", _I("saveas_icon.svg"),      self.save_file_as, large=False, tip="Save as a new file")
         self._recent_menu = QMenu(self)
-        _btn = g_file.add_small_menu_button("Recent", _I("load_icon.svg"), self._recent_menu)
-        _btn.setToolTip("Recently opened files")
+        _rbtn = g_file.add_large_menu_button("Recent", _I("load_icon.svg"), self._recent_menu)
+        _rbtn.setToolTip("Recently opened files")
         self._rebuild_recent_menu()
 
         # --- Settings ---

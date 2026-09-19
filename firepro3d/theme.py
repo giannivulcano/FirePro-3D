@@ -679,29 +679,32 @@ RibbonBar {{
     background: {t.bg_raised};
     border-bottom: 1px solid {t.border_strong};
 }}
-/* Ribbon uses its own QTabBar — override the generic tab style */
+/* Ribbon tabs adopt the house TopTabs look: flat, muted, accent-underline on
+   select, with a full-width divider under the whole strip. */
 RibbonBar QTabBar {{
     background: transparent;
+    border-bottom: 1px solid {t.line_strong};
 }}
 RibbonBar QTabBar::tab {{
-    background: {t.bg_tab_inactive};
-    color: {t.text_primary};
-    padding: 5px 20px;
-    border: 1px solid {t.border_strong};
-    border-bottom: none;
-    border-top-left-radius: 3px;
-    border-top-right-radius: 3px;
+    background: transparent;
+    color: {t.muted};
+    padding: 7px 16px 8px;
+    margin-right: 2px;
+    border: none;
+    border-bottom: 2px solid transparent;
     font-size: 9pt;
-    font-weight: bold;
     min-width: 80px;
 }}
-RibbonBar QTabBar::tab:selected {{
-    background: {t.bg_tab_selected};
-    color: {t.text_accent};
-    border-bottom: 2px solid {t.bg_tab_selected};
-}}
 RibbonBar QTabBar::tab:hover:!selected {{
-    background: {t.btn_hover};
+    color: {t.text_primary};
+    background: {t.accent_soft};
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}}
+RibbonBar QTabBar::tab:selected {{
+    color: {t.text_primary};
+    font-weight: 600;
+    border-bottom: 2px solid {t.accent};
 }}
 RibbonButton {{
     background: transparent;
