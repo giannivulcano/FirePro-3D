@@ -634,8 +634,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## MainWindow chrome revamp — follow-ups (feat/mainwindow-chrome, 2026-09-19)
 
-- [ ] [type:bug] UXPane HALO toggle is a no-op on the live scene [P2] [subject:Settings]
-  - Details: **pre-existing** (byte-identical on `main` — NOT introduced by the chrome branch; surfaced by the chrome seam review). `firepro3d/settings/panes.py` reads/writes `self._scene._halo_enabled` (leading underscore) at L351/L494–495, but `HaloSelectionMixin` + `main.py` store the flag as `self.scene.halo_enabled` (no underscore). So `UXPane.load()` always sees the default and `apply()`'s write block is dead. Fix: `_halo_enabled`→`halo_enabled` at all three sites. (risk:low, effort:S)
 - [ ] [type:feature] Frameless MainWindow: edge-resize cursor over child widgets [P3] [subject:Chrome]
   - Details: drag-by-header DONE (HeaderRail mousePress/Move drag + double-click→fullscreen, restored-window only). Remaining: the resize-edge cursor/press doesn't surface over child widgets on the MainWindow tree — the mixin's child event-filter (`project_frameless_resize_cursor_child_intercept`) isn't installed window-wide. Edge-resize works only on exposed MainWindow surface. (risk:med, effort:M)
 - [ ] [type:maint] Remove orphaned legacy icons `saveas_icon.svg` + `load_icon.svg` [P3] [subject:Cleanup]
