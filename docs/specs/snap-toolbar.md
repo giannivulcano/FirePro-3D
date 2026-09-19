@@ -2,8 +2,10 @@
 
 **Date:** 2026-04-28
 **Complexity:** Large
-**Status:** Implemented (2026-06-22) — see §6.4 / §10 for as-built deviations; class renamed `_OsnapToolbar` → `_SnapToolbar` (2026-08-25)
+**Status:** Superseded (2026-09-19) — dockable toolbar **RETIRED**; osnap toggles re-homed to the footer `InlineOsnapBar` (verified-commit 0a7b44a). Same `snap/{attr}` QSettings + `SnapEngine.snap_*` contract. Historical: Implemented (2026-06-22) — see §6.4 / §10 for as-built deviations; class renamed `_OsnapToolbar` → `_SnapToolbar` (2026-08-25). See banner below.
 **Source tasks:** TODO.md — "Spec session: SNAP toolbar — per-type toggle UI, dockable placement, indicator layout, interaction with status bar pill [ref:snap-spec§9.5]"
+
+> **⚠ RETIRED (2026-09-19) — dockable toolbar removed; osnap toggles re-homed to the footer.** The MainWindow chrome revamp (merge `0a7b44a`) deleted the dockable `_SnapToolbar` class from `main.py`. The 8 per-type osnap toggles now live in the **footer rail's `InlineOsnapBar`** (`firepro3d/footer_rail.py`), which reads/writes the **same** `snap/{attr}` QSettings keys and the live `SnapEngine.snap_*` booleans — that single-source-of-truth contract (§3) is **unchanged**. What moved: Snap-Settings is reached by **right-clicking the footer SNAP pill → System Settings (UX pane)**; the inline bar's visibility is a **−/+ chevron** in the footer persisting `snap/bar_expanded` (no ribbon "SNAP Bar" button, no dockable show/hide); master SNAP off dims the inline bar; angle-snap lives in **System Settings → UX pane** (no longer a ribbon button). The footer contract is owned by [`docs/specs/mainwindow-chrome-revamp.md`](mainwindow-chrome-revamp.md) (status: current) — not restated here. The design text below is retained for history; treat toolbar-specific mechanics (§6/§7/§10) as superseded per the inline notes.
 
 > **Rename note (2026-08-25):** The product feature was renamed from "OSNAP" to "SNAP" (Select Nearest Anchor Point). The class `_OsnapToolbar` was renamed to `_SnapToolbar` and the signal `osnapToggled` / method `toggle_osnap` was renamed to `snapToggled` / `toggle_snap`. The QSettings persistence keys remain unchanged under the `snap/*` namespace.
 
@@ -111,6 +113,8 @@ Connected to `ModelSpace.snapToggled`. Calls `setEnabled(enabled)` on each of th
 
 ## 6. MainWindow Integration
 
+> **As-built (2026-09-19):** superseded — the dockable toolbar was removed; osnap toggles are now the footer `InlineOsnapBar`. The construction/dialog-sync/state-version/show-hide mechanics below describe the retired dockable path. See `mainwindow-chrome-revamp.md` for the footer contract.
+
 ### 6.1 Construction
 
 After the status bar setup (~`main.py:433`):
@@ -135,6 +139,8 @@ self.snap_toolbar.refresh_from_engine()
 
 ### 6.4 Show/hide
 
+> **As-built (2026-09-19):** superseded — no ribbon "SNAP Bar" button and no dockable show/hide. Inline-bar visibility is now a footer **−/+ chevron** persisting `snap/bar_expanded`; see `mainwindow-chrome-revamp.md`. The 2026-06-22 note below is historical.
+
 **As-built (2026-06-22):** The toolbar is hidden on first launch. Because the
 app uses a ribbon (no `QMenuBar`), Qt's automatic View-menu toggle action is
 not surfaced, so a dedicated checkable **"SNAP Bar"** button is added to the
@@ -144,6 +150,8 @@ back to the button's `setChecked` so the two stay in sync (including after
 `restoreState()` re-applies the user's saved visibility).
 
 ## 7. SVG Icons
+
+> **As-built (2026-09-19):** the 8 icons live on and are consumed by the footer `InlineOsnapBar` (re-authored two-token), not a dockable toolbar. Render-size/placement mechanics below refer to the retired toolbar; see `mainwindow-chrome-revamp.md`. The symbol set and authoring conventions still apply.
 
 ### 7.1 Conventions
 
@@ -202,6 +210,8 @@ The status bar carries a row of one-click toggle pills. Alongside the existing *
 - **Snap tolerance controls on toolbar**: Stay in the dialog.
 
 ## 10. Acceptance Criteria
+
+> **As-built (2026-09-19):** these criteria were met by the retired dockable `_SnapToolbar`; the same toggle/persist/sync/dim behaviors now hold for the footer `InlineOsnapBar` under the unchanged `snap/{attr}` contract (§3). Toolbar-specific criteria (bottom-dock placement, `saveState()`/`restoreState()` position persistence, `_STATE_VERSION` bump, "SNAP Bar" ribbon button) no longer apply — see `mainwindow-chrome-revamp.md`.
 
 - [x] `_SnapToolbar(QToolBar)` with 8 checkable toggle buttons docks at the bottom (hidden on first launch — see §6.4 as-built; shown via the Snap-group "SNAP Bar" button)
 - [x] Each button shows an SVG icon and 3-letter abbreviation with tooltip for full name

@@ -1,12 +1,12 @@
 ---
 status: current
-last-verified: 2026-09-18
-verified-commit: 1d18d07
+last-verified: 2026-09-19
+verified-commit: 0a7b44a
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
   - firepro3d/graphics/Ribbon/
-source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg authored + import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign); underlay_manager_icon.svg (family-matched Manager icon) + graphics/chevron_{right,down}.svg tree decorations 2026-09-01 (feat/underlay-manager-chrome-match); Blocks-group icons make/insert/block_manager authored 2026-09-05 (feat/block-ribbon-icons — block-system S5; two-token guards in test_icon_theming.py); ellipse_icon.svg + spline_icon.svg node-marker fills flipped #ffffff→none to honour §4.1 (fix/test-fallout-12-reconcile, 2026-09-18)"
+source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg authored + import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign); underlay_manager_icon.svg (family-matched Manager icon) + graphics/chevron_{right,down}.svg tree decorations 2026-09-01 (feat/underlay-manager-chrome-match); Blocks-group icons make/insert/block_manager authored 2026-09-05 (feat/block-ribbon-icons — block-system S5; two-token guards in test_icon_theming.py); ellipse_icon.svg + spline_icon.svg node-marker fills flipped #ffffff→none to honour §4.1 (fix/test-fallout-12-reconcile, 2026-09-18); chrome File-group + header-rail icons authored (new/open/save_as/recent_icon.svg) and re-authored from legacy 40mm/#000000 Inkscape files (save/undo/redo_icon.svg) as two-token 48-unit icons 2026-09-19 (feat/mainwindow-chrome — chrome revamp; _CHROME_ICONS two-token + both-theme render guard in test_icon_theming.py)"
 ---
 
 # Ribbon Icon Style Guide — Governing Spec
@@ -128,7 +128,7 @@ Theme constants: `icons.LIGHT = "light"`, `icons.DARK = "dark"`. The theme is re
 
 ## 7. Coverage Mandate
 
-No `placeholder_icon.svg` file may appear in the shipped ribbon. Every `themed_icon(name, theme)` call in `ribbon_bar.py` / `main.py` must resolve to a real icon file before a release build. Authoring the approximately 47 currently-placeholder icons is a tracked follow-up outside the scope of this spec.
+No `placeholder_icon.svg` file may appear in the shipped ribbon. Every `themed_icon(name, theme)` call in `ribbon_bar.py` / `main.py` must resolve to a real icon file before a release build. Authoring the approximately 47 currently-placeholder icons is a tracked follow-up outside the scope of this spec. (The File-group placeholders — `new`/`open`/`save_as`/`recent` — are now real, authored during the 2026-09-19 chrome revamp.)
 
 ## 8. Verification Checklist
 
