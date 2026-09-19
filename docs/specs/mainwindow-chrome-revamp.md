@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed, unbuilt — do NOT read as current behavior
-last-verified: 2026-09-18
-verified-commit: 60fc42b
+status: current           # built + live-smoked (feat/mainwindow-chrome, 2026-09-19)
+last-verified: 2026-09-19
+verified-commit: 76757eb
 applies-to:
   - main.py
   - firepro3d/frameless_shell.py
@@ -23,6 +23,8 @@ related-contract: extends ui-design-system.md (deferred wave #2 — MainWindow r
 # MainWindow Chrome Revamp (Stage One) — Design Spec
 
 > **Consolidating contract.** This is one design doc for a milestone-scale chrome change spanning five governing specs. Per-spec bodies are reconciled **in place** at wrap-up (Account); the reconciliation map is in *Design Decisions → §Spec reconciliation map*. Mockups (approved, light+dark) persist under `.superpowers/brainstorm/` (git-ignored) — header v3, footer (Position-right), osnap glyphs (live-aligned), ribbon v4.
+
+> **As-built deviations (2026-09-19).** (1) **F11 stays ALIGN** (a tested contract) — fullscreen toggles via the header restore-dot / double-click-header, not F11. (2) **`main.py` is NOT in the chrome hexguard** — it lives at the repo root (outside the `firepro3d/` scan) and carries pre-existing legacy hex; the revamp moved all chrome styling into the token-clean `header_rail.py`/`footer_rail.py` (both guarded). (3) **Breathing room around the selected ribbon button is height-via-centering** (button 68 < stack 88), not a QSS margin. (4) Ribbon large-button metrics as-built: icon 48, height 68, stack 88. (5) **Window-drag-by-header** shipped; **edge-resize over child widgets** is a filed follow-up. The per-spec reconciliation of the other five governing specs (ui-design-system, ribbon-bar, snap-toolbar, settings-dialog, icon-style-guide) is tracked as a follow-up in `todo_open.md`.
 
 ## Goal
 

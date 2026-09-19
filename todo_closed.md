@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## MainWindow chrome revamp (stage one) — 2026-09-19
+
+Shipped on `feat/mainwindow-chrome` (merged to `main`). 10-task plan: custom tokenized header + footer rails, house-styled ribbon (TopTabs accent-underline + green hover, vertical ALL-CAPS labels, compact File group), snap-group teardown (dockable `_SnapToolbar` → footer InlineOsnapBar), two-token File/header icons, and **frameless MainWindow → fullscreen** (`FramelessShellMixin.window_type` param; `ui/immersive`→`ui/fullscreen` migration; taskbar hidden). Spike (Task 0) verified VTK survives frameless-fullscreen. Governing spec `docs/specs/mainwindow-chrome-revamp.md` flipped to `status: current` (verified-commit 76757eb). Live-smoked by the user (ribbon sizing/hover, footer pills, drag-by-header dialed via served slider mocks). As-built deviations + the per-spec reconciliation follow-up are recorded in the design spec + `todo_open.md`.
+
+- [x] [type:feature] Frameless MainWindow → true immersive fullscreen with a custom header strip [P2] [subject:UX] [done:2026-09-19]
+  - Delivered as part of the chrome revamp: `class MainWindow(FramelessShellMixin, QMainWindow)`, `init_frameless_shell(window_type=Window, build_titlebar=False)`, startup `showFullScreen` applied in `main()` (test-safe), `_apply_immersive`/`_toggle_max_or_fullscreen` → fullscreen↔normal, header window-dots + drag-by-header. Deviation: F11 stays ALIGN (restore-dot/double-click toggles fullscreen).
+
 ## Codebase Audit — Census F17 (unused deps) — 2026-09-18
 
 Shipped on `main` (Small tier maint; /todo Phase 1→1b→4→5→6). Removed three declared-but-unused dependencies from `requirements.txt`. **Delete re-verified independently** (not trusted from the task's "verified" note): whole-repo grep for `import`/`from` of `fontTools`/`fonttools`/`freetype`/`requests` → zero matches; the sole `*.py` hit was the word "requests" in a `text_item.py` comment; the `deptry` audit output (`audit/deptry.txt`) independently flags exactly these three as DEP002-unused. `pytest-timeout` correctly kept (pytest plugin used via `--timeout`, not imported — deptry false positive). No governing spec applies (build-dependency declaration, not a specced code subsystem) → no spec stamp. Editing a requirements text file can't affect Python imports, so no launch-smoke added.
