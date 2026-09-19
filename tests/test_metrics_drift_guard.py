@@ -12,7 +12,9 @@ import pytest
 
 SRC = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
 GUARDED = ["house_dialog.py", "ui_kit.py", "make_block_dialog.py",
-           "themed_message.py"]
+           "themed_message.py",
+           # Chrome revamp: header + footer rails read layout from theme.M.
+           "header_rail.py", "footer_rail.py"]
 
 _CALL = re.compile(r"set(?:ContentsMargins|FixedHeight|FixedWidth|Spacing)\s*\(([^)]*)\)")
 _NUMERIC = re.compile(r"\b\d+\b")

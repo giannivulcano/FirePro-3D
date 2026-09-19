@@ -183,6 +183,38 @@ def test_geom2d_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
             assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
 
 
+# Chrome-revamp File-group + header icons (Task 5) — two-token, 48-unit.
+_CHROME_ICONS = [
+    "new_icon.svg", "open_icon.svg", "save_as_icon.svg", "recent_icon.svg",
+    "save_icon.svg", "undo_icon.svg", "redo_icon.svg",
+]
+
+
+def test_chrome_icons_exist_two_token_and_48unit():
+    """File-group + header-rail icons are 48-unit + only the two sentinels (§4)."""
+    import os
+    for name in _CHROME_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing from graphics/Ribbon"
+        raw = open(path, "r", encoding="utf-8").read()
+        assert 'viewBox="0 0 48 48"' in raw, f"{name}: not the 48-unit canvas (§4)"
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval} forbidden (§4.1)"
+            assert hexval.lower() in _ALLOWED_HEX, \
+                f"{name}: non-sentinel colour {hexval} will not retheme (§4.1)"
+
+
+def test_chrome_icons_render_both_themes_no_fallback(qapp, caplog):
+    icons._cache.clear()
+    for name in _CHROME_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
 # Draft-tab Title Block icon (Task F, 2026-09-15) — user-approved mockup.
 _DRAFT_ICONS = ["titleblock_icon.svg"]
 

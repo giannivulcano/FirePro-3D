@@ -19,6 +19,11 @@ GUARDED = [
     # Settings dialogs (settings-dialog.md §4.6 — token-clean on HouseDialog)
     "settings/panes.py", "settings/system_settings_dialog.py",
     "settings/project_settings_dialog.py",
+    # Chrome revamp: custom header + footer rails (mainwindow-chrome-revamp.md).
+    # (main.py is NOT guarded here — it lives at the repo root, outside this
+    # firepro3d/ scan, and carries pre-existing legacy hex; the revamp moved all
+    # chrome styling OUT of main.py into these two token-clean rail modules.)
+    "header_rail.py", "footer_rail.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")

@@ -79,6 +79,10 @@ class _Metrics:
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
+    FOOTER_H = 30                       # footer rail fixed height
+    FOOTER_SUBRAIL_MARGIN = (12, 0, 12, 0)  # per sub-rail h-padding
+    FOOTER_TOGGLE_GAP = 6              # spacing in the toggles sub-rail
+    FOOTER_OSNAP_GAP = 2              # spacing between inline osnap toggles
     # toolbar
     TOOLBAR_MARGIN = (12, 9, 12, 9)
     TOOLBAR_GAP = 8

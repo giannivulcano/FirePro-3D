@@ -110,7 +110,7 @@ class InlineOsnapBar(QWidget):
         self._eng = snap_engine_obj
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(2)
+        lay.setSpacing(M.FOOTER_OSNAP_GAP)
         self._toggles: dict[str, _OsnapToggle] = {}
         for marker_key, attr, tip in _OSNAP:
             btn = _OsnapToggle(marker_key, attr, tip, self)
@@ -148,15 +148,15 @@ class FooterRail(QWidget):
     def __init__(self, snap_engine_obj=None, parent=None):
         super().__init__(parent)
         self._eng = snap_engine_obj
-        self.setFixedHeight(30)
+        self.setFixedHeight(M.FOOTER_H)
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         # ── Sub-rail 1: mode badge + instruction ─────────────────────────────
         s1 = QHBoxLayout()
-        s1.setContentsMargins(12, 0, 12, 0)
-        s1.setSpacing(8)
+        s1.setContentsMargins(*M.FOOTER_SUBRAIL_MARGIN)
+        s1.setSpacing(M.FOOTER_BTN_GAP)
         self.mode_badge = QLabel("Select")
         self.mode_badge.setStyleSheet(_pill_style(True))
         self.instruction = QLabel("")
@@ -169,8 +169,8 @@ class FooterRail(QWidget):
         # ── Sub-rail 2: position ─────────────────────────────────────────────
         root.addWidget(_vsep())
         s2 = QHBoxLayout()
-        s2.setContentsMargins(12, 0, 12, 0)
-        s2.setSpacing(8)
+        s2.setContentsMargins(*M.FOOTER_SUBRAIL_MARGIN)
+        s2.setSpacing(M.FOOTER_BTN_GAP)
         self.coord = QLabel("X: —   Y: —")
         self.coord.setStyleSheet(f"color:{detect().text_primary}; font-family:Consolas;")
         self.node_chip = QLabel("")
@@ -183,8 +183,8 @@ class FooterRail(QWidget):
         # ── Sub-rail 3: toggles (SNAP + osnaps + chevron + ALIGN + HALO) ──────
         root.addWidget(_vsep())
         s3 = QHBoxLayout()
-        s3.setContentsMargins(12, 0, 12, 0)
-        s3.setSpacing(6)
+        s3.setContentsMargins(*M.FOOTER_SUBRAIL_MARGIN)
+        s3.setSpacing(M.FOOTER_TOGGLE_GAP)
         self.snap_pill = QToolButton()
         self.snap_pill.setText("SNAP")
         self.snap_pill.setCheckable(True)
