@@ -87,12 +87,13 @@ def _floor_page(mw):
 
 
 def _group_titles(page):
+    # Group labels render UPPERCASE + vertical after the chrome revamp (Task 3).
     from firepro3d.ribbon_bar import RibbonGroup
     from PyQt6.QtWidgets import QLabel
     titles = []
     for g in page.findChildren(RibbonGroup):
         for lbl in g.findChildren(QLabel):
-            titles.append(lbl.text())
+            titles.append(lbl.text().upper())
     return titles
 
 
@@ -129,8 +130,8 @@ def test_floor_tab_has_edit_and_graphic_override_groups(main_window, qapp):
 
     page = _floor_page(main_window)
     titles = _group_titles(page)
-    assert "Edit" in titles, f"Expected 'Edit' group; got {titles}"
-    assert "Graphic Override" in titles, (
+    assert "EDIT" in titles, f"Expected 'Edit' group; got {titles}"
+    assert "GRAPHIC OVERRIDE" in titles, (
         f"Expected 'Graphic Override' group; got {titles}"
     )
 

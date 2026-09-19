@@ -89,13 +89,18 @@ def clean_scene(main_window, qapp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _group_titles(page):
-    """Return the group label texts found on a RibbonPage."""
+    """Return the group label texts (UPPERCASE) found on a RibbonPage.
+
+    Group labels render UPPERCASE + vertical after the chrome revamp (Task 3);
+    field labels like ``Fill:`` keep their case+colon, so the colon check below
+    still distinguishes a 'Fill' group from a 'Fill:' field label.
+    """
     from firepro3d.ribbon_bar import RibbonGroup
     from PyQt6.QtWidgets import QLabel
     titles = []
     for g in page.findChildren(RibbonGroup):
         for lbl in g.findChildren(QLabel):
-            titles.append(lbl.text())
+            titles.append(lbl.text().upper())
     return titles
 
 
@@ -113,12 +118,12 @@ def test_geo2d_tab_has_edit_constraints_graphic_override(main_window, qapp, clea
     page = main_window.ribbon._stack.widget(idx)
     group_titles = _group_titles(page)
 
-    assert "Edit" in group_titles, group_titles
-    assert "Constraints" in group_titles, group_titles
-    assert "Graphic Override" in group_titles, group_titles
+    assert "EDIT" in group_titles, group_titles
+    assert "CONSTRAINTS" in group_titles, group_titles
+    assert "GRAPHIC OVERRIDE" in group_titles, group_titles
     # Dropped / folded away:
-    assert "Placement" not in group_titles, group_titles
-    assert "Fill" not in group_titles, group_titles  # a 'Fill:' field label is fine (has colon)
+    assert "PLACEMENT" not in group_titles, group_titles
+    assert "FILL" not in group_titles, group_titles  # a 'Fill:' field label is fine (has colon)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
