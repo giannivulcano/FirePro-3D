@@ -634,3 +634,12 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: @60% (see audit/vulture.txt) — e.g. `geometry_intersect.circle_circle_intersections`, `align_engine.point_along_ray`, `block_library.list_library`, `hatch_patterns.{refresh_patterns,is_builtin,make_hatch_tile}`, `underlay_cache.delete_cache`, `manip_math.transform_angle_deg`. Grep caller+test+dynamic-access per function before deleting. (audit F#5, risk:low, effort:M)
 - [ ] [type:bug] Investigate pre-existing render-test failure `test_paper_space.py::TestTemplateItemRev3::test_default_template_paints` [P2] [subject:Testing]
   - Details: QImage paint assert L743 — fails on clean `main`, surfaced during audit F1–F3 cleanup. live-smoke-required. (audit F#21, risk:med, effort:M)
+
+## MainWindow chrome revamp — follow-ups (feat/mainwindow-chrome, 2026-09-19)
+
+- [ ] [type:bug] UXPane HALO toggle is a no-op on the live scene [P2] [subject:Settings]
+  - Details: **pre-existing** (byte-identical on `main` — NOT introduced by the chrome branch; surfaced by the chrome seam review). `firepro3d/settings/panes.py` reads/writes `self._scene._halo_enabled` (leading underscore) at L351/L494–495, but `HaloSelectionMixin` + `main.py` store the flag as `self.scene.halo_enabled` (no underscore). So `UXPane.load()` always sees the default and `apply()`'s write block is dead. Fix: `_halo_enabled`→`halo_enabled` at all three sites. (risk:low, effort:S)
+- [ ] [type:feature] Frameless MainWindow: drag-by-header + edge-resize over children [P3] [subject:Chrome]
+  - Details: the frameless shell drags only its `_titlebar`, but MainWindow uses the header rail (build_titlebar=False) whose child widgets consume clicks, so the restored window can't be dragged; edge-resize also needs the child event-filter (not installed on the full MainWindow tree — `project_frameless_resize_cursor_child_intercept`). Fullscreen-default makes this rare. Have HeaderRail emit a drag on empty-area press → window.move. (risk:med, effort:M)
+- [ ] [type:maint] Remove orphaned legacy icons `saveas_icon.svg` + `load_icon.svg` [P3] [subject:Cleanup]
+  - Details: chrome revamp re-homed Save As→`save_as_icon.svg`, Open/Recent→`open_icon.svg`/`recent_icon.svg`; the two legacy 40mm/#000000 files are now unreferenced. Grep repo (incl. dynamic `_I(...)`) before deleting. (risk:low, effort:S)
