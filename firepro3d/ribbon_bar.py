@@ -155,9 +155,9 @@ class RibbonButton(QToolButton):
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(38, 38))   # +25% over the compact 30px
+        self.setIconSize(QSize(48, 48))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setFixedHeight(84)
+        self.setFixedHeight(68)
         self.setMinimumWidth(72)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
@@ -400,7 +400,7 @@ class RibbonBar(QWidget):
         # Stacked pages (one per tab)
         self._stack = QStackedWidget(self)
         self._stack.setStyleSheet(f"background: {_t.bg_raised};")
-        self._stack.setFixedHeight(106)
+        self._stack.setFixedHeight(88)
         outer.addWidget(self._stack)
 
     def _on_tab_changed(self, index: int):
