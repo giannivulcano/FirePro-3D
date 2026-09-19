@@ -46,3 +46,6 @@ docs/superpowers/plans/
 .testhome/
 _probe*.py
 _t.txt
+
+# Local UI mockups (served slider pages, throwaway)
+.mockups/
