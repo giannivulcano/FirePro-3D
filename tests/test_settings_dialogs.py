@@ -40,6 +40,21 @@ def test_uxpane_snap_has_angle_no_grid(qapp):
     assert not hasattr(p, "_grid_edit")   # grid-spacing removed
 
 
+def test_uxpane_halo_reads_and_writes_live_scene(qapp, make_model_space):
+    """The HALO toggle must read/write the scene's real `halo_enabled` attr
+    (regression: it used a bogus `_halo_enabled`, so load() ignored the live
+    state and apply() never wrote it)."""
+    from firepro3d.settings.panes import UXPane
+    scene = make_model_space()
+    scene.halo_enabled = False
+    p = UXPane(scene=scene)
+    p.load()
+    assert p._halo_enable.isChecked() is False   # load() read scene.halo_enabled
+    p._halo_enable.setChecked(True)
+    p.apply()
+    assert scene.halo_enabled is True            # apply() wrote scene.halo_enabled
+
+
 # ── New dialog tests ─────────────────────────────────────────────────────────
 
 def test_system_settings_dialog_rail(qapp, make_model_space):

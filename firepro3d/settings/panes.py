@@ -348,7 +348,7 @@ class UXPane(SettingsPane):
             snap_flags: dict[str, bool] = {
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
-            halo_on = bool(getattr(self._scene, "_halo_enabled", True))
+            halo_on = bool(getattr(self._scene, "halo_enabled", True))
             halo_aperture = int(getattr(self._scene, "_halo_aperture_px",
                                         _HALO_APERTURE_DEFAULT))
         else:
@@ -491,8 +491,8 @@ class UXPane(SettingsPane):
         s.setValue("halo/enabled", halo_on)
         s.setValue("halo/aperture_px", halo_aperture)
         if self._scene is not None:
-            if hasattr(self._scene, "_halo_enabled"):
-                self._scene._halo_enabled = halo_on
+            if hasattr(self._scene, "halo_enabled"):
+                self._scene.halo_enabled = halo_on
             if hasattr(self._scene, "_halo_aperture_px"):
                 self._scene._halo_aperture_px = halo_aperture
 
