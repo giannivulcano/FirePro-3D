@@ -126,6 +126,12 @@ Layout (approved): **Mode/instruction** (accent mode badge + instruction) — *(
 - [ ] No regressions: undo/redo across tabs, snap behavior (F3 + per-osnap), contextual ribbon tabs.
 - [ ] Spec reconciliation map applied; `verified-commit`/`last-verified` stamped on each touched spec.
 
+## Spike verdict (Task 0) — 2026-09-18
+
+**PASS.** Frameless top-level (`FramelessWindowHint | Window`) + `showFullScreen` + `Qt.AA_DontCreateNativeWidgetSiblings` (set before `QApplication`) ran the real `MainWindow` with a live `View3D` opened/rebuilt and a paper viewport created + deleted — **no native-window `qFatal`/0xC0000409**. Task 6 proceeds as frameless-fullscreen (no stage-1b split).
+
+Two non-fatal exceptions surfaced during Alt+F4 teardown (surfaced only because the spike installs the excepthook and skips `closeEvent` cleanup): `view_3d._clear_actors` when `self._plotter is None`, and `_on_selection_changed_contextual` reading `selectedItems()` on an already-deleted `Model_Space`. Both are selection-signal-during-teardown races, not the native-window class. **Follow-up:** confirm they reproduce on `main` (pre-existing) during the smoke pass; if so, file separately (disconnect selection signals in `MainWindow.closeEvent` / guard `_clear_actors` on `_plotter`).
+
 ## Edge Cases & Error Handling
 - **Long/no project name:** middle-elide + tooltip; unsaved → "Untitled" (no ●).
 - **Undo model divergence:** model scene uses a custom list stack (not `QUndoStack`); the header must read the right stack per active tab (paper vs model vs block-editor).
