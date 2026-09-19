@@ -1,7 +1,8 @@
 ---
-status: partial           # core system BUILT + code-verified; "Deferred waves" section is future/unbuilt
-last-verified: 2026-09-15  # 2026-09-15: TopTabs refactored to composed QWidget (bar+divider+stack), SwitchBar expanding=False, multi-rail tab-page recipe (Title Block editor rollout); prior: 2026-09-06 core system
-verified-commit: 9fe9985   # branch feat/titleblock-ansi-d-default (TopTabs/SwitchBar/Section conventions)
+status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
+last-verified: 2026-09-19  # 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 0a7b44a   # merge 0a7b44a (MainWindow chrome revamp); prior 9fe9985 (feat/titleblock-ansi-d-default: TopTabs/SwitchBar/Section conventions)
+related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
   - firepro3d/frameless_shell.py
@@ -127,6 +128,7 @@ interpolation in `build_dialog_qss` (`{M.RADIUS_INPUT}` alongside `{t.accent}`).
 | `PANEL_PAGE_MARGIN` | (14,14,14,14) | dense panel pages (Manager `14/12`→`14/14`, invisible) |
 | `FOOTER_MARGIN` | (14,9,14,9) | **canonical** (MakeBlock `16/10` & Manager `12/8` snap in) |
 | `FOOTER_BTN_GAP` | 8 | shared |
+| `FOOTER_H` / `FOOTER_SUBRAIL_MARGIN` / `FOOTER_TOGGLE_GAP` / `FOOTER_OSNAP_GAP` | — | MainWindow footer rail (wave #2, LANDED 2026-09-19); values/contract → `docs/specs/mainwindow-chrome-revamp.md` |
 | `PANEL_W` / `PANEL_W_WIDE` | 268 / 324 | two tokens (grid vs stacked pages) |
 | `TOOLBAR_MARGIN` / `TOOLBAR_GAP` | (12,9,12,9) / 8 | Manager toolbar |
 | `SIDE_RAIL_W` / `SIDE_RAIL_MARGIN` / `SIDE_RAIL_ROW_GAP` | 188 / (6,12,6,12) / 4 | Import rail |
@@ -299,7 +301,7 @@ feedback memory.)
 ## Tab-style catalog (documented; scope-flagged)
 
 - **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized**. Table of contents / stepped sequence / 4+ sections.
-- **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Composed** (QTabBar + full-bleed `#topTabsDivider` + QStackedWidget), NOT a `QTabWidget` subclass — a QTabWidget's `::pane` line is unreliable and its bar underline stops short of the content width. The **tab bar** is inset by `page_inset`; the **stack is full-bleed** so a page that leads with a rail sits flush-left (each page owns its padding); `page_top` keeps Section overlines off the ribbon. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
+- **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Hover carries the button-style green highlight (2026-09-19, wave #2 chrome revamp): accent_soft fill + 1px `accent` border + rounded top; the base tab reserves a 1px transparent border so the hover border adds no layout shift.** **Composed** (QTabBar + full-bleed `#topTabsDivider` + QStackedWidget), NOT a `QTabWidget` subclass — a QTabWidget's `::pane` line is unreliable and its bar underline stops short of the content width. The **tab bar** is inset by `page_inset`; the **stack is full-bleed** so a page that leads with a rail sits flush-left (each page owns its padding); `page_top` keeps Section overlines off the ribbon. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
 - **App/plan `QTabBar`** — `build_app_qss` (main-window plan tabs); documented, **untouched**.
 - **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); documented, **untouched**.
 
@@ -412,10 +414,16 @@ follows these rules so every column reads as a proper rail:
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,
    `FSVisibilityDialog`, `SectionPatternDialog`, `SheetViewPropertiesDialog`,
    `_RecordEditDialog`, `AlgorithmParamsDialog`.
-2. **MainWindow re-shell** + custom header strip + frameless-fullscreen
-   (`todo_open.md:47`). Enabler step 1: parameterize `FramelessShellMixin`
-   `window_type` (currently hardcoded `FramelessWindowHint | Dialog`). Watch the
-   VTK native-child-window crash class.
+2. **MainWindow re-shell** + custom header/footer rails + frameless-fullscreen —
+   **LANDED 2026-09-19 (merge `0a7b44a`).** `MainWindow(FramelessShellMixin,
+   QMainWindow)` is now frameless-fullscreen by default (taskbar hidden); the
+   mixin gained a `window_type` param (Dialog default, Window for the shell),
+   startup fullscreen applied in `main()`, `ui/immersive`→`ui/fullscreen` pref
+   migration; custom `header_rail.py` (via `setMenuWidget`, stacked above the
+   ribbon) + `footer_rail.py` (3 sub-rails, replaces the status bar) drive the
+   chrome. Full header/footer-rail invariants + the frameless-MainWindow contract
+   → **`docs/specs/mainwindow-chrome-revamp.md` (status: current)** — the
+   governing spec for this wave (this spec links, does not restate).
 3. **Live-theme-switch-while-open** wiring (`todo_open.md:276`) — the `restyle()`
    seam exists; wiring `MainWindow._apply_theme` to walk open dialogs is deferred.
 4. **Full-app chrome-hexguard extension** (`todo_open.md:265`) — this task adds only

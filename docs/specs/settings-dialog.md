@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-09-14
-verified-commit: b934edb
+last-verified: 2026-09-19
+verified-commit: 0a7b44a
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
@@ -18,6 +18,8 @@ source-tasks:
   - "todo_open.md (Preferences UX-pane reorg — Snapping→UX; SNAP/ALIGN/HALO tabs)"
   - "todo_open.md (Normalize legacy snap dialog QSettings + retire Manage 'Snap Settings' button)"
   - "todo_open.md (Restore radiation dock + GeneralPane wiring — partial)"
+  - "docs/specs/mainwindow-chrome-revamp.md (chrome revamp, merge 0a7b44a, 2026-09-19) — retired the ribbon Snap group; footer SNAP-pill now opens System Settings on the UX pane"
+related-contract: docs/specs/mainwindow-chrome-revamp.md   # footer rail / InlineOsnapBar contract; SystemSettings entry-point change
 ---
 
 # Settings Dialog — Design Spec
@@ -27,6 +29,8 @@ source-tasks:
 **Status:** proposal (grill + brainstorm complete; not yet built)
 
 > **Rename note:** The product feature "Preferences" is renamed "Settings" and split into **two** dialogs — **Project Settings** (project-scoped) and **System Settings** (app-wide). This spec is the governing home for the subsystem and **replaces the SPEC-INDEX orphan row** for `preferences_dialog.py` (previously governed only by `ribbon-bar.md §3.4` + the dated `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`).
+
+> **See also:** `mainwindow-chrome-revamp.md` (status: current) — owns the footer rail / `InlineOsnapBar` contract and, at merge 0a7b44a (2026-09-19), deleted the ribbon Snap group and added the footer SNAP-pill entry point into System Settings' UX pane (§4.4/§4.6).
 
 ---
 
@@ -68,7 +72,7 @@ Consolidate the scattered/legacy snap dialogs into the UX pane, introduce a mini
 ### 4.2 Dialog composition (house nav, not raw `QTabWidget`)
 Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QStackedWidget`** (one page per pane) — the `underlay_import_dialog.py` pattern (`SideTabs.tabSelected → stack.setCurrentIndex`).
 - **ProjectSettingsDialog** rail: `Project Info` · `Units & Precision`. Footer via `set_footer_buttons`: OK/Apply/Cancel + **"Save as default for new projects"** in the `extra_left` slot.
-- **SystemSettingsDialog** rail: `General` · `UX` · `UI` · `Import`. Footer: OK/Apply/Cancel.
+- **SystemSettingsDialog** rail: `General` · `UX` · `UI` · `Import`. Footer: OK/Apply/Cancel. Exposes **`select_pane(key)`** — highlights the rail row and switches the stacked body to the named pane (e.g. `"ux"`); no-op for an unknown key. Used by the footer SNAP-pill entry point (§4.4/§4.6) to open directly on the snap-bearing UX pane.
 - The **UX** page uses a **`SwitchBar`** (SNAP/ALIGN/HALO) over an inner `QStackedWidget` — no nested vertical rail.
 - Both register in `test_theme_chrome_hexguard.py`'s allow-list; no raw hex/stylesheet chrome.
 
@@ -81,8 +85,9 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 - **SNAP** sub-tab: tolerance / hysteresis / grip radius + 8 snap-type toggles + **angle-snap moved in** (own container, default 5°). **Dead grid-spacing removed.**
 - **ALIGN** sub-tab: the `align/*` knobs (enabled, path aperture, dwell, max points, 4 direction flags).
 - **HALO** sub-tab: `halo/enabled` + `halo/aperture_px` **only** (migrate the interim tab as-is; richer HALO is separate deferred todos).
-- Writes the **same keys** the retired dialogs did (behavior parity). `apply()` calls the existing **OSNAP-toolbar refresh** (the call the retired dialog made at ~2538) so the live toolbar toggles and the pane stay in sync through the shared `snap/*` keys.
-- **Retire:** delete `_open_snap_tolerance_dialog` + `_open_snap_settings`; remove the Manage "Snap Settings" button; repoint or remove "Angle Snap". **Keep** the live OSNAP toolbar. The bare `QSettings()` at ~2443 vanishes with the deletion (Explore confirmed it is the only bare site).
+- Writes the **same keys** the retired dialogs did (behavior parity). `apply()`/`revert()` call **`snap_toolbar.refresh_from_engine()`** so the live snap bar and the pane stay in sync through the shared `snap/*` keys. Post chrome-revamp (merge 0a7b44a) the `snap_toolbar=` constructor arg is passed the footer's **`InlineOsnapBar`** (`firepro3d/footer_rail.py`), which satisfies the same `refresh_from_engine()` contract the retired `_SnapToolbar` did.
+- **Retire:** delete `_open_snap_tolerance_dialog` + `_open_snap_settings`; remove the Manage "Snap Settings" button; repoint or remove "Angle Snap". The bare `QSettings()` at ~2443 vanishes with the deletion (Explore confirmed it is the only bare site).
+- **Snap entry points (post chrome-revamp).** The ribbon **Snap group is deleted** — its ribbon "Snap Settings…" / Angle-Snap entries are gone. **Angle-snap remains reachable in this UX pane** (pane content unchanged). The live in-canvas snap control is now the footer rail's **`InlineOsnapBar`** (contract owned by `mainwindow-chrome-revamp.md`); **right-clicking the footer rail's SNAP pill** opens `SystemSettingsDialog` directly on this UX pane via `select_pane("ux")`.
 
 ### 4.5 `.fpdt` template subsystem (`settings/template.py`)
 - **A template is a blank-project `.fpd`**: empty entity collections + a `scale` block + a `project_info` block + a `"template": true` marker. Reuses the exact project serialization (zero new format code; forward-fits templates that later carry levels/gridlines/title block). Carries **settings, not geometry**.
@@ -101,6 +106,7 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 ### 4.6 Ribbon + icons
 - Manage→Settings group: two large buttons — **"System Settings"** (gear) and **"Project Settings"** (gear-with-document). Remove the old "Preferences" button + `info_icon.svg` usage and the "Snap Settings" button.
 - Icons: 2D-symbol two-token themed SVGs (`settings_system_icon.svg`, `settings_project_icon.svg`) in `graphics/Ribbon/`, authored per `icon-style-guide.md` and **mockup-gated** (rendered 54/27px light+dark for approval) before wiring.
+- **Entry points (post chrome-revamp, merge 0a7b44a):** the Manage→Settings ribbon buttons remain the primary way to open both dialogs. The chrome revamp additionally **deleted the ribbon Snap group** (its "Snap Settings…" / Angle-Snap entries are gone) and added a footer entry point: **right-clicking the footer rail's SNAP pill** opens `SystemSettingsDialog` on the snap-bearing UX pane via `select_pane("ux")` (see §4.4). Footer contract → `mainwindow-chrome-revamp.md`.
 
 ## 5. Design Decisions
 

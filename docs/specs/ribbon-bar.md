@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-18
-verified-commit: 8c887aa
+last-verified: 2026-09-19
+verified-commit: 0a7b44a
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -9,7 +9,9 @@ applies-to:
   # settings dialog internals now governed by specs/settings-dialog.md (this spec owns only the ribbon Settings-group surface that opens it)
   - main.py (init_ribbon + _init_*_tab helpers + contextual-tab mechanism + mode-button sync)
 source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (orphan-gate spec forged on first touch); ribbon-overhaul 2026-08-22 (7 tabs + contextual + Preferences + icons)"
-related-contract: model-space-containment-contract.md   # C7 LANDED 2026-09-18: Create dissolved, Architecture Block group added, Underlay moved to Architecture, Quick/Text-Block retired. Rest of the ribbon spec stays current.
+related-contract:
+  - model-space-containment-contract.md   # C7 LANDED 2026-09-18: Create dissolved, Architecture Block group added, Underlay moved to Architecture, Quick/Text-Block retired. Rest of the ribbon spec stays current.
+  - mainwindow-chrome-revamp.md            # CHROME REVAMP LANDED 2026-09-19 (merge 0a7b44a, status: current): governing contract for the header/footer rails + the ribbon restyle (TopTabs tab look, vertical group labels, density metrics, Manage-tab roster trim). Rule A: the full rail contract lives there, not restated here.
 ---
 
 # Ribbon Bar — Governing Spec
@@ -45,11 +47,11 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 | Class | Role | Key constraints |
 |---|---|---|
-| `RibbonBar` | `QTabBar` + `QStackedWidget` of pages | Stack fixed at 150 px tall; tab index drives stack index; QSS applied at construction from `theme.build_ribbon_qss(theme.detect())` (Rule A: theming owned by `architecture/theming.md`) |
+| `RibbonBar` | `QTabBar` + `QStackedWidget` of pages | `_stack` fixed at **88 px** tall (chrome-revamp density, 2026-09-19); tab index drives stack index; QSS applied at construction from `theme.build_ribbon_qss(theme.detect())` (Rule A: theming owned by `architecture/theming.md`; tab look = house TopTabs, see §3.7) |
 | `RibbonPage` | One tab's content — HBox of groups + trailing stretch | `add_group(title)` inserts before the stretch. No overflow handling: a too-narrow window clips groups (no collapse/scroll). **Accepted constraint (grilled 2026-07-16):** responsive collapse stays out of scope; any new wide group must be sanity-checked at a realistic minimum window width |
-| `RibbonGroup` | Labelled button cluster with painted right-edge separator | Title label pushed to the bottom by a stretch (aligns across groups); large buttons sit side-by-side; small buttons auto-stack in vertical columns of ≤ 3 (`_MAX_SMALL_PER_COL`); a large button **flushes** the open small column |
-| `RibbonButton` | Large: 54×54 icon above text, 111 px tall, min-width 81 | |
-| `RibbonSmallButton` | Compact: 27×27 icon beside text, 33 px tall, min-width 120 | |
+| `RibbonGroup` | Labelled button cluster with painted right-edge separator | **Group label is a VERTICAL ALL-CAPS `_VLabel(QLabel)` on the group's LEFT edge** (chrome-revamp, 2026-09-19 — outer layout is `QHBoxLayout`: rotated label, then the button row); NOT a centered label beneath the buttons. Large buttons sit side-by-side; small buttons auto-stack in vertical columns of ≤ 3 (`_MAX_SMALL_PER_COL`); a large button **flushes** the open small column |
+| `RibbonButton` | Large: **48×48 icon** above text, **68 px `fixedHeight`**, min-width 81. The selected-button highlight floats with ~9 px top/bottom breathing via centering (button 68 < `_stack` 88 — no QSS margin) | |
+| `RibbonSmallButton` | Compact: **20×20 icon** beside text, **26 px height**, min-width 120 | |
 
 ### 3.2 Group API (the only sanctioned way to add controls)
 
@@ -61,7 +63,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 ### 3.3 Shortcut scoping (the trap)
 
-`shortcut=` calls `QToolButton.setShortcut`, and a button on a hidden `QStackedWidget` page **does not fire** — ribbon-button shortcuts are effectively tab-scoped. Global hotkeys must be window-level `QShortcut`s or view `keyPressEvent`/`ShortcutOverride` handling instead (F3 precedent: `snap-toolbar.md`; Ctrl+Z/Y in paper space: `paper-space.md` §17.4). As-built consequences: the Manage-tab Undo/Redo `shortcut="Ctrl+Z"/"Ctrl+Y"` and Sprinkler Systems-tab `F5`/`F6` only fire while their tab is current — the real global routes live elsewhere (scene/view key handling).
+`shortcut=` calls `QToolButton.setShortcut`, and a button on a hidden `QStackedWidget` page **does not fire** — ribbon-button shortcuts are effectively tab-scoped. Global hotkeys must be window-level `QShortcut`s or view `keyPressEvent`/`ShortcutOverride` handling instead (F3 precedent: `snap-toolbar.md`; Ctrl+Z/Y in paper space: `paper-space.md` §17.4). As-built consequence: the Sprinkler Systems-tab `F5`/`F6` only fire while their tab is current — the real global routes live elsewhere (scene/view key handling). *(The former Manage-tab Undo/Redo buttons — a canonical example of this trap — were deleted in the 2026-09-19 chrome revamp; Undo/Redo are now window-wide header-rail actions, see §3.4 and `mainwindow-chrome-revamp.md`.)*
 
 ### 3.4 Content ownership (`main.py`)
 
@@ -71,13 +73,15 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 | # | Tab | Groups |
 |---|-----|--------|
-| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (System/Project Settings) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Angle Snap/OSNAP Bar) · Display (Display Manager) |
+| 1 | **Manage** | File (New/Open/Save As as a 3-stack of SMALL buttons + a large **Recent** menu button — **no Save button**, Save lives on the header rail) · Settings (System/Project Settings) · Display (Display Manager) |
 | 2 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) · **Block** (Create Block / Insert Block / Block Manager) · **Underlay** (Underlay Manager) |
 | 3 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
 | 4 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
 | 5 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
 
 The **Create tab was dissolved** (D10 resolved — containment contract C7, 2026-09-18): the model is placement-only (C1), so the loose 2D-geometry tools (the 9 primitives incl. Text) live **only** in the Block-Editor and Paper contexts. Block *entry* commands (Create/Insert/Manager) moved to the new Architecture **Block** group; the **Quick-Block** button (its premise — bake loose model geometry — is gone under C1) and the **Text-Block** button (Text is a primitive, C5) are retired. The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was removed (D6 resolved). The **View tab was retired** (2026-09-05): the Display group moved to Manage; the **Underlay group** (also ex-View→Manage) subsequently moved to **Architecture** with C7 (above); Fit-to-Screen is now the **Home** key + middle-mouse double-click (`Model_View.keyPressEvent` / `mouseDoubleClickEvent`, no ribbon button); the Panels dock toggles were deleted (Browser/Properties reached via the `B` / `/` window shortcuts; the Hydraulic/Radiation report docks auto-show on their Run action and start hidden — GeneralPane no longer lists them as startup panels).
+
+**Chrome revamp (2026-09-19, merge `0a7b44a` — governing contract `mainwindow-chrome-revamp.md`, status: current):** the Manage-tab roster was trimmed to **File / Settings / Display**. The **Edit group** (Undo/Redo) is **DELETED** — Undo/Redo migrated to the **header rail** as window-wide actions (real global Ctrl+Z / Ctrl+Y, no longer the tab-scoped ribbon buttons of §3.3). The **Snap group** is **DELETED** — OSNAP moved to the **footer rail** and Angle Snap moved to **System Settings → UX** (the SNAP surface contract is owned by `snap-toolbar.md`; the rail placement by the chrome-revamp contract). In the **File group**, the standalone **Save** button was removed (Save is on the header rail); File is now New / Open / Save As (three small buttons) + a large **Recent** menu button. Header/footer rail contracts, the ribbon restyle, and the full roster rationale live in `mainwindow-chrome-revamp.md` (Rule A — not restated here).
 
 **Preferences button (Manage → Settings):** opens `firepro3d.preferences_dialog.PreferencesDialog` — a `QTabWidget`-based dialog with 6 panes: Snapping / Units & Precision / Import & Conversion / General / UI / Project Info. Each pane implements a `load()`/`apply()`/`revert()` protocol; OK = apply-all + close, Apply = apply-all + stay, Cancel = revert-all + close. The **UI pane** persists `ui/theme`, `ui/crosshair` (accent crosshair cursor, default ON), and `ui/immersive` (maximize the window — `showMaximized`, keeps the OS title bar); crosshair/immersive apply via MainWindow callbacks (`_apply_crosshair`/`_apply_immersive`) and are re-applied on startup in `restore_settings`. A dedicated governing spec for `PreferencesDialog` is a filed follow-up; for design-of-record see `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`.
 
@@ -95,12 +99,14 @@ Checkable tool buttons that enter a scene mode register in `self._mode_buttons[m
 
 - **Contextual tab show/hide:** `scene.selectionChanged → _on_selection_changed_contextual` (§3.8). Supersedes the old Modify auto-switch (`_on_selection_changed_modify` — removed).
 - **Contextual Text group (legacy — NoteAnnotation only):** the old Modify → Text group was removed. Model-space text formatting is now routed through the contextual Annotation tab's Edit group (and the property panel for full formatting).
-- **Undo/Redo dispatch:** ribbon Undo/Redo buttons (Manage → Edit) call `_dispatch_undo/_dispatch_redo`, which route on `central_tabs.currentWidget()` — `PaperSpaceWidget` → its `paper_scene.undo_stack`, else model-space `scene.undo()/redo()` (contract owned by `paper-space.md` §17.4).
-- **SNAP surface:** the Manage → Snap group and the SNAP toolbar toggle are owned by `snap-toolbar.md` — link, don't restate.
+- **Undo/Redo dispatch:** Undo/Redo now live on the **header rail** (chrome revamp, 2026-09-19 — the Manage → Edit group is deleted, §3.4). They still call `_dispatch_undo/_dispatch_redo`, which route on `central_tabs.currentWidget()` — `PaperSpaceWidget` → its `paper_scene.undo_stack`, else model-space `scene.undo()/redo()` (contract owned by `paper-space.md` §17.4; rail placement by `mainwindow-chrome-revamp.md`).
+- **SNAP surface:** the Snap group is deleted from Manage (chrome revamp — OSNAP moved to the footer rail, Angle Snap to System Settings → UX, §3.4). The SNAP surface and toolbar toggle remain owned by `snap-toolbar.md` — link, don't restate.
 
 ### 3.7 Theming
 
 All ribbon QSS comes from `theme.build_ribbon_qss` at `RibbonBar` construction; `RibbonGroup` label color and separator color read `theme.detect()` live. The module-level `RIBBON_QSS` string in `ribbon_bar.py` is **dead** (kept "for reference" — D1).
+
+**Tab styling — house TopTabs look (chrome revamp, 2026-09-19):** the ribbon `QTabBar` adopts the house TopTabs treatment via `theme.build_ribbon_qss` — flat/muted tabs, an **accent-underline on the selected tab**, and a **button-style green hover on non-selected tabs** (`accent_soft` fill + 1 px accent border + rounded top corners; the base tab reserves a 1 px *transparent* border so hover doesn't jitter the layout). A full-width **`line_strong` divider** runs under the whole tab strip. This same hover treatment was also applied to the shared `#topTabsBar` kit. Full rail/tab restyle contract lives in `mainwindow-chrome-revamp.md` (Rule A).
 
 Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a two-token themed model (primary + accent roles, remapped per theme at load time). See `specs/icon-style-guide.md` for the full authoring contract, sentinel colors, per-theme token table, and fallback behavior. Do not restate token values here (Rule A: owned by `icon-style-guide.md`). *(The accent display value derives from `theme.accent` — one accent shared by icons, the ALIGN/SNAP status-bar pills, and the mode badge; see `icon-style-guide.md §4.2`.)* The `_I` closure in `init_ribbon` calls `themed_icon(name, current_theme)` and is evaluated once at ribbon-build time (runtime theme-switch is not a current feature).
 
@@ -144,10 +150,10 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 - **Library/content split:** `ribbon_bar.py` imports nothing from the app (only `theme`); every callback, mode string, registry entry, and dock reference stays in `main.py`. Keeps the widget library trivially reusable and testable.
 - **No QMenuBar:** the ribbon replaces it entirely; anything that would be a View-menu toggle becomes a ribbon button (OSNAP Bar precedent).
-- **Small-button columns of 3:** matches the 111 px large-button height (3 × 33 px + spacing) so rows align without vertical size negotiation.
-- **Fixed 150 px stack:** the ribbon never grows; content that doesn't fit clips. Simplicity over responsive collapse (acceptable at the app's minimum window sizes).
+- **Small-button columns of 3:** ≤ 3 small buttons stack per column so rows align without vertical size negotiation (the chrome-revamp density: small height 26, large `fixedHeight` 68 — see §3.1).
+- **Fixed `_stack` height (88 px, chrome revamp 2026-09-19; was 150 px):** the ribbon never grows; content that doesn't fit clips. Simplicity over responsive collapse (acceptable at the app's minimum window sizes).
 - **Insert/remove contextual tabs (not hide):** `QTabBar` has no per-tab hide API; inserting/removing tab+page together at a shared index is the only way to maintain `_on_tab_changed` index-parity, and it's simpler than a visibility overlay.
-- **Always-visible Undo/Redo on Manage:** with Modify removed, undo needs a persistent mouse-reachable home (keyboard routes are unaffected — §3.3).
+- **Undo/Redo on the header rail (chrome revamp, 2026-09-19; was always-visible on Manage):** undo needs a persistent, tab-independent mouse-reachable home. The chrome revamp moved it off the tab-scoped Manage → Edit group (now deleted) onto the header rail, where the actions are genuinely window-wide (real global Ctrl+Z / Ctrl+Y — resolves the §3.3 tab-scope trap). See `mainwindow-chrome-revamp.md`.
 - **Shared Edit group on every contextual stub:** restores mouse access to Delete/Copy/Paste that removing Modify would otherwise push to keyboard-only.
 
 ## 5. Acceptance Criteria (for changes to this subsystem)
@@ -183,3 +189,4 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 | D8 | ~~Modify tab always visible + force-switching on selection~~ vs intended Revit-style contextual tab. | **Resolved 2026-08-22** — contextual-tab mechanism built (§3.8); Modify tab removed; `_on_selection_changed_modify` replaced by `_on_selection_changed_contextual`. **Finalized 2026-09-08** — two coupled defects fixed: (1) `_contextual_index` was hardcoded `7` against a **6**-tab base roster, so the tab never auto-activated and never removed on deselect → now derived from the live tab count; (2) titles are now Revit-style **`"Modify | <Element>"`** (concrete element, not the family/`"2D Geometry"` label), resolving the confusion with the Create-tab "2D Geometry" *group*. |
 | D9 | **Paper-scene contextual parity deferred.** The `viewport` and `sheet_text` family keys exist in `_CONTEXTUAL_TABS` but `_on_selection_changed_contextual` only wires to `scene.selectionChanged` (model scene). Paper-space selection does not yet trigger contextual tabs. | Filed follow-up. |
 | D10 | ~~**Containment-contract topology (`model-space-containment-contract.md` C7).** Dissolve the **Create** tab; add an Architecture **Block** group; move the **Underlay** group → Architecture; retire the **Quick-Block** + **Text-Block** buttons.~~ | **Resolved 2026-09-18** (C7 ribbon rework, commit 8c887aa) — §3.4 now describes the shipped 5-tab roster. Text is authored via the Block-Editor palette (C5) + the Draft "Add Text" button (Paper). Underlay→Architecture is *tentative* (pending the C4 Underlay session). A dedicated **Paper Space contextual tab** (mockup's Annotate/Detail-linework/Block groups) is **not** built — that remains the deferred D9 / "Viewport & Sheet Text tabs" work. |
+| D11 | ~~**MainWindow chrome revamp (`mainwindow-chrome-revamp.md`, status: current).** Adopt the house TopTabs tab look (accent-underline selected + green button-style hover, `line_strong` divider); vertical left-edge ALL-CAPS group labels; chrome-revamp density (large icon 48 / height 68, small icon 20 / height 26, `_stack` 88); trim Manage to File / Settings / Display — migrate Undo/Redo to the header rail, Snap to the footer rail, Angle Snap to System Settings → UX; drop the Manage Save button (Save on the header rail).~~ | **Resolved 2026-09-19** (chrome revamp, merge `0a7b44a`) — §3.1 (metrics + vertical `_VLabel` + `QHBoxLayout`), §3.3/§3.6 (Undo/Redo + Snap re-homing), §3.4 (Manage roster + File group), §3.7 (TopTabs tab QSS) all updated. The full header/footer rail contract is owned by `mainwindow-chrome-revamp.md` (Rule A — not restated here). |
