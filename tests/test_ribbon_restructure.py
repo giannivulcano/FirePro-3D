@@ -150,8 +150,14 @@ def test_block_editor_context_has_text_tool(main_window):
         main_window.central_tabs.setCurrentIndex(0)  # back to Model Space
 
 
-def test_undo_redo_present_on_manage(main_window):
-    assert hasattr(main_window, "_btn_undo") and hasattr(main_window, "_btn_redo")
+def test_undo_redo_migrated_to_header(main_window):
+    """Chrome revamp: Undo/Redo moved off the ribbon Edit group to the header
+    rail; the Edit group is gone from Manage."""
+    assert main_window.header.undo_button() is not None
+    assert main_window.header.redo_button() is not None
+    manage = _page_by_title(main_window, "Manage")
+    assert "Edit" not in _group_titles(manage)
+    assert "Snap" not in _group_titles(manage)
 
 
 # ── Mode-button sync tests (Task C3) ─────────────────────────────────────────

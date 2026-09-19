@@ -37,6 +37,7 @@ from firepro3d.paper_space import (
 )
 from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.footer_rail import FooterRail
+from firepro3d.header_rail import HeaderRail
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
@@ -203,7 +204,25 @@ class MainWindow(QMainWindow):
         # Ribbon spans full window width (above docks) via setMenuWidget
         self._splash_progress(60, "Building ribbon toolbar...")
         self.ribbon = RibbonBar()
-        self.setMenuWidget(self.ribbon)
+        # Chrome stack: the custom header rail sits ABOVE the ribbon, both wrapped
+        # in one container installed as the single menu-widget slot (a QMainWindow
+        # has only one). Header owns app identity + Save/Undo/Redo + window dots;
+        # the ribbon keeps the tabs/groups. (Standard titlebar+ribbon layout.)
+        self.header = HeaderRail(app_version=APP_VERSION)
+        _chrome = QWidget()
+        _chrome_lay = QVBoxLayout(_chrome)
+        _chrome_lay.setContentsMargins(0, 0, 0, 0)
+        _chrome_lay.setSpacing(0)
+        _chrome_lay.addWidget(self.header)
+        _chrome_lay.addWidget(self.ribbon)
+        self.setMenuWidget(_chrome)
+        # Header actions → existing slots; window dots → window state.
+        self.header.saveRequested.connect(self.save_file)
+        self.header.undoRequested.connect(self._dispatch_undo)
+        self.header.redoRequested.connect(self._dispatch_redo)
+        self.header.minimizeRequested.connect(self.showMinimized)
+        self.header.maximizeRequested.connect(self._toggle_max_or_fullscreen)
+        self.header.closeRequested.connect(self.close)
         self.setCentralWidget(self.central_tabs)
         self.central_tabs.currentChanged.connect(self._on_tab_changed)
         # Right-click context menu on plan tabs (View Range)
@@ -452,6 +471,15 @@ class MainWindow(QMainWindow):
 
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
+        # Undo/Redo are window-wide now that the ribbon Edit group is retired
+        # (a ribbon-button shortcut only fires when its page is the visible one).
+        QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._dispatch_undo)
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self._dispatch_redo)
+        # Header state depends on the active tab + undo stacks; refresh on switch.
+        self.central_tabs.currentChanged.connect(self._refresh_header_state)
+        self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
+            self._refresh_header_state)
+        self._refresh_header_state()
 
         # F3 global SNAP toggle — a window-level shortcut so it fires from any
         # ribbon tab (a QToolButton shortcut only fires when its ribbon page is
@@ -1264,7 +1292,7 @@ class MainWindow(QMainWindow):
         g_file = manage_page.add_group("File")
         _btn(g_file, "New",     _I("placeholder_icon.svg"), self.new_file, tip="Start a new project [Ctrl+N]")
         _btn(g_file, "Open",    _I("load_icon.svg"),        self.open_file, tip="Open a saved project [Ctrl+O]")
-        _btn(g_file, "Save",    _I("save_icon.svg"),        self.save_file, tip="Save the current project [Ctrl+S]")
+        # Save migrated to the header rail (chrome revamp); Save As stays here.
         _btn(g_file, "Save As", _I("saveas_icon.svg"),      self.save_file_as, tip="Save as a new file")
         self._recent_menu = QMenu(self)
         _btn = g_file.add_small_menu_button("Recent", _I("load_icon.svg"), self._recent_menu)
@@ -1282,19 +1310,10 @@ class MainWindow(QMainWindow):
             self._open_project_settings)
         _btn.setToolTip("Settings for the current project (Project Info / Units)")
 
-        # --- Edit (Undo/Redo always accessible) ---
-        g_edit = manage_page.add_group("Edit")
-        self._btn_undo = g_edit.add_large_button(
-            "Undo", _I("undo_icon.svg"),
-            self._dispatch_undo, shortcut="Ctrl+Z")
-        self._btn_undo.setToolTip("Undo last action [Ctrl+Z]")
-        self._btn_redo = g_edit.add_large_button(
-            "Redo", _I("redo_icon.svg"),
-            self._dispatch_redo, shortcut="Ctrl+Y")
-        self._btn_redo.setToolTip("Redo last undone action [Ctrl+Y]")
-
-        # Snap group retired (chrome revamp): master SNAP + osnap toggles now
-        # live in the footer rail; angle-snap lives in System Settings → UX.
+        # Edit group retired (chrome revamp): Undo/Redo migrated to the header
+        # rail (window-wide Ctrl+Z/Ctrl+Y shortcuts back them).
+        # Snap group retired: master SNAP + osnap toggles live in the footer
+        # rail; angle-snap lives in System Settings → UX.
 
         # --- Display (moved from the retired View tab) ---
         g_disp = manage_page.add_group("Display")
@@ -3480,6 +3499,7 @@ class MainWindow(QMainWindow):
         if self._current_file:
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
+                self.scene.mark_saved()
                 self._update_title()
                 self._cleanup_autosave()
         else:
@@ -3491,6 +3511,7 @@ class MainWindow(QMainWindow):
             self._current_file = file
             if self.scene.save_to_file(file):
                 self._modified = False
+                self.scene.mark_saved()
                 self._update_title()
                 self._add_recent_file(file)
 
@@ -3506,6 +3527,7 @@ class MainWindow(QMainWindow):
         # Clear dirty flag before the divergence prompt so the autosave timer
         # cannot fire during the modal (autosave is gated on _modified).
         self._modified = False
+        self.scene.mark_saved()
         self._update_title()
         self._add_recent_file(file)
         # Offer to push embedded template to library after the project is clean.
@@ -3761,6 +3783,7 @@ class MainWindow(QMainWindow):
                 self._sheet_props_adapter(self._sheet))
 
         self._modified = False
+        self.scene.mark_saved()   # the template seed push above isn't user work
         self._update_title()
         QTimer.singleShot(100, self._fit_active_plan_view)
 
@@ -3768,6 +3791,40 @@ class MainWindow(QMainWindow):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
         star = " *" if self._modified else ""
         self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 {name}{star}")
+        self._refresh_header_state()
+
+    def _refresh_header_state(self, *args):
+        """Sync the header rail (undo/redo enabled, project name + dirty \u25cf).
+
+        Undo/redo availability tracks the active tab's stack (paper vs
+        model/editor scene). The dirty \u25cf uses ``self._modified`` \u2014 the single
+        project-dirty flag already maintained across scene edits, paper edits,
+        and every save/load/new transition \u2014 so the dot is correct everywhere.
+        """
+        header = getattr(self, "header", None)
+        if header is None:
+            return
+        w = self.central_tabs.currentWidget() if getattr(self, "central_tabs", None) else None
+        paper = getattr(self, "paper_space_widget", None)
+        if paper is not None and w is paper:
+            us = paper.paper_scene.undo_stack
+            header.set_undo_enabled(us.canUndo())
+            header.set_redo_enabled(us.canRedo())
+        else:
+            sc = self._active_scene()
+            header.set_undo_enabled(sc.can_undo())
+            header.set_redo_enabled(sc.can_redo())
+        name = (os.path.splitext(os.path.basename(self._current_file))[0]
+                if self._current_file else "Untitled")
+        header.set_project(name=name, path=self._current_file or "",
+                           dirty=self._modified)
+
+    def _toggle_max_or_fullscreen(self):
+        """Header maximize/restore dot. (Task 6 extends this for fullscreen.)"""
+        if self.isMaximized() or self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showMaximized()
 
     def _on_paper_modified(self):
         """A paper mutation dirties the project (save prompt + autosave)."""
