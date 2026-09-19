@@ -69,6 +69,7 @@ class HeaderRail(QWidget):
         self.setFixedHeight(M.HEADER_H)
         self._project_name = ""
         self._project_path = ""
+        self._drag_offset = None   # window-drag anchor (frameless move-by-header)
         root = QHBoxLayout(self)
         root.setContentsMargins(*M.HEADER_MARGIN)
         root.setSpacing(0)
@@ -133,6 +134,41 @@ class HeaderRail(QWidget):
         }
         for _k in ("min", "max", "close"):
             root.addWidget(self._dots[_k], 0, _vc)
+
+    # ── window drag (frameless move-by-header) ───────────────────────────────
+    # Clicks on the action/window buttons are consumed by those QToolButtons and
+    # never reach here; clicks on the labels / empty header propagate up and
+    # start a window drag — but only when the window is restored (not
+    # maximized/fullscreen), matching native title-bar behaviour.
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            win = self.window()
+            if win is not None and not (win.isMaximized() or win.isFullScreen()):
+                self._drag_offset = (event.globalPosition().toPoint()
+                                     - win.frameGeometry().topLeft())
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._drag_offset is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            self.window().move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        """Double-click the header toggles fullscreen ↔ restore (native feel)."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.maximizeRequested.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     # ── project / dirty state ────────────────────────────────────────────────
     def set_project(self, name: str, path: str = "", dirty: bool = False) -> None:

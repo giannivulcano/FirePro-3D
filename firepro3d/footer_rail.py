@@ -64,14 +64,17 @@ def _vsep() -> QFrame:
 
 
 def _pill_style(on: bool) -> str:
+    """Accent pill QSS (bare properties, so it applies to BOTH the QToolButton
+    pills AND the QLabel mode badge — a QToolButton{}-scoped rule silently
+    no-ops on a QLabel, which is why the mode badge lost its pill look)."""
     t = detect()
     if on:
-        return (f"QToolButton{{border:1px solid {t.accent}; color:{t.accent};"
+        return (f"border:1px solid {t.accent}; color:{t.accent};"
                 f" background:{t.accent_soft}; border-radius:{M.RADIUS_PILL}px;"
-                f" padding:1px 9px; font-weight:600;}}")
-    return (f"QToolButton{{border:1px solid {t.line}; color:{t.muted};"
+                f" padding:2px 10px; font-weight:600;")
+    return (f"border:1px solid {t.line}; color:{t.muted};"
             f" background:transparent; border-radius:{M.RADIUS_PILL}px;"
-            f" padding:1px 9px; font-weight:600;}}")
+            f" padding:2px 10px; font-weight:600;")
 
 
 class _OsnapToggle(QToolButton):
@@ -81,11 +84,18 @@ class _OsnapToggle(QToolButton):
         super().__init__(parent)
         self.attr = attr
         self.setCheckable(True)
-        self.setAutoRaise(True)
+        self.setAutoRaise(False)
         self.setToolTip(tip)
-        self.setIconSize(QSize(16, 16))
-        self.setFixedSize(22, 22)
+        self.setIconSize(QSize(18, 18))
+        self.setFixedSize(26, 26)
         t = detect()
+        # Match the pills: checked = accent glyph on the soft-accent (green)
+        # fill + accent border; unchecked = muted glyph, no fill.
+        self.setStyleSheet(
+            f"QToolButton{{border:1px solid transparent;"
+            f" border-radius:{M.RADIUS_CHIP}px; background:transparent;}}"
+            f"QToolButton:checked{{background:{t.accent_soft};"
+            f" border:1px solid {t.accent};}}")
         self._on_icon = _osnap_icon(marker_key, t.accent)
         self._off_icon = _osnap_icon(marker_key, t.muted)
         self.toggled.connect(self._sync_icon)

@@ -155,7 +155,7 @@ class RibbonButton(QToolButton):
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(30, 30))
+        self.setIconSize(QSize(38, 38))   # +25% over the compact 30px
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.setFixedHeight(84)
         self.setMinimumWidth(72)
@@ -170,7 +170,7 @@ class RibbonSmallButton(QToolButton):
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(16, 16))
+        self.setIconSize(QSize(20, 20))   # +25% over the compact 16px
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setFixedHeight(26)
         self.setMinimumWidth(100)
@@ -211,7 +211,7 @@ class RibbonGroup(QWidget):
         # Vertical ALL-CAPS group label on the left edge (AutoCAD-style density).
         lbl = _VLabel(title.upper())
         f = QFont()
-        f.setPointSizeF(8.0)
+        f.setPointSizeF(6.5)
         lbl.setFont(f)
         outer.addWidget(lbl)
 
