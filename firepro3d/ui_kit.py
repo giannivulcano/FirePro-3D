@@ -245,6 +245,95 @@ class TopTabs(QWidget):
             self._bar.setCurrentIndex(i)
 
 
+class LeftTabs(QWidget):
+    """House left-edge vertical-tab strip — TopTabs rotated to the West edge.
+
+    Composed of a ``QTabBar`` (RoundedWest → Qt rotates the labels to read
+    bottom-to-top, matching the ribbon group labels) + a vertical ``line_strong``
+    divider + a ``QStackedWidget``. Styled ``#leftTabsBar`` via
+    ``theme._tab_language_qss(edge="right")`` (2px accent side-bar on select).
+    Same key-based + QTabWidget-compatible API as :class:`TopTabs`; a drop-in for
+    the browser dock's West ``QTabWidget``. Text-only (no icons).
+    """
+    tabSelected = pyqtSignal(str)
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("leftTabs")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        self._bar = QTabBar(objectName="leftTabsBar")
+        self._bar.setShape(QTabBar.Shape.RoundedWest)
+        self._bar.setDrawBase(False)
+        self._bar.setExpanding(False)
+        self._bar.setUsesScrollButtons(False)
+        self._bar.setElideMode(Qt.TextElideMode.ElideNone)
+        self._bar.setFixedWidth(M.LEFT_TAB_W)
+        from .theme import detect
+        self._divider = QFrame()
+        self._divider.setFixedWidth(M.SEAM)
+        self._divider.setStyleSheet(f"background: {detect().line_strong};")
+        self._stack = QStackedWidget()
+        # Opaque surface so unstyled stacked pages don't paint black live
+        # (project trap: unstyled_qwidget_black_live).
+        self._stack.setObjectName("leftTabsStack")
+        _s = detect().surface
+        self.setStyleSheet(
+            f"QWidget#leftTabs, QStackedWidget#leftTabsStack {{ background: {_s}; }}")
+        h.addWidget(self._bar)
+        h.addWidget(self._divider)
+        h.addWidget(self._stack, 1)
+        self._keys: list[str] = []
+        self._bar.currentChanged.connect(self._on_current)
+
+    def _on_current(self, idx):
+        self._stack.setCurrentIndex(idx)
+        self.currentChanged.emit(idx)
+        if 0 <= idx < len(self._keys):
+            self.tabSelected.emit(self._keys[idx])
+
+    def addTab(self, widget, label, *, key=None, icon=None):
+        """Add a page. ``key`` defaults to ``label`` (QTabWidget-compat call form
+        ``addTab(widget, label)`` works directly)."""
+        if icon is None:
+            self._bar.addTab(label)
+        else:
+            self._bar.addTab(icon, label)
+        from .theme import detect
+        name = widget.objectName() or f"leftTabsPage{len(self._keys)}"
+        widget.setObjectName(name)
+        prior = widget.styleSheet()
+        rule = f"QWidget#{name} {{ background: {detect().surface}; }}"
+        widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
+        self._stack.addWidget(widget)
+        self._keys.append(key if key is not None else label)
+        return len(self._keys) - 1
+
+    def set_current(self, key):
+        if key in self._keys:
+            self.setCurrentIndex(self._keys.index(key))
+
+    def current(self):
+        i = self.currentIndex()
+        return self._keys[i] if 0 <= i < len(self._keys) else None
+
+    # ── QTabWidget-compatible subset (callers + tests) ─────────────────────
+    def tabBar(self): return self._bar
+    def count(self): return self._bar.count()
+    def tabText(self, i): return self._bar.tabText(i)
+    def widget(self, i): return self._stack.widget(i)
+    def currentIndex(self): return self._bar.currentIndex()
+    def setCurrentIndex(self, i): self._bar.setCurrentIndex(i)
+    def currentWidget(self): return self._stack.currentWidget()
+
+    def setCurrentWidget(self, w):
+        i = self._stack.indexOf(w)
+        if i >= 0:
+            self._bar.setCurrentIndex(i)
+
+
 class DetailsPanel(QFrame):
     def __init__(self, *, width=M.PANEL_W, title=None, parent=None):
         super().__init__(parent)

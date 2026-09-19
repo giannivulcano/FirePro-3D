@@ -76,6 +76,7 @@ class _Metrics:
     SECTION_GAP = 8
     TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
     TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
+    LEFT_TAB_W = 30          # browser LeftTabs vertical strip width (mockup-tuned)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
@@ -604,6 +605,11 @@ QTabBar::close-button:hover {{
     background: {t.btn_hover};
     border-radius: 2px;
 }}
+
+/* ── Browser LeftTabs (west strip; mainwindow-chrome-revamp-stage2.md) ───── */
+QTabBar#leftTabsBar {{ background: transparent; }}
+QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: 2px; }}
+{_tab_language_qss(t, "QTabBar#leftTabsBar::tab", edge="right")}
 
 /* ── Scroll bars ────────────────────────────────────────────────────────── */
 QScrollBar:vertical {{
