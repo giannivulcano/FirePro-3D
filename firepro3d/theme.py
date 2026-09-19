@@ -318,6 +318,30 @@ def detect() -> Theme:
 # QSS builders
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _tab_language_qss(t: Theme, sel: str, *, edge: str = "bottom") -> str:
+    """Shared house tab-state QSS for any ``QTabBar::tab`` selector.
+
+    Emits ONLY the state/colour language (muted default; accent-soft hover with a
+    1px accent outline + rounded corners away from the content edge; ink + 600 +
+    a 2px accent bar on ``edge`` when selected; faint disabled). Callers append
+    their own metric literals (padding/font/min-width). ``edge`` is the border the
+    accent bar rides: ``"bottom"`` for top-mounted strips (ribbon/dialog/canvas),
+    ``"right"`` for a left-mounted (West) strip (browser LeftTabs).
+    """
+    round_away = {
+        "bottom": "border-top-left-radius: 5px; border-top-right-radius: 5px;",
+        "right": "border-top-left-radius: 5px; border-bottom-left-radius: 5px;",
+    }[edge]
+    return f"""
+{sel} {{ background: transparent; color: {t.muted};
+    border: 1px solid transparent; border-{edge}: 2px solid transparent; }}
+{sel}:hover:!selected {{ color: {t.ink}; background: {t.accent_soft};
+    border-color: {t.accent}; border-{edge}-color: transparent; {round_away} }}
+{sel}:selected {{ color: {t.ink}; font-weight: 600; border-{edge}: 2px solid {t.accent}; }}
+{sel}:disabled {{ color: {t.faint}; }}
+"""
+
+
 def build_app_qss(t: Theme) -> str:
     """Return a global application QSS stylesheet from the given theme tokens.
 
@@ -690,29 +714,12 @@ RibbonBar QTabBar {{
     border-bottom: 1px solid {t.line_strong};
 }}
 RibbonBar QTabBar::tab {{
-    background: transparent;
-    color: {t.muted};
     padding: 7px 16px 8px;
     margin-right: 2px;
-    /* 1px transparent border reserved so the hover accent border adds no jitter */
-    border: 1px solid transparent;
-    border-bottom: 2px solid transparent;
     font-size: 9pt;
     min-width: 80px;
 }}
-RibbonBar QTabBar::tab:hover:!selected {{
-    color: {t.text_primary};
-    background: {t.accent_soft};
-    border-color: {t.accent};
-    border-bottom-color: transparent;
-    border-top-left-radius: 5px;
-    border-top-right-radius: 5px;
-}}
-RibbonBar QTabBar::tab:selected {{
-    color: {t.text_primary};
-    font-weight: 600;
-    border-bottom: 2px solid {t.accent};
-}}
+{_tab_language_qss(t, "RibbonBar QTabBar::tab", edge="bottom")}
 RibbonButton {{
     background: transparent;
     border: 1px solid transparent;
@@ -867,14 +874,8 @@ QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[hou
 /* ── Kit: TopTabs (peer pages within a section; DIALOG_TABS_SPEC) ────────── */
 QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
-    padding: 7px 11px 8px; margin-right: 2px; color: {t.muted}; background: transparent;
-    border: 1px solid transparent; border-bottom: 2px solid transparent; font-size: 12px; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:hover {{
-    color: {t.ink}; background: {t.accent_soft}; border-color: {t.accent};
-    border-bottom-color: transparent; border-top-left-radius: 5px; border-top-right-radius: 5px; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
-    color: {t.ink}; font-weight: 600; border-bottom: 2px solid {t.accent}; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:disabled {{ color: {t.faint}; }}
+    padding: 7px 11px 8px; margin-right: 2px; font-size: 12px; }}
+{_tab_language_qss(t, 'QDialog[houseDialog="true"] QTabBar#topTabsBar::tab', edge="bottom")}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}
