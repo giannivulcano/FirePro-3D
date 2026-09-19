@@ -4,7 +4,7 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
@@ -245,6 +245,36 @@ class TopTabs(QWidget):
             self._bar.setCurrentIndex(i)
 
 
+class _WestTabBar(QTabBar):
+    """West ``QTabBar`` that paints the selection accent bar itself.
+
+    A QSS ``border-right`` on a rotated (West) tab is unreliable — it maps to a
+    physical edge after rotation and often doesn't render — so the 2px accent
+    side-bar (the selection marker, on the content-facing right edge) is drawn
+    directly over the styled tab. Fill + 1px outline still come from QSS.
+    """
+    _BAR_W = 2
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        i = self.currentIndex()
+        if i < 0:
+            return
+        from .theme import detect
+        r = self.tabRect(i)
+        # Draw at the WIDGET's right edge, not tabRect.right(): a West tab's
+        # natural width can exceed the fixed strip width (M.LEFT_TAB_W), so the
+        # tab rect overflows into the clipped region and a bar drawn there is
+        # off-screen (confirmed via render diagnostic).
+        x = self.width() - self._BAR_W
+        # Trim the bar by the inter-tab gap so it doesn't overshoot into the
+        # margin-bottom space below the tab (tabRect includes that gap).
+        bar = QRect(x, r.top(), self._BAR_W, r.height() - M.LEFT_TAB_GAP)
+        p = QPainter(self)
+        p.fillRect(bar, QColor(detect().accent))
+        p.end()
+
+
 class LeftTabs(QWidget):
     """House left-edge vertical-tab strip — TopTabs rotated to the West edge.
 
@@ -262,9 +292,9 @@ class LeftTabs(QWidget):
         super().__init__(parent)
         self.setObjectName("leftTabs")
         h = QHBoxLayout(self)
-        h.setContentsMargins(0, 0, 0, 0)
+        h.setContentsMargins(M.LEFT_TAB_INSET, 0, 0, 0)  # small gap: strip ← dock edge
         h.setSpacing(0)
-        self._bar = QTabBar(objectName="leftTabsBar")
+        self._bar = _WestTabBar(objectName="leftTabsBar")
         self._bar.setShape(QTabBar.Shape.RoundedWest)
         self._bar.setDrawBase(False)
         self._bar.setExpanding(False)
@@ -274,6 +304,8 @@ class LeftTabs(QWidget):
         from .theme import detect
         self._divider = QFrame()
         self._divider.setFixedWidth(M.SEAM)
+        self._divider.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self._divider.setStyleSheet(f"background: {detect().line_strong};")
         self._stack = QStackedWidget()
         # Opaque surface so unstyled stacked pages don't paint black live
@@ -282,7 +314,11 @@ class LeftTabs(QWidget):
         _s = detect().surface
         self.setStyleSheet(
             f"QWidget#leftTabs, QStackedWidget#leftTabsStack {{ background: {_s}; }}")
-        h.addWidget(self._bar)
+        # Pin the bar to the TOP: a West QTabBar sizes to its tab content height,
+        # so without an alignment flag the layout vertically centres the short
+        # bar. AlignTop justifies the tabs to the top; the divider + stack keep
+        # the full row height (no alignment flag).
+        h.addWidget(self._bar, 0, Qt.AlignmentFlag.AlignTop)
         h.addWidget(self._divider)
         h.addWidget(self._stack, 1)
         self._keys: list[str] = []

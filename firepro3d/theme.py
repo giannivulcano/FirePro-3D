@@ -76,7 +76,9 @@ class _Metrics:
     SECTION_GAP = 8
     TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
     TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
-    LEFT_TAB_W = 30          # browser LeftTabs vertical strip width (mockup-tuned)
+    LEFT_TAB_W = 24          # browser LeftTabs vertical strip width (mockup-tuned)
+    LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
+    LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
@@ -608,8 +610,15 @@ QTabBar::close-button:hover {{
 
 /* ── Browser LeftTabs (west strip; mainwindow-chrome-revamp-stage2.md) ───── */
 QTabBar#leftTabsBar {{ background: transparent; }}
-QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: 2px; }}
+QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: 9pt; }}
 {_tab_language_qss(t, "QTabBar#leftTabsBar::tab", edge="right")}
+/* Browser rail: selected tab keeps the hover-highlight look — accent-soft fill
+   + 1px accent outline. The 2px accent side-bar on the content-facing edge is
+   drawn by ui_kit._WestTabBar.paintEvent (QSS border-right is unreliable on
+   rotated tabs). Per-surface override (top tabs stay underline-only). */
+QTabBar#leftTabsBar::tab:selected {{
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-bottom-left-radius: 5px; }}
 
 /* ── Scroll bars ────────────────────────────────────────────────────────── */
 QScrollBar:vertical {{

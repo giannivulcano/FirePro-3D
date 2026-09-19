@@ -354,8 +354,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.blocks_browser = BlocksBrowser(self.scene)
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
 
-        self._left_tabs = QTabWidget()
-        self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
+        from firepro3d.ui_kit import LeftTabs
+        self._left_tabs = LeftTabs()
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
         self._left_tabs.addTab(self.feature_browser, "Features")
