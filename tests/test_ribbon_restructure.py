@@ -87,8 +87,14 @@ def _page_by_title(main_window, title):
 
 
 def _group_titles(page):
+    # Group labels render UPPERCASE + vertical (chrome revamp Task 3); compare
+    # case-insensitively so callers can use the logical title-case name.
     from PyQt6.QtWidgets import QLabel
-    return {lbl.text() for lbl in page.findChildren(QLabel)}
+    return {lbl.text().upper() for lbl in page.findChildren(QLabel)}
+
+
+def _has_group(page, title):
+    return title.upper() in _group_titles(page)
 
 
 def _button_texts(page):
@@ -107,7 +113,7 @@ def test_architecture_has_block_group(main_window):
     """C7: block *entry* commands move to a new Architecture 'Block' group."""
     arch = _page_by_title(main_window, "Architecture")
     assert arch is not None
-    assert "Block" in _group_titles(arch)
+    assert _has_group(arch, "Block")
     btns = _button_texts(arch)
     assert "Create Block" in btns
     assert "Insert Block" in btns
@@ -128,8 +134,8 @@ def test_underlay_group_moved_to_architecture(main_window):
     """C7: the Underlay group relocates from Manage to Architecture (tentative)."""
     arch = _page_by_title(main_window, "Architecture")
     manage = _page_by_title(main_window, "Manage")
-    assert "Underlay" in _group_titles(arch)
-    assert "Underlay" not in _group_titles(manage), "Underlay still in Manage"
+    assert _has_group(arch, "Underlay")
+    assert not _has_group(manage, "Underlay"), "Underlay still in Manage"
 
 
 def test_block_editor_context_has_text_tool(main_window):
@@ -150,8 +156,14 @@ def test_block_editor_context_has_text_tool(main_window):
         main_window.central_tabs.setCurrentIndex(0)  # back to Model Space
 
 
-def test_undo_redo_present_on_manage(main_window):
-    assert hasattr(main_window, "_btn_undo") and hasattr(main_window, "_btn_redo")
+def test_undo_redo_migrated_to_header(main_window):
+    """Chrome revamp: Undo/Redo moved off the ribbon Edit group to the header
+    rail; the Edit group is gone from Manage."""
+    assert main_window.header.undo_button() is not None
+    assert main_window.header.redo_button() is not None
+    manage = _page_by_title(main_window, "Manage")
+    assert not _has_group(manage, "Edit")
+    assert not _has_group(manage, "Snap")
 
 
 # ── Mode-button sync tests (Task C3) ─────────────────────────────────────────

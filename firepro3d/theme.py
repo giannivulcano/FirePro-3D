@@ -79,6 +79,10 @@ class _Metrics:
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
+    FOOTER_H = 30                       # footer rail fixed height
+    FOOTER_SUBRAIL_MARGIN = (12, 0, 12, 0)  # per sub-rail h-padding
+    FOOTER_TOGGLE_GAP = 6              # spacing in the toggles sub-rail
+    FOOTER_OSNAP_GAP = 2              # spacing between inline osnap toggles
     # toolbar
     TOOLBAR_MARGIN = (12, 9, 12, 9)
     TOOLBAR_GAP = 8
@@ -679,29 +683,35 @@ RibbonBar {{
     background: {t.bg_raised};
     border-bottom: 1px solid {t.border_strong};
 }}
-/* Ribbon uses its own QTabBar — override the generic tab style */
+/* Ribbon tabs adopt the house TopTabs look: flat, muted, accent-underline on
+   select, with a full-width divider under the whole strip. */
 RibbonBar QTabBar {{
     background: transparent;
+    border-bottom: 1px solid {t.line_strong};
 }}
 RibbonBar QTabBar::tab {{
-    background: {t.bg_tab_inactive};
-    color: {t.text_primary};
-    padding: 5px 20px;
-    border: 1px solid {t.border_strong};
-    border-bottom: none;
-    border-top-left-radius: 3px;
-    border-top-right-radius: 3px;
+    background: transparent;
+    color: {t.muted};
+    padding: 7px 16px 8px;
+    margin-right: 2px;
+    /* 1px transparent border reserved so the hover accent border adds no jitter */
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
     font-size: 9pt;
-    font-weight: bold;
     min-width: 80px;
 }}
-RibbonBar QTabBar::tab:selected {{
-    background: {t.bg_tab_selected};
-    color: {t.text_accent};
-    border-bottom: 2px solid {t.bg_tab_selected};
-}}
 RibbonBar QTabBar::tab:hover:!selected {{
-    background: {t.btn_hover};
+    color: {t.text_primary};
+    background: {t.accent_soft};
+    border-color: {t.accent};
+    border-bottom-color: transparent;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}}
+RibbonBar QTabBar::tab:selected {{
+    color: {t.text_primary};
+    font-weight: 600;
+    border-bottom: 2px solid {t.accent};
 }}
 RibbonButton {{
     background: transparent;
@@ -858,9 +868,10 @@ QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[hou
 QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
     padding: 7px 11px 8px; margin-right: 2px; color: {t.muted}; background: transparent;
-    border: none; border-bottom: 2px solid transparent; font-size: 12px; }}
+    border: 1px solid transparent; border-bottom: 2px solid transparent; font-size: 12px; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:hover {{
-    color: {t.ink}; background: {t.accent_soft}; border-top-left-radius: 5px; border-top-right-radius: 5px; }}
+    color: {t.ink}; background: {t.accent_soft}; border-color: {t.accent};
+    border-bottom-color: transparent; border-top-left-radius: 5px; border-top-right-radius: 5px; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
     color: {t.ink}; font-weight: 600; border-bottom: 2px solid {t.accent}; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:disabled {{ color: {t.faint}; }}

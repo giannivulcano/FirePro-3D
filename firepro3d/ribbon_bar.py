@@ -19,8 +19,35 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QStackedWidget, QTabBar,
 )
 from PyQt6.QtGui import QIcon, QFont, QPainter, QColor
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QRect
 from . import theme as th
+
+
+class _VLabel(QLabel):
+    """A QLabel rendered rotated 90° CCW — the vertical left-edge group label.
+
+    Qt can't rotate a QLabel via QSS, so this swaps the size hint (w↔h) and
+    paints the text sideways with the theme's ``text_secondary`` token.
+    """
+
+    def sizeHint(self) -> QSize:
+        s = super().sizeHint()
+        return QSize(s.height(), s.width())
+
+    def minimumSizeHint(self) -> QSize:
+        s = super().minimumSizeHint()
+        return QSize(s.height(), s.width())
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setPen(QColor(th.detect().text_secondary))
+        p.setFont(self.font())
+        p.translate(0, self.height())
+        p.rotate(-90)
+        # In the rotated frame the drawable rect is (0,0, height, width).
+        p.drawText(QRect(0, 0, self.height(), self.width()),
+                   Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -128,10 +155,10 @@ class RibbonButton(QToolButton):
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(54, 54))
+        self.setIconSize(QSize(48, 48))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setFixedHeight(111)
-        self.setMinimumWidth(81)
+        self.setFixedHeight(68)
+        self.setMinimumWidth(72)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
 
@@ -143,10 +170,10 @@ class RibbonSmallButton(QToolButton):
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(27, 27))
+        self.setIconSize(QSize(20, 20))   # +25% over the compact 16px
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.setFixedHeight(33)
-        self.setMinimumWidth(120)
+        self.setFixedHeight(26)
+        self.setMinimumWidth(100)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
 
@@ -177,26 +204,22 @@ class RibbonGroup(QWidget):
         self._small_col_layout: QVBoxLayout | None = None
         self._small_count = 0
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 2, 4, 0)
-        outer.setSpacing(0)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(4, 2, 7, 0)   # extra right pad clears the separator
+        outer.setSpacing(4)
+
+        # Vertical ALL-CAPS group label on the left edge (AutoCAD-style density).
+        lbl = _VLabel(title.upper())
+        f = QFont()
+        f.setPointSizeF(6.5)
+        lbl.setFont(f)
+        outer.addWidget(lbl)
 
         # Row that holds large buttons and small-button column stacks
         self._btn_row = QHBoxLayout()
         self._btn_row.setContentsMargins(0, 0, 0, 0)
         self._btn_row.setSpacing(2)
         outer.addLayout(self._btn_row)
-        outer.addStretch(1)
-
-        # Group label — pushed to bottom by stretch (aligns across groups of different heights)
-        _t = th.detect()
-        lbl = QLabel(title)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setPointSizeF(9.0)
-        lbl.setFont(f)
-        lbl.setStyleSheet(f"color: {_t.text_primary}; padding: 0px 0 1px 0;")
-        outer.addWidget(lbl)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -315,7 +338,7 @@ class RibbonGroup(QWidget):
         super().paintEvent(event)
         p = QPainter(self)
         p.setPen(QColor(th.detect().border_subtle))
-        p.drawLine(self.width() - 1, 4, self.width() - 1, self.height() - 20)
+        p.drawLine(self.width() - 1, 4, self.width() - 1, self.height() - 4)
         p.end()
 
 
@@ -377,7 +400,7 @@ class RibbonBar(QWidget):
         # Stacked pages (one per tab)
         self._stack = QStackedWidget(self)
         self._stack.setStyleSheet(f"background: {_t.bg_raised};")
-        self._stack.setFixedHeight(150)
+        self._stack.setFixedHeight(88)
         outer.addWidget(self._stack)
 
     def _on_tab_changed(self, index: int):

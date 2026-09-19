@@ -36,6 +36,10 @@ from firepro3d.paper_space import (
     native_orientation_from_dims, sheet_page_mm,
 )
 from firepro3d.ribbon_bar import RibbonBar
+from firepro3d.footer_rail import FooterRail
+from firepro3d.header_rail import HeaderRail
+from firepro3d.frameless_shell import FramelessShellMixin
+from firepro3d.main_helpers import migrate_fullscreen_pref
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
@@ -91,231 +95,9 @@ def install_excepthook():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _pill_style(on: bool) -> str:
-    """Stylesheet for a status-bar toggle pill (SNAP/ALIGN).
-
-    ON derives its accent (text + border) from the active theme so the pill
-    matches the mode badge (transparent fill, accent text + border — no green
-    background). The OFF greys are intentionally left literal here (full-chrome
-    unification is a filed follow-up); only the accent is tokenised.
-    """
-    if on:
-        accent = th.detect().accent
-        return (
-            f"font-weight: bold; color: {accent}; "
-            "background: transparent; padding: 2px 10px; "
-            f"border: 1px solid {accent}; border-radius: 3px;"
-        )
-    return (
-        "font-weight: bold; color: #888; "
-        "background: transparent; padding: 2px 10px; "
-        "border: 1px solid #555; border-radius: 3px;"
-    )
 
 
-def _mode_badge_style(accent: str) -> str:
-    """Stylesheet for the bottom-left active-mode badge (text-only).
-
-    Retints the badge text + border to the theme accent (was a rogue #44aaff).
-    """
-    return (
-        f"font-weight: bold; color: {accent}; padding: 2px 8px; "
-        f"border: 1px solid {accent}; border-radius: 3px;"
-    )
-
-
-class _SnapIndicatorLabel(QLabel):
-    """Clickable status-bar label for the SNAP state indicator."""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__("SNAP", parent)
-        self.setToolTip("Select Nearest Anchor Point (SNAP)  [F3]")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumWidth(80)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setProperty("snapOn", True)
-        self._apply_style()
-
-    def setSnapOn(self, on: bool) -> None:
-        self.setProperty("snapOn", bool(on))
-        self._apply_style()
-
-    def _apply_style(self) -> None:
-        on = bool(self.property("snapOn"))
-        self.setStyleSheet(_pill_style(on))
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-
-class _GuidesIndicatorLabel(QLabel):
-    """Clickable status-bar label for the alignment-guides state indicator.
-
-    Mirrors _SnapIndicatorLabel — enabled = bold green pill, disabled = grey.
-    """
-
-    clicked = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__("ALIGN", parent)
-        self.setToolTip("Toggle ALIGN (F11)")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumWidth(80)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setProperty("guidesOn", True)
-        self._apply_style()
-
-    def setGuidesOn(self, on: bool) -> None:
-        self.setProperty("guidesOn", bool(on))
-        self._apply_style()
-
-    def _apply_style(self) -> None:
-        on = bool(self.property("guidesOn"))
-        self.setStyleSheet(_pill_style(on))
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-
-class _HaloIndicatorLabel(QLabel):
-    """Clickable status-bar pill for the global HALO on/off switch.
-
-    Mirrors _GuidesIndicatorLabel — enabled = bold accent pill, disabled =
-    grey. Unlike SNAP/ALIGN there is no scene-side toggled signal, so this
-    pill owns its own checked state and exposes a QAbstractButton-like API
-    (isChecked/setChecked/click) so callers drive the widget directly.
-    """
-
-    clicked = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__("HALO", parent)
-        self.setToolTip("Toggle selection HALO")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumWidth(80)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._checked = True
-        self._apply_style()
-
-    def isChecked(self) -> bool:
-        return self._checked
-
-    def setChecked(self, on: bool) -> None:
-        self._checked = bool(on)
-        self._apply_style()
-
-    def click(self) -> None:
-        """Flip state and emit clicked (mirrors QAbstractButton.click)."""
-        self.setChecked(not self._checked)
-        self.clicked.emit()
-
-    def _apply_style(self) -> None:
-        self.setStyleSheet(_pill_style(self._checked))
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.click()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-
-class _SnapToolbar(QToolBar):
-    """Dockable toolbar of one-click toggles for the 8 SNAP snap types.
-
-    The 8 ``SnapEngine.snap_*`` booleans are the single source of truth;
-    this toolbar and the Snap Settings dialog both read/write them. Per-type
-    state persists under the existing ``snap/{attr}`` QSettings keys.
-    """
-
-    # (abbreviation, full-name tooltip, SnapEngine attribute, icon filename)
-    _SNAP_TYPES = [
-        ("END", "Endpoint",      "snap_endpoint",      "snap_endpoint.svg"),
-        ("MID", "Midpoint",      "snap_midpoint",      "snap_midpoint.svg"),
-        ("INT", "Intersection",  "snap_intersection",  "snap_intersection.svg"),
-        ("CEN", "Center",        "snap_center",        "snap_center.svg"),
-        ("QUA", "Quadrant",      "snap_quadrant",      "snap_quadrant.svg"),
-        ("NEA", "Nearest",       "snap_nearest",       "snap_nearest.svg"),
-        ("PER", "Perpendicular", "snap_perpendicular", "snap_perpendicular.svg"),
-        ("TAN", "Tangent",       "snap_tangent",       "snap_tangent.svg"),
-    ]
-
-    def __init__(self, engine, main_window):
-        # Do NOT pass main_window as the Qt parent — addToolBar() reparents
-        # this widget, and tests use a non-QWidget stub window.
-        super().__init__("SNAP")
-        self.setObjectName("SnapToolbar")  # required for save/restoreState
-        self._engine = engine
-        self._main_window = main_window
-        self._actions: dict[str, QAction] = {}
-        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        accent = th.detect().accent
-        self.setStyleSheet(
-            # Transparent 1px border on every button so checked/unchecked have
-            # the same box size — toggling no longer reflows the toolbar.
-            "QToolButton { padding: 2px 4px; border: 1px solid transparent;"
-            " border-radius: 3px; }"
-            f"QToolButton:checked {{ background: #2a5a8a; border-color: {accent}; }}"
-            "QToolButton:disabled { color: #888; }"
-            # Dimmed-but-checked must stay legible (F3 master-off state).
-            "QToolButton:checked:disabled { background: #243a4e;"
-            " border-color: #3a607e; color: #99bbdd; }"
-        )
-        from firepro3d.assets import asset_path
-        for abbr, tip, attr, icon_file in self._SNAP_TYPES:
-            act = QAction(QIcon(asset_path("Ribbon", icon_file)), abbr, self)
-            act.setToolTip(tip)
-            act.setCheckable(True)
-            act.setChecked(bool(getattr(self._engine, attr)))
-            act.toggled.connect(
-                lambda checked, a=attr: self._on_toggle(a, checked))
-            self.addAction(act)
-            self._actions[attr] = act
-
-    def _on_toggle(self, attr: str, checked: bool) -> None:
-        setattr(self._engine, attr, checked)
-        self._main_window.settings.setValue(f"snap/{attr}", checked)
-
-    def _set_all(self, value: bool) -> None:
-        for attr in self._actions:
-            setattr(self._engine, attr, value)
-            self._main_window.settings.setValue(f"snap/{attr}", value)
-        self.refresh_from_engine()
-
-    def refresh_from_engine(self) -> None:
-        """Sync button checked states to the current engine attributes
-        without re-triggering the toggle handler."""
-        for attr, act in self._actions.items():
-            act.blockSignals(True)
-            act.setChecked(bool(getattr(self._engine, attr)))
-            act.blockSignals(False)
-
-    def _on_snap_toggled(self, enabled: bool) -> None:
-        """F3 / status-bar pill master override: dim (but preserve) buttons."""
-        for act in self._actions.values():
-            act.setEnabled(bool(enabled))
-
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.addAction("Enable All", lambda: self._set_all(True))
-        menu.addAction("Disable All", lambda: self._set_all(False))
-        menu.addSeparator()
-        menu.addAction("Snap Settings…",
-                       self._main_window._open_system_settings)
-        menu.exec(event.globalPos())
-
-
-class MainWindow(QMainWindow):
+class MainWindow(FramelessShellMixin, QMainWindow):
     # ── Contextual-tab catalog ─────────────────────────────────────────────────
     # Maps entity-family key → the family's registry label. Used by
     # _init_contextual_tabs() to build _contextual_registry (the key selects the
@@ -345,6 +127,12 @@ class MainWindow(QMainWindow):
 
     def __init__(self, splash: FireProSplash | None = None):
         super().__init__()
+        # Frameless top-level shell (chrome revamp): the custom header rail is
+        # the titlebar (built later via setMenuWidget), so build_titlebar=False.
+        # window_type=Window keeps this a real top-level window (not a Dialog).
+        self.init_frameless_shell(
+            "FirePro 3D", build_titlebar=False, resizable=True,
+            window_type=Qt.WindowType.Window)
         self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 Untitled")
         # Window icon from logo
         from firepro3d.assets import asset_path as _asset_path
@@ -360,11 +148,10 @@ class MainWindow(QMainWindow):
         self.current_opening_template = WallOpening(wall=None, feature_id="door_914")
         self._current_file: str | None = None
         self._modified: bool = False
-        # Init True so a premature showEvent (e.g. immersive showMaximized() fired
-        # inside restore_settings, before the cold-start block builds the views)
-        # SKIPS the deferred fit; the cold-start block re-arms it to False so the
-        # real post-__init__ window.show() performs the fit. (Fixes an AttributeError
-        # crash when "Maximize window on startup" is enabled — pre-existing.)
+        # Init True so a premature showEvent (e.g. a startup show-state change
+        # fired before the cold-start block builds the views) SKIPS the deferred
+        # fit; the cold-start block re-arms it to False so the real post-__init__
+        # show performs the fit. (Fixes a pre-existing AttributeError crash.)
         self._initial_fit_done = True
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
@@ -424,7 +211,25 @@ class MainWindow(QMainWindow):
         # Ribbon spans full window width (above docks) via setMenuWidget
         self._splash_progress(60, "Building ribbon toolbar...")
         self.ribbon = RibbonBar()
-        self.setMenuWidget(self.ribbon)
+        # Chrome stack: the custom header rail sits ABOVE the ribbon, both wrapped
+        # in one container installed as the single menu-widget slot (a QMainWindow
+        # has only one). Header owns app identity + Save/Undo/Redo + window dots;
+        # the ribbon keeps the tabs/groups. (Standard titlebar+ribbon layout.)
+        self.header = HeaderRail(app_version=APP_VERSION)
+        _chrome = QWidget()
+        _chrome_lay = QVBoxLayout(_chrome)
+        _chrome_lay.setContentsMargins(0, 0, 0, 0)
+        _chrome_lay.setSpacing(0)
+        _chrome_lay.addWidget(self.header)
+        _chrome_lay.addWidget(self.ribbon)
+        self.setMenuWidget(_chrome)
+        # Header actions → existing slots; window dots → window state.
+        self.header.saveRequested.connect(self.save_file)
+        self.header.undoRequested.connect(self._dispatch_undo)
+        self.header.redoRequested.connect(self._dispatch_redo)
+        self.header.minimizeRequested.connect(self.showMinimized)
+        self.header.maximizeRequested.connect(self._toggle_max_or_fullscreen)
+        self.header.closeRequested.connect(self.close)
         self.setCentralWidget(self.central_tabs)
         self.central_tabs.currentChanged.connect(self._on_tab_changed)
         # Right-click context menu on plan tabs (View Range)
@@ -621,58 +426,38 @@ class MainWindow(QMainWindow):
         self._radiation_emitters = None
         self._radiation_receivers = None
 
-        # Status bar with cursor coordinates
+        # Status bar — custom tokenized footer rail (chrome revamp).
+        # FooterRail replaces the ad-hoc SNAP/ALIGN/HALO pills, coord/mode
+        # labels, node-snap chip, and the dockable _SnapToolbar. Its inline
+        # osnap bar reads/writes the same snap/{attr} keys as the retired bar.
         status_bar = self.statusBar()
-        # SNAP status-bar indicator (snap-spec §9.5 / §12 item 11).
-        # Added BEFORE coord_label so it sits to the left of the
-        # coordinate readout, clear of the QSizeGrip at the far right.
-        self.snap_indicator = _SnapIndicatorLabel(self)
-        self.snap_indicator.clicked.connect(lambda: self._active_scene().toggle_snap())
-        status_bar.addPermanentWidget(self.snap_indicator)
-        self.scene.snapToggled.connect(self._update_snap_indicator)
-        self._update_snap_indicator(self.scene._snap_enabled)
-        # ALIGN status-bar indicator — mirrors SNAP pill for ALIGN state.
-        self.guides_indicator = _GuidesIndicatorLabel(self)
-        self.guides_indicator.clicked.connect(
-            lambda: self._active_scene().set_align_enabled())
-        status_bar.addPermanentWidget(self.guides_indicator)
-        self.scene.alignToggled.connect(self._update_guides_indicator)
-        self._update_guides_indicator(self.scene.get_align_enabled())
-        # HALO status-bar indicator — mirrors SNAP/ALIGN pills. No scene-side
-        # toggled signal (halo_enabled is a plain bool), so the pill owns its
-        # checked state and _toggle_halo pushes it to the scene + QSettings.
-        self._halo_pill = _HaloIndicatorLabel(self)
-        _halo_on = self.settings.value("halo/enabled", True, type=bool)
-        self._halo_pill.setChecked(_halo_on)
-        self.scene.halo_enabled = _halo_on
-        # HALO aperture (pick half-size in px) — loaded from settings into the
-        # per-scene value the view reads each move (prefs spinbox writes both).
+        status_bar.setSizeGripEnabled(False)
+        self.footer = FooterRail(snap_engine_obj=self.scene._snap_engine)
+        status_bar.addPermanentWidget(self.footer, 1)
+
+        # HALO: restore persisted on/off + aperture into the scene, reflect on pill.
         from firepro3d.constants import HALO_APERTURE_PX
+        _halo_on = self.settings.value("halo/enabled", True, type=bool)
+        self.scene.halo_enabled = _halo_on
         self.scene._halo_aperture_px = self.settings.value(
             "halo/aperture_px", HALO_APERTURE_PX, type=int)
-        self._halo_pill.clicked.connect(self._toggle_halo)
-        status_bar.addPermanentWidget(self._halo_pill)
-        # Pipe-mode node snap readout (between SNAP and coordinates)
-        self.node_snap_label = QLabel("")
-        self.node_snap_label.setStyleSheet(
-            "color: #ffcc44; padding: 2px 8px; "
-            "border: 1px solid #665522; border-radius: 3px;"
-        )
-        self.node_snap_label.setMinimumWidth(0)
-        self.node_snap_label.hide()  # only visible in pipe mode with candidates
-        status_bar.addPermanentWidget(self.node_snap_label)
-        self.coord_label = QLabel("X: —   Y: —")
-        self.coord_label.setMinimumWidth(280)
-        status_bar.addPermanentWidget(self.coord_label)
-        # Mode name badge — prominent indicator of active mode (text, accent-bordered)
-        self.mode_name_label = QLabel("Select")
-        self.mode_name_label.setStyleSheet(_mode_badge_style(th.detect().accent))
-        self.mode_name_label.setMinimumWidth(100)
-        status_bar.addWidget(self.mode_name_label)
-        self.mode_label = QLabel("")
-        status_bar.addWidget(self.mode_label)
-        # Level indicator removed — active level is now implicit from the plan tab
-        self.scene.cursorMoved.connect(self.coord_label.setText)
+        self.footer.set_halo_on(_halo_on)
+
+        # Footer interactions → active scene / dialogs.
+        self.footer.snap_pill.clicked.connect(
+            lambda: self._active_scene().toggle_snap())
+        self.footer.align_pill.clicked.connect(
+            lambda: self._active_scene().set_align_enabled())
+        self.footer.halo_pill.clicked.connect(self._toggle_halo)
+        self.footer.snapSettingsRequested.connect(
+            lambda: self._open_system_settings(pane="ux"))
+
+        # Scene signals → footer readouts (SNAP/ALIGN pills, coord, mode, node chip).
+        self.scene.snapToggled.connect(self._update_snap_indicator)
+        self._update_snap_indicator(self.scene._snap_enabled)
+        self.scene.alignToggled.connect(self._update_guides_indicator)
+        self._update_guides_indicator(self.scene.get_align_enabled())
+        self.scene.cursorMoved.connect(self.footer.set_coord)
         self.scene.pipeNodeHighlight.connect(self._update_node_snap_readout)
         self.scene.modeChanged.connect(self._update_mode_label)
         self.scene.modeChanged.connect(self._sync_mode_buttons)
@@ -682,9 +467,7 @@ class MainWindow(QMainWindow):
             self._on_paper_modified)
         self.scene.radiationConfirm.connect(self._radiation_on_confirm)
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
-        self.scene.instructionChanged.connect(
-            lambda text: self.mode_label.setText(text)
-        )
+        self.scene.instructionChanged.connect(self.footer.set_instruction)
         self.scene.openViewRequested.connect(self._on_open_view_requested)
         self.scene.numericInputRequested.connect(self._on_numeric_input_requested)
         self.scene.warningIssued.connect(self._on_warning_issued)
@@ -693,23 +476,17 @@ class MainWindow(QMainWindow):
         self._splash_progress(85, "Wiring up controls...")
         self.init_ribbon()
 
-        # SNAP toolbar — per-type snap toggles (snap-toolbar spec).
-        # Must be created before restore_settings() so restoreState() can
-        # place it; refresh_from_engine() is called there once QSettings
-        # have been applied.
-        self.snap_toolbar = _SnapToolbar(self.scene._snap_engine, self)
-        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.snap_toolbar)
-        self.scene.snapToggled.connect(self.snap_toolbar._on_snap_toggled)
-        self.snap_toolbar._on_snap_toggled(self.scene._snap_enabled)
-        # Hidden on first launch; the Snap-group "SNAP Bar" button toggles it.
-        # restoreState() (in restore_settings, below) re-applies the user's
-        # saved visibility, and visibilityChanged keeps the button in sync.
-        self.snap_toolbar.hide()
-        self.snap_toolbar.visibilityChanged.connect(self._snap_bar_btn.setChecked)
-        self._snap_bar_btn.setChecked(self.snap_toolbar.isVisible())
-
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
+        # Undo/Redo are window-wide now that the ribbon Edit group is retired
+        # (a ribbon-button shortcut only fires when its page is the visible one).
+        QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._dispatch_undo)
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self._dispatch_redo)
+        # Header state depends on the active tab + undo stacks; refresh on switch.
+        self.central_tabs.currentChanged.connect(self._refresh_header_state)
+        self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
+            self._refresh_header_state)
+        self._refresh_header_state()
 
         # F3 global SNAP toggle — a window-level shortcut so it fires from any
         # ribbon tab (a QToolButton shortcut only fires when its ribbon page is
@@ -817,10 +594,11 @@ class MainWindow(QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
-        # Maximized window ("Maximize on startup"). Applied on the real first
-        # showEvent, NOT here: main() calls window.resize(800, 600) after __init__
-        # and before show(), which would clobber a showMaximized() called now.
-        self._start_maximized = self.settings.value("ui/immersive", False, type=bool)
+        # Startup window state (chrome revamp: frameless-fullscreen by default).
+        # Applied by main() AFTER its resize()+show(), NOT in showEvent — so the
+        # headless MainWindow tests (which call .show() directly, never main())
+        # never trigger the View3D/VTK fullscreen-resize crash class.
+        self._start_fullscreen = migrate_fullscreen_pref(self.settings.value)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
@@ -846,8 +624,8 @@ class MainWindow(QMainWindow):
                 if isinstance(val, str):
                     val = val.lower() not in ("false", "0")
                 setattr(self.scene._snap_engine, attr, bool(val))
-        # Reflect the just-restored per-type snap state on the toolbar.
-        self.snap_toolbar.refresh_from_engine()
+        # Reflect the just-restored per-type snap state on the footer osnap bar.
+        self.footer.osnap_bar.refresh_from_engine()
         # Restore ALIGN toggle (migrating legacy inference/* key if present)
         self._migrate_inference_to_align()
         align_on = self.settings.value(
@@ -930,10 +708,8 @@ class MainWindow(QMainWindow):
             # Open Plan: Level 1 as the default view
             from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
-            # "Maximize on startup" — applied here (after main()'s resize) so it
-            # actually fits the screen instead of being clobbered.
-            if getattr(self, "_start_maximized", False):
-                self.showMaximized()
+            # NOTE: the startup fullscreen/normal state is applied by main()
+            # (after its resize), never here — see _start_fullscreen.
 
     def _switch_sheet(self, sheet):
         """Make *sheet* the active sheet and rebind the canonical widget.
@@ -1355,7 +1131,7 @@ class MainWindow(QMainWindow):
             scene = view.scene()
             if scene is not None:
                 scene.entitySelected.connect(self.prop_manager.show_properties)
-            view.cursorMoved.connect(self.coord_label.setText)
+            view.cursorMoved.connect(self.footer.set_coord)
 
     def _create_elevation_markers(self):
         """Create N/S/E/W elevation markers in the 2D plan view."""
@@ -1456,7 +1232,7 @@ class MainWindow(QMainWindow):
         """Build the five base workflow ribbon tabs and wire every button.
 
         Tabs:
-          1. Manage             — file I/O, import, preferences, undo/redo, snap,
+          1. Manage             — file I/O, import, preferences, undo/redo,
                                   display manager
           2. Architecture       — walls/floors/roofs/rooms, datums (levels,
                                   gridlines), blocks, underlay
@@ -1515,18 +1291,19 @@ class MainWindow(QMainWindow):
     # ── Per-tab ribbon helpers ───────────────────────────────────────────────
 
     def _init_manage_tab(self, _I, _btn):
-        """Build Tab 1: Manage — file I/O, import, preferences, undo/redo, snap."""
+        """Build Tab 1: Manage — file I/O, import, preferences, undo/redo, display."""
         manage_page = self.ribbon.add_page("Manage")
 
         # --- File ---
+        # Compact 3-stack of small buttons (Save migrated to the header rail) +
+        # a large Recent menu button (chrome revamp Task 4).
         g_file = manage_page.add_group("File")
-        _btn(g_file, "New",     _I("placeholder_icon.svg"), self.new_file, tip="Start a new project [Ctrl+N]")
-        _btn(g_file, "Open",    _I("load_icon.svg"),        self.open_file, tip="Open a saved project [Ctrl+O]")
-        _btn(g_file, "Save",    _I("save_icon.svg"),        self.save_file, tip="Save the current project [Ctrl+S]")
-        _btn(g_file, "Save As", _I("saveas_icon.svg"),      self.save_file_as, tip="Save as a new file")
+        _btn(g_file, "New",     _I("new_icon.svg"),     self.new_file, large=False, tip="Start a new project [Ctrl+N]")
+        _btn(g_file, "Open",    _I("open_icon.svg"),    self.open_file, large=False, tip="Open a saved project [Ctrl+O]")
+        _btn(g_file, "Save As", _I("save_as_icon.svg"), self.save_file_as, large=False, tip="Save as a new file")
         self._recent_menu = QMenu(self)
-        _btn = g_file.add_small_menu_button("Recent", _I("load_icon.svg"), self._recent_menu)
-        _btn.setToolTip("Recently opened files")
+        _rbtn = g_file.add_large_menu_button("Recent", _I("recent_icon.svg"), self._recent_menu)
+        _rbtn.setToolTip("Recently opened files")
         self._rebuild_recent_menu()
 
         # --- Settings ---
@@ -1540,36 +1317,10 @@ class MainWindow(QMainWindow):
             self._open_project_settings)
         _btn.setToolTip("Settings for the current project (Project Info / Units)")
 
-        # --- Edit (Undo/Redo always accessible) ---
-        g_edit = manage_page.add_group("Edit")
-        self._btn_undo = g_edit.add_large_button(
-            "Undo", _I("undo_icon.svg"),
-            self._dispatch_undo, shortcut="Ctrl+Z")
-        self._btn_undo.setToolTip("Undo last action [Ctrl+Z]")
-        self._btn_redo = g_edit.add_large_button(
-            "Redo", _I("redo_icon.svg"),
-            self._dispatch_redo, shortcut="Ctrl+Y")
-        self._btn_redo.setToolTip("Redo last undone action [Ctrl+Y]")
-
-        # --- Snap (moved from Draw tab) ---
-        g_snap = manage_page.add_group("Snap")
-        self._snap_btn = g_snap.add_large_button(
-            "SNAP",
-            _I("placeholder_icon.svg"),
-            self._toggle_snap, checkable=True)
-        self._snap_btn.setChecked(True)
-        self._snap_btn.setToolTip("Select Nearest Anchor Point (SNAP)  [F3]")
-        _btn = g_snap.add_small_menu_button(
-            "Angle Snap",
-            _I("placeholder_icon.svg"),
-            self._build_snap_angle_menu())
-        _btn.setToolTip("Set Ctrl-drag angle snap increment")
-        # Toggle for the SNAP snap-type toolbar (hidden on first launch).
-        self._snap_bar_btn = g_snap.add_small_button(
-            "SNAP\nBar",
-            _I("placeholder_icon.svg"),
-            self._toggle_snap_bar, checkable=True)
-        self._snap_bar_btn.setToolTip("Show/hide the SNAP snap-type toolbar")
+        # Edit group retired (chrome revamp): Undo/Redo migrated to the header
+        # rail (window-wide Ctrl+Z/Ctrl+Y shortcuts back them).
+        # Snap group retired: master SNAP + osnap toggles live in the footer
+        # rail; angle-snap lives in System Settings → UX.
 
         # --- Display (moved from the retired View tab) ---
         g_disp = manage_page.add_group("Display")
@@ -2214,18 +1965,29 @@ class MainWindow(QMainWindow):
         self.scene._project_info = edited
         self._push_titleblock_template()
 
-    def _open_system_settings(self) -> None:
-        """Open the System (app-wide) Settings dialog — General/UX/UI/Import."""
+    def _open_system_settings(self, pane: str | None = None) -> None:
+        """Open the System (app-wide) Settings dialog — General/UX/UI/Import.
+
+        Args:
+            pane: Optional rail key to open on (e.g. ``"ux"`` for the snap
+                settings reached from the footer SNAP-pill right-click). When
+                connected to a QToolButton ``clicked`` signal Qt passes a bool
+                here, which is falsy and safely ignored.
+        """
         from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
-        SystemSettingsDialog(
+        _footer = getattr(self, "footer", None)
+        dlg = SystemSettingsDialog(
             scene=getattr(self, "scene", None),
             view=getattr(self, "view", None),
-            snap_toolbar=getattr(self, "snap_toolbar", None),
+            snap_toolbar=(_footer.osnap_bar if _footer is not None else None),
             on_theme_changed=self._apply_theme,
             on_crosshair_changed=self._apply_crosshair,
             on_immersive_changed=self._apply_immersive,
             parent=self,
-        ).exec()
+        )
+        if isinstance(pane, str):
+            dlg.select_pane(pane)
+        dlg.exec()
 
     def _on_project_settings_changed(self) -> None:
         """Refresh labels and mark the project modified after units/info change."""
@@ -2276,12 +2038,12 @@ class MainWindow(QMainWindow):
         self.scene._suppress_preview_node = enabled
 
     def _apply_immersive(self, enabled=None) -> None:
-        """Toggle a maximized window (fills the screen, keeps the OS title bar).
-        Reads QSettings when *enabled* is None."""
+        """Toggle frameless-fullscreen (chrome revamp — was maximize).
+        Reads the migrated fullscreen pref when *enabled* is None."""
         if enabled is None:
-            enabled = self.settings.value("ui/immersive", False, type=bool)
+            enabled = migrate_fullscreen_pref(self.settings.value)
         if bool(enabled):
-            self.showMaximized()
+            self.showFullScreen()
         else:
             self.showNormal()
 
@@ -2362,15 +2124,6 @@ class MainWindow(QMainWindow):
         if sc.titleblock_warning:
             self.statusBar().showMessage(sc.titleblock_warning, 8000)
 
-    def _build_snap_angle_menu(self) -> QMenu:
-        """Return a QMenu of angle snap increments for Ctrl-constrain."""
-        m = QMenu(self)
-        for deg in (15, 30, 45, 90):
-            act = m.addAction(f"{deg}°")
-            act.triggered.connect(
-                lambda checked=False, d=deg: setattr(self.scene, "_snap_angle_deg", float(d)))
-        return m
-
     # ── Stub actions (filled in by later sprints) ─────────────────────────────
 
     # ── Draw tool helpers ─────────────────────────────────────────────────────
@@ -2403,16 +2156,6 @@ class MainWindow(QMainWindow):
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)
 
-    # ── SNAP toggle (Sprint H) ────────────────────────────────────────────────
-
-    def _toggle_snap(self, checked: bool):
-        """Called when the SNAP ribbon button is toggled (or F3 pressed)."""
-        self._active_scene().toggle_snap(checked)
-
-    def _toggle_snap_bar(self, checked: bool):
-        """Show/hide the SNAP snap-type toolbar (hidden by default)."""
-        self.snap_toolbar.setVisible(checked)
-
     # ── Mode label (Sprint N) ────────────────────────────────────────────────
 
     _MODE_INSTRUCTIONS = {
@@ -2438,25 +2181,19 @@ class MainWindow(QMainWindow):
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
-        self.snap_indicator.setSnapOn(enabled)
-        # Keep the ribbon SNAP button in sync with external toggles (pill /
-        # F3) without re-entering _toggle_snap. Guarded: this runs once during
-        # __init__ before init_ribbon() creates the button.
-        btn = getattr(self, "_snap_btn", None)
-        if btn is not None:
-            btn.blockSignals(True)
-            btn.setChecked(enabled)
-            btn.blockSignals(False)
+        """Reflect SNAP master state on the footer pill (+ dims the osnap bar)."""
+        self.footer.set_snap_on(enabled)
 
     def _update_guides_indicator(self, enabled: bool) -> None:
-        """Restyle the ALIGN status-bar pill. Mirrors _update_snap_indicator."""
-        self.guides_indicator.setGuidesOn(enabled)
+        """Reflect ALIGN state on the footer pill. Mirrors _update_snap_indicator."""
+        self.footer.set_align_on(enabled)
 
     def _toggle_halo(self, *args):
-        """Flip the global HALO switch from the status-bar pill."""
-        on = self._halo_pill.isChecked()
+        """Flip the global HALO switch from the footer pill."""
+        on = self.footer.halo_pill.isChecked()
         self.scene.halo_enabled = on
         self.settings.setValue("halo/enabled", on)
+        self.footer.set_halo_on(on)
         if not on:
             # Drop any live candidate list so the last highlight is not left
             # painted after disabling (drawForeground is gated on suppression,
@@ -2466,19 +2203,15 @@ class MainWindow(QMainWindow):
             v.viewport().update()
 
     def _update_node_snap_readout(self, text: str):
-        """Update the pipe-mode node snap readout in the status bar."""
-        if text:
-            self.node_snap_label.setText(text)
-            self.node_snap_label.show()
-        else:
-            self.node_snap_label.hide()
+        """Update the pipe-mode node snap readout on the footer."""
+        self.footer.set_node_snap(text)
 
     def _update_mode_label(self, mode: str):
         text = self._MODE_INSTRUCTIONS.get(mode, mode.replace("_", " ").title())
-        self.mode_label.setText(text)
-        # Update prominent mode name badge
+        self.footer.set_instruction(text)
+        # Update the prominent mode name badge.
         pretty = mode.replace("_", " ").title() if mode else "Select"
-        self.mode_name_label.setText(pretty)
+        self.footer.set_mode(pretty)
 
     def _last_feature_for(self, type_: str) -> str:
         """Return the last-used Feature id for *type_*, falling back to the default.
@@ -3773,6 +3506,7 @@ class MainWindow(QMainWindow):
         if self._current_file:
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
+                self.scene.mark_saved()
                 self._update_title()
                 self._cleanup_autosave()
         else:
@@ -3784,6 +3518,7 @@ class MainWindow(QMainWindow):
             self._current_file = file
             if self.scene.save_to_file(file):
                 self._modified = False
+                self.scene.mark_saved()
                 self._update_title()
                 self._add_recent_file(file)
 
@@ -3799,6 +3534,7 @@ class MainWindow(QMainWindow):
         # Clear dirty flag before the divergence prompt so the autosave timer
         # cannot fire during the modal (autosave is gated on _modified).
         self._modified = False
+        self.scene.mark_saved()
         self._update_title()
         self._add_recent_file(file)
         # Offer to push embedded template to library after the project is clean.
@@ -4054,6 +3790,7 @@ class MainWindow(QMainWindow):
                 self._sheet_props_adapter(self._sheet))
 
         self._modified = False
+        self.scene.mark_saved()   # the template seed push above isn't user work
         self._update_title()
         QTimer.singleShot(100, self._fit_active_plan_view)
 
@@ -4061,6 +3798,43 @@ class MainWindow(QMainWindow):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
         star = " *" if self._modified else ""
         self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 {name}{star}")
+        self._refresh_header_state()
+
+    def _refresh_header_state(self, *args):
+        """Sync the header rail (undo/redo enabled, project name + dirty \u25cf).
+
+        Undo/redo availability tracks the active tab's stack (paper vs
+        model/editor scene). The dirty \u25cf uses ``self._modified`` \u2014 the single
+        project-dirty flag already maintained across scene edits, paper edits,
+        and every save/load/new transition \u2014 so the dot is correct everywhere.
+        """
+        header = getattr(self, "header", None)
+        if header is None:
+            return
+        w = self.central_tabs.currentWidget() if getattr(self, "central_tabs", None) else None
+        paper = getattr(self, "paper_space_widget", None)
+        if paper is not None and w is paper:
+            us = paper.paper_scene.undo_stack
+            header.set_undo_enabled(us.canUndo())
+            header.set_redo_enabled(us.canRedo())
+        else:
+            sc = self._active_scene()
+            header.set_undo_enabled(sc.can_undo())
+            header.set_redo_enabled(sc.can_redo())
+        name = (os.path.splitext(os.path.basename(self._current_file))[0]
+                if self._current_file else "Untitled")
+        header.set_project(name=name, path=self._current_file or "",
+                           dirty=self._modified)
+
+    def _toggle_max_or_fullscreen(self):
+        """Header maximize/restore dot: toggle frameless-fullscreen ↔ normal,
+        and persist the choice under ui/fullscreen."""
+        going_fullscreen = not (self.isFullScreen() or self.isMaximized())
+        if going_fullscreen:
+            self.showFullScreen()
+        else:
+            self.showNormal()
+        self.settings.setValue("ui/fullscreen", going_fullscreen)
 
     def _on_paper_modified(self):
         """A paper mutation dirties the project (save prompt + autosave)."""
@@ -4537,15 +4311,14 @@ class MainWindow(QMainWindow):
         sc.modeChanged.connect(self._on_mode_changed_template)
         sc.selectionChanged.connect(self.update_property_manager)
         sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
-        # Status-bar readouts: per-step/variant instruction (corner/centre,
+        # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
-        sc.instructionChanged.connect(lambda text: self.mode_label.setText(text))
-        sc.cursorMoved.connect(self.coord_label.setText)
+        sc.instructionChanged.connect(self.footer.set_instruction)
+        sc.cursorMoved.connect(self.footer.set_coord)
         sc.warningIssued.connect(self._on_warning_issued)
-        # Keep the shared SNAP/ALIGN status pills + toolbar + ribbon button in
-        # sync when the editor scene's snap/align state is toggled.
+        # Keep the shared footer SNAP/ALIGN pills (and the inline osnap bar's
+        # enabled state) in sync when the editor scene's snap/align is toggled.
         sc.snapToggled.connect(self._update_snap_indicator)
-        sc.snapToggled.connect(self.snap_toolbar._on_snap_toggled)
         sc.alignToggled.connect(self._update_guides_indicator)
 
     def _refresh_snap_align_indicators(self):
@@ -4828,6 +4601,10 @@ class MainWindow(QMainWindow):
 
 def main():
     install_excepthook()
+    # Frameless MainWindow hosts a native VTK view; this attribute avoids extra
+    # native-window siblings that can crash the frameless/VTK combo (spike Task 0).
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True)
     app = QApplication(sys.argv)
     th.apply_app_font(app)          # house UI font (Arial) app-wide
 
@@ -4850,7 +4627,13 @@ def main():
     window = MainWindow(splash=splash)
     window.resize(800, 600)
     splash.close()
-    window.show()
+    # Apply the startup window state here (not in showEvent) so headless tests,
+    # which construct MainWindow() and call .show() directly, never trigger the
+    # fullscreen VTK-resize crash class. Fullscreen-first by default.
+    if getattr(window, "_start_fullscreen", True):
+        window.showFullScreen()
+    else:
+        window.show()
     sys.exit(app.exec())
 
 

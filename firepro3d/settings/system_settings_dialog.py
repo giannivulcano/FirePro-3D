@@ -84,6 +84,16 @@ class SystemSettingsDialog(HouseDialog):
         """Return the ordered list of tab keys."""
         return [k for k, _ in self._TABS]
 
+    def select_pane(self, key: str) -> None:
+        """Programmatically switch to a pane by rail key (e.g. ``"ux"``).
+
+        Used by the footer SNAP-pill right-click to open directly on the pane
+        that hosts the snap settings. No-op for an unknown key.
+        """
+        if key in self._panes:
+            self._rail.set_current(key)   # highlight the rail row
+            self._on_rail(key)            # switch the stacked body
+
     # ── private ──────────────────────────────────────────────────────────────
 
     def _on_rail(self, key: str) -> None:

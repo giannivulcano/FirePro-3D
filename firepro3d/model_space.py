@@ -506,6 +506,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._suppress_preview_node = False  # True while the crosshair owns the cursor
         self.draw_origin()
         self.push_undo_state()   # initial empty state
+        # Dirty tracking (chrome header ●). The seed push above is not a user
+        # mutation, so clear the flag it set; real push_undo_state calls after
+        # this mark the scene dirty until mark_saved() clears it.
+        self._dirty = False
         self.selectionChanged.connect(self._on_selection_changed)
         # Scene-level selection manipulator (frame + rigid transforms) —
         # governing spec docs/specs/selection-manipulator.md.  One undo entry
@@ -2275,7 +2279,30 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ctrl.clear()
             self._align_last_move_ns = None
             self._align_anchor_dir = None
+        self._dirty = True   # a committed mutation diverges from the last save
         self.sceneModified.emit()
+
+    def can_undo(self) -> bool:
+        """True when there is a prior state to restore (past the seed)."""
+        return self._undo_pos > 0
+
+    def can_redo(self) -> bool:
+        """True when there is a forward state to restore."""
+        return self._undo_pos < len(self._undo_stack) - 1
+
+    def is_dirty(self) -> bool:
+        """True when the scene has unsaved mutations since the last save."""
+        return getattr(self, "_dirty", False)
+
+    def mark_saved(self) -> None:
+        """Clear the dirty flag after a save/load/new.
+
+        Deliberately does NOT emit ``sceneModified`` — that signal is wired in
+        MainWindow to a handler that sets the project dirty, which would undo
+        the clean state. Chrome refresh is driven by ``_update_title`` at the
+        transition sites instead.
+        """
+        self._dirty = False
 
     def undo(self):
         """Restore the previous network state."""
