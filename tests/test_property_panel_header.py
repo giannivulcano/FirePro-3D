@@ -17,8 +17,12 @@ class _Sectioned:
 def test_header_renders_section_label(qapp):
     pm = PropertyManager()
     pm.show_properties(_Sectioned())
-    labels = [w.text() for w in pm.findChildren(QLabel)]
-    assert "── Room Info ──" in labels
+    labels = pm.findChildren(QLabel)
+    # Header rows render as the app-wide overline: UPPERCASE text + role="header"
+    # (was the bold "── Room Info ──" divider before the Stage-2 chrome revamp).
+    hdrs = [w for w in labels if w.text() == "ROOM INFO"]
+    assert hdrs, [w.text() for w in labels]
+    assert hdrs[0].property("role") == "header"
 
 
 def test_header_has_no_editor_row(qapp):
