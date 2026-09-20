@@ -21,7 +21,7 @@ def dock_header(text: str) -> QLabel:
     from .theme import detect
     t = detect()
     lbl = QLabel(text)
-    lbl.setFixedHeight(33)
+    lbl.setFixedHeight(M.DOCK_HEADER_H)
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     f = QFont()
     f.setBold(True)

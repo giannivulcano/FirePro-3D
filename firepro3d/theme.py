@@ -79,6 +79,7 @@ class _Metrics:
     LEFT_TAB_W = 24          # browser LeftTabs vertical strip width (mockup-tuned)
     LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
     LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
+    DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
