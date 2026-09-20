@@ -1,12 +1,15 @@
 ---
-status: proposal          # designed, unbuilt — Stage Two of the MainWindow chrome revamp
+status: current           # built + live-smoked (feat/chrome-revamp-stage2, 2026-09-19)
 last-verified: 2026-09-19
-verified-commit: dbb0479
+verified-commit: 2330ae8
 related-contract: extends mainwindow-chrome-revamp.md (Stage One shipped); reconciles ui-design-system.md (tab catalog), project-browser.md, property-panel.md
 applies-to:
   - main.py
   - firepro3d/ui_kit.py
   - firepro3d/theme.py
+  - firepro3d/ribbon_bar.py
+  - firepro3d/header_rail.py
+  - firepro3d/footer_rail.py
   - firepro3d/project_browser.py
   - firepro3d/model_browser.py
   - firepro3d/property_manager.py
@@ -19,6 +22,8 @@ source-tasks:
 # MainWindow Chrome Revamp (Stage Two) — Design Spec
 
 > **Consolidating contract.** One design doc for the second chrome slice: everything *between* the Stage-One header and footer rails. Per-spec bodies (ui-design-system tab catalog, project-browser, property-panel) reconciled **in place** at wrap-up (Account). Stage One (header/footer rails, ribbon restyle, frameless-fullscreen) shipped 2026-09-19 (merge `0a7b44a`); this builds on its token system with **zero new raw chrome hex**.
+
+> **As-built (2026-09-19, live-smoked).** The build grew past the original four-surface scope into a full **three-tone window scheme** (dialed via served mockups): **header + footer rails = `surface2`/`raised`; ribbon + ribbon tabs + browsers + canvas rail + docks = `surface` (body); canvas drawing = `ground`.** Rails/ribbon-wrap/browsers/canvas-wrap paint their tone via **`WA_StyledBackground`** (a QSS `background:` on a plain `QWidget` is a **live-only no-op** without it — offscreen render masks this; `project_qss_unstyled_state_invisible`). Key mechanism deviations, each because the obvious QSS path failed live: (1) **canvas close button** is a custom `QToolButton` (`_CanvasTabBar`/`_TabCloseButton` via `setTabButton`) — the built-in tab close indicator is capped/scaled by the platform style; the dot reuses `frameless_shell._winctl_pixmap` (18px, hover brightens the circle `line_strong`→`faint` like `_WinDot`); (2) **LeftTabs accent side-bar is painted** (`_WestTabBar.paintEvent`) — QSS `border-right` is unreliable on rotated West tabs; (3) **ribbon-tab 2px left inset via layout** — QSS `margin` on a `QTabBar` is ignored; (4) **canvas side rail dividers are explicit `QFrame` vlines** — a `QTabWidget` `border-left` is covered by the first tab. **Dividers (all `line_strong`):** header↔ribbon **2px**, ribbon-tabs↔groups 1px, ribbon↔canvas 1px, footer↔window **2px** (`QStatusBar` border-top), canvas side vlines + tabs↔canvas (pane `border-top`); the canvas `QGraphicsView` `StyledPanel` frame is cleared. **Selected ribbon + canvas tabs** take the accent-soft fill + 1px accent outline + accent bar (per-surface override on the shared `_tab_language_qss` underline base). **Footer mode badge** is an uppercase non-interactive `QToolButton` pill (was a taller `QLabel`) matching ALIGN/HALO. Metrics: `M.LEFT_TAB_W=24`, `LEFT_TAB_INSET=2`, `LEFT_TAB_GAP=2`; canvas tab padding `4px 10px 5px 16px` @ 9pt to match the ribbon tab height (~31px).
 
 ## Goal
 

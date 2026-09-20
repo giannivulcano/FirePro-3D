@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-28
-verified-commit: 579e841
+last-verified: 2026-09-19   # header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
+verified-commit: 2330ae8
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -38,7 +38,7 @@ Non-entity **adapter clients** implement this protocol as plain objects (not `QG
 
 | `type` | Widget | Commit trigger |
 |---|---|---|
-| `header` | section-divider `QLabel` (`── {key} ──`, bold secondary text) — no editor, no `value` key needed | — |
+| `header` | section-divider `QLabel` rendered as the **house overline** — UPPERCASE text + `setProperty("role","header")` (app-wide `QLabel[role="header"]` styling; was a bold `── {key} ──` divider before the 2026-09-19 Stage-2 chrome revamp, `mainwindow-chrome-revamp-stage2.md`). No editor, no `value` key needed | — |
 | `label` | read-only `QLabel` (sunken style) | — |
 | `warning` | full-width amber header (`⚠ {key}`) + word-wrapped bullet body (`QLabel`, `Expanding` + `setMinimumWidth(1)` so long words don't force a wider dock minimum) | — |
 | `string` (+ fallback) | `QLineEdit`; auto-attaches `QDoubleValidator` when current value parses as float | `editingFinished` |
@@ -126,7 +126,7 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 | # | Divergence | Status |
 |---|---|---|
 | D0 | **Wall/roof/geometry templates don't persist** across sessions (historical asymmetry, §3.7). **Floor now persists** (2026-08-28): `Model_Space.save/load_floor_template_settings` round-trips modes/offsets/thickness only via QSettings `template/floor` (level names + absolute-Z re-seed from the active level on load); wall/roof/geometry retrofit still pending. | Partially resolved; wall/roof/geometry retrofit remains a low-priority follow-up. |
-| D1 | **Zero test coverage** — no test file references `PropertyManager` or `DimensionEdit`. | Gap; add coverage opportunistically when touching the panel. |
+| D1 | ~~Zero test coverage~~ — `tests/test_property_panel_header.py` now covers header (overline role), the no-editor-row invariant, width-capping (wide fields / long warning), and warning-row rendering. `DimensionEdit` still has no direct test. | Partially resolved (2026-09-19); broaden opportunistically. |
 | D2 | ~~No paper-space wiring~~ | **Resolved 2026-07-09** — §3.6 paper wiring built; the dialog is deleted. Viewports remain dialog-based (follow-up filed in TODO.md). |
 | D3 | ~~Direct-mutation write path vs paper-space undo invariant~~ | **Resolved 2026-07-09** — §3.3 pluggable write route as-built for paper (commands + multi-select macro); model space stays direct until model undo exists. |
 | D4 | ~~`DimensionEdit` fallback unit not overridable~~ | **Resolved 2026-07-09** — §3.8 `parser`/`minimum`/`formatter` overrides + seed guard. |
