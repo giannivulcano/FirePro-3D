@@ -1,7 +1,7 @@
 ---
-status: current           # built + live-smoked (feat/chrome-revamp-stage2, 2026-09-19)
-last-verified: 2026-09-19
-verified-commit: 2330ae8
+status: current           # built + live-smoked (feat/chrome-revamp-stage2, 2026-09-19/20)
+last-verified: 2026-09-20
+verified-commit: cd02300
 related-contract: extends mainwindow-chrome-revamp.md (Stage One shipped); reconciles ui-design-system.md (tab catalog), project-browser.md, property-panel.md
 applies-to:
   - main.py
@@ -12,6 +12,8 @@ applies-to:
   - firepro3d/footer_rail.py
   - firepro3d/project_browser.py
   - firepro3d/model_browser.py
+  - firepro3d/feature_browser.py
+  - firepro3d/blocks_browser.py
   - firepro3d/property_manager.py
 source-tasks:
   - "user request 2026-09-19: Chrome Revamp Stage 2 — the 'middle' surfaces (browser, canvas tabs, property panel) + tokenization"
@@ -24,6 +26,8 @@ source-tasks:
 > **Consolidating contract.** One design doc for the second chrome slice: everything *between* the Stage-One header and footer rails. Per-spec bodies (ui-design-system tab catalog, project-browser, property-panel) reconciled **in place** at wrap-up (Account). Stage One (header/footer rails, ribbon restyle, frameless-fullscreen) shipped 2026-09-19 (merge `0a7b44a`); this builds on its token system with **zero new raw chrome hex**.
 
 > **As-built (2026-09-19, live-smoked).** The build grew past the original four-surface scope into a full **three-tone window scheme** (dialed via served mockups): **header + footer rails = `surface2`/`raised`; ribbon + ribbon tabs + browsers + canvas rail + docks = `surface` (body); canvas drawing = `ground`.** Rails/ribbon-wrap/browsers/canvas-wrap paint their tone via **`WA_StyledBackground`** (a QSS `background:` on a plain `QWidget` is a **live-only no-op** without it — offscreen render masks this; `project_qss_unstyled_state_invisible`). Key mechanism deviations, each because the obvious QSS path failed live: (1) **canvas close button** is a custom `QToolButton` (`_CanvasTabBar`/`_TabCloseButton` via `setTabButton`) — the built-in tab close indicator is capped/scaled by the platform style; the dot reuses `frameless_shell._winctl_pixmap` (18px, hover brightens the circle `line_strong`→`faint` like `_WinDot`); (2) **LeftTabs accent side-bar is painted** (`_WestTabBar.paintEvent`) — QSS `border-right` is unreliable on rotated West tabs; (3) **ribbon-tab 2px left inset via layout** — QSS `margin` on a `QTabBar` is ignored; (4) **canvas side rail dividers are explicit `QFrame` vlines** — a `QTabWidget` `border-left` is covered by the first tab. **Dividers (all `line_strong`):** header↔ribbon **2px**, ribbon-tabs↔groups 1px, ribbon↔canvas 1px, footer↔window **2px** (`QStatusBar` border-top), canvas side vlines + tabs↔canvas (pane `border-top`); the canvas `QGraphicsView` `StyledPanel` frame is cleared. **Selected ribbon + canvas tabs** take the accent-soft fill + 1px accent outline + accent bar (per-surface override on the shared `_tab_language_qss` underline base). **Footer mode badge** is an uppercase non-interactive `QToolButton` pill (was a taller `QLabel`) matching ALIGN/HALO. Metrics: `M.LEFT_TAB_W=24`, `LEFT_TAB_INSET=2`, `LEFT_TAB_GAP=2`; canvas tab padding `4px 10px 5px 16px` @ 9pt to match the ribbon tab height (~31px).
+
+> **As-built addendum — dock rails + browser trees (2026-09-19/20).** Both docks gained a shared **`ui_kit.dock_header(text)`** rail ("Properties Panel", "Browser Dock") — surface, 33px (height-aligned with the canvas tab rail), centered, bottom divider; the old in-panel Project/Model headers were removed. To align the dock content y with the canvas, both dock title bars are collapsed to a 0-height widget, and **`QMainWindow::separator` is collapsed to 0** so panels butt flush against the canvas rail vlines (a wider separator left a gap where the panel header divider met the vertical rail line). All four browser trees share **`ui_kit.browser_tree_qss()`**: surface bg, no frame, rounded (10px) `accent_soft` hover, selected = `accent_soft2` + accent text + 1px accent outline. **Critical:** the row selection fill bleeds into the indent/branch column (an accented "box + bar" left of the item) and neither `show-decoration-selected: 0`, `selection-background-color: transparent`, nor `::branch:selected` stops it — the fix is painting **`::branch` opaque `surface`** to cover it, with chevron `image:` re-supplied on the has-children states so the expand arrows survive (`project_qtreeview_branch_styling_kills_arrows`). Property-panel body + dock wraps also need `WA_StyledBackground` to paint `surface` (else the dark base shows).
 
 ## Goal
 
