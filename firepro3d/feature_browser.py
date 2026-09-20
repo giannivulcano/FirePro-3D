@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QFrame,
     QTreeWidget,
     QTreeWidgetItem,
     QSizePolicy,
@@ -39,8 +40,11 @@ class FeatureBrowser(QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
+        self._tree.setFrameShape(QFrame.Shape.NoFrame)   # no faded inset border
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
+        from firepro3d.ui_kit import browser_tree_qss
+        self._tree.setStyleSheet(browser_tree_qss())
         self._tree.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
         )

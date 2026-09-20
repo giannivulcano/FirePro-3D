@@ -369,6 +369,10 @@ QDockWidget {{
     color: {t.text_primary};
     titlebar-close-icon: none;
 }}
+/* Dock resize separator collapsed to 0 so docked panels butt flush against the
+   canvas rail vlines (a wider separator left a gap where the panel's header
+   divider meets the vertical rail line). The vlines are the visible dividers. */
+QMainWindow::separator {{ background: {t.surface}; width: 0px; height: 0px; }}
 QDockWidget::title {{
     background: {t.bg_tab_inactive};
     color: {t.text_primary};

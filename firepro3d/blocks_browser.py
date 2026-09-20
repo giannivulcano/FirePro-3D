@@ -21,6 +21,8 @@ class BlocksBrowser(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
+        from firepro3d.ui_kit import browser_tree_qss
+        self._tree.setStyleSheet(browser_tree_qss())
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemDoubleClicked.connect(self._on_item_activated)
         layout.addWidget(self._tree)

@@ -466,8 +466,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
-        self.browser_dock.setTitleBarWidget(QWidget())  # hide title bar
-        self.browser_dock.setWidget(self._left_tabs)
+        _bt = QWidget(); _bt.setFixedHeight(0)  # collapse fully so dock content
+        self.browser_dock.setTitleBarWidget(_bt)  # aligns with the canvas top
+        # Header rail ("Browser Dock") above the LeftTabs, matching the property
+        # panel; body-tone wrap with the 2px canvas-aligned top inset.
+        from firepro3d.ui_kit import dock_header as _dock_header
+        _bwrap = QWidget()
+        _bwrap.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _bwrap.setStyleSheet(f"background: {th.detect().surface};")
+        _bwl = QVBoxLayout(_bwrap)
+        _bwl.setContentsMargins(0, 2, 0, 0)
+        _bwl.setSpacing(0)
+        _bwl.addWidget(_dock_header("Browser Dock"))
+        _bwl.addWidget(self._left_tabs)
+        self.browser_dock.setWidget(_bwrap)
         self.browser_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |
             Qt.DockWidgetArea.LeftDockWidgetArea
@@ -478,7 +490,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Properties dock (right side — always visible)
         self.prop_dock = QDockWidget("Properties", self)
         self.prop_dock.setObjectName("PropertiesDock")
-        self.prop_dock.setTitleBarWidget(QWidget())   # hide default title bar
+        _pt = QWidget(); _pt.setFixedHeight(0)         # collapse fully → panel
+        self.prop_dock.setTitleBarWidget(_pt)          # header aligns with canvas top
         self.prop_dock.setWidget(self.prop_manager)
         self.prop_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |

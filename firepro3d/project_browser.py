@@ -168,21 +168,7 @@ class ProjectBrowser(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header label
-        hdr = QLabel("Project Browser")
-        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setBold(True)
-        f.setPointSize(9)
-        hdr.setFont(f)
-        hdr.setStyleSheet(
-            f"color: {_t.text_primary}; "
-            f"background: {_t.surface}; "
-            f"padding: 4px; "
-            f"border-radius: 3px;"
-        )
-        layout.addWidget(hdr)
-
+        # (In-panel header removed — the dock header + LeftTabs label the panel.)
         # Tree
         self._tree = _ProjectTree()
         self._tree.setHeaderHidden(True)
@@ -191,12 +177,8 @@ class ProjectBrowser(QWidget):
         self._tree.setDefaultDropAction(Qt.DropAction.IgnoreAction)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
-        self._tree.setStyleSheet(
-            f"QTreeWidget {{ background: {_t.surface}; color: {_t.text_primary}; "
-            f"border: 1px solid {_t.border_subtle}; }}"
-            f"QTreeWidget::item:selected {{ background: {_t.accent_primary}; color: {_t.on_accent}; }}"
-            f"QTreeWidget::item:hover   {{ background: {_t.bg_base}; }}"
-        )
+        from firepro3d.ui_kit import browser_tree_qss
+        self._tree.setStyleSheet(browser_tree_qss())
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemDoubleClicked.connect(self._on_item_activated)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

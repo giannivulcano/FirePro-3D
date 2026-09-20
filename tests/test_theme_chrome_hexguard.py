@@ -21,6 +21,7 @@ GUARDED = [
     "settings/project_settings_dialog.py",
     # Chrome revamp Stage Two: middle-surface files (mainwindow-chrome-revamp-stage2.md)
     "project_browser.py", "model_browser.py", "property_manager.py",
+    "feature_browser.py", "blocks_browser.py",
     # Chrome revamp: custom header + footer rails (mainwindow-chrome-revamp.md).
     # (main.py is NOT guarded here — it lives at the repo root, outside this
     # firepro3d/ scan, and carries pre-existing legacy hex; the revamp moved all

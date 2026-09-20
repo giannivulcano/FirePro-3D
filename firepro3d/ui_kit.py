@@ -5,12 +5,65 @@ gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter
+from PyQt6.QtGui import QColor, QBrush, QPainter, QFont
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget)
 
 from .theme import M
+
+
+def dock_header(text: str) -> QLabel:
+    """A MainWindow dock header rail — centered bold label on the body tone
+    (`surface`) with a bottom divider, 33px tall so it height-aligns with the
+    canvas top (tab) rail. Shared by the property panel + browser dock
+    (mainwindow-chrome-revamp-stage2.md)."""
+    from .theme import detect
+    t = detect()
+    lbl = QLabel(text)
+    lbl.setFixedHeight(33)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    f = QFont()
+    f.setBold(True)
+    f.setPointSize(9)
+    lbl.setFont(f)
+    lbl.setStyleSheet(
+        f"background: {t.surface}; color: {t.ink};"
+        f" border-bottom: 1px solid {t.line_strong};")
+    return lbl
+
+
+def browser_tree_qss() -> str:
+    """Shared QSS for the MainWindow browser trees (project/model/feature/blocks):
+    surface bg, no frame, rounded accent-soft hover, and a selected state that
+    stays highlighted (accent_soft2) with accent text + a 1px accent outline
+    (mainwindow-chrome-revamp-stage2.md). Item reserves a 1px transparent border
+    so the selected outline adds no layout shift."""
+    from .theme import detect
+    from .assets import asset_path
+    t = detect()
+    chev_r = asset_path("chevron_right.svg").replace("\\", "/")
+    chev_d = asset_path("chevron_down.svg").replace("\\", "/")
+    return (
+        f"QTreeWidget {{ background: {t.surface}; color: {t.ink};"
+        f" border: none; outline: none;"
+        f" selection-background-color: transparent; selection-color: {t.accent}; }}"
+        f"QTreeWidget::item {{ border: 1px solid transparent; border-radius: 10px;"
+        f" padding: 4px 6px; }}"
+        f"QTreeWidget::item:hover:!selected {{ background: {t.accent_soft}; }}"
+        f"QTreeWidget::item:selected {{ background: {t.accent_soft2};"
+        f" color: {t.accent}; border: 1px solid {t.accent}; }}"
+        # Branch cells painted OPAQUE surface so the row-selection fill never
+        # shows in the indent (the "box + bar to the left"); chevron images keep
+        # the native expand/collapse arrows (project_qtreeview_branch_styling_kills_arrows).
+        f"QTreeWidget::branch {{ background: {t.surface}; }}"
+        f"QTreeWidget::branch:has-children:!has-siblings:closed,"
+        f"QTreeWidget::branch:closed:has-children:has-siblings {{"
+        f" background: {t.surface}; image: url('{chev_r}'); }}"
+        f"QTreeWidget::branch:open:has-children:!has-siblings,"
+        f"QTreeWidget::branch:open:has-children:has-siblings {{"
+        f" background: {t.surface}; image: url('{chev_d}'); }}"
+    )
 
 
 class _StepRow(QFrame):

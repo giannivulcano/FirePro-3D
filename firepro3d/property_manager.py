@@ -66,25 +66,18 @@ class PropertyManager(QWidget):
 
         _t = th.detect()
 
-        # ── Outer layout ──────────────────────────────────────────────────────
+        # ── Panel = header rail + body, both the body tone (surface) ──────────
+        # WA_StyledBackground so the QSS surface actually paints (a plain-QWidget
+        # QSS background is a live-only no-op otherwise, showing the dark base).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"background: {_t.surface};")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(4)
+        outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
+        outer.setSpacing(0)
 
-        # Header — matches project_browser / model_browser style
-        hdr = QLabel("Properties")
-        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setBold(True)
-        f.setPointSize(9)
-        hdr.setFont(f)
-        hdr.setStyleSheet(
-            f"color: {_t.text_primary}; "
-            f"background: {_t.bg_raised}; "
-            f"padding: 4px; "
-            f"border-radius: 3px;"
-        )
-        outer.addWidget(hdr)
+        # Header rail — shared dock-header (height-aligns with the canvas top rail).
+        from firepro3d.ui_kit import dock_header
+        outer.addWidget(dock_header("Properties Panel"))
 
         # Scrollable form area
         scroll = QScrollArea()
