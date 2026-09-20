@@ -4,13 +4,66 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter
+from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtGui import QColor, QBrush, QPainter, QFont
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget)
 
 from .theme import M
+
+
+def dock_header(text: str) -> QLabel:
+    """A MainWindow dock header rail — centered bold label on the body tone
+    (`surface`) with a bottom divider, 33px tall so it height-aligns with the
+    canvas top (tab) rail. Shared by the property panel + browser dock
+    (mainwindow-chrome-revamp-stage2.md)."""
+    from .theme import detect
+    t = detect()
+    lbl = QLabel(text)
+    lbl.setFixedHeight(M.DOCK_HEADER_H)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    f = QFont()
+    f.setBold(True)
+    f.setPointSize(9)
+    lbl.setFont(f)
+    lbl.setStyleSheet(
+        f"background: {t.surface}; color: {t.ink};"
+        f" border-bottom: 1px solid {t.line_strong};")
+    return lbl
+
+
+def browser_tree_qss() -> str:
+    """Shared QSS for the MainWindow browser trees (project/model/feature/blocks):
+    surface bg, no frame, rounded accent-soft hover, and a selected state that
+    stays highlighted (accent_soft2) with accent text + a 1px accent outline
+    (mainwindow-chrome-revamp-stage2.md). Item reserves a 1px transparent border
+    so the selected outline adds no layout shift."""
+    from .theme import detect
+    from .assets import asset_path
+    t = detect()
+    chev_r = asset_path("chevron_right.svg").replace("\\", "/")
+    chev_d = asset_path("chevron_down.svg").replace("\\", "/")
+    return (
+        f"QTreeWidget {{ background: {t.surface}; color: {t.ink};"
+        f" border: none; outline: none;"
+        f" selection-background-color: transparent; selection-color: {t.accent}; }}"
+        f"QTreeWidget::item {{ border: 1px solid transparent; border-radius: 10px;"
+        f" padding: 4px 6px; }}"
+        f"QTreeWidget::item:hover:!selected {{ background: {t.accent_soft}; }}"
+        f"QTreeWidget::item:selected {{ background: {t.accent_soft2};"
+        f" color: {t.accent}; border: 1px solid {t.accent}; }}"
+        # Branch cells painted OPAQUE surface so the row-selection fill never
+        # shows in the indent (the "box + bar to the left"); chevron images keep
+        # the native expand/collapse arrows (project_qtreeview_branch_styling_kills_arrows).
+        f"QTreeWidget::branch {{ background: {t.surface}; }}"
+        f"QTreeWidget::branch:has-children:!has-siblings:closed,"
+        f"QTreeWidget::branch:closed:has-children:has-siblings {{"
+        f" background: {t.surface}; image: url('{chev_r}'); }}"
+        f"QTreeWidget::branch:open:has-children:!has-siblings,"
+        f"QTreeWidget::branch:open:has-children:has-siblings {{"
+        f" background: {t.surface}; image: url('{chev_d}'); }}"
+    )
 
 
 class _StepRow(QFrame):
@@ -222,6 +275,134 @@ class TopTabs(QWidget):
         return len(self._keys) - 1
 
     # ── SideTabs-style key API ─────────────────────────────────────────────
+    def set_current(self, key):
+        if key in self._keys:
+            self.setCurrentIndex(self._keys.index(key))
+
+    def current(self):
+        i = self.currentIndex()
+        return self._keys[i] if 0 <= i < len(self._keys) else None
+
+    # ── QTabWidget-compatible subset (callers + tests) ─────────────────────
+    def tabBar(self): return self._bar
+    def count(self): return self._bar.count()
+    def tabText(self, i): return self._bar.tabText(i)
+    def widget(self, i): return self._stack.widget(i)
+    def currentIndex(self): return self._bar.currentIndex()
+    def setCurrentIndex(self, i): self._bar.setCurrentIndex(i)
+    def currentWidget(self): return self._stack.currentWidget()
+
+    def setCurrentWidget(self, w):
+        i = self._stack.indexOf(w)
+        if i >= 0:
+            self._bar.setCurrentIndex(i)
+
+
+class _WestTabBar(QTabBar):
+    """West ``QTabBar`` that paints the selection accent bar itself.
+
+    A QSS ``border-right`` on a rotated (West) tab is unreliable — it maps to a
+    physical edge after rotation and often doesn't render — so the 2px accent
+    side-bar (the selection marker, on the content-facing right edge) is drawn
+    directly over the styled tab. Fill + 1px outline still come from QSS.
+    """
+    _BAR_W = 2
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        i = self.currentIndex()
+        if i < 0:
+            return
+        from .theme import detect
+        r = self.tabRect(i)
+        # Draw at the WIDGET's right edge, not tabRect.right(): a West tab's
+        # natural width can exceed the fixed strip width (M.LEFT_TAB_W), so the
+        # tab rect overflows into the clipped region and a bar drawn there is
+        # off-screen (confirmed via render diagnostic).
+        x = self.width() - self._BAR_W
+        # Trim the bar by the inter-tab gap so it doesn't overshoot into the
+        # margin-bottom space below the tab (tabRect includes that gap).
+        bar = QRect(x, r.top(), self._BAR_W, r.height() - M.LEFT_TAB_GAP)
+        p = QPainter(self)
+        p.fillRect(bar, QColor(detect().accent))
+        p.end()
+
+
+class LeftTabs(QWidget):
+    """House left-edge vertical-tab strip — TopTabs rotated to the West edge.
+
+    Composed of a ``QTabBar`` (RoundedWest → Qt rotates the labels to read
+    bottom-to-top, matching the ribbon group labels) + a vertical ``line_strong``
+    divider + a ``QStackedWidget``. Styled ``#leftTabsBar`` via
+    ``theme._tab_language_qss(edge="right")`` (2px accent side-bar on select).
+    Same key-based + QTabWidget-compatible API as :class:`TopTabs`; a drop-in for
+    the browser dock's West ``QTabWidget``. Text-only (no icons).
+    """
+    tabSelected = pyqtSignal(str)
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("leftTabs")
+        # WA_StyledBackground so the surface bg paints live (plain-QWidget QSS
+        # background trap: unstyled_qwidget_black_live).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(M.LEFT_TAB_INSET, 0, 0, 0)  # small gap: strip ← dock edge
+        h.setSpacing(0)
+        self._bar = _WestTabBar(objectName="leftTabsBar")
+        self._bar.setShape(QTabBar.Shape.RoundedWest)
+        self._bar.setDrawBase(False)
+        self._bar.setExpanding(False)
+        self._bar.setUsesScrollButtons(False)
+        self._bar.setElideMode(Qt.TextElideMode.ElideNone)
+        self._bar.setFixedWidth(M.LEFT_TAB_W)
+        from .theme import detect
+        self._divider = QFrame()
+        self._divider.setFixedWidth(M.SEAM)
+        self._divider.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._divider.setStyleSheet(f"background: {detect().line_strong};")
+        self._stack = QStackedWidget()
+        # Opaque surface so unstyled stacked pages don't paint black live
+        # (project trap: unstyled_qwidget_black_live).
+        self._stack.setObjectName("leftTabsStack")
+        _s = detect().surface
+        self.setStyleSheet(
+            f"QWidget#leftTabs, QStackedWidget#leftTabsStack {{ background: {_s}; }}")
+        # Pin the bar to the TOP: a West QTabBar sizes to its tab content height,
+        # so without an alignment flag the layout vertically centres the short
+        # bar. AlignTop justifies the tabs to the top; the divider + stack keep
+        # the full row height (no alignment flag).
+        h.addWidget(self._bar, 0, Qt.AlignmentFlag.AlignTop)
+        h.addWidget(self._divider)
+        h.addWidget(self._stack, 1)
+        self._keys: list[str] = []
+        self._bar.currentChanged.connect(self._on_current)
+
+    def _on_current(self, idx):
+        self._stack.setCurrentIndex(idx)
+        self.currentChanged.emit(idx)
+        if 0 <= idx < len(self._keys):
+            self.tabSelected.emit(self._keys[idx])
+
+    def addTab(self, widget, label, *, key=None, icon=None):
+        """Add a page. ``key`` defaults to ``label`` (QTabWidget-compat call form
+        ``addTab(widget, label)`` works directly)."""
+        if icon is None:
+            self._bar.addTab(label)
+        else:
+            self._bar.addTab(icon, label)
+        from .theme import detect
+        name = widget.objectName() or f"leftTabsPage{len(self._keys)}"
+        widget.setObjectName(name)
+        prior = widget.styleSheet()
+        rule = f"QWidget#{name} {{ background: {detect().surface}; }}"
+        widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
+        self._stack.addWidget(widget)
+        self._keys.append(key if key is not None else label)
+        return len(self._keys) - 1
+
     def set_current(self, key):
         if key in self._keys:
             self.setCurrentIndex(self._keys.index(key))

@@ -66,25 +66,18 @@ class PropertyManager(QWidget):
 
         _t = th.detect()
 
-        # ── Outer layout ──────────────────────────────────────────────────────
+        # ── Panel = header rail + body, both the body tone (surface) ──────────
+        # WA_StyledBackground so the QSS surface actually paints (a plain-QWidget
+        # QSS background is a live-only no-op otherwise, showing the dark base).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"background: {_t.surface};")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(4)
+        outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
+        outer.setSpacing(0)
 
-        # Header — matches project_browser / model_browser style
-        hdr = QLabel("Properties")
-        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setBold(True)
-        f.setPointSize(9)
-        hdr.setFont(f)
-        hdr.setStyleSheet(
-            f"color: {_t.text_primary}; "
-            f"background: {_t.bg_raised}; "
-            f"padding: 4px; "
-            f"border-radius: 3px;"
-        )
-        outer.addWidget(hdr)
+        # Header rail — shared dock-header (height-aligns with the canvas top rail).
+        from firepro3d.ui_kit import dock_header
+        outer.addWidget(dock_header("Properties Panel"))
 
         # Scrollable form area
         scroll = QScrollArea()
@@ -185,11 +178,8 @@ class PropertyManager(QWidget):
 
             # ── header (section divider — no editor) ─────────────────────
             if prop_type == "header":
-                hdr_lbl = QLabel(f"── {key} ──")
-                hdr_lbl.setStyleSheet(
-                    f"color: {_t.text_secondary}; font-weight: bold; "
-                    f"padding-top: 6px;"
-                )
+                hdr_lbl = QLabel(str(key).upper())
+                hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
                 self._form.addRow(hdr_lbl)
                 continue
 
@@ -384,7 +374,7 @@ class PropertyManager(QWidget):
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(widget, 1)
                 suffix_lbl = QLabel(suffix)
-                suffix_lbl.setStyleSheet("color: grey; font-style: italic;")
+                suffix_lbl.setStyleSheet(f"color: {_t.muted}; font-style: italic;")
                 row_layout.addWidget(suffix_lbl)
                 container = QWidget()
                 container.setLayout(row_layout)
@@ -425,11 +415,9 @@ class PropertyManager(QWidget):
                 node = getattr(primary, node_attr, None)
                 if node is None:
                     continue
-                # Section header
-                hdr_lbl = QLabel(f"── Node {idx} ──")
-                hdr_lbl.setStyleSheet(
-                    f"color: {_t.text_secondary}; font-weight: bold;"
-                )
+                # Section header (app-wide overline role)
+                hdr_lbl = QLabel(f"NODE {idx}")
+                hdr_lbl.setProperty("role", "header")
                 self._form.addRow(hdr_lbl, QLabel(""))
 
                 node_props = node.get_properties()
@@ -475,7 +463,7 @@ class PropertyManager(QWidget):
                         row_layout.setContentsMargins(0, 0, 0, 0)
                         row_layout.addWidget(nwidget, 1)
                         suffix_lbl = QLabel(nsuffix)
-                        suffix_lbl.setStyleSheet("color: grey; font-style: italic;")
+                        suffix_lbl.setStyleSheet(f"color: {_t.muted}; font-style: italic;")
                         row_layout.addWidget(suffix_lbl)
                         container = QWidget()
                         container.setLayout(row_layout)
@@ -647,7 +635,7 @@ class PropertyManager(QWidget):
         """Open a colour dialog, update swatch, and apply to all targets."""
         _t = th.detect()
         stored = btn.property("_color_value")
-        current = QColor(stored) if stored else QColor("#cccccc")
+        current = QColor(stored) if stored else QColor(_t.line_strong)
 
         color = QColorDialog.getColor(current, self, "Pick a colour")
         if color.isValid():

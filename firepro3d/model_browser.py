@@ -47,31 +47,14 @@ class ModelBrowser(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header
-        hdr = QLabel("Model Browser")
-        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setBold(True)
-        f.setPointSize(9)
-        hdr.setFont(f)
-        hdr.setStyleSheet(
-            f"color: {_t.text_primary}; "
-            f"background: {_t.bg_raised}; "
-            f"padding: 4px; border-radius: 3px;"
-        )
-        layout.addWidget(hdr)
-
+        # (In-panel header removed — the dock header + LeftTabs label the panel.)
         # Tree widget
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
-        self._tree.setStyleSheet(
-            f"QTreeWidget {{ background: {_t.bg_raised}; color: {_t.text_primary}; "
-            f"border: 1px solid {_t.border_subtle}; }}"
-            f"QTreeWidget::item:selected {{ background: {_t.accent_primary}; color: #ffffff; }}"
-            f"QTreeWidget::item:hover   {{ background: {_t.bg_base}; }}"
-        )
+        from firepro3d.ui_kit import browser_tree_qss
+        self._tree.setStyleSheet(browser_tree_qss())
         self._tree.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )

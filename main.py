@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QFileDialog, QDockWidget,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTabWidget, QMenu, QWidget,
+                              QTabWidget, QTabBar, QMenu, QWidget,
                               QComboBox, QDoubleSpinBox, QFormLayout,
                               QToolButton, QProgressDialog)
 from firepro3d.themed_message import (
@@ -95,6 +95,64 @@ def install_excepthook():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class _TabCloseButton(QToolButton):
+    """Header-style close dot for a canvas tab (grey circle + accent X; the
+    circle brightens on hover — mirrors frameless_shell._WinDot). Used via
+    QTabBar.setTabButton so it renders at its true size, unlike the built-in tab
+    close indicator which the platform style caps and scales down."""
+
+    def __init__(self, normal, hover, parent=None):
+        super().__init__(parent)
+        from PyQt6.QtCore import QSize
+        self._normal, self._hover = normal, hover
+        self.setIcon(normal)
+        self.setIconSize(QSize(18, 18))
+        self.setFixedSize(20, 20)
+        self.setAutoRaise(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            "QToolButton{border:none;background:transparent;padding:0;margin:0;}")
+
+    def enterEvent(self, e):
+        self.setIcon(self._hover)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.setIcon(self._normal)
+        super().leaveEvent(e)
+
+
+class _CanvasTabBar(QTabBar):
+    """Canvas tab bar: installs a custom header-style close dot on every tab
+    (tabInserted) so the close affordance matches the header window dots. Emits
+    ``tabCloseClicked(index)`` — the owner protects core tabs by removing their
+    button (setTabButton(..., None))."""
+
+    tabCloseClicked = pyqtSignal(int)
+
+    def __init__(self, normal, hover, parent=None):
+        super().__init__(parent)
+        self._normal, self._hover = normal, hover
+        self.setExpanding(False)   # content-sized tabs → text sits left, not centered
+
+    def tabInserted(self, index):
+        super().tabInserted(index)
+        btn = _TabCloseButton(self._normal, self._hover, self)
+        # Wrap so we can inset the dot from the tab's right edge (setTabButton
+        # ignores the tab's QSS padding for the button position).
+        wrap = QWidget(self)
+        lay = QHBoxLayout(wrap)
+        lay.setContentsMargins(0, 0, 6, 0)   # 6px right inset
+        lay.setSpacing(0)
+        lay.addWidget(btn)
+        btn.clicked.connect(lambda _=False, w=wrap: self._emit_close(w))
+        self.setTabButton(index, QTabBar.ButtonPosition.RightSide, wrap)
+
+    def _emit_close(self, wrap):
+        for i in range(self.count()):
+            if self.tabButton(i, QTabBar.ButtonPosition.RightSide) is wrap:
+                self.tabCloseClicked.emit(i)
+                return
 
 
 class MainWindow(FramelessShellMixin, QMainWindow):
@@ -198,15 +256,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.paper_space_widget = None  # placeholder — set after ViewResolver
         self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs = QTabWidget()
-        self.central_tabs.setTabsClosable(True)
-        self.central_tabs.tabCloseRequested.connect(self._on_tab_close_requested)
-        # White close-button icon for dark theme
-        self._setup_tab_close_icon()
+        self.central_tabs.setObjectName("centralTabs")
+        # WA_StyledBackground so the QTabWidget bg (surface2) paints across the
+        # whole tab-row strip, not just behind the tabs.
+        self.central_tabs.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Custom header-style close dots via a custom tab bar (the built-in tab
+        # close indicator is capped/scaled by the platform style).
+        _n_icon, _h_icon = self._make_tab_close_icons()
+        _bar = _CanvasTabBar(_n_icon, _h_icon)
+        self.central_tabs.setTabBar(_bar)
+        _bar.tabCloseClicked.connect(self._on_tab_close_requested)
         self.central_tabs.addTab(self.view_3d, "3D Model")
-        # Protect core tabs from being closed (hide their close buttons)
+        # Protect core tabs from being closed (remove their close dot)
         for i in range(self.central_tabs.count()):
             self.central_tabs.tabBar().setTabButton(
-                i, self.central_tabs.tabBar().ButtonPosition.RightSide, None)
+                i, QTabBar.ButtonPosition.RightSide, None)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self._splash_progress(60, "Building ribbon toolbar...")
@@ -220,8 +284,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _chrome_lay = QVBoxLayout(_chrome)
         _chrome_lay.setContentsMargins(0, 0, 0, 0)
         _chrome_lay.setSpacing(0)
+        from PyQt6.QtWidgets import QFrame as _QFrame
+        def _hline(px=1):
+            d = _QFrame()
+            d.setFixedHeight(px)
+            d.setStyleSheet(f"background: {th.detect().line_strong};")
+            return d
         _chrome_lay.addWidget(self.header)
+        # Slightly-thicker (2px) divider between the header rail and the ribbon
+        # tab strip (like the Settings dialog's header divider).
+        _chrome_lay.addWidget(_hline(2))
         _chrome_lay.addWidget(self.ribbon)
+        # 1px divider at the bottom edge of the ribbon rail (a child page can
+        # paint over RibbonBar's own border-bottom, so draw it here).
+        _chrome_lay.addWidget(_hline(1))
         self.setMenuWidget(_chrome)
         # Header actions → existing slots; window dots → window state.
         self.header.saveRequested.connect(self.save_file)
@@ -230,7 +306,34 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.header.minimizeRequested.connect(self.showMinimized)
         self.header.maximizeRequested.connect(self._toggle_max_or_fullscreen)
         self.header.closeRequested.connect(self.close)
-        self.setCentralWidget(self.central_tabs)
+        # Canvas wrapper: 2px inset above the tabs + explicit 1px rail-divider
+        # vlines flanking the canvas (a QTabWidget border-left is covered by the
+        # first tab, so use QFrames like the header/ribbon dividers).
+        def _vline():
+            d = _QFrame()
+            d.setFixedWidth(1)
+            d.setStyleSheet(f"background: {th.detect().line_strong};")
+            return d
+        _canvas_wrap = QWidget()
+        # Pin to surface so the 2px inset strip isn't the dark base (WA_StyledBackground).
+        _canvas_wrap.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _canvas_wrap.setStyleSheet(f"background: {th.detect().surface};")
+        _cw_lay = QHBoxLayout(_canvas_wrap)   # vlines span the FULL height (incl. inset)
+        _cw_lay.setContentsMargins(0, 0, 0, 0)
+        _cw_lay.setSpacing(0)
+        _cw_lay.addWidget(_vline())
+        # Central column: 2px top inset lives here so the flanking vlines rise
+        # into the gap above the tabs.
+        _center = QWidget()
+        _center.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _center.setStyleSheet(f"background: {th.detect().surface};")
+        _cl = QVBoxLayout(_center)
+        _cl.setContentsMargins(0, 2, 0, 0)
+        _cl.setSpacing(0)
+        _cl.addWidget(self.central_tabs)
+        _cw_lay.addWidget(_center, 1)
+        _cw_lay.addWidget(_vline())
+        self.setCentralWidget(_canvas_wrap)
         self.central_tabs.currentChanged.connect(self._on_tab_changed)
         # Right-click context menu on plan tabs (View Range)
         self.central_tabs.tabBar().setContextMenuPolicy(
@@ -354,8 +457,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.blocks_browser = BlocksBrowser(self.scene)
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
 
-        self._left_tabs = QTabWidget()
-        self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
+        from firepro3d.ui_kit import LeftTabs
+        self._left_tabs = LeftTabs()
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
         self._left_tabs.addTab(self.feature_browser, "Features")
@@ -363,8 +466,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
-        self.browser_dock.setTitleBarWidget(QWidget())  # hide title bar
-        self.browser_dock.setWidget(self._left_tabs)
+        _bt = QWidget(); _bt.setFixedHeight(0)  # collapse fully so dock content
+        self.browser_dock.setTitleBarWidget(_bt)  # aligns with the canvas top
+        # Header rail ("Browser Dock") above the LeftTabs, matching the property
+        # panel; body-tone wrap with the 2px canvas-aligned top inset.
+        from firepro3d.ui_kit import dock_header as _dock_header
+        _bwrap = QWidget()
+        _bwrap.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        _bwrap.setStyleSheet(f"background: {th.detect().surface};")
+        _bwl = QVBoxLayout(_bwrap)
+        _bwl.setContentsMargins(0, 2, 0, 0)
+        _bwl.setSpacing(0)
+        _bwl.addWidget(_dock_header("Browser Dock"))
+        _bwl.addWidget(self._left_tabs)
+        self.browser_dock.setWidget(_bwrap)
         self.browser_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |
             Qt.DockWidgetArea.LeftDockWidgetArea
@@ -375,7 +490,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Properties dock (right side — always visible)
         self.prop_dock = QDockWidget("Properties", self)
         self.prop_dock.setObjectName("PropertiesDock")
-        self.prop_dock.setTitleBarWidget(QWidget())   # hide default title bar
+        _pt = QWidget(); _pt.setFixedHeight(0)         # collapse fully → panel
+        self.prop_dock.setTitleBarWidget(_pt)          # header aligns with canvas top
         self.prop_dock.setWidget(self.prop_manager)
         self.prop_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |
@@ -1096,31 +1212,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         v = self._get_active_plan_view()
         v.fit_to_screen()
 
-    def _setup_tab_close_icon(self):
-        """Create a white close-button icon for tabs (dark theme)."""
-        from PyQt6.QtGui import QPixmap, QPainter, QPen, QIcon
-        import os, tempfile
-
-        size = 16
-        pix = QPixmap(size, size)
-        pix.fill(QColor(0, 0, 0, 0))
-        p = QPainter(pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-        m = 4  # margin
-        p.drawLine(m, m, size - m, size - m)
-        p.drawLine(size - m, m, m, size - m)
-        p.end()
-
-        icon_path = os.path.join(tempfile.gettempdir(), "fp3d_tab_close.png")
-        pix.save(icon_path)
-        # Apply via stylesheet (path needs forward slashes for QSS on Windows)
-        css_path = icon_path.replace("\\", "/")
-        self.central_tabs.tabBar().setStyleSheet(
-            f'QTabBar::close-button {{ image: url("{css_path}"); }}'
-        )
+    def _make_tab_close_icons(self):
+        """Return (normal, hover) QIcons for the canvas tab close dot — the header
+        rail's close control dot (frameless_shell._winctl_pixmap, 20px); hover
+        brightens the circle (line_strong -> faint), matching _WinDot. Rendered
+        into a custom QToolButton (see _CanvasTabBar) so the platform style can't
+        cap/scale it like the built-in close indicator."""
+        from PyQt6.QtGui import QIcon
+        from firepro3d.frameless_shell import _winctl_pixmap
+        from firepro3d.theme import detect
+        t = detect()
+        normal = QIcon(_winctl_pixmap("close", t.line_strong, t.accent, 18))
+        hover = QIcon(_winctl_pixmap("close", t.faint, t.accent, 18))
+        return normal, hover
 
     def _activate_elevation(self, direction: str):
         """Open or switch to an elevation view tab from the project browser."""

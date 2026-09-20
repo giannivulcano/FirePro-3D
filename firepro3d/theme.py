@@ -76,6 +76,10 @@ class _Metrics:
     SECTION_GAP = 8
     TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
     TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
+    LEFT_TAB_W = 24          # browser LeftTabs vertical strip width (mockup-tuned)
+    LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
+    LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
+    DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
@@ -318,6 +322,30 @@ def detect() -> Theme:
 # QSS builders
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _tab_language_qss(t: Theme, sel: str, *, edge: str = "bottom") -> str:
+    """Shared house tab-state QSS for any ``QTabBar::tab`` selector.
+
+    Emits ONLY the state/colour language (muted default; accent-soft hover with a
+    1px accent outline + rounded corners away from the content edge; ink + 600 +
+    a 2px accent bar on ``edge`` when selected; faint disabled). Callers append
+    their own metric literals (padding/font/min-width). ``edge`` is the border the
+    accent bar rides: ``"bottom"`` for top-mounted strips (ribbon/dialog/canvas),
+    ``"right"`` for a left-mounted (West) strip (browser LeftTabs).
+    """
+    round_away = {
+        "bottom": "border-top-left-radius: 5px; border-top-right-radius: 5px;",
+        "right": "border-top-left-radius: 5px; border-bottom-left-radius: 5px;",
+    }[edge]
+    return f"""
+{sel} {{ background: transparent; color: {t.muted};
+    border: 1px solid transparent; border-{edge}: 2px solid transparent; }}
+{sel}:hover:!selected {{ color: {t.ink}; background: {t.accent_soft};
+    border-color: {t.accent}; border-{edge}-color: transparent; {round_away} }}
+{sel}:selected {{ color: {t.ink}; font-weight: 600; border-{edge}: 2px solid {t.accent}; }}
+{sel}:disabled {{ color: {t.faint}; }}
+"""
+
+
 def build_app_qss(t: Theme) -> str:
     """Return a global application QSS stylesheet from the given theme tokens.
 
@@ -336,11 +364,16 @@ QMainWindow, QDialog, QWidget {{
 }}
 
 /* ── Dock widgets ───────────────────────────────────────────────────────── */
+/* Body tone (surface): the middle panels are surface; rails are surface2/raised. */
 QDockWidget {{
-    background: {t.bg_raised};
+    background: {t.surface};
     color: {t.text_primary};
     titlebar-close-icon: none;
 }}
+/* Dock resize separator collapsed to 0 so docked panels butt flush against the
+   canvas rail vlines (a wider separator left a gap where the panel's header
+   divider meets the vertical rail line). The vlines are the visible dividers. */
+QMainWindow::separator {{ background: {t.surface}; width: 0px; height: 0px; }}
 QDockWidget::title {{
     background: {t.bg_tab_inactive};
     color: {t.text_primary};
@@ -395,7 +428,7 @@ QMenu::separator {{
 QStatusBar {{
     background: {t.bg_raised};
     color: {t.text_secondary};
-    border-top: 1px solid {t.border_strong};
+    border-top: 2px solid {t.border_strong};   /* 2px, matching the header divider */
 }}
 
 /* ── Tables ─────────────────────────────────────────────────────────────── */
@@ -581,6 +614,47 @@ QTabBar::close-button:hover {{
     border-radius: 2px;
 }}
 
+/* ── Canvas view tabs (mainwindow-chrome-revamp-stage2.md — TopTabs language) */
+/* Frame every edge of the canvas with the rail divider token; body tone. */
+/* The whole tab-row strip (incl. the empty space beside the QTabBar) = surface2. */
+/* Side rail dividers are explicit QFrame vlines flanking the canvas (main.py);
+   a QTabWidget border-left is covered by the first tab. Pane carries the top
+   (under-strip) + bottom lines. */
+QTabWidget#centralTabs {{ background: {t.surface}; }}
+QTabWidget#centralTabs::pane {{ border: none; border-top: 1px solid {t.line_strong}; background: {t.surface}; }}
+/* Clear the QGraphicsView default frame (StyledPanel 1px) on canvas views — the
+   faint line bordering the canvas. Dialog previews (#previewView) keep theirs. */
+QTabWidget#centralTabs QGraphicsView {{ border: none; }}
+QTabWidget#centralTabs QTabBar {{ background: {t.surface}; }}
+/* Match the ribbon TopTabs metrics (7px 16px 8px, 9pt); right padding insets
+   the close dot from the tab's right edge. */
+QTabWidget#centralTabs QTabBar::tab {{ padding: 4px 10px 5px 16px; margin-right: 2px; font-size: 9pt; }}
+{_tab_language_qss(t, "QTabWidget#centralTabs QTabBar::tab", edge="bottom")}
+/* Selected canvas tab matches the browser rail: accent-soft fill + 1px accent
+   outline + the 2px accent bar (border-bottom renders fine on North tabs). */
+QTabWidget#centralTabs QTabBar::tab:selected {{
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-bottom: 2px solid {t.accent}; }}
+QTabWidget#centralTabs QTabBar::scroller {{ width: 16px; }}
+/* Scroller (overflow) arrows only. The close button is a custom QToolButton
+   (_CanvasTabBar/_TabCloseButton) with its own transparent style — a header-
+   style dot, not the built-in ::close-button indicator. */
+QTabWidget#centralTabs QTabBar::scroller QToolButton {{
+    background: {t.bg_raised}; border: 1px solid {t.line_strong}; }}
+
+/* ── Browser LeftTabs (west strip; mainwindow-chrome-revamp-stage2.md) ───── */
+QTabBar#leftTabsBar {{ background: transparent; }}
+QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: 9pt; }}
+{_tab_language_qss(t, "QTabBar#leftTabsBar::tab", edge="right")}
+/* Browser rail: selected tab keeps the hover-highlight look — accent-soft fill
+   + 1px accent outline. The 2px accent side-bar on the content-facing edge is
+   drawn by ui_kit._WestTabBar.paintEvent (QSS border-right is unreliable on
+   rotated tabs). Per-surface override (top tabs stay underline-only). */
+QTabBar#leftTabsBar::tab:selected {{
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-bottom-left-radius: 5px; }}
+
 /* ── Scroll bars ────────────────────────────────────────────────────────── */
 QScrollBar:vertical {{
     background: {t.bg_base};
@@ -680,39 +754,29 @@ def build_ribbon_qss(t: Theme) -> str:
     """
     return f"""
 RibbonBar {{
-    background: {t.bg_raised};
+    background: {t.surface};
     border-bottom: 1px solid {t.border_strong};
 }}
 /* Ribbon tabs adopt the house TopTabs look: flat, muted, accent-underline on
-   select, with a full-width divider under the whole strip. */
+   select. Tab strip pinned to the body tone (surface) so it reads as one ribbon
+   surface; the header↔ribbon divider lives above the strip (in the chrome stack),
+   not under it. */
 RibbonBar QTabBar {{
-    background: transparent;
-    border-bottom: 1px solid {t.line_strong};
+    background: {t.surface};
 }}
 RibbonBar QTabBar::tab {{
-    background: transparent;
-    color: {t.muted};
     padding: 7px 16px 8px;
     margin-right: 2px;
-    /* 1px transparent border reserved so the hover accent border adds no jitter */
-    border: 1px solid transparent;
-    border-bottom: 2px solid transparent;
     font-size: 9pt;
     min-width: 80px;
 }}
-RibbonBar QTabBar::tab:hover:!selected {{
-    color: {t.text_primary};
-    background: {t.accent_soft};
-    border-color: {t.accent};
-    border-bottom-color: transparent;
-    border-top-left-radius: 5px;
-    border-top-right-radius: 5px;
-}}
+{_tab_language_qss(t, "RibbonBar QTabBar::tab", edge="bottom")}
+/* Selected ribbon tab: accent-soft fill + 1px accent outline + accent underline
+   (matches the canvas tabs / browser rail — not underline-only). */
 RibbonBar QTabBar::tab:selected {{
-    color: {t.text_primary};
-    font-weight: 600;
-    border-bottom: 2px solid {t.accent};
-}}
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-bottom: 2px solid {t.accent}; }}
 RibbonButton {{
     background: transparent;
     border: 1px solid transparent;
@@ -867,14 +931,8 @@ QDialog[houseDialog="true"] QLabel[stepStatus="true"][state="done"], QDialog[hou
 /* ── Kit: TopTabs (peer pages within a section; DIALOG_TABS_SPEC) ────────── */
 QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
-    padding: 7px 11px 8px; margin-right: 2px; color: {t.muted}; background: transparent;
-    border: 1px solid transparent; border-bottom: 2px solid transparent; font-size: 12px; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:hover {{
-    color: {t.ink}; background: {t.accent_soft}; border-color: {t.accent};
-    border-bottom-color: transparent; border-top-left-radius: 5px; border-top-right-radius: 5px; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
-    color: {t.ink}; font-weight: 600; border-bottom: 2px solid {t.accent}; }}
-QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:disabled {{ color: {t.faint}; }}
+    padding: 7px 11px 8px; margin-right: 2px; font-size: 12px; }}
+{_tab_language_qss(t, 'QDialog[houseDialog="true"] QTabBar#topTabsBar::tab', edge="bottom")}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}

@@ -1,12 +1,17 @@
 ---
 status: current
-last-verified: 2026-08-07
-verified-commit: 91a1d38
+last-verified: 2026-09-19
+verified-commit: 2330ae8
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
 source-tasks: ["/todo 2026-08-05 orphan gate — forged before multi-sheet management touched the sheet tree"]
 ---
+
+> **Chrome note (2026-09-19, Stage-2 revamp).** The dock host is a custom
+> `ui_kit.LeftTabs` (west-edge vertical tabs), not a West `QTabWidget` — see
+> `mainwindow-chrome-revamp-stage2.md`. The `ProjectBrowser` widget itself is
+> unchanged (single tree); only its container + tone (body `surface`) changed.
 
 # Project Browser — Design Spec
 

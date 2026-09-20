@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
 last-verified: 2026-09-19  # 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 0a7b44a   # merge 0a7b44a (MainWindow chrome revamp); prior 9fe9985 (feat/titleblock-ansi-d-default: TopTabs/SwitchBar/Section conventions)
+verified-commit: 2330ae8   # 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -302,8 +302,9 @@ feedback memory.)
 
 - **Side-rail** — `SideTabs` (`ui_kit.py`); **widgetized**. Table of contents / stepped sequence / 4+ sections.
 - **Top tabs (dialogs)** — `TopTabs` (`ui_kit.py`, `#topTabs`/`#topTabsBar`); **widgetized 2026-09-15** (first adopter: Title Block editor). Peer pages inside one section (2–5 flat pages). Accent-underline selected, accent-soft hover, no base line, scroll-on-overflow. **Hover carries the button-style green highlight (2026-09-19, wave #2 chrome revamp): accent_soft fill + 1px `accent` border + rounded top; the base tab reserves a 1px transparent border so the hover border adds no layout shift.** **Composed** (QTabBar + full-bleed `#topTabsDivider` + QStackedWidget), NOT a `QTabWidget` subclass — a QTabWidget's `::pane` line is unreliable and its bar underline stops short of the content width. The **tab bar** is inset by `page_inset`; the **stack is full-bleed** so a page that leads with a rail sits flush-left (each page owns its padding); `page_top` keeps Section overlines off the ribbon. **Rail → tabs is the max depth; never nest tabs-in-tabs** (a page needing sub-nav uses collapsible groups). New house dialogs with top tabs use `TopTabs`, not a bare `QTabWidget`.
-- **App/plan `QTabBar`** — `build_app_qss` (main-window plan tabs); documented, **untouched**.
-- **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); documented, **untouched**.
+- **Left tabs (west/vertical)** — `LeftTabs` (`ui_kit.py`, `#leftTabsBar`); **widgetized 2026-09-19 (Stage-2 chrome revamp)**. `TopTabs` rotated to the West edge for the MainWindow browser dock (Project/Model/Features/Blocks). `QTabBar(RoundedWest)` (bottom-to-top labels, matching the ribbon `_VLabel`) + vertical `line_strong` divider + `QStackedWidget`; shares the state colours via `theme._tab_language_qss(edge="right")`. Selected = accent-soft fill + 1px accent outline + a **painted** 2px accent side-bar (`_WestTabBar.paintEvent` — QSS `border-right` is unreliable on rotated tabs). Same key-/QTabWidget-compat API as `TopTabs`. Governed by `mainwindow-chrome-revamp-stage2.md`.
+- **App/plan `QTabBar` (canvas view tabs)** — `build_app_qss` `QTabWidget#centralTabs`; **restyled to the TopTabs language 2026-09-19 (Stage-2)**: shares `_tab_language_qss(edge="bottom")`; selected = accent-soft fill + border + underline; custom header-style close dot (`main._CanvasTabBar`); `surface` strip; flanking `QFrame` rail dividers. Governed by `mainwindow-chrome-revamp-stage2.md`.
+- **Ribbon tabs** — `build_ribbon_qss` (tab-scoped shortcut semantics); adopted the TopTabs language in the Stage-1 revamp; **Stage-2 (2026-09-19)** added the selected accent-soft fill + border (matching canvas/left tabs) and a 2px left inset. Governed by `mainwindow-chrome-revamp.md` / `-stage2.md`.
 
 ## Multi-section dialog layout (canonical recipe)
 
