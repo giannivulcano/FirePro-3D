@@ -159,6 +159,14 @@ class FooterRail(QWidget):
         super().__init__(parent)
         self._eng = snap_engine_obj
         self.setFixedHeight(M.FOOTER_H)
+        # Chrome tone: match the header rail (surface2 / raised). The generic
+        # QWidget{background:bg_base} rule otherwise paints the rail ground and
+        # covers the raised status bar behind it. Scoped via objectName.
+        self.setObjectName("footerRail")
+        # WA_StyledBackground: QSS background must paint LIVE on a plain QWidget
+        # (see project memory unstyled_qwidget_black_live).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"QWidget#footerRail {{ background: {detect().surface2}; }}")
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -167,8 +175,14 @@ class FooterRail(QWidget):
         s1 = QHBoxLayout()
         s1.setContentsMargins(*M.FOOTER_SUBRAIL_MARGIN)
         s1.setSpacing(M.FOOTER_BTN_GAP)
-        self.mode_badge = QLabel("Select")
+        # Mode badge: a non-interactive QToolButton (not a QLabel) so it matches
+        # the ALIGN/HALO pills exactly (a QLabel stretches to the footer height;
+        # a QToolButton is the compact 22px pill). Mouse-transparent = no hover.
+        self.mode_badge = QToolButton()
+        self.mode_badge.setText("SELECT")
         self.mode_badge.setStyleSheet(_pill_style(True))
+        self.mode_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.mode_badge.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.instruction = QLabel("")
         self.instruction.setStyleSheet(f"color:{detect().muted};")
         s1.addWidget(self.mode_badge)
@@ -250,7 +264,7 @@ class FooterRail(QWidget):
         self.coord.setText(text)
 
     def set_mode(self, name: str) -> None:
-        self.mode_badge.setText(name or "Select")
+        self.mode_badge.setText((name or "Select").upper())
 
     def set_instruction(self, text: str) -> None:
         self.instruction.setText(text or "")

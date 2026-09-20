@@ -291,6 +291,9 @@ class LeftTabs(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("leftTabs")
+        # WA_StyledBackground so the surface bg paints live (plain-QWidget QSS
+        # background trap: unstyled_qwidget_black_live).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         h = QHBoxLayout(self)
         h.setContentsMargins(M.LEFT_TAB_INSET, 0, 0, 0)  # small gap: strip ← dock edge
         h.setSpacing(0)

@@ -50,6 +50,11 @@ def _action_button(icon_name: str, tip: str) -> QToolButton:
     b.setToolTip(tip)
     b.setIcon(themed_icon(icon_name, _theme_variant()))
     b.setCursor(Qt.CursorShape.PointingHandCursor)
+    # No fill (flat on the header rail); subtle accent-soft hover only.
+    b.setStyleSheet(
+        f"QToolButton {{ background: transparent; border: none; }}"
+        f"QToolButton:hover {{ background: {detect().accent_soft};"
+        f" border-radius: {M.RADIUS_CHIP}px; }}")
     return b
 
 
@@ -67,6 +72,15 @@ class HeaderRail(QWidget):
         super().__init__(parent)
         t = detect()
         self.setFixedHeight(M.HEADER_H)
+        # Chrome tone: the header rail matches the footer rail (surface2 / raised),
+        # distinct from the surface-toned middle. Scoped to the root via objectName
+        # so child labels/buttons stay transparent.
+        self.setObjectName("headerRail")
+        # WA_StyledBackground is required for a QSS `background:` to paint LIVE on
+        # a plain QWidget (render()/offscreen paints it regardless — the live-only
+        # trap; see project memory unstyled_qwidget_black_live).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"QWidget#headerRail {{ background: {t.surface2}; }}")
         self._project_name = ""
         self._project_path = ""
         self._drag_offset = None   # window-drag anchor (frameless move-by-header)

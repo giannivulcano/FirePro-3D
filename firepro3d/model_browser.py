@@ -56,7 +56,7 @@ class ModelBrowser(QWidget):
         hdr.setFont(f)
         hdr.setStyleSheet(
             f"color: {_t.text_primary}; "
-            f"background: {_t.bg_raised}; "
+            f"background: {_t.surface}; "
             f"padding: 4px; border-radius: 3px;"
         )
         layout.addWidget(hdr)
@@ -67,9 +67,9 @@ class ModelBrowser(QWidget):
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
         self._tree.setStyleSheet(
-            f"QTreeWidget {{ background: {_t.bg_raised}; color: {_t.text_primary}; "
+            f"QTreeWidget {{ background: {_t.surface}; color: {_t.text_primary}; "
             f"border: 1px solid {_t.border_subtle}; }}"
-            f"QTreeWidget::item:selected {{ background: {_t.accent_primary}; color: #ffffff; }}"
+            f"QTreeWidget::item:selected {{ background: {_t.accent_primary}; color: {_t.on_accent}; }}"
             f"QTreeWidget::item:hover   {{ background: {_t.bg_base}; }}"
         )
         self._tree.setSelectionMode(

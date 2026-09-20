@@ -391,15 +391,38 @@ class RibbonBar(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Tab strip
+        # Tab strip — wrapped in a 2px left-inset row (QSS margin on a QTabBar is
+        # ignored, so inset via the layout). The wrapper is pinned to surface
+        # (WA_StyledBackground) so the area beside the tabs isn't the dark base;
+        # scroll buttons are off (the ribbon has a fixed, small tab set).
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import QWidget as _QWidget, QHBoxLayout as _QHBox
         self._tab_bar = QTabBar(self)
         self._tab_bar.setExpanding(False)
+        self._tab_bar.setUsesScrollButtons(False)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
-        outer.addWidget(self._tab_bar)
+        _tabrow = _QWidget(self)
+        _tabrow.setAttribute(_Qt.WidgetAttribute.WA_StyledBackground, True)
+        _tabrow.setStyleSheet(f"background: {_t.surface};")
+        _trl = _QHBox(_tabrow)
+        _trl.setContentsMargins(2, 0, 0, 0)
+        _trl.setSpacing(0)
+        _trl.addWidget(self._tab_bar)
+        _trl.addStretch(1)
+        outer.addWidget(_tabrow)
 
-        # Stacked pages (one per tab)
+        # Full-width divider under the tab strip (like the dialog TopTabs
+        # #topTabsDivider — the QTabBar's own border stops at the tabs' width).
+        from PyQt6.QtWidgets import QFrame as _QFrame
+        _tabs_div = _QFrame(self)
+        _tabs_div.setFixedHeight(1)
+        _tabs_div.setStyleSheet(f"background: {_t.line_strong};")
+        outer.addWidget(_tabs_div)
+
+        # Stacked pages (one per tab) — body tone (surface), matching the tab
+        # strip so the whole ribbon reads as one surface distinct from the rails.
         self._stack = QStackedWidget(self)
-        self._stack.setStyleSheet(f"background: {_t.bg_raised};")
+        self._stack.setStyleSheet(f"background: {_t.surface};")
         self._stack.setFixedHeight(88)
         outer.addWidget(self._stack)
 
