@@ -156,6 +156,14 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Accent-colour / status-chrome unification
 
+> Chrome Revamp Stage 2 shipped 2026-09-19 (`feat/chrome-revamp-stage2`; governing spec `docs/specs/mainwindow-chrome-revamp-stage2.md`): browser LeftTabs, canvas TopTabs language, three-tone window scheme, property-panel overline, middle-surface tokenization. Follow-ups below.
+
+- [ ] [type:feature] Browser LeftTabs tab icons (mockup-gated) [P3] [subject:UX]
+  - Details: Stage-2 LeftTabs (Project/Model/Features/Blocks) ship text-only; author 4 tab icons per the icon style guide (mockup-gated) and wire via `LeftTabs.addTab(..., icon=)`. `firepro3d/ui_kit.py` (LeftTabs), `firepro3d/graphics/`. ref: icon-style-guide, mainwindow-chrome-revamp-stage2.
+- [ ] [type:maint] DRY the selected-tab fill/border override across tab surfaces [P3] [subject:Code Quality]
+  - Details: the "selected = accent-soft fill + 1px accent outline + accent bar" override is copied in 3 places (ribbon `build_ribbon_qss`, canvas `#centralTabs`, browser `#leftTabsBar`); extract a `theme._tab_selected_fill_qss(sel, edge=)` helper (sibling to `_tab_language_qss`) so the highlight language has one home. `firepro3d/theme.py`. ref: mainwindow-chrome-revamp-stage2.
+- [ ] [type:maint] Live theme-switch for the Stage-2 rails/widgets [P3] [subject:UX]
+  - Details: header/footer rails, LeftTabs, and the canvas wrap latch `detect()` at construction (WA_StyledBackground bg set once), so a runtime Preferences→UI theme switch doesn't restyle them until relaunch. Folds into the existing "Latched `detect()`" item — have `MainWindow._apply_theme` re-apply the rail/wrap backgrounds. `main.py`, `firepro3d/header_rail.py`, `firepro3d/footer_rail.py`, `firepro3d/ui_kit.py`.
 - [ ] [type:maint] Full chrome unification (follow-up) [P3] [subject:UX]
   - Details: the deferred remainder of the accent-unify task: (a) migrate the OFF-state pill/toolbar greys (`#888`/`#555`/`#243a4e`/`#3a607e`/`#99bbdd`) and the SNAP toolbar `:checked` background (`#2a5a8a`) onto theme tokens; (b) add live theme-switch restyling so a Preferences→UI change repaints without relaunch — needs icon-loader cache invalidation (spec §6 says process-lifetime today) + re-applying the pill/badge/toolbar styles; (c) add `main.py` to the `test_theme_chrome_hexguard.py` allow-list once (a) lands. Bundles with the "Latched `detect()` in construction-time consumers" item. `main.py`, `firepro3d/icons.py`, `firepro3d/theme.py`, `tests/test_theme_chrome_hexguard.py`.
 
