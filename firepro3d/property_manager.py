@@ -185,11 +185,8 @@ class PropertyManager(QWidget):
 
             # ── header (section divider — no editor) ─────────────────────
             if prop_type == "header":
-                hdr_lbl = QLabel(f"── {key} ──")
-                hdr_lbl.setStyleSheet(
-                    f"color: {_t.text_secondary}; font-weight: bold; "
-                    f"padding-top: 6px;"
-                )
+                hdr_lbl = QLabel(str(key).upper())
+                hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
                 self._form.addRow(hdr_lbl)
                 continue
 
@@ -384,7 +381,7 @@ class PropertyManager(QWidget):
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(widget, 1)
                 suffix_lbl = QLabel(suffix)
-                suffix_lbl.setStyleSheet("color: grey; font-style: italic;")
+                suffix_lbl.setStyleSheet(f"color: {_t.muted}; font-style: italic;")
                 row_layout.addWidget(suffix_lbl)
                 container = QWidget()
                 container.setLayout(row_layout)
@@ -425,11 +422,9 @@ class PropertyManager(QWidget):
                 node = getattr(primary, node_attr, None)
                 if node is None:
                     continue
-                # Section header
-                hdr_lbl = QLabel(f"── Node {idx} ──")
-                hdr_lbl.setStyleSheet(
-                    f"color: {_t.text_secondary}; font-weight: bold;"
-                )
+                # Section header (app-wide overline role)
+                hdr_lbl = QLabel(f"NODE {idx}")
+                hdr_lbl.setProperty("role", "header")
                 self._form.addRow(hdr_lbl, QLabel(""))
 
                 node_props = node.get_properties()
@@ -475,7 +470,7 @@ class PropertyManager(QWidget):
                         row_layout.setContentsMargins(0, 0, 0, 0)
                         row_layout.addWidget(nwidget, 1)
                         suffix_lbl = QLabel(nsuffix)
-                        suffix_lbl.setStyleSheet("color: grey; font-style: italic;")
+                        suffix_lbl.setStyleSheet(f"color: {_t.muted}; font-style: italic;")
                         row_layout.addWidget(suffix_lbl)
                         container = QWidget()
                         container.setLayout(row_layout)
@@ -647,7 +642,7 @@ class PropertyManager(QWidget):
         """Open a colour dialog, update swatch, and apply to all targets."""
         _t = th.detect()
         stored = btn.property("_color_value")
-        current = QColor(stored) if stored else QColor("#cccccc")
+        current = QColor(stored) if stored else QColor(_t.line_strong)
 
         color = QColorDialog.getColor(current, self, "Pick a colour")
         if color.isValid():

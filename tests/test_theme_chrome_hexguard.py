@@ -19,6 +19,8 @@ GUARDED = [
     # Settings dialogs (settings-dialog.md §4.6 — token-clean on HouseDialog)
     "settings/panes.py", "settings/system_settings_dialog.py",
     "settings/project_settings_dialog.py",
+    # Chrome revamp Stage Two: middle-surface files (mainwindow-chrome-revamp-stage2.md)
+    "project_browser.py", "model_browser.py", "property_manager.py",
     # Chrome revamp: custom header + footer rails (mainwindow-chrome-revamp.md).
     # (main.py is NOT guarded here — it lives at the repo root, outside this
     # firepro3d/ scan, and carries pre-existing legacy hex; the revamp moved all
