@@ -2,7 +2,8 @@ import math
 from PyQt6.QtCore import QPointF
 
 from firepro3d.feature import (
-    FeatureDef, FEATURE_REGISTRY, features_by_category, get_feature, DEFAULT_FEATURE_FOR_TYPE,
+    FeatureDef, FEATURE_REGISTRY, features_by_hierarchy, get_feature,
+    DEFAULT_FEATURE_FOR_TYPE, feature_label,
 )
 from firepro3d.wall_opening import WallOpening
 from firepro3d.wall import WallSegment
@@ -10,8 +11,7 @@ from firepro3d import constants as C
 
 
 def test_registry_has_three_seed_doors():
-    doors = [f for f in FEATURE_REGISTRY.values()
-             if f.category == "Openings" and f.type == "door"]
+    doors = [f for f in FEATURE_REGISTRY.values() if f.kind == "door"]
     widths = sorted(f.default_width_mm for f in doors)
     assert widths == [813.0, 914.0, 1829.0]
     assert all(f.host_type == "Wall" for f in doors)
@@ -23,11 +23,31 @@ def test_double_leaf_flag_on_wide_door():
     assert f.leaves == 2
 
 
-def test_features_by_category_groups_feature_category_type():
-    tree = features_by_category()
-    assert "Openings" in tree
-    assert set(tree["Openings"].keys()) >= {"door", "window", "blank"}
-    assert any(f.id == "door_914" for f in tree["Openings"]["door"])
+def test_features_by_hierarchy_groups_feature_family_type():
+    """Tree is Feature → Family → Type-leaf (docs/specs/feature-system.md F4)."""
+    tree = features_by_hierarchy()
+    assert {"Door", "Window", "Opening"} <= set(tree.keys())
+    # Doors split into Single-Flush / Double-Flush families
+    assert {"Single-Flush", "Double-Flush"} <= set(tree["Door"].keys())
+    assert any(f.id == "door_914" for f in tree["Door"]["Single-Flush"])
+    assert any(f.id == "door_1829" for f in tree["Door"]["Double-Flush"])
+
+
+def test_feature_label_maps_kind_to_canonical_name():
+    """The blank opening is the canonical 'Opening' Feature; door/window map 1:1."""
+    assert feature_label(get_feature("blank_900")) == "Opening"
+    assert feature_label(get_feature("door_914")) == "Door"
+    assert feature_label(get_feature("window_900")) == "Window"
+
+
+def test_feature_ids_are_stable_for_migration():
+    """feature_id is serialized in .fpd — these ids must never be re-keyed."""
+    assert set(FEATURE_REGISTRY.keys()) == {
+        "door_813", "door_914", "door_1829", "window_900", "blank_900",
+    }
+    # Every Type carries a family + a sized Type-name leaf.
+    for f in FEATURE_REGISTRY.values():
+        assert f.family and f.type_name
 
 
 def test_default_feature_per_type():
@@ -153,14 +173,29 @@ def test_opening_renders_above_host_wall_after_z_pass(qapp, model_scene):
 
 # ── Task-8 tests: FeatureBrowser widget ──────────────────────────────────────
 
-def test_feature_browser_lists_categories_and_activates(qapp):
+def test_feature_browser_lists_features_and_activates(qapp):
     from firepro3d.feature_browser import FeatureBrowser
     activated = []
     fb = FeatureBrowser()
     fb.featureActivated.connect(activated.append)
+    # Top level is the Feature tier (Door/Window/Opening), not the old umbrella.
     roots = [fb._tree.topLevelItem(i).text(0) for i in range(fb._tree.topLevelItemCount())]
-    assert "Openings" in roots
-    leaf = fb._find_leaf("door_914")
+    assert "Door" in roots and "Openings" not in roots
+    leaf = fb._find_leaf("door_914")   # a Type leaf under Door → Single-Flush
     assert leaf is not None
     fb._on_item_activated(leaf, 0)
     assert activated == ["door_914"]
+
+
+def test_feature_browser_bolds_grouping_tiers_only(qapp):
+    """Feature + Family tiers render bold (house browser style); Type leaf regular."""
+    from firepro3d.feature_browser import FeatureBrowser
+    fb = FeatureBrowser()
+    door = next(fb._tree.topLevelItem(i)
+                for i in range(fb._tree.topLevelItemCount())
+                if fb._tree.topLevelItem(i).text(0) == "Door")
+    family = door.child(0)                       # Double-Flush / Single-Flush
+    type_leaf = family.child(0)                  # e.g. "813 × 2032"
+    assert door.font(0).bold() is True
+    assert family.font(0).bold() is True
+    assert type_leaf.font(0).bold() is False

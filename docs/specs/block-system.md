@@ -29,7 +29,7 @@ source-tasks:
 # Block System — Design Spec
 
 > **Scope discipline.** This spec governs the **Block subsystem v1** only. The parallel **Feature
-> re-architecture** (non-parametric, 3-tier `Class/SubClass/Type`, opening decomposition, projection
+> re-architecture** (non-parametric, 3-tier `Feature > Family > Type`, opening decomposition, projection
 > map) is **deferred to a later phase**; only the shared *naming/extension contract* below is locked
 > now so neither library migrates twice. Where this spec reuses an existing pattern it **links** to
 > that pattern's governing spec (Rule A) rather than restating it.
@@ -86,10 +86,11 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 
 ### Naming / storage contract (locked for BOTH systems; migrate-once)
 
-- **Features:** 3 folder tiers `Class / SubClass / Type` + one-or-more `.fpdf` **type-definition**
-  files under each `Type`. Non-parametric (size is a read-only attribute of the Type definition).
-  Openings decomposed into `Door` / `Window` / `Opening` Classes. *(Deferred — contract locked, no
-  code in this spec.)*
+- **Features:** hierarchy `Feature > Family > Type` (canonical labels settled 2026-09-21 —
+  `feature-system.md` F4; relabels the earlier `Class / SubClass / Type`, same three tiers).
+  On-disk `<Feature>/<Family>/<Type>.fpdf`; one `.fpdf` = one **Type**. Size is a read-only
+  attribute of the Type (parametric engine deferred). Top-tier Features are `Door` / `Window` /
+  `Opening`. *(Phase-A `feature.py` re-keyed; Manager/Editor + on-disk library deferred.)*
 - **Blocks:** 2 folder tiers `Library / Series` + `.fpdb` files. *(Built in v1.)*
 
 ### The flyweight core

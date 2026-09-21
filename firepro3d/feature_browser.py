@@ -1,13 +1,15 @@
 """
 feature_browser.py — read-only Feature Browser tree panel (§7.13).
 
-Lists loaded Features grouped Category → Type → Feature-leaf.
-Activating a leaf emits featureActivated(str) with the Feature id,
-which the app uses to enter opening placement mode.
+Lists loaded Features grouped Feature → Family → Type-leaf
+(docs/specs/feature-system.md F4).  Activating a Type leaf emits
+featureActivated(str) with the FeatureDef id, which the app uses to enter
+opening placement mode.
 """
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,7 +19,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
-from .feature import features_by_category
+from .feature import features_by_hierarchy
 
 
 class FeatureBrowser(QWidget):
@@ -67,20 +69,27 @@ class FeatureBrowser(QWidget):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _build_tree(self) -> None:
-        """Populate tree: Category → Type → FeatureDef leaf."""
-        data = features_by_category()
-        for category, types in sorted(data.items()):
-            cat_item = QTreeWidgetItem(self._tree, [category])
-            cat_item.setFlags(
+        """Populate tree: Feature → Family → Type leaf.
+
+        The two grouping tiers (Feature, Family) render bold like the other
+        browsers; only the Type leaf is regular weight.
+        """
+        f_bold = QFont(); f_bold.setBold(True)
+        data = features_by_hierarchy()
+        for feature, families in sorted(data.items()):
+            feat_item = QTreeWidgetItem(self._tree, [feature])
+            feat_item.setFont(0, f_bold)
+            feat_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             )
-            for type_key, fdefs in sorted(types.items()):
-                type_item = QTreeWidgetItem(cat_item, [type_key.title()])
-                type_item.setFlags(
+            for family, fdefs in sorted(families.items()):
+                fam_item = QTreeWidgetItem(feat_item, [family])
+                fam_item.setFont(0, f_bold)
+                fam_item.setFlags(
                     Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 )
-                for fdef in sorted(fdefs, key=lambda f: f.display_name):
-                    leaf = QTreeWidgetItem(type_item, [fdef.display_name])
+                for fdef in sorted(fdefs, key=lambda f: f.type_name):
+                    leaf = QTreeWidgetItem(fam_item, [fdef.type_name])
                     leaf.setData(0, Qt.ItemDataRole.UserRole, fdef.id)
                     leaf.setFlags(
                         Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
