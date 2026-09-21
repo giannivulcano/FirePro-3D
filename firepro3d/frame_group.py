@@ -73,12 +73,14 @@ class FrameGroupController(QObject):
 
         self.line_type_combo = QComboBox()
         self.line_type_combo.addItems(_LINE_TYPES)
+        self.line_type_combo.setToolTip("Border line type")
         self.line_type_combo.activated.connect(
             lambda _i: self.commit_line_type(self.line_type_combo.currentText()))
         col.addWidget(self.line_type_combo)
 
         self.weight_combo = QComboBox()
         self.weight_combo.addItems(_WEIGHTS)
+        self.weight_combo.setToolTip("Border line weight")
         self.weight_combo.activated.connect(
             lambda _i: self.commit_weight(self.weight_combo.currentText()))
         col.addWidget(self.weight_combo)

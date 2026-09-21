@@ -1671,6 +1671,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         g_font.add_widget(self.font_group.container)
         self.font_group.set_enabled(False)
 
+        # --- Frame (text box border) ---
+        from firepro3d.frame_group import FrameGroupController
+        g_frame = draft_page.add_group("Frame")
+        self.frame_group = FrameGroupController(
+            get_targets=self._font_group_targets, icon_loader=_I, parent=self)
+        g_frame.add_widget(self.frame_group.container)
+        self.frame_group.set_enabled(False)
+
         # --- Plot ---
         g_plot = draft_page.add_group("Plot")
         _btn = g_plot.add_large_button(
@@ -4384,6 +4392,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         fg.set_enabled(bool(targets))
         if targets:
             fg.sync()
+        fr = getattr(self, "frame_group", None)
+        if fr is not None:
+            fr.set_enabled(bool(targets))
+            fr.sync()
 
     def _active_scene(self):
         """The scene the ribbon tools/property panel act on: the current tab's
