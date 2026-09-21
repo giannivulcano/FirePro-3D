@@ -4,11 +4,11 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter, QFont
+from PyQt6.QtCore import Qt, QRect, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QBrush, QPainter, QFont, QFontDatabase
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
-                             QTabBar, QStackedWidget)
+                             QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate)
 
 from .theme import M
 
@@ -596,3 +596,111 @@ class Pill(QPushButton):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding if expanding else QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Fixed)
+
+
+class _FontPreviewDelegate(QStyledItemDelegate):
+    """Paints the family name (default) plus an 'AaBb 0123' preview in that face."""
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        fam = index.data(FontSelect.ROLE_FAMILY)
+        if not fam:
+            return
+        painter.save()
+        f = QFont(fam)
+        if option.font.pointSize() > 0:
+            f.setPointSize(option.font.pointSize())
+        painter.setFont(f)
+        painter.setPen(option.palette.text().color())
+        r = option.rect.adjusted(0, 0, -8, 0)
+        painter.drawText(r, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         "AaBb 0123")
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        return QSize(s.width(), max(s.height(), 22))
+
+
+class FontSelect(QComboBox):
+    """Reusable font picker: TrueType families with an SHX-ready source seam,
+    in-face previews, type-ahead, recently-used (max 5), and a current checkmark.
+
+    Emits ``fontChanged(str family)`` on an activated selection. A raw
+    ``QFontComboBox`` cannot carry section headers or (later) SHX entries, so this
+    is the standard replacement (ui-design-system.md). SHX support is deferred:
+    the ``_sources`` list is the seam a future SHX source plugs into.
+    """
+    fontChanged = pyqtSignal(str)
+    ROLE_FAMILY = Qt.ItemDataRole.UserRole + 1
+    MAX_RECENT = 5
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._recent: list[str] = []
+        self.setEditable(True)                 # enables type-ahead
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setItemDelegate(_FontPreviewDelegate(self))
+        self._sources = [("TrueType", list(QFontDatabase.families()))]  # font-source seam
+        self._rebuild()
+        self.activated.connect(self._on_activated)
+
+    def _add_header(self, text):
+        self.addItem(text)
+        item = self.model().item(self.count() - 1)   # default model is QStandardItemModel
+        if item is not None:
+            item.setEnabled(False)                   # section header: non-selectable
+
+    def _add_family(self, fam):
+        self.addItem(fam)
+        self.setItemData(self.count() - 1, fam, self.ROLE_FAMILY)
+
+    def _rebuild(self, current: str | None = None):
+        current = current or self.current_family()
+        self.blockSignals(True)
+        self.clear()
+        if self._recent:
+            self._add_header("Recent")
+            for fam in self._recent:
+                self._add_family(fam)
+        for label, fams in self._sources:
+            self._add_header(label)
+            for fam in fams:
+                self._add_family(fam)
+        self.blockSignals(False)
+        if current:
+            self.set_current_family(current)
+
+    def current_family(self) -> str:
+        return self.itemData(self.currentIndex(), self.ROLE_FAMILY) or self.currentText()
+
+    def set_current_family(self, fam: str):
+        for i in range(self.count()):
+            if self.itemData(i, self.ROLE_FAMILY) == fam:
+                self.setCurrentIndex(i)
+                return
+        self.setCurrentText(fam)                     # missing font: show the name as typed
+
+    def recent_families(self) -> list[str]:
+        return list(self._recent)
+
+    def _pin_recent(self, fam: str):
+        if fam in self._recent:
+            self._recent.remove(fam)
+        self._recent.insert(0, fam)
+        del self._recent[self.MAX_RECENT:]
+
+    def commit_current(self):
+        """Emit fontChanged for the current family and pin it as recent."""
+        fam = self.current_family()
+        if not fam:
+            return
+        self._pin_recent(fam)
+        self.fontChanged.emit(fam)
+
+    def _on_activated(self, _index):
+        fam = self.current_family()
+        if not fam:
+            return
+        self._pin_recent(fam)
+        self._rebuild(current=fam)
+        self.fontChanged.emit(fam)
