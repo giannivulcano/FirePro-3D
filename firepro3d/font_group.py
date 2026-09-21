@@ -7,14 +7,15 @@ docs/specs/units-and-formatting.md (Word-style pt display, mm storage).
 from __future__ import annotations
 
 from PyQt6.QtCore import QObject
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QColorDialog, QComboBox, QFontComboBox, QHBoxLayout, QToolButton,
+    QColorDialog, QComboBox, QHBoxLayout, QToolButton,
     QVBoxLayout, QWidget,
 )
 
 from . import theme as th
 from .constants import FONT_SIZE_LADDER_PT
+from .ui_kit import FontSelect
 from .paper_space import (
     _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt,
     _text_panel_change, _PANEL_CODE_TO_ALIGN,
@@ -71,10 +72,9 @@ class FontGroupController(QObject):
 
         row1 = QHBoxLayout()
         row1.setSpacing(2)
-        self.family_combo = QFontComboBox()
+        self.family_combo = FontSelect()
         self.family_combo.setMaximumWidth(160)
-        self.family_combo.activated.connect(
-            lambda _i: self._commit("Font", self.family_combo.currentFont().family()))
+        self.family_combo.fontChanged.connect(lambda fam: self._commit("Font", fam))
         row1.addWidget(self.family_combo)
 
         self.size_combo = QComboBox()
@@ -335,7 +335,7 @@ class FontGroupController(QObject):
             if fam is None:
                 self.family_combo.setCurrentIndex(-1)
             else:
-                self.family_combo.setCurrentFont(QFont(fam))
+                self.family_combo.set_current_family(fam)
 
             pt = uniform(lambda d: round(_font_pt_from_mm(d, d.height_mm), 1))
             self.size_combo.setCurrentText("" if pt is None else f"{pt:g}")

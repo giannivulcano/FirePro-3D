@@ -778,6 +778,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)
+        elif key == "Font":
+            self._data.font_family = str(value)
         elif key == "Height":
             mm = self._parse_dim(value)
             if mm is not None and mm > 0:

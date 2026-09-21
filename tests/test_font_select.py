@@ -41,3 +41,19 @@ def test_set_current_family_selects_family_row_not_header(qapp):
     fam = QFontDatabase.families()[0]
     w.set_current_family(fam)
     assert w.itemData(w.currentIndex(), w.ROLE_FAMILY) == fam
+
+
+def test_font_group_uses_fontselect(qapp):
+    from firepro3d.font_group import FontGroupController
+    from firepro3d.ui_kit import FontSelect
+    fg = FontGroupController(get_targets=lambda: [])
+    assert isinstance(fg.family_combo, FontSelect)
+
+
+def test_font_group_font_commit_via_fontselect(qapp):
+    from firepro3d.font_group import FontGroupController
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    item = TextItem(TextAnnotationData(text="A", font_family="Arial"))
+    fg = FontGroupController(get_targets=lambda: [item])
+    fg.family_combo.fontChanged.emit("Consolas")
+    assert item._data.font_family == "Consolas"
