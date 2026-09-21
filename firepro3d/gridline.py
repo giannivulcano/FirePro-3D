@@ -474,6 +474,39 @@ class GridlineItem(QGraphicsLineItem):
         path.addEllipse(self.bubble2.pos(), r, r)
         return path
 
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """Composite HALO trace: the full drawn line (bubble-to-bubble, trimmed
+        at each visible bubble's edge) plus the bubble circles — mirroring
+        :meth:`paint` so the preselection highlight matches exactly what is
+        drawn, and the extension never reaches into a bubble.
+
+        ``scene_scale`` is the view's scene→device scale; the bubbles are
+        screen-fixed (``ItemIgnoresTransformations``), so their scene-unit radius
+        is ``RADIUS_PX / scene_scale``. Without a scale (headless) it falls back
+        to the bare line body so the hook stays usable in tests."""
+        path = QPainterPath()
+        b1 = self.bubble1.pos()
+        b2 = self.bubble2.pos()
+        dx, dy = b2.x() - b1.x(), b2.y() - b1.y()
+        length = math.hypot(dx, dy)
+        scene_r = (GridBubble.RADIUS_PX / scene_scale) if scene_scale else 0.0
+        if length <= 1e-9 or scene_r <= 0.0:
+            ln = self.line()
+            path.moveTo(ln.p1())
+            path.lineTo(ln.p2())
+            return path
+        ux, uy = dx / length, dy / length
+        vis1, vis2 = self.bubble1.isVisible(), self.bubble2.isVisible()
+        p1 = QPointF(b1.x() + ux * scene_r, b1.y() + uy * scene_r) if vis1 else b1
+        p2 = QPointF(b2.x() - ux * scene_r, b2.y() - uy * scene_r) if vis2 else b2
+        path.moveTo(p1)
+        path.lineTo(p2)
+        if vis1:
+            path.addEllipse(b1, scene_r, scene_r)
+        if vis2:
+            path.addEllipse(b2, scene_r, scene_r)
+        return path
+
     def itemChange(self, change, value):
         """Refresh bubble paint and show/hide grips + lock indicator on selection change."""
         if change == self.GraphicsItemChange.ItemSelectedChange:
