@@ -1548,6 +1548,13 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                       "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
                       "options": ["Left", "Center", "Right"]},
         "Opaque Background": {"type": "bool", "value": data.opaque_bg},
+        "Border": {"type": "bool", "value": data.border},
+        "Line Type": {"type": "enum", "value": data.border_line_type,
+                      "options": ["solid", "dashed", "dotted", "dashdot"]},
+        "Border Weight": {"type": "enum", "value": data.border_weight,
+                          "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"]},
+        "Corner": {"type": "enum", "value": data.border_corner,
+                   "options": ["square", "round", "chamfer"]},
         "Leader": {"type": "label", "value": "None"},
     }
 
@@ -1601,6 +1608,14 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
         field, new = "align", code
     elif key == "Opaque Background":
         field, new = "opaque_bg", bool(value)
+    elif key == "Border":
+        field, new = "border", bool(value)
+    elif key == "Border Weight":
+        field, new = "border_weight", str(value)
+    elif key == "Line Type":
+        field, new = "border_line_type", str(value)
+    elif key == "Corner":
+        field, new = "border_corner", str(value)
     else:
         return None
     if getattr(data, field) == new:

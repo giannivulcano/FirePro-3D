@@ -714,6 +714,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Alignment": {"type": "enum", "options": ["L", "C", "R"],
                           "value": self._data.align},
             "Opaque Background": {"type": "toggle", "value": bool(self._data.opaque_bg)},
+            "Border":       {"type": "toggle", "value": bool(self._data.border)},
+            "Line Type":    {"type": "enum", "options": ["solid", "dashed", "dotted", "dashdot"],
+                             "value": self._data.border_line_type},
+            "Border Weight":{"type": "enum",
+                             "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                             "value": self._data.border_weight},
+            "Corner":       {"type": "enum", "options": ["square", "round", "chamfer"],
+                             "value": self._data.border_corner},
         }
         geom2d = self._geom2d_properties()
         # Text carries no level semantics (containment spec) — strip the level
@@ -744,6 +752,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.align = str(value)
         elif key == "Opaque Background":
             self._data.opaque_bg = bool(value)
+        elif key == "Border":
+            self._data.border = bool(value)
+        elif key == "Border Weight":
+            self._data.border_weight = str(value)
+        elif key == "Line Type":
+            self._data.border_line_type = str(value)
+        elif key == "Corner":
+            self._data.border_corner = str(value)
         elif self._geom2d_set(key, value):
             return
         else:
