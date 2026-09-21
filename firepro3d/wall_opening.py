@@ -42,7 +42,7 @@ from .constants import (
     OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK,
     OPENING_ALIGNMENTS,
 )
-from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for
+from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for, feature_label
 
 if TYPE_CHECKING:
     from .wall import WallSegment
@@ -121,7 +121,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         # ── Feature resolution ────────────────────────────────────────────────
         fdef = FEATURE_REGISTRY.get(feature_id) or get_feature("door_914")
         self.feature_id: str = fdef.id
-        self._type: str = fdef.type
+        self._type: str = fdef.kind   # paint/legacy discriminator: "door"|"window"|"blank"
         self._leaves: int = fdef.leaves
 
         # ── Dimensional overrides ─────────────────────────────────────────────
@@ -211,7 +211,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         """
         fdef = FEATURE_REGISTRY.get(feature_id) or get_feature("door_914")
         self.feature_id = fdef.id
-        self._type = fdef.type
+        self._type = fdef.kind
         self._leaves = fdef.leaves
         self._width_mm = float(fdef.default_width_mm)
         self._height_mm = float(fdef.default_height_mm)
@@ -219,11 +219,13 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         if self._wall is not None:
             self._reposition()
 
-    def _features_for_category(self) -> list["FeatureDef"]:
-        """FeatureDefs sharing this opening's category, for the panel enum."""
+    def _types_for_feature(self) -> list["FeatureDef"]:
+        """FeatureDefs sharing this opening's Feature (Door/Window/Opening), for
+        the panel enum.  Cross-Feature switching (door↔window↔blank) lives in the
+        ribbon; the panel enum offers the Types within the current Feature."""
         cur = FEATURE_REGISTRY.get(self.feature_id)
-        category = cur.category if cur is not None else "Openings"
-        return [f for f in FEATURE_REGISTRY.values() if f.category == category]
+        label = feature_label(cur) if cur is not None else "Opening"
+        return [f for f in FEATURE_REGISTRY.values() if feature_label(f) == label]
 
     # ── Scene/unit helpers ────────────────────────────────────────────────────
 
@@ -669,10 +671,14 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             props["Feature"] = {
                 "type": "enum",
                 "value": cur.display_name if cur is not None else self.feature_id,
-                "options": [f.display_name for f in self._features_for_category()],
+                "options": [f.display_name for f in self._types_for_feature()],
             }
         else:
-            props["Type"] = {"type": "label", "value": self._type.title()}
+            cur = FEATURE_REGISTRY.get(self.feature_id)
+            props["Feature"] = {"type": "label", "value": feature_label(cur)
+                                if cur is not None else self._type.title()}
+            if cur is not None:
+                props["Type"] = {"type": "label", "value": cur.type_name}
         props["Width"] = {"type": "dimension", "value_mm": self._width_mm}
         props["Height"] = {"type": "dimension", "value_mm": self._height_mm}
         props["Sill Height"] = {"type": "dimension", "value_mm": self._sill_mm}

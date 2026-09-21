@@ -66,23 +66,52 @@ Wall (openings — the only one built), Floor, Ceiling, Face, or Level/free
 (unhosted). Host strategy drives placement + lifecycle (e.g. wall-hosted
 openings delete with their wall).
 
-### F4 — Naming / storage contract (locked 2026-09-04, `block-system.md`)
+### F4 — Naming / storage contract (SETTLED 2026-09-21)
 
-3-tier `Class / SubClass / Type` folders; `.fpdf` type-definition files;
-non-parametric (size = read-only attribute of the Type). Openings decompose into
-`Door` / `Window` / `Opening` Classes. This contract is **locked for migration
-discipline** — do not re-key on-disk libraries twice.
+The Feature hierarchy is **`Feature > Family > Type`** — Revit-aligned
+(`user_revit_mental_model`). This supersedes both the earlier
+`Category → Type → FeatureDef` code shape *and* the interim `Class / SubClass /
+Type` labels: same three tiers, canonical labels.
 
-> **Open naming question (deferred):** `feature.py` currently uses
-> `Category → Type → FeatureDef`, but the user's Revit-aligned model expects
-> `Category → Family → Type` (`user_revit_mental_model`). Settle before Phase B
-> ships any on-disk keys. Tracked in `todo_open.md`.
+| Tier | Meaning | Built-in examples |
+|---|---|---|
+| **Feature** | class of building element | Door, Window, Opening |
+| **Family**  | a family within a Feature | Single-Flush, Double-Flush, Fixed, Blank |
+| **Type**    | a concrete sized preset (the leaf `.fpdf`) | 813 × 2032 |
+
+- **"Openings" umbrella dropped** — Door/Window/Opening *are* the top-tier Features.
+- **On-disk path key:** `<Feature>/<Family>/<Type>.fpdf`
+  (e.g. `Door/Single-Flush/813 × 2032.fpdf`). One `.fpdf` = one **Type**,
+  self-contained today (geometry + fixed sizes). A Family-definition manifest appears
+  in the Family folder when the parametric engine lands; Type files then slim to
+  parameter values.
+- **Parametric contract locked, engine deferred:** a **Family** owns geometry +
+  parameter *definitions*; a **Type** is a fixed-value preset (size is read-only per
+  Type — Revit-consistent; reconciles the earlier "non-parametric" framing). The
+  parametric *engine* (arbitrary parameter→geometry binding) stays deferred to the
+  "Full parametrics for Features" task; today a Family ships a fixed set of Types.
+- **Terminology:** "Feature" is the tier-1 classification; a *placed* occurrence is a
+  **Feature instance** (today `WallOpening`). The serialized key `feature_id` is
+  **retained** (it now denotes a *Type*) — renaming a persisted key would force the
+  data migration this contract exists to prevent.
+
+**Phase-A code** (`feature.py`, landed 2026-09-21): `FeatureDef` carries `kind`
+(the paint/legacy discriminator `"door"|"window"|"blank"`; `feature_label()` maps it
+to the Feature name — `blank → Opening`), `family`, and `type_name`;
+`features_by_hierarchy()` returns `Feature → Family → Type`. Built-in `id`s are
+**frozen**. This contract is **locked for migration discipline** — do not re-key
+on-disk libraries or `feature_id` values twice.
 
 ## Design Decisions
 
 - **Compose Blocks rather than a separate 2D authoring path** — one 2D primitive
   vocabulary + one editor (containment contract C2). Rationale + rejected
   "siblings" alternative live in `model-space-containment-contract.md`.
+- **`Feature > Family > Type`, Revit-aligned** (F4) — chosen over the code's flat
+  `Category → Type` and the interim `Class / SubClass / Type` because the user's
+  mental model is Revit (`user_revit_mental_model`) and the Family tier (a family
+  generating multiple sized Types) has no home in the flat shape. Tier *contents*
+  were identical across all three candidates — only the labels differed.
 - **Built-in Features keep bespoke engines** — Wall/Floor/Roof/Room are too
   integral for the generic data-driven path today; the Feature Editor may one day
   be rich enough to author a wall generically, but not this milestone (C6/C2a).
@@ -92,6 +121,8 @@ discipline** — do not re-key on-disk libraries twice.
 - [x] The orphan is closed: SPEC-INDEX points Feature modules here.
 - [x] The Feature-internal contract (F1–F4) is recorded and linked to the
       containment contract for the invariants it does not own.
+- [x] F4 naming **settled** (`Feature > Family > Type`) and the Phase-A code
+      (`feature.py`) re-keyed to it with frozen `id`s (2026-09-21).
 - [ ] Phase B (Manager) / Phase C (Editor) builds converge to F1–F4 and
       re-stamp this spec `partial`/`current` as code lands.
 
@@ -107,5 +138,7 @@ discipline** — do not re-key on-disk libraries twice.
 - `wall_opening.py` — the first Feature (Opening), bespoke paint, governed today
   by `wall-room-floor-system.md §7`. An early special case that reconciles to F1
   (compose a plan Block) when the Feature system is built out (C2a).
-- `feature.py` — current definition/instance scaffolding + `features_by_category()`.
+- `feature.py` — definition/instance scaffolding + `features_by_hierarchy()`
+  (Feature → Family → Type) + `feature_label()`; `FeatureDef` fields
+  `kind`/`family`/`type_name` per F4.
 - Future: `feature_manager*.py` (Phase B), `feature_editor*.py` (Phase C).

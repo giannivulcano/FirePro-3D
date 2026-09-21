@@ -2357,7 +2357,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             fdef = get_feature(feature_id)
         except KeyError:
             return
-        self._last_feature[fdef.type] = feature_id
+        self._last_feature[fdef.kind] = feature_id
         tmpl = self.current_opening_template
         if tmpl.feature_id != feature_id:
             tmpl.apply_feature(feature_id)
