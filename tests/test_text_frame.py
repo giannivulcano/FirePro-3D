@@ -50,3 +50,54 @@ def test_paper_panel_change_frame_keys():
     assert _text_panel_change(d, "Border", False) is None   # unchanged → no-op
     form = _text_panel_properties(TextAnnotationData(border=True))
     assert form["Border"]["value"] is True
+
+
+# ── Render tests (frame pixels) ─────────────────────────────────────────────
+
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QImage, QPainter, QColor
+from PyQt6.QtWidgets import QGraphicsScene
+
+
+def _render_nonwhite_count(item):
+    """Render the item's scene region to a white image; count non-white pixels."""
+    scene = QGraphicsScene()
+    scene.addItem(item)
+    src = item.sceneBoundingRect().adjusted(-6, -6, 6, 6)
+    img = QImage(260, 180, QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 260, 180), src)
+    p.end()
+    white = QColor("white").rgb()
+    n = 0
+    for y in range(img.height()):
+        for x in range(img.width()):
+            if img.pixel(x, y) != white:
+                n += 1
+    scene.removeItem(item)
+    return n
+
+
+def test_frame_adds_pixels_when_border_on_model(qapp):
+    item = TextItem(TextAnnotationData(text="ABC", height_mm=4.0))
+    off = _render_nonwhite_count(item)
+    item.set_property("Border", True)
+    on = _render_nonwhite_count(item)
+    assert on > off + 20   # the stroked border adds a clear pixel delta
+
+
+def test_frame_path_corner_variants_nonempty(qapp):
+    item = TextItem(TextAnnotationData(text="ABC", border=True))
+    for corner in ("square", "round", "chamfer"):
+        item._data.border_corner = corner
+        assert not item._frame_path().isEmpty()
+
+
+def test_frame_pen_uses_named_weight_and_color(qapp):
+    item = TextItem(TextAnnotationData(text="A", border=True, color="#123456",
+                                       border_weight="Heavy", border_line_type="dashed"))
+    pen = item._frame_pen()
+    assert pen.color().name() == "#123456"
+    assert pen.style() == __import__("PyQt6.QtCore", fromlist=["Qt"]).Qt.PenStyle.DashLine
+    assert pen.widthF() > 0

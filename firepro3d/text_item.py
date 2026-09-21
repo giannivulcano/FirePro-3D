@@ -334,6 +334,42 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             height = content.height()
         return QRectF(0, 0, width, height)
 
+    def _frame_path(self) -> "QPainterPath":
+        """Border path for the box rect, honoring the corner style (local frame)."""
+        from .constants import TEXT_FRAME_CORNER_FRAC
+        r = self._box_rect_local()
+        path = QPainterPath()
+        if self._data.border_corner == "square":
+            path.addRect(r)
+            return path
+        rad = TEXT_FRAME_CORNER_FRAC * min(r.width(), r.height())
+        if self._data.border_corner == "round":
+            path.addRoundedRect(r, rad, rad)
+            return path
+        # chamfer: 45-degree cut of size `rad` at each corner
+        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
+        path.moveTo(l + rad, t)
+        path.lineTo(ri - rad, t); path.lineTo(ri, t + rad)
+        path.lineTo(ri, b - rad); path.lineTo(ri - rad, b)
+        path.lineTo(l + rad, b); path.lineTo(l, b - rad)
+        path.lineTo(l, t + rad); path.closeSubpath()
+        return path
+
+    def _frame_pen(self) -> "QPen":
+        """Pen for the border: text color, named weight mapped into local units,
+        line-type -> Qt PenStyle. Width is lw_mm / scale so it plots at the true mm
+        weight on paper and equals lw_mm on a model scene (scale == 1)."""
+        from .paper_display import resolve_line_weight_mm
+        lw_mm = resolve_line_weight_mm(self._data.border_weight)
+        scale = self.scale() or 1.0
+        pen = QPen(QColor(self._data.color))
+        pen.setWidthF(max(lw_mm / scale, 1e-4))
+        pen.setStyle({
+            "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
+            "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
+        }.get(self._data.border_line_type, Qt.PenStyle.SolidLine))
+        return pen
+
     def boundingRect(self) -> QRectF:
         """Visual/selection extent — padded for the grip halo, rotated footprint.
 
@@ -456,6 +492,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._data.opaque_bg:
             painter.fillRect(box, QColor("#ffffff"))
         super().paint(painter, option, widget)
+        if self._data.border:
+            painter.setPen(self._frame_pen())
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(self._frame_path())
         if self._editing:
             pen = QPen(QColor("#88aaff"))
             pen.setStyle(Qt.PenStyle.DashLine)
