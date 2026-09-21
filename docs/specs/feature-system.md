@@ -1,14 +1,14 @@
 ---
-status: proposal
-last-verified: 2026-09-16
-verified-commit: bf332b2
+status: proposal          # system build deferred (Phase B/C); F4 naming SETTLED + Phase-A code re-keyed 2026-09-21
+last-verified: 2026-09-21
+verified-commit: 7934ccf
 applies-to:
   - firepro3d/feature.py
   - firepro3d/wall_opening.py   # the first Feature (Opening); behavior today governed by wall-room-floor-system.md §7
   # future: firepro3d/feature_manager*.py, firepro3d/feature_editor*.py
 source-tasks:
   - "todo_open.md → Opening element: Phase B Feature Manager / Phase C Feature Editor"
-  - "todo_open.md → design: settle the Feature hierarchy naming"
+  - "todo_closed.md → design: settle Feature hierarchy naming (Feature > Family > Type, 2026-09-21)"
 ---
 
 # Feature System — Design Spec (forged on first touch)

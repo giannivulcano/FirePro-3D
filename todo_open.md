@@ -204,8 +204,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Opening element
 
-- [ ] [type:design] Settle the Feature hierarchy naming BEFORE Phase B/C (raised 2026-09-04) [P3] [subject:Architecture]
-  - Details: `feature.py` currently names the tiers Category → Type → FeatureDef (`features_by_category()` returns `dict[category]→dict[type]→list`), with `host_type` orthogonal. User's Revit-aligned mental model expects Category → Family → Type (`user_revit_mental_model`). Decide the canonical names now: renaming after Phase B (Manager UI) / Phase C (Editor) ship — and after any on-disk library keys off `category`/`type` — forces a data migration. Fold the decision into the Feature governing spec forged in Phase B. `feature.py`, `feature_browser.py`.
 - [ ] [type:feature] Phase B — Feature Manager [P2] [subject:Architecture]
   - Details: Architecture-ribbon dialog: choose which Features load into the project; template-project prepopulation; Revit "Load Family". Promote the Feature system to its own governing spec here (SPEC-INDEX orphan). `main.py`, new `feature_manager*.py`.
 - [ ] [type:feature] Phase C — Feature Editor v1 (constrained to void+symbol) [P2] [subject:Architecture]
@@ -227,8 +225,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 - [ ] [type:feature] Reference-graphic unification — deferred follow-ups (post core-internal slice) [P2] [subject:Architecture]
   - Details: the core-internal re-home LANDED 2026-09-17 (`feat/reference-graphic-unification`; core-internal slice in todo_closed.md — Underlay re-homed on a reference `BlockDefinition`, batched render/snap repointed at it, transparent migration). Remaining pieces, each its own slice: **(4b) curve-fidelity import flip** — flip underlay import to `_preserve_curves=True` after verifying snap parity on parametric (arc/spline/ellipse) underlay geoms in `UnderlaySnapIndex._geom_bounds` + `snap_engine._collect_from_geom` (closes RD1; `dwg_converter.append_geom_to_path` already renders them); **(R5) selection de-prioritization + "lock in place" toggle** — depends on selection-mode ranking; **edit-underlay-in-Block-Editor** — rep-2 materialization, its own perf problem; **per-primitive visibility**; **convert/promote underlay↔block**. ref: reference-graphic-model.md (Deferred work + Divergences RD1/RD3/RD4). `underlay_import_dialog.py`, `dxf_import_worker.py`, `snap_engine.py`, `selection-mode`.
-- [ ] [type:design] Settle Feature hierarchy naming before Phase B (Category→Type→FeatureDef vs Revit Category→Family→Type) [P1] [subject:Architecture]
-  - Details: folded here from the Opening-element cluster — `feature.py` uses `Category→Type→FeatureDef`; the Revit-aligned model expects `Category→Family→Type` (`user_revit_mental_model`). Decide before any on-disk `.fpdf` keys ship. ref: feature-system §F4, block-system locked naming.
 
 ## 2D geometry: first-class level-plane placement + fill
 
