@@ -52,6 +52,14 @@ class TextAnnotationData:
         Horizontal alignment: ``'L'`` | ``'C'`` | ``'R'``.
     opaque_bg:
         When ``True``, render a white fill behind the text box.
+    border:
+        When ``True``, draw a framing rectangle around the text box.
+    border_weight:
+        Named line-weight token (resolved via ``resolve_line_weight_mm``).
+    border_line_type:
+        Stroke style: ``'solid'`` | ``'dashed'`` | ``'dotted'`` | ``'dashdot'``.
+    border_corner:
+        Corner treatment: ``'square'`` | ``'round'`` | ``'chamfer'``.
     angle:
         Rotation in degrees (Y-up CCW+, same convention as the rest of the
         model).  Default ``0.0``.  Pivot is transient/recomputed at rest and
@@ -74,6 +82,10 @@ class TextAnnotationData:
     color: str = "#000000"                       # authored hex, default black
     align: str = "L"                             # 'L' | 'C' | 'R'
     opaque_bg: bool = False
+    border: bool = False                         # frame visibility
+    border_weight: str = "Light"                 # named line-weight (resolve_line_weight_mm)
+    border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
+    border_corner: str = "square"                # 'square'|'round'|'chamfer'
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     type: str = "text"                           # discriminator for future annotation types
 
@@ -87,6 +99,8 @@ class TextAnnotationData:
             "bold": self.bold, "italic": self.italic, "underline": self.underline,
             "color": self.color, "align": self.align,
             "opaque_bg": self.opaque_bg,
+            "border": self.border, "border_weight": self.border_weight,
+            "border_line_type": self.border_line_type, "border_corner": self.border_corner,
             "angle": self.angle,
         }
 
@@ -103,6 +117,10 @@ class TextAnnotationData:
             underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
             opaque_bg=bool(d.get("opaque_bg", False)),
+            border=bool(d.get("border", False)),
+            border_weight=d.get("border_weight", "Light"),
+            border_line_type=d.get("border_line_type", "solid"),
+            border_corner=d.get("border_corner", "square"),
             angle=float(d.get("angle", 0.0)),
             type=d.get("type", "text"),
         )
