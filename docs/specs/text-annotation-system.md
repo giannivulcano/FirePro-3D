@@ -1,0 +1,233 @@
+---
+status: partial            # baseline (unified TextItem + Font group) is current; frame axis + FontSelect + Frame group are proposal
+last-verified: 2026-09-21
+verified-commit: 94417a3
+applies-to:
+  - firepro3d/text_item.py        # TextItem + TextAnnotationData (the unified primitive + data model)
+  - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
+  - firepro3d/frame_group.py      # ribbon "Frame" group controller (NEW — proposal)
+  - firepro3d/ui_kit.py           # FontSelect standard widget (NEW — proposal)
+  - firepro3d/paper_display.py    # named line-weights (resolve_line_weight_mm / FACTORY_LINE_WEIGHTS) reused for the frame
+source-tasks:
+  - "todo_open.md → UI: Text primitives ribbon (frame axis / font widget) — 2026-09-21 brainstorm"
+  - "todo_open.md → B: Sheet-text printed border property (None/Solid/Dashed) [P3] — absorbed by the frame axis"
+  - "todo_open.md → B: Absorb the Modify→Text group into the entity-aware Font group [P3]"
+  - "Downloads/Ribbon Text Group — Spec.md (draft, 2026-09-21) — seed for the deferred style-preset phase"
+---
+
+# Text Annotation System — Design Spec (forged on first touch)
+
+> **Status: partial.** Forged 2026-09-21 to close the SPEC-INDEX orphan for the
+> **Text primitive + Text ribbon** (previously split across `ribbon-bar.md`,
+> `paper-space.md §9`, and `model-space-containment-contract.md` C5).
+>
+> - **CURRENT (code-verified):** the unified `TextItem` / `TextAnnotationData`
+>   primitive (containment C5, landed) and the Word-style `FontGroupController`
+>   ribbon group.
+> - **PROPOSAL (designed here, unbuilt):** the **frame axis** (box border), the
+>   separate **Frame** ribbon group + `FrameGroupController`, and the
+>   **`FontSelect`** `ui_kit` widget.
+>
+> The **containment invariants** (Text is the 9th primitive, one data model,
+> level-less, edited on paper + model surfaces) are owned by
+> `model-space-containment-contract.md` (C5) — this spec links up and does not
+> restate them (Rule A). Undo-routed paper-text writes are owned by
+> `paper-space.md §9.6`. Named line-weights are owned by `paper_display.py`
+> (`FACTORY_LINE_WEIGHTS` / `resolve_line_weight_mm`). Ribbon group/label/icon
+> mechanics are owned by `ribbon-bar.md` and `icon-style-guide.md`.
+
+## Goal
+
+Give text annotations a **box-frame axis** (a printed border with visibility,
+line-type, named weight, and corner style) and consolidate all text editing into
+two ribbon containers on the Draft tab — a **Text** group (font/height/style/
+color/justification) and a **Frame** group (the box/line controls) — with the
+font picker promoted to a reusable `ui_kit` widget (`FontSelect`).
+
+## Motivation
+
+Sheet notes and callouts routinely need a printed box around the text (general
+notes, keynotes, revision clouds' cousins). Today `TextItem` has only an
+`opaque_bg` white knockout — no visible border, weight, line-type, or corner
+treatment — and the ribbon exposes a single Word-style Font group built on a raw
+`QFontComboBox` that can't carry font previews or (later) SHX entries. This slice
+adds the frame and the reusable font widget; it is the buildable first cut of the
+larger draft "Ribbon Text Group" vision (style presets / overrides / SHX), which
+is **explicitly deferred** (see Deferred ledger).
+
+## Architecture & Constraints
+
+- **One primitive, one data model.** All text is `TextItem` backed by
+  `TextAnnotationData` held by shared reference (C5). The frame is **four new
+  fields on `TextAnnotationData`** — never a second entity or a parallel model —
+  so the same data renders the frame on whichever surface (`PaperScene` device-
+  independent, or `Model_Space`/Block-Editor scene-mm) the item sits on.
+- **Reuse the named line-weight system.** The frame weight is a **named**
+  line-weight (`"Very Light"`…`"Very Heavy"`, `FACTORY_LINE_WEIGHTS` in
+  `paper_display.py`) resolved via `resolve_line_weight_mm()` — the same
+  mechanism walls/pipes plot through. No second free-mm weight mechanism.
+- **Reuse the commit/undo path.** Every ribbon/panel commit routes through
+  `TextItem.set_property`, which already pushes a `FormatTextCommand` on a paper
+  scene (`paper-space.md §9.6`) and does a plain geom2d set on a model scene.
+  Multi-select edits wrap in one undo macro (as `FontGroupController` already
+  does). The frame controls add keys to this path; no new undo machinery.
+- **Two ribbon containers, vertical labels.** A **Text** group and a separate
+  **Frame** group, each with a left-side vertical group label (the app's
+  `_VLabel` chrome, `ribbon-bar.md`). `FrameGroupController` is a sibling to
+  `FontGroupController` in its own module (`frame_group.py`) — one purpose per
+  file.
+- **`FontSelect` is a standard `ui_kit` widget.** Theme-tokenized
+  (`theme.detect()`), governed by `ui-design-system.md`, with a documented
+  **font-source seam** so a future SHX section slots in without a rewrite.
+
+## Design Decisions
+
+Decisions locked in the 2026-09-21 brainstorm (mockup:
+`docs/mockups/ribbon-text-group.html`):
+
+1. **Scope = frame axis + font widget first.** Style presets, per-property
+   overrides, SHX fonts, and the launcher dialog are **deferred** to a later
+   phase. The draft `Ribbon Text Group — Spec.md` is that phase's seed.
+2. **Frame lives on all text** (paper + model), because C5 already unified the
+   primitive — the fields are on `TextAnnotationData`, not paper-only.
+3. **Weight = named paper line-weight category** (reuse), not a free mm value.
+4. **Border color = the text color** — no separate border-color field this slice
+   (a dedicated frame color can be added later without a migration: absence ⇒
+   text color).
+5. **No wrap toggle — text always wraps.** The box always has a width (from
+   placement/resize); text wraps to it and the box auto-grows in height. This
+   removes the old auto-width-vs-wrap ambiguity. (Any residual auto-width path
+   in `TextItem` is normalized to always-wrap — see Divergences.)
+6. **Corner = preset enum**, `square | round | chamfer`, with a **fixed
+   proportional radius** (`TEXT_FRAME_CORNER_FRAC` of the shorter box side, one
+   shipped constant — no radius field). The **ribbon** expresses it as three
+   mutually-exclusive icon buttons (**Square**, **Fillet**, **Chamfer** — a
+   3-way radio, exactly one active, default Square); the **property panel** shows
+   the same value as an enum dropdown.
+7. **Two separate containers** (Text, Frame) — the user's explicit layout, over
+   folding the frame into the Text group as a third row.
+
+## Data model
+
+Four new fields on `TextAnnotationData` (`text_item.py`), all with back-compat
+defaults so pre-existing `.fpd` files load with the border off:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `border` | `bool` | `False` | Frame visibility. |
+| `border_weight` | `str` | `"Light"` | Named line-weight → `resolve_line_weight_mm()`. |
+| `border_line_type` | `str` | `"solid"` | `solid` \| `dashed` \| `dotted` \| `dashdot`. |
+| `border_corner` | `str` | `"square"` | `square` \| `round` \| `chamfer`. |
+
+- `to_dict` / `from_dict` gain all four (`from_dict` uses `.get(..., default)`).
+- **Dual-serialization parity:** the fields are added to *both* the file path
+  (`TextItem.to_dict`/`from_dict`, consumed by `scene_io`) **and** whatever
+  undo-capture path serializes text records — verified before merge
+  (`project_dual_serialization_paths`).
+- Border color is **not** stored (decision 4) — the renderer reads `data.color`.
+
+## Rendering
+
+In `TextItem.paint`, after the `opaque_bg` knockout and the text (and inside the
+existing bake-at-rest rotation `save()/restore()` block), when `data.border`:
+
+1. Build a `QPainterPath` for `_box_rect_local()` with the corner treatment:
+   **square** = plain rect; **round** = quarter-arc fillets; **chamfer** = 45°
+   cut. Corner size = `TEXT_FRAME_CORNER_FRAC × min(box_w, box_h)` (local units).
+2. Stroke with a `QPen`: color = `QColor(data.color)`; width = the local-frame
+   mapping of `resolve_line_weight_mm(data.border_weight)` so the border **plots
+   at the true mm weight** on paper (divide by `scale()` like the other paper
+   pens) and renders at mm in scene units on a model surface; line-type →
+   `Qt.PenStyle` / dash pattern; `NoBrush`.
+3. The frame path is inside the same rotation transform as the text, so it
+   tracks the box on rotate.
+
+`boundingRect`/`shape` already pad for the grip halo and cover the full box, so
+the stroked border needs no extra bounds growth (its half-weight is ≤ the grip
+pad at real weights).
+
+## Ribbon layout
+
+**Text group** (`FontGroupController`, `font_group.py` — existing, two rows):
+- Row 1: `FontSelect` · Height field + spinner.
+- Row 2: B / I / U · color swatch · L / C / R (standard align icons).
+- Vertical "Text" label at left; launcher ⛭ stub (deferred style manager).
+
+**Frame group** (`FrameGroupController`, `frame_group.py` — NEW):
+- Row 1: `[Border] | [Square] [Fillet] [Chamfer]` icon buttons — Border toggles
+  visibility; Square/Fillet/Chamfer are a 3-way corner radio (exactly one active,
+  default Square).
+- Row 2: Line-type combo.
+- Row 3: Line-weight combo (named categories).
+- Vertical "Frame" label at left. Corner radio + combos disable when Border off.
+
+**Icons (NEW, mockup-gated):** four SVGs — `text_border`, `corner_square`,
+`corner_fillet`, `corner_chamfer` — authored through the render-through-loader
+harness at light+dark per `icon-style-guide.md`, gated before wiring.
+
+Both controllers commit through `TextItem.set_property` with the keys
+`Border`, `Border Weight`, `Line Type`, `Corner` added to `_text_panel_change`,
+`_text_panel_properties` (paper form) and the model `get_properties`/
+`set_property` branches, plus property-panel rows.
+
+## FontSelect (ui_kit widget)
+
+`class FontSelect(QComboBox)` in `ui_kit.py`, theme-tokenized:
+
+- **Model:** TrueType families from `QFontDatabase`, with **section headers** and
+  a documented **font-source seam** (a source list → sections) so an SHX source
+  slots in later. Ships TrueType-only.
+- **Item delegate:** family name left, preview `"AaBb 0123"` rendered **in that
+  face** right.
+- **Behavior:** type-ahead search; recently-used pinned at top (max 5); checkmark
+  on the current family. Emits `fontChanged(str family)`.
+- `font_group.py` swaps its raw `QFontComboBox` → `FontSelect`. Other
+  `QFontComboBox` sites (`titleblock_editor.py`, `property_manager.py`) may
+  migrate later — **not** in this slice.
+
+## Acceptance Criteria
+
+- [ ] `border`/`border_weight`/`border_line_type`/`border_corner` exist on
+  `TextAnnotationData` with the defaults above; `to_dict`/`from_dict` round-trip;
+  a pre-frame `.fpd` loads with `border == False`.
+- [ ] Frame renders per corner (square/round/chamfer), line-type, and named
+  weight on **both** a paper and a model `TextItem` — driven through
+  `set_property` on real domain objects; each guard shown RED with the paint
+  branch reverted.
+- [ ] Border color follows `data.color` (no separate field).
+- [ ] Frame commits are undo-routed (one `FormatTextCommand` per commit on
+  paper; multi-select wraps in one macro) and sync to the property panel.
+- [ ] `FontSelect` emits `fontChanged`, previews in-face, pins ≤5 recents,
+  type-ahead selects, checkmarks current — driven as a **widget**, not slots.
+- [ ] The border **plots** at its named mm weight at export scale (the exported
+  artifact, not on-screen, is the gate).
+- [ ] Text always wraps to its box (no wrap control); box auto-grows in height.
+
+## Verification Checklist
+
+- [ ] All acceptance criteria met.
+- [ ] Tests pass (headless unit + a paper-export render assertion for the weight).
+- [ ] No regressions in existing `TextItem` paint / edit / manipulator behavior.
+- [ ] Launch-smoke: Draft tab shows Text + Frame groups; frame controls drive a
+  live model-space and paper-space text (live-only render classes dodge headless
+  — `project_live_render_bugs_dodge_headless`).
+- [ ] Four Frame icons gated + wired; render-through-loader test green.
+
+## Deferred / Divergences ledger
+
+- **D1 — Style presets + per-property overrides.** The draft spec's `TextStyle`
+  bundle + override model is deferred. Seed: `Downloads/Ribbon Text Group —
+  Spec.md`. The launcher ⛭ opens this manager when built.
+- **D2 — SHX fonts.** `FontSelect` ships TrueType-only behind a font-source seam;
+  the SHX section + stroke-font preview pixmaps land with D1.
+- **D3 — Separate border color.** Absent ⇒ text color; a dedicated field can be
+  added later without migration.
+- **D4 — Always-wrap normalization.** Today `TextItem` treats `wrap_width_mm == 0`
+  as auto-width (no wrap). Decision 5 makes text always wrap; the implementation
+  normalizes placement/resize so a width is always present. Any code path that
+  still emits `wrap_width_mm == 0` for a live box is a divergence to close in the
+  build, not a supported mode.
+- **D5 — Absorbed todo items.** "Sheet-text printed border (None/Solid/Dashed)"
+  is superseded by this frame axis (richer: weight + corner). "Absorb Modify→Text
+  group into the entity-aware Font group" overlaps the ribbon consolidation and
+  should be reconciled when that item is picked up.
