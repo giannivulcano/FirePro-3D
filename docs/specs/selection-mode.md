@@ -1,9 +1,9 @@
 # Selection Mode — Specification
 
 > **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
-> **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`selection_hover` token)
-> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built)
-> **Revision:** 2 (Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips)
+> **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
+> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish)
+> **Revision:** 3 (Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
 > **Absorbs:** TODO "Restore label-only click-selection for rooms"
 >
 > **Ownership boundary:** this spec owns **what gets selected** (HALO preselection, disambiguation, click/rubber-band picking, priority). `selection-manipulator.md` owns **what happens to the selection** (frame, handles, rigid transforms, grip editing). Grip activation is delegated there (§8).
@@ -109,8 +109,10 @@ Runtime Z values are owned by `view-relationships.md §7.3` + `constants.py` —
 ### 4.2 Hover outline
 
 - Drawn in `Model_View.drawForeground` via `firepro3d/halo.py:paint_halo_highlight`.
-- **Color token:** `theme.py` `selection_hover` (dark `#00BFFF` / light `#0091D6`) — do not hard-code the hex; the token owns it.
-- Distinct from: selection highlight, snap markers, and the manipulator frame/handles (`selection-manipulator.md`).
+- **Traces the drawn primitive geometry, not the hit-shape.** The outline follows the item's *actual* drawn geometry (its `path()`/`line()`/`rect()`/`polygon()`), **not** the fattened `shape()` hit-region — so thin/open geometry (lines, arcs, pipes) gets a single clean line instead of a capsule outline. `halo.py:_halo_trace_path_local` dispatches by Qt base type; baked rotation already lives in the local trace, so the scene mapping stays `sceneTransform().map(...)` (never the items' overridden `mapToScene`, which would double-apply rotation).
+- **Composite items** (gridlines, and future dimensions/markers) expose a `halo_trace_path(scene_scale)` hook returning a QPainterPath that unions all their constituent primitives — the same way a `BlockInstance.shape()` is the union of its render-op paths. `halo_scene_path` honors the hook and falls back to the type dispatch. `scene_scale` (view scene→device) is threaded through for screen-fixed sub-parts (e.g. a gridline's `ItemIgnoresTransformations` bubbles); the gridline trace = drawn line + extension (trimmed at each visible bubble's edge) + bubble circles, mirroring its `paint()`.
+- **Color token:** `theme.py` `accent` (dark `#63BE8B` / light `#2f9e63`) — do not hard-code the hex. Rendered **semi-transparent** with a **soft outer glow** (a QPainter multi-pass approximation — `drawForeground` has no filter pipeline). Tuning lives in `constants.py`: `HALO_TRACE_COLOR` / `HALO_TRACE_ALPHA` / `HALO_TRACE_WIDTH_PX` / `HALO_GLOW_PX`.
+- Distinct-by-treatment from the selection highlight (in the dark theme `accent` shares the `selection` hue; the HALO reads apart via its alpha + glow + trace, not hue), snap markers, and the manipulator frame/handles (`selection-manipulator.md`).
 - One item outlined at a time (the HALO item). Clears when the aperture is empty.
 - Room: outlines the label rect when a label is visible, else the polygon (§5.4). Underlay: no hover outline (reachable only as the terminal Spacebar candidate — §5.5).
 
@@ -299,7 +301,7 @@ Grip and handle interaction is **owned by the `SelectionManipulator`** — since
 
 | Behavior | Was (pre-Leg-A) | Now (Leg A as-built) | Status |
 |----------|---------|--------|--------|
-| Preselection highlight | None | HALO aperture pick + `selection_hover`-tokened outline | **SHIPPED** |
+| Preselection highlight | None | HALO aperture pick + `accent`-tokened traced-geometry outline (semi-transparent + glow; Rev 3) | **SHIPPED** |
 | Disambiguation key | Post-click: Tab cycled same-type items (`_cycle_similar_selection`) | Pre-click: **Spacebar** cycles HALO candidates; Tab freed for the HUD | **SHIPPED** |
 | Tab (wall mode) | Cycles alignment (Center/Left/Right) | Unchanged | None |
 | Rubber-band (select) | Window only (L->R), Qt-native `RubberBandDrag` | Scene-drawn (view `NoDrag`), direction-dependent L->R window / R->L crossing, empty-start | **SHIPPED** |
@@ -320,7 +322,7 @@ Grip and handle interaction is **owned by the `SelectionManipulator`** — since
 
 Leg A (plan scene, 2026-09-13) — shipped:
 
-- [x] HALO preselection: `selection_hover`-tokened outline on the top-ranked selectable item within the aperture; clears when the aperture is empty
+- [x] HALO preselection: `accent`-tokened outline tracing the drawn primitive geometry (semi-transparent + soft glow; Rev 3) on the top-ranked selectable item within the aperture; clears when the aperture is empty
 - [x] Spacebar-cycle: pre-click disambiguation through candidates in `halo_rank` order; underlay reachable as the last candidate; resets on cursor move; `"<Type> — i of N"` readout
 - [x] Post-click same-type cycling (`_cycle_similar_selection`) removed from select mode; **Tab freed for the HUD**
 - [x] Selection priority follows the shared `halo_rank` ordering (§3, §4.1)

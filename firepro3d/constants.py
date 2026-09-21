@@ -249,3 +249,10 @@ TB_POOL_CARD_W = 150                # Arrangements tab: pool card list width (px
 # HALO preselection-highlight engine
 HALO_APERTURE_PX = 6      # screen-space pick aperture radius (px)
 HALO_CYCLE_RESET_PX = 4   # cursor move beyond this rebuilds the candidate list
+# HALO trace-outline render (selection-mode.md §4.2): a single accent line that
+# traces the primitive's drawn geometry (not the fattened shape() hit-region),
+# semi-transparent, with a soft outer glow.
+HALO_TRACE_COLOR = "accent"   # theme token the trace is drawn in
+HALO_TRACE_ALPHA = 128        # trace opacity, 0-255 (128 ~ 50%)
+HALO_TRACE_WIDTH_PX = 4.0     # cosmetic px of the core traced line
+HALO_GLOW_PX = 8.0            # soft outer-glow blur radius (px); 0 disables
