@@ -185,3 +185,17 @@ def test_feature_browser_lists_features_and_activates(qapp):
     assert leaf is not None
     fb._on_item_activated(leaf, 0)
     assert activated == ["door_914"]
+
+
+def test_feature_browser_bolds_grouping_tiers_only(qapp):
+    """Feature + Family tiers render bold (house browser style); Type leaf regular."""
+    from firepro3d.feature_browser import FeatureBrowser
+    fb = FeatureBrowser()
+    door = next(fb._tree.topLevelItem(i)
+                for i in range(fb._tree.topLevelItemCount())
+                if fb._tree.topLevelItem(i).text(0) == "Door")
+    family = door.child(0)                       # Double-Flush / Single-Flush
+    type_leaf = family.child(0)                  # e.g. "813 × 2032"
+    assert door.font(0).bold() is True
+    assert family.font(0).bold() is True
+    assert type_leaf.font(0).bold() is False

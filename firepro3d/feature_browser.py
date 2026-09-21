@@ -9,6 +9,7 @@ opening placement mode.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -68,15 +69,22 @@ class FeatureBrowser(QWidget):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _build_tree(self) -> None:
-        """Populate tree: Feature → Family → Type leaf."""
+        """Populate tree: Feature → Family → Type leaf.
+
+        The two grouping tiers (Feature, Family) render bold like the other
+        browsers; only the Type leaf is regular weight.
+        """
+        f_bold = QFont(); f_bold.setBold(True)
         data = features_by_hierarchy()
         for feature, families in sorted(data.items()):
             feat_item = QTreeWidgetItem(self._tree, [feature])
+            feat_item.setFont(0, f_bold)
             feat_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             )
             for family, fdefs in sorted(families.items()):
                 fam_item = QTreeWidgetItem(feat_item, [family])
+                fam_item.setFont(0, f_bold)
                 fam_item.setFlags(
                     Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 )
