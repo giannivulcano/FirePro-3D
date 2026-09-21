@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>Frame icons — render-through-loader gate</title>
+<style>
+  body{margin:0;background:#15181b;color:#E6E9EC;font:14px/1.5 "Segoe UI",system-ui;padding:24px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:#98A0A7;font-size:12.5px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;max-width:760px}
+  .cell{border:1px solid #3A4046;border-radius:8px;padding:14px;text-align:center}
+  .cell.light{background:#f6f6f3}
+  .cell.dark{background:#212528}
+  .cell .name{font-size:11px;color:#98A0A7;margin-bottom:10px;letter-spacing:.03em}
+  .cell.light .name{color:#555}
+  .row{display:flex;gap:16px;align-items:center;justify-content:center}
+  .ico{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .ico small{font-size:10px;color:#98A0A7}
+  .cell.light .ico small{color:#777}
+  img{image-rendering:auto}
+  .panel-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#7FE0AC;margin:22px 0 8px}
+  .btnpreview{display:inline-flex;gap:2px;margin-top:16px;padding:6px;background:#212528;border:1px solid #3A4046;border-radius:8px}
+  .tb{width:30px;height:28px;border-radius:4px;border:1px solid transparent;display:flex;align-items:center;justify-content:center}
+  .tb.on{background:rgba(63,174,114,0.18);border-color:#3FAE72}
+  .tb img{width:18px;height:18px;filter:none}
+</style></head>
+<body>
+  <h1>Frame group icons — rendered through the app's themed loader <span style="font-size:11px;color:#7FE0AC;border:1px solid #3FAE72;border-radius:10px;padding:1px 8px">GATE</span></h1>
+  <p class="sub">These PNGs came out of <code>icons.themed_icon(...)</code> (real two-token recolor), not the browser — what you approve is what the ribbon shows. Order: Border · Square · Fillet · Chamfer. Approve or tell me what to adjust.</p>
+
+  <div class="panel-title">Light theme</div>
+  <div class="grid">
+    <div class="cell light"><div class="name">text_border</div><div class="row">
+      <div class="ico"><img src="icons/text_border_light_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/text_border_light_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell light"><div class="name">corner_square</div><div class="row">
+      <div class="ico"><img src="icons/corner_square_light_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_square_light_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell light"><div class="name">corner_fillet</div><div class="row">
+      <div class="ico"><img src="icons/corner_fillet_light_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_fillet_light_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell light"><div class="name">corner_chamfer</div><div class="row">
+      <div class="ico"><img src="icons/corner_chamfer_light_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_chamfer_light_27.png" width="27" height="27"><small>27</small></div></div></div>
+  </div>
+
+  <div class="panel-title">Dark theme</div>
+  <div class="grid">
+    <div class="cell dark"><div class="name">text_border</div><div class="row">
+      <div class="ico"><img src="icons/text_border_dark_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/text_border_dark_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell dark"><div class="name">corner_square</div><div class="row">
+      <div class="ico"><img src="icons/corner_square_dark_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_square_dark_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell dark"><div class="name">corner_fillet</div><div class="row">
+      <div class="ico"><img src="icons/corner_fillet_dark_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_fillet_dark_27.png" width="27" height="27"><small>27</small></div></div></div>
+    <div class="cell dark"><div class="name">corner_chamfer</div><div class="row">
+      <div class="ico"><img src="icons/corner_chamfer_dark_54.png" width="54" height="54"><small>54</small></div>
+      <div class="ico"><img src="icons/corner_chamfer_dark_27.png" width="27" height="27"><small>27</small></div></div></div>
+  </div>
+
+  <div class="panel-title">In-context: the Frame group top row (dark)</div>
+  <div class="btnpreview">
+    <div class="tb on" title="Border"><img src="icons/text_border_dark_27.png"></div>
+    <div style="width:1px;background:#3A4046;margin:2px 3px"></div>
+    <div class="tb on" title="Square"><img src="icons/corner_square_dark_27.png"></div>
+    <div class="tb" title="Fillet"><img src="icons/corner_fillet_dark_27.png"></div>
+    <div class="tb" title="Chamfer"><img src="icons/corner_chamfer_dark_27.png"></div>
+  </div>
+</body></html>
