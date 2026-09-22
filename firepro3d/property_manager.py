@@ -26,11 +26,25 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
-    QCheckBox, QFontComboBox, QToolButton, QSlider,
+    QCheckBox, QFontComboBox, QToolButton, QSlider, QPlainTextEdit,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
 from PyQt6.QtWidgets import QButtonGroup
+
+
+class _MultilineEdit(QPlainTextEdit):
+    """Full-width multi-line text editor that commits on focus-out.
+
+    Used by the ``multiline`` property type (e.g. annotation Content) so a
+    panel content edit is one commit when the user leaves the field, not one
+    per keystroke.
+    """
+    editingFinished = pyqtSignal()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.editingFinished.emit()
 
 from .node import Node
 from .pipe import Pipe
@@ -332,12 +346,14 @@ class PropertyManager(QWidget):
             elif prop_type == "icon_enum":
                 from .icons import themed_icon
                 theme_name = "dark" if th.detect() is th.DARK else "light"
-                cont = QWidget(); lay = QHBoxLayout(cont)
-                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(2)
+                cont = QWidget(); cont.setObjectName("segmented")
+                lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
                 grp = QButtonGroup(cont); grp.setExclusive(True)
                 for val, icon_name in meta.get("options", []):
                     b = QToolButton(); b.setCheckable(True)
                     b.setIcon(themed_icon(icon_name, theme_name))
+                    b.setIconSize(QSize(18, 18)); b.setFixedSize(34, 26)
                     b.setToolTip(str(val).capitalize())
                     b.setProperty("icon_enum_val", val)
                     b.setChecked(val == meta.get("value"))
@@ -348,12 +364,14 @@ class PropertyManager(QWidget):
                 lay.addStretch(1)
                 widget = cont
 
-            # ── bool_group (row of pressable text buttons) ────────────────
+            # ── bool_group (segmented row of pressable text buttons) ──────
             elif prop_type == "bool_group":
-                cont = QWidget(); lay = QHBoxLayout(cont)
-                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(2)
+                cont = QWidget(); cont.setObjectName("segmented")
+                lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
                 for sub_key, label in meta.get("keys", []):
                     b = QToolButton(); b.setCheckable(True); b.setText(label)
+                    b.setFixedSize(30, 26)
                     b.setChecked(bool(meta.get("values", {}).get(sub_key)))
                     b.setToolTip(label)
                     b.clicked.connect(
@@ -378,6 +396,7 @@ class PropertyManager(QWidget):
                 cont = QWidget(); lay = QHBoxLayout(cont)
                 lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
                 sl = QSlider(Qt.Orientation.Horizontal)
+                sl.setObjectName("pctSlider")
                 sl.setRange(0, 100); sl.setValue(int(meta.get("value", 100)))
                 lbl = QLabel(f"{sl.value()}%")
                 sl.valueChanged.connect(lambda v, l=lbl: l.setText(f"{v}%"))
@@ -386,6 +405,21 @@ class PropertyManager(QWidget):
                 )
                 lay.addWidget(sl); lay.addWidget(lbl)
                 widget = cont
+
+            # ── multiline (full-width text box, label above) ──────────────
+            elif prop_type == "multiline":
+                lbl = QLabel(str(key))
+                lbl.setStyleSheet(f"color: {_t.text_secondary};")
+                self._form.addRow(lbl)                       # label spans, above
+                editor = _MultilineEdit()
+                editor.setPlainText(str(meta.get("value", "")))
+                editor.setFixedHeight(52)
+                editor.setProperty("multiline_key", key)
+                editor.editingFinished.connect(
+                    lambda k=key, e=editor: self._apply_property(k, e.toPlainText())
+                )
+                self._form.addRow(editor)                    # editor spans full width
+                continue
 
             # ── string / fallback (editable line edit) ────────────────────
             else:

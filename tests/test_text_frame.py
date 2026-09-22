@@ -168,7 +168,9 @@ def test_panel_renders_textitem_end_to_end(qapp):
     pm = PropertyManager()
     pm.show_properties(item)           # builds the grouped form without error
     from PyQt6.QtWidgets import QAbstractButton
-    corner_btns = [b for b in pm.findChildren(QAbstractButton) if b.property("icon_enum_val")]
+    # Corner + Alignment both render as icon_enum; filter to the corner values.
+    corner_btns = [b for b in pm.findChildren(QAbstractButton)
+                   if b.property("icon_enum_val") in ("square", "round", "chamfer")]
     assert len(corner_btns) == 3       # icon_enum Corner rendered in the real panel
     next(b for b in corner_btns if b.property("icon_enum_val") == "chamfer").click()
     assert item._data.border_corner == "chamfer"

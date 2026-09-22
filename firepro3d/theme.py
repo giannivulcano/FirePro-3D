@@ -745,6 +745,29 @@ QLabel[state="warn"] {{
 QTableWidget::item, QTableView::item {{
     border-bottom: 1px solid {t.border_subtle};
 }}
+/* ── Segmented controls (property-panel icon_enum / bool_group) ─────── */
+QWidget#segmented QToolButton {{
+    background: transparent; border: 1px solid {t.border_subtle};
+    border-radius: 4px; color: {t.muted}; margin: 0 1px; padding: 0;
+    font-weight: 600;
+}}
+QWidget#segmented QToolButton:hover {{
+    background: {t.accent_soft}; border-color: {t.accent}; color: {t.ink};
+}}
+QWidget#segmented QToolButton:checked {{
+    background: {t.accent_soft2}; border-color: {t.accent}; color: {t.accent_ink};
+}}
+/* ── Percent slider (property-panel opacity) ───────────────────────── */
+QSlider#pctSlider::groove:horizontal {{
+    height: 4px; background: {t.border_subtle}; border-radius: 2px;
+}}
+QSlider#pctSlider::sub-page:horizontal {{
+    background: {t.accent}; border-radius: 2px;
+}}
+QSlider#pctSlider::handle:horizontal {{
+    background: {t.accent}; width: 12px; height: 12px;
+    margin: -5px 0; border-radius: 6px;
+}}
 """
 
 

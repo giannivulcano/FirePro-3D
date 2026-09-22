@@ -754,14 +754,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         d = self._data
         props = {
             "Text":     {"type": "header", "value": "Text"},
-            "Content":  {"type": "string", "value": d.text},
+            "Content":  {"type": "multiline", "value": d.text},
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
             "Height":   {"type": "number", "value": int(round(d.height_mm))},
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
                          "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
-            "Alignment": {"type": "enum", "options": ["L", "C", "R"], "value": d.align},
+            "Alignment": {"type": "icon_enum", "value": d.align,
+                          "options": [("L", "align_left.svg"), ("C", "align_center.svg"),
+                                      ("R", "align_right.svg")]},
             "Font Color": {"type": "color", "value": d.color or "#000000"},
             "Frame":    {"type": "header", "value": "Frame"},
             "Border":   {"type": "toggle", "value": bool(d.border)},
