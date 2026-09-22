@@ -732,7 +732,7 @@ class Selector(QComboBox):
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
         f = self.font()
-        f.setPixelSize(11)
+        f.setPixelSize(10)
         self.setFont(f)
         t = _detect()
         self.view().setStyleSheet(
@@ -812,7 +812,7 @@ class Stepper(QWidget):
         self._edit.setValidator(QIntValidator(self._min, self._max, self))
         self._edit.setStyleSheet(
             f"background: transparent; border: none; color: {t.ink};"
-            f" padding: 0 6px; font-size: 11px;")
+            f" padding: 0 6px; font-size: 10px;")
         self._edit.editingFinished.connect(self._commit_edit)
         lay.addWidget(self._edit, 1)
         lay.addWidget(_StepArrows(self._step, self))
@@ -864,3 +864,70 @@ class Stepper(QWidget):
             self.setValue(int(self._edit.text() or 0))
         except ValueError:
             self._edit.setText(str(self._value))
+
+
+class _Chip(QWidget):
+    """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, hex_color="#000000", parent=None):
+        super().__init__(parent)
+        self._color = hex_color
+        self.setFixedSize(34, 14)          # tuner defaults
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_color(self, hex_color):
+        self._color = hex_color
+        self.update()
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(self._color))
+        p.drawRoundedRect(r, 3, 3)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+
+
+class Swatch(QWidget):
+    """Colour picker: a painted chip + hex label. Opens QColorDialog on click and
+    emits ``colorChanged(hex)``. Replaces a bare QPushButton (which picked up the
+    app's global button chrome — min-height, padding, hover — and rendered wrong)."""
+
+    colorChanged = pyqtSignal(str)
+
+    def __init__(self, hex_color="#000000", parent=None):
+        super().__init__(parent)
+        self._hex = hex_color or "#000000"
+        t = _detect()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)                  # tuner hex-gap
+        lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._chip = _Chip(self._hex)
+        self._chip.clicked.connect(self._pick)
+        self._label = QLabel(self._hex.upper())
+        self._label.setStyleSheet(f"color: {t.muted}; font-size: 10px;")
+        lay.addWidget(self._chip)
+        lay.addWidget(self._label)
+        lay.addStretch(1)
+
+    def _pick(self):
+        from PyQt6.QtWidgets import QColorDialog
+        c = QColorDialog.getColor(QColor(self._hex), self, "Colour")
+        if c.isValid():
+            self.set_hex(c.name())
+            self.colorChanged.emit(c.name())
+
+    def set_hex(self, hex_color):
+        self._hex = hex_color
+        self._chip.set_color(hex_color)
+        self._label.setText(hex_color.upper())
+
+    def hex(self):
+        return self._hex

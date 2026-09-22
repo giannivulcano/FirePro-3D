@@ -51,7 +51,7 @@ from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
-from .ui_kit import Selector, Stepper
+from .ui_kit import Selector, Stepper, Swatch
 from . import theme as th
 
 
@@ -109,6 +109,11 @@ class PropertyManager(QWidget):
             QWidget#segmented QToolButton:checked {{
                 background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
             }}
+            /* Panel font scale: labels/fields 10px, headers 9px, content box 12px */
+            QLabel {{ font-size: 10px; }}
+            QLabel[role="header"] {{ font-size: 9px; font-weight: 600; }}
+            QComboBox, QSpinBox, QLineEdit {{ font-size: 10px; }}
+            QPlainTextEdit {{ font-size: 12px; }}
         """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
@@ -236,14 +241,9 @@ class PropertyManager(QWidget):
             if prop_type == "header":
                 hdr_lbl = QLabel(str(key).upper())
                 hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
-                # Font set in code (colour + underline stay in QSS): size 10,
-                # bold, +1px letter-spacing — QSS cannot express letter-spacing.
-                hdr_lbl.setIndent(0)          # align text with the row labels below
-                hf = hdr_lbl.font()
-                hf.setPixelSize(10)
-                hf.setBold(True)
-                hf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
-                hdr_lbl.setFont(hf)
+                hdr_lbl.setIndent(0)                    # align with the row labels
+                # Size (9px) + weight come from the form_container QSS; colour +
+                # underline from the app-level QLabel[role="header"] rule.
                 self._form.addRow(hdr_lbl)
                 continue
 
@@ -279,28 +279,11 @@ class PropertyManager(QWidget):
 
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
-                cont = QWidget()
-                cl = QHBoxLayout(cont)
-                cl.setContentsMargins(0, 0, 0, 0)
-                cl.setSpacing(6)
-                cl.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-                btn = QPushButton()
-                btn.setFixedSize(40, 14)
-                btn.setProperty("_color_value", meta["value"])
-                btn.setStyleSheet(
-                    f"background: {meta['value']}; "
-                    f"border: 1px solid {_t.border_subtle}; "
-                    f"border-radius: 2px;"
+                sw = Swatch(str(meta["value"]))
+                sw.colorChanged.connect(
+                    lambda hexv, k=key: self._apply_property(k, hexv)
                 )
-                btn.clicked.connect(
-                    lambda _, k=key, b=btn: self._pick_color(k, b)
-                )
-                hx = QLabel(str(meta["value"]).upper())
-                hx.setStyleSheet(f"color: {_t.muted};")
-                cl.addWidget(btn)
-                cl.addWidget(hx)
-                cl.addStretch(1)
-                widget = cont
+                widget = sw
 
             # ── level_ref (level dropdown from LevelManager) ──────────────
             elif prop_type == "level_ref":
@@ -466,11 +449,8 @@ class PropertyManager(QWidget):
                 lay.addWidget(sl); lay.addWidget(lbl)
                 widget = cont
 
-            # ── multiline (full-width text box, label above) ──────────────
+            # ── multiline (full-width text box, no label) ─────────────────
             elif prop_type == "multiline":
-                lbl = QLabel(str(key))
-                lbl.setStyleSheet(f"color: {_t.text_secondary};")
-                self._form.addRow(lbl)                       # label spans, above
                 editor = _MultilineEdit()
                 editor.setPlainText(str(meta.get("value", "")))
                 editor.setFixedHeight(110)

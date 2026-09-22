@@ -59,6 +59,9 @@
   .stepper .arrows button:hover{background:rgba(99,190,139,.22)}
   .stepper .arrows svg{width:8px;height:6px}
   .stepper .arrows svg polygon{fill:var(--arrowcol)}
+  .swatchRow{display:flex;align-items:center;gap:var(--hgap,8px)}
+  .swatch2{width:var(--sw,34px);height:var(--sh,14px);border-radius:var(--srad,3px);border:1px solid var(--border-subtle);cursor:pointer;flex:0 0 auto}
+  .hex{color:var(--hexcol,var(--muted));font-size:var(--hfs,11px);font-variant-numeric:tabular-nums}
 </style></head>
 <body>
   <div class="ctl">
@@ -90,6 +93,17 @@
       <button data-c="#E6E9EC">ink arrow</button>
     </div>
 
+    <h3>Colour swatch</h3>
+    <div class="sr"><label>Swatch width</label><input type="range" id="sw" min="20" max="60" value="34"><span class="v"></span></div>
+    <div class="sr"><label>Swatch height</label><input type="range" id="sh" min="10" max="24" value="14"><span class="v"></span></div>
+    <div class="sr"><label>Swatch radius</label><input type="range" id="srad" min="0" max="8" value="3"><span class="v"></span></div>
+    <div class="sr"><label>Hex gap</label><input type="range" id="hgap" min="4" max="16" value="8"><span class="v"></span></div>
+    <div class="sr"><label>Hex font</label><input type="range" id="hfs" min="10" max="13" value="11"><span class="v"></span></div>
+    <div class="seg" id="hexColSeg">
+      <button data-c="var(--muted)" class="on">muted hex</button>
+      <button data-c="var(--ink)">ink hex</button>
+    </div>
+
     <div class="out" id="out"></div>
   </div>
 
@@ -114,6 +128,12 @@
     <div class="row"><label>Line Weight</label>
       <div class="selector" id="sel3"><span class="val">Medium</span><span class="car" id="car3"></span></div>
     </div>
+    <div class="row"><label>Font Color</label>
+      <div class="swatchRow"><div class="swatch2" style="background:#111"></div><span class="hex">#000000</span></div>
+    </div>
+    <div class="row"><label>Fill Color</label>
+      <div class="swatchRow"><div class="swatch2" style="background:#fff"></div><span class="hex">#FFFFFF</span></div>
+    </div>
     <p style="color:var(--muted);font-size:11px;margin-top:14px">Click the Font selector to preview the open popup. All three selectors share one width. Tune, then paste me the values box.</p>
   </div>
 
@@ -130,6 +150,10 @@ function pxBind(id,varn){const el=$(id);const v=el.closest('.sr').querySelector(
   el.addEventListener('input',u);u();}
 ['h','fs','rad','bw','pad','caret'].forEach(id=>pxBind(id,id));
 pxBind('divider','divider');
+[['sw','sw'],['sh','sh'],['srad','srad'],['hgap','hgap'],['hfs','hfs']].forEach(([id,v])=>pxBind(id,v));
+$('hexColSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $('hexColSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  root.setProperty('--hexcol',b.dataset.c);dump();});
 
 $('fieldSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   $('fieldSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
@@ -148,9 +172,11 @@ function dump(){
   const g=id=>$(id).value;
   const fc=$('fieldSeg').querySelector('.on').textContent.split(' ')[0];
   const ac=$('arrowColSeg').querySelector('.on').dataset.c;
+  const hc=$('hexColSeg').querySelector('.on').textContent.split(' ')[0];
   $('out').textContent=
 `height=${g('h')} font=${g('fs')} radius=${g('rad')} border=${g('bw')} pad=${g('pad')}
-field=${fc} caret=${caretType} arrow_size=${g('caret')} divider=${g('divider')} arrow_col=${ac}`;
+field=${fc} caret=${caretType} arrow_size=${g('caret')} divider=${g('divider')} arrow_col=${ac}
+swatch_w=${g('sw')} swatch_h=${g('sh')} swatch_radius=${g('srad')} hex_gap=${g('hgap')} hex_font=${g('hfs')} hex_col=${hc}`;
 }
 paintCarets();dump();
 </script>
