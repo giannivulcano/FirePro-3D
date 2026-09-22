@@ -714,10 +714,10 @@ class FontSelect(QComboBox):
 # docs/mockups/selector-tuner.html: height 24, field=surface2 (window-header
 # tone), 1px border, radius 4, ink triangle caret behind a 1px divider.
 
-_SEL_H = 24
-_SEL_RADIUS = 4
-_CARET_W = 22
-_ARROW_W = 16
+_SEL_H = M.PROP_FIELD_H
+_SEL_RADIUS = M.PROP_FIELD_RADIUS
+_CARET_W = M.PROP_CARET_W
+_ARROW_W = M.PROP_ARROW_W
 
 
 class Selector(QComboBox):
@@ -732,7 +732,7 @@ class Selector(QComboBox):
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
         f = self.font()
-        f.setPixelSize(11)
+        f.setPixelSize(M.PROP_FIELD_FS)
         self.setFont(f)
         t = _detect()
         self.view().setStyleSheet(
@@ -812,7 +812,7 @@ class Stepper(QWidget):
         self._edit.setValidator(QIntValidator(self._min, self._max, self))
         self._edit.setStyleSheet(
             f"background: transparent; border: none; color: {t.ink};"
-            f" padding: 0 6px; font-size: 11px;")
+            f" padding: 0 6px; font-size: {M.PROP_FIELD_FS}px;")
         self._edit.editingFinished.connect(self._commit_edit)
         lay.addWidget(self._edit, 1)
         lay.addWidget(_StepArrows(self._step, self))
@@ -874,7 +874,7 @@ class _Chip(QWidget):
     def __init__(self, hex_color="#000000", parent=None):
         super().__init__(parent)
         self._color = hex_color
-        self.setFixedSize(34, 14)          # tuner defaults
+        self.setFixedSize(M.PROP_SWATCH_W, M.PROP_SWATCH_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def set_color(self, hex_color):
@@ -907,12 +907,12 @@ class Swatch(QWidget):
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)                  # tuner hex-gap
+        lay.setSpacing(M.PROP_HEX_GAP)
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
         self._chip.clicked.connect(self._pick)
         self._label = QLabel(self._hex.upper())
-        self._label.setStyleSheet(f"color: {t.muted}; font-size: 11px;")
+        self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)

@@ -28,6 +28,7 @@ from firepro3d.app_data import (
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
+from firepro3d.theme import M
 
 
 class SettingsPane(QWidget):
@@ -1070,7 +1071,7 @@ class UIPane(SettingsPane):
     _CROSSHAIR_KEY = "ui/crosshair"
     _IMMERSIVE_KEY = "ui/immersive"
     _PANEL_WIDTH_KEY = "ui/prop_panel_width"
-    _PANEL_WIDTH_DEFAULT = 240
+    _PANEL_WIDTH_DEFAULT = M.PROP_DOCK_W
     _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
 
     def __init__(self, on_theme_changed: Callable[[], None] | None = None,

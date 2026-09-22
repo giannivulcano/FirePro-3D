@@ -59,6 +59,7 @@ from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
 from .ui_kit import Selector, Stepper, Swatch
 from . import theme as th
+from .theme import M
 
 
 class _MixedStateCheckBox(QCheckBox):
@@ -115,14 +116,15 @@ class PropertyManager(QWidget):
             QWidget#segmented QToolButton:checked {{
                 background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
             }}
-            /* Panel font scale: labels/fields 11px, headers 10px, content box 13px */
-            QLabel {{ font-size: 11px; }}
+            /* Panel font scale (theme.M — one source of truth for all panels) */
+            QLabel {{ font-size: {M.PROP_FIELD_FS}px; }}
             /* padding-top adds the gap ABOVE each header = space at the bottom of
                the preceding section */
-            QLabel[role="header"] {{ font-size: 10px; font-weight: 600; padding-top: 8px; }}
-            QComboBox, QSpinBox, QLineEdit {{ font-size: 11px; }}
+            QLabel[role="header"] {{ font-size: {M.PROP_HEADER_FS}px; font-weight: 600;
+                                     padding-top: {M.PROP_SECTION_GAP}px; }}
+            QComboBox, QSpinBox, QLineEdit {{ font-size: {M.PROP_FIELD_FS}px; }}
             /* override the app-wide input padding (4px 8px) — tighter text box */
-            QPlainTextEdit {{ font-size: 13px; padding: 1px 3px; }}
+            QPlainTextEdit {{ font-size: {M.PROP_CONTENT_FS}px; padding: 1px 3px; }}
         """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
@@ -153,8 +155,8 @@ class PropertyManager(QWidget):
         _cbox.setSpacing(0)
         _form_holder = QWidget()
         self._form = QFormLayout(_form_holder)
-        self._form.setContentsMargins(6, 4, 6, 4)
-        self._form.setVerticalSpacing(5)
+        self._form.setContentsMargins(*M.PROP_FORM_MARGIN)
+        self._form.setVerticalSpacing(M.PROP_ROW_GAP)
         self._form.setHorizontalSpacing(8)
         self._form.setLabelAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -462,7 +464,7 @@ class PropertyManager(QWidget):
             elif prop_type == "multiline":
                 editor = _MultilineEdit()
                 editor.setPlainText(str(meta.get("value", "")))
-                editor.setFixedHeight(110)
+                editor.setFixedHeight(M.PROP_CONTENT_H)
                 editor.setProperty("multiline_key", key)
                 editor.editingFinished.connect(
                     lambda k=key, e=editor: self._apply_property(k, e.toPlainText())
