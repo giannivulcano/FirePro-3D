@@ -103,9 +103,16 @@ Decisions locked in the 2026-09-21 brainstorm (mockup:
    shipped constant — no radius field). The **ribbon** expresses it as three
    mutually-exclusive icon buttons (**Square**, **Fillet**, **Chamfer** — a
    3-way radio, exactly one active, default Square); the **property panel** shows
-   the same value as an enum dropdown.
+   the same value as an **icon segmented control** (same three icons).
 7. **Two separate containers** (Text, Frame) — the user's explicit layout, over
    folding the frame into the Text group as a third row.
+8. **Fill = colour + opacity, not a bool** (2026-09-21 panel design). The legacy
+   `opaque_bg: bool` (white knockout) evolves into a real box fill: a **fill
+   colour** (none = transparent) and a **fill opacity** 0–100%. Absorbs the
+   "Colored highlight for sheet text" todo.
+9. **Annotation-text panel is grouped** (Text / Format / Frame / Fill), with
+   Font + Height in Format, Height shown as a **bare number (no unit)**, and the
+   font/fill colours + opacity added — see the Property-panel section.
 
 ## Data model
 
@@ -119,7 +126,16 @@ defaults so pre-existing `.fpd` files load with the border off:
 | `border_line_type` | `str` | `"solid"` | `solid` \| `dashed` \| `dotted` \| `dashdot`. |
 | `border_corner` | `str` | `"square"` | `square` \| `round` \| `chamfer`. |
 
-- `to_dict` / `from_dict` gain all four (`from_dict` uses `.get(..., default)`).
+**Fill fields (panel phase — evolve `opaque_bg`):**
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `fill_color` | `str` | `""` | Box fill colour hex; `""` = no fill (transparent). |
+| `fill_opacity` | `float` | `100.0` | Fill alpha as a percentage 0–100. |
+
+- `color` (existing) is the **font colour**; `fill_color` is the box fill — two independent colours.
+- **`opaque_bg` migration:** `from_dict` maps a legacy `opaque_bg=True` → `fill_color="#ffffff", fill_opacity=100`; `False`/absent → `fill_color=""`. The `opaque_bg` field/rows are removed from the data model, `paint`, panels, and the paper `_TEMPLATE_FIELDS`/migration/capture sites (grep `opaque_bg` — 12 sites). `paint` fills the box with `QColor(fill_color)` at `fill_opacity/100` alpha when `fill_color` is set (replacing the white knockout).
+- `to_dict` / `from_dict` gain all four border fields plus the two fill fields (`from_dict` uses `.get(..., default)`).
 - **Dual-serialization parity:** the fields are added to *both* the file path
   (`TextItem.to_dict`/`from_dict`, consumed by `scene_io`) **and** whatever
   undo-capture path serializes text records — verified before merge
@@ -185,6 +201,43 @@ Both controllers commit through `TextItem.set_property` with the keys
   `QFontComboBox` sites (`titleblock_editor.py`, `property_manager.py`) may
   migrate later — **not** in this slice.
 
+## Property panel (annotation text)
+
+The panel phase (2026-09-21, mock `docs/mockups/property-panel-text.html`) makes a
+selected `TextItem`'s property panel the editing surface for **model / Block-Editor
+text** (the ribbon Text/Frame groups stay paper-scoped). The panel wiring already
+exists and is generic — the Block-Editor scene routes `selectionChanged →
+update_property_manager` and `requestPropertyUpdate → show_properties`, and
+`PropertyManager._show_properties_inner` renders any item's `get_properties()`. So
+the work is in **`TextItem.get_properties()` (model branch)** + **new
+`property_manager` render types**.
+
+**Grouped form** (`get_properties` emits `header`-type rows):
+
+- **Text** — Content.
+- **Format** — Font · Height · B/I/U · Alignment · Font colour.
+- **Frame** — Border · Corner · Line type · Line weight.
+- **Fill** — Fill colour · Opacity (0–100%).
+
+**New/changed panel render types in `property_manager.py`:**
+
+- **`icon_enum`** — a segmented icon-button control (exactly-one-active) for
+  **Corner** (Square/Fillet/Chamfer, reusing the frame icons). Each option carries
+  an icon name; commits the chosen value via `_apply_property`.
+- **B/I/U as a compact button group** — the three bool keys render as pressable
+  buttons (not three sliding switches).
+- **`number`** — Height as a **bare integer field, no unit** (not the mm
+  `dimension` formatter). Value is the pixel-size the panel shows/parses.
+- **`percent`** — Opacity as a 0–100 slider with a `%` readout, bound to
+  `fill_opacity`.
+- **`color`** (existing) — used for both **Font colour** (`color`) and **Fill
+  colour** (`fill_color`, with a none/transparent state).
+
+Frame rows disable when `border` is off; the Opacity row disables when
+`fill_color` is empty (none). Commits route through `TextItem.set_property`, and on
+the model/Block-Editor surface the scene snapshots for undo (paper keeps
+`FormatTextCommand`).
+
 ## Acceptance Criteria
 
 - [ ] `border`/`border_weight`/`border_line_type`/`border_corner` exist on
@@ -202,6 +255,14 @@ Both controllers commit through `TextItem.set_property` with the keys
 - [ ] The border **plots** at its named mm weight at export scale (the exported
   artifact, not on-screen, is the gate).
 - [ ] Text always wraps to its box (no wrap control); box auto-grows in height.
+- [ ] **Fill model:** `fill_color` + `fill_opacity` on `TextAnnotationData`
+  round-trip; legacy `opaque_bg=True` migrates to `fill_color="#ffffff",
+  fill_opacity=100`; `paint` fills the box with `QColor(fill_color)` at
+  `fill_opacity/100` alpha; no `opaque_bg` references remain.
+- [ ] **Annotation panel:** selecting a model/Block-Editor `TextItem` shows the
+  grouped form (Text/Format/Frame/Fill) with the new render types (`icon_enum`
+  Corner, B/I/U buttons, bare-number Height, `percent` Opacity, font+fill colours),
+  driven as widgets; edits apply to the item and are undo-reversible on that scene.
 
 ## Verification Checklist
 
@@ -228,6 +289,14 @@ Both controllers commit through `TextItem.set_property` with the keys
   still emits `wrap_width_mm == 0` for a live box is a divergence to close in the
   build, not a supported mode.
 - **D5 — Absorbed todo items.** "Sheet-text printed border (None/Solid/Dashed)"
-  is superseded by this frame axis (richer: weight + corner). "Absorb Modify→Text
-  group into the entity-aware Font group" overlaps the ribbon consolidation and
-  should be reconciled when that item is picked up.
+  is superseded by this frame axis (richer: weight + corner). "Colored highlight
+  for sheet text" (`opaque_bg → background color`) is absorbed by the Fill model
+  (colour + opacity). "Absorb Modify→Text group into the entity-aware Font group"
+  overlaps the ribbon consolidation and should be reconciled when that item is
+  picked up (it is the "extend the paper-only ribbon to model text" follow-up).
+- **D6 — Ribbon stays paper-scoped.** `_font_group_targets` (main.py) returns
+  targets only on a `PaperSpaceWidget`, and only `paper_scene.selectionChanged`
+  drives `_update_font_group_context`. So the ribbon Text/Frame groups edit **paper
+  text**; **model / Block-Editor text is edited via the property panel** (panel
+  phase). Extending the ribbon to model text needs the model-scene selection wiring
+  + undo routing (the D5 "entity-aware Font group" item) — deferred.
