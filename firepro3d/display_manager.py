@@ -15,7 +15,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
+    QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView, QTabWidget, QLineEdit,
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
@@ -26,6 +26,7 @@ from PyQt6.QtSvg import QSvgRenderer
 import os
 import xml.etree.ElementTree as ET
 from . import theme as th
+from . import colour_picker
 
 
 # ---------------------------------------------------------------------------
@@ -835,9 +836,9 @@ class SectionPatternDialog(QDialog):
         self._refresh_preview()
 
     def _pick_color(self):
-        color = QColorDialog.getColor(QColor(self._cur_color), self, "Section Colour")
-        if color.isValid():
-            self._cur_color = color.name()
+        v = colour_picker.pick_colour(self._cur_color, self, "Section")
+        if v is not None:
+            self._cur_color = v
             _t = th.detect()
             self._color_btn.setStyleSheet(
                 f"background: {self._cur_color}; border: 1px solid {_t.border_subtle}; "
@@ -1621,11 +1622,10 @@ class DisplayManager(QDialog):
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = self._cat_data[category_key]["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      f"{category_key} {prop}")
-        if color.isValid():
-            self._update_swatch(widgets[btn_key], prop, color.name())
-            self._on_category_changed(category_key, prop, color.name())
+        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}")
+        if v is not None:
+            self._update_swatch(widgets[btn_key], prop, v)
+            self._on_category_changed(category_key, prop, v)
 
     def _pick_instance_prop(self, item_ref, prop: str):
         """Open a colour/pattern dialog for *prop* on an instance row."""
@@ -1638,11 +1638,10 @@ class DisplayManager(QDialog):
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = data["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      f"Instance {prop}")
-        if color.isValid():
-            self._update_swatch(widgets[btn_key], prop, color.name())
-            self._on_instance_changed(item_ref, prop, color.name())
+        v = colour_picker.pick_colour(cur_hex, self, f"Instance · {prop}")
+        if v is not None:
+            self._update_swatch(widgets[btn_key], prop, v)
+            self._on_instance_changed(item_ref, prop, v)
 
     def _pick_section(self, key_or_ref, *, is_category: bool):
         """Open the SectionPatternDialog for a category or instance row."""
@@ -2342,7 +2341,7 @@ class DisplayManager(QDialog):
                 widgets["section_btn"].setEnabled(not disable)
 
     def _on_paper_color_clicked(self, key: str, prop: str):
-        """Open QColorDialog for a paper-space category colour property."""
+        """Open the house colour picker for a paper-space category colour property."""
         from .paper_display import (
             PaperColorMode, save_paper_color_mode, load_paper_color_mode,
             load_paper_categories, save_paper_categories,
@@ -2352,12 +2351,10 @@ class DisplayManager(QDialog):
                    "section_color": "section_btn"}[prop]
         btn = widgets[btn_key]
         cur_hex = btn.property("_color") or "#000000"
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      f"{key} {prop}")
-        if not color.isValid():
+        hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}")
+        if hex_val is None:
             return
 
-        hex_val = color.name()
         self._update_color_btn(btn, hex_val)
         btn.setProperty("_color", hex_val)
 

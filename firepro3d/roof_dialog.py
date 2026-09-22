@@ -14,7 +14,6 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QDialogButtonBox,
     QComboBox, QDoubleSpinBox, QLineEdit, QLabel, QFrame, QPushButton,
-    QColorDialog,
 )
 from PyQt6.QtGui import QColor, QPixmap, QPainter, QPen, QFont, QPolygonF
 from PyQt6.QtCore import Qt, QPointF
@@ -23,6 +22,7 @@ from .roof import ROOF_TYPES, DEFAULT_PITCH_DEG
 from .scale_manager import DisplayUnit
 from .dimension_edit import DimensionEdit
 from .theme import detect
+from . import colour_picker
 
 # Path where user-supplied images will live (one per roof type).
 _IMG_DIR = os.path.join(os.path.dirname(__file__), "graphics", "roof_types")
@@ -355,10 +355,9 @@ class RoofDialog(QDialog):
         self._color_btn.setText(self._color_value)
 
     def _pick_color(self):
-        current = QColor(self._color_value)
-        color = QColorDialog.getColor(current, self, "Pick Roof Colour")
-        if color.isValid():
-            self._color_value = color.name()
+        v = colour_picker.pick_colour(self._color_value, self, "Roof")
+        if v is not None:
+            self._color_value = v
             self._update_color_swatch()
 
     # ── Data retrieval ────────────────────────────────────────────────

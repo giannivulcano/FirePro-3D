@@ -2,7 +2,7 @@
 
 One modal ``ColourPickerDialog(HouseDialog)`` + one entry point
 ``pick_colour(initial, parent, context, *, allow_none=False)`` replacing the
-native QColorDialog app-wide. Result contract:
+native Qt colour dialog app-wide. Result contract:
     None        → cancelled (caller changes nothing)
     ""          → No Fill (only possible when allow_none=True)
     "#RRGGBB"   → a colour

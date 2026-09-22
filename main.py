@@ -52,6 +52,7 @@ from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
 from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
+from firepro3d import colour_picker
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2514,8 +2515,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             QComboBox, QLabel, QToolButton, QLineEdit,
             QWidget, QVBoxLayout, QHBoxLayout,
         )
-        from PyQt6.QtGui import QColor
-        from PyQt6.QtWidgets import QColorDialog
         from firepro3d import theme as _th
         from firepro3d.hatch_patterns import PATTERN_NAMES
         from firepro3d.icons import themed_icon, LIGHT, DARK
@@ -2626,9 +2625,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if not targets:
                 return
             existing = getattr(targets[0], "_display_fill_color", None) or "#888888"
-            c = QColorDialog.getColor(QColor(existing), page, "Fill Colour")
-            if c.isValid():
-                hex_val = c.name()
+            hex_val = colour_picker.pick_colour(existing, page, "Fill")
+            if hex_val is not None:
                 apply = [t for t in targets
                          if (getattr(t, "_display_fill_color", None) or "#888888") != hex_val]
                 if not apply:
@@ -2870,8 +2868,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             QComboBox, QLabel, QToolButton, QLineEdit,
             QWidget, QVBoxLayout, QHBoxLayout,
         )
-        from PyQt6.QtGui import QColor
-        from PyQt6.QtWidgets import QColorDialog
         from firepro3d import theme as _th
         from firepro3d.hatch_patterns import PATTERN_NAMES
 
@@ -3015,9 +3011,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             existing = (
                 getattr(targets[0], "_display_fill_color", None) or "#888888"
             )
-            c = QColorDialog.getColor(QColor(existing), page, "Fill Colour")
-            if c.isValid():
-                hex_val = c.name()
+            hex_val = colour_picker.pick_colour(existing, page, "Fill")
+            if hex_val is not None:
                 apply = [t for t in targets
                          if (getattr(t, "_display_fill_color", None) or "#888888")
                          != hex_val]
@@ -3120,22 +3115,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         or ``"fill"``.  One undo snapshot is pushed before the write; a no-op
         gesture (no eligible target, or cancelled dialog) pushes nothing.
         """
-        from PyQt6.QtWidgets import QColorDialog
-        from PyQt6.QtGui import QColor
-
         targets = self._graphic_override_targets()
         if not targets:
             return
 
         # Seed the picker from the first target's current override, if any.
         seed = targets[0]._display_overrides.get(prop)
-        col = QColorDialog.getColor(
-            QColor(seed) if seed else QColor("#ffffff"), self, title)
-        if not col.isValid():
+        hex_val = colour_picker.pick_colour(
+            seed if seed else "#ffffff", self, title)
+        if hex_val is None:
             return
 
         self.scene.push_undo_state()
-        hex_val = col.name()
         for it in targets:
             if not hasattr(it, "_display_overrides"):
                 it._display_overrides = {}

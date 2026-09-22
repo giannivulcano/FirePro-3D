@@ -20,7 +20,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
-    QApplication, QColorDialog, QMenu, QStyle, QStyledItemDelegate,
+    QApplication, QMenu, QStyle, QStyledItemDelegate,
     QStyleOptionViewItem,
 )
 
@@ -31,6 +31,7 @@ from .underlay_manager_model import (
     UnderlayRole,
 )
 from .theme import Theme
+from . import colour_picker
 
 ROW_HEIGHT = 34
 
@@ -302,9 +303,9 @@ class ColourDelegate(_BaseDelegate):
         if layer is None and not self._appearance_editable(index):
             return False
         current = self._shown_hex(index)
-        colour = QColorDialog.getColor(QColor(current), option.widget, "Underlay colour")
-        if colour.isValid():
-            model.setData(index, colour.name(), Qt.ItemDataRole.EditRole)
+        v = colour_picker.pick_colour(current, option.widget, "Underlay")
+        if v is not None:
+            model.setData(index, v, Qt.ItemDataRole.EditRole)
         return True
 
 
