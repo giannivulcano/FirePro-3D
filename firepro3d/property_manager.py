@@ -115,7 +115,9 @@ class PropertyManager(QWidget):
             }}
             /* Panel font scale: labels/fields 11px, headers 10px, content box 13px */
             QLabel {{ font-size: 11px; }}
-            QLabel[role="header"] {{ font-size: 10px; font-weight: 600; }}
+            /* padding-top adds the gap ABOVE each header = space at the bottom of
+               the preceding section */
+            QLabel[role="header"] {{ font-size: 10px; font-weight: 600; padding-top: 8px; }}
             QComboBox, QSpinBox, QLineEdit {{ font-size: 11px; }}
             QPlainTextEdit {{ font-size: 13px; }}
         """
