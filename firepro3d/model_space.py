@@ -4551,12 +4551,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 text="Text", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
                 height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
-            # Seed a canvas-visible ink (theme foreground) so a freshly placed
-            # model text isn't invisible black-on-dark — parity with the sibling
-            # 2D primitives, which default to a visible colour.  Paper text keeps
-            # the black default (it prints on white paper).
-            from .theme import detect as _detect_theme
-            data.color = _detect_theme().ink
+            # Seed white ink so a freshly placed model text isn't invisible
+            # black-on-dark — parity with the sibling 2D primitives, which default
+            # to "#ffffff".  Paper text keeps the black default (prints on white).
+            data.color = "#ffffff"
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_size()[1])

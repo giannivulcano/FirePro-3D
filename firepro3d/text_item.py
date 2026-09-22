@@ -86,7 +86,7 @@ class TextAnnotationData:
     fill_color: str = ""                          # box fill hex; "" = no fill
     fill_opacity: float = 100.0                   # fill alpha percentage 0-100
     border: bool = False                         # frame visibility
-    border_weight: str = "Light"                 # named line-weight (resolve_line_weight_mm)
+    border_weight: str = "Medium"                # named line-weight (resolve_line_weight_mm)
     border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
     border_corner: str = "square"                # 'square'|'round'|'chamfer'
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
@@ -124,7 +124,7 @@ class TextAnnotationData:
                         else ("#ffffff" if bool(d.get("opaque_bg", False)) else "")),
             fill_opacity=float(d.get("fill_opacity", 100.0)),
             border=bool(d.get("border", False)),
-            border_weight=d.get("border_weight", "Light"),
+            border_weight=d.get("border_weight", "Medium"),
             border_line_type=d.get("border_line_type", "solid"),
             border_corner=d.get("border_corner", "square"),
             angle=float(d.get("angle", 0.0)),
@@ -589,6 +589,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         doc = self.document()
         doc.documentLayout().documentSize()   # force the lazy layout to run
         font = self.font()
+        # QTextDocument keeps every QTextLine at x==0 and applies horizontal
+        # alignment only at draw time, so the glyph-outline path must offset each
+        # line itself: slack = content-width − line width, shifted by the option
+        # alignment (left=0, centre=slack/2, right=slack).
+        align = doc.defaultTextOption().alignment()
+        _tw = doc.textWidth()
+        avail = (_tw - 2.0 * doc.documentMargin()) if _tw > 0 else None
         outline = QPainterPath()
         block = doc.begin()
         while block.isValid():
@@ -597,9 +604,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             block_text = block.text()
             for i in range(layout.lineCount()):
                 line = layout.lineAt(i)
+                align_off = 0.0
+                if avail is not None:
+                    slack = avail - line.naturalTextWidth()
+                    if slack > 0:
+                        if align & Qt.AlignmentFlag.AlignRight:
+                            align_off = slack
+                        elif align & Qt.AlignmentFlag.AlignHCenter:
+                            align_off = slack / 2.0
                 # Each newline starts a NEW block (not a new line in one block),
                 # so the baseline is block_offset + intra-block line y + ascent.
-                base_x = block_pos.x() + line.x()
+                base_x = block_pos.x() + line.x() + align_off
                 base_y = block_pos.y() + line.y() + line.ascent()
                 start = line.textStart()
                 length = line.textLength()

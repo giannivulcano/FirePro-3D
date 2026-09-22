@@ -203,19 +203,17 @@ def test_model_text_renders_without_document_renderer(qapp, monkeypatch):
 
 
 def test_model_placed_text_seeds_visible_ink(qapp):
-    """A text placed on the model surface seeds a canvas-visible ink (theme
-    foreground), never invisible black-on-dark (todo #62 RC1)."""
+    """A text placed on the model surface seeds white ink, never invisible
+    black-on-dark (todo #62 RC1)."""
     from PyQt6.QtCore import QPointF
     from firepro3d.model_space import Model_Space
-    from firepro3d.theme import detect
     s = Model_Space(scene_role="block_editor")
     s.set_mode("text")
     s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
     s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
     texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
     assert len(texts) == 1
-    assert texts[0].data.color.lower() == detect().ink.lower()
-    assert texts[0].data.color.lower() != "#000000"
+    assert texts[0].data.color.lower() == "#ffffff"
 
 
 def test_model_placed_text_uses_readable_default_height(qapp):
@@ -232,6 +230,21 @@ def test_model_placed_text_uses_readable_default_height(qapp):
     assert len(texts) == 1
     assert texts[0].data.height_mm == DEFAULT_MODEL_TEXT_HEIGHT_MM
     assert texts[0].data.height_mm > DEFAULT_TEXT_HEIGHT_MM
+
+
+def test_model_text_alignment_shifts_glyphs(qapp):
+    """L / C / R justification actually repositions the glyph outline within the
+    wrap width (todo #62 item 5 — was a no-op)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    xs = {}
+    for al in ("L", "C", "R"):
+        d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0, wrap_width_mm=400.0)
+        d.align = al
+        t = TextItem(d); s.addItem(t); t._apply_format()
+        xs[al] = t._glyph_outline_local().boundingRect().x()
+    assert xs["L"] < xs["C"] < xs["R"]
 
 
 def test_model_border_pen_is_cosmetic(qapp):
