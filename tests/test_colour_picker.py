@@ -325,3 +325,30 @@ def test_group_labels_are_accent_coloured(qapp, theme_name):
     for lbl in labels:
         assert lbl.palette().color(QPalette.ColorRole.WindowText).name() == QColor(t.accent).name()
     d.close()
+
+
+@pytest.mark.parametrize("initial, allow_none", [("", True), ("#000000", False), ("#808080", False)])
+def test_hue_drag_from_achromatic_start_changes_colour(qapp, initial, allow_none):
+    """User smoke 2026-09-22: opened from No Fill / black, dragging the hue bar
+    left the colour #000000 (black/grey at any hue is still black/grey), so the
+    preview looked dead until a preset was clicked. Hue on an achromatic colour
+    must produce a visible hue."""
+    d = _dlg(qapp, initial, allow_none=allow_none)
+    hb = d._hue
+    QTest.mouseClick(hb, Qt.MouseButton.LeftButton, pos=QPoint(hb.width() // 2, hb.height() // 2))
+    c = QColor(d.current_value())
+    assert c.hsvSaturation() > 200, d.current_value()          # chromatic now
+    assert abs(c.hsvHue() - 180) < 12                           # ≈ cyan at mid-bar
+    assert d._hex.text() == d.current_value()                   # hex/RGB follow
+    assert (d._r.value(), d._g.value(), d._b.value()) == (c.red(), c.green(), c.blue())
+    d.close()
+
+
+def test_hue_drag_keeps_chromatic_saturation_and_value(qapp):
+    d = _dlg(qapp, "#804040")                                   # s≈0.5, v≈0.5
+    s0, v0 = QColor("#804040").hsvSaturationF(), QColor("#804040").valueF()
+    hb = d._hue
+    QTest.mouseClick(hb, Qt.MouseButton.LeftButton, pos=QPoint(hb.width() // 2, hb.height() // 2))
+    c = QColor(d.current_value())
+    assert abs(c.hsvSaturationF() - s0) < 0.02 and abs(c.valueF() - v0) < 0.02
+    d.close()

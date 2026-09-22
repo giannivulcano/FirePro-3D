@@ -378,7 +378,14 @@ class ColourPickerDialog(HouseDialog):
     def _on_hue(self, h):
         self._h = h
         c = self._color
-        self._set_colour(QColor.fromHsvF(h, max(0.0, c.hsvSaturationF()), c.valueF()), keep_hue=True)
+        s, v = max(0.0, c.hsvSaturationF()), c.valueF()
+        # Achromatic start (No Fill / black / grey): hue alone would stay
+        # black/grey, so the bar looked dead — lift the missing component(s).
+        if s == 0.0:
+            s = 1.0
+        if v == 0.0:
+            v = 1.0
+        self._set_colour(QColor.fromHsvF(h, s, v), keep_hue=True)
 
     def _on_hex_edited(self, text):
         t = text.strip()
