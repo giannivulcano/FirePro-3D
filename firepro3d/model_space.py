@@ -38,7 +38,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
-                       DEFAULT_MODEL_TEXT_HEIGHT_MM,
+                       DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -4556,6 +4556,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # to "#ffffff".  Paper text keeps the black default (prints on white).
             data.color = "#ffffff"
             data.border = True   # solid border on by default (border_line_type already "solid")
+            data.cell_padding_mm = DEFAULT_MODEL_TEXT_PADDING_MM
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_size()[1])

@@ -335,6 +335,8 @@ def test_model_placed_text_defaults_border_on(qapp):
     t = [i for i in s._texts if type(i).__name__ == "TextItem"][0]
     assert t.data.border is True
     assert t.data.border_line_type == "solid"
+    from firepro3d.constants import DEFAULT_MODEL_TEXT_PADDING_MM
+    assert t.data.cell_padding_mm == DEFAULT_MODEL_TEXT_PADDING_MM == 15.0
 
 
 def test_model_border_pen_is_cosmetic(qapp):
