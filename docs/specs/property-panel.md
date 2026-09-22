@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-19   # header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
-verified-commit: 2330ae8
+last-verified: 2026-09-22   # color row → ui_kit.Swatch/colour_picker + generic `disabled`/`allow_none` meta (todo #70); prior 2026-09-19 header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
+verified-commit: af36ed6
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -27,7 +27,7 @@ Modal property dialogs interrupt CAD flow. The panel gives Revit-style always-vi
 
 The panel renders anything exposing:
 
-- `get_properties() -> dict[str, meta]` — ordered dict; `meta` keys: `type`, `value`, plus type-specific extras (`options`, `callback`, `value_mm`, `suffix`, `readonly`).
+- `get_properties() -> dict[str, meta]` — ordered dict; `meta` keys: `type`, `value`, plus type-specific extras (`options`, `callback`, `value_mm`, `suffix`, `readonly`, `disabled`, `allow_none`).
 - `set_property(key, value)` — write-back; the *entity* owns coercion/side-effects.
 
 The panel never imports entity modules for rendering decisions except the special cases in §3.4. Objects without `get_properties` render nothing (empty panel, no error).
@@ -43,14 +43,14 @@ Non-entity **adapter clients** implement this protocol as plain objects (not `QG
 | `warning` | full-width amber header (`⚠ {key}`) + word-wrapped bullet body (`QLabel`, `Expanding` + `setMinimumWidth(1)` so long words don't force a wider dock minimum) | — |
 | `string` (+ fallback) | `QLineEdit`; auto-attaches `QDoubleValidator` when current value parses as float | `editingFinished` |
 | `enum` / `combo` | `QComboBox` from `options` | `currentTextChanged` |
-| `color` | 60×24 swatch `QPushButton` → `QColorDialog` (`_pick_color`; stores hex in `_color_value` property; cancel-guarded) | dialog OK |
+| `color` | `ui_kit.Swatch` (painted chip + hex label) → the house picker `colour_picker.pick_colour` (`ui-design-system.md` D6); optional meta `allow_none` offers **No Fill** (emits `""`); the Swatch `context` is the property key; cancel changes nothing | `colorChanged` |
 | `level_ref` | `QComboBox` populated from `LevelManager.levels` | `currentTextChanged` |
 | `dimension` | `DimensionEdit` seeded from `meta["value_mm"]`; optional meta keys `parser`, `minimum`, `formatter` pass through (§3.8) | `editingFinished` → `value_mm()` |
 | `bool` | `_MixedStateCheckBox` — Word-like tristate: `PartiallyChecked` is display-only for mixed multi-select; `nextCheckState` resolves partial → checked and clicks never cycle back into partial. Commits on **`clicked`**, not `toggled` (Qt's partial state reports `isChecked()` True, so the partial→checked click never fires `toggled`). Theme styles `::indicator:indeterminate` (accent fill) — without it the QSS renders partial identically to unchecked. | `clicked` → `isChecked()` |
 | `font` | `QFontComboBox` (seeded via `setCurrentFont` when value truthy) | `currentFontChanged` → `family()` |
 | `button` | `QPushButton` labelled `value`; fires `meta["callback"]` (exceptions swallowed), then debounced refresh | click |
 
-`meta["readonly"]` disables/greys the widget. `meta["suffix"]` wraps the widget in an HBox with a grey italic suffix label.
+`meta["readonly"]` disables/greys the widget. `meta["disabled"]` (generic, todo #70) calls `setEnabled(False)` on any row widget. The per-form `self._prop_widgets` registry maps property key → row widget; it's rebuilt on every `_show_properties_inner`. `meta["suffix"]` wraps the widget in an HBox with a grey italic suffix label.
 
 **Width containment (rendering constraints, 2026-07-14):** every `QComboBox` variant (enum/combo/level_ref/font/legacy Level) gets `setMinimumContentsLength(8)` so long option strings can't force the form wider than the dock (the panel clips — `ScrollBarAlwaysOff`); `button` uses an **`Ignored`** horizontal size policy + a tooltip carrying the full face text, so long button faces (e.g. Design Point) shrink instead of widening the form.
 

@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-19
-verified-commit: 0a7b44a
+last-verified: 2026-09-22
+verified-commit: af36ed6
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -138,7 +138,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
   - **`contextual → contextual`** (key *or* title change): `remove_page` old; `insert_page(new title)` + activate (pre-tab stays from the original `None → contextual` capture).
   - **`contextual → None`**: `remove_page`; restore `_pre_contextual_tab`.
 
-**Reusable Graphic Override group (2026-08-28):** `_build_graphic_override_group(page)` adds a "Graphic Override" group of three small buttons — **Stroke Colour** / **Fill Colour** / **Clear** — surfacing the existing per-instance Display-Manager override machinery (`item._display_overrides` keyed `"color"` / `"fill"`; serialized). Stroke/Fill open a `QColorDialog` and write the picked hex onto every eligible selected item (those carrying a `_display_overrides` dict — the `DisplayableItemMixin` protocol); Clear empties the dict → reverts to the Display Manager category default. Each gesture pushes **one** undo snapshot (`scene.push_undo_state()`), re-applies via `display_manager.apply_saved_display_settings`, and emits `sceneModified`; an empty selection (or cancelled dialog) is a no-op that pushes nothing. Built on the Floor contextual tab first (via `_build_floor_context`) and designed to generalize to other entity families.
+**Reusable Graphic Override group (2026-08-28):** `_build_graphic_override_group(page)` adds a "Graphic Override" group of three small buttons — **Stroke Colour** / **Fill Colour** / **Clear** — surfacing the existing per-instance Display-Manager override machinery (`item._display_overrides` keyed `"color"` / `"fill"`; serialized). Stroke/Fill open the house colour picker (`colour_picker.pick_colour`, `ui-design-system.md` D6) and write the picked hex onto every eligible selected item (those carrying a `_display_overrides` dict — the `DisplayableItemMixin` protocol); Clear empties the dict → reverts to the Display Manager category default. Each gesture pushes **one** undo snapshot (`scene.push_undo_state()`), re-applies via `display_manager.apply_saved_display_settings`, and emits `sceneModified`; an empty selection (or cancelled dialog) is a no-op that pushes nothing. Built on the Floor contextual tab first (via `_build_floor_context`) and designed to generalize to other entity families.
 
 **Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. It is on **every** contextual tab. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
 
