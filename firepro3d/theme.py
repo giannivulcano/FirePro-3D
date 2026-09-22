@@ -748,7 +748,7 @@ QTableWidget::item, QTableView::item {{
 }}
 /* ── Segmented controls (property-panel icon_enum / bool_group) ─────── */
 QWidget#segmented QToolButton {{
-    background: transparent; border: 1px solid {t.border_subtle};
+    background: {t.bg_raised}; border: 1px solid {t.border_subtle};
     border-radius: 5px; color: {t.muted}; margin: 0; padding: 0;
 }}
 /* selected renders identically to hover (same fill, light icon/text) */
@@ -757,8 +757,9 @@ QWidget#segmented QToolButton:checked {{
     background: {_rgba(t.accent, 128)}; border-color: {t.accent}; color: {t.ink};
 }}
 /* ── Properties dock: seamless combos + spinboxes (field-colour, single arrow) ── */
-#PropertiesDock QComboBox, #PropertiesDock QSpinBox, #PropertiesDock QLineEdit {{
-    font-size: 11px; min-height: 25px;
+#PropertiesDock QComboBox, #PropertiesDock QSpinBox,
+#PropertiesDock QLineEdit, #PropertiesDock QPlainTextEdit {{
+    background: {t.bg_raised}; font-size: 11px; min-height: 25px;
 }}
 #PropertiesDock QComboBox::drop-down {{
     border: none; background: transparent; width: 18px;
