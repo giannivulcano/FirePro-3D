@@ -735,7 +735,7 @@ QPushButton[variant="danger"]:hover {{
     background: {t.danger_soft}; border-color: {t.danger};
 }}
 /* ── Role / state labels ──────────────────────────────────────────── */
-QLabel[role="header"] {{ color: {t.accent}; font-weight: 600;
+QLabel[role="header"] {{ color: {t.accent};
     border-bottom: 1px solid {t.border_subtle}; padding-bottom: 3px; }}
 QLabel[role="muted"] {{ color: {t.muted}; }}
 QLabel[state="warn"] {{
@@ -750,13 +750,16 @@ QTableWidget::item, QTableView::item {{
 QWidget#segmented QToolButton {{
     background: transparent; border: 1px solid {t.border_subtle};
     border-radius: 4px; color: {t.muted}; margin: 0 1px; padding: 0;
-    font-weight: 600;
 }}
 QWidget#segmented QToolButton:hover {{
-    background: {t.accent_soft}; border-color: {t.accent}; color: {t.ink};
+    background: {t.accent_soft2}; border-color: {t.accent}; color: {t.ink};
 }}
 QWidget#segmented QToolButton:checked {{
-    background: {t.accent_soft2}; border-color: {t.accent}; color: {t.accent_ink};
+    background: {_rgba(t.accent, 130)}; border-color: {t.accent};
+    color: {t.accent_ink};
+}}
+QWidget#segmented QToolButton:checked:hover {{
+    background: {_rgba(t.accent, 160)};
 }}
 /* ── Percent slider (property-panel opacity) ───────────────────────── */
 QSlider#pctSlider::groove:horizontal {{

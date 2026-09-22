@@ -35,11 +35,25 @@ def test_set_property_frame_keys_model(qapp):
 
 
 def test_model_get_properties_exposes_frame(qapp):
-    item = TextItem(TextAnnotationData(text="A", border=True, border_corner="round"))
-    props = item.get_properties()
-    assert props["Border"]["value"] is True
-    assert props["Corner"]["value"] == "round"
-    assert {o[0] for o in props["Corner"]["options"]} == {"square", "round", "chamfer"}
+    # No Border toggle: border on/off is driven by Line Type ("none" == off).
+    on = TextItem(TextAnnotationData(text="A", border=True,
+                                     border_line_type="dashed", border_corner="round"))
+    p = on.get_properties()
+    assert "Border" not in p
+    assert p["Line Type"]["value"] == "dashed"
+    assert "none" in p["Line Type"]["options"]
+    assert p["Corner"]["value"] == "round"
+    assert {o[0] for o in p["Corner"]["options"]} == {"square", "round", "chamfer"}
+    off = TextItem(TextAnnotationData(text="A", border=False))
+    assert off.get_properties()["Line Type"]["value"] == "none"
+
+
+def test_line_type_none_toggles_border(qapp):
+    item = TextItem(TextAnnotationData(text="A", border=True))
+    item.set_property("Line Type", "none")
+    assert item._data.border is False
+    item.set_property("Line Type", "dotted")
+    assert item._data.border is True and item._data.border_line_type == "dotted"
 
 
 def test_paper_panel_change_frame_keys():

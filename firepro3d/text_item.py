@@ -766,16 +766,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                                       ("R", "align_right.svg")]},
             "Font Color": {"type": "color", "value": d.color or "#000000"},
             "Frame":    {"type": "header", "value": "Frame"},
-            "Border":   {"type": "toggle", "value": bool(d.border)},
+            "Line Type": {"type": "enum",
+                          "options": ["none", "solid", "dashed", "dotted", "dashdot"],
+                          "value": ("none" if not d.border else d.border_line_type)},
+            "Border Weight": {"type": "enum",
+                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                              "value": d.border_weight},
             "Corner":   {"type": "icon_enum", "value": d.border_corner,
                          "options": [("square", "corner_square.svg"),
                                      ("round", "corner_fillet.svg"),
                                      ("chamfer", "corner_chamfer.svg")]},
-            "Line Type": {"type": "enum", "options": ["solid", "dashed", "dotted", "dashdot"],
-                          "value": d.border_line_type},
-            "Border Weight": {"type": "enum",
-                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
-                              "value": d.border_weight},
             "Fill":     {"type": "header", "value": "Fill"},
             "Fill Color":   {"type": "color", "value": d.fill_color or "#ffffff"},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity)},
@@ -826,7 +826,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         elif key == "Border Weight":
             self._data.border_weight = str(value)
         elif key == "Line Type":
-            self._data.border_line_type = str(value)
+            # Panel drives border on/off via a "none" sentinel (no Border toggle).
+            if str(value) == "none":
+                self._data.border = False
+            else:
+                self._data.border = True
+                self._data.border_line_type = str(value)
         elif key == "Corner":
             self._data.border_corner = str(value)
         elif self._geom2d_set(key, value):

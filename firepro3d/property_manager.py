@@ -105,8 +105,11 @@ class PropertyManager(QWidget):
 
         self._form_container = QWidget()
         self._form = QFormLayout(self._form_container)
-        self._form.setContentsMargins(4, 4, 4, 4)
-        self._form.setSpacing(6)
+        self._form.setContentsMargins(6, 4, 6, 4)
+        self._form.setVerticalSpacing(4)
+        self._form.setHorizontalSpacing(8)
+        self._form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         scroll.setWidget(self._form_container)
         outer.addWidget(scroll)
 
@@ -231,7 +234,7 @@ class PropertyManager(QWidget):
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
                 btn = QPushButton()
-                btn.setFixedSize(60, 24)
+                btn.setFixedSize(40, 22)
                 btn.setProperty("_color_value", meta["value"])
                 btn.setStyleSheet(
                     f"background: {meta['value']}; "
