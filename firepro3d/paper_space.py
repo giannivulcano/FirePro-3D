@@ -1547,7 +1547,8 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
         "Alignment": {"type": "enum",
                       "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
                       "options": ["Left", "Center", "Right"]},
-        "Opaque Background": {"type": "bool", "value": data.opaque_bg},
+        "Fill Color": {"type": "color", "value": data.fill_color or "#ffffff"},
+        "Fill Opacity": {"type": "percent", "value": float(data.fill_opacity)},
         "Border": {"type": "bool", "value": data.border},
         "Line Type": {"type": "enum", "value": data.border_line_type,
                       "options": ["solid", "dashed", "dotted", "dashdot"]},
@@ -1606,8 +1607,10 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
         if code is None:
             return None
         field, new = "align", code
-    elif key == "Opaque Background":
-        field, new = "opaque_bg", bool(value)
+    elif key == "Fill Color":
+        field, new = "fill_color", str(value)
+    elif key == "Fill Opacity":
+        field, new = "fill_opacity", float(value)
     elif key == "Border":
         field, new = "border", bool(value)
     elif key == "Border Weight":
@@ -1624,7 +1627,7 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
 
 
 _TEMPLATE_FIELDS = ("height_mm", "font_family", "bold", "italic", "underline",
-                    "color", "align", "opaque_bg")
+                    "color", "align", "fill_color", "fill_opacity")
 
 
 def text_template_to_settings(data: "TextAnnotationData") -> dict:
@@ -1666,8 +1669,12 @@ def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
     if "align" in raw:
         a = str(raw["align"])
         data.align = a if a in ("L", "C", "R") else "L"
-    if "opaque_bg" in raw:
-        data.opaque_bg = _b(raw["opaque_bg"])
+    if "fill_color" in raw:
+        data.fill_color = str(raw["fill_color"])
+    elif "opaque_bg" in raw:
+        data.fill_color = "#ffffff" if _b(raw["opaque_bg"]) else ""
+    if "fill_opacity" in raw:
+        data.fill_opacity = float(raw["fill_opacity"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3543,7 +3550,8 @@ class PaperScene(QGraphicsScene):
             data.underline = t.underline
             data.color = t.color
             data.align = t.align
-            data.opaque_bg = t.opaque_bg
+            data.fill_color = t.fill_color
+            data.fill_opacity = t.fill_opacity
         item = TextItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item

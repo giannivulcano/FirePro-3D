@@ -50,8 +50,10 @@ class TextAnnotationData:
         Authored hex colour string, default black ``"#000000"``.
     align:
         Horizontal alignment: ``'L'`` | ``'C'`` | ``'R'``.
-    opaque_bg:
-        When ``True``, render a white fill behind the text box.
+    fill_color:
+        Box fill hex colour string; empty string means no fill.
+    fill_opacity:
+        Fill alpha as a percentage 0–100 (default 100 = fully opaque).
     border:
         When ``True``, draw a framing rectangle around the text box.
     border_weight:
@@ -81,7 +83,8 @@ class TextAnnotationData:
     underline: bool = False
     color: str = "#000000"                       # authored hex, default black
     align: str = "L"                             # 'L' | 'C' | 'R'
-    opaque_bg: bool = False
+    fill_color: str = ""                          # box fill hex; "" = no fill
+    fill_opacity: float = 100.0                   # fill alpha percentage 0-100
     border: bool = False                         # frame visibility
     border_weight: str = "Light"                 # named line-weight (resolve_line_weight_mm)
     border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
@@ -98,7 +101,7 @@ class TextAnnotationData:
             "font_family": self.font_family,
             "bold": self.bold, "italic": self.italic, "underline": self.underline,
             "color": self.color, "align": self.align,
-            "opaque_bg": self.opaque_bg,
+            "fill_color": self.fill_color, "fill_opacity": self.fill_opacity,
             "border": self.border, "border_weight": self.border_weight,
             "border_line_type": self.border_line_type, "border_corner": self.border_corner,
             "angle": self.angle,
@@ -116,7 +119,10 @@ class TextAnnotationData:
             bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
-            opaque_bg=bool(d.get("opaque_bg", False)),
+            fill_color=(d.get("fill_color")
+                        if d.get("fill_color") is not None
+                        else ("#ffffff" if bool(d.get("opaque_bg", False)) else "")),
+            fill_opacity=float(d.get("fill_opacity", 100.0)),
             border=bool(d.get("border", False)),
             border_weight=d.get("border_weight", "Light"),
             border_line_type=d.get("border_line_type", "solid"),
@@ -477,10 +483,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Paint (opaque-bg knockout + baked rotation + editing frame) ─────────
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block with an opaque-bg knockout and inline-edit frame.
+        """Paint the text block with an optional fill and inline-edit frame.
 
         Renders (with the bake-at-rest rotation applied like NoteAnnotation):
-        (1) a solid-white knockout over the box rect when ``opaque_bg`` is set,
+        (1) a colour fill over the box rect when ``fill_color`` is set,
         (2) the text via super(), (3) the lighter #88aaff cosmetic border while
         inline-editing (the EDITING state — distinct from SELECTED, whose frame
         is drawn by the scene's SelectionManipulator).
@@ -489,8 +495,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         painter.save()
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
-        if self._data.opaque_bg:
-            painter.fillRect(box, QColor("#ffffff"))
+        if self._data.fill_color:
+            c = QColor(self._data.fill_color)
+            c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
+            painter.fillRect(box, c)
         super().paint(painter, option, widget)
         if self._data.border:
             painter.setPen(self._frame_pen())
@@ -713,7 +721,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
 
     def get_closed_path(self) -> None:
-        """Text has no fillable closed path — its box fill is ``opaque_bg``, a
+        """Text has no fillable closed path — its box fill is ``fill_color``, a
         separate mechanism.  Returning None keeps ``is_fillable()`` False, which
         suppresses the mixin's Fill property rows."""
         return None
@@ -753,7 +761,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Underline": {"type": "toggle", "value": bool(self._data.underline)},
             "Alignment": {"type": "enum", "options": ["L", "C", "R"],
                           "value": self._data.align},
-            "Opaque Background": {"type": "toggle", "value": bool(self._data.opaque_bg)},
+            "Fill Color":   {"type": "color", "value": self._data.fill_color or "#ffffff"},
+            "Fill Opacity": {"type": "percent", "value": float(self._data.fill_opacity)},
             "Border":       {"type": "toggle", "value": bool(self._data.border)},
             "Line Type":    {"type": "enum", "options": ["solid", "dashed", "dotted", "dashdot"],
                              "value": self._data.border_line_type},
@@ -792,8 +801,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.underline = bool(value)
         elif key == "Alignment":
             self._data.align = str(value)
-        elif key == "Opaque Background":
-            self._data.opaque_bg = bool(value)
+        elif key == "Fill Color":
+            self._data.fill_color = str(value)
+        elif key == "Fill Opacity":
+            self._data.fill_opacity = float(value)
         elif key == "Border":
             self._data.border = bool(value)
         elif key == "Border Weight":

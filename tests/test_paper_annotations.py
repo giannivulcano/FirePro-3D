@@ -39,7 +39,7 @@ def test_text_annotation_data_round_trip():
         text="GENERAL NOTES\n1. Comply with NFPA 13.",
         x=12.5, y=30.0, height_mm=3.175, wrap_width_mm=120.0,
         font_family="Arial", bold=True, italic=False,
-        color="#ff0000", align="C", opaque_bg=True,
+        color="#ff0000", align="C", fill_color="#ffffff",
     )
     out = TextAnnotationData.from_dict(d.to_dict())
     assert out == d

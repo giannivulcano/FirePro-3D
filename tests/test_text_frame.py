@@ -101,3 +101,35 @@ def test_frame_pen_uses_named_weight_and_color(qapp):
     assert pen.color().name() == "#123456"
     assert pen.style() == __import__("PyQt6.QtCore", fromlist=["Qt"]).Qt.PenStyle.DashLine
     assert pen.widthF() > 0
+
+
+# ── Fill colour tests ────────────────────────────────────────────────────────
+
+def test_fill_fields_default_none():
+    d = TextAnnotationData()
+    assert d.fill_color == "" and d.fill_opacity == 100.0
+    assert not hasattr(d, "opaque_bg")
+
+
+def test_fill_roundtrip():
+    d = TextAnnotationData(fill_color="#d19a26", fill_opacity=35.0)
+    dd = d.to_dict()
+    d2 = TextAnnotationData.from_dict(dd)
+    assert d2.fill_color == "#d19a26" and d2.fill_opacity == 35.0
+    assert "opaque_bg" not in dd
+
+
+def test_opaque_bg_migration():
+    on = TextAnnotationData.from_dict({"type": "text", "opaque_bg": True})
+    off = TextAnnotationData.from_dict({"type": "text", "opaque_bg": False})
+    assert on.fill_color == "#ffffff" and on.fill_opacity == 100.0
+    assert off.fill_color == ""
+
+
+def test_fill_renders_pixels(qapp):
+    # _render_nonwhite_count already exists earlier in this test file (Phase 1)
+    item = TextItem(TextAnnotationData(text="AB", height_mm=4.0))
+    off = _render_nonwhite_count(item)
+    item.set_property("Fill Color", "#c0392b")
+    on = _render_nonwhite_count(item)
+    assert on > off + 50

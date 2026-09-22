@@ -25,7 +25,7 @@ def test_data_defaults_and_rotation_roundtrip():
     assert d2.text == "Hi"
     assert d2.height_mm == 2.5
     for f in ("font_family", "bold", "italic", "underline",
-              "opaque_bg", "align", "wrap_width_mm", "box_height_mm", "color"):
+              "fill_color", "fill_opacity", "align", "wrap_width_mm", "box_height_mm", "color"):
         assert hasattr(d2, f)
 
 
