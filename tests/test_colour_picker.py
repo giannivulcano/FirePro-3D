@@ -42,3 +42,29 @@ def test_colour_metric_tokens_match_mockup():
     assert (M.COLOUR_DLG_W, M.COLOUR_SV_W, M.COLOUR_SV_H, M.COLOUR_HUE_W) == (440, 210, 170, 16)
     assert (M.COLOUR_COL_GAP, M.COLOUR_CHIP, M.COLOUR_CHIP_GAP, M.COLOUR_CHIP_RADIUS) == (16, 22, 4, 3)
     assert (M.COLOUR_SEL_RING, M.COLOUR_SEC_GAP, M.COLOUR_PREVIEW_H) == (2, 12, 40)
+
+
+def test_palette_is_fixed_cad_set():
+    from firepro3d import colour_picker as cp
+    assert cp.STANDARD == ("#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#00FFFF",
+                           "#0000FF", "#FF00FF", "#808080", "#C0C0C0", "#FFFFFF")
+    assert cp.GREYS == ("#000000", "#1C1C1C", "#393939", "#555555", "#717171",
+                        "#8E8E8E", "#AAAAAA", "#C6C6C6", "#E3E3E3", "#FFFFFF")
+    assert cp.NO_FILL == ""
+
+
+def test_recents_mru_dedupe_cap_and_persist(qapp):
+    from firepro3d import colour_picker as cp
+    cp.clear_recents()
+    for h in ["#111111", "#222222", "#111111"]:
+        cp.push_recent(h)
+    assert cp.load_recents() == ["#111111", "#222222"]     # MRU first, deduped
+    cp.push_recent("#abcdef")
+    assert cp.load_recents()[0] == "#ABCDEF"               # normalised upper
+    cp.push_recent("#AbCdEf")
+    assert cp.load_recents().count("#ABCDEF") == 1          # case-insensitive dedupe
+    for i in range(20):
+        cp.push_recent(f"#0000{i:02X}")
+    assert len(cp.load_recents()) == cp.RECENTS_MAX == 10
+    cp.push_recent("")                                      # No Fill is never recorded
+    assert "" not in cp.load_recents()
