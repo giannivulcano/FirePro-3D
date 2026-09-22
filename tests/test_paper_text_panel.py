@@ -182,14 +182,15 @@ def _panel_widget_for(pm, label_text):
 
 
 def test_panel_renders_text_item_rows(qapp):
-    from PyQt6.QtWidgets import QCheckBox, QFontComboBox
+    from PyQt6.QtWidgets import QCheckBox
     from firepro3d.dimension_edit import DimensionEdit
     from firepro3d.property_manager import PropertyManager
+    from firepro3d.ui_kit import Selector
     scene = _scene()
     item = scene.add_annotation(TextAnnotationData(text="X", bold=True))
     pm = PropertyManager()
     pm.show_properties(item)
-    assert isinstance(_panel_widget_for(pm, "Font"), QFontComboBox)
+    assert isinstance(_panel_widget_for(pm, "Font"), Selector)   # custom font picker
     assert isinstance(_panel_widget_for(pm, "Height"), DimensionEdit)
     bold = _panel_widget_for(pm, "Bold")
     assert isinstance(bold, QCheckBox) and bold.isChecked()
