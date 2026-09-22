@@ -67,13 +67,36 @@ def test_text_item_to_dict_from_dict_roundtrip(qapp):
     assert abs(t2.data.x - 3.0) < 1e-6 and abs(t2.data.y - 4.0) < 1e-6
 
 
-def test_text_item_capabilities_drop_scale_when_rotated(qapp):
+def test_text_model_surface_drops_scale_capability(qapp):
+    """On the model/Block-Editor surface, text resize is a font-constant box
+    resize via live grips — so "scale" is dropped (whether rotated or not), never
+    the box-native uniform-scale path (todo #62: text keeps a consistent height
+    while corner-dragging).  Paper text keeps scale (see the paper suite)."""
     from firepro3d.text_item import TextItem
     d = TextAnnotationData(text="X", height_mm=2.5)
-    t = TextItem(d)
-    assert t.manip_capabilities() == {"translate", "scale", "rotate"}
+    t = TextItem(d)   # scene-less → model (non-device-independent) behaviour
+    assert t.manip_capabilities() == {"translate", "rotate"}
     t.set_angle(30.0)
     assert t.manip_capabilities() == {"translate", "rotate"}
+
+
+def test_grip_resize_keeps_font_height_constant(qapp):
+    """A corner-grip resize changes the box (wrap/height) but never the cap height
+    (font) — the invariant behind 'text stays a consistent height while dragging'
+    (todo #62)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                           wrap_width_mm=400.0, box_height_mm=200.0)
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    h0 = d.height_mm
+    # Drag the bottom-right corner (grip index 4) outward.
+    t.apply_grip(4, QPointF(700.0, 500.0))
+    assert d.height_mm == h0                     # font cap height untouched
+    assert d.wrap_width_mm > 400.0               # box grew in width
+    assert d.box_height_mm > 200.0               # box grew in height
 
 
 def test_text_item_fill_rows_suppressed(qapp):
@@ -155,3 +178,188 @@ def test_standalone_model_text_dropped_on_load(qapp, tmp_path):
     f = tmp_path / "p.fpd"; s.save_to_file(str(f))
     s2 = Model_Space(scene_role="block_editor"); s2.load_from_file(str(f))
     assert s2._texts == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model-surface live rendering (todo #62) — text renders via glyph-outline fill,
+# NOT the QGraphicsTextItem document renderer (which fails on the live viewport
+# engine-less device, engine==0 / todo L75-76).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_model_text_renders_without_document_renderer(qapp, monkeypatch):
+    """Mutation guard: with the QGraphicsTextItem document renderer neutered
+    (simulating the live engine==0 failure), model-surface text ink must STILL
+    appear — proving it is drawn via the painter-fill glyph-outline path.
+
+    Reverting the fix (text drawn via ``super().paint()``) makes this RED: the
+    neutered document renderer then produces no glyphs.
+    """
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from PyQt6.QtCore import QRectF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+
+    scene = Model_Space()
+    d = TextAnnotationData(text="Ag", x=50.0, y=50.0, height_mm=10.0)
+    d.color = "#ffffff"
+    t = TextItem(d)
+    scene.addItem(t)
+    t._apply_format()
+    assert t.is_device_independent() is False
+
+    # Simulate the live viewport document-render failure.
+    monkeypatch.setattr(QGraphicsTextItem, "paint", lambda self, p, o, w=None: None)
+
+    src = t.mapRectToScene(t._box_rect_local())
+    img = QImage(220, 140, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 220, 140), src)
+    p.end()
+
+    ink = sum(1
+              for y in range(img.height())
+              for x in range(img.width())
+              if img.pixelColor(x, y).lightness() > 60)
+    assert ink > 20, f"expected glyph-outline ink on the model surface, got {ink}px"
+
+
+def test_model_placed_text_seeds_visible_ink(qapp):
+    """A text placed on the model surface seeds white ink, never invisible
+    black-on-dark (todo #62 RC1)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+    assert texts[0].data.color.lower() == "#ffffff"
+
+
+def test_model_placed_text_uses_readable_default_height(qapp):
+    """Model-placed text seeds the larger real-size CAP height (not the 3/16"
+    paper default, which is ~5 px at the editor's 1:1 zoom) — todo #62."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.constants import DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_TEXT_HEIGHT_MM
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+    assert texts[0].data.height_mm == DEFAULT_MODEL_TEXT_HEIGHT_MM
+    assert texts[0].data.height_mm > DEFAULT_TEXT_HEIGHT_MM
+
+
+def test_model_text_alignment_shifts_glyphs(qapp):
+    """L / C / R justification actually repositions the glyph outline within the
+    wrap width (todo #62 item 5 — was a no-op)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    xs = {}
+    for al in ("L", "C", "R"):
+        d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0, wrap_width_mm=400.0)
+        d.align = al
+        t = TextItem(d); s.addItem(t); t._apply_format()
+        xs[al] = t._glyph_outline_local().boundingRect().x()
+    assert xs["L"] < xs["C"] < xs["R"]
+
+
+def test_new_panel_fields_roundtrip(qapp):
+    """valign / cell_padding_mm / border_corner_radius_mm round-trip (todo #62)."""
+    from firepro3d.text_item import TextAnnotationData
+    d = TextAnnotationData(text="x", valign="B", cell_padding_mm=7.5,
+                           border_corner_radius_mm=12.0)
+    d2 = TextAnnotationData.from_dict(d.to_dict())
+    assert d2.valign == "B"
+    assert d2.cell_padding_mm == 7.5
+    assert d2.border_corner_radius_mm == 12.0
+
+
+def test_model_text_valign_shifts_glyphs(qapp):
+    """T / M / B vertical alignment shifts the glyph outline within box-height
+    slack (todo #62 item 6)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    ys = {}
+    for va in ("T", "M", "B"):
+        d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                               wrap_width_mm=400.0, box_height_mm=600.0)
+        d.valign = va
+        t = TextItem(d); s.addItem(t); t._apply_format()
+        ys[va] = t._glyph_outline_local().boundingRect().top()
+    assert ys["T"] < ys["M"] < ys["B"]
+
+
+def test_corner_radius_changes_frame_path(qapp):
+    """An explicit corner radius changes the rounded-frame geometry (todo #62
+    item 4 — a definable radius, reversing the spec's fixed-fraction default)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                           wrap_width_mm=400.0, box_height_mm=300.0,
+                           border=True, border_corner="round")
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    d.border_corner_radius_mm = 5.0
+    p_small = t._frame_path()
+    d.border_corner_radius_mm = 60.0
+    p_big = t._frame_path()
+    assert p_small != p_big
+
+
+def test_cell_padding_sets_document_margin(qapp):
+    """Cell padding drives the text box inner margin (todo #62 item 7)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0, cell_padding_mm=12.0)
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    assert abs(t.document().documentMargin() - 12.0 / (t.scale() or 1.0)) < 1e-6
+
+
+def test_model_placed_text_defaults_border_on(qapp):
+    """Model-placed text gets a solid border on by default (todo #62 item 8)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    t = [i for i in s._texts if type(i).__name__ == "TextItem"][0]
+    assert t.data.border is True
+    assert t.data.border_line_type == "solid"
+    from firepro3d.constants import DEFAULT_MODEL_TEXT_PADDING_MM
+    assert t.data.cell_padding_mm == DEFAULT_MODEL_TEXT_PADDING_MM == 15.0
+
+
+def test_model_border_pen_is_cosmetic(qapp):
+    """On the model / Block-Editor surface the border pen is cosmetic (constant
+    device width at all zooms), aligned with the sibling 2D primitives whose
+    default lineweight is 1.0px; "Light" maps to that same 1.0 (todo #62)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    t = TextItem(TextAnnotationData(text="X", border=True, border_weight="Light"))
+    s.addItem(t)
+    pen = t._frame_pen()
+    assert pen.isCosmetic() is True
+    assert pen.widthF() == 1.0
+
+
+def test_paper_border_pen_is_true_mm(qapp):
+    """On the paper surface the border keeps a true-mm (non-cosmetic) width so it
+    plots at its named weight."""
+    from firepro3d.paper_space import PaperScene, Sheet
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    p = PaperScene(Sheet.create_default(), _stub_resolver())
+    t = TextItem(TextAnnotationData(text="X", border=True, border_weight="Heavy"))
+    p.addItem(t)
+    pen = t._frame_pen()
+    assert pen.isCosmetic() is False

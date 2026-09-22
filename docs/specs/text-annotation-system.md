@@ -1,7 +1,7 @@
 ---
-status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; style presets/SHX/overrides deferred
+status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); style presets/SHX/overrides deferred
 last-verified: 2026-09-22
-verified-commit: 3b74b65
+verified-commit: 2a37c20
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -99,9 +99,10 @@ Decisions locked in the 2026-09-21 brainstorm (mockup:
    placement/resize); text wraps to it and the box auto-grows in height. This
    removes the old auto-width-vs-wrap ambiguity. (Any residual auto-width path
    in `TextItem` is normalized to always-wrap — see Divergences.)
-6. **Corner = preset enum**, `square | round | chamfer`, with a **fixed
-   proportional radius** (`TEXT_FRAME_CORNER_FRAC` of the shorter box side, one
-   shipped constant — no radius field). The **ribbon** expresses it as three
+6. **Corner = preset enum**, `square | round | chamfer`. *(Superseded 2026-09-22
+   — see As-built "model-surface render + panel polish": the panel now exposes a
+   **definable `border_corner_radius_mm`**; `0` falls back to the original fixed
+   proportional radius `TEXT_FRAME_CORNER_FRAC` of the shorter box side.)* The **ribbon** expresses it as three
    mutually-exclusive icon buttons (**Square**, **Fillet**, **Chamfer** — a
    3-way radio, exactly one active, default Square); the **property panel** shows
    the same value as an **icon segmented control** (same three icons).
@@ -317,6 +318,44 @@ field/button tones on the inner `form_container`) — a widget can't paint its o
 bg AND style its children from one sheet. All panel metrics are tokenized in
 **`theme.M.PROP_*`** (single source of truth for every entity panel).
 
-**Known issue (P1 follow-up, filed in todo_open):** the rendered annotation text box
-does not yet visually reflect the panel settings — panel commits update the data but
-the on-canvas/Block-Editor render doesn't update. Needs live root-cause.
+## As-built (2026-09-22, `feat/model-text-outline-render`, todo #62)
+
+Resolved the P1 "annotation text box doesn't render its panel settings" — which
+live investigation revealed was **model-surface text rendering nothing at all**
+(only the HALO boundary showed). Root cause: `super().paint()` (the
+`QGraphicsTextItem` document renderer) produces no output on the live viewport's
+engine-less device (the pre-existing engine==0 bug — UI-follow-ups §L75-76), while
+direct painter ops (the box fill) draw fine.
+
+Landed:
+- **Model/Block-Editor text renders via filled glyph outlines.** `TextItem.paint`
+  now draws model-surface text with `painter.fillPath(_glyph_outline_local(), color)`
+  (the same painter-fill path that works live), not `super().paint()`. Paper text
+  keeps the document renderer (works on the paper device). `_glyph_outline_local()`
+  (unrotated) was extracted from `render_outline_path()` (block-compile, still
+  pre-rotated) and now also applies the **horizontal alignment** offset manually
+  (Qt keeps every `QTextLine` at x==0 and aligns only at draw time — L/C/R was a
+  no-op before) and the **vertical alignment** offset within the box-height slack.
+- **New `TextAnnotationData` fields** (all serialized both ways): `valign` (T/M/B),
+  `cell_padding_mm` (was the fixed `TEXT_BOX_MARGIN_MM`), `border_corner_radius_mm`
+  (0 = the proportional default — **reverses Design Decision 6's "no radius field"**).
+  Panel rows added: V Align (`icon_enum` + authored `align_top/middle/bottom.svg`),
+  Padding, Corner Radius.
+- **Border pen is cosmetic on the model surface** (constant device width at all
+  zooms, matching the sibling 2D primitives; named weight → device px via
+  `_BORDER_WEIGHT_PX`), true-mm on paper.
+- **Model-placement defaults** (`_press_text`, real-size scene mm): white ink,
+  `DEFAULT_MODEL_TEXT_HEIGHT_MM=100`, solid border on, `border_weight="Medium"`,
+  `DEFAULT_MODEL_TEXT_PADDING_MM=15`. Paper defaults unchanged (3/16", black, 1 mm).
+- **Font-constant resize.** Model text drops the `"scale"` manip capability
+  (surface-aware via `is_device_independent()`), so a corner drag resizes the box
+  via the live parametric grips (`apply_grip`, font untouched) instead of the
+  box-native uniform-transform preview (which scaled the glyphs and snapped back).
+  Paper text keeps its tested box-native scale path.
+
+**Remaining known issues (P1 follow-ups, filed in todo_open):**
+- **Inline double-click edit** on the model surface — the display renders, but the
+  edit **caret** still hits the L75-76 engine-less-device paint bug; needs its own
+  root-cause.
+- **Custom colour-picker widget with "No Fill"** — the app-wide native `QColorDialog`
+  can't host a no-fill option, so text transparency is a 0%-opacity stopgap for now.

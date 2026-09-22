@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Text annotation system — model-surface render + panel polish — 2026-09-22
+
+Shipped on `feat/model-text-outline-render` (Small tier that grew via smoke-driven interactive tuning; /todo Phase 1→1b→2→systematic-debugging→4→5→6; governing spec `docs/specs/text-annotation-system.md` stamped `2a37c20`). Live investigation (headless pixel-probe + user smoke on the running app) reframed the P1 from "panel settings don't render" to "model-surface text renders **nothing** live" — the pre-existing engine==0 `QGraphicsTextItem` paint bug (§L75-76).
+
+- [x] [type:bug] Annotation text box doesn't render its panel settings [P1] [subject:UX] [done:2026-09-22]
+  - Build: root cause = `super().paint()` (document renderer) draws nothing on the live viewport's engine-less device; fill/border (direct painter ops) worked. Fix = render model/Block-Editor text via `painter.fillPath(_glyph_outline_local(), color)` (glyph outlines, the working painter-fill path); paper keeps the document renderer. Smoke-feedback polish landed in the same branch: justification fix (manual line-align offset — Qt keeps `QTextLine.x()==0`), new fields `valign`/`cell_padding_mm`/`border_corner_radius_mm` (+ panel rows + 3 authored valign glyphs; reverses spec Decision 6), cosmetic model border, model-placement defaults (white/100 mm/solid Medium border/15 mm padding), and font-constant grip resize (model text drops the `"scale"` manip capability). No-fill reverted to a 0%-opacity stopgap. Mutation-verified guards throughout. Follow-ups filed P1: inline double-click caret edit (L75-76), custom colour-picker widget with No Fill. `text_item.py`, `model_space.py`, `property_manager.py`, `ui_kit.py`, `constants.py`, `graphics/Ribbon/align_{top,middle,bottom}.svg`.
+
 ## Text annotation system — frame axis + FontSelect + fill model + annotation panel — 2026-09-22
 
 Shipped on `feat/text-annotation-frame` (Large tier; /todo Phase 1→1b→3 brainstorm→4→5 subagent-driven→6; governing spec forged `docs/specs/text-annotation-system.md`, verified `3b74b65`, 33 commits). Two implementation phases via subagent-driven-development (per-task TDD + spec/quality review + pixel-verified renders), then an extended interactive-tuning loop on the property panel.

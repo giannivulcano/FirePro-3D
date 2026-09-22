@@ -4,7 +4,7 @@ from firepro3d.text_item import TextAnnotationData, TextItem
 def test_frame_fields_default_off():
     d = TextAnnotationData()
     assert d.border is False
-    assert d.border_weight == "Light"
+    assert d.border_weight == "Medium"
     assert d.border_line_type == "solid"
     assert d.border_corner == "square"
 

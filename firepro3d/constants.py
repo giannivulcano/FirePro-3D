@@ -198,6 +198,14 @@ PIPE_COLORS: dict[str, str] = {
 
 # ── Paper-space sheet text annotations ──────────────────────────────────────
 DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (paper mm)
+# Model / Block-Editor text is REAL-size scene mm (blocks are scale_mode="real_size"),
+# so the 3/16" paper default renders ~5 px at the editor's 1:1 zoom — unreadable.
+# Model-placed text seeds this larger CAP height instead (paper text keeps 3/16").
+# It is a plain authoring default: tune to your typical plot scale
+# (model height ≈ desired paper height × plot scale). Annotative auto-scaling is
+# the reserved block scale_mode="annotative" (v2).
+DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
+DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
