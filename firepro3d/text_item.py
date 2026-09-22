@@ -499,7 +499,24 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             c = QColor(self._data.fill_color)
             c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
             painter.fillRect(box, c)
-        super().paint(painter, option, widget)
+        if self.is_device_independent():
+            # Paper surface: the QGraphicsTextItem document renderer works on the
+            # paper viewport device (zoom-invariant, live caret) — keep it.
+            super().paint(painter, option, widget)
+        else:
+            # Model / Block-Editor surface: the document renderer draws NOTHING on
+            # the live viewport's engine-less paint device (the pre-existing
+            # engine==0 bug — todo L75-76; fill/border via the direct painter draw
+            # fine).  Render the text as filled glyph outlines through the SAME
+            # painter-fill path.  The painter is already rotated, so the UNROTATED
+            # local outline is used.
+            outline = self._glyph_outline_local()
+            if not outline.isEmpty():
+                painter.fillPath(outline, QColor(self._data.color))
+            if self._editing:
+                # Overlay the live editor (caret/selection) on top; its glyphs are
+                # invisible-live but harmless — the caret is a separate follow-up.
+                super().paint(painter, option, widget)
         if self._data.border:
             painter.setPen(self._frame_pen())
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -535,10 +552,22 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
         Returns an empty ``QPainterPath`` for empty text.
         """
-        text = self._data.text or ""
-        if text.strip() == "":
-            return QPainterPath()
+        outline = self._glyph_outline_local()
+        if not outline.isEmpty() and self._angle != 0.0:
+            outline = self._rotation_transform().map(outline)
+        return outline
 
+    def _glyph_outline_local(self) -> QPainterPath:
+        """Glyph outlines in the LOCAL, UNSCALED, UN-rotated frame.
+
+        Glyphs come from the live ``QTextDocument`` layout, so wrap width,
+        alignment, box height, line breaks — and any in-progress inline-edit
+        text — are honoured.  Returns an empty path when there are no glyphs.
+
+        Unlike :meth:`render_outline_path`, the bake-at-rest rotation is NOT
+        applied: ``paint`` renders through an already-rotated painter and needs
+        the unrotated glyphs, whereas block compilation needs them pre-rotated.
+        """
         doc = self.document()
         doc.documentLayout().documentSize()   # force the lazy layout to run
         font = self.font()
@@ -562,9 +591,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 if run_text:
                     outline.addText(QPointF(base_x, base_y), font, run_text)
             block = block.next()
-
-        if self._angle != 0.0:
-            outline = self._rotation_transform().map(outline)
         return outline
 
     # ── Grip protocol (9 box grips) ─────────────────────────────────────────

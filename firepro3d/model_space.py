@@ -4549,6 +4549,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             data = TextAnnotationData(
                 text="Text", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width)
+            # Seed a canvas-visible ink (theme foreground) so a freshly placed
+            # model text isn't invisible black-on-dark — parity with the sibling
+            # 2D primitives, which default to a visible colour.  Paper text keeps
+            # the black default (it prints on white paper).
+            from .theme import detect as _detect_theme
+            data.color = _detect_theme().ink
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_size()[1])

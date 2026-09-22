@@ -155,3 +155,64 @@ def test_standalone_model_text_dropped_on_load(qapp, tmp_path):
     f = tmp_path / "p.fpd"; s.save_to_file(str(f))
     s2 = Model_Space(scene_role="block_editor"); s2.load_from_file(str(f))
     assert s2._texts == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model-surface live rendering (todo #62) — text renders via glyph-outline fill,
+# NOT the QGraphicsTextItem document renderer (which fails on the live viewport
+# engine-less device, engine==0 / todo L75-76).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_model_text_renders_without_document_renderer(qapp, monkeypatch):
+    """Mutation guard: with the QGraphicsTextItem document renderer neutered
+    (simulating the live engine==0 failure), model-surface text ink must STILL
+    appear — proving it is drawn via the painter-fill glyph-outline path.
+
+    Reverting the fix (text drawn via ``super().paint()``) makes this RED: the
+    neutered document renderer then produces no glyphs.
+    """
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from PyQt6.QtCore import QRectF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+
+    scene = Model_Space()
+    d = TextAnnotationData(text="Ag", x=50.0, y=50.0, height_mm=10.0)
+    d.color = "#ffffff"
+    t = TextItem(d)
+    scene.addItem(t)
+    t._apply_format()
+    assert t.is_device_independent() is False
+
+    # Simulate the live viewport document-render failure.
+    monkeypatch.setattr(QGraphicsTextItem, "paint", lambda self, p, o, w=None: None)
+
+    src = t.mapRectToScene(t._box_rect_local())
+    img = QImage(220, 140, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 220, 140), src)
+    p.end()
+
+    ink = sum(1
+              for y in range(img.height())
+              for x in range(img.width())
+              if img.pixelColor(x, y).lightness() > 60)
+    assert ink > 20, f"expected glyph-outline ink on the model surface, got {ink}px"
+
+
+def test_model_placed_text_seeds_visible_ink(qapp):
+    """A text placed on the model surface seeds a canvas-visible ink (theme
+    foreground), never invisible black-on-dark (todo #62 RC1)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.theme import detect
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+    assert texts[0].data.color.lower() == detect().ink.lower()
+    assert texts[0].data.color.lower() != "#000000"
