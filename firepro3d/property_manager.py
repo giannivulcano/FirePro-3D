@@ -82,34 +82,33 @@ class PropertyManager(QWidget):
         _t = th.detect()
 
         # ── Panel = header rail + body, both the body tone (surface) ──────────
-        # WA_StyledBackground so the QSS surface actually paints (a plain-QWidget
-        # QSS background is a live-only no-op otherwise, showing the dark base).
+        # The panel background and the field/button styling CANNOT share one
+        # stylesheet (Qt QSS won't mix a bare `background:` with selector rules,
+        # and a widget styling its own bg via #id / palette is a no-op once it
+        # has any stylesheet). So: the PANEL background is a bare
+        # `background: surface` + WA_StyledBackground here; the FIELD/BUTTON rules
+        # live on the inner ``form_container`` (a closer ancestor of the fields,
+        # so its rules win over this bare cascade). Field tone = surface2 (the
+        # window-header rail tone). Combo/spin drop-down + arrows stay app-styled.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # Panel styling lives HERE (not the app stylesheet): the panel sets its
-        # own background, which would otherwise cascade over children — so field
-        # tone (raised, for contrast), segmented-button fills, and the seamless
-        # combo/spin arrows must be scoped under #propPanel to win.
-        # Bare `background` paints the panel + cascades to the (transparent)
-        # inner containers so the whole dock reads surface; the unprefixed field
-        # rules below apply only to THIS widget's subtree (it's the PM's own
-        # sheet) and override the field tone to `raised` for contrast. Drop-down
-        # / spin buttons are left to the app style so their arrows stay visible.
+        self.setObjectName("propPanel")
+        self.setStyleSheet(f"background: {_t.surface};")
         _ac = QColor(_t.accent)
         _fill = f"rgba({_ac.red()},{_ac.green()},{_ac.blue()},130)"
-        self.setStyleSheet(f"""
-            background: {_t.surface};
+        _field = _t.surface2   # window-header tone (raised) — field contrast
+        self._field_qss = f"""
             QComboBox, QSpinBox, QLineEdit, QPlainTextEdit {{
-                background: {_t.raised}; color: {_t.ink}; padding: 2px 6px;
+                background: {_field}; color: {_t.ink};
             }}
             QWidget#segmented QToolButton {{
-                background: {_t.raised}; border: 1px solid {_t.border_subtle};
+                background: {_field}; border: 1px solid {_t.border_subtle};
                 border-radius: 5px; color: {_t.muted};
             }}
             QWidget#segmented QToolButton:hover,
             QWidget#segmented QToolButton:checked {{
                 background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
             }}
-        """)
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
         outer.setSpacing(0)
@@ -128,6 +127,9 @@ class PropertyManager(QWidget):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._form_container = QWidget()
+        # Field/button tones live here (not on the PM) — a closer ancestor of the
+        # fields, so these rules win over the PM's bare surface cascade.
+        self._form_container.setStyleSheet(self._field_qss)
         # Container = form on top + a stretch that ABSORBS extra vertical space,
         # so the QFormLayout rows keep their natural (compact) height instead of
         # being stretched to fill the tall (setWidgetResizable) scroll viewport.
