@@ -13,7 +13,7 @@ Property types recognised from ``get_properties()`` dict:
     string     — editable QLineEdit (auto-detects numeric fields)
     enum       — QComboBox with fixed options list
     combo      — alias for enum
-    color      — colour swatch + QColorDialog picker
+    color      — colour swatch (ui_kit.Swatch → colour_picker)
     level_ref  — QComboBox populated from LevelManager
     button     — QPushButton that calls meta["callback"] when clicked
     dimension  — DimensionEdit for mm-based values (requires value_mm in meta)
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
+    QComboBox, QPushButton, QSizePolicy, QScrollArea,
     QCheckBox, QFontComboBox, QToolButton, QSlider, QPlainTextEdit, QSpinBox,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
@@ -173,6 +173,7 @@ class PropertyManager(QWidget):
         # State
         self._level_manager = None
         self._targets: list = []
+        self._prop_widgets: dict = {}   # property key → row widget (rebuilt per form)
         self._refreshing = False   # guard against re-entrant refresh
 
         # Debounced auto-refresh timer
@@ -196,7 +197,8 @@ class PropertyManager(QWidget):
 
     def _show_properties_inner(self, item):
         """Internal: build the property form (called inside _refreshing guard)."""
-        # Clear existing rows
+        # Clear existing rows (and the key → row-widget registry)
+        self._prop_widgets = {}
         for i in reversed(range(self._form.count())):
             w = self._form.itemAt(i).widget()
             if w:
@@ -290,7 +292,8 @@ class PropertyManager(QWidget):
 
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
-                sw = Swatch(str(meta["value"]))
+                sw = Swatch(str(meta["value"] or ""),
+                            allow_none=bool(meta.get("allow_none")), context=key)
                 sw.colorChanged.connect(
                     lambda hexv, k=key: self._apply_property(k, hexv)
                 )
@@ -489,6 +492,12 @@ class PropertyManager(QWidget):
                     lambda k=key, field=widget: self._apply_property(
                         k, field.text())
                 )
+
+            if widget is not None:
+                self._prop_widgets[key] = widget
+            # Generic disable (e.g. Fill Opacity while the fill is "No Fill")
+            if meta.get("disabled") and widget is not None:
+                widget.setEnabled(False)
 
             # Enforce readonly flag from meta (e.g. template node sections)
             if meta.get("readonly") and widget is not None:
@@ -775,22 +784,6 @@ class PropertyManager(QWidget):
             props["Coverage Area"]["value"] = str(int(rec.coverage_area))
             props["Min Pressure"]["value"] = str(rec.min_pressure)
             props["Temperature"]["value"] = f"{rec.temp_rating}°F"
-
-    def _pick_color(self, key: str, btn: QPushButton):
-        """Open a colour dialog, update swatch, and apply to all targets."""
-        _t = th.detect()
-        stored = btn.property("_color_value")
-        current = QColor(stored) if stored else QColor(_t.line_strong)
-
-        color = QColorDialog.getColor(current, self, "Pick a colour")
-        if color.isValid():
-            btn.setProperty("_color_value", color.name())
-            btn.setStyleSheet(
-                f"background: {color.name()}; "
-                f"border: 1px solid {_t.border_subtle}; "
-                f"border-radius: 2px;"
-            )
-            self._apply_property(key, color.name())
 
     def _change_level(self, new_level: str):
         """Change level for all targets (legacy path for nodes/pipes)."""

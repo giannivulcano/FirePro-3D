@@ -931,39 +931,53 @@ class _Chip(QWidget):
 
 
 class Swatch(QWidget):
-    """Colour picker: a painted chip + hex label. Opens QColorDialog on click and
-    emits ``colorChanged(hex)``. Replaces a bare QPushButton (which picked up the
-    app's global button chrome — min-height, padding, hover — and rendered wrong)."""
+    """Colour picker field: painted chip + hex label. Opens the house colour
+    picker (``colour_picker.pick_colour``) on click and emits
+    ``colorChanged(hex)``. ``allow_none=True`` offers No Fill; the emitted value
+    is then "" and the chip shows the shared No-Fill glyph with the label
+    "None" (todo #70). Replaces a bare QPushButton (which picked up the app's
+    global button chrome and rendered wrong)."""
 
     colorChanged = pyqtSignal(str)
 
-    def __init__(self, hex_color="#000000", parent=None):
+    def __init__(self, hex_color="#000000", parent=None, *, allow_none=False,
+                 context="Colour"):
         super().__init__(parent)
-        self._hex = hex_color or "#000000"
+        self._allow_none = allow_none
+        self._context = context
+        self._hex = "" if (allow_none and not hex_color) else (hex_color or "#000000")
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(M.PROP_HEX_GAP)
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
+        self._chip.setToolTip(f"Pick {context.lower()}")
         self._chip.clicked.connect(self._pick)
-        self._label = QLabel(self._hex.upper())
+        self._label = QLabel(self._text_for(self._hex))
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)
 
+    @staticmethod
+    def _text_for(v):
+        return "None" if not v else v.upper()
+
     def _pick(self):
-        from PyQt6.QtWidgets import QColorDialog
-        c = QColorDialog.getColor(QColor(self._hex), self, "Colour")
-        if c.isValid():
-            self.set_hex(c.name())
-            self.colorChanged.emit(c.name())
+        from . import colour_picker
+        v = colour_picker.pick_colour(self._hex, self, self._context,
+                                      allow_none=self._allow_none)
+        if v is None:
+            return
+        self.set_hex(v)
+        # Emit last: a listener may rebuild the panel and delete this widget.
+        self.colorChanged.emit(v)
 
     def set_hex(self, hex_color):
         self._hex = hex_color
         self._chip.set_color(hex_color)
-        self._label.setText(hex_color.upper())
+        self._label.setText(self._text_for(hex_color))
 
     def hex(self):
         return self._hex
