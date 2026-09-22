@@ -307,3 +307,21 @@ def test_dialog_chrome_uses_theme_tokens(qapp, theme_name):
     cp_ = chip.mapTo(d, chip.rect().center())
     assert QColor(img.pixel(cp_.x(), cp_.y())).name() == "#ff0000"
     d.close()
+
+
+@pytest.mark.parametrize("theme_name", ["dark", "light"])
+def test_group_labels_are_accent_coloured(qapp, theme_name):
+    """User 2026-09-22: the all-caps STANDARD/GREYS/RECENT group labels use the
+    theme accent (not the muted dialog-header colour)."""
+    from PyQt6.QtGui import QPalette
+    from PyQt6.QtWidgets import QLabel
+    from firepro3d import theme as th
+    from firepro3d.colour_picker import ColourPickerDialog
+    t = th.DARK if theme_name == "dark" else th.LIGHT
+    d = ColourPickerDialog(None, initial="#FF0000", context="x", theme=t)
+    d.show(); qapp.processEvents()
+    labels = [l for l in d.findChildren(QLabel) if l.text() in ("STANDARD", "GREYS", "RECENT")]
+    assert len(labels) == 3
+    for lbl in labels:
+        assert lbl.palette().color(QPalette.ColorRole.WindowText).name() == QColor(t.accent).name()
+    d.close()

@@ -901,6 +901,7 @@ QDialog[houseDialog="true"] QLabel {{ background: transparent; color: {t.ink}; }
 QDialog[houseDialog="true"] QLabel[role="muted"] {{ color: {t.muted}; }}
 QDialog[houseDialog="true"] QLabel[role="faint"] {{ color: {t.faint}; font-size: 12px; }}
 QDialog[houseDialog="true"] QLabel[role="header"] {{ color: {t.muted}; font-size: 10px; font-weight: 600; }}
+QDialog[houseDialog="true"] QLabel[role="overline"] {{ color: {t.accent}; font-size: 10px; font-weight: 600; }}
 QDialog[houseDialog="true"] QLabel[role="title"] {{ color: {t.ink}; font-size: 14px; font-weight: 700; }}
 QDialog[houseDialog="true"] QLabel[role="name"]  {{ color: {t.ink}; font-size: 14px; font-weight: 600; }}
 QDialog[houseDialog="true"] QLabel[state="warn"] {{

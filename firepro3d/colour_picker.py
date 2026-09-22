@@ -240,7 +240,7 @@ class _PaletteChip(QWidget):
 
 def _section_label(text):
     lbl = QLabel(text.upper())
-    lbl.setProperty("role", "header")            # build_dialog_qss: muted 10px 600
+    lbl.setProperty("role", "overline")          # build_dialog_qss: accent 10px 600
     return lbl
 
 
