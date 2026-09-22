@@ -26,10 +26,11 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
-    QCheckBox, QFontComboBox,
+    QCheckBox, QFontComboBox, QToolButton, QSlider,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QButtonGroup
 
 from .node import Node
 from .pipe import Pipe
@@ -326,6 +327,65 @@ class PropertyManager(QWidget):
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)
                 )
+
+            # ── icon_enum (segmented icon button row — one active) ────────
+            elif prop_type == "icon_enum":
+                from .icons import themed_icon
+                theme_name = "dark" if th.detect() is th.DARK else "light"
+                cont = QWidget(); lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(2)
+                grp = QButtonGroup(cont); grp.setExclusive(True)
+                for val, icon_name in meta.get("options", []):
+                    b = QToolButton(); b.setCheckable(True)
+                    b.setIcon(themed_icon(icon_name, theme_name))
+                    b.setToolTip(str(val).capitalize())
+                    b.setProperty("icon_enum_val", val)
+                    b.setChecked(val == meta.get("value"))
+                    b.clicked.connect(
+                        lambda _c, k=key, v=val: self._apply_property(k, v)
+                    )
+                    grp.addButton(b); lay.addWidget(b)
+                lay.addStretch(1)
+                widget = cont
+
+            # ── bool_group (row of pressable text buttons) ────────────────
+            elif prop_type == "bool_group":
+                cont = QWidget(); lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(2)
+                for sub_key, label in meta.get("keys", []):
+                    b = QToolButton(); b.setCheckable(True); b.setText(label)
+                    b.setChecked(bool(meta.get("values", {}).get(sub_key)))
+                    b.setToolTip(label)
+                    b.clicked.connect(
+                        lambda ch, k=sub_key: self._apply_property(k, bool(ch))
+                    )
+                    lay.addWidget(b)
+                lay.addStretch(1)
+                widget = cont
+
+            # ── number (bare integer field) ───────────────────────────────
+            elif prop_type == "number":
+                edit = QLineEdit(str(int(meta.get("value", 0))))
+                edit.setProperty("number_key", key)
+                edit.editingFinished.connect(
+                    lambda k=key, e=edit: self._apply_property(
+                        k, int(float(e.text() or 0)))
+                )
+                widget = edit
+
+            # ── percent (0–100 slider with % readout) ─────────────────────
+            elif prop_type == "percent":
+                cont = QWidget(); lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
+                sl = QSlider(Qt.Orientation.Horizontal)
+                sl.setRange(0, 100); sl.setValue(int(meta.get("value", 100)))
+                lbl = QLabel(f"{sl.value()}%")
+                sl.valueChanged.connect(lambda v, l=lbl: l.setText(f"{v}%"))
+                sl.valueChanged.connect(
+                    lambda v, k=key: self._apply_property(k, v)
+                )
+                lay.addWidget(sl); lay.addWidget(lbl)
+                widget = cont
 
             # ── string / fallback (editable line edit) ────────────────────
             else:
