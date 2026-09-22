@@ -104,7 +104,14 @@ class PropertyManager(QWidget):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._form_container = QWidget()
-        self._form = QFormLayout(self._form_container)
+        # Container = form on top + a stretch that ABSORBS extra vertical space,
+        # so the QFormLayout rows keep their natural (compact) height instead of
+        # being stretched to fill the tall (setWidgetResizable) scroll viewport.
+        _cbox = QVBoxLayout(self._form_container)
+        _cbox.setContentsMargins(0, 0, 0, 0)
+        _cbox.setSpacing(0)
+        _form_holder = QWidget()
+        self._form = QFormLayout(_form_holder)
         self._form.setContentsMargins(6, 4, 6, 4)
         self._form.setVerticalSpacing(5)
         self._form.setHorizontalSpacing(8)
@@ -112,6 +119,8 @@ class PropertyManager(QWidget):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        _cbox.addWidget(_form_holder)
+        _cbox.addStretch(1)
         scroll.setWidget(self._form_container)
         outer.addWidget(scroll)
 
