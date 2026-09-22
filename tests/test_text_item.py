@@ -67,13 +67,36 @@ def test_text_item_to_dict_from_dict_roundtrip(qapp):
     assert abs(t2.data.x - 3.0) < 1e-6 and abs(t2.data.y - 4.0) < 1e-6
 
 
-def test_text_item_capabilities_drop_scale_when_rotated(qapp):
+def test_text_model_surface_drops_scale_capability(qapp):
+    """On the model/Block-Editor surface, text resize is a font-constant box
+    resize via live grips — so "scale" is dropped (whether rotated or not), never
+    the box-native uniform-scale path (todo #62: text keeps a consistent height
+    while corner-dragging).  Paper text keeps scale (see the paper suite)."""
     from firepro3d.text_item import TextItem
     d = TextAnnotationData(text="X", height_mm=2.5)
-    t = TextItem(d)
-    assert t.manip_capabilities() == {"translate", "scale", "rotate"}
+    t = TextItem(d)   # scene-less → model (non-device-independent) behaviour
+    assert t.manip_capabilities() == {"translate", "rotate"}
     t.set_angle(30.0)
     assert t.manip_capabilities() == {"translate", "rotate"}
+
+
+def test_grip_resize_keeps_font_height_constant(qapp):
+    """A corner-grip resize changes the box (wrap/height) but never the cap height
+    (font) — the invariant behind 'text stays a consistent height while dragging'
+    (todo #62)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                           wrap_width_mm=400.0, box_height_mm=200.0)
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    h0 = d.height_mm
+    # Drag the bottom-right corner (grip index 4) outward.
+    t.apply_grip(4, QPointF(700.0, 500.0))
+    assert d.height_mm == h0                     # font cap height untouched
+    assert d.wrap_width_mm > 400.0               # box grew in width
+    assert d.box_height_mm > 200.0               # box grew in height
 
 
 def test_text_item_fill_rows_suppressed(qapp):

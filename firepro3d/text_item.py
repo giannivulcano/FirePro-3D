@@ -747,11 +747,21 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # Governing spec: docs/specs/selection-manipulator.md.
 
     def manip_capabilities(self) -> set:
-        """Translate + scale + rotate; scale drops when rotated (box-native
-        resize is only correct axis-aligned — matches NoteAnnotation/Rectangle)."""
-        if self._angle != 0.0:
-            return {"translate", "rotate"}
-        return {"translate", "scale", "rotate"}
+        """Translate + rotate on the model surface; + scale on paper.
+
+        A model/Block-Editor text resize is a **font-constant box resize**
+        (``apply_grip`` changes wrap width / box height, never the cap height), not
+        a uniform scale.  The box-native "scale" path previews via a uniform
+        ``setTransform`` that scales the glyphs during the drag and snaps them back
+        to the set height on release (WYSIWYG break).  Dropping "scale" routes the
+        resize through the live parametric grips (``manip_handles`` → ``apply_grip``),
+        so the text stays a consistent height throughout the drag.
+
+        Paper text keeps the box-native translate+scale+rotate path (device-
+        independent, undo-routed, and unchanged by this fix)."""
+        if self.is_device_independent():
+            return {"translate", "scale", "rotate"}
+        return {"translate", "rotate"}
 
     def manip_translate(self, dx: float, dy: float):
         self.moveBy(dx, dy)
