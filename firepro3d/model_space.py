@@ -38,6 +38,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
+                       DEFAULT_MODEL_TEXT_HEIGHT_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -4548,7 +4549,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # both the file and undo paths — NOT a NoteAnnotation any more.
             data = TextAnnotationData(
                 text="Text", x=rect.x(), y=rect.y(),
-                wrap_width_mm=text_width)
+                wrap_width_mm=text_width,
+                height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
             # Seed a canvas-visible ink (theme foreground) so a freshly placed
             # model text isn't invisible black-on-dark — parity with the sibling
             # 2D primitives, which default to a visible colour.  Paper text keeps

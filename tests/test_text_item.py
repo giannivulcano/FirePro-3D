@@ -218,6 +218,22 @@ def test_model_placed_text_seeds_visible_ink(qapp):
     assert texts[0].data.color.lower() != "#000000"
 
 
+def test_model_placed_text_uses_readable_default_height(qapp):
+    """Model-placed text seeds the larger real-size CAP height (not the 3/16"
+    paper default, which is ~5 px at the editor's 1:1 zoom) — todo #62."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.constants import DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_TEXT_HEIGHT_MM
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+    assert texts[0].data.height_mm == DEFAULT_MODEL_TEXT_HEIGHT_MM
+    assert texts[0].data.height_mm > DEFAULT_TEXT_HEIGHT_MM
+
+
 def test_model_border_pen_is_cosmetic(qapp):
     """On the model / Block-Editor surface the border pen is cosmetic (constant
     device width at all zooms), aligned with the sibling 2D primitives whose
