@@ -4555,6 +4555,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # black-on-dark — parity with the sibling 2D primitives, which default
             # to "#ffffff".  Paper text keeps the black default (prints on white).
             data.color = "#ffffff"
+            data.border = True   # solid border on by default (border_line_type already "solid")
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_size()[1])

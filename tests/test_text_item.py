@@ -247,6 +247,87 @@ def test_model_text_alignment_shifts_glyphs(qapp):
     assert xs["L"] < xs["C"] < xs["R"]
 
 
+def test_new_panel_fields_roundtrip(qapp):
+    """valign / cell_padding_mm / border_corner_radius_mm round-trip (todo #62)."""
+    from firepro3d.text_item import TextAnnotationData
+    d = TextAnnotationData(text="x", valign="B", cell_padding_mm=7.5,
+                           border_corner_radius_mm=12.0)
+    d2 = TextAnnotationData.from_dict(d.to_dict())
+    assert d2.valign == "B"
+    assert d2.cell_padding_mm == 7.5
+    assert d2.border_corner_radius_mm == 12.0
+
+
+def test_model_text_valign_shifts_glyphs(qapp):
+    """T / M / B vertical alignment shifts the glyph outline within box-height
+    slack (todo #62 item 6)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    ys = {}
+    for va in ("T", "M", "B"):
+        d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                               wrap_width_mm=400.0, box_height_mm=600.0)
+        d.valign = va
+        t = TextItem(d); s.addItem(t); t._apply_format()
+        ys[va] = t._glyph_outline_local().boundingRect().top()
+    assert ys["T"] < ys["M"] < ys["B"]
+
+
+def test_corner_radius_changes_frame_path(qapp):
+    """An explicit corner radius changes the rounded-frame geometry (todo #62
+    item 4 — a definable radius, reversing the spec's fixed-fraction default)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0,
+                           wrap_width_mm=400.0, box_height_mm=300.0,
+                           border=True, border_corner="round")
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    d.border_corner_radius_mm = 5.0
+    p_small = t._frame_path()
+    d.border_corner_radius_mm = 60.0
+    p_big = t._frame_path()
+    assert p_small != p_big
+
+
+def test_cell_padding_sets_document_margin(qapp):
+    """Cell padding drives the text box inner margin (todo #62 item 7)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    d = TextAnnotationData(text="Hi", x=0, y=0, height_mm=100.0, cell_padding_mm=12.0)
+    t = TextItem(d); s.addItem(t); t._apply_format()
+    assert abs(t.document().documentMargin() - 12.0 / (t.scale() or 1.0)) < 1e-6
+
+
+def test_model_placed_text_defaults_border_on(qapp):
+    """Model-placed text gets a solid border on by default (todo #62 item 8)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    s._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    t = [i for i in s._texts if type(i).__name__ == "TextItem"][0]
+    assert t.data.border is True
+    assert t.data.border_line_type == "solid"
+
+
+def test_swatch_allow_none(qapp):
+    """The colour Swatch supports a no-fill state and emits "" on clear
+    (todo #62 item 3)."""
+    from firepro3d.ui_kit import Swatch
+    sw = Swatch("", allow_none=True)
+    assert sw.hex() == ""
+    seen = []
+    sw.colorChanged.connect(seen.append)
+    sw._clear()
+    assert seen == [""]
+    # A non-allow_none swatch coerces empty to black (unchanged behaviour).
+    assert Swatch("").hex() == "#000000"
+
+
 def test_model_border_pen_is_cosmetic(qapp):
     """On the model / Block-Editor surface the border pen is cosmetic (constant
     device width at all zooms), aligned with the sibling 2D primitives whose

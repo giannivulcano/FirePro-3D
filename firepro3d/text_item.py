@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .constants import DEFAULT_TEXT_HEIGHT_MM
+from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
 
 
 @dataclass
@@ -82,13 +82,16 @@ class TextAnnotationData:
     italic: bool = False
     underline: bool = False
     color: str = "#000000"                       # authored hex, default black
-    align: str = "L"                             # 'L' | 'C' | 'R'
+    align: str = "L"                             # horizontal: 'L' | 'C' | 'R'
+    valign: str = "T"                            # vertical: 'T' | 'M' | 'B'
     fill_color: str = ""                          # box fill hex; "" = no fill
     fill_opacity: float = 100.0                   # fill alpha percentage 0-100
+    cell_padding_mm: float = TEXT_BOX_MARGIN_MM   # inner padding text↔box edge (surface mm)
     border: bool = False                         # frame visibility
     border_weight: str = "Medium"                # named line-weight (resolve_line_weight_mm)
     border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
     border_corner: str = "square"                # 'square'|'round'|'chamfer'
+    border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     type: str = "text"                           # discriminator for future annotation types
 
@@ -100,10 +103,12 @@ class TextAnnotationData:
             "box_height_mm": self.box_height_mm,
             "font_family": self.font_family,
             "bold": self.bold, "italic": self.italic, "underline": self.underline,
-            "color": self.color, "align": self.align,
+            "color": self.color, "align": self.align, "valign": self.valign,
             "fill_color": self.fill_color, "fill_opacity": self.fill_opacity,
+            "cell_padding_mm": self.cell_padding_mm,
             "border": self.border, "border_weight": self.border_weight,
             "border_line_type": self.border_line_type, "border_corner": self.border_corner,
+            "border_corner_radius_mm": self.border_corner_radius_mm,
             "angle": self.angle,
         }
 
@@ -119,14 +124,17 @@ class TextAnnotationData:
             bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
+            valign=d.get("valign", "T"),
             fill_color=(d.get("fill_color")
                         if d.get("fill_color") is not None
                         else ("#ffffff" if bool(d.get("opaque_bg", False)) else "")),
             fill_opacity=float(d.get("fill_opacity", 100.0)),
+            cell_padding_mm=float(d.get("cell_padding_mm", TEXT_BOX_MARGIN_MM)),
             border=bool(d.get("border", False)),
             border_weight=d.get("border_weight", "Medium"),
             border_line_type=d.get("border_line_type", "solid"),
             border_corner=d.get("border_corner", "square"),
+            border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
             angle=float(d.get("angle", 0.0)),
             type=d.get("type", "text"),
         )
@@ -166,7 +174,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu  # noqa: E40
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
-    TEXT_BOX_MARGIN_MM, TEXT_METRIC_REF_PX,
+    TEXT_METRIC_REF_PX,
 )
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
@@ -290,7 +298,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.setScale(scale)
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
-            self.document().setDocumentMargin(TEXT_BOX_MARGIN_MM / scale)
+            self.document().setDocumentMargin(self._data.cell_padding_mm / scale)
         if d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
         else:
@@ -342,13 +350,20 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def _frame_path(self) -> "QPainterPath":
         """Border path for the box rect, honoring the corner style (local frame)."""
-        from .constants import TEXT_FRAME_CORNER_FRAC
         r = self._box_rect_local()
         path = QPainterPath()
         if self._data.border_corner == "square":
             path.addRect(r)
             return path
-        rad = TEXT_FRAME_CORNER_FRAC * min(r.width(), r.height())
+        cap = min(r.width(), r.height()) / 2.0        # geometric max radius
+        if self._data.border_corner_radius_mm > 0:
+            # Explicit radius (surface mm → local units), clamped so it never
+            # exceeds half the shorter side.
+            scale = self.scale() or 1.0
+            rad = min(self._data.border_corner_radius_mm / scale, cap)
+        else:
+            from .constants import TEXT_FRAME_CORNER_FRAC
+            rad = TEXT_FRAME_CORNER_FRAC * min(r.width(), r.height())
         if self._data.border_corner == "round":
             path.addRoundedRect(r, rad, rad)
             return path
@@ -596,6 +611,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         align = doc.defaultTextOption().alignment()
         _tw = doc.textWidth()
         avail = (_tw - 2.0 * doc.documentMargin()) if _tw > 0 else None
+        # Vertical alignment: shift the whole block within the box-height slack
+        # (top=0, middle=slack/2, bottom=slack). No slack ⇒ no-op (auto-height box).
+        vslack = max(0.0, self._box_rect_local().height() - super().boundingRect().height())
+        voff = (vslack if self._data.valign == "B"
+                else vslack / 2.0 if self._data.valign == "M" else 0.0)
         outline = QPainterPath()
         block = doc.begin()
         while block.isValid():
@@ -615,7 +635,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 # Each newline starts a NEW block (not a new line in one block),
                 # so the baseline is block_offset + intra-block line y + ascent.
                 base_x = block_pos.x() + line.x() + align_off
-                base_y = block_pos.y() + line.y() + line.ascent()
+                base_y = block_pos.y() + line.y() + line.ascent() + voff
                 start = line.textStart()
                 length = line.textLength()
                 # A block never contains a newline (Qt splits blocks on \n), so
@@ -817,12 +837,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
             "Height":   {"type": "number", "value": int(round(d.height_mm)), "minimum": 1},
+            "Padding":  {"type": "number", "value": int(round(d.cell_padding_mm)), "minimum": 0},
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
                          "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
             "Alignment": {"type": "icon_enum", "value": d.align,
                           "options": [("L", "align_left.svg"), ("C", "align_center.svg"),
                                       ("R", "align_right.svg")]},
+            "V Align":  {"type": "icon_enum", "value": d.valign,
+                         "options": [("T", "align_top.svg"), ("M", "align_middle.svg"),
+                                     ("B", "align_bottom.svg")]},
             "Font Color": {"type": "color", "value": d.color or "#000000"},
             "Frame":    {"type": "header", "value": "Frame"},
             "Line Type": {"type": "enum",
@@ -835,8 +859,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                          "options": [("square", "corner_square.svg"),
                                      ("round", "corner_fillet.svg"),
                                      ("chamfer", "corner_chamfer.svg")]},
+            "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
+                              "minimum": 0},
             "Fill":     {"type": "header", "value": "Fill"},
-            "Fill Color":   {"type": "color", "value": d.fill_color or "#ffffff"},
+            "Fill Color":   {"type": "color", "value": d.fill_color, "allow_none": True},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity)},
         }
         geom2d = self._geom2d_properties()
@@ -876,6 +902,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.underline = bool(value)
         elif key == "Alignment":
             self._data.align = str(value)
+        elif key == "V Align":
+            self._data.valign = str(value)
+        elif key == "Padding":
+            try:
+                self._data.cell_padding_mm = max(0.0, float(value))
+            except (TypeError, ValueError):
+                return
         elif key == "Fill Color":
             self._data.fill_color = str(value)
         elif key == "Fill Opacity":
@@ -893,6 +926,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 self._data.border_line_type = str(value)
         elif key == "Corner":
             self._data.border_corner = str(value)
+        elif key == "Corner Radius":
+            try:
+                self._data.border_corner_radius_mm = max(0.0, float(value))
+            except (TypeError, ValueError):
+                return
         elif self._geom2d_set(key, value):
             return
         else:
