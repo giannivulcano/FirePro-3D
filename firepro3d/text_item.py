@@ -751,26 +751,32 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             from .paper_space import _text_panel_properties
             return _text_panel_properties(self._data)
+        d = self._data
         props = {
-            "Type":      {"type": "label",  "value": "Text"},
-            "Text":      {"type": "string", "value": self._data.text},
-            "Height":    {"type": "dimension", "value": self._fmt(self._data.height_mm),
-                          "value_mm": self._data.height_mm},
-            "Bold":      {"type": "toggle", "value": bool(self._data.bold)},
-            "Italic":    {"type": "toggle", "value": bool(self._data.italic)},
-            "Underline": {"type": "toggle", "value": bool(self._data.underline)},
-            "Alignment": {"type": "enum", "options": ["L", "C", "R"],
-                          "value": self._data.align},
-            "Fill Color":   {"type": "color", "value": self._data.fill_color or "#ffffff"},
-            "Fill Opacity": {"type": "percent", "value": float(self._data.fill_opacity)},
-            "Border":       {"type": "toggle", "value": bool(self._data.border)},
-            "Line Type":    {"type": "enum", "options": ["solid", "dashed", "dotted", "dashdot"],
-                             "value": self._data.border_line_type},
-            "Border Weight":{"type": "enum",
-                             "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
-                             "value": self._data.border_weight},
-            "Corner":       {"type": "enum", "options": ["square", "round", "chamfer"],
-                             "value": self._data.border_corner},
+            "Text":     {"type": "header", "value": "Text"},
+            "Content":  {"type": "string", "value": d.text},
+            "Format":   {"type": "header", "value": "Format"},
+            "Font":     {"type": "font", "value": d.font_family or "Arial"},
+            "Height":   {"type": "number", "value": int(round(d.height_mm))},
+            "Style":    {"type": "bool_group",
+                         "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
+                         "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
+            "Alignment": {"type": "enum", "options": ["L", "C", "R"], "value": d.align},
+            "Font Color": {"type": "color", "value": d.color or "#000000"},
+            "Frame":    {"type": "header", "value": "Frame"},
+            "Border":   {"type": "toggle", "value": bool(d.border)},
+            "Corner":   {"type": "icon_enum", "value": d.border_corner,
+                         "options": [("square", "corner_square.svg"),
+                                     ("round", "corner_fillet.svg"),
+                                     ("chamfer", "corner_chamfer.svg")]},
+            "Line Type": {"type": "enum", "options": ["solid", "dashed", "dotted", "dashdot"],
+                          "value": d.border_line_type},
+            "Border Weight": {"type": "enum",
+                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                              "value": d.border_weight},
+            "Fill":     {"type": "header", "value": "Fill"},
+            "Fill Color":   {"type": "color", "value": d.fill_color or "#ffffff"},
+            "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity)},
         }
         geom2d = self._geom2d_properties()
         # Text carries no level semantics (containment spec) — strip the level
@@ -787,10 +793,18 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)
+        elif key == "Content":
+            self._data.text = str(value)
+            self.setPlainText(self._data.text)
         elif key == "Font":
             self._data.font_family = str(value)
+        elif key == "Font Color":
+            self._data.color = str(value)
         elif key == "Height":
-            mm = self._parse_dim(value)
+            try:
+                mm = float(value)
+            except (TypeError, ValueError):
+                mm = self._parse_dim(value)
             if mm is not None and mm > 0:
                 self._data.height_mm = mm
         elif key == "Bold":

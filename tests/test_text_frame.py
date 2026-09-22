@@ -39,7 +39,7 @@ def test_model_get_properties_exposes_frame(qapp):
     props = item.get_properties()
     assert props["Border"]["value"] is True
     assert props["Corner"]["value"] == "round"
-    assert set(props["Corner"]["options"]) == {"square", "round", "chamfer"}
+    assert {o[0] for o in props["Corner"]["options"]} == {"square", "round", "chamfer"}
 
 
 def test_paper_panel_change_frame_keys():
@@ -133,3 +133,42 @@ def test_fill_renders_pixels(qapp):
     item.set_property("Fill Color", "#c0392b")
     on = _render_nonwhite_count(item)
     assert on > off + 50
+
+
+# ── Grouped annotation-text panel form (T10) ────────────────────────────────
+
+def test_annotation_panel_grouped_form(qapp):
+    item = TextItem(TextAnnotationData(text="A", border=True, fill_color="#d19a26"))
+    p = item.get_properties()
+    keys = list(p.keys())
+    assert keys.index("Text") < keys.index("Format") < keys.index("Frame") < keys.index("Fill")
+    assert p["Text"]["type"] == "header" and p["Format"]["type"] == "header"
+    assert keys.index("Font") > keys.index("Format") and keys.index("Height") > keys.index("Format")
+    assert p["Height"]["type"] == "number"
+    assert p["Corner"]["type"] == "icon_enum"
+    assert [o[0] for o in p["Corner"]["options"]] == ["square", "round", "chamfer"]
+    assert p["Style"]["type"] == "bool_group"
+    assert p["Font Color"]["type"] == "color"
+    assert p["Fill Color"]["type"] == "color" and p["Fill Opacity"]["type"] == "percent"
+
+
+def test_annotation_panel_commits(qapp):
+    item = TextItem(TextAnnotationData(text="A"))
+    item.set_property("Content", "hello")
+    item.set_property("Font Color", "#223344")
+    item.set_property("Height", 60)
+    assert item._data.text == "hello"
+    assert item._data.color == "#223344"
+    assert abs(item._data.height_mm - 60) < 1e-6
+
+
+def test_panel_renders_textitem_end_to_end(qapp):
+    from firepro3d.property_manager import PropertyManager
+    item = TextItem(TextAnnotationData(text="A"))
+    pm = PropertyManager()
+    pm.show_properties(item)           # builds the grouped form without error
+    from PyQt6.QtWidgets import QAbstractButton
+    corner_btns = [b for b in pm.findChildren(QAbstractButton) if b.property("icon_enum_val")]
+    assert len(corner_btns) == 3       # icon_enum Corner rendered in the real panel
+    next(b for b in corner_btns if b.property("icon_enum_val") == "chamfer").click()
+    assert item._data.border_corner == "chamfer"

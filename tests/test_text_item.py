@@ -82,7 +82,9 @@ def test_text_item_fill_rows_suppressed(qapp):
     t = TextItem(d)
     assert t.is_fillable() is False
     props = t.get_properties()
-    assert "Fill" not in props
+    # "Fill" is now the section header for TextItem's own fill_color/opacity —
+    # geom2d mixin fill is still suppressed (is_fillable() is False).
+    assert props.get("Fill", {}).get("type") == "header"
 
 
 def test_text_item_has_no_level_properties(qapp):
