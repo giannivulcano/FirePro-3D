@@ -25,7 +25,7 @@ def test_data_defaults_and_rotation_roundtrip():
     assert d2.text == "Hi"
     assert d2.height_mm == 2.5
     for f in ("font_family", "bold", "italic", "underline",
-              "opaque_bg", "align", "wrap_width_mm", "box_height_mm", "color"):
+              "fill_color", "fill_opacity", "align", "wrap_width_mm", "box_height_mm", "color"):
         assert hasattr(d2, f)
 
 
@@ -82,7 +82,9 @@ def test_text_item_fill_rows_suppressed(qapp):
     t = TextItem(d)
     assert t.is_fillable() is False
     props = t.get_properties()
-    assert "Fill" not in props
+    # "Fill" is now the section header for TextItem's own fill_color/opacity —
+    # geom2d mixin fill is still suppressed (is_fillable() is False).
+    assert props.get("Fill", {}).get("type") == "header"
 
 
 def test_text_item_has_no_level_properties(qapp):

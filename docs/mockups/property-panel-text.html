@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Property panel — annotation text</title>
+<style>
+  :root{
+    --panel:#212528; --fill:#2A2F34; --sunken:#1A1D20; --edge:#3A4046; --edge2:#4A5158;
+    --ink:#E6E9EC; --ink2:#CFD4D9; --dim:#98A0A7;
+    --accent:#3FAE72; --accent-soft:rgba(63,174,114,0.18); --accent-ink:#7FE0AC;
+    --page:#15181b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font:13px/1.4 "Segoe UI",system-ui;padding:24px;display:flex;gap:28px;align-items:flex-start}
+  h1{font-size:16px;margin:0 0 4px}
+  .intro{max-width:330px;color:var(--dim);font-size:12.5px}
+  .intro code{background:#0d1117;padding:1px 5px;border-radius:4px;color:#cbd5e1;font-size:11.5px}
+  .intro b{color:var(--ink)}
+  .intro ul{padding-left:16px;margin:8px 0}
+  .intro li{margin-bottom:3px}
+
+  .dock{width:290px;background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:hidden;flex:0 0 290px}
+  .dock-title{padding:9px 12px;background:var(--sunken);border-bottom:1px solid var(--edge);
+    font-size:12px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px}
+  .dock-title .tag{margin-left:auto;font-size:10px;color:var(--dim);border:1px solid var(--edge);border-radius:8px;padding:1px 7px}
+  .body{padding:8px 12px 14px}
+
+  .overline{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--accent-ink);
+    margin:14px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--edge)}
+  .overline:first-child{margin-top:2px}
+  .row{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:8px;min-height:28px;margin-bottom:5px}
+  .row label{color:var(--dim);font-size:12px}
+  .val{min-width:0;display:flex;align-items:center;gap:8px}
+
+  input.f, select.f, textarea.f{width:100%;background:var(--fill);border:1px solid var(--edge);
+    border-radius:4px;color:var(--ink);font:12px "Segoe UI";padding:4px 7px;outline:none}
+  input.f:focus,select.f:focus,textarea.f:focus{border-color:var(--accent)}
+  textarea.f{resize:vertical;min-height:44px;line-height:1.35}
+  input.num{width:60px;text-align:right}
+  select.f{appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);background-position:calc(100% - 13px) center,calc(100% - 8px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:20px}
+
+  .seg{display:flex;gap:2px;background:var(--sunken);border:1px solid var(--edge);border-radius:5px;padding:2px;width:max-content}
+  .seg button{min-width:30px;height:24px;border:1px solid transparent;border-radius:4px;background:transparent;
+    color:var(--ink2);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 5px}
+  .seg button:hover{background:var(--fill)}
+  .seg button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+  .seg button svg{width:16px;height:16px;display:block}
+  .bius{display:flex;gap:2px}
+  .bius button{width:26px;height:24px;border:1px solid var(--edge);border-radius:4px;background:var(--fill);color:var(--ink2);cursor:pointer}
+  .bius button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+
+  .sw{width:38px;height:20px;border-radius:11px;background:var(--edge);position:relative;cursor:pointer;transition:background .12s;flex:0 0 38px}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#cfd4d9;transition:left .12s}
+  .sw.on{background:var(--accent)} .sw.on::after{left:20px;background:#fff}
+
+  .swatch{width:52px;height:22px;border-radius:4px;border:1px solid var(--edge2);cursor:pointer;flex:0 0 52px}
+  .swatch.none{background:repeating-conic-gradient(#555 0 25%, #333 0 50%) 50%/10px 10px}
+  input[type=range]{flex:1;accent-color:var(--accent)}
+  .pct{width:34px;text-align:right;color:var(--ink2);font-variant-numeric:tabular-nums;font-size:12px}
+  .frm.off{opacity:.4;pointer-events:none}
+</style></head>
+<body>
+  <div>
+    <h1>Property panel — annotation text <span style="font-size:11px;color:var(--accent-ink);border:1px solid var(--accent);border-radius:10px;padding:1px 8px">MOCK v2</span></h1>
+    <p class="intro">Panel for a selected <b>TextItem</b> (Block Editor / model space), rows from <code>TextItem.get_properties()</code>. Locked layout:</p>
+    <ul class="intro">
+      <li><b>Text</b> — Content</li>
+      <li><b>Format</b> — Font · Height (bare pixels, no unit) · B/I/U buttons · Alignment · Font colour</li>
+      <li><b>Frame</b> — Border · Corner (icon seg) · Line type · Line weight</li>
+      <li><b>Fill</b> — Fill colour · Opacity 0–100% <span style="color:var(--accent-ink)">(new: evolves <code>opaque_bg</code> → fill colour+alpha)</span></li>
+    </ul>
+    <p class="intro">Toggle Border/Fill on to see dependent rows enable. Click a swatch to cycle colour / none.</p>
+  </div>
+
+  <div class="dock" id="dock">
+    <div class="dock-title">✎ Text <span class="tag">Block Editor</span></div>
+    <div class="body" id="panelBody"></div>
+  </div>
+
+<script>
+const $=id=>document.getElementById(id);
+const ICON={
+  square:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+  round:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 8 Q4 13 9 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  chamfer:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 8 L9 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  alignL:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="1" y="5.2" width="9" height="1.6"/><rect x="1" y="9.4" width="12" height="1.6"/></g></svg>',
+  alignC:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="3.5" y="5.2" width="9" height="1.6"/><rect x="2" y="9.4" width="12" height="1.6"/></g></svg>',
+  alignR:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="6" y="5.2" width="9" height="1.6"/><rect x="3" y="9.4" width="12" height="1.6"/></g></svg>',
+};
+const COLORS=['#111111','#c0392b','#2d7d46','#2f6fb0','#d19a26'];
+const st={bold:false,italic:true,underline:false,align:'L',fontColor:'#111111',
+          border:true,corner:'round',
+          fill:'#d19a26', fillOpacity:35};
+
+function row(label,val){return `<div class="row"><label>${label}</label><div class="val">${val}</div></div>`;}
+function rowc(cls,label,val){return `<div class="row ${cls}"><label>${label}</label><div class="val">${val}</div></div>`;}
+function ov(t){return `<div class="overline">${t}</div>`;}
+
+function build(){
+  let h='';
+  h+=ov('Text');
+  h+=row('Content', `<textarea class="f" rows="2">SPRINKLER NOTE\nQR pendent @ 12'-0" o.c.</textarea>`);
+
+  h+=ov('Format');
+  h+=row('Font', `<select class="f"><option>Segoe UI</option><option>Arial</option><option>Consolas</option></select>`);
+  h+=row('Height', `<input class="f num" value="48">`);
+  h+=row('Style', `<div class="bius">
+     <button data-b="bold" style="font-weight:700">B</button>
+     <button data-b="italic" style="font-style:italic">I</button>
+     <button data-b="underline" style="text-decoration:underline">U</button></div>`);
+  h+=row('Alignment', `<div class="seg" id="alignSeg">
+     <button data-al="L" title="Align left">${ICON.alignL}</button>
+     <button data-al="C" title="Align center">${ICON.alignC}</button>
+     <button data-al="R" title="Align right">${ICON.alignR}</button></div>`);
+  h+=row('Font colour', `<div class="swatch" id="sw-font" title="Font colour" style="background:${st.fontColor}"></div>`);
+
+  h+=ov('Frame');
+  h+=row('Border', `<div class="sw ${st.border?'on':''}" data-sw="border" title="Border visibility"></div>`);
+  const fc = st.border?'frm':'frm off';
+  h+=rowc(fc,'Corner', `<div class="seg" id="cornerSeg">
+     <button data-c="square" title="Square corner">${ICON.square}</button>
+     <button data-c="round" title="Fillet (rounded) corner">${ICON.round}</button>
+     <button data-c="chamfer" title="Chamfer (cut) corner">${ICON.chamfer}</button></div>`);
+  h+=rowc(fc,'Line type', `<select class="f"><option>Solid</option><option>Dashed</option><option>Dotted</option><option>Dash-dot</option></select>`);
+  h+=rowc(fc,'Line weight', `<select class="f"><option>Very Light</option><option selected>Light</option><option>Medium</option><option>Heavy</option><option>Very Heavy</option></select>`);
+
+  h+=ov('Fill');
+  const hasFill = st.fill !== null;
+  h+=row('Fill colour', `<div class="swatch ${hasFill?'':'none'}" id="sw-fill" title="Fill colour (click to cycle / none)" style="${hasFill?`background:${st.fill}`:''}"></div>`);
+  const oc = hasFill?'frm':'frm off';
+  h+=rowc(oc,'Opacity', `<input type="range" id="op" min="0" max="100" value="${st.fillOpacity}"><span class="pct" id="opv">${st.fillOpacity}%</span>`);
+
+  $('panelBody').innerHTML=h; wire();
+}
+
+function wire(){
+  const bd=$('panelBody');
+  bd.querySelectorAll('.bius button').forEach(b=>{const k=b.dataset.b;
+    b.classList.toggle('on',st[k]); b.onclick=()=>{st[k]=!st[k];b.classList.toggle('on',st[k]);};});
+  const as=$('alignSeg'); as.querySelectorAll('button').forEach(b=>{
+    b.classList.toggle('on',b.dataset.al===st.align);
+    b.onclick=()=>{st.align=b.dataset.al;as.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));};});
+  const cs=$('cornerSeg'); if(cs) cs.querySelectorAll('button').forEach(b=>{
+    b.classList.toggle('on',b.dataset.c===st.corner);
+    b.onclick=()=>{st.corner=b.dataset.c;cs.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));};});
+  const bsw=bd.querySelector('[data-sw="border"]'); bsw.onclick=()=>{st.border=!st.border;build();};
+  $('sw-font').onclick=()=>{let i=(COLORS.indexOf(st.fontColor)+1)%COLORS.length;st.fontColor=COLORS[i];build();};
+  $('sw-fill').onclick=()=>{
+    if(st.fill===null){st.fill=COLORS[3];}
+    else{let i=COLORS.indexOf(st.fill)+1; st.fill = i>=COLORS.length ? null : COLORS[i];}
+    build();
+  };
+  const op=$('op'); if(op){op.oninput=()=>{st.fillOpacity=+op.value;$('opv').textContent=op.value+'%';};}
+}
+build();
+</script>
+</body></html>

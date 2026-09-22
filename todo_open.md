@@ -55,6 +55,19 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
+## Text annotation system
+
+> Feature landed 2026-09-22 on `feat/text-annotation-frame` (frame axis + FontSelect + fill model + grouped annotation property panel + custom Selector/Stepper/Swatch inputs + tokenized panel metrics `theme.M.PROP_*`). Governing spec `docs/specs/text-annotation-system.md`. Follow-ups below.
+
+- [ ] [type:bug] Annotation text box doesn't render its panel settings [P1] [subject:UX]
+  - Details: user, 2026-09-22 (wrap). Editing a selected text's properties in the property panel (border/line-type/weight/corner, fill colour+opacity, font/height/B-I-U/colour/alignment) updates the `TextAnnotationData` but the **rendered text box on the canvas / Block Editor does not visually reflect the settings**. Panel commits route `_apply_property → TextItem.set_property → prepareGeometryChange + _apply_format`, and `sceneModified` fires — but the visual doesn't update. Needs live investigation (live-only, needs the running app): is the panel editing the SAME `TextItem` instance that's rendered (identity)? Does Block-Editor text render only via the glyph-outline compile (`render_outline_path`, which ignores frame/fill) rather than `paint`? Does `paint` re-read the updated data + is the item's `update()` called after a data-only change? Add a live readout at the paint path. `firepro3d/text_item.py` (`paint`/`set_property`/`_apply_format`), `firepro3d/property_manager.py` (`_apply_property`), `firepro3d/block_editor.py`, `firepro3d/model_space.py`. ref: text-annotation-system.
+- [ ] [type:feature] Text style presets + per-property overrides + SHX (draft-spec phase 2) [P2] [subject:UX]
+  - Details: the deferred larger vision from `Downloads/Ribbon Text Group — Spec.md` (seed): named `TextStyle` bundles (font/height/width-factor/B-I-U) + per-entity overrides + the launcher/style-manager dialog + SHX fonts (FontSelect already has a font-source seam). ref: text-annotation-system D1/D2.
+- [ ] [type:feature] Extend the ribbon Text/Frame groups to model/Block-Editor text (undo-routed) [P2] [subject:UX]
+  - Details: the ribbon Text/Frame groups are paper-scoped (`_font_group_targets` returns targets only on a `PaperSpaceWidget`; only `paper_scene.selectionChanged` drives `_update_font_group_context`). Wire model/Block-Editor selection + route model-text commits through the scene undo snapshot. Overlaps the "Absorb Modify→Text into the entity-aware Font group" item. ref: text-annotation-system D6. `main.py`.
+- [ ] [type:maint] Tokenize the ribbon `_VLabel` group-label font size (literal `6.5pt`) [P3] [subject:UX]
+  - Details: user, 2026-09-22 audit — the vertical ribbon group label colour IS tokenized (`text_secondary`) but the size is a hardcoded `setPointSizeF(6.5)`. Lift to a `theme.M` metric. (User chose to leave the colour grey, not accent-green.) `firepro3d/ribbon_bar.py`.
+
 ## UI follow-ups
 
 > From the 2026-09-05 UI-cleanup batch.

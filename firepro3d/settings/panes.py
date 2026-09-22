@@ -28,6 +28,7 @@ from firepro3d.app_data import (
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
+from firepro3d.theme import M
 
 
 class SettingsPane(QWidget):
@@ -1069,19 +1070,24 @@ class UIPane(SettingsPane):
     _THEME_KEY = "ui/theme"
     _CROSSHAIR_KEY = "ui/crosshair"
     _IMMERSIVE_KEY = "ui/immersive"
+    _PANEL_WIDTH_KEY = "ui/prop_panel_width"
+    _PANEL_WIDTH_DEFAULT = M.PROP_DOCK_W
     _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
 
     def __init__(self, on_theme_changed: Callable[[], None] | None = None,
                  on_crosshair_changed: Callable[[bool], None] | None = None,
                  on_immersive_changed: Callable[[bool], None] | None = None,
+                 on_panel_width_changed: Callable[[int], None] | None = None,
                  parent=None):
         super().__init__("UI", parent)
         self._on_theme_changed = on_theme_changed
         self._on_crosshair_changed = on_crosshair_changed
         self._on_immersive_changed = on_immersive_changed
+        self._on_panel_width_changed = on_panel_width_changed
         self._snapshot = "system"
         self._crosshair_snapshot = True
         self._immersive_snapshot = False
+        self._panel_width_snapshot = self._PANEL_WIDTH_DEFAULT
 
         form = QFormLayout(self)
         self._theme_combo = QComboBox()
@@ -1094,6 +1100,11 @@ class UIPane(SettingsPane):
 
         self._immersive_cb = ToggleSwitch("Maximize window on startup")
         form.addRow(self._immersive_cb)
+
+        self._panel_width_spin = QSpinBox()
+        self._panel_width_spin.setRange(200, 640)
+        self._panel_width_spin.setSuffix(" px")
+        form.addRow("Properties panel width:", self._panel_width_spin)
 
         hint = QLabel(
             "System follows your OS light/dark setting. Changes apply to the "
@@ -1114,6 +1125,9 @@ class UIPane(SettingsPane):
         im = s.value(self._IMMERSIVE_KEY, False, type=bool)
         self._immersive_snapshot = im
         self._immersive_cb.setChecked(im)
+        pw = s.value(self._PANEL_WIDTH_KEY, self._PANEL_WIDTH_DEFAULT, type=int)
+        self._panel_width_snapshot = pw
+        self._panel_width_spin.setValue(pw)
 
     def apply(self):
         val = self._CHOICES[self._theme_combo.currentIndex()][1]
@@ -1142,12 +1156,20 @@ class UIPane(SettingsPane):
             self._on_immersive_changed(im)
         self._immersive_snapshot = im
 
+        pw = int(self._panel_width_spin.value())
+        s.setValue(self._PANEL_WIDTH_KEY, pw)
+        s.sync()
+        if pw != self._panel_width_snapshot and self._on_panel_width_changed is not None:
+            self._on_panel_width_changed(pw)
+        self._panel_width_snapshot = pw
+
     def revert(self):
         idx = next(
             (i for i, (_, v) in enumerate(self._CHOICES) if v == self._snapshot), 0)
         self._theme_combo.setCurrentIndex(idx)
         self._crosshair_cb.setChecked(self._crosshair_snapshot)
         self._immersive_cb.setChecked(self._immersive_snapshot)
+        self._panel_width_spin.setValue(self._panel_width_snapshot)
 
 
 class ProjectInfoPane(SettingsPane):

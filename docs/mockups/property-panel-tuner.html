@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Property panel tuner</title>
+<style>
+  :root{
+    /* real dark-theme tokens */
+    --bg:#15181b; --panel:#212528; --sunken:#1A1D20; --field:#2A2F34;
+    --edge:#3A4046; --edge2:#4A5158; --border-subtle:#333a40;
+    --ink:#E6E9EC; --ink2:#CFD4D9; --muted:#98A0A7; --accent:#63BE8B; --accent-ink:#0E1712;
+    /* tunables (driven by sliders) */
+    --panel-w:290px; --label-w:92px; --row-h:26px; --row-gap:4px; --sec-gap:14px;
+    --content-h:52px; --field-fs:12px; --field-h:24px;
+    --hdr-fs:12px; --hdr-ls:0px; --hdr-pad:3px;
+    --seg-w:34px; --seg-h:26px; --seg-gap:0px; --seg-rad:4px;
+    --seg-active:0.51; --seg-hover:0.22;
+    --sw-w:40px; --sw-h:22px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 "Segoe UI",system-ui;
+    padding:20px;display:flex;gap:26px;align-items:flex-start}
+  h1{font-size:16px;margin:0 0 10px}
+  .cols{display:flex;gap:26px;align-items:flex-start}
+
+  /* ── controls ── */
+  .ctl{width:340px;background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+    padding:14px 16px;max-height:94vh;overflow:auto;position:sticky;top:14px}
+  .ctl h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);
+    margin:16px 0 8px;border-bottom:1px solid var(--edge);padding-bottom:4px}
+  .ctl h3:first-child{margin-top:0}
+  .sr{display:grid;grid-template-columns:120px 1fr 46px;gap:8px;align-items:center;margin-bottom:7px;font-size:11.5px;color:var(--ink2)}
+  .sr input[type=range]{width:100%;accent-color:var(--accent)}
+  .sr .v{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+  .sr.tog{grid-template-columns:120px 1fr}
+  .sr.tog input{justify-self:start;width:16px;height:16px;accent-color:var(--accent)}
+  .exp{margin-top:14px}
+  .exp textarea{width:100%;height:150px;background:var(--sunken);border:1px solid var(--edge);
+    border-radius:6px;color:var(--ink2);font:11px ui-monospace,Consolas,monospace;padding:8px;resize:vertical}
+  .exp button{margin-top:6px;background:var(--accent);color:var(--accent-ink);border:none;
+    border-radius:5px;padding:6px 12px;font-weight:600;cursor:pointer}
+
+  /* ── panel preview (faithful Qt box model) ── */
+  .dock{width:var(--panel-w);background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+  .dock-title{padding:9px 12px;background:var(--sunken);border-bottom:1px solid var(--edge);
+    font-size:12px;font-weight:600;text-align:center}
+  .body{padding:4px 6px 12px}
+  /* QFormLayout row = label col + field col */
+  .row{display:grid;grid-template-columns:var(--label-w) 1fr;align-items:center;
+    column-gap:8px;min-height:var(--row-h);margin-bottom:var(--row-gap)}
+  .row > label{color:var(--muted);font-size:var(--field-fs);align-self:center}
+  .row.stack{display:block}
+  .row.stack > label{display:block;margin-bottom:3px}
+  .fld{min-width:0;display:flex;align-items:center}
+
+  .hdr{color:var(--accent);font-size:var(--hdr-fs);letter-spacing:var(--hdr-ls);
+    border-bottom:1px solid var(--border-subtle);padding-bottom:var(--hdr-pad);
+    margin-top:var(--sec-gap);margin-bottom:6px}
+  .hdr.bold{font-weight:600}
+  .hdr.up{text-transform:uppercase}
+  .hdr.noline{border-bottom:none}
+
+  input.f,select.f,textarea.f{width:100%;background:var(--field);border:1px solid var(--edge);
+    border-radius:4px;color:var(--ink);font-size:var(--field-fs);padding:0 7px;height:var(--field-h);outline:none}
+  textarea.f{height:var(--content-h);padding:5px 7px;resize:none;line-height:1.35}
+  select.f{appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 13px) center,calc(100% - 8px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:20px}
+  .spin{display:flex;align-items:center;width:100%}
+  .spin input{border-radius:4px 0 0 4px;border-right:none}
+  .spin .arrows{display:flex;flex-direction:column;height:var(--field-h);border:1px solid var(--edge);border-left:none;border-radius:0 4px 4px 0;background:var(--field)}
+  .spin .arrows button{flex:1;width:16px;border:none;background:transparent;color:var(--muted);font-size:7px;cursor:pointer;line-height:1}
+  .spin .arrows button:hover{color:var(--ink)}
+
+  .seg{display:flex;gap:var(--seg-gap)}
+  .seg button{width:var(--seg-w);height:var(--seg-h);border:1px solid var(--border-subtle);
+    border-radius:var(--seg-rad);background:transparent;color:var(--muted);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;margin:0 1px;padding:0}
+  .seg button:hover{background:rgba(99,190,139,var(--seg-hover));border-color:var(--accent);color:var(--ink)}
+  .seg button.on{background:rgba(99,190,139,var(--seg-active));border-color:var(--accent);color:var(--accent-ink)}
+  .seg button svg{width:16px;height:16px}
+  .seg.bius button{font-weight:600;font-size:12px}
+
+  .sw{width:var(--sw-w);height:var(--sw-h);border:1px solid var(--edge2);border-radius:4px;cursor:pointer}
+  .tgl{width:38px;height:20px;border-radius:11px;background:var(--accent);position:relative}
+  .tgl::after{content:"";position:absolute;top:2px;left:20px;width:16px;height:16px;border-radius:50%;background:#fff}
+  input[type=range].pct{flex:1;accent-color:var(--accent)}
+  .pctv{width:34px;text-align:right;color:var(--ink2);font-size:var(--field-fs)}
+</style></head>
+<body>
+  <div class="cols">
+    <div class="ctl">
+      <h1>Panel tuner</h1>
+      <h3>Layout</h3>
+      <div class="sr"><label>Panel width</label><input type="range" id="panel-w" min="240" max="480" value="290"><span class="v"></span></div>
+      <div class="sr"><label>Label column w</label><input type="range" id="label-w" min="56" max="140" value="92"><span class="v"></span></div>
+      <div class="sr"><label>Row height</label><input type="range" id="row-h" min="20" max="40" value="26"><span class="v"></span></div>
+      <div class="sr"><label>Row gap</label><input type="range" id="row-gap" min="0" max="14" value="4"><span class="v"></span></div>
+      <div class="sr"><label>Section gap</label><input type="range" id="sec-gap" min="4" max="28" value="14"><span class="v"></span></div>
+      <div class="sr"><label>Content height</label><input type="range" id="content-h" min="30" max="110" value="52"><span class="v"></span></div>
+      <div class="sr"><label>Field font size</label><input type="range" id="field-fs" min="10" max="15" value="12"><span class="v"></span></div>
+      <div class="sr"><label>Field height</label><input type="range" id="field-h" min="18" max="34" value="24"><span class="v"></span></div>
+
+      <h3>Section headers</h3>
+      <div class="sr"><label>Header font size</label><input type="range" id="hdr-fs" min="9" max="17" value="12"><span class="v"></span></div>
+      <div class="sr"><label>Letter spacing</label><input type="range" id="hdr-ls" min="0" max="4" step="0.5" value="0"><span class="v"></span></div>
+      <div class="sr"><label>Underline pad</label><input type="range" id="hdr-pad" min="0" max="8" value="3"><span class="v"></span></div>
+      <div class="sr tog"><label>Bold</label><input type="checkbox" id="hdr-bold"></div>
+      <div class="sr tog"><label>Uppercase</label><input type="checkbox" id="hdr-up" checked></div>
+      <div class="sr tog"><label>Underline</label><input type="checkbox" id="hdr-line" checked></div>
+
+      <h3>Segmented (align / corner / B-I-U)</h3>
+      <div class="sr"><label>Button width</label><input type="range" id="seg-w" min="22" max="46" value="34"><span class="v"></span></div>
+      <div class="sr"><label>Button height</label><input type="range" id="seg-h" min="18" max="34" value="26"><span class="v"></span></div>
+      <div class="sr"><label>Button gap</label><input type="range" id="seg-gap" min="0" max="8" value="0"><span class="v"></span></div>
+      <div class="sr"><label>Corner radius</label><input type="range" id="seg-rad" min="0" max="10" value="4"><span class="v"></span></div>
+      <div class="sr"><label>Active fill %</label><input type="range" id="seg-active" min="0" max="100" value="51"><span class="v"></span></div>
+      <div class="sr"><label>Hover fill %</label><input type="range" id="seg-hover" min="0" max="100" value="22"><span class="v"></span></div>
+
+      <h3>Colour swatch</h3>
+      <div class="sr"><label>Swatch width</label><input type="range" id="sw-w" min="26" max="72" value="40"><span class="v"></span></div>
+      <div class="sr"><label>Swatch height</label><input type="range" id="sw-h" min="16" max="30" value="22"><span class="v"></span></div>
+
+      <div class="exp">
+        <textarea id="out" readonly></textarea>
+        <button id="copy">Copy values</button>
+      </div>
+    </div>
+
+    <!-- PANEL PREVIEW -->
+    <div class="dock" id="dock">
+      <div class="dock-title">Properties Panel</div>
+      <div class="body">
+        <div class="hdr up bold" data-hdr>TEXT</div>
+        <div class="row stack"><label>Content</label><div class="fld"><textarea class="f">Textwer</textarea></div></div>
+
+        <div class="hdr up bold" data-hdr>FORMAT</div>
+        <div class="row"><label>Font</label><div class="fld"><select class="f"><option>Arial</option></select></div></div>
+        <div class="row"><label>Height</label><div class="fld"><div class="spin"><input class="f" value="5"><div class="arrows"><button>▲</button><button>▼</button></div></div></div></div>
+        <div class="row"><label>Style</label><div class="fld"><div class="seg bius"><button>B</button><button class="on" style="font-style:italic">I</button><button style="text-decoration:underline">U</button></div></div></div>
+        <div class="row"><label>Alignment</label><div class="fld"><div class="seg" id="alignSeg"></div></div></div>
+        <div class="row"><label>Font Color</label><div class="fld"><div class="sw" style="background:#111"></div></div></div>
+
+        <div class="hdr up bold" data-hdr>FRAME</div>
+        <div class="row"><label>Line Type</label><div class="fld"><select class="f"><option>none</option><option selected>dotted</option><option>solid</option></select></div></div>
+        <div class="row"><label>Line Weight</label><div class="fld"><select class="f"><option>Medium</option></select></div></div>
+        <div class="row"><label>Corner</label><div class="fld"><div class="seg" id="cornerSeg"></div></div></div>
+
+        <div class="hdr up bold" data-hdr>FILL</div>
+        <div class="row"><label>Fill Color</label><div class="fld"><div class="sw" style="background:#fff"></div></div></div>
+        <div class="row"><label>Fill Opacity</label><div class="fld"><input type="range" class="pct" min="0" max="100" value="100"><span class="pctv">100%</span></div></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const ICON={
+  aL:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="1" y="5.2" width="9" height="1.6"/><rect x="1" y="9.4" width="12" height="1.6"/></g></svg>',
+  aC:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="3.5" y="5.2" width="9" height="1.6"/><rect x="2" y="9.4" width="12" height="1.6"/></g></svg>',
+  aR:'<svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="6" y="5.2" width="9" height="1.6"/><rect x="3" y="9.4" width="12" height="1.6"/></g></svg>',
+  sq:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+  rd:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 8 Q4 13 9 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+  ch:'<svg viewBox="0 0 16 16"><path d="M4 3 L4 8 L9 13 L13 13" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+};
+document.getElementById("alignSeg").innerHTML=`<button class="on">${ICON.aL}</button><button>${ICON.aC}</button><button>${ICON.aR}</button>`;
+document.getElementById("cornerSeg").innerHTML=`<button>${ICON.sq}</button><button class="on">${ICON.rd}</button><button>${ICON.ch}</button>`;
+document.querySelectorAll(".seg").forEach(s=>s.addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b||s.classList.contains("bius"))return;
+  s.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+}));
+
+const root=document.documentElement.style;
+const pxVars={"panel-w":"px","label-w":"px","row-h":"px","row-gap":"px","sec-gap":"px",
+  "content-h":"px","field-fs":"px","field-h":"px","hdr-fs":"px","hdr-pad":"px",
+  "seg-w":"px","seg-h":"px","seg-gap":"px","seg-rad":"px","sw-w":"px","sw-h":"px"};
+function bind(id,fn){const el=document.getElementById(id);const v=el.closest(".sr")?.querySelector(".v");
+  const upd=()=>{fn(el.value);if(v)v.textContent=el.type==="checkbox"?(el.checked?"on":"off"):el.value;dump();};
+  el.addEventListener("input",upd);el.addEventListener("change",upd);upd();}
+for(const id in pxVars) bind(id,v=>root.setProperty("--"+id,v+pxVars[id]));
+bind("hdr-ls",v=>root.setProperty("--hdr-ls",v+"px"));
+bind("seg-active",v=>root.setProperty("--seg-active",v/100));
+bind("seg-hover",v=>root.setProperty("--seg-hover",v/100));
+bind("hdr-bold",()=>{});bind("hdr-up",()=>{});bind("hdr-line",()=>{});
+function applyHdr(){const bold=document.getElementById("hdr-bold").checked,up=document.getElementById("hdr-up").checked,line=document.getElementById("hdr-line").checked;
+  document.querySelectorAll("[data-hdr]").forEach(h=>{h.classList.toggle("bold",bold);h.classList.toggle("up",up);h.classList.toggle("noline",!line);});}
+["hdr-bold","hdr-up","hdr-line"].forEach(id=>document.getElementById(id).addEventListener("change",()=>{applyHdr();dump();}));
+applyHdr();
+document.querySelector(".pct").addEventListener("input",e=>e.target.nextElementSibling.textContent=e.target.value+"%");
+
+function dump(){
+  const g=id=>document.getElementById(id).value, c=id=>document.getElementById(id).checked;
+  document.getElementById("out").value=
+`LAYOUT  panel_w=${g("panel-w")} label_w=${g("label-w")} row_h=${g("row-h")} row_gap=${g("row-gap")}
+        sec_gap=${g("sec-gap")} content_h=${g("content-h")} field_fs=${g("field-fs")} field_h=${g("field-h")}
+HEADER  fs=${g("hdr-fs")} letter_spacing=${g("hdr-ls")} pad=${g("hdr-pad")} bold=${c("hdr-bold")} upper=${c("hdr-up")} underline=${c("hdr-line")}
+SEGMENT btn_w=${g("seg-w")} btn_h=${g("seg-h")} gap=${g("seg-gap")} radius=${g("seg-rad")} active%=${g("seg-active")} hover%=${g("seg-hover")}
+SWATCH  w=${g("sw-w")} h=${g("sw-h")}`;
+}
+document.getElementById("copy").onclick=()=>{navigator.clipboard.writeText(document.getElementById("out").value);};
+dump();
+</script>
+</body></html>

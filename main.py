@@ -710,6 +710,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
+        # Restore the saved properties-panel width (System Settings → UI).
+        self._apply_prop_panel_width()
         # Startup window state (chrome revamp: frameless-fullscreen by default).
         # Applied by main() AFTER its resize()+show(), NOT in showEvent — so the
         # headless MainWindow tests (which call .show() directly, never main())
@@ -1671,6 +1673,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         g_font.add_widget(self.font_group.container)
         self.font_group.set_enabled(False)
 
+        # --- Frame (text box border) ---
+        from firepro3d.frame_group import FrameGroupController
+        g_frame = draft_page.add_group("Frame")
+        self.frame_group = FrameGroupController(
+            get_targets=self._font_group_targets, icon_loader=_I, parent=self)
+        g_frame.add_widget(self.frame_group.container)
+        self.frame_group.set_enabled(False)
+
         # --- Plot ---
         g_plot = draft_page.add_group("Plot")
         _btn = g_plot.add_large_button(
@@ -2087,6 +2097,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             on_theme_changed=self._apply_theme,
             on_crosshair_changed=self._apply_crosshair,
             on_immersive_changed=self._apply_immersive,
+            on_panel_width_changed=self._apply_prop_panel_width,
             parent=self,
         )
         if isinstance(pane, str):
@@ -2150,6 +2161,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.showFullScreen()
         else:
             self.showNormal()
+
+    def _apply_prop_panel_width(self, width=None) -> None:
+        """Set the properties dock width. Reads QSettings when *width* is None."""
+        if width is None:
+            width = self.settings.value(
+                "ui/prop_panel_width", th.M.PROP_DOCK_W, type=int)
+        dock = getattr(self, "prop_dock", None)
+        if dock is not None:
+            self.resizeDocks([dock], [int(width)], Qt.Orientation.Horizontal)
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
@@ -4384,6 +4404,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         fg.set_enabled(bool(targets))
         if targets:
             fg.sync()
+        fr = getattr(self, "frame_group", None)
+        if fr is not None:
+            fr.set_enabled(bool(targets))
+            fr.sync()
 
     def _active_scene(self):
         """The scene the ribbon tools/property panel act on: the current tab's
@@ -4738,6 +4762,10 @@ def main():
         window.showFullScreen()
     else:
         window.show()
+    # Apply the saved properties-panel width AFTER show() — resizeDocks() only
+    # sticks once the window is visible/laid out (restoreState in restore_settings
+    # otherwise wins, so the System-Settings width was ignored every startup).
+    window._apply_prop_panel_width()
     sys.exit(app.exec())
 
 

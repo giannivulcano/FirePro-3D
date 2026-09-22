@@ -50,8 +50,18 @@ class TextAnnotationData:
         Authored hex colour string, default black ``"#000000"``.
     align:
         Horizontal alignment: ``'L'`` | ``'C'`` | ``'R'``.
-    opaque_bg:
-        When ``True``, render a white fill behind the text box.
+    fill_color:
+        Box fill hex colour string; empty string means no fill.
+    fill_opacity:
+        Fill alpha as a percentage 0–100 (default 100 = fully opaque).
+    border:
+        When ``True``, draw a framing rectangle around the text box.
+    border_weight:
+        Named line-weight token (resolved via ``resolve_line_weight_mm``).
+    border_line_type:
+        Stroke style: ``'solid'`` | ``'dashed'`` | ``'dotted'`` | ``'dashdot'``.
+    border_corner:
+        Corner treatment: ``'square'`` | ``'round'`` | ``'chamfer'``.
     angle:
         Rotation in degrees (Y-up CCW+, same convention as the rest of the
         model).  Default ``0.0``.  Pivot is transient/recomputed at rest and
@@ -73,7 +83,12 @@ class TextAnnotationData:
     underline: bool = False
     color: str = "#000000"                       # authored hex, default black
     align: str = "L"                             # 'L' | 'C' | 'R'
-    opaque_bg: bool = False
+    fill_color: str = ""                          # box fill hex; "" = no fill
+    fill_opacity: float = 100.0                   # fill alpha percentage 0-100
+    border: bool = False                         # frame visibility
+    border_weight: str = "Light"                 # named line-weight (resolve_line_weight_mm)
+    border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
+    border_corner: str = "square"                # 'square'|'round'|'chamfer'
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     type: str = "text"                           # discriminator for future annotation types
 
@@ -86,7 +101,9 @@ class TextAnnotationData:
             "font_family": self.font_family,
             "bold": self.bold, "italic": self.italic, "underline": self.underline,
             "color": self.color, "align": self.align,
-            "opaque_bg": self.opaque_bg,
+            "fill_color": self.fill_color, "fill_opacity": self.fill_opacity,
+            "border": self.border, "border_weight": self.border_weight,
+            "border_line_type": self.border_line_type, "border_corner": self.border_corner,
             "angle": self.angle,
         }
 
@@ -102,7 +119,14 @@ class TextAnnotationData:
             bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
-            opaque_bg=bool(d.get("opaque_bg", False)),
+            fill_color=(d.get("fill_color")
+                        if d.get("fill_color") is not None
+                        else ("#ffffff" if bool(d.get("opaque_bg", False)) else "")),
+            fill_opacity=float(d.get("fill_opacity", 100.0)),
+            border=bool(d.get("border", False)),
+            border_weight=d.get("border_weight", "Light"),
+            border_line_type=d.get("border_line_type", "solid"),
+            border_corner=d.get("border_corner", "square"),
             angle=float(d.get("angle", 0.0)),
             type=d.get("type", "text"),
         )
@@ -316,6 +340,42 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             height = content.height()
         return QRectF(0, 0, width, height)
 
+    def _frame_path(self) -> "QPainterPath":
+        """Border path for the box rect, honoring the corner style (local frame)."""
+        from .constants import TEXT_FRAME_CORNER_FRAC
+        r = self._box_rect_local()
+        path = QPainterPath()
+        if self._data.border_corner == "square":
+            path.addRect(r)
+            return path
+        rad = TEXT_FRAME_CORNER_FRAC * min(r.width(), r.height())
+        if self._data.border_corner == "round":
+            path.addRoundedRect(r, rad, rad)
+            return path
+        # chamfer: 45-degree cut of size `rad` at each corner
+        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
+        path.moveTo(l + rad, t)
+        path.lineTo(ri - rad, t); path.lineTo(ri, t + rad)
+        path.lineTo(ri, b - rad); path.lineTo(ri - rad, b)
+        path.lineTo(l + rad, b); path.lineTo(l, b - rad)
+        path.lineTo(l, t + rad); path.closeSubpath()
+        return path
+
+    def _frame_pen(self) -> "QPen":
+        """Pen for the border: text color, named weight mapped into local units,
+        line-type -> Qt PenStyle. Width is lw_mm / scale so it plots at the true mm
+        weight on paper and equals lw_mm on a model scene (scale == 1)."""
+        from .paper_display import resolve_line_weight_mm
+        lw_mm = resolve_line_weight_mm(self._data.border_weight)
+        scale = self.scale() or 1.0
+        pen = QPen(QColor(self._data.color))
+        pen.setWidthF(max(lw_mm / scale, 1e-4))
+        pen.setStyle({
+            "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
+            "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
+        }.get(self._data.border_line_type, Qt.PenStyle.SolidLine))
+        return pen
+
     def boundingRect(self) -> QRectF:
         """Visual/selection extent — padded for the grip halo, rotated footprint.
 
@@ -423,10 +483,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Paint (opaque-bg knockout + baked rotation + editing frame) ─────────
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block with an opaque-bg knockout and inline-edit frame.
+        """Paint the text block with an optional fill and inline-edit frame.
 
         Renders (with the bake-at-rest rotation applied like NoteAnnotation):
-        (1) a solid-white knockout over the box rect when ``opaque_bg`` is set,
+        (1) a colour fill over the box rect when ``fill_color`` is set,
         (2) the text via super(), (3) the lighter #88aaff cosmetic border while
         inline-editing (the EDITING state — distinct from SELECTED, whose frame
         is drawn by the scene's SelectionManipulator).
@@ -435,9 +495,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         painter.save()
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
-        if self._data.opaque_bg:
-            painter.fillRect(box, QColor("#ffffff"))
+        if self._data.fill_color:
+            c = QColor(self._data.fill_color)
+            c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
+            painter.fillRect(box, c)
         super().paint(painter, option, widget)
+        if self._data.border:
+            painter.setPen(self._frame_pen())
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(self._frame_path())
         if self._editing:
             pen = QPen(QColor("#88aaff"))
             pen.setStyle(Qt.PenStyle.DashLine)
@@ -655,7 +721,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
 
     def get_closed_path(self) -> None:
-        """Text has no fillable closed path — its box fill is ``opaque_bg``, a
+        """Text has no fillable closed path — its box fill is ``fill_color``, a
         separate mechanism.  Returning None keeps ``is_fillable()`` False, which
         suppresses the mixin's Fill property rows."""
         return None
@@ -685,17 +751,34 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             from .paper_space import _text_panel_properties
             return _text_panel_properties(self._data)
+        d = self._data
         props = {
-            "Type":      {"type": "label",  "value": "Text"},
-            "Text":      {"type": "string", "value": self._data.text},
-            "Height":    {"type": "dimension", "value": self._fmt(self._data.height_mm),
-                          "value_mm": self._data.height_mm},
-            "Bold":      {"type": "toggle", "value": bool(self._data.bold)},
-            "Italic":    {"type": "toggle", "value": bool(self._data.italic)},
-            "Underline": {"type": "toggle", "value": bool(self._data.underline)},
-            "Alignment": {"type": "enum", "options": ["L", "C", "R"],
-                          "value": self._data.align},
-            "Opaque Background": {"type": "toggle", "value": bool(self._data.opaque_bg)},
+            "Text":     {"type": "header", "value": "Text"},
+            "Content":  {"type": "multiline", "value": d.text},
+            "Format":   {"type": "header", "value": "Format"},
+            "Font":     {"type": "font", "value": d.font_family or "Arial"},
+            "Height":   {"type": "number", "value": int(round(d.height_mm)), "minimum": 1},
+            "Style":    {"type": "bool_group",
+                         "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
+                         "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
+            "Alignment": {"type": "icon_enum", "value": d.align,
+                          "options": [("L", "align_left.svg"), ("C", "align_center.svg"),
+                                      ("R", "align_right.svg")]},
+            "Font Color": {"type": "color", "value": d.color or "#000000"},
+            "Frame":    {"type": "header", "value": "Frame"},
+            "Line Type": {"type": "enum",
+                          "options": ["none", "solid", "dashed", "dotted", "dashdot"],
+                          "value": ("none" if not d.border else d.border_line_type)},
+            "Border Weight": {"type": "enum",
+                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                              "value": d.border_weight},
+            "Corner":   {"type": "icon_enum", "value": d.border_corner,
+                         "options": [("square", "corner_square.svg"),
+                                     ("round", "corner_fillet.svg"),
+                                     ("chamfer", "corner_chamfer.svg")]},
+            "Fill":     {"type": "header", "value": "Fill"},
+            "Fill Color":   {"type": "color", "value": d.fill_color or "#ffffff"},
+            "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity)},
         }
         geom2d = self._geom2d_properties()
         # Text carries no level semantics (containment spec) — strip the level
@@ -712,8 +795,18 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)
+        elif key == "Content":
+            self._data.text = str(value)
+            self.setPlainText(self._data.text)
+        elif key == "Font":
+            self._data.font_family = str(value)
+        elif key == "Font Color":
+            self._data.color = str(value)
         elif key == "Height":
-            mm = self._parse_dim(value)
+            try:
+                mm = float(value)
+            except (TypeError, ValueError):
+                mm = self._parse_dim(value)
             if mm is not None and mm > 0:
                 self._data.height_mm = mm
         elif key == "Bold":
@@ -724,8 +817,23 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.underline = bool(value)
         elif key == "Alignment":
             self._data.align = str(value)
-        elif key == "Opaque Background":
-            self._data.opaque_bg = bool(value)
+        elif key == "Fill Color":
+            self._data.fill_color = str(value)
+        elif key == "Fill Opacity":
+            self._data.fill_opacity = float(value)
+        elif key == "Border":
+            self._data.border = bool(value)
+        elif key == "Border Weight":
+            self._data.border_weight = str(value)
+        elif key == "Line Type":
+            # Panel drives border on/off via a "none" sentinel (no Border toggle).
+            if str(value) == "none":
+                self._data.border = False
+            else:
+                self._data.border = True
+                self._data.border_line_type = str(value)
+        elif key == "Corner":
+            self._data.border_corner = str(value)
         elif self._geom2d_set(key, value):
             return
         else:

@@ -26,17 +26,40 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
-    QCheckBox, QFontComboBox,
+    QCheckBox, QFontComboBox, QToolButton, QSlider, QPlainTextEdit, QSpinBox,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
+from PyQt6.QtWidgets import QButtonGroup
+
+
+class _MultilineEdit(QPlainTextEdit):
+    """Full-width multi-line text editor that commits on focus-out.
+
+    Used by the ``multiline`` property type (e.g. annotation Content) so a
+    panel content edit is one commit when the user leaves the field, not one
+    per keystroke.
+    """
+    editingFinished = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.document().setDocumentMargin(1)   # tighter inner padding (was ~4)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.editingFinished.emit()
 
 from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
+from .ui_kit import Selector, Stepper, Swatch
 from . import theme as th
+from .theme import M
 
 
 class _MixedStateCheckBox(QCheckBox):
@@ -67,10 +90,42 @@ class PropertyManager(QWidget):
         _t = th.detect()
 
         # ── Panel = header rail + body, both the body tone (surface) ──────────
-        # WA_StyledBackground so the QSS surface actually paints (a plain-QWidget
-        # QSS background is a live-only no-op otherwise, showing the dark base).
+        # The panel background and the field/button styling CANNOT share one
+        # stylesheet (Qt QSS won't mix a bare `background:` with selector rules,
+        # and a widget styling its own bg via #id / palette is a no-op once it
+        # has any stylesheet). So: the PANEL background is a bare
+        # `background: surface` + WA_StyledBackground here; the FIELD/BUTTON rules
+        # live on the inner ``form_container`` (a closer ancestor of the fields,
+        # so its rules win over this bare cascade). Field tone = surface2 (the
+        # window-header rail tone). Combo/spin drop-down + arrows stay app-styled.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setObjectName("propPanel")
         self.setStyleSheet(f"background: {_t.surface};")
+        _ac = QColor(_t.accent)
+        _fill = f"rgba({_ac.red()},{_ac.green()},{_ac.blue()},130)"
+        _field = _t.surface2   # window-header tone (raised) — field contrast
+        self._field_qss = f"""
+            QComboBox, QSpinBox, QLineEdit, QPlainTextEdit {{
+                background: {_field}; color: {_t.ink};
+            }}
+            QWidget#segmented QToolButton {{
+                background: {_field}; border: 1px solid {_t.border_subtle};
+                border-radius: 5px; color: {_t.muted};
+            }}
+            QWidget#segmented QToolButton:hover,
+            QWidget#segmented QToolButton:checked {{
+                background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
+            }}
+            /* Panel font scale (theme.M — one source of truth for all panels) */
+            QLabel {{ font-size: {M.PROP_FIELD_FS}px; }}
+            /* padding-top adds the gap ABOVE each header = space at the bottom of
+               the preceding section */
+            QLabel[role="header"] {{ font-size: {M.PROP_HEADER_FS}px; font-weight: 600;
+                                     padding-top: {M.PROP_SECTION_GAP}px; }}
+            QComboBox, QSpinBox, QLineEdit {{ font-size: {M.PROP_FIELD_FS}px; }}
+            /* override the app-wide input padding (4px 8px) — tighter text box */
+            QPlainTextEdit {{ font-size: {M.PROP_CONTENT_FS}px; padding: 1px 3px; }}
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
         outer.setSpacing(0)
@@ -89,9 +144,26 @@ class PropertyManager(QWidget):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._form_container = QWidget()
-        self._form = QFormLayout(self._form_container)
-        self._form.setContentsMargins(4, 4, 4, 4)
-        self._form.setSpacing(6)
+        # Field/button tones live here (not on the PM) — a closer ancestor of the
+        # fields, so these rules win over the PM's bare surface cascade.
+        self._form_container.setStyleSheet(self._field_qss)
+        # Container = form on top + a stretch that ABSORBS extra vertical space,
+        # so the QFormLayout rows keep their natural (compact) height instead of
+        # being stretched to fill the tall (setWidgetResizable) scroll viewport.
+        _cbox = QVBoxLayout(self._form_container)
+        _cbox.setContentsMargins(0, 0, 0, 0)
+        _cbox.setSpacing(0)
+        _form_holder = QWidget()
+        self._form = QFormLayout(_form_holder)
+        self._form.setContentsMargins(*M.PROP_FORM_MARGIN)
+        self._form.setVerticalSpacing(M.PROP_ROW_GAP)
+        self._form.setHorizontalSpacing(8)
+        self._form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        _cbox.addWidget(_form_holder)
+        _cbox.addStretch(1)
         scroll.setWidget(self._form_container)
         outer.addWidget(scroll)
 
@@ -180,6 +252,9 @@ class PropertyManager(QWidget):
             if prop_type == "header":
                 hdr_lbl = QLabel(str(key).upper())
                 hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
+                hdr_lbl.setIndent(0)                    # align with the row labels
+                # Size (9px) + weight come from the form_container QSS; colour +
+                # underline from the app-level QLabel[role="header"] rule.
                 self._form.addRow(hdr_lbl)
                 continue
 
@@ -215,18 +290,11 @@ class PropertyManager(QWidget):
 
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
-                btn = QPushButton()
-                btn.setFixedSize(60, 24)
-                btn.setProperty("_color_value", meta["value"])
-                btn.setStyleSheet(
-                    f"background: {meta['value']}; "
-                    f"border: 1px solid {_t.border_subtle}; "
-                    f"border-radius: 2px;"
+                sw = Swatch(str(meta["value"]))
+                sw.colorChanged.connect(
+                    lambda hexv, k=key: self._apply_property(k, hexv)
                 )
-                btn.clicked.connect(
-                    lambda _, k=key, b=btn: self._pick_color(k, b)
-                )
-                widget = btn
+                widget = sw
 
             # ── level_ref (level dropdown from LevelManager) ──────────────
             elif prop_type == "level_ref":
@@ -282,20 +350,20 @@ class PropertyManager(QWidget):
 
             # ── font (family picker) ──────────────────────────────────────
             elif prop_type == "font":
-                fcombo = QFontComboBox()
-                fcombo.setMinimumContentsLength(8)
+                from PyQt6.QtGui import QFontDatabase
+                fcombo = Selector()
+                fcombo.addItems(QFontDatabase.families())
                 if meta["value"]:
-                    fcombo.setCurrentFont(QFont(str(meta["value"])))
-                fcombo.currentFontChanged.connect(
-                    lambda f, k=key: self._apply_property(k, f.family())
+                    fcombo.setCurrentText(str(meta["value"]))
+                fcombo.currentTextChanged.connect(
+                    lambda fam, k=key: self._apply_property(k, fam)
                 )
                 widget = fcombo
 
             # ── enum (fixed option list) ──────────────────────────────────
             elif prop_type == "enum":
-                widget = QComboBox()
-                widget.setMinimumContentsLength(8)
-                widget.addItems(meta.get("options", []))
+                widget = Selector()
+                widget.addItems([str(o) for o in meta.get("options", [])])
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)
@@ -319,13 +387,90 @@ class PropertyManager(QWidget):
 
             # ── combo (alias for enum) ──────────────────────────────────
             elif prop_type == "combo":
-                widget = QComboBox()
-                widget.setMinimumContentsLength(8)
-                widget.addItems(meta.get("options", []))
+                widget = Selector()
+                widget.addItems([str(o) for o in meta.get("options", [])])
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)
                 )
+
+            # ── icon_enum (segmented icon button row — one active) ────────
+            elif prop_type == "icon_enum":
+                from .icons import themed_icon
+                theme_name = "dark" if th.detect() is th.DARK else "light"
+                cont = QWidget(); cont.setObjectName("segmented")
+                lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(1)
+                grp = QButtonGroup(cont); grp.setExclusive(True)
+                for val, icon_name in meta.get("options", []):
+                    b = QToolButton(); b.setCheckable(True)
+                    b.setIcon(themed_icon(icon_name, theme_name))
+                    b.setIconSize(QSize(18, 18)); b.setFixedSize(30, 26)
+                    b.setToolTip(str(val).capitalize())
+                    b.setProperty("icon_enum_val", val)
+                    b.setChecked(val == meta.get("value"))
+                    b.clicked.connect(
+                        lambda _c, k=key, v=val: self._apply_property(k, v)
+                    )
+                    grp.addButton(b); lay.addWidget(b)
+                lay.addStretch(1)
+                widget = cont
+
+            # ── bool_group (segmented row of pressable text buttons) ──────
+            elif prop_type == "bool_group":
+                cont = QWidget(); cont.setObjectName("segmented")
+                lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(1)
+                for sub_key, label in meta.get("keys", []):
+                    b = QToolButton(); b.setCheckable(True); b.setText(label)
+                    b.setFixedSize(30, 26)
+                    b.setChecked(bool(meta.get("values", {}).get(sub_key)))
+                    b.setToolTip(label)
+                    b.clicked.connect(
+                        lambda ch, k=sub_key: self._apply_property(k, bool(ch))
+                    )
+                    lay.addWidget(b)
+                lay.addStretch(1)
+                widget = cont
+
+            # ── number (integer stepper with up/down arrows, no unit) ─────
+            elif prop_type == "number":
+                spin = Stepper()
+                spin.setRange(int(meta.get("minimum", 0)),
+                              int(meta.get("maximum", 100000)))
+                spin.setValue(int(meta.get("value", 0)))
+                spin.setProperty("number_key", key)
+                spin.valueChanged.connect(
+                    lambda v, k=key: self._apply_property(k, int(v))
+                )
+                widget = spin
+
+            # ── percent (0–100 slider with % readout) ─────────────────────
+            elif prop_type == "percent":
+                cont = QWidget(); lay = QHBoxLayout(cont)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
+                sl = QSlider(Qt.Orientation.Horizontal)
+                sl.setObjectName("pctSlider")
+                sl.setRange(0, 100); sl.setValue(int(meta.get("value", 100)))
+                lbl = QLabel(f"{sl.value()}%")
+                sl.valueChanged.connect(lambda v, l=lbl: l.setText(f"{v}%"))
+                sl.valueChanged.connect(
+                    lambda v, k=key: self._apply_property(k, v)
+                )
+                lay.addWidget(sl); lay.addWidget(lbl)
+                widget = cont
+
+            # ── multiline (full-width text box, no label) ─────────────────
+            elif prop_type == "multiline":
+                editor = _MultilineEdit()
+                editor.setPlainText(str(meta.get("value", "")))
+                editor.setFixedHeight(M.PROP_CONTENT_H)
+                editor.setProperty("multiline_key", key)
+                editor.editingFinished.connect(
+                    lambda k=key, e=editor: self._apply_property(k, e.toPlainText())
+                )
+                self._form.addRow(editor)                    # editor spans full width
+                continue
 
             # ── string / fallback (editable line edit) ────────────────────
             else:

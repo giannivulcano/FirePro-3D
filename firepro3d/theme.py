@@ -103,6 +103,24 @@ class _Metrics:
     RADIUS_PILL = 11
     RADIUS_CHIP = 8
     PILL_PADDING = (3, 10)                  # (vertical, horizontal)
+    # property panel — ONE source of truth for the shared PropertyManager, so
+    # every entity's property panel + the custom inputs (Selector/Stepper/Swatch)
+    # stay consistent. Change here → all panels update. (docs/specs/ui-design-system.md)
+    PROP_FIELD_H = 24           # selector / stepper / input height
+    PROP_FIELD_FS = 11          # field + row-label font (px)
+    PROP_HEADER_FS = 10         # section-header font (px)
+    PROP_CONTENT_FS = 13        # content text-box font (px)
+    PROP_ROW_GAP = 5            # vertical spacing between rows
+    PROP_SECTION_GAP = 8        # space above each section header
+    PROP_FIELD_RADIUS = 4       # selector / stepper corner radius
+    PROP_CARET_W = 22           # selector caret column width
+    PROP_ARROW_W = 16           # stepper arrow column width
+    PROP_SWATCH_W = 34          # colour chip width
+    PROP_SWATCH_H = 14          # colour chip height
+    PROP_HEX_GAP = 8            # colour chip -> hex label gap
+    PROP_CONTENT_H = 110        # content text-box height
+    PROP_DOCK_W = 240           # default properties-dock width
+    PROP_FORM_MARGIN = (6, 4, 6, 4)   # form contents margin
 
 
 M = _Metrics()
@@ -735,7 +753,8 @@ QPushButton[variant="danger"]:hover {{
     background: {t.danger_soft}; border-color: {t.danger};
 }}
 /* ── Role / state labels ──────────────────────────────────────────── */
-QLabel[role="header"] {{ color: {t.muted}; font-weight: 600; }}
+QLabel[role="header"] {{ color: {t.accent};
+    border-bottom: 1px solid {t.border_subtle}; padding-bottom: 1px; }}
 QLabel[role="muted"] {{ color: {t.muted}; }}
 QLabel[state="warn"] {{
     color: {t.warn}; background: {t.warn_soft};
@@ -744,6 +763,21 @@ QLabel[state="warn"] {{
 /* table rows read as separated cards */
 QTableWidget::item, QTableView::item {{
     border-bottom: 1px solid {t.border_subtle};
+}}
+/* ── Segmented controls (property-panel icon_enum / bool_group) ─────── */
+/* Property-panel field tone + segmented buttons live in PropertyManager's own
+   stylesheet (#propPanel …) — the panel sets its own background, which would
+   cascade over app-level rules for its children. */
+/* ── Percent slider (property-panel opacity) ───────────────────────── */
+QSlider#pctSlider::groove:horizontal {{
+    height: 4px; background: {t.border_subtle}; border-radius: 2px;
+}}
+QSlider#pctSlider::sub-page:horizontal {{
+    background: {t.accent}; border-radius: 2px;
+}}
+QSlider#pctSlider::handle:horizontal {{
+    background: {t.accent}; width: 12px; height: 12px;
+    margin: -5px 0; border-radius: 6px;
 }}
 """
 

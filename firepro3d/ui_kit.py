@@ -4,13 +4,15 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter, QFont
+from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QSize, pyqtSignal
+from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
+                         QFontDatabase, QIntValidator)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
-                             QTabBar, QStackedWidget)
+                             QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
+                             QLineEdit)
 
-from .theme import M
+from .theme import M, detect as _detect
 
 
 def dock_header(text: str) -> QLabel:
@@ -596,3 +598,336 @@ class Pill(QPushButton):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding if expanding else QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Fixed)
+
+
+class _FontPreviewDelegate(QStyledItemDelegate):
+    """Paints the family name (default) plus an 'AaBb 0123' preview in that face."""
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        fam = index.data(FontSelect.ROLE_FAMILY)
+        if not fam:
+            return
+        painter.save()
+        f = QFont(fam)
+        if option.font.pointSize() > 0:
+            f.setPointSize(option.font.pointSize())
+        painter.setFont(f)
+        painter.setPen(option.palette.text().color())
+        r = option.rect.adjusted(0, 0, -8, 0)
+        painter.drawText(r, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         "AaBb 0123")
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        return QSize(s.width(), max(s.height(), 22))
+
+
+class FontSelect(QComboBox):
+    """Reusable font picker: TrueType families with an SHX-ready source seam,
+    in-face previews, type-ahead, recently-used (max 5), and a current checkmark.
+
+    Emits ``fontChanged(str family)`` on an activated selection. A raw
+    ``QFontComboBox`` cannot carry section headers or (later) SHX entries, so this
+    is the standard replacement (ui-design-system.md). SHX support is deferred:
+    the ``_sources`` list is the seam a future SHX source plugs into.
+    """
+    fontChanged = pyqtSignal(str)
+    ROLE_FAMILY = Qt.ItemDataRole.UserRole + 1
+    MAX_RECENT = 5
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._recent: list[str] = []
+        self.setEditable(True)                 # enables type-ahead
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setItemDelegate(_FontPreviewDelegate(self))
+        self._sources = [("TrueType", list(QFontDatabase.families()))]  # font-source seam
+        self._rebuild()
+        self.activated.connect(self._on_activated)
+
+    def _add_header(self, text):
+        self.addItem(text)
+        item = self.model().item(self.count() - 1)   # default model is QStandardItemModel
+        if item is not None:
+            item.setEnabled(False)                   # section header: non-selectable
+
+    def _add_family(self, fam):
+        self.addItem(fam)
+        self.setItemData(self.count() - 1, fam, self.ROLE_FAMILY)
+
+    def _rebuild(self, current: str | None = None):
+        current = current or self.current_family()
+        self.blockSignals(True)
+        self.clear()
+        if self._recent:
+            self._add_header("Recent")
+            for fam in self._recent:
+                self._add_family(fam)
+        for label, fams in self._sources:
+            self._add_header(label)
+            for fam in fams:
+                self._add_family(fam)
+        self.blockSignals(False)
+        if current:
+            self.set_current_family(current)
+
+    def current_family(self) -> str:
+        return self.itemData(self.currentIndex(), self.ROLE_FAMILY) or self.currentText()
+
+    def set_current_family(self, fam: str):
+        for i in range(self.count()):
+            if self.itemData(i, self.ROLE_FAMILY) == fam:
+                self.setCurrentIndex(i)
+                return
+        self.setCurrentText(fam)                     # missing font: show the name as typed
+
+    def recent_families(self) -> list[str]:
+        return list(self._recent)
+
+    def _pin_recent(self, fam: str):
+        if fam in self._recent:
+            self._recent.remove(fam)
+        self._recent.insert(0, fam)
+        del self._recent[self.MAX_RECENT:]
+
+    def commit_current(self):
+        """Emit fontChanged for the current family and pin it as recent."""
+        fam = self.current_family()
+        if not fam:
+            return
+        self._pin_recent(fam)
+        self.fontChanged.emit(fam)
+
+    def _on_activated(self, _index):
+        fam = self.current_family()
+        if not fam:
+            return
+        self._pin_recent(fam)
+        self._rebuild(current=fam)
+        self.fontChanged.emit(fam)
+
+
+# ── Custom property-panel inputs ─────────────────────────────────────────────
+# Fully self-painted so there is no native QComboBox/QSpinBox chrome to fight
+# (arrows vanishing when styled, drop-down tone, inconsistent widths). Tuned via
+# docs/mockups/selector-tuner.html: height 24, field=surface2 (window-header
+# tone), 1px border, radius 4, ink triangle caret behind a 1px divider.
+
+_SEL_H = M.PROP_FIELD_H
+_SEL_RADIUS = M.PROP_FIELD_RADIUS
+_CARET_W = M.PROP_CARET_W
+_ARROW_W = M.PROP_ARROW_W
+
+
+class Selector(QComboBox):
+    """A custom-painted dropdown. Subclasses QComboBox to keep its popup/model
+    (``addItems``/``currentText``/``currentTextChanged``); only the closed-state
+    paint is ours — field=surface2, 1px border, radius 4, ink triangle caret."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(_SEL_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumWidth(0)
+        f = self.font()
+        f.setPixelSize(M.PROP_FIELD_FS)
+        self.setFont(f)
+        t = _detect()
+        self.view().setStyleSheet(
+            f"QAbstractItemView {{ background: {t.surface2}; color: {t.ink};"
+            f" border: 1px solid {t.accent}; outline: none;"
+            f" selection-background-color: {t.accent};"
+            f" selection-color: {t.accent_ink}; }}")
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(t.surface2))
+        p.drawRoundedRect(r, _SEL_RADIUS, _SEL_RADIUS)
+        divx = r.right() - _CARET_W
+        p.drawLine(QPointF(divx, r.top() + 3), QPointF(divx, r.bottom() - 3))
+        p.setPen(QColor(t.ink))
+        tr = QRectF(r.left() + 6, r.top(), divx - r.left() - 10, r.height())
+        txt = self.fontMetrics().elidedText(
+            self.currentText(), Qt.TextElideMode.ElideRight, int(tr.width()))
+        p.drawText(tr, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), txt)
+        cx = divx + _CARET_W / 2
+        cy = r.center().y()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(t.ink))
+        p.drawPolygon(QPolygonF([QPointF(cx - 5, cy - 2),
+                                 QPointF(cx + 5, cy - 2), QPointF(cx, cy + 3.5)]))
+
+
+class _StepArrows(QWidget):
+    """Two stacked triangle hit-areas (up / down) with a gap between them."""
+
+    def __init__(self, on_step, parent=None):
+        super().__init__(parent)
+        self._on_step = on_step          # callable(+1 | -1)
+        self.setFixedWidth(_ARROW_W)
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(t.ink))
+        cx = self.width() / 2
+        h = self.height()
+        up_cy, dn_cy, s = h * 0.30, h * 0.70, 5      # 40% gap between the arrows
+        p.drawPolygon(QPolygonF([QPointF(cx - s, up_cy + 2.5),
+                                 QPointF(cx + s, up_cy + 2.5), QPointF(cx, up_cy - 2.5)]))
+        p.drawPolygon(QPolygonF([QPointF(cx - s, dn_cy - 2.5),
+                                 QPointF(cx + s, dn_cy - 2.5), QPointF(cx, dn_cy + 2.5)]))
+
+    def mousePressEvent(self, event):
+        self._on_step(1 if event.position().y() < self.height() / 2 else -1)
+
+
+class Stepper(QWidget):
+    """A custom-painted integer stepper (drop-in for a QSpinBox in the property
+    panel): field=surface2 box, editable value, spaced up/down triangles behind a
+    divider. API: ``setRange``/``setMinimum``/``setMaximum``/``setValue``/
+    ``value`` + ``valueChanged(int)``."""
+
+    valueChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(_SEL_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._min, self._max, self._value = 0, 100000, 0
+        t = _detect()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._edit = QLineEdit("0")
+        self._edit.setFrame(False)
+        self._edit.setValidator(QIntValidator(self._min, self._max, self))
+        self._edit.setStyleSheet(
+            f"background: transparent; border: none; color: {t.ink};"
+            f" padding: 0 6px; font-size: {M.PROP_FIELD_FS}px;")
+        self._edit.editingFinished.connect(self._commit_edit)
+        lay.addWidget(self._edit, 1)
+        lay.addWidget(_StepArrows(self._step, self))
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(t.surface2))
+        p.drawRoundedRect(r, _SEL_RADIUS, _SEL_RADIUS)
+        divx = r.right() - _ARROW_W
+        p.drawLine(QPointF(divx, r.top() + 3), QPointF(divx, r.bottom() - 3))
+
+    def setRange(self, lo, hi):
+        self._min, self._max = int(lo), int(hi)
+        self._edit.setValidator(QIntValidator(self._min, self._max, self))
+        self.setValue(self._value)
+
+    def setMinimum(self, lo):
+        self.setRange(lo, self._max)
+
+    def setMaximum(self, hi):
+        self.setRange(self._min, hi)
+
+    def value(self):
+        return self._value
+
+    def minimum(self):
+        return self._min
+
+    def maximum(self):
+        return self._max
+
+    def setValue(self, v):
+        v = max(self._min, min(self._max, int(v)))
+        changed = v != self._value
+        self._value = v
+        self._edit.setText(str(v))
+        if changed:
+            self.valueChanged.emit(v)
+
+    def _step(self, d):
+        self.setValue(self._value + d)
+
+    def _commit_edit(self):
+        try:
+            self.setValue(int(self._edit.text() or 0))
+        except ValueError:
+            self._edit.setText(str(self._value))
+
+
+class _Chip(QWidget):
+    """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, hex_color="#000000", parent=None):
+        super().__init__(parent)
+        self._color = hex_color
+        self.setFixedSize(M.PROP_SWATCH_W, M.PROP_SWATCH_H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_color(self, hex_color):
+        self._color = hex_color
+        self.update()
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(self._color))
+        p.drawRoundedRect(r, 3, 3)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+
+
+class Swatch(QWidget):
+    """Colour picker: a painted chip + hex label. Opens QColorDialog on click and
+    emits ``colorChanged(hex)``. Replaces a bare QPushButton (which picked up the
+    app's global button chrome — min-height, padding, hover — and rendered wrong)."""
+
+    colorChanged = pyqtSignal(str)
+
+    def __init__(self, hex_color="#000000", parent=None):
+        super().__init__(parent)
+        self._hex = hex_color or "#000000"
+        t = _detect()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(M.PROP_HEX_GAP)
+        lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._chip = _Chip(self._hex)
+        self._chip.clicked.connect(self._pick)
+        self._label = QLabel(self._hex.upper())
+        self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
+        lay.addWidget(self._chip)
+        lay.addWidget(self._label)
+        lay.addStretch(1)
+
+    def _pick(self):
+        from PyQt6.QtWidgets import QColorDialog
+        c = QColorDialog.getColor(QColor(self._hex), self, "Colour")
+        if c.isValid():
+            self.set_hex(c.name())
+            self.colorChanged.emit(c.name())
+
+    def set_hex(self, hex_color):
+        self._hex = hex_color
+        self._chip.set_color(hex_color)
+        self._label.setText(hex_color.upper())
+
+    def hex(self):
+        return self._hex

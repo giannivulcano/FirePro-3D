@@ -223,6 +223,7 @@ MANIP_HANDLE_FILL_DARK = "#101613"          # fill on a dark canvas (prototype v
 MANIP_HANDLE_FILL_LIGHT = "#ffffff"         # fill on a light canvas
 
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
+TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
 
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's
 # size dropdown and its grow/shrink stepping (units-and-formatting.md).

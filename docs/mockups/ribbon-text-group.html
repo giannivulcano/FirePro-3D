@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Text ribbon groups — mockup</title>
+<style>
+  :root{
+    --panel:#212528; --fill:#2A2F34; --edge:#3A4046; --edge2:#4A5158;
+    --ink:#E6E9EC; --ink2:#CFD4D9; --dim:#98A0A7;
+    --accent:#3FAE72; --accent-soft:rgba(63,174,114,0.18); --accent-ink:#7FE0AC;
+    --page:#15181b;
+    --txt-w:236px; --frm-w:170px; --row-h:22px; --row3-h:24px; --gap:4px; --pad:7px;
+    --btn:24px; --fld-w:92px; --font-w:130px; --scale:1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:22px}
+  h1{font-size:17px;margin:0 0 3px}
+  .sub{color:var(--dim);margin:0 0 16px;font-size:12.5px;max-width:920px}
+  code{background:#0d1117;padding:1px 5px;border-radius:4px;color:#cbd5e1;font-size:12px}
+  .wrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}
+  .col-left{min-width:0}
+
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--edge)}
+  .tab{padding:6px 15px;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;
+    color:var(--dim);font-weight:600;font-size:12px;user-select:none}
+  .tab.active{background:var(--panel);color:var(--ink);border-color:var(--edge)}
+  .ribbon{background:var(--panel);border:1px solid var(--edge);border-top:none;
+    border-radius:0 0 8px 8px;padding:12px;display:flex;gap:10px;align-items:stretch;overflow-x:auto}
+
+  /* group: vertical label strip on the LEFT + body on the right */
+  .group{background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+    display:flex;flex-direction:row;padding:var(--pad);gap:6px;position:relative;
+    transform:scale(var(--scale));transform-origin:top left}
+  .group.frame{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-soft) inset}
+  .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);text-align:center;
+    font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+    border-right:1px solid var(--edge);padding:2px 2px;display:flex;align-items:center;justify-content:center;user-select:none}
+  .vlabel.acc{color:var(--accent-ink);border-right-color:var(--accent)}
+  .vlabel.ghost{border-right-color:#333a40}
+  .gbody{display:flex;flex-direction:column;gap:var(--gap);flex:1;justify-content:center;min-width:0}
+  .tw{width:var(--txt-w)} .fw{width:var(--frm-w)}
+  .row{display:flex;gap:var(--gap);align-items:center}
+  .r1,.r2{height:var(--row-h)} .r3{height:var(--row3-h)}
+  .launcher{position:absolute;right:4px;bottom:3px;color:var(--dim);cursor:pointer;font-size:11px}
+  .launcher:hover{color:var(--accent-ink)}
+
+  .neighbor{opacity:.5;filter:grayscale(.4);pointer-events:none;display:flex;flex-direction:row;
+    background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:var(--pad);gap:6px}
+  .neighbor .body{display:flex;gap:8px;align-items:center}
+  .nbtn{width:50px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--dim);font-size:10.5px;text-align:center}
+  .nbtn .ic{width:28px;height:28px;border-radius:6px;background:#333a40;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink2)}
+
+  .ctl{height:100%;background:var(--fill);border:1px solid var(--edge);border-radius:4px;
+    color:var(--ink);font:12px "Segoe UI";padding:0 6px;display:flex;align-items:center;min-width:0}
+  .ctl:focus{border-color:var(--accent)}
+  .font-combo{width:var(--font-w);flex:0 0 var(--font-w)}
+  .h-field{width:var(--fld-w);flex:0 0 var(--fld-w);justify-content:space-between;padding-right:2px}
+  .h-field input{background:transparent;border:none;color:var(--ink);width:100%;font:12px "Segoe UI";outline:none}
+  .spin{display:flex;flex-direction:column;margin-left:2px}
+  .spin button{width:16px;height:9px;line-height:7px;font-size:8px;background:var(--fill);color:var(--dim);border:1px solid var(--edge);cursor:pointer;padding:0}
+  .spin button:hover{color:var(--ink);border-color:var(--edge2)}
+  .tbtn{height:100%;aspect-ratio:1;min-width:var(--btn);background:transparent;border:1px solid transparent;
+    border-radius:4px;color:var(--ink2);display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;font-size:12px}
+  .tbtn:hover{background:var(--fill);border-color:var(--edge2);color:var(--ink)}
+  .tbtn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+  .tbtn svg{width:16px;height:16px;display:block}
+  .fbtn{flex:1;aspect-ratio:auto}
+  .sep{width:1px;align-self:stretch;background:var(--edge);margin:2px 3px}
+  .swatch{height:100%;min-width:30px;border:1px solid var(--edge2);border-radius:4px;cursor:pointer;position:relative}
+  .swatch::after{content:"▾";position:absolute;right:2px;bottom:-1px;font-size:9px;color:var(--ink)}
+  select.ctl{flex:1;appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);background-position:calc(100% - 12px) center,calc(100% - 7px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:18px}
+  .frm-ctls.off{opacity:.4;pointer-events:none}
+
+  .preview-wrap{margin-top:22px;background:var(--page);border:1px solid var(--edge);border-radius:8px;padding:20px}
+  .paper{background:#f6f6f3;border-radius:2px;padding:34px;display:flex;justify-content:center;box-shadow:0 2px 18px rgba(0,0,0,.4)}
+  .textbox{position:relative;min-width:120px}
+  .textbox .content{position:relative;padding:8px 10px;color:#111;white-space:pre-wrap;z-index:1}
+  .textbox svg.frame{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:0}
+  .cap{margin:10px 0 0;color:var(--dim);font-size:11.5px;text-align:center}
+
+  .side{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:14px 15px;position:sticky;top:16px}
+  .side h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent-ink);margin:0 0 10px}
+  .side h3:not(:first-child){margin-top:18px;border-top:1px solid var(--edge);padding-top:14px}
+  .srow{display:grid;grid-template-columns:96px 1fr 38px;gap:8px;align-items:center;margin-bottom:8px;font-size:11.5px;color:var(--ink2)}
+  .srow input[type=range]{width:100%}
+  .srow .val{color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+  .hint{color:var(--dim);font-size:11px;line-height:1.4;margin:2px 0 0}
+</style>
+</head>
+<body>
+  <h1>Text ribbon — two containers <span style="font-size:11px;color:var(--accent-ink);border:1px solid var(--accent);border-radius:10px;padding:1px 8px;vertical-align:middle">DRAFT · tune me</span></h1>
+  <p class="sub">Vertical group labels (left). <b>Text</b> = all text props. <b>Frame</b> (green): top row = <b>Border · Square · Fillet · Chamfer</b> icon buttons (corner is a 3-way radio); below = <b>Line-type</b> then <b>Line-weight</b> stacked. Justification uses standard align icons. Drive the controls to update the live preview; sliders dial proportions. Tokens per <code>docs/specs/ribbon-bar.md</code>.</p>
+
+  <div class="wrap">
+    <div class="col-left">
+      <div class="tabs"><div class="tab active">Draft</div></div>
+      <div class="ribbon">
+        <div class="neighbor">
+          <div class="vlabel ghost">Modify</div>
+          <div class="body"><div class="nbtn"><div class="ic">✱</div>Move</div><div class="nbtn"><div class="ic">⧉</div>Copy</div></div>
+        </div>
+
+        <!-- TEXT container -->
+        <div class="group tw" id="textGroup">
+          <div class="vlabel">Text</div>
+          <div class="gbody">
+            <div class="row r1">
+              <select class="ctl font-combo" id="fontFamily" title="Font family (ui_kit FontSelect)">
+                <option>Segoe UI</option><option>Arial</option><option>Calibri</option>
+                <option>Consolas</option><option>Times New Roman</option>
+              </select>
+              <div class="ctl h-field" title="Text height">
+                <input id="height" value='3/32"' />
+                <div class="spin"><button data-h="up">▲</button><button data-h="dn">▼</button></div>
+              </div>
+            </div>
+            <div class="row r2">
+              <div class="tbtn" id="b" style="font-weight:700">B</div>
+              <div class="tbtn" id="i" style="font-style:italic">I</div>
+              <div class="tbtn" id="u" style="text-decoration:underline">U</div>
+              <div class="sep"></div>
+              <div class="swatch" id="colorSw" style="background:#111"></div>
+              <div class="sep"></div>
+              <div class="tbtn on" data-al="left" title="Align left">
+                <svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="1" y="5.2" width="9" height="1.6"/><rect x="1" y="9.4" width="12" height="1.6"/></g></svg></div>
+              <div class="tbtn" data-al="center" title="Align center">
+                <svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="3.5" y="5.2" width="9" height="1.6"/><rect x="2" y="9.4" width="12" height="1.6"/></g></svg></div>
+              <div class="tbtn" data-al="right" title="Align right">
+                <svg viewBox="0 0 16 12"><g fill="currentColor"><rect x="1" y="1" width="14" height="1.6"/><rect x="6" y="5.2" width="9" height="1.6"/><rect x="3" y="9.4" width="12" height="1.6"/></g></svg></div>
+            </div>
+          </div>
+          <span class="launcher" title="Text settings launcher (deferred)">⛭</span>
+        </div>
+
+        <!-- FRAME container -->
+        <div class="group frame fw" id="frameGroup">
+          <div class="vlabel acc">Frame</div>
+          <div class="gbody">
+            <div class="row r1">
+              <div class="tbtn fbtn" id="borderToggle" title="Border visibility">
+                <svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+              <div class="sep"></div>
+              <div class="tbtn fbtn frm-ctls on" id="squareBtn" title="Square corner">
+                <svg viewBox="0 0 16 16"><path d="M4 2 L4 12 L14 12" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+              <div class="tbtn fbtn frm-ctls" id="filletBtn" title="Fillet (rounded) corner">
+                <svg viewBox="0 0 16 16"><path d="M4 2 L4 6 Q4 12 10 12 L14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+              <div class="tbtn fbtn frm-ctls" id="chamferBtn" title="Chamfer (cut) corner">
+                <svg viewBox="0 0 16 16"><path d="M4 2 L4 8 L8 12 L14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+            </div>
+            <div class="row r2 frm-ctls" id="frmRow2">
+              <select class="ctl lt-combo" id="lineType" title="Line type">
+                <option value="solid">Solid</option><option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option><option value="dashdot">Dash-dot</option>
+              </select>
+            </div>
+            <div class="row r3 frm-ctls" id="frmRow3">
+              <select class="ctl weight-combo" id="weight" title="Line weight (named paper category)">
+                <option value="0.13">Very Light</option><option value="0.18" selected>Light</option>
+                <option value="0.25">Medium</option><option value="0.35">Heavy</option>
+                <option value="0.50">Very Heavy</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="neighbor">
+          <div class="vlabel ghost">Dimension</div>
+          <div class="body"><div class="nbtn"><div class="ic">↔</div>Linear</div><div class="nbtn"><div class="ic">⌀</div>Radius</div></div>
+        </div>
+      </div>
+
+      <div class="preview-wrap">
+        <div class="paper">
+          <div class="textbox" id="textbox" style="max-width:320px">
+            <svg class="frame" id="frameSvg" preserveAspectRatio="none"><path id="framePath" fill="none"/></svg>
+            <div class="content" id="previewText">SPRINKLER NOTE
+Provide QR pendent heads
+at 12'-0" o.c. per NFPA 13.</div>
+          </div>
+        </div>
+        <p class="cap" id="previewCap"></p>
+      </div>
+    </div>
+
+    <div class="side">
+      <h3>Proportions</h3>
+      <div class="srow"><label>Text group w</label><input type="range" id="s-txtw" min="180" max="320" value="236"><span class="val" id="v-txtw">236</span></div>
+      <div class="srow"><label>Frame group w</label><input type="range" id="s-frmw" min="130" max="240" value="170"><span class="val" id="v-frmw">170</span></div>
+      <div class="srow"><label>Row 1–2 height</label><input type="range" id="s-rowh" min="18" max="30" value="22"><span class="val" id="v-rowh">22</span></div>
+      <div class="srow"><label>Row 3 height</label><input type="range" id="s-row3" min="18" max="32" value="24"><span class="val" id="v-row3">24</span></div>
+      <div class="srow"><label>Gap</label><input type="range" id="s-gap" min="2" max="10" value="4"><span class="val" id="v-gap">4</span></div>
+      <div class="srow"><label>Padding</label><input type="range" id="s-pad" min="4" max="12" value="7"><span class="val" id="v-pad">7</span></div>
+      <div class="srow"><label>Button size</label><input type="range" id="s-btn" min="20" max="32" value="24"><span class="val" id="v-btn">24</span></div>
+      <div class="srow"><label>Font combo w</label><input type="range" id="s-fontw" min="100" max="180" value="130"><span class="val" id="v-fontw">130</span></div>
+      <div class="srow"><label>Height field w</label><input type="range" id="s-fldw" min="70" max="120" value="92"><span class="val" id="v-fldw">92</span></div>
+      <div class="srow"><label>Ribbon zoom</label><input type="range" id="s-scale" min="1" max="2" step="0.05" value="1.3"><span class="val" id="v-scale">1.3</span></div>
+
+      <h3>Frame preview</h3>
+      <div class="srow"><label>Corner radius %</label><input type="range" id="s-crad" min="4" max="40" value="14"><span class="val" id="v-crad">14</span></div>
+      <p class="hint">Fixed proportional radius (per your decision) — this only tunes the shipped default; the ribbon exposes Fillet/Chamfer buttons (+ neither = Square), not a radius field.</p>
+    </div>
+  </div>
+
+<script>
+const root=document.documentElement.style, $=id=>document.getElementById(id);
+[['s-txtw','--txt-w','v-txtw'],['s-frmw','--frm-w','v-frmw'],['s-rowh','--row-h','v-rowh'],
+ ['s-row3','--row3-h','v-row3'],['s-gap','--gap','v-gap'],['s-pad','--pad','v-pad'],
+ ['s-btn','--btn','v-btn'],['s-fontw','--font-w','v-fontw'],['s-fldw','--fld-w','v-fldw']]
+ .forEach(([sid,varn,vid])=>{const el=$(sid);const a=()=>{root.setProperty(varn,el.value+'px');$(vid).textContent=el.value;};el.addEventListener('input',a);a();});
+{const el=$('s-scale');const a=()=>{root.setProperty('--scale',el.value);$('v-scale').textContent=el.value;};el.addEventListener('input',a);a();}
+
+const st={border:false,weight:0.18,lineType:'solid',corner:'square',
+          bold:false,italic:false,underline:false,align:'left',color:'#111',crad:14};
+const WNAME={0.13:'Very Light',0.18:'Light',0.25:'Medium',0.35:'Heavy',0.50:'Very Heavy'};
+
+function toggle(id,key){$(id).addEventListener('click',()=>{st[key]=!st[key];$(id).classList.toggle('on',st[key]);render();});}
+toggle('b','bold');toggle('i','italic');toggle('u','underline');
+$('borderToggle').addEventListener('click',()=>{st.border=!st.border;syncBorder();render();});
+function setCorner(c){st.corner=c;
+  $('squareBtn').classList.toggle('on',c==='square');
+  $('filletBtn').classList.toggle('on',c==='round');
+  $('chamferBtn').classList.toggle('on',c==='chamfer');render();}
+$('squareBtn').addEventListener('click',()=>setCorner('square'));
+$('filletBtn').addEventListener('click',()=>setCorner('round'));
+$('chamferBtn').addEventListener('click',()=>setCorner('chamfer'));
+function syncBorder(){$('borderToggle').classList.toggle('on',st.border);
+  ['frmRow2','frmRow3','squareBtn','filletBtn','chamferBtn'].forEach(id=>$(id).classList.toggle('off',!st.border));}
+document.querySelectorAll('[data-al]').forEach(b=>b.addEventListener('click',()=>{
+  st.align=b.dataset.al;document.querySelectorAll('[data-al]').forEach(x=>x.classList.toggle('on',x===b));render();}));
+$('weight').addEventListener('change',e=>{st.weight=parseFloat(e.target.value);render();});
+$('lineType').addEventListener('change',e=>{st.lineType=e.target.value;render();});
+$('fontFamily').addEventListener('change',e=>{$('previewText').style.fontFamily=e.target.value;render();});
+$('s-crad').addEventListener('input',e=>{st.crad=+e.target.value;render();});
+$('colorSw').addEventListener('click',()=>{const c=prompt('Color hex','#111');if(c){st.color=c;$('colorSw').style.background=c;render();}});
+const heights=['1/16"','3/32"','1/8"','5/32"','3/16"','1/4"','3/8"','1/2"'];
+document.querySelectorAll('[data-h]').forEach(btn=>btn.addEventListener('click',()=>{
+  let i=heights.indexOf($('height').value);if(i<0)i=1;
+  i=btn.dataset.h==='up'?Math.min(i+1,heights.length-1):Math.max(i-1,0);$('height').value=heights[i];}));
+
+function render(){
+  const box=$('textbox'),tx=$('previewText');
+  tx.style.fontWeight=st.bold?'700':'400';tx.style.fontStyle=st.italic?'italic':'normal';
+  tx.style.textDecoration=st.underline?'underline':'none';tx.style.textAlign=st.align;tx.style.color=st.color;
+  const svg=$('frameSvg'),path=$('framePath');
+  if(!st.border){svg.style.display='none';cap();return;}
+  svg.style.display='block';
+  const w=box.clientWidth,h=box.clientHeight;svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  const sw=Math.max(1,st.weight/0.18*1.4),inset=sw/2+0.5;
+  const x0=inset,y0=inset,x1=w-inset,y1=h-inset,r=Math.min(w,h)*st.crad/100;
+  let d;
+  if(st.corner==='square'){d=`M${x0},${y0} L${x1},${y0} L${x1},${y1} L${x0},${y1} Z`;}
+  else if(st.corner==='round'){d=`M${x0+r},${y0} L${x1-r},${y0} Q${x1},${y0} ${x1},${y0+r} L${x1},${y1-r} Q${x1},${y1} ${x1-r},${y1} L${x0+r},${y1} Q${x0},${y1} ${x0},${y1-r} L${x0},${y0+r} Q${x0},${y0} ${x0+r},${y0} Z`;}
+  else{d=`M${x0+r},${y0} L${x1-r},${y0} L${x1},${y0+r} L${x1},${y1-r} L${x1-r},${y1} L${x0+r},${y1} L${x0},${y1-r} L${x0},${y0+r} Z`;}
+  path.setAttribute('d',d);path.setAttribute('stroke',st.color);path.setAttribute('stroke-width',sw);
+  const dash={solid:'',dashed:`${sw*4},${sw*3}`,dotted:`${sw*0.1},${sw*2.2}`,dashdot:`${sw*4},${sw*2},${sw*0.1},${sw*2}`}[st.lineType];
+  path.setAttribute('stroke-dasharray',dash);path.setAttribute('stroke-linecap',st.lineType==='dotted'?'round':'butt');
+  cap();
+}
+function cap(){$('previewCap').textContent=`Border ${st.border?'ON · '+(WNAME[st.weight]||st.weight)+' ('+st.weight+'mm) · '+st.lineType+' · '+st.corner:'OFF'} · text always wraps`;}
+syncBorder();render();window.addEventListener('resize',render);
+</script>
+</body>
+</html>
