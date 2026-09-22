@@ -4,13 +4,15 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, QSize, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter, QFont, QFontDatabase
+from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QSize, pyqtSignal
+from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
+                         QFontDatabase, QIntValidator)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
-                             QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate)
+                             QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
+                             QLineEdit)
 
-from .theme import M
+from .theme import M, detect as _detect
 
 
 def dock_header(text: str) -> QLabel:
@@ -704,3 +706,161 @@ class FontSelect(QComboBox):
         self._pin_recent(fam)
         self._rebuild(current=fam)
         self.fontChanged.emit(fam)
+
+
+# ── Custom property-panel inputs ─────────────────────────────────────────────
+# Fully self-painted so there is no native QComboBox/QSpinBox chrome to fight
+# (arrows vanishing when styled, drop-down tone, inconsistent widths). Tuned via
+# docs/mockups/selector-tuner.html: height 24, field=surface2 (window-header
+# tone), 1px border, radius 4, ink triangle caret behind a 1px divider.
+
+_SEL_H = 24
+_SEL_RADIUS = 4
+_CARET_W = 22
+_ARROW_W = 16
+
+
+class Selector(QComboBox):
+    """A custom-painted dropdown. Subclasses QComboBox to keep its popup/model
+    (``addItems``/``currentText``/``currentTextChanged``); only the closed-state
+    paint is ours — field=surface2, 1px border, radius 4, ink triangle caret."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(_SEL_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumWidth(0)
+        f = self.font()
+        f.setPixelSize(11)
+        self.setFont(f)
+        t = _detect()
+        self.view().setStyleSheet(
+            f"QAbstractItemView {{ background: {t.surface2}; color: {t.ink};"
+            f" border: 1px solid {t.accent}; outline: none;"
+            f" selection-background-color: {t.accent};"
+            f" selection-color: {t.accent_ink}; }}")
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(t.surface2))
+        p.drawRoundedRect(r, _SEL_RADIUS, _SEL_RADIUS)
+        divx = r.right() - _CARET_W
+        p.drawLine(QPointF(divx, r.top() + 3), QPointF(divx, r.bottom() - 3))
+        p.setPen(QColor(t.ink))
+        tr = QRectF(r.left() + 6, r.top(), divx - r.left() - 10, r.height())
+        txt = self.fontMetrics().elidedText(
+            self.currentText(), Qt.TextElideMode.ElideRight, int(tr.width()))
+        p.drawText(tr, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), txt)
+        cx = divx + _CARET_W / 2
+        cy = r.center().y()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(t.ink))
+        p.drawPolygon(QPolygonF([QPointF(cx - 5, cy - 2),
+                                 QPointF(cx + 5, cy - 2), QPointF(cx, cy + 3.5)]))
+
+
+class _StepArrows(QWidget):
+    """Two stacked triangle hit-areas (up / down) with a gap between them."""
+
+    def __init__(self, on_step, parent=None):
+        super().__init__(parent)
+        self._on_step = on_step          # callable(+1 | -1)
+        self.setFixedWidth(_ARROW_W)
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(t.ink))
+        cx = self.width() / 2
+        h = self.height()
+        up_cy, dn_cy, s = h * 0.30, h * 0.70, 5      # 40% gap between the arrows
+        p.drawPolygon(QPolygonF([QPointF(cx - s, up_cy + 2.5),
+                                 QPointF(cx + s, up_cy + 2.5), QPointF(cx, up_cy - 2.5)]))
+        p.drawPolygon(QPolygonF([QPointF(cx - s, dn_cy - 2.5),
+                                 QPointF(cx + s, dn_cy - 2.5), QPointF(cx, dn_cy + 2.5)]))
+
+    def mousePressEvent(self, event):
+        self._on_step(1 if event.position().y() < self.height() / 2 else -1)
+
+
+class Stepper(QWidget):
+    """A custom-painted integer stepper (drop-in for a QSpinBox in the property
+    panel): field=surface2 box, editable value, spaced up/down triangles behind a
+    divider. API: ``setRange``/``setMinimum``/``setMaximum``/``setValue``/
+    ``value`` + ``valueChanged(int)``."""
+
+    valueChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(_SEL_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._min, self._max, self._value = 0, 100000, 0
+        t = _detect()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._edit = QLineEdit("0")
+        self._edit.setFrame(False)
+        self._edit.setValidator(QIntValidator(self._min, self._max, self))
+        self._edit.setStyleSheet(
+            f"background: transparent; border: none; color: {t.ink};"
+            f" padding: 0 6px; font-size: 11px;")
+        self._edit.editingFinished.connect(self._commit_edit)
+        lay.addWidget(self._edit, 1)
+        lay.addWidget(_StepArrows(self._step, self))
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.setBrush(QColor(t.surface2))
+        p.drawRoundedRect(r, _SEL_RADIUS, _SEL_RADIUS)
+        divx = r.right() - _ARROW_W
+        p.drawLine(QPointF(divx, r.top() + 3), QPointF(divx, r.bottom() - 3))
+
+    def setRange(self, lo, hi):
+        self._min, self._max = int(lo), int(hi)
+        self._edit.setValidator(QIntValidator(self._min, self._max, self))
+        self.setValue(self._value)
+
+    def setMinimum(self, lo):
+        self.setRange(lo, self._max)
+
+    def setMaximum(self, hi):
+        self.setRange(self._min, hi)
+
+    def value(self):
+        return self._value
+
+    def minimum(self):
+        return self._min
+
+    def maximum(self):
+        return self._max
+
+    def setValue(self, v):
+        v = max(self._min, min(self._max, int(v)))
+        changed = v != self._value
+        self._value = v
+        self._edit.setText(str(v))
+        if changed:
+            self.valueChanged.emit(v)
+
+    def _step(self, d):
+        self.setValue(self._value + d)
+
+    def _commit_edit(self):
+        try:
+            self.setValue(int(self._edit.text() or 0))
+        except ValueError:
+            self._edit.setText(str(self._value))

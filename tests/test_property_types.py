@@ -3,8 +3,9 @@
 Tests for the four new property-panel render types:
   icon_enum, bool_group, number, percent
 """
-from PyQt6.QtWidgets import QSlider, QSpinBox, QAbstractButton
+from PyQt6.QtWidgets import QSlider, QAbstractButton
 from firepro3d.property_manager import PropertyManager
+from firepro3d.ui_kit import Stepper
 
 
 class _Item:
@@ -49,7 +50,7 @@ def test_number_type_commits_int(qapp):
     pm = PropertyManager()
     it = _Item({"Height": {"type": "number", "value": 48, "minimum": 1}})
     pm.show_properties(it)
-    spin = next(s for s in pm.findChildren(QSpinBox) if s.property("number_key") == "Height")
+    spin = next(s for s in pm.findChildren(Stepper) if s.property("number_key") == "Height")
     assert spin.value() == 48
     assert spin.minimum() == 1          # up/down arrows, clamped to >= 1 px
     spin.setValue(60)

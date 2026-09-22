@@ -51,6 +51,7 @@ from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
+from .ui_kit import Selector, Stepper
 from . import theme as th
 
 
@@ -355,20 +356,20 @@ class PropertyManager(QWidget):
 
             # ── font (family picker) ──────────────────────────────────────
             elif prop_type == "font":
-                fcombo = QFontComboBox()
-                fcombo.setMinimumContentsLength(8)
+                from PyQt6.QtGui import QFontDatabase
+                fcombo = Selector()
+                fcombo.addItems(QFontDatabase.families())
                 if meta["value"]:
-                    fcombo.setCurrentFont(QFont(str(meta["value"])))
-                fcombo.currentFontChanged.connect(
-                    lambda f, k=key: self._apply_property(k, f.family())
+                    fcombo.setCurrentText(str(meta["value"]))
+                fcombo.currentTextChanged.connect(
+                    lambda fam, k=key: self._apply_property(k, fam)
                 )
                 widget = fcombo
 
             # ── enum (fixed option list) ──────────────────────────────────
             elif prop_type == "enum":
-                widget = QComboBox()
-                widget.setMinimumContentsLength(8)
-                widget.addItems(meta.get("options", []))
+                widget = Selector()
+                widget.addItems([str(o) for o in meta.get("options", [])])
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)
@@ -392,9 +393,8 @@ class PropertyManager(QWidget):
 
             # ── combo (alias for enum) ──────────────────────────────────
             elif prop_type == "combo":
-                widget = QComboBox()
-                widget.setMinimumContentsLength(8)
-                widget.addItems(meta.get("options", []))
+                widget = Selector()
+                widget.addItems([str(o) for o in meta.get("options", [])])
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)
@@ -439,11 +439,11 @@ class PropertyManager(QWidget):
                 lay.addStretch(1)
                 widget = cont
 
-            # ── number (integer spinbox with up/down arrows, no unit) ─────
+            # ── number (integer stepper with up/down arrows, no unit) ─────
             elif prop_type == "number":
-                spin = QSpinBox()
-                spin.setMinimum(int(meta.get("minimum", 0)))
-                spin.setMaximum(int(meta.get("maximum", 100000)))
+                spin = Stepper()
+                spin.setRange(int(meta.get("minimum", 0)),
+                              int(meta.get("maximum", 100000)))
                 spin.setValue(int(meta.get("value", 0)))
                 spin.setProperty("number_key", key)
                 spin.valueChanged.connect(

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Custom Selector / Stepper tuner</title>
+<style>
+  :root{
+    --bg:#15181b; --surface:#1E2125; --surface2:#24282D; --sunken:#212529;
+    --edge:#3A4046; --edge2:#4A5158; --border-subtle:#333a40;
+    --ink:#E6E9EC; --ink2:#CFD4D9; --muted:#98A0A7; --accent:#63BE8B; --accent-ink:#0E1712;
+    /* tunables */
+    --h:26px; --fs:12px; --rad:4px; --bw:1px; --pad:8px;
+    --caret:6px; --divider:0; --arrowcol:#98A0A7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",system-ui;padding:22px;display:flex;gap:26px;align-items:flex-start}
+  h1{font-size:16px;margin:0 0 10px}
+  .ctl{width:320px;background:var(--surface);border:1px solid var(--edge);border-radius:8px;padding:14px 16px;position:sticky;top:16px}
+  .ctl h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:14px 0 8px;border-bottom:1px solid var(--edge);padding-bottom:4px}
+  .ctl h3:first-child{margin-top:0}
+  .sr{display:grid;grid-template-columns:110px 1fr 52px;gap:8px;align-items:center;margin-bottom:8px;font-size:11.5px;color:var(--ink2)}
+  .sr input[type=range]{width:100%;accent-color:var(--accent)}
+  .sr .v{color:var(--muted);text-align:right}
+  .seg{display:flex;gap:4px;margin:2px 0 10px}
+  .seg button{flex:1;padding:5px;background:var(--surface2);border:1px solid var(--edge);color:var(--ink2);border-radius:5px;cursor:pointer;font-size:11px}
+  .seg button.on{background:rgba(99,190,139,.5);border-color:var(--accent);color:var(--ink)}
+  .out{margin-top:14px;background:var(--sunken);border:1px solid var(--edge);border-radius:6px;padding:8px;font:11px ui-monospace,Consolas;white-space:pre-wrap;color:var(--ink2)}
+
+  /* the stage — a mini property panel row */
+  .stage{background:var(--surface);border:1px solid var(--edge);border-radius:8px;padding:18px;width:320px}
+  .row{display:grid;grid-template-columns:84px 1fr;align-items:center;gap:8px;min-height:var(--h);margin-bottom:10px}
+  .row > label{color:var(--muted);font-size:var(--fs)}
+
+  /* CUSTOM SELECTOR (dropdown) */
+  .selector{height:var(--h);background:var(--fieldcol,var(--surface2));border:var(--bw) solid var(--border-subtle);
+    border-radius:var(--rad);display:flex;align-items:center;cursor:pointer;color:var(--ink);font-size:var(--fs);user-select:none;overflow:hidden}
+  .selector .val{flex:1;padding:0 var(--pad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .selector .car{width:22px;display:flex;align-items:center;justify-content:center;flex:0 0 22px;
+    border-left:calc(var(--divider) * 1px) solid var(--border-subtle)}
+  .selector:hover{border-color:var(--accent)}
+  .selector.open{border-color:var(--accent)}
+  .caretC{width:var(--caret);height:var(--caret)}
+  .caretC path,.caretC polyline{stroke:var(--arrowcol);stroke-width:1.6;fill:none}
+  .caretT{width:calc(var(--caret) + 2px);height:calc(var(--caret) + 2px)}
+  .caretT polygon{fill:var(--arrowcol)}
+
+  /* popup */
+  .popup{margin-top:3px;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--rad);overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+  .popup .opt{padding:5px var(--pad);font-size:var(--fs);cursor:pointer}
+  .popup .opt:hover{background:rgba(99,190,139,.22)}
+  .popup .opt.sel{background:rgba(99,190,139,.5);color:var(--ink)}
+
+  /* CUSTOM STEPPER (spinner) */
+  .stepper{height:var(--h);background:var(--fieldcol,var(--surface2));border:var(--bw) solid var(--border-subtle);
+    border-radius:var(--rad);display:flex;align-items:center;overflow:hidden}
+  .stepper .num{flex:1;padding:0 var(--pad);color:var(--ink);font-size:var(--fs)}
+  .stepper .arrows{display:flex;flex-direction:column;width:18px;flex:0 0 18px;
+    border-left:calc(var(--divider) * 1px) solid var(--border-subtle)}
+  .stepper .arrows button{flex:1;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .stepper .arrows button:hover{background:rgba(99,190,139,.22)}
+  .stepper .arrows svg{width:8px;height:6px}
+  .stepper .arrows svg polygon{fill:var(--arrowcol)}
+</style></head>
+<body>
+  <div class="ctl">
+    <h1>Selector / Stepper</h1>
+    <h3>Dimensions</h3>
+    <div class="sr"><label>Height</label><input type="range" id="h" min="18" max="36" value="26"><span class="v"></span></div>
+    <div class="sr"><label>Font size</label><input type="range" id="fs" min="10" max="15" value="12"><span class="v"></span></div>
+    <div class="sr"><label>Corner radius</label><input type="range" id="rad" min="0" max="10" value="4"><span class="v"></span></div>
+    <div class="sr"><label>Border width</label><input type="range" id="bw" min="0" max="2" value="1"><span class="v"></span></div>
+    <div class="sr"><label>Text padding</label><input type="range" id="pad" min="4" max="14" value="8"><span class="v"></span></div>
+
+    <h3>Field colour</h3>
+    <div class="seg" id="fieldSeg">
+      <button data-c="var(--surface2)" class="on">surface2 (header)</button>
+      <button data-c="var(--sunken)">sunken</button>
+      <button data-c="var(--surface)">surface</button>
+    </div>
+
+    <h3>Arrow</h3>
+    <div class="seg" id="caretSeg">
+      <button data-t="chevron" class="on">chevron</button>
+      <button data-t="triangle">triangle</button>
+    </div>
+    <div class="sr"><label>Arrow size</label><input type="range" id="caret" min="5" max="10" value="6"><span class="v"></span></div>
+    <div class="sr"><label>Divider line</label><input type="range" id="divider" min="0" max="1" value="0"><span class="v"></span></div>
+    <div class="seg" id="arrowColSeg">
+      <button data-c="#98A0A7" class="on">muted arrow</button>
+      <button data-c="#63BE8B">accent arrow</button>
+      <button data-c="#E6E9EC">ink arrow</button>
+    </div>
+
+    <div class="out" id="out"></div>
+  </div>
+
+  <div class="stage">
+    <div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border-subtle);padding-bottom:2px;margin-bottom:10px">Format</div>
+    <div class="row"><label>Font</label>
+      <div>
+        <div class="selector" id="sel1"><span class="val">Arial</span><span class="car" id="car1"></span></div>
+        <div class="popup" id="pop1" style="display:none">
+          <div class="opt sel">Arial</div><div class="opt">Segoe UI</div><div class="opt">Consolas</div><div class="opt">Times New Roman</div>
+        </div>
+      </div>
+    </div>
+    <div class="row"><label>Height</label>
+      <div class="stepper" id="step1"><span class="num">48</span><div class="arrows">
+        <button data-d="1"><svg viewBox="0 0 8 6"><polygon points="4,0 8,6 0,6"/></svg></button>
+        <button data-d="-1"><svg viewBox="0 0 8 6"><polygon points="0,0 8,0 4,6"/></svg></button></div></div>
+    </div>
+    <div class="row"><label>Line Type</label>
+      <div class="selector" id="sel2"><span class="val">dashed</span><span class="car" id="car2"></span></div>
+    </div>
+    <div class="row"><label>Line Weight</label>
+      <div class="selector" id="sel3"><span class="val">Medium</span><span class="car" id="car3"></span></div>
+    </div>
+    <p style="color:var(--muted);font-size:11px;margin-top:14px">Click the Font selector to preview the open popup. All three selectors share one width. Tune, then paste me the values box.</p>
+  </div>
+
+<script>
+const root=document.documentElement.style, $=id=>document.getElementById(id);
+const CHEV='<svg class="caretC" viewBox="0 0 12 12"><polyline points="2,4 6,8 10,4"/></svg>';
+const TRI='<svg class="caretT" viewBox="0 0 12 12"><polygon points="2,4 10,4 6,9"/></svg>';
+let caretType='chevron';
+function caretHTML(){return caretType==='chevron'?CHEV:TRI;}
+function paintCarets(){['car1','car2','car3'].forEach(id=>$(id).innerHTML=caretHTML());}
+
+function pxBind(id,varn){const el=$(id);const v=el.closest('.sr').querySelector('.v');
+  const u=()=>{root.setProperty('--'+varn,el.value+(varn==='divider'?'':'px'));v.textContent=el.value;dump();};
+  el.addEventListener('input',u);u();}
+['h','fs','rad','bw','pad','caret'].forEach(id=>pxBind(id,id));
+pxBind('divider','divider');
+
+$('fieldSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $('fieldSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  root.setProperty('--fieldcol',b.dataset.c);dump();});
+$('caretSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $('caretSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  caretType=b.dataset.t;paintCarets();dump();});
+$('arrowColSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $('arrowColSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  root.setProperty('--arrowcol',b.dataset.c);dump();});
+
+$('sel1').addEventListener('click',()=>{const p=$('pop1'),s=$('sel1');
+  const open=p.style.display==='none';p.style.display=open?'block':'none';s.classList.toggle('open',open);});
+
+function dump(){
+  const g=id=>$(id).value;
+  const fc=$('fieldSeg').querySelector('.on').textContent.split(' ')[0];
+  const ac=$('arrowColSeg').querySelector('.on').dataset.c;
+  $('out').textContent=
+`height=${g('h')} font=${g('fs')} radius=${g('rad')} border=${g('bw')} pad=${g('pad')}
+field=${fc} caret=${caretType} arrow_size=${g('caret')} divider=${g('divider')} arrow_col=${ac}`;
+}
+paintCarets();dump();
+</script>
+</body></html>
