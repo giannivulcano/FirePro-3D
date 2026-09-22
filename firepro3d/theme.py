@@ -747,26 +747,9 @@ QTableWidget::item, QTableView::item {{
     border-bottom: 1px solid {t.border_subtle};
 }}
 /* ── Segmented controls (property-panel icon_enum / bool_group) ─────── */
-QWidget#segmented QToolButton {{
-    background: {t.bg_raised}; border: 1px solid {t.border_subtle};
-    border-radius: 5px; color: {t.muted}; margin: 0; padding: 0;
-}}
-/* selected renders identically to hover (same fill, light icon/text) */
-QWidget#segmented QToolButton:hover,
-QWidget#segmented QToolButton:checked {{
-    background: {_rgba(t.accent, 128)}; border-color: {t.accent}; color: {t.ink};
-}}
-/* ── Properties dock: seamless combos + spinboxes (field-colour, single arrow) ── */
-#PropertiesDock QComboBox, #PropertiesDock QSpinBox,
-#PropertiesDock QLineEdit, #PropertiesDock QPlainTextEdit {{
-    background: {t.bg_raised}; font-size: 11px; min-height: 25px;
-}}
-#PropertiesDock QComboBox::drop-down {{
-    border: none; background: transparent; width: 18px;
-}}
-#PropertiesDock QSpinBox::up-button, #PropertiesDock QSpinBox::down-button {{
-    border: none; background: transparent; width: 16px;
-}}
+/* Property-panel field tone + segmented buttons live in PropertyManager's own
+   stylesheet (#propPanel …) — the panel sets its own background, which would
+   cascade over app-level rules for its children. */
 /* ── Percent slider (property-panel opacity) ───────────────────────── */
 QSlider#pctSlider::groove:horizontal {{
     height: 4px; background: {t.border_subtle}; border-radius: 2px;

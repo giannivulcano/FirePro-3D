@@ -85,7 +85,39 @@ class PropertyManager(QWidget):
         # WA_StyledBackground so the QSS surface actually paints (a plain-QWidget
         # QSS background is a live-only no-op otherwise, showing the dark base).
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: {_t.surface};")
+        # Panel styling lives HERE (not the app stylesheet): the panel sets its
+        # own background, which would otherwise cascade over children — so field
+        # tone (raised, for contrast), segmented-button fills, and the seamless
+        # combo/spin arrows must be scoped under #propPanel to win.
+        self.setObjectName("propPanel")
+        _ac = QColor(_t.accent)
+        _fill = f"rgba({_ac.red()},{_ac.green()},{_ac.blue()},130)"
+        self.setStyleSheet(f"""
+            #propPanel {{ background: {_t.surface}; }}
+            #propPanel QComboBox, #propPanel QSpinBox, #propPanel QLineEdit,
+            #propPanel QPlainTextEdit {{
+                background: {_t.raised}; border: 1px solid {_t.border_subtle};
+                border-radius: 4px; color: {_t.ink}; padding: 0 6px; min-height: 22px;
+            }}
+            #propPanel QComboBox:focus, #propPanel QSpinBox:focus,
+            #propPanel QLineEdit:focus, #propPanel QPlainTextEdit:focus {{
+                border-color: {_t.accent};
+            }}
+            #propPanel QComboBox::drop-down {{
+                border: none; background: transparent; width: 18px;
+            }}
+            #propPanel QSpinBox::up-button, #propPanel QSpinBox::down-button {{
+                border: none; background: transparent; width: 16px;
+            }}
+            #propPanel QWidget#segmented QToolButton {{
+                background: {_t.raised}; border: 1px solid {_t.border_subtle};
+                border-radius: 5px; color: {_t.muted};
+            }}
+            #propPanel QWidget#segmented QToolButton:hover,
+            #propPanel QWidget#segmented QToolButton:checked {{
+                background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
+            }}
+        """)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
         outer.setSpacing(0)
@@ -251,8 +283,12 @@ class PropertyManager(QWidget):
 
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
+                cont = QWidget()
+                cl = QHBoxLayout(cont)
+                cl.setContentsMargins(0, 0, 0, 0)
+                cl.setSpacing(6)
                 btn = QPushButton()
-                btn.setFixedSize(42, 22)
+                btn.setFixedSize(40, 16)
                 btn.setProperty("_color_value", meta["value"])
                 btn.setStyleSheet(
                     f"background: {meta['value']}; "
@@ -262,7 +298,12 @@ class PropertyManager(QWidget):
                 btn.clicked.connect(
                     lambda _, k=key, b=btn: self._pick_color(k, b)
                 )
-                widget = btn
+                hx = QLabel(str(meta["value"]).upper())
+                hx.setStyleSheet(f"color: {_t.muted};")
+                cl.addWidget(btn)
+                cl.addWidget(hx)
+                cl.addStretch(1)
+                widget = cont
 
             # ── level_ref (level dropdown from LevelManager) ──────────────
             elif prop_type == "level_ref":
