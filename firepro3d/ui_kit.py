@@ -866,6 +866,38 @@ class Stepper(QWidget):
             self._edit.setText(str(self._value))
 
 
+# ── "No Fill" glyph (todo #70) — ONE rendering shared by the colour picker,
+# _Chip/Swatch and the title-block swatch icon. Fixed drawing-convention colours
+# (like the picker palette), deliberately NOT theme tokens.
+NO_FILL_BG = "#ffffff"
+NO_FILL_SLASH = "#dd2222"
+
+
+def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None:
+    """Paint the No-Fill glyph into *r*: white rounded rect + red
+    bottom-left→top-right slash. Caller draws any border afterwards."""
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(NO_FILL_BG))
+    p.drawRoundedRect(r, radius, radius)
+    p.setClipRect(r)
+    p.setPen(QPen(QColor(NO_FILL_SLASH), 2.0))
+    p.drawLine(r.bottomLeft(), r.topRight())
+    p.restore()
+
+
+def no_fill_icon(w: int, h: int):
+    """QIcon of the No-Fill glyph for QPushButton-based swatches."""
+    from PyQt6.QtGui import QIcon, QPixmap
+    pm = QPixmap(w, h)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    paint_no_fill(p, QRectF(0, 0, w, h), 2)
+    p.end()
+    return QIcon(pm)
+
+
 class _Chip(QWidget):
     """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
 
@@ -886,8 +918,12 @@ class _Chip(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if not self._color:                      # No Fill (todo #70)
+            paint_no_fill(p, r, 3)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+        else:
+            p.setBrush(QColor(self._color))
         p.setPen(QPen(QColor(t.border_subtle), 1))
-        p.setBrush(QColor(self._color))
         p.drawRoundedRect(r, 3, 3)
 
     def mousePressEvent(self, event):

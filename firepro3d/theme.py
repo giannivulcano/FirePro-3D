@@ -122,6 +122,19 @@ class _Metrics:
     PROP_DOCK_W = 240           # default properties-dock width
     PROP_FORM_MARGIN = (6, 4, 6, 4)   # form contents margin
 
+    # Colour picker dialog (todo #70; mockup docs/mockups/colour-picker.html)
+    COLOUR_DLG_W = 440          # fixed dialog width
+    COLOUR_SV_W = 210           # saturation/value field width
+    COLOUR_SV_H = 170           # SV field + hue bar height
+    COLOUR_HUE_W = 16           # vertical hue bar width
+    COLOUR_COL_GAP = 16         # SV/hue/right-column spacing
+    COLOUR_CHIP = 22            # palette / recent chip edge
+    COLOUR_CHIP_GAP = 4         # chip spacing in a row
+    COLOUR_CHIP_RADIUS = 3      # chip corner radius
+    COLOUR_SEL_RING = 2         # selected-chip accent ring width
+    COLOUR_SEC_GAP = 12         # space above each palette section label
+    COLOUR_PREVIEW_H = 40       # New/Current preview chip height
+
 
 M = _Metrics()
 
