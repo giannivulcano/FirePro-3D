@@ -1,12 +1,13 @@
 ---
-status: partial            # baseline (unified TextItem + Font group) is current; frame axis + FontSelect + Frame group are proposal
-last-verified: 2026-09-21
-verified-commit: 94417a3
+status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; style presets/SHX/overrides deferred
+last-verified: 2026-09-22
+verified-commit: 3b74b65
 applies-to:
-  - firepro3d/text_item.py        # TextItem + TextAnnotationData (the unified primitive + data model)
+  - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
-  - firepro3d/frame_group.py      # ribbon "Frame" group controller (NEW — proposal)
-  - firepro3d/ui_kit.py           # FontSelect standard widget (NEW — proposal)
+  - firepro3d/frame_group.py      # ribbon "Frame" group controller
+  - firepro3d/ui_kit.py           # FontSelect + custom panel inputs Selector/Stepper/Swatch
+  - firepro3d/property_manager.py # shared property panel + render types + panel metric tokens (theme.M.PROP_*)
   - firepro3d/paper_display.py    # named line-weights (resolve_line_weight_mm / FACTORY_LINE_WEIGHTS) reused for the frame
 source-tasks:
   - "todo_open.md → UI: Text primitives ribbon (frame axis / font widget) — 2026-09-21 brainstorm"
@@ -300,3 +301,22 @@ the model/Block-Editor surface the scene snapshots for undo (paper keeps
   text**; **model / Block-Editor text is edited via the property panel** (panel
   phase). Extending the ribbon to model text needs the model-scene selection wiring
   + undo routing (the D5 "entity-aware Font group" item) — deferred.
+
+## As-built (2026-09-22, `feat/text-annotation-frame`, 33 commits)
+
+Landed: the frame axis (border/line-type/named-weight/corner) on `TextAnnotationData`
++ `TextItem.paint`; the **fill model** (`fill_color`/`fill_opacity`, `opaque_bg`
+migrated); `FontSelect`; the **Frame** ribbon group + 4 authored icons; and the
+**grouped annotation property panel** (Text/Format/Frame/Fill) on the shared
+`PropertyManager`. Panel inputs were rebuilt as **custom self-painted `ui_kit`
+widgets** — `Selector` (dropdown), `Stepper` (spinner), `Swatch` (colour+hex) —
+because the native `QComboBox`/`QSpinBox`/`QPushButton` chrome fought styling
+(arrows dropping, drop-down tone, inconsistent widths). Panel styling was split
+onto two widgets (panel bg on the PM via bare `background`+WA_StyledBackground;
+field/button tones on the inner `form_container`) — a widget can't paint its own
+bg AND style its children from one sheet. All panel metrics are tokenized in
+**`theme.M.PROP_*`** (single source of truth for every entity panel).
+
+**Known issue (P1 follow-up, filed in todo_open):** the rendered annotation text box
+does not yet visually reflect the panel settings — panel commits update the data but
+the on-canvas/Block-Editor render doesn't update. Needs live root-cause.
