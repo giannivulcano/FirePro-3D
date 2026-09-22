@@ -26,7 +26,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
-    QCheckBox, QFontComboBox, QToolButton, QSlider, QPlainTextEdit,
+    QCheckBox, QFontComboBox, QToolButton, QSlider, QPlainTextEdit, QSpinBox,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
 from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
@@ -381,15 +381,17 @@ class PropertyManager(QWidget):
                 lay.addStretch(1)
                 widget = cont
 
-            # ── number (bare integer field) ───────────────────────────────
+            # ── number (integer spinbox with up/down arrows, no unit) ─────
             elif prop_type == "number":
-                edit = QLineEdit(str(int(meta.get("value", 0))))
-                edit.setProperty("number_key", key)
-                edit.editingFinished.connect(
-                    lambda k=key, e=edit: self._apply_property(
-                        k, int(float(e.text() or 0)))
+                spin = QSpinBox()
+                spin.setMinimum(int(meta.get("minimum", 0)))
+                spin.setMaximum(int(meta.get("maximum", 100000)))
+                spin.setValue(int(meta.get("value", 0)))
+                spin.setProperty("number_key", key)
+                spin.valueChanged.connect(
+                    lambda v, k=key: self._apply_property(k, int(v))
                 )
-                widget = edit
+                widget = spin
 
             # ── percent (0–100 slider with % readout) ─────────────────────
             elif prop_type == "percent":

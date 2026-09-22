@@ -757,7 +757,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Content":  {"type": "multiline", "value": d.text},
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
-            "Height":   {"type": "number", "value": int(round(d.height_mm))},
+            "Height":   {"type": "number", "value": int(round(d.height_mm)), "minimum": 1},
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
                          "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},

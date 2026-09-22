@@ -3,7 +3,7 @@
 Tests for the four new property-panel render types:
   icon_enum, bool_group, number, percent
 """
-from PyQt6.QtWidgets import QSlider, QLineEdit, QAbstractButton
+from PyQt6.QtWidgets import QSlider, QSpinBox, QAbstractButton
 from firepro3d.property_manager import PropertyManager
 
 
@@ -47,11 +47,12 @@ def test_bool_group_renders_and_commits(qapp):
 
 def test_number_type_commits_int(qapp):
     pm = PropertyManager()
-    it = _Item({"Height": {"type": "number", "value": 48}})
+    it = _Item({"Height": {"type": "number", "value": 48, "minimum": 1}})
     pm.show_properties(it)
-    edit = next(e for e in pm.findChildren(QLineEdit) if e.property("number_key") == "Height")
-    assert edit.text() == "48"
-    edit.setText("60"); edit.editingFinished.emit()
+    spin = next(s for s in pm.findChildren(QSpinBox) if s.property("number_key") == "Height")
+    assert spin.value() == 48
+    assert spin.minimum() == 1          # up/down arrows, clamped to >= 1 px
+    spin.setValue(60)
     assert it.applied.get("Height") == 60
 
 

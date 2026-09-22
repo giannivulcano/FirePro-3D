@@ -735,7 +735,8 @@ QPushButton[variant="danger"]:hover {{
     background: {t.danger_soft}; border-color: {t.danger};
 }}
 /* ── Role / state labels ──────────────────────────────────────────── */
-QLabel[role="header"] {{ color: {t.muted}; font-weight: 600; }}
+QLabel[role="header"] {{ color: {t.accent}; font-weight: 600;
+    border-bottom: 1px solid {t.border_subtle}; padding-bottom: 3px; }}
 QLabel[role="muted"] {{ color: {t.muted}; }}
 QLabel[state="warn"] {{
     color: {t.warn}; background: {t.warn_soft};
