@@ -45,6 +45,8 @@ class _MultilineEdit(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.document().setDocumentMargin(1)   # tighter inner padding (was ~4)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
