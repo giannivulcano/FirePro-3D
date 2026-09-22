@@ -732,7 +732,7 @@ class Selector(QComboBox):
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
         f = self.font()
-        f.setPixelSize(10)
+        f.setPixelSize(11)
         self.setFont(f)
         t = _detect()
         self.view().setStyleSheet(
@@ -812,7 +812,7 @@ class Stepper(QWidget):
         self._edit.setValidator(QIntValidator(self._min, self._max, self))
         self._edit.setStyleSheet(
             f"background: transparent; border: none; color: {t.ink};"
-            f" padding: 0 6px; font-size: 10px;")
+            f" padding: 0 6px; font-size: 11px;")
         self._edit.editingFinished.connect(self._commit_edit)
         lay.addWidget(self._edit, 1)
         lay.addWidget(_StepArrows(self._step, self))
@@ -912,7 +912,7 @@ class Swatch(QWidget):
         self._chip = _Chip(self._hex)
         self._chip.clicked.connect(self._pick)
         self._label = QLabel(self._hex.upper())
-        self._label.setStyleSheet(f"color: {t.muted}; font-size: 10px;")
+        self._label.setStyleSheet(f"color: {t.muted}; font-size: 11px;")
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)

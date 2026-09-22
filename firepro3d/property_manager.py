@@ -42,6 +42,10 @@ class _MultilineEdit(QPlainTextEdit):
     """
     editingFinished = pyqtSignal()
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.document().setDocumentMargin(2)   # tighter inner padding (was ~4)
+
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
         self.editingFinished.emit()
@@ -109,11 +113,11 @@ class PropertyManager(QWidget):
             QWidget#segmented QToolButton:checked {{
                 background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
             }}
-            /* Panel font scale: labels/fields 10px, headers 9px, content box 12px */
-            QLabel {{ font-size: 10px; }}
-            QLabel[role="header"] {{ font-size: 9px; font-weight: 600; }}
-            QComboBox, QSpinBox, QLineEdit {{ font-size: 10px; }}
-            QPlainTextEdit {{ font-size: 12px; }}
+            /* Panel font scale: labels/fields 11px, headers 10px, content box 13px */
+            QLabel {{ font-size: 11px; }}
+            QLabel[role="header"] {{ font-size: 10px; font-weight: 600; }}
+            QComboBox, QSpinBox, QLineEdit {{ font-size: 11px; }}
+            QPlainTextEdit {{ font-size: 13px; }}
         """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
