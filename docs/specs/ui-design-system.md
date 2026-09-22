@@ -294,6 +294,9 @@ load_recents(); push_recent(hex); clear_recents()   # QSettings "ui/colour_picke
   case-insensitive dedupe, capped at 10.
 - **Keys and gestures:** Esc cancels, Enter accepts, double-clicking a chip commits.
   Only the left mouse button picks.
+- **Hue on an achromatic colour:** moving the hue bar while the colour is achromatic (No Fill start,
+  black, greys) lifts s=0 and/or v=0 to 1, so hue always visibly changes the colour. Chromatic colours
+  keep their s and v.
 - **Layout:** `M.COLOUR_*` tokens (mockup `docs/mockups/colour-picker.html`). Group labels use the
   dialog-scoped `QLabel[role="overline"]` (accent) rule; `role="header"` stays muted for other dialogs.
 - **Known shared defect (filed):** `HouseDialog` doesn't register its primary button as default,

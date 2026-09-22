@@ -243,7 +243,10 @@ Frame rows disable when `border` is off; the Opacity row disables when
 `property_manager` (model + paper panels). Picking No Fill leaves `fill_opacity`
 untouched. Like every panel row, `disabled` is computed from the first selected item. Commits route through `TextItem.set_property`, and on
 the model/Block-Editor surface the scene snapshots for undo (paper keeps
-`FormatTextCommand`).
+`FormatTextCommand`). The model-branch `TextItem.set_property` pushes **one**
+post-change `scene.push_undo_state()` per commit, and only when `to_dict()` changed.
+This landed in the 2026-09-22 todo #70 smoke fix; before it, the model branch never
+snapshotted, and Ctrl+Z reverted the placement.
 
 ## Acceptance Criteria
 
