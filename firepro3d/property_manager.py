@@ -106,10 +106,12 @@ class PropertyManager(QWidget):
         self._form_container = QWidget()
         self._form = QFormLayout(self._form_container)
         self._form.setContentsMargins(6, 4, 6, 4)
-        self._form.setVerticalSpacing(4)
+        self._form.setVerticalSpacing(5)
         self._form.setHorizontalSpacing(8)
         self._form.setLabelAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         scroll.setWidget(self._form_container)
         outer.addWidget(scroll)
 
@@ -198,6 +200,13 @@ class PropertyManager(QWidget):
             if prop_type == "header":
                 hdr_lbl = QLabel(str(key).upper())
                 hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
+                # Font set in code (colour + underline stay in QSS): size 10,
+                # bold, +1px letter-spacing — QSS cannot express letter-spacing.
+                hf = hdr_lbl.font()
+                hf.setPixelSize(10)
+                hf.setBold(True)
+                hf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+                hdr_lbl.setFont(hf)
                 self._form.addRow(hdr_lbl)
                 continue
 
@@ -234,7 +243,7 @@ class PropertyManager(QWidget):
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
                 btn = QPushButton()
-                btn.setFixedSize(40, 22)
+                btn.setFixedSize(42, 22)
                 btn.setProperty("_color_value", meta["value"])
                 btn.setStyleSheet(
                     f"background: {meta['value']}; "
@@ -351,12 +360,12 @@ class PropertyManager(QWidget):
                 theme_name = "dark" if th.detect() is th.DARK else "light"
                 cont = QWidget(); cont.setObjectName("segmented")
                 lay = QHBoxLayout(cont)
-                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(1)
                 grp = QButtonGroup(cont); grp.setExclusive(True)
                 for val, icon_name in meta.get("options", []):
                     b = QToolButton(); b.setCheckable(True)
                     b.setIcon(themed_icon(icon_name, theme_name))
-                    b.setIconSize(QSize(18, 18)); b.setFixedSize(34, 26)
+                    b.setIconSize(QSize(18, 18)); b.setFixedSize(30, 26)
                     b.setToolTip(str(val).capitalize())
                     b.setProperty("icon_enum_val", val)
                     b.setChecked(val == meta.get("value"))
@@ -371,7 +380,7 @@ class PropertyManager(QWidget):
             elif prop_type == "bool_group":
                 cont = QWidget(); cont.setObjectName("segmented")
                 lay = QHBoxLayout(cont)
-                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+                lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(1)
                 for sub_key, label in meta.get("keys", []):
                     b = QToolButton(); b.setCheckable(True); b.setText(label)
                     b.setFixedSize(30, 26)
@@ -418,7 +427,7 @@ class PropertyManager(QWidget):
                 self._form.addRow(lbl)                       # label spans, above
                 editor = _MultilineEdit()
                 editor.setPlainText(str(meta.get("value", "")))
-                editor.setFixedHeight(52)
+                editor.setFixedHeight(110)
                 editor.setProperty("multiline_key", key)
                 editor.editingFinished.connect(
                     lambda k=key, e=editor: self._apply_property(k, e.toPlainText())

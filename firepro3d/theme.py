@@ -736,7 +736,7 @@ QPushButton[variant="danger"]:hover {{
 }}
 /* ── Role / state labels ──────────────────────────────────────────── */
 QLabel[role="header"] {{ color: {t.accent};
-    border-bottom: 1px solid {t.border_subtle}; padding-bottom: 3px; }}
+    border-bottom: 1px solid {t.border_subtle}; padding-bottom: 1px; }}
 QLabel[role="muted"] {{ color: {t.muted}; }}
 QLabel[state="warn"] {{
     color: {t.warn}; background: {t.warn_soft};
@@ -749,17 +749,22 @@ QTableWidget::item, QTableView::item {{
 /* ── Segmented controls (property-panel icon_enum / bool_group) ─────── */
 QWidget#segmented QToolButton {{
     background: transparent; border: 1px solid {t.border_subtle};
-    border-radius: 4px; color: {t.muted}; margin: 0 1px; padding: 0;
+    border-radius: 5px; color: {t.muted}; margin: 0; padding: 0;
 }}
-QWidget#segmented QToolButton:hover {{
-    background: {t.accent_soft2}; border-color: {t.accent}; color: {t.ink};
-}}
+/* selected renders identically to hover (same fill, light icon/text) */
+QWidget#segmented QToolButton:hover,
 QWidget#segmented QToolButton:checked {{
-    background: {_rgba(t.accent, 130)}; border-color: {t.accent};
-    color: {t.accent_ink};
+    background: {_rgba(t.accent, 128)}; border-color: {t.accent}; color: {t.ink};
 }}
-QWidget#segmented QToolButton:checked:hover {{
-    background: {_rgba(t.accent, 160)};
+/* ── Properties dock: seamless combos + spinboxes (field-colour, single arrow) ── */
+#PropertiesDock QComboBox, #PropertiesDock QSpinBox, #PropertiesDock QLineEdit {{
+    font-size: 11px; min-height: 25px;
+}}
+#PropertiesDock QComboBox::drop-down {{
+    border: none; background: transparent; width: 18px;
+}}
+#PropertiesDock QSpinBox::up-button, #PropertiesDock QSpinBox::down-button {{
+    border: none; background: transparent; width: 16px;
 }}
 /* ── Percent slider (property-panel opacity) ───────────────────────── */
 QSlider#pctSlider::groove:horizontal {{

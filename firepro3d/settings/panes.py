@@ -1070,7 +1070,7 @@ class UIPane(SettingsPane):
     _CROSSHAIR_KEY = "ui/crosshair"
     _IMMERSIVE_KEY = "ui/immersive"
     _PANEL_WIDTH_KEY = "ui/prop_panel_width"
-    _PANEL_WIDTH_DEFAULT = 300
+    _PANEL_WIDTH_DEFAULT = 240
     _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
 
     def __init__(self, on_theme_changed: Callable[[], None] | None = None,

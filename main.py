@@ -2165,7 +2165,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _apply_prop_panel_width(self, width=None) -> None:
         """Set the properties dock width. Reads QSettings when *width* is None."""
         if width is None:
-            width = self.settings.value("ui/prop_panel_width", 300, type=int)
+            width = self.settings.value("ui/prop_panel_width", 240, type=int)
         dock = getattr(self, "prop_dock", None)
         if dock is not None:
             self.resizeDocks([dock], [int(width)], Qt.Orientation.Horizontal)
