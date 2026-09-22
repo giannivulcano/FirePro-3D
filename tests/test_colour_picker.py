@@ -285,3 +285,25 @@ def test_right_click_chip_does_not_pick(qapp):
     QTest.mouseClick(_chip(d, "#0000FF"), Qt.MouseButton.RightButton)
     assert d.current_value() == "#FF0000"
     d.close()
+
+
+@pytest.mark.parametrize("theme_name", ["dark", "light"])
+def test_dialog_chrome_uses_theme_tokens(qapp, theme_name):
+    from firepro3d import theme as th
+    from firepro3d.colour_picker import ColourPickerDialog
+    from PyQt6.QtWidgets import QFrame
+    t = th.DARK if theme_name == "dark" else th.LIGHT
+    d = ColourPickerDialog(None, initial="#FF0000", context="x", theme=t)
+    d.show(); qapp.processEvents()
+    img = d.grab().toImage()
+    body = d.findChild(QFrame, "dialogBody")
+    pt = body.mapTo(d, body.rect().bottomRight()) - QPoint(4, 4)   # empty body corner
+    assert QColor(img.pixel(pt.x(), pt.y())).name() == QColor(t.surface).name()
+    footer = d._footer                                             # empty gap left of the buttons
+    fp = footer.mapTo(d, QPoint(footer.width() // 2 - 40, footer.height() // 2))
+    assert QColor(img.pixel(fp.x(), fp.y())).name() == QColor(t.surface2).name()
+    # palette chips are theme-INDEPENDENT: centre of the red ACI chip is pure red
+    chip = next(c for c in d._chips if c.value == "#FF0000")
+    cp_ = chip.mapTo(d, chip.rect().center())
+    assert QColor(img.pixel(cp_.x(), cp_.y())).name() == "#ff0000"
+    d.close()
