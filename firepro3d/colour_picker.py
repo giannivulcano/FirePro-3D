@@ -70,8 +70,9 @@ class _SVField(QWidget):
     """Saturation (x) / value (y) square for the current hue."""
     changed = pyqtSignal(float, float)          # s, v in 0..1
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme=None):
         super().__init__(parent)
+        self._t = theme
         self.setFixedSize(M.COLOUR_SV_W, M.COLOUR_SV_H)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setToolTip("Saturation (left→right) and brightness (bottom→top)")
@@ -95,7 +96,7 @@ class _SVField(QWidget):
         gb.setColorAt(0, QColor(0, 0, 0, 255)); gb.setColorAt(1, QColor(0, 0, 0, 0))
         p.setBrush(QBrush(gb)); p.drawRoundedRect(r, 4, 4)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(detect().line_strong), 1)); p.drawRoundedRect(r, 4, 4)
+        p.setPen(QPen(QColor((self._t or detect()).line_strong), 1)); p.drawRoundedRect(r, 4, 4)
         if self._show_pt:
             c = QPointF(r.left() + self._s * r.width(), r.top() + (1 - self._v) * r.height())
             p.setPen(QPen(QColor(0, 0, 0), 1)); p.drawEllipse(c, 7, 7)
@@ -107,7 +108,8 @@ class _SVField(QWidget):
         self.changed.emit(s, v)
 
     def mousePressEvent(self, e):
-        self._emit_at(e.position())
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._emit_at(e.position())
 
     def mouseMoveEvent(self, e):
         if e.buttons() & Qt.MouseButton.LeftButton:
@@ -118,8 +120,9 @@ class _HueBar(QWidget):
     """Vertical hue strip (top = 0°, bottom = 360°)."""
     changed = pyqtSignal(float)                  # hue 0..1
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme=None):
         super().__init__(parent)
+        self._t = theme
         self.setFixedSize(M.COLOUR_HUE_W, M.COLOUR_SV_H)
         self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.setToolTip("Hue")
@@ -136,7 +139,7 @@ class _HueBar(QWidget):
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
         for i in range(7):
             g.setColorAt(i / 6, QColor.fromHsvF((i / 6) % 1.0, 1.0, 1.0))
-        p.setPen(QPen(QColor(detect().line_strong), 1)); p.setBrush(QBrush(g))
+        p.setPen(QPen(QColor((self._t or detect()).line_strong), 1)); p.setBrush(QBrush(g))
         p.drawRoundedRect(r, 4, 4)
         y = r.top() + self._h * r.height()
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -147,7 +150,8 @@ class _HueBar(QWidget):
         self.changed.emit(min(0.9999, max(0.0, pos.y() / max(1, self.height() - 1))))
 
     def mousePressEvent(self, e):
-        self._emit_at(e.position())
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._emit_at(e.position())
 
     def mouseMoveEvent(self, e):
         if e.buttons() & Qt.MouseButton.LeftButton:
@@ -157,8 +161,9 @@ class _HueBar(QWidget):
 class _PreviewChip(QWidget):
     """New (left) vs Current (right) comparison chip."""
 
-    def __init__(self, current, parent=None):
+    def __init__(self, current, parent=None, theme=None):
         super().__init__(parent)
+        self._t = theme
         self.setFixedHeight(M.COLOUR_PREVIEW_H)
         self.setToolTip("New colour (left) vs current colour (right)")
         self._new, self._cur = current, current
@@ -176,7 +181,7 @@ class _PreviewChip(QWidget):
                 paint_no_fill(p, rr, 0)
             else:
                 p.fillRect(rr, QColor(v))
-        p.setPen(QPen(QColor(detect().line_strong), 1)); p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor((self._t or detect()).line_strong), 1)); p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(r, 4, 4)
 
 
@@ -186,8 +191,9 @@ class _PaletteChip(QWidget):
     picked = pyqtSignal(str)
     committed = pyqtSignal(str)
 
-    def __init__(self, value, tip="", parent=None):
+    def __init__(self, value, tip="", parent=None, theme=None):
         super().__init__(parent)
+        self._t = theme
         self.value = value
         self.selected = False
         self.setFixedSize(M.COLOUR_CHIP, M.COLOUR_CHIP)
@@ -201,7 +207,7 @@ class _PaletteChip(QWidget):
         self.update()
 
     def paintEvent(self, e):
-        t = detect()
+        t = self._t or detect()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         ring = M.COLOUR_SEL_RING
@@ -224,11 +230,11 @@ class _PaletteChip(QWidget):
             p.drawRoundedRect(o, rad + 1, rad + 1)
 
     def mousePressEvent(self, e):
-        if self.value is not None:
+        if self.value is not None and e.button() == Qt.MouseButton.LeftButton:
             self.picked.emit(self.value)
 
     def mouseDoubleClickEvent(self, e):
-        if self.value is not None:
+        if self.value is not None and e.button() == Qt.MouseButton.LeftButton:
             self.committed.emit(self.value)
 
 
@@ -261,11 +267,11 @@ class ColourPickerDialog(HouseDialog):
 
         lay = self.body_layout()
         top = QHBoxLayout(); top.setSpacing(M.COLOUR_COL_GAP); top.setContentsMargins(0, 0, 0, 0)
-        self._sv = _SVField(); self._sv.changed.connect(self._on_sv)
-        self._hue = _HueBar(); self._hue.changed.connect(self._on_hue)
+        self._sv = _SVField(theme=self._theme); self._sv.changed.connect(self._on_sv)
+        self._hue = _HueBar(theme=self._theme); self._hue.changed.connect(self._on_hue)
         top.addWidget(self._sv); top.addWidget(self._hue)
         side = QVBoxLayout(); side.setSpacing(6); side.setContentsMargins(0, 0, 0, 0)
-        self._preview = _PreviewChip(start); side.addWidget(self._preview)
+        self._preview = _PreviewChip(start, theme=self._theme); side.addWidget(self._preview)
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         self._hex = QLineEdit()
         self._hex.setFixedHeight(M.PROP_FIELD_H)
@@ -318,7 +324,7 @@ class ColourPickerDialog(HouseDialog):
         row = QHBoxLayout(); row.setSpacing(M.COLOUR_CHIP_GAP); row.setContentsMargins(0, 0, 0, 0)
         chips = []
         for value, tip in entries:
-            c = _PaletteChip(value, tip)
+            c = _PaletteChip(value, tip, theme=self._theme)
             c.picked.connect(self._on_chip)
             c.committed.connect(self._on_chip_commit)
             row.addWidget(c); chips.append(c)
@@ -412,9 +418,9 @@ def pick_colour(initial, parent=None, context="", *, allow_none=False):
     DISPLAYS upper-case hex; only the returned value is lower-cased.)"""
     dlg = ColourPickerDialog(parent, initial=initial or "", context=context,
                              allow_none=allow_none)
-    if dlg.exec() != QDialog.DialogCode.Accepted:
-        return None
-    v = dlg.result_value()
-    if v is None:                       # accepted without accept() (test seam)
-        v = dlg.current_value()
-    return v.lower()
+    try:
+        code = dlg.exec()
+        v = dlg.result_value() if code == QDialog.DialogCode.Accepted else None
+    finally:
+        dlg.deleteLater()
+    return None if v is None else v.lower()
