@@ -872,8 +872,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
                               "minimum": 0},
             "Fill":     {"type": "header", "value": "Fill"},
-            "Fill Color":   {"type": "color", "value": d.fill_color or "#ffffff"},
-            "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity)},
+            "Fill Color":   {"type": "color", "value": d.fill_color, "allow_none": True},
+            "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity),
+                             "disabled": not d.fill_color},
         }
         geom2d = self._geom2d_properties()
         # Text carries no level semantics (containment spec) — strip the level
@@ -887,6 +888,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             self._set_property_paper(key, value)
             return
+        # Model / Block-Editor surface: one panel commit = one undo snapshot
+        # (post-change, like Wall.set_property); a no-op commit pushes nothing.
+        before = self.to_dict()
+        self._set_property_model(key, value)
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "push_undo_state") \
+                and self.to_dict() != before:
+            sc.push_undo_state()
+
+    def _set_property_model(self, key: str, value) -> None:
+        """Apply a model-surface panel commit to ``_data`` (no undo push)."""
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)

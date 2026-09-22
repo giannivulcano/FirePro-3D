@@ -866,6 +866,38 @@ class Stepper(QWidget):
             self._edit.setText(str(self._value))
 
 
+# ── "No Fill" glyph (todo #70) — ONE rendering shared by the colour picker,
+# _Chip/Swatch and the title-block swatch icon. Fixed drawing-convention colours
+# (like the picker palette), deliberately NOT theme tokens.
+NO_FILL_BG = "#ffffff"
+NO_FILL_SLASH = "#dd2222"
+
+
+def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None:
+    """Paint the No-Fill glyph into *r*: white rounded rect + red
+    bottom-left→top-right slash. Caller draws any border afterwards."""
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(NO_FILL_BG))
+    p.drawRoundedRect(r, radius, radius)
+    p.setClipRect(r)
+    p.setPen(QPen(QColor(NO_FILL_SLASH), 2.0))
+    p.drawLine(r.bottomLeft(), r.topRight())
+    p.restore()
+
+
+def no_fill_icon(w: int, h: int):
+    """QIcon of the No-Fill glyph for QPushButton-based swatches."""
+    from PyQt6.QtGui import QIcon, QPixmap
+    pm = QPixmap(w, h)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    paint_no_fill(p, QRectF(0, 0, w, h), 2)
+    p.end()
+    return QIcon(pm)
+
+
 class _Chip(QWidget):
     """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
 
@@ -886,8 +918,12 @@ class _Chip(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if not self._color:                      # No Fill (todo #70)
+            paint_no_fill(p, r, 3)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+        else:
+            p.setBrush(QColor(self._color))
         p.setPen(QPen(QColor(t.border_subtle), 1))
-        p.setBrush(QColor(self._color))
         p.drawRoundedRect(r, 3, 3)
 
     def mousePressEvent(self, event):
@@ -895,39 +931,53 @@ class _Chip(QWidget):
 
 
 class Swatch(QWidget):
-    """Colour picker: a painted chip + hex label. Opens QColorDialog on click and
-    emits ``colorChanged(hex)``. Replaces a bare QPushButton (which picked up the
-    app's global button chrome — min-height, padding, hover — and rendered wrong)."""
+    """Colour picker field: painted chip + hex label. Opens the house colour
+    picker (``colour_picker.pick_colour``) on click and emits
+    ``colorChanged(hex)``. ``allow_none=True`` offers No Fill; the emitted value
+    is then "" and the chip shows the shared No-Fill glyph with the label
+    "None" (todo #70). Replaces a bare QPushButton (which picked up the app's
+    global button chrome and rendered wrong)."""
 
     colorChanged = pyqtSignal(str)
 
-    def __init__(self, hex_color="#000000", parent=None):
+    def __init__(self, hex_color="#000000", parent=None, *, allow_none=False,
+                 context="Colour"):
         super().__init__(parent)
-        self._hex = hex_color or "#000000"
+        self._allow_none = allow_none
+        self._context = context
+        self._hex = "" if (allow_none and not hex_color) else (hex_color or "#000000")
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(M.PROP_HEX_GAP)
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
+        self._chip.setToolTip(f"Pick {context.lower()}")
         self._chip.clicked.connect(self._pick)
-        self._label = QLabel(self._hex.upper())
+        self._label = QLabel(self._text_for(self._hex))
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)
 
+    @staticmethod
+    def _text_for(v):
+        return "None" if not v else v.upper()
+
     def _pick(self):
-        from PyQt6.QtWidgets import QColorDialog
-        c = QColorDialog.getColor(QColor(self._hex), self, "Colour")
-        if c.isValid():
-            self.set_hex(c.name())
-            self.colorChanged.emit(c.name())
+        from . import colour_picker
+        v = colour_picker.pick_colour(self._hex, self, self._context,
+                                      allow_none=self._allow_none)
+        if v is None:
+            return
+        self.set_hex(v)
+        # Emit last: a listener may rebuild the panel and delete this widget.
+        self.colorChanged.emit(v)
 
     def set_hex(self, hex_color):
         self._hex = hex_color
         self._chip.set_color(hex_color)
-        self._label.setText(hex_color.upper())
+        self._label.setText(self._text_for(hex_color))
 
     def hex(self):
         return self._hex

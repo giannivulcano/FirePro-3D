@@ -1,13 +1,14 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-09-19  # 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 2330ae8   # 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-09-22  # 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: af36ed6   # af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
   - firepro3d/frameless_shell.py
   - firepro3d/house_dialog.py       # new (this spec)
   - firepro3d/ui_kit.py             # new (this spec)
+  - firepro3d/colour_picker.py      # house colour picker (D6, todo #70)
   - firepro3d/themed_message.py
   - firepro3d/underlay_manager.py
   - firepro3d/underlay_import_dialog.py
@@ -110,6 +111,20 @@ One flexible class (icon variant, custom/danger buttons, optional input
 `body_widget`); seven module-level helpers give 1:1 native-parity call sites.
 Existing `themed_info`/`themed_confirm` signatures are **preserved** (additive
 kwargs only) so the 9 already-migrated sites don't churn.
+
+### D6 — House colour picker replaces native `QColorDialog` (2026-09-22, todo #70)
+
+Reverses the census decision that `QColorDialog` stays native. The native dialog
+couldn't host a **No Fill** choice (text fill needed a true `fill_color=""`), and its
+chrome ignored the house theme. One modal `ColourPickerDialog(HouseDialog)` plus one entry
+point, `colour_picker.pick_colour`, now serve every call site. Grill-locked choices:
+- **Modal, not an anchored popup:** it keeps today's Cancel/OK semantics and one undo step.
+- **Fixed palette:** AutoCAD ACI plus greys. These are drawing colours and don't change with the theme.
+- **No alpha:** opacity stays its own property wherever it exists.
+- **No eyedropper or custom slots:** deferred.
+- **No Fill** is a chip at the end of the Standard row, shown only when the caller opts in.
+
+Rejected: an Office-style anchored flyout (two surfaces), and a full picker inside a popup.
 
 ## Metrics token schema (`theme.py` → `M`)
 
@@ -242,6 +257,52 @@ class Pill(QPushButton):                # compact rounded action button (.pill, 
 
 `ToolbarBar` is a **styling hook only** (`#toolbarBar` + QSS), not a widget class.
 
+**Colour inputs (D6, todo #70):**
+
+```python
+class Swatch(QWidget):                  # painted chip + hex label → opens the house picker
+    def __init__(self, hex_color="#000000", parent=None, *, allow_none=False,
+                 context="Colour"): ...
+    colorChanged = pyqtSignal(str)      # "#rrggbb", or "" (No Fill) when allow_none
+def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None  # the ONE No-Fill glyph
+def no_fill_icon(w: int, h: int) -> QIcon                             # same glyph for QPushButton swatches
+```
+
+### `firepro3d/colour_picker.py` (D6)
+
+```python
+def pick_colour(initial, parent=None, context="", *, allow_none=False) -> str | None
+    # None → cancelled (caller changes nothing: no undo push, no emit)
+    # ""   → No Fill (only possible with allow_none=True)
+    # "#rrggbb" LOWER-case (QColor.name() parity — stored data unchanged)
+class ColourPickerDialog(HouseDialog):  # modal; title "Colour" + caller context label
+    def __init__(self, parent=None, *, initial="#000000", context="",
+                 allow_none=False, theme=None): ...
+    def current_value(self) -> str      # display form (upper-case) / ""
+    def result_value(self) -> str | None
+STANDARD, GREYS                         # fixed CAD palette (ACI + 10-step greys), theme-independent
+load_recents(); push_recent(hex); clear_recents()   # QSettings "ui/colour_picker/recents", MRU 10
+```
+
+**Invariants:**
+- **Import the module, not the function:** callers use `from . import colour_picker` and call
+  `colour_picker.pick_colour(...)`, so a test monkeypatch of that one attribute covers every site.
+  `tests/test_no_native_colour_dialog.py` fails if `QColorDialog` reappears anywhere in app code.
+- **No Fill is caller opt-in:** today only text fill (model + paper panels, through `Swatch(allow_none=True)`)
+  and title-block field fill use it. Everything else always stores a colour.
+- **Recents** are recorded on OK only (never on Cancel or No Fill): app-wide, most recent first,
+  case-insensitive dedupe, capped at 10.
+- **Keys and gestures:** Esc cancels, Enter accepts, double-clicking a chip commits.
+  Only the left mouse button picks.
+- **Hue on an achromatic colour:** moving the hue bar while the colour is achromatic (No Fill start,
+  black, greys) lifts s=0 and/or v=0 to 1, so hue always visibly changes the colour. Chromatic colours
+  keep their s and v.
+- **Layout:** `M.COLOUR_*` tokens (mockup `docs/mockups/colour-picker.html`). Group labels use the
+  dialog-scoped `QLabel[role="overline"]` (accent) rule; `role="header"` stays muted for other dialogs.
+- **Known shared defect (filed):** `HouseDialog` doesn't register its primary button as default,
+  and the title-bar close dot takes initial focus, so Return rejects. `ColourPickerDialog` works
+  around it locally. Remove the workaround when the shared fix lands.
+
 ### `firepro3d/themed_message.py`
 
 ```python
@@ -274,7 +335,8 @@ themed_input_choice(parent, title, label, items, *, current=0) -> tuple[str, boo
 instance-with-custom-buttons 3.  `QInputDialog`: `getText` 1 · `getDouble` 4 ·
 `getItem` 1 (= 6). `main.py` holds the largest share (11+). Each replaced 1:1 with
 matching return semantics; surrounding logic (`if ok:`, `clickedButton() is …`)
-rewrites mechanically. **`QFileDialog` (15) and `QColorDialog` (14) stay native.**
+rewrites mechanically. **`QFileDialog` (15) stays native.** `QColorDialog` also
+stayed native in this wave; it was later retired by **D6** (todo #70).
 
 ## Build phasing & parity gates
 
@@ -383,7 +445,8 @@ follows these rules so every column reads as a proper rail:
 - [ ] All 5 frameless dialogs look/behave identically pre/post (live smoke, both
       themes); only ≤2px invisible margin normalization changed.
 - [ ] All 39 native `QMessageBox`/`QInputDialog` sites replaced 1:1 with matching
-      return semantics; now house-themed. `QFileDialog`/`QColorDialog` untouched.
+      return semantics; now house-themed. `QFileDialog` untouched (`QColorDialog`
+      superseded by D6).
 - [ ] `ToggleSwitch` implements the theming.md binary-toggle mandate.
 - [ ] `theming.md` documents the metrics vocabulary and links here; SPEC-INDEX row
       added; `frameless_shell.py` orphan closed.
@@ -444,5 +507,5 @@ follows these rules so every column reads as a proper rail:
 ## Out of scope
 
 20 native-dialog conversions; MainWindow re-shell + fullscreen + mixin `window_type`;
-live-switch wiring; `QFileDialog`/`QColorDialog`; density modes; top-`QTabBar`/ribbon
+live-switch wiring; `QFileDialog` (`QColorDialog` → D6); density modes; top-`QTabBar`/ribbon
 restyle; full-app hexguard; canvas/entity colours (`display_manager`-owned).

@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); style presets/SHX/overrides deferred
 last-verified: 2026-09-22
-verified-commit: 2a37c20
+verified-commit: af36ed6
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -233,12 +233,20 @@ the work is in **`TextItem.get_properties()` (model branch)** + **new
 - **`percent`** — Opacity as a 0–100 slider with a `%` readout, bound to
   `fill_opacity`.
 - **`color`** (existing) — used for both **Font colour** (`color`) and **Fill
-  colour** (`fill_color`, with a none/transparent state).
+  colour** (`fill_color`). Fill Color rows emit `"allow_none": True` and pass the
+  raw `fill_color` (no `or "#ffffff"` masking), so `ui_kit.Swatch` offers the house
+  picker's **No Fill** chip and shows the No-Fill glyph + "None" when empty
+  (todo #70; picker contract in `ui-design-system.md` D6).
 
 Frame rows disable when `border` is off; the Opacity row disables when
-`fill_color` is empty (none). Commits route through `TextItem.set_property`, and on
+`fill_color` is empty (none) — via the generic `meta["disabled"]` flag in
+`property_manager` (model + paper panels). Picking No Fill leaves `fill_opacity`
+untouched. Like every panel row, `disabled` is computed from the first selected item. Commits route through `TextItem.set_property`, and on
 the model/Block-Editor surface the scene snapshots for undo (paper keeps
-`FormatTextCommand`).
+`FormatTextCommand`). The model-branch `TextItem.set_property` pushes **one**
+post-change `scene.push_undo_state()` per commit, and only when `to_dict()` changed.
+This landed in the 2026-09-22 todo #70 smoke fix; before it, the model branch never
+snapshotted, and Ctrl+Z reverted the placement.
 
 ## Acceptance Criteria
 
@@ -357,5 +365,6 @@ Landed:
 - **Inline double-click edit** on the model surface — the display renders, but the
   edit **caret** still hits the L75-76 engine-less-device paint bug; needs its own
   root-cause.
-- **Custom colour-picker widget with "No Fill"** — the app-wide native `QColorDialog`
-  can't host a no-fill option, so text transparency is a 0%-opacity stopgap for now.
+- ~~Custom colour-picker widget with "No Fill"~~ — **LANDED 2026-09-22**
+  (`feat/colour-picker`, todo #70): true `fill_color=""` No Fill replaces the
+  0%-opacity stopgap on both surfaces.

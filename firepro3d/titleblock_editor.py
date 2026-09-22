@@ -17,9 +17,9 @@ import logging
 import re as _re
 import uuid as _uuid
 
-from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, QSize, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QPushButton, QPlainTextEdit,
@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 )
 from .themed_message import themed_confirm, themed_warn
 from .house_dialog import HouseDialog
-from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QPen
+from PyQt6.QtGui import QBrush, QColor, QIcon, QImage, QKeySequence, QPen
 
 from .titleblock_template import (
     TitleBlockTemplate, TemplateLayout, FieldDef, Slot, BorderStyle,
@@ -46,7 +46,8 @@ from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
 from .theme import detect, M
 from . import theme as _th
-from .ui_kit import SideTabs, ToggleSwitch, TopTabs, Section, SwitchBar
+from .ui_kit import SideTabs, ToggleSwitch, TopTabs, Section, SwitchBar, no_fill_icon
+from . import colour_picker
 from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -119,12 +120,17 @@ def _make_swatch(color: str, parent: QWidget | None = None) -> QPushButton:
 
 
 def _update_swatch(btn: QPushButton, color: str) -> None:
-    c = QColor(color) if color else QColor(0, 0, 0, 0)
-    if c.isValid() and color:
+    c = QColor(color) if color else QColor()
+    if color and c.isValid():
+        btn.setIcon(QIcon())
         btn.setStyleSheet(
             f"background-color: {c.name()}; border: 1px solid {detect().border_strong};")
-    else:
+    else:                                   # No Fill (todo #70): shared glyph
         btn.setStyleSheet(f"background-color: transparent; border: 1px solid {detect().border_strong};")
+        # Inset 3 px per side so the glyph sits inside the 1 px border.
+        iw, ih = max(1, btn.width() - 6), max(1, btn.height() - 6)
+        btn.setIcon(no_fill_icon(iw, ih))
+        btn.setIconSize(QSize(iw, ih))
     btn.setProperty("_color", color)
 
 
@@ -199,10 +205,10 @@ class _BorderGroup(QWidget):
             outer.addWidget(box)
 
     def _pick_color(self):
-        cur = QColor(self._color_btn.property("_color") or "#000000")
-        c = QColorDialog.getColor(cur, self)
-        if c.isValid():
-            _update_swatch(self._color_btn, c.name())
+        cur = self._color_btn.property("_color") or "#000000"
+        v = colour_picker.pick_colour(cur, self, "Border")
+        if v is not None:
+            _update_swatch(self._color_btn, v)
 
     def _on_corner_changed(self, _=None):
         self._fillet.setEnabled(
@@ -741,16 +747,12 @@ class TitleBlockEditorDialog(HouseDialog):
         fb_form.setContentsMargins(0, 0, 0, 0)
         fb_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        # Fill color swatch + None clear
+        # Fill color swatch (No Fill lives in the picker; todo #70)
         fill_row = QHBoxLayout()
         self._ffield_fill_swatch = _make_swatch("", self)
+        self._ffield_fill_swatch.setToolTip("Field fill colour (No Fill available)")
         self._ffield_fill_swatch.clicked.connect(self._pick_field_fill)
         fill_row.addWidget(self._ffield_fill_swatch)
-        fill_clear_btn = QPushButton("None")
-        fill_clear_btn.setFixedWidth(40)
-        fill_clear_btn.clicked.connect(
-            lambda: self._field_prop("fill_color", ""))
-        fill_row.addWidget(fill_clear_btn)
         fill_row.addStretch()
         fb_form.addRow("Fill", fill_row)
         fb_col.addLayout(fb_form)
@@ -1406,21 +1408,20 @@ class TitleBlockEditorDialog(HouseDialog):
         f = self._sel_field()
         if f is None:
             return
-        cur = QColor(f.text_color or "#000000")
-        c = QColorDialog.getColor(cur, self)
-        if c.isValid():
-            _update_swatch(self._ftext_color_swatch, c.name())
-            self._field_prop("text_color", c.name())
+        v = colour_picker.pick_colour(f.text_color or "#000000", self, "Field text")
+        if v is not None:
+            _update_swatch(self._ftext_color_swatch, v)
+            self._field_prop("text_color", v)
 
     def _pick_field_fill(self) -> None:
-        """Open color dialog for the field fill swatch."""
+        """Open the house picker (with No Fill) for the field fill swatch."""
         if self._sel_field() is None:
             return
-        cur = QColor(self._ffield_fill_swatch.property("_color") or "#ffffff")
-        c = QColorDialog.getColor(cur, self)
-        if c.isValid():
-            _update_swatch(self._ffield_fill_swatch, c.name())
-            self._field_prop("fill_color", c.name())
+        cur = self._ffield_fill_swatch.property("_color") or ""
+        v = colour_picker.pick_colour(cur, self, "Field fill", allow_none=True)
+        if v is not None:
+            _update_swatch(self._ffield_fill_swatch, v)
+            self._field_prop("fill_color", v)
 
     def _pick_field_image(self) -> None:
         """Choose an image file and encode it as base64 PNG for the selected field."""

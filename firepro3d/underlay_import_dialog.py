@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
-    QLabel, QPushButton, QComboBox, QColorDialog,
+    QLabel, QPushButton, QComboBox,
     QListWidget, QListWidgetItem, QGroupBox,
     QFileDialog, QLineEdit, QFormLayout,
     QDialogButtonBox, QApplication,

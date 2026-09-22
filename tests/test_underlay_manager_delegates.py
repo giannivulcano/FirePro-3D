@@ -272,7 +272,7 @@ def test_toggle_snap_editor_raster_ignored(qapp):
 
 def test_colour_editor_raster_ignored(qapp):
     # A raster-PDF underlay row is not editable -> editorEvent returns False
-    # WITHOUT opening the modal QColorDialog.
+    # WITHOUT opening the modal colour picker.
     rec, _scene, model = _raster_pdf_model()
     idx = model.index(0, int(Col.COLOUR), QModelIndex())
     d = ColourDelegate(DARK)

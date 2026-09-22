@@ -1044,18 +1044,50 @@ class TestFieldsTab:
     def test_text_color_swatch_commits(self, tmp_path, monkeypatch):
         """Clicking the text-colour swatch commits text_color via one snapshot
         (grill 2026-08-04 item 6)."""
-        from PyQt6.QtGui import QColor
         import firepro3d.titleblock_editor as tbe
 
         dlg = self._dlg(tmp_path, monkeypatch)
         dlg._field_select_row(0)
         depth = len(dlg._undo_stack)
-        monkeypatch.setattr(
-            tbe.QColorDialog, "getColor",
-            staticmethod(lambda *a, **kw: QColor("#0055ff")))
+        monkeypatch.setattr(tbe.colour_picker, "pick_colour",
+                            lambda *a, **kw: "#0055ff")
         dlg._ftext_color_swatch.click()
         assert dlg.working.layout.fields[0].text_color == "#0055ff"
         assert len(dlg._undo_stack) == depth + 1
+
+    def test_field_fill_no_fill_clears_and_shows_glyph(self, tmp_path, monkeypatch):
+        import firepro3d.titleblock_editor as tbe
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_select_row(0)
+        monkeypatch.setattr(tbe.colour_picker, "pick_colour", lambda *a, **kw: "#abcdef")
+        dlg._ffield_fill_swatch.click()
+        assert dlg.working.layout.fields[0].fill_color == "#abcdef"
+        seen = {}
+        def fake(initial, parent=None, context="", *, allow_none=False):
+            seen["allow_none"] = allow_none; return ""
+        monkeypatch.setattr(tbe.colour_picker, "pick_colour", fake)
+        depth = len(dlg._undo_stack)
+        dlg._ffield_fill_swatch.click()
+        assert seen["allow_none"] is True
+        assert dlg.working.layout.fields[0].fill_color == ""
+        assert len(dlg._undo_stack) == depth + 1
+        assert not dlg._ffield_fill_swatch.icon().isNull()       # No-Fill glyph shown
+
+    def test_field_fill_cancel_changes_nothing(self, tmp_path, monkeypatch):
+        import firepro3d.titleblock_editor as tbe
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_select_row(0)
+        before = dlg.working.layout.fields[0].fill_color
+        depth = len(dlg._undo_stack)
+        monkeypatch.setattr(tbe.colour_picker, "pick_colour", lambda *a, **kw: None)
+        dlg._ffield_fill_swatch.click()
+        assert dlg.working.layout.fields[0].fill_color == before
+        assert len(dlg._undo_stack) == depth
+
+    def test_no_adhoc_none_button_in_fill_row(self, tmp_path, monkeypatch):
+        from PyQt6.QtWidgets import QPushButton
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert not [b for b in dlg.findChildren(QPushButton) if b.text() == "None"]
 
     def test_cell_border_edge_checkboxes_commit_and_gate_fillet(
             self, tmp_path, monkeypatch):

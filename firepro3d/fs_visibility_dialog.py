@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QPushButton, QDoubleSpinBox,
-    QDialogButtonBox, QColorDialog, QLabel, QHBoxLayout,
+    QDialogButtonBox, QLabel, QHBoxLayout,
 )
-from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QSettings
 from . import theme as th
+from . import colour_picker
 
 
 # Default colours per component type
@@ -88,12 +88,12 @@ class FSVisibilityDialog(QDialog):
 
     def _pick(self, name: str, btn: QPushButton):
         _t = th.detect()
-        cur = QColor(btn.property("_color"))
-        color = QColorDialog.getColor(cur, self, f"{name} colour")
-        if color.isValid():
-            btn.setProperty("_color", color.name())
+        cur = btn.property("_color") or _DEFAULTS[name]["color"]
+        v = colour_picker.pick_colour(cur, self, name)
+        if v is not None:
+            btn.setProperty("_color", v)
             btn.setStyleSheet(
-                f"background: {color.name()}; "
+                f"background: {v}; "
                 f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
 
     def get_settings(self) -> dict[str, dict]:

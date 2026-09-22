@@ -9,19 +9,19 @@ Verifies (Task 7 of the floor-workflow feature branch):
      its category defaults); undo restores them.
   4. With nothing selected, invoking an override action pushes NO undo step.
 
-QColorDialog.getColor is patched throughout so no modal ever blocks the suite.
+colour_picker.pick_colour is patched throughout so no modal ever blocks the suite.
 """
 from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor
 from PyQt6.QtTest import QTest
 
 import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
 _main_module.View3D = View3D
 from firepro3d import snap_engine
+from firepro3d import colour_picker
 from firepro3d.floor_slab import FloorSlab
 from main import MainWindow
 
@@ -146,9 +146,7 @@ def test_stroke_override_sets_display_override_and_undo(
     slab.setSelected(True)
     qapp.processEvents()
 
-    from PyQt6.QtWidgets import QColorDialog
-    monkeypatch.setattr(QColorDialog, "getColor",
-                        staticmethod(lambda *a, **k: QColor("#ff0000")))
+    monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#ff0000")
 
     before_pos = main_window.scene._undo_pos
     main_window._graphic_override_stroke()
@@ -185,9 +183,7 @@ def test_fill_override_sets_display_override(main_window, qapp, monkeypatch):
     slab.setSelected(True)
     qapp.processEvents()
 
-    from PyQt6.QtWidgets import QColorDialog
-    monkeypatch.setattr(QColorDialog, "getColor",
-                        staticmethod(lambda *a, **k: QColor("#00cc00")))
+    monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#00cc00")
 
     before_pos = main_window.scene._undo_pos
     main_window._graphic_override_fill()
@@ -245,9 +241,7 @@ def test_no_selection_no_undo(main_window, qapp, monkeypatch):
     main_window.scene.clearSelection()
     qapp.processEvents()
 
-    from PyQt6.QtWidgets import QColorDialog
-    monkeypatch.setattr(QColorDialog, "getColor",
-                        staticmethod(lambda *a, **k: QColor("#abcdef")))
+    monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#abcdef")
 
     before_pos = main_window.scene._undo_pos
     main_window._graphic_override_stroke()

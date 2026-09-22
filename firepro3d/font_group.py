@@ -7,13 +7,13 @@ docs/specs/units-and-formatting.md (Word-style pt display, mm storage).
 from __future__ import annotations
 
 from PyQt6.QtCore import QObject
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QColorDialog, QComboBox, QHBoxLayout, QToolButton,
+    QComboBox, QHBoxLayout, QToolButton,
     QVBoxLayout, QWidget,
 )
 
 from . import theme as th
+from . import colour_picker
 from .constants import FONT_SIZE_LADDER_PT
 from .ui_kit import FontSelect
 from .paper_space import (
@@ -304,10 +304,10 @@ class FontGroupController(QObject):
         # mode, etc.), so we commit to the list that was live when the user
         # clicked the swatch.
         targets = self._targets()
-        initial = QColor(targets[0].data.color) if targets else QColor("#000000")
-        c = QColorDialog.getColor(initial, self.container, "Font Color")
-        if c.isValid():
-            self._commit_to(targets, "Color", c.name())
+        initial = (targets[0].data.color or "#000000") if targets else "#000000"
+        v = colour_picker.pick_colour(initial, self.container, "Font")
+        if v is not None:
+            self._commit_to(targets, "Color", v)
 
     # ── Sync (targets → widgets) ──────────────────────────────────────────
 
