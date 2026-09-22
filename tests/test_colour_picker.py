@@ -68,3 +68,190 @@ def test_recents_mru_dedupe_cap_and_persist(qapp):
     assert len(cp.load_recents()) == cp.RECENTS_MAX == 10
     cp.push_recent("")                                      # No Fill is never recorded
     assert "" not in cp.load_recents()
+
+
+# ── Task 3: ColourPickerDialog + pick_colour ───────────────────────────────
+
+def _dlg(qapp, initial="#FF0000", allow_none=False, context="Test"):
+    from firepro3d.colour_picker import ColourPickerDialog
+    d = ColourPickerDialog(None, initial=initial, context=context, allow_none=allow_none)
+    d.show()
+    qapp.processEvents()
+    return d
+
+
+def _chip(d, hex_or_nofill):
+    return next(c for c in d._chips if c.value == hex_or_nofill)
+
+
+def test_opens_with_initial_selected(qapp):
+    d = _dlg(qapp, "#0000ff")
+    assert d.current_value() == "#0000FF"
+    assert _chip(d, "#0000FF").selected
+    assert d._hex.text() == "#0000FF"
+    assert (d._r.value(), d._g.value(), d._b.value()) == (0, 0, 255)
+    d.close()
+
+
+def test_preset_click_then_ok_returns_hex(qapp):
+    d = _dlg(qapp, "#FF0000")
+    QTest.mouseClick(_chip(d, "#00FFFF"), Qt.MouseButton.LeftButton)
+    assert d.current_value() == "#00FFFF"
+    QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
+    assert d.result() == d.DialogCode.Accepted and d.result_value() == "#00FFFF"
+
+
+def test_double_click_chip_commits(qapp):
+    d = _dlg(qapp, "#FF0000")
+    QTest.mouseDClick(_chip(d, "#808080"), Qt.MouseButton.LeftButton)
+    assert d.result() == d.DialogCode.Accepted and d.result_value() == "#808080"
+
+
+def test_escape_cancels_and_is_not_no_fill(qapp):
+    d = _dlg(qapp, "#FF0000", allow_none=True)
+    QTest.keyClick(d, Qt.Key.Key_Escape)
+    assert d.result() == d.DialogCode.Rejected
+    assert d.result_value() is None                 # cancelled ≠ "" (No Fill)
+
+
+def test_cancel_button_returns_none(qapp):
+    from PyQt6.QtWidgets import QDialogButtonBox
+    d = _dlg(qapp, "#FF0000")
+    QTest.mouseClick(d._footer_box.button(QDialogButtonBox.StandardButton.Cancel),
+                     Qt.MouseButton.LeftButton)
+    assert d.result_value() is None
+
+
+def test_no_fill_chip_only_when_allowed_and_at_end_of_standard(qapp):
+    d = _dlg(qapp, "#FF0000", allow_none=False)
+    assert all(c.value != "" for c in d._chips)
+    d.close()
+    d = _dlg(qapp, "#FF0000", allow_none=True)
+    row = d._standard_row_chips
+    assert [c.value for c in row] == [*__import__("firepro3d.colour_picker", fromlist=["x"]).STANDARD, ""]
+    QTest.mouseClick(row[-1], Qt.MouseButton.LeftButton)
+    assert d.current_value() == ""
+    QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
+    assert d.result_value() == ""
+
+
+def test_initial_no_fill_opens_no_fill_selected(qapp):
+    d = _dlg(qapp, "", allow_none=True)
+    assert d.current_value() == "" and _chip(d, "").selected
+    d.close()
+
+
+def test_initial_empty_without_allow_none_falls_back_to_black(qapp):
+    d = _dlg(qapp, "", allow_none=False)
+    assert d.current_value() == "#000000"
+    d.close()
+
+
+def test_hex_entry_valid_and_invalid(qapp):
+    d = _dlg(qapp, "#FF0000")
+    d._hex.setFocus()
+    d._hex.selectAll()
+    QTest.keyClicks(d._hex, "#12AB34")
+    assert d.current_value() == "#12AB34"
+    assert (d._r.value(), d._g.value(), d._b.value()) == (0x12, 0xAB, 0x34)
+    d._hex.selectAll()
+    QTest.keyClicks(d._hex, "zz")                    # invalid: keeps last valid
+    QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
+    assert d.result_value() == "#12AB34"
+
+
+def test_rgb_stepper_edits_colour(qapp):
+    d = _dlg(qapp, "#000000")
+    d._g.setValue(200)
+    assert d.current_value() == "#00C800"
+    assert d._hex.text() == "#00C800"
+    d.close()
+
+
+def test_sv_field_drag_changes_colour(qapp):
+    d = _dlg(qapp, "#FF0000")
+    sv = d._sv
+    QTest.mouseClick(sv, Qt.MouseButton.LeftButton, pos=QPoint(2, sv.height() - 2))
+    c = QColor(d.current_value())
+    assert c.value() < 20                           # bottom edge = black
+    d.close()
+
+
+def test_hue_bar_click_changes_hue(qapp):
+    d = _dlg(qapp, "#FF0000")
+    hb = d._hue
+    QTest.mouseClick(hb, Qt.MouseButton.LeftButton, pos=QPoint(hb.width() // 2, hb.height() // 3))
+    assert abs(QColor(d.current_value()).hsvHue() - 120) < 12   # ⅓ down ≈ green
+    d.close()
+
+
+def test_ok_records_recent_cancel_and_no_fill_do_not(qapp):
+    from firepro3d import colour_picker as cp
+    cp.clear_recents()
+    d = _dlg(qapp, "#123456", allow_none=True)
+    QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
+    assert cp.load_recents() == ["#123456"]
+    d = _dlg(qapp, "#654321")
+    QTest.keyClick(d, Qt.Key.Key_Escape)
+    d = _dlg(qapp, "", allow_none=True)
+    QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
+    assert cp.load_recents() == ["#123456"]
+    # a NEW dialog instance shows it in the Recent row
+    d = _dlg(qapp, "#000000")
+    assert [c.value for c in d._recent_row_chips if c.value is not None][:1] == ["#123456"]
+    d.close()
+
+
+def test_empty_recent_slots_are_inert(qapp):
+    from firepro3d import colour_picker as cp
+    cp.clear_recents()
+    d = _dlg(qapp, "#FF0000")
+    slots = d._recent_row_chips
+    assert len(slots) == cp.RECENTS_MAX and all(s.value is None for s in slots)
+    QTest.mouseClick(slots[0], Qt.MouseButton.LeftButton)
+    assert d.current_value() == "#FF0000"
+    d.close()
+
+
+def test_pick_colour_entry_point_tristate(qapp, monkeypatch):
+    from firepro3d import colour_picker as cp
+    from PyQt6.QtWidgets import QDialog
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
+    assert cp.pick_colour("#FF0000", None, "x") is None
+    def _accept_nofill(self):
+        self._set_no_fill()
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec", _accept_nofill)
+    assert cp.pick_colour("#FF0000", None, "x", allow_none=True) == ""
+
+
+def test_enter_key_accepts(qapp):
+    d = _dlg(qapp, "#FF0000")
+    QTest.mouseClick(_chip(d, "#0000FF"), Qt.MouseButton.LeftButton)
+    QTest.keyClick(d, Qt.Key.Key_Return)
+    assert d.result() == d.DialogCode.Accepted and d.result_value() == "#0000FF"
+
+
+def test_pick_colour_returns_lowercase_like_qcolor_name(qapp, monkeypatch):
+    from firepro3d import colour_picker as cp
+    from PyQt6.QtWidgets import QDialog
+    def _accept_blue(self):
+        self._set_colour(QColor("#ABCDEF"))
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec", _accept_blue)
+    assert cp.pick_colour("#000000", None, "x") == "#abcdef"
+
+
+def test_context_label_and_title(qapp):
+    d = _dlg(qapp, "#FF0000", context="Roof")
+    assert d._ctx_lbl.text() == "Roof"
+    assert d._shell_title_lbl.text() == "Colour"
+    d.close()
+
+
+def test_every_interactive_control_has_tooltip(qapp):
+    d = _dlg(qapp, "#FF0000", allow_none=True)
+    for w in [d._sv, d._hue, d._hex, d._r, d._g, d._b, *d._chips]:
+        assert w.toolTip(), f"missing tooltip on {w!r}"
+    d.close()
