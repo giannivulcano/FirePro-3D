@@ -216,3 +216,29 @@ def test_model_placed_text_seeds_visible_ink(qapp):
     assert len(texts) == 1
     assert texts[0].data.color.lower() == detect().ink.lower()
     assert texts[0].data.color.lower() != "#000000"
+
+
+def test_model_border_pen_is_cosmetic(qapp):
+    """On the model / Block-Editor surface the border pen is cosmetic (constant
+    device width at all zooms), aligned with the sibling 2D primitives whose
+    default lineweight is 1.0px; "Light" maps to that same 1.0 (todo #62)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    s = Model_Space(scene_role="block_editor")
+    t = TextItem(TextAnnotationData(text="X", border=True, border_weight="Light"))
+    s.addItem(t)
+    pen = t._frame_pen()
+    assert pen.isCosmetic() is True
+    assert pen.widthF() == 1.0
+
+
+def test_paper_border_pen_is_true_mm(qapp):
+    """On the paper surface the border keeps a true-mm (non-cosmetic) width so it
+    plots at its named weight."""
+    from firepro3d.paper_space import PaperScene, Sheet
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    p = PaperScene(Sheet.create_default(), _stub_resolver())
+    t = TextItem(TextAnnotationData(text="X", border=True, border_weight="Heavy"))
+    p.addItem(t)
+    pen = t._frame_pen()
+    assert pen.isCosmetic() is False

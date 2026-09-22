@@ -361,19 +361,37 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         path.lineTo(l, t + rad); path.closeSubpath()
         return path
 
+    # Named border weight → cosmetic device-px width on the model / Block-Editor
+    # surface (constant at all zooms, matching the sibling 2D primitives, whose
+    # default lineweight is 1.0px cosmetic).  The paper surface uses the true mm
+    # weight instead (it plots).  "Light" == 1.0 mirrors the primitive default.
+    _BORDER_WEIGHT_PX = {
+        "Very Light": 0.5, "Light": 1.0, "Medium": 1.5,
+        "Heavy": 2.0, "Very Heavy": 3.0,
+    }
+
     def _frame_pen(self) -> "QPen":
-        """Pen for the border: text color, named weight mapped into local units,
-        line-type -> Qt PenStyle. Width is lw_mm / scale so it plots at the true mm
-        weight on paper and equals lw_mm on a model scene (scale == 1)."""
-        from .paper_display import resolve_line_weight_mm
-        lw_mm = resolve_line_weight_mm(self._data.border_weight)
-        scale = self.scale() or 1.0
+        """Pen for the border: text colour + line-type, aligned with the sibling
+        2D primitives.
+
+        On the model / Block-Editor surface the pen is **cosmetic** (constant
+        device width at all zooms) — the named paper line-weights are sub-pixel at
+        editor zoom, so they map to fixed device-px widths (``_BORDER_WEIGHT_PX``).
+        On the paper surface the true named mm weight is used (divided by scale
+        like the other paper pens) so the border still plots at its real width.
+        """
         pen = QPen(QColor(self._data.color))
-        pen.setWidthF(max(lw_mm / scale, 1e-4))
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
         }.get(self._data.border_line_type, Qt.PenStyle.SolidLine))
+        if self.is_device_independent():
+            from .paper_display import resolve_line_weight_mm
+            scale = self.scale() or 1.0
+            pen.setWidthF(max(resolve_line_weight_mm(self._data.border_weight) / scale, 1e-4))
+        else:
+            pen.setCosmetic(True)
+            pen.setWidthF(self._BORDER_WEIGHT_PX.get(self._data.border_weight, 1.0))
         return pen
 
     def boundingRect(self) -> QRectF:
