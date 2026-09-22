@@ -710,6 +710,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.radiation_dock.setVisible(False)
         # Accent crosshair cursor (default ON) + blue preview-node suppression.
         self._apply_crosshair(self.settings.value("ui/crosshair", True, type=bool))
+        # Restore the saved properties-panel width (System Settings → UI).
+        self._apply_prop_panel_width()
         # Startup window state (chrome revamp: frameless-fullscreen by default).
         # Applied by main() AFTER its resize()+show(), NOT in showEvent — so the
         # headless MainWindow tests (which call .show() directly, never main())
@@ -2095,6 +2097,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             on_theme_changed=self._apply_theme,
             on_crosshair_changed=self._apply_crosshair,
             on_immersive_changed=self._apply_immersive,
+            on_panel_width_changed=self._apply_prop_panel_width,
             parent=self,
         )
         if isinstance(pane, str):
@@ -2158,6 +2161,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.showFullScreen()
         else:
             self.showNormal()
+
+    def _apply_prop_panel_width(self, width=None) -> None:
+        """Set the properties dock width. Reads QSettings when *width* is None."""
+        if width is None:
+            width = self.settings.value("ui/prop_panel_width", 300, type=int)
+        dock = getattr(self, "prop_dock", None)
+        if dock is not None:
+            self.resizeDocks([dock], [int(width)], Qt.Orientation.Horizontal)
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 

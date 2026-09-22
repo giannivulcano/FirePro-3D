@@ -33,6 +33,7 @@ class SystemSettingsDialog(HouseDialog):
         on_theme_changed=None,
         on_crosshair_changed=None,
         on_immersive_changed=None,
+        on_panel_width_changed=None,
         parent=None,
     ):
         super().__init__(parent, title="System Settings", resizable=True,
@@ -46,6 +47,7 @@ class SystemSettingsDialog(HouseDialog):
                 on_theme_changed=on_theme_changed,
                 on_crosshair_changed=on_crosshair_changed,
                 on_immersive_changed=on_immersive_changed,
+                on_panel_width_changed=on_panel_width_changed,
             ),
             "import": ImportPane(),
         }
