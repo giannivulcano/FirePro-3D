@@ -44,7 +44,7 @@ class _MultilineEdit(QPlainTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.document().setDocumentMargin(2)   # tighter inner padding (was ~4)
+        self.document().setDocumentMargin(1)   # tighter inner padding (was ~4)
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
@@ -119,7 +119,8 @@ class PropertyManager(QWidget):
                the preceding section */
             QLabel[role="header"] {{ font-size: 10px; font-weight: 600; padding-top: 8px; }}
             QComboBox, QSpinBox, QLineEdit {{ font-size: 11px; }}
-            QPlainTextEdit {{ font-size: 13px; }}
+            /* override the app-wide input padding (4px 8px) — tighter text box */
+            QPlainTextEdit {{ font-size: 13px; padding: 1px 3px; }}
         """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 2, 0, 0)   # 2px inset aligns with the canvas rail
