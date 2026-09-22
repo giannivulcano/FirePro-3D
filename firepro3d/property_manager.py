@@ -290,8 +290,7 @@ class PropertyManager(QWidget):
 
             # ── color (colour picker swatch) ──────────────────────────────
             elif prop_type == "color":
-                sw = Swatch(str(meta.get("value") or ""),
-                            allow_none=bool(meta.get("allow_none")))
+                sw = Swatch(str(meta["value"]))
                 sw.colorChanged.connect(
                     lambda hexv, k=key: self._apply_property(k, hexv)
                 )

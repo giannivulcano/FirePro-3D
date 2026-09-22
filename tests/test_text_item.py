@@ -314,20 +314,6 @@ def test_model_placed_text_defaults_border_on(qapp):
     assert t.data.border_line_type == "solid"
 
 
-def test_swatch_allow_none(qapp):
-    """The colour Swatch supports a no-fill state and emits "" on clear
-    (todo #62 item 3)."""
-    from firepro3d.ui_kit import Swatch
-    sw = Swatch("", allow_none=True)
-    assert sw.hex() == ""
-    seen = []
-    sw.colorChanged.connect(seen.append)
-    sw._clear()
-    assert seen == [""]
-    # A non-allow_none swatch coerces empty to black (unchanged behaviour).
-    assert Swatch("").hex() == "#000000"
-
-
 def test_model_border_pen_is_cosmetic(qapp):
     """On the model / Block-Editor surface the border pen is cosmetic (constant
     device width at all zooms), aligned with the sibling 2D primitives whose

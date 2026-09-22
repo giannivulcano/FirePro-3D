@@ -10,7 +10,7 @@ from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
-                             QLineEdit, QToolButton)
+                             QLineEdit)
 
 from .theme import M, detect as _detect
 
@@ -887,15 +887,8 @@ class _Chip(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         p.setPen(QPen(QColor(t.border_subtle), 1))
-        if not self._color:
-            # "No fill" indicator: light ground with a diagonal red slash.
-            p.setBrush(QColor("#ffffff"))
-            p.drawRoundedRect(r, 3, 3)
-            p.setPen(QPen(QColor("#e05050"), 1.4))
-            p.drawLine(r.topRight(), r.bottomLeft())
-        else:
-            p.setBrush(QColor(self._color))
-            p.drawRoundedRect(r, 3, 3)
+        p.setBrush(QColor(self._color))
+        p.drawRoundedRect(r, 3, 3)
 
     def mousePressEvent(self, event):
         self.clicked.emit()
@@ -908,12 +901,9 @@ class Swatch(QWidget):
 
     colorChanged = pyqtSignal(str)
 
-    def __init__(self, hex_color="#000000", parent=None, *, allow_none=False):
+    def __init__(self, hex_color="#000000", parent=None):
         super().__init__(parent)
-        self._allow_none = allow_none
-        # With allow_none, "" is a valid (no-fill) state; otherwise coerce empty
-        # to black so the chip always has a colour.
-        self._hex = (hex_color or "") if allow_none else (hex_color or "#000000")
+        self._hex = hex_color or "#000000"
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -921,44 +911,23 @@ class Swatch(QWidget):
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
         self._chip.clicked.connect(self._pick)
-        self._label = QLabel(self._label_text())
+        self._label = QLabel(self._hex.upper())
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
-        if allow_none:
-            none_btn = QToolButton()
-            none_btn.setText("None")
-            none_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            none_btn.setStyleSheet(
-                f"QToolButton {{ border: none; color: {t.muted}; "
-                f"font-size: {M.PROP_FIELD_FS}px; padding: 0 4px; }}"
-                f"QToolButton:hover {{ color: {t.ink}; }}")
-            none_btn.clicked.connect(self._clear)
-            lay.addWidget(none_btn)
         lay.addStretch(1)
-
-    def _label_text(self) -> str:
-        if self._allow_none and not self._hex:
-            return "None"
-        return (self._hex or "").upper()
 
     def _pick(self):
         from PyQt6.QtWidgets import QColorDialog
-        base = QColor(self._hex) if self._hex else QColor("#ffffff")
-        c = QColorDialog.getColor(base, self, "Colour")
+        c = QColorDialog.getColor(QColor(self._hex), self, "Colour")
         if c.isValid():
             self.set_hex(c.name())
             self.colorChanged.emit(c.name())
 
-    def _clear(self):
-        """Set the no-fill state (allow_none swatches only) and emit ""."""
-        self.set_hex("")
-        self.colorChanged.emit("")
-
     def set_hex(self, hex_color):
-        self._hex = hex_color or ""
-        self._chip.set_color(self._hex)
-        self._label.setText(self._label_text())
+        self._hex = hex_color
+        self._chip.set_color(hex_color)
+        self._label.setText(hex_color.upper())
 
     def hex(self):
         return self._hex
