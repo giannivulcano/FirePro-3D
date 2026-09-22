@@ -91,3 +91,38 @@ def test_opacity_reenables_after_picking_colour(qapp, monkeypatch):
     pm.show_properties(item)            # the app re-shows on requestPropertyUpdate
     assert item._data.fill_color == "#00aa00"
     assert pm._prop_widgets["Fill Opacity"].isEnabled()
+
+
+# ── Smoke 2026-09-22: model text panel edits must be one undo step ───────────
+
+def _model_scene_with_text(fill="#c0392b"):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space()
+    t = TextItem(TextAnnotationData(text="AB", height_mm=4.0, fill_color=fill))
+    s.addItem(t); s._texts.append(t)
+    s.push_undo_state()                      # the placement's undo point
+    return s, t
+
+
+def _only_text(s):
+    return [i for i in s._texts if type(i).__name__ == "TextItem"][0]
+
+
+def test_model_text_property_edit_is_one_undo_step(qapp):
+    """User smoke: Ctrl+Z after Fill Color → No Fill reverted the PLACEMENT
+    instead of the property (set_property never snapshotted)."""
+    s, t = _model_scene_with_text()
+    depth = s._undo_pos
+    t.set_property("Fill Color", "")
+    assert s._undo_pos == depth + 1          # exactly one new step
+    s.undo()
+    assert _only_text(s)._data.fill_color == "#c0392b"   # property reverted, text still placed
+    s.redo()
+    assert _only_text(s)._data.fill_color == ""
+
+
+def test_model_text_noop_property_edit_pushes_nothing(qapp):
+    s, t = _model_scene_with_text()
+    depth = s._undo_pos
+    t.set_property("Fill Color", "#c0392b")  # unchanged value
+    assert s._undo_pos == depth

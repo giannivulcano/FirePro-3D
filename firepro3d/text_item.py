@@ -888,6 +888,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             self._set_property_paper(key, value)
             return
+        # Model / Block-Editor surface: one panel commit = one undo snapshot
+        # (post-change, like Wall.set_property); a no-op commit pushes nothing.
+        before = self.to_dict()
+        self._set_property_model(key, value)
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "push_undo_state") \
+                and self.to_dict() != before:
+            sc.push_undo_state()
+
+    def _set_property_model(self, key: str, value) -> None:
+        """Apply a model-surface panel commit to ``_data`` (no undo push)."""
         if key == "Text":
             self._data.text = str(value)
             self.setPlainText(self._data.text)
