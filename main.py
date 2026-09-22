@@ -4761,6 +4761,10 @@ def main():
         window.showFullScreen()
     else:
         window.show()
+    # Apply the saved properties-panel width AFTER show() — resizeDocks() only
+    # sticks once the window is visible/laid out (restoreState in restore_settings
+    # otherwise wins, so the System-Settings width was ignored every startup).
+    window._apply_prop_panel_width()
     sys.exit(app.exec())
 
 

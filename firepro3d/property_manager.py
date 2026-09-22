@@ -89,32 +89,24 @@ class PropertyManager(QWidget):
         # own background, which would otherwise cascade over children — so field
         # tone (raised, for contrast), segmented-button fills, and the seamless
         # combo/spin arrows must be scoped under #propPanel to win.
-        self.setObjectName("propPanel")
+        # Bare `background` paints the panel + cascades to the (transparent)
+        # inner containers so the whole dock reads surface; the unprefixed field
+        # rules below apply only to THIS widget's subtree (it's the PM's own
+        # sheet) and override the field tone to `raised` for contrast. Drop-down
+        # / spin buttons are left to the app style so their arrows stay visible.
         _ac = QColor(_t.accent)
         _fill = f"rgba({_ac.red()},{_ac.green()},{_ac.blue()},130)"
         self.setStyleSheet(f"""
-            #propPanel {{ background: {_t.surface}; }}
-            #propPanel QComboBox, #propPanel QSpinBox, #propPanel QLineEdit,
-            #propPanel QPlainTextEdit {{
-                background: {_t.raised}; border: 1px solid {_t.border_subtle};
-                border-radius: 4px; color: {_t.ink}; padding: 0 6px; min-height: 22px;
+            background: {_t.surface};
+            QComboBox, QSpinBox, QLineEdit, QPlainTextEdit {{
+                background: {_t.raised}; color: {_t.ink}; padding: 2px 6px;
             }}
-            #propPanel QComboBox:focus, #propPanel QSpinBox:focus,
-            #propPanel QLineEdit:focus, #propPanel QPlainTextEdit:focus {{
-                border-color: {_t.accent};
-            }}
-            #propPanel QComboBox::drop-down {{
-                border: none; background: transparent; width: 18px;
-            }}
-            #propPanel QSpinBox::up-button, #propPanel QSpinBox::down-button {{
-                border: none; background: transparent; width: 16px;
-            }}
-            #propPanel QWidget#segmented QToolButton {{
+            QWidget#segmented QToolButton {{
                 background: {_t.raised}; border: 1px solid {_t.border_subtle};
                 border-radius: 5px; color: {_t.muted};
             }}
-            #propPanel QWidget#segmented QToolButton:hover,
-            #propPanel QWidget#segmented QToolButton:checked {{
+            QWidget#segmented QToolButton:hover,
+            QWidget#segmented QToolButton:checked {{
                 background: {_fill}; border-color: {_t.accent}; color: {_t.ink};
             }}
         """)
@@ -243,6 +235,7 @@ class PropertyManager(QWidget):
                 hdr_lbl.setProperty("role", "header")   # app-wide overline (QLabel[role="header"])
                 # Font set in code (colour + underline stay in QSS): size 10,
                 # bold, +1px letter-spacing — QSS cannot express letter-spacing.
+                hdr_lbl.setIndent(0)          # align text with the row labels below
                 hf = hdr_lbl.font()
                 hf.setPixelSize(10)
                 hf.setBold(True)
@@ -287,8 +280,9 @@ class PropertyManager(QWidget):
                 cl = QHBoxLayout(cont)
                 cl.setContentsMargins(0, 0, 0, 0)
                 cl.setSpacing(6)
+                cl.setAlignment(Qt.AlignmentFlag.AlignVCenter)
                 btn = QPushButton()
-                btn.setFixedSize(40, 16)
+                btn.setFixedSize(40, 14)
                 btn.setProperty("_color_value", meta["value"])
                 btn.setStyleSheet(
                     f"background: {meta['value']}; "
