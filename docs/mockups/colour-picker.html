@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Colour picker mockup (todo #70)</title>
+<style>
+  /* Real theme tokens — firepro3d/theme.py DARK / LIGHT */
+  .dark{--ground:#141619;--surface:#1E2125;--sunken:#212529;--raised:#24282D;--line:#363B41;--line-strong:#454B52;
+    --ink:#E6E9EC;--muted:#98A1AA;--faint:#6F7982;--accent:#63BE8B;--on-accent:#ffffff;--ok:#6FBE93;
+    --accent-soft:rgba(99,190,139,.133);--accent-soft2:rgba(99,190,139,.22);--danger:#E07A6F}
+  .light{--ground:#f4f5f6;--surface:#ffffff;--sunken:#ffffff;--raised:#eceef0;--line:#d4d8dc;--line-strong:#b4bac0;
+    --ink:#1c2024;--muted:#5a636c;--faint:#98a1aa;--accent:#2f9e63;--on-accent:#ffffff;--ok:#2f9e63;
+    --accent-soft:rgba(47,158,99,.133);--accent-soft2:rgba(47,158,99,.22);--danger:#c42b1c}
+  :root{
+    --dlg-w:440px; --body-mx:20px; --body-my:18px;
+    --sv-w:210px; --sv-h:170px; --hue-w:16px; --col-gap:16px;
+    --chip:22px; --chip-gap:4px; --chip-rad:3px; --sec-gap:12px; --field-h:24px;
+    --prev-h:40px; --sel-ring:2px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0d0f11;color:#E6E9EC;font:13px/1.4 "Segoe UI",system-ui;padding:20px;
+    display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  h1{font-size:16px;margin:0 0 10px}
+  .ctl{width:330px;background:#1E2125;border:1px solid #363B41;border-radius:8px;padding:14px 16px;
+    max-height:94vh;overflow:auto;position:sticky;top:14px;flex:none}
+  .ctl h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#63BE8B;margin:16px 0 8px;
+    border-bottom:1px solid #363B41;padding-bottom:4px}
+  .ctl h3:first-of-type{margin-top:4px}
+  .sr{display:grid;grid-template-columns:118px 1fr 42px;gap:8px;align-items:center;margin-bottom:7px;font-size:11.5px;color:#CFD4D9}
+  .sr input[type=range]{width:100%;accent-color:#63BE8B}
+  .sr .v{color:#98A1AA;text-align:right;font-variant-numeric:tabular-nums}
+  .tg{display:flex;gap:8px;align-items:center;font-size:11.5px;color:#CFD4D9;margin-bottom:7px}
+  .tg input{accent-color:#63BE8B}
+  .ctl textarea{width:100%;height:170px;background:#141619;border:1px solid #363B41;border-radius:6px;color:#CFD4D9;
+    font:11px ui-monospace,Consolas,monospace;padding:8px}
+  .note{font-size:11px;color:#98A1AA;margin:6px 0}
+  .stage{display:flex;flex-direction:column;gap:22px}
+  .pair{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .cap{font-size:11px;color:#98A1AA;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+
+  /* ── HouseDialog (faithful box model: header 40 / body margin / footer) ── */
+  .dlg{width:var(--dlg-w);background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+    border-radius:8px;overflow:hidden;box-shadow:0 12px 34px rgba(0,0,0,.45);font-size:13px}
+  .hdr{height:40px;padding:7px 10px 7px 14px;display:flex;align-items:center;gap:8px;background:var(--raised);
+    border-bottom:1px solid var(--line)}
+  .hdr .ico{width:22px;height:22px;border-radius:5px;background:conic-gradient(#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)}
+  .hdr .ttl{font-weight:700;font-size:14px}
+  .hdr .ctx{color:var(--muted);font-size:12px;margin-left:10px}
+  .hdr .dot{margin-left:auto;width:12px;height:12px;border-radius:50%;background:var(--danger);opacity:.8}
+  .bd{padding:var(--body-my) var(--body-mx);border-top:1px solid var(--line)}
+  .top{display:flex;gap:var(--col-gap)}
+  .sv{position:relative;width:var(--sv-w);height:var(--sv-h);border-radius:4px;border:1px solid var(--line-strong);cursor:crosshair;flex:none}
+  .sv .w{position:absolute;inset:0;background:linear-gradient(to right,#fff,rgba(255,255,255,0));border-radius:3px}
+  .sv .b{position:absolute;inset:0;background:linear-gradient(to top,#000,rgba(0,0,0,0));border-radius:3px}
+  .sv .pt{position:absolute;width:12px;height:12px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #000;transform:translate(-6px,-6px);pointer-events:none}
+  .hue{position:relative;width:var(--hue-w);height:var(--sv-h);border-radius:4px;border:1px solid var(--line-strong);flex:none;cursor:ns-resize;
+    background:linear-gradient(to bottom,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+  .hue .th{position:absolute;left:-3px;right:-3px;height:6px;border:2px solid #fff;border-radius:3px;box-shadow:0 0 0 1px #000;transform:translateY(-3px);pointer-events:none}
+  .side{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .prev{height:var(--prev-h);border:1px solid var(--line-strong);border-radius:4px;display:flex;overflow:hidden}
+  .prev div{flex:1;display:flex;align-items:flex-end;justify-content:center;font-size:9px;padding-bottom:1px;color:rgba(0,0,0,0)}
+  .prev .lbls{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+  .fr{display:grid;grid-template-columns:30px 1fr;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+  .inp{height:var(--field-h);background:var(--sunken);border:1px solid var(--line-strong);border-radius:4px;color:var(--ink);
+    font-size:11px;padding:0 7px;display:flex;align-items:center;justify-content:space-between;font-variant-numeric:tabular-nums}
+  .inp input{background:transparent;border:none;color:inherit;font:inherit;width:100%;outline:none}
+  .inp.focus{border-color:var(--accent)}
+  .inp .ar{color:var(--muted);font-size:8px;line-height:7px;text-align:center}
+  .sec{margin-top:var(--sec-gap);font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px}
+  .row{display:flex;gap:var(--chip-gap)}
+  .chip{width:var(--chip);height:var(--chip);border-radius:var(--chip-rad);border:1px solid var(--line-strong);cursor:pointer;flex:none;position:relative}
+  .chip:hover{outline:1px solid var(--accent);outline-offset:1px}
+  .chip.sel{outline:var(--sel-ring) solid var(--accent);outline-offset:1px}
+  .chip.empty{border-style:dashed;background:transparent;cursor:default}
+  .chip.empty:hover{outline:none}
+  .nofill{display:flex;align-items:center;gap:8px;height:calc(var(--chip) + 8px);padding:0 8px;border:1px solid var(--line-strong);
+    border-radius:4px;cursor:pointer;font-size:12px}
+  .nofill:hover{background:var(--accent-soft);border-color:var(--accent)}
+  .nofill.sel{background:var(--accent-soft2);border-color:var(--accent)}
+  .nf-chip{width:var(--chip);height:var(--chip);border-radius:var(--chip-rad);border:1px solid var(--line-strong);background:#fff;flex:none;
+    background-image:linear-gradient(to top right,transparent calc(50% - 1px),#d22 calc(50% - 1px),#d22 calc(50% + 1px),transparent calc(50% + 1px))}
+  .ft{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--raised);border-top:1px solid var(--line)}
+  .btn{height:28px;padding:0 14px;border:1px solid var(--line-strong);border-radius:6px;background:var(--sunken);color:var(--ink);font-weight:500;
+    display:flex;align-items:center;cursor:pointer;font-size:12.5px}
+  .btn:hover{background:var(--accent-soft);border-color:var(--accent)}
+  .btn.pri{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+  .grow{flex:1}
+
+  /* ── Swatch previews (property panel row + title-block row) ── */
+  .panel{width:260px;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px}
+  .prow{display:grid;grid-template-columns:86px 1fr;align-items:center;min-height:26px;margin-bottom:4px}
+  .prow label{color:var(--muted);font-size:11px}
+  .sw{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+  .sw .c{width:34px;height:14px;border-radius:3px;border:1px solid var(--line)}
+  .sw .c.nf{background:#fff;background-image:linear-gradient(to top right,transparent calc(50% - 1px),#d22 calc(50% - 1px),#d22 calc(50% + 1px),transparent calc(50% + 1px))}
+  .phdr{color:var(--accent);font-size:11px;font-weight:600;border-bottom:1px solid var(--line);padding-bottom:3px;margin:8px 0 6px}
+  .dis{opacity:.45}
+  .tbsw{width:28px;height:22px;border:1px solid var(--line-strong);border-radius:3px}
+  .strike{text-decoration:line-through;color:var(--faint);font-size:11px}
+</style></head><body>
+
+<div class="ctl">
+  <h1>Colour picker — #70</h1>
+  <div class="note">Click presets, drag the field/hue, type hex. Double-click a chip = commit (simulated). Tune proportions, then Copy values.</div>
+  <h3>Variant</h3>
+  <label class="tg"><input type="checkbox" id="optNoFill" checked> Caller allows No Fill</label>
+  <label class="tg"><input type="checkbox" id="optRecents" checked> Recents populated (off = first run)</label>
+  <label class="tg"><input type="checkbox" id="optBoth" checked> Show both themes</label>
+  <h3>Dialog</h3>
+  <div id="sliders"></div>
+  <h3>Export</h3>
+  <textarea id="out" readonly></textarea>
+  <div class="note" id="log">—</div>
+</div>
+
+<div class="stage">
+  <div>
+    <div class="cap">HouseDialog — "Colour" · context label</div>
+    <div class="pair" id="dlgs"></div>
+  </div>
+  <div>
+    <div class="cap">Swatch no-fill chip (ui_kit.Swatch) · title-block field-fill row</div>
+    <div class="pair" id="panels"></div>
+  </div>
+</div>
+
+<script>
+const ACI = ["#FF0000","#FF7F00","#FFFF00","#00FF00","#00FFFF","#0000FF","#FF00FF","#808080","#C0C0C0","#FFFFFF"];
+const ACI_NAMES = ["ACI 1 red","ACI 30 orange","ACI 2 yellow","ACI 3 green","ACI 4 cyan","ACI 5 blue","ACI 6 magenta","ACI 8","ACI 9","ACI 7 white"];
+const GREYS = [0,28,57,85,113,142,170,198,227,255].map(v=>"#"+v.toString(16).padStart(2,"0").repeat(3).toUpperCase());
+const RECENTS = ["#D22B2B","#1F4E79","#000000","#FFC800","#666666","#2F9E63"];
+const SL = [
+  ["--dlg-w","Dialog width",360,560,440],["--body-mx","Body margin X",12,28,20],["--body-my","Body margin Y",10,24,18],
+  ["--sv-w","SV field W",150,280,210],["--sv-h","SV field H",120,220,170],["--hue-w","Hue W",10,24,16],["--col-gap","Column gap",8,28,16],
+  ["--chip","Chip size",16,30,22],["--chip-gap","Chip gap",2,10,4],["--chip-rad","Chip radius",0,8,3],["--sel-ring","Selected ring",1,3,2],
+  ["--sec-gap","Section gap",6,22,12],["--field-h","Field H",20,30,24],["--prev-h","Preview H",24,60,40],
+];
+const root=document.documentElement;
+const sd=document.getElementById("sliders");
+SL.forEach(([v,l,a,b,d])=>{
+  const r=document.createElement("div");r.className="sr";
+  r.innerHTML=`<span>${l}</span><input type=range min=${a} max=${b} value=${d}><span class=v>${d}px</span>`;
+  const i=r.querySelector("input"),o=r.querySelector(".v");
+  i.oninput=()=>{root.style.setProperty(v,i.value+"px");o.textContent=i.value+"px";exportVals();};
+  sd.appendChild(r);
+});
+function exportVals(){
+  const s=getComputedStyle(root);
+  document.getElementById("out").value=SL.map(([v,l])=>`${l.padEnd(14)} ${s.getPropertyValue(v).trim()}`).join("\n")
+   +`\n\nACI row: ${ACI.join(" ")}\nGreys:   ${GREYS.join(" ")}`;
+}
+
+// ---- colour model (shared across both theme instances) ----
+let st={h:0,s:1,v:0.82,nofill:false,orig:"#D22B2B"};
+function hsv2hex(h,s,v){const f=n=>{const k=(n+h/60)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1));};
+  return "#"+[f(5),f(3),f(1)].map(x=>Math.round(x*255).toString(16).padStart(2,"0")).join("").toUpperCase();}
+function hex2hsv(hex){const n=parseInt(hex.slice(1),16),r=(n>>16&255)/255,g=(n>>8&255)/255,b=(n&255)/255;
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;let h=0;
+  if(d){h=mx===r?((g-b)/d)%6:mx===g?(b-r)/d+2:(r-g)/d+4;h*=60;if(h<0)h+=360;}
+  return {h,s:mx?d/mx:0,v:mx};}
+function setHex(hex){const o=hex2hsv(hex);st.h=o.h;st.s=o.s;st.v=o.v;st.nofill=false;render();}
+Object.assign(st,hex2hsv(st.orig));
+const log=m=>document.getElementById("log").textContent=m;
+
+function dialog(theme){
+  const d=document.createElement("div");d.className="dlg "+theme;
+  const nf=document.getElementById("optNoFill").checked, rec=document.getElementById("optRecents").checked;
+  const chips=(arr,names)=>arr.map((c,i)=>`<div class="chip" data-hex="${c}" title="${names?names[i]+" · ":""}${c}" style="background:${c}"></div>`).join("");
+  const recHtml=rec?chips(RECENTS)+'<div class="chip empty"></div>'.repeat(10-RECENTS.length):'<div class="chip empty"></div>'.repeat(10);
+  d.innerHTML=`
+   <div class="hdr"><div class="ico"></div><span class="ttl">Colour</span><span class="ctx">Text fill</span><div class="dot"></div></div>
+   <div class="bd">
+     <div class="top">
+       <div class="sv"><div class="w"></div><div class="b"></div><div class="pt"></div></div>
+       <div class="hue"><div class="th"></div></div>
+       <div class="side">
+         <div class="prev"><div class="new"></div><div class="old" style="background:${st.orig}"></div></div>
+         <div class="prev lbls" style="border:none;height:auto;margin-top:-4px"><span>New</span><span>Current</span></div>
+         <div class="fr"><span>Hex</span><div class="inp"><input class="hex"></div></div>
+         <div class="fr"><span>R</span><div class="inp"><span class="r"></span><span class="ar">▲<br>▼</span></div></div>
+         <div class="fr"><span>G</span><div class="inp"><span class="g"></span><span class="ar">▲<br>▼</span></div></div>
+         <div class="fr"><span>B</span><div class="inp"><span class="b2"></span><span class="ar">▲<br>▼</span></div></div>
+       </div>
+     </div>
+     <div class="sec">Standard</div><div class="row">${chips(ACI,ACI_NAMES)}${nf?`<div class="chip nf-chip nofill-chip" data-nf=1 title="No Fill (transparent)"></div>`:""}</div>
+     <div class="sec" style="margin-top:6px">Greys</div><div class="row">${chips(GREYS)}</div>
+     <div class="sec">Recent</div><div class="row">${recHtml}</div>
+   </div>
+   <div class="ft"><div class="btn">Cancel</div><div class="grow"></div><div class="btn pri">OK</div></div>`;
+  // wiring
+  const sv=d.querySelector(".sv"),hue=d.querySelector(".hue");
+  const drag=(el,fn)=>el.onmousedown=e=>{fn(e);const mv=ev=>fn(ev),up=()=>{removeEventListener("mousemove",mv);removeEventListener("mouseup",up)};addEventListener("mousemove",mv);addEventListener("mouseup",up);};
+  drag(sv,e=>{const r=sv.getBoundingClientRect();st.s=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));st.v=1-Math.min(1,Math.max(0,(e.clientY-r.top)/r.height));st.nofill=false;render();});
+  drag(hue,e=>{const r=hue.getBoundingClientRect();st.h=360*Math.min(0.9999,Math.max(0,(e.clientY-r.top)/r.height));st.nofill=false;render();});
+  d.querySelectorAll(".chip[data-hex]").forEach(c=>{c.onclick=()=>setHex(c.dataset.hex);c.ondblclick=()=>log("COMMIT (double-click) → "+c.dataset.hex);});
+  const nfEl=d.querySelector(".nofill-chip");if(nfEl){nfEl.onclick=()=>{st.nofill=true;render();};nfEl.ondblclick=()=>log('COMMIT (double-click) → No Fill ("")');}
+  const hx=d.querySelector(".hex");
+  hx.onfocus=()=>hx.parentElement.classList.add("focus");
+  hx.onblur=()=>{hx.parentElement.classList.remove("focus");render();};
+  hx.oninput=()=>{let t=hx.value.trim();if(!t.startsWith("#"))t="#"+t;if(/^#[0-9a-fA-F]{6}$/.test(t)){const o=hex2hsv(t.toUpperCase());st.h=o.h;st.s=o.s;st.v=o.v;st.nofill=false;render(hx);}};
+  hx.onkeydown=e=>{if(e.key==="Enter")hx.blur();};
+  d.querySelector(".btn.pri").onclick=()=>log("OK → "+(st.nofill?'No Fill ("")':hsv2hex(st.h,st.s,st.v)));
+  d.querySelector(".btn:not(.pri)").onclick=()=>log("Cancel → no change (distinct from No Fill)");
+  return d;
+}
+function render(keep){
+  const hex=hsv2hex(st.h,st.s,st.v),hueHex=hsv2hex(st.h,1,1);
+  const n=parseInt(hex.slice(1),16);
+  document.querySelectorAll(".dlg").forEach(d=>{
+    const sv=d.querySelector(".sv");sv.style.background=hueHex;
+    const pt=d.querySelector(".pt");pt.style.left=(st.s*100)+"%";pt.style.top=((1-st.v)*100)+"%";pt.style.display=st.nofill?"none":"";
+    d.querySelector(".th").style.top=(st.h/360*100)+"%";
+    const nw=d.querySelector(".prev .new");
+    nw.style.cssText=st.nofill?"background:#fff;background-image:linear-gradient(to top right,transparent calc(50% - 1px),#d22 calc(50% - 1px),#d22 calc(50% + 1px),transparent calc(50% + 1px))":"background:"+hex;
+    const hx=d.querySelector(".hex");if(hx!==keep&&document.activeElement!==hx)hx.value=st.nofill?"":hex;
+    hx.placeholder=st.nofill?"None":"";
+    d.querySelector(".r").textContent=st.nofill?"–":n>>16&255;d.querySelector(".g").textContent=st.nofill?"–":n>>8&255;d.querySelector(".b2").textContent=st.nofill?"–":n&255;
+    d.querySelectorAll(".chip[data-hex]").forEach(c=>c.classList.toggle("sel",!st.nofill&&c.dataset.hex===hex));
+    const nf=d.querySelector(".nofill-chip");if(nf)nf.classList.toggle("sel",st.nofill);
+  });
+}
+function panels(theme){
+  const p=document.createElement("div");p.className="panel "+theme;
+  p.innerHTML=`
+   <div class="phdr">Fill</div>
+   <div class="prow"><label>Fill Color</label><div class="sw"><div class="c" style="background:#FFC800"></div>#FFC800</div></div>
+   <div class="prow"><label>Fill Opacity</label><div class="sw">100%</div></div>
+   <div class="phdr">Fill (No Fill chosen)</div>
+   <div class="prow"><label>Fill Color</label><div class="sw"><div class="c nf"></div>None</div></div>
+   <div class="prow dis"><label>Fill Opacity</label><div class="sw">100% (disabled)</div></div>
+   <div class="phdr">Title block · field Fill</div>
+   <div class="prow"><label>Fill</label><div class="sw"><div class="tbsw" style="background:#fff;background-image:linear-gradient(to top right,transparent calc(50% - 1px),#d22 calc(50% - 1px),#d22 calc(50% + 1px),transparent calc(50% + 1px))"></div><span class="strike">[None] button removed</span></div></div>`;
+  return p;
+}
+function build(){
+  const both=document.getElementById("optBoth").checked;
+  const themes=both?["dark","light"]:["dark"];
+  const D=document.getElementById("dlgs"),P=document.getElementById("panels");D.innerHTML="";P.innerHTML="";
+  themes.forEach(t=>{D.appendChild(dialog(t));P.appendChild(panels(t));});
+  render();exportVals();
+}
+["optNoFill","optRecents","optBoth"].forEach(id=>document.getElementById(id).onchange=build);
+build();
+</script>
+</body></html>
