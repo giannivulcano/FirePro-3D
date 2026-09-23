@@ -13,7 +13,7 @@ import logging
 import os
 import re
 
-from .app_data import app_data_dir
+from .app_data import block_library_dir
 from .block_definition import BlockDefinition
 
 _log = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class BlockNameCollision(Exception):
 
 
 def _root(root: str | None) -> str:
-    return root if root is not None else app_data_dir("blocks")
+    return root if root is not None else block_library_dir()
 
 
 def sanitize(name: str) -> str:
@@ -47,6 +47,61 @@ def sanitize(name: str) -> str:
 
 def _series_dir(root: str | None, library: str, series: str) -> str:
     return os.path.join(_root(root), sanitize(library), sanitize(series))
+
+
+def list_folders(root: str | None = None) -> dict[str, list[str]]:
+    """The on-disk Library → Series folder tree (names sorted, files ignored).
+
+    Returns:
+        ``{library: [series, ...]}``; ``{}`` when the root does not exist.
+    """
+    base = _root(root)
+    tree: dict[str, list[str]] = {}
+    try:
+        libs = sorted(e for e in os.listdir(base)
+                      if os.path.isdir(os.path.join(base, e)))
+    except OSError:
+        return {}
+    for lib in libs:
+        lib_dir = os.path.join(base, lib)
+        try:
+            tree[lib] = sorted(e for e in os.listdir(lib_dir)
+                               if os.path.isdir(os.path.join(lib_dir, e)))
+        except OSError:
+            tree[lib] = []
+    return tree
+
+
+def create_folder(library: str, series: str | None = None,
+                  root: str | None = None) -> str:
+    """Create a Library (and optionally Series) folder; returns its path.
+
+    Segments are :func:`sanitize`-d exactly as :func:`save_to_library` names
+    them, so a folder made here is the one a later save lands in.
+    """
+    path = os.path.join(_root(root), sanitize(library))
+    if series:
+        path = os.path.join(path, sanitize(series))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def find_collision(block_id: str, library: str, series: str, name: str,
+                   root: str | None = None) -> str | None:
+    """Name of a DIFFERENT block holding ``<name>.fpdb`` in Library/Series.
+
+    The same probe :func:`save_to_library` refuses on (without writing), so a
+    caller can resolve Overwrite / Rename / Cancel before committing.
+
+    Returns:
+        The occupying block's human name, or None when the slot is free (or
+        already held by *block_id*).
+    """
+    filename = sanitize(name) + ".fpdb"
+    clash = _read_index(_series_dir(root, library, series)).get(filename)
+    if clash is not None and clash.get("id") != block_id:
+        return clash.get("name", filename)
+    return None
 
 
 def _atomic_write_json(path: str, data) -> None:
@@ -90,10 +145,11 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     path = os.path.join(series_dir, filename)
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
-    target_index = _read_index(series_dir)
-    clash = target_index.get(filename)
-    if not overwrite and clash is not None and clash.get("id") != definition.id:
-        raise BlockNameCollision(clash.get("name", filename), filename)
+    if not overwrite:
+        clash_name = find_collision(definition.id, definition.library,
+                                    definition.series, definition.name, root)
+        if clash_name is not None:
+            raise BlockNameCollision(clash_name, filename)
 
     # (b) Re-file: drop any stale copy of this id parked at a different location.
     existing = _find_by_id(definition.id, root)

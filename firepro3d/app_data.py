@@ -11,6 +11,7 @@ _QSETTINGS_ORG = "GV"
 _QSETTINGS_APP = "FirePro3D"
 ROOT_KEY = "paths/user_data_root"       # Preferences data-folder override
 TITLEBLOCK_DIR_KEY = "paths/titleblock_dir"   # dedicated title-block library dir
+BLOCK_DIR_KEY = "paths/block_dir"             # dedicated block library dir
 
 # Known content under a data root, migrated together when the root changes (E3).
 _MIGRATABLE = ("titleblocks", "blocks", "sprinklers.json", "default.fpdt")
@@ -58,16 +59,20 @@ def app_data_dir(subdir: str = "") -> str:
     return os.path.join(root, subdir) if subdir else root
 
 
-def _configured_titleblock_dir() -> str | None:
-    """The dedicated title-block library override, or None when unset."""
+def _configured_dir(key: str) -> str | None:
+    """A dedicated library-folder override stored under *key*, or None."""
     try:
         from PyQt6.QtCore import QSettings
-        raw = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(
-            TITLEBLOCK_DIR_KEY, "", type=str)
+        raw = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(key, "", type=str)
         raw = (raw or "").strip()
         return raw or None
     except Exception:
         return None
+
+
+def _configured_titleblock_dir() -> str | None:
+    """The dedicated title-block library override, or None when unset."""
+    return _configured_dir(TITLEBLOCK_DIR_KEY)
 
 
 def titleblock_library_dir() -> str:
@@ -79,6 +84,16 @@ def titleblock_library_dir() -> str:
     the general data folder.
     """
     return _configured_titleblock_dir() or app_data_dir("titleblocks")
+
+
+def block_library_dir() -> str:
+    """Root of the two-tier block library (``<Library>/<Series>/*.fpdb``).
+
+    Precedence mirrors :func:`titleblock_library_dir`: an explicit override
+    (System Settings > General > Data folder > *Block library*) → else
+    ``<user_data_root>/blocks``.
+    """
+    return _configured_dir(BLOCK_DIR_KEY) or app_data_dir("blocks")
 
 
 def migrate_data_root(old_root: str, new_root: str, *, move: bool = False) -> list[str]:

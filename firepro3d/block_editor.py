@@ -8,6 +8,8 @@ definition id. See docs/specs/block-system.md §"Block Editor (v2)".
 
 from __future__ import annotations
 
+import os
+
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
@@ -33,59 +35,151 @@ _CLS_TO_LIST = {
 }
 
 
+_SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
+
+
+def library_tree_for(project_scene, root: str | None = None) -> dict[str, list[str]]:
+    """The Save dialog's Library → Series choices: on-disk folders UNION the
+    library/series already used by the project's block definitions."""
+    from . import block_library
+    tree = {lib: list(ser) for lib, ser in block_library.list_folders(root).items()}
+    for d in project_scene._block_definitions.values():
+        series = tree.setdefault(d.library, [])
+        if d.series not in series:
+            series.append(d.series)
+    return {lib: sorted(ser) for lib, ser in sorted(tree.items())}
+
+
 class BlockSaveDialog(HouseDialog):
     """Collect block identity + save options at Save time.
 
-    context: "new" | "seeded" | "edit". Shows a replace-source checkbox for
+    Library / Series are house dropdowns fed by *library_tree* (Series follows
+    the chosen Library); each has a "+" that creates the folder on disk at once
+    (under *root*) and selects it. "Also save to library" defaults ON and
+    remembers the last choice. When saving to the library would overwrite a
+    DIFFERENT block's file, Save offers Overwrite / Rename / Cancel before
+    anything is committed (Rename keeps the dialog open on the Name field).
+
+    context: "new" | "seeded" | "edit". Shows a replace-source toggle for
     "seeded" and an "updates N instances" warning for "edit" when N>0.
 
     Args:
         parent: Qt parent widget.
         theme: Optional theme override.
-        libraries: Existing library names for the combo.
-        series: Existing series names for the combo.
+        library_tree: ``{library: [series, ...]}`` choices.
+        root: Block-library root for "+" folder creation + the collision probe
+            (None = the configured library).
+        collision_id: The id this save would write as (None = a new block).
         context: "new", "seeded", or "edit".
         instance_count: For "edit" context, number of placed instances.
         initial: (name, library, series) to pre-fill.
         validator: Optional callable(name, library, series) -> str|None.
     """
 
-    def __init__(self, parent=None, *, theme=None, libraries=(), series=(),
-                 context="new", instance_count=0, initial=("", "", ""),
-                 validator=None):
+    def __init__(self, parent=None, *, theme=None, library_tree=None, root=None,
+                 collision_id=None, context="new", instance_count=0,
+                 initial=("", "", ""), validator=None):
         super().__init__(parent, title="Save Block", icon="insert_block_icon.svg",
-                         min_width=400, theme=theme)
+                         min_width=420, theme=theme)
+        from PyQt6.QtCore import QSettings
+        from .ui_kit import CreatableSelector, ToggleSwitch
         self.setObjectName("BlockSaveDialog")
         self._validator = validator
         self._context = context
+        self._lib_root = root
+        self._collision_id = collision_id
+        self._overwrite = False
+        self._tree = {k: list(v) for k, v in (library_tree or {}).items()}
+        # Keep a pre-filled library/series selectable even if not in the tree.
+        if initial[1]:
+            ser = self._tree.setdefault(initial[1], [])
+            if initial[2] and initial[2] not in ser:
+                ser.append(initial[2])
+
         form = QFormLayout()
         form.setVerticalSpacing(14)
         form.setHorizontalSpacing(14)
         self.name_edit = QLineEdit(initial[0])
-        self.library_combo = QComboBox()
-        self.library_combo.setEditable(True)
-        self.library_combo.addItems(list(libraries))
-        self.library_combo.setCurrentText(initial[1])
-        self.series_combo = QComboBox()
-        self.series_combo.setEditable(True)
-        self.series_combo.addItems(list(series))
-        self.series_combo.setCurrentText(initial[2])
+        self.name_edit.setToolTip("Block name (also its file name in the library)")
+        self.library_sel = CreatableSelector(add_tooltip="New library folder")
+        self.library_sel.selector.setToolTip("Library (top-level folder)")
+        self.series_sel = CreatableSelector(add_tooltip="New series folder in this library")
+        self.series_sel.selector.setToolTip("Series (folder inside the library)")
+        self.library_combo = self.library_sel.selector
+        self.series_combo = self.series_sel.selector
+        self.library_combo.currentTextChanged.connect(self._refresh_series)
+        self.library_sel.createRequested.connect(self._create_library)
+        self.series_sel.createRequested.connect(self._create_series)
+        self._pending_series = initial[2]
+        self.library_sel.set_items(sorted(self._tree), current=initial[1] or None)
         form.addRow("Name", self.name_edit)
-        form.addRow("Library", self.library_combo)
-        form.addRow("Series", self.series_combo)
-        self.save_to_library_cb = QCheckBox("Also save to library")
+        form.addRow("Library", self.library_sel)
+        form.addRow("Series", self.series_sel)
+
+        remembered = QSettings("GV", "FirePro3D").value(_SAVE_TO_LIB_KEY, True)
+        if isinstance(remembered, str):
+            remembered = remembered.lower() not in ("false", "0")
+        self.save_to_library_cb = ToggleSwitch("Also save to library",
+                                               checked=bool(remembered))
+        self.save_to_library_cb.setToolTip(
+            "Also write this block to the on-disk library folder above")
         form.addRow("", self.save_to_library_cb)
-        self.replace_source_cb = QCheckBox("Replace selected geometry with an instance")
+        self.replace_source_cb = ToggleSwitch(
+            "Replace selected geometry with an instance", checked=True)
+        self.replace_source_cb.setToolTip(
+            "Swap the source geometry for one placed instance of the new block")
         if context == "seeded":
-            self.replace_source_cb.setChecked(True)
             form.addRow("", self.replace_source_cb)
         if context == "edit" and instance_count > 0:
             warn = QLabel(f"Saving updates {instance_count} placed instance(s).")
             warn.setWordWrap(True)
             form.addRow("", warn)
+        self.error_label = QLabel("")
+        self.error_label.setObjectName("fieldError")
+        self.error_label.setWordWrap(True)
+        self.error_label.hide()
+        form.addRow("", self.error_label)
         self.body_layout().addLayout(form)
         self.set_footer_buttons(primary=("Save", self._on_save), cancel=True)
 
+    # -- dropdowns ---------------------------------------------------------
+    def _refresh_series(self, library: str) -> None:
+        cur = self._pending_series or self.series_combo.currentText()
+        self._pending_series = ""
+        self.series_sel.set_items(self._tree.get(library, []), current=cur or None)
+
+    def _create_library(self, name: str) -> None:
+        from . import block_library
+        from .themed_message import themed_info
+        try:
+            path = block_library.create_folder(name, root=self._lib_root)
+        except OSError as exc:
+            themed_info(self, "New library", f"Could not create the folder:\n{exc}")
+            return
+        lib = os.path.basename(path)
+        self._tree.setdefault(lib, [])
+        self.library_sel.set_items(sorted(self._tree), current=lib)
+
+    def _create_series(self, name: str) -> None:
+        from . import block_library
+        from .themed_message import themed_info
+        lib = self.library_combo.currentText().strip()
+        if not lib:
+            themed_info(self, "New series", "Choose or create a library first.")
+            return
+        try:
+            path = block_library.create_folder(lib, name, root=self._lib_root)
+        except OSError as exc:
+            themed_info(self, "New series", f"Could not create the folder:\n{exc}")
+            return
+        ser = os.path.basename(path)
+        series = self._tree.setdefault(lib, [])
+        if ser not in series:
+            series.append(ser)
+            series.sort()
+        self.series_sel.set_items(series, current=ser)
+
+    # -- values / validation -----------------------------------------------
     def values(self) -> dict:
         """Return the current field values as a dict."""
         return {
@@ -94,6 +188,7 @@ class BlockSaveDialog(HouseDialog):
             "series": self.series_combo.currentText().strip(),
             "save_to_library": self.save_to_library_cb.isChecked(),
             "replace_source": (self._context != "seeded") or self.replace_source_cb.isChecked(),
+            "overwrite": self._overwrite,
         }
 
     def validation_error(self) -> str | None:
@@ -105,12 +200,46 @@ class BlockSaveDialog(HouseDialog):
             return self._validator(v["name"], v["library"], v["series"])
         return None
 
+    def _show_error(self, text: str) -> None:
+        self.error_label.setText(text)
+        self.error_label.show()
+
     def _on_save(self):
+        from PyQt6.QtCore import QSettings
+        QSettings("GV", "FirePro3D").setValue(
+            _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
         err = self.validation_error()
         if err:
-            from .themed_message import themed_info
-            themed_info(self, "Save Block", err)
+            self._show_error(err)
             return
+        self.error_label.hide()
+        v = self.values()
+        self._overwrite = False
+        if v["save_to_library"]:
+            from . import block_library
+            from .themed_message import themed_choice
+            clash = block_library.find_collision(
+                self._collision_id or "", v["library"], v["series"], v["name"],
+                root=self._lib_root)
+            if clash is not None:
+                choice = themed_choice(
+                    self, "Name already in library",
+                    f"A different block \u201c{clash}\u201d is already saved as "
+                    f"{v['library']} / {v['series']} / {v['name']}.",
+                    [("Cancel", "cancel", None), ("Rename", "rename", None),
+                     ("Overwrite", "overwrite", "danger")], kind="warn")
+                if choice == "overwrite":
+                    self._overwrite = True
+                elif choice == "rename":
+                    self._show_error(
+                        f"\u201c{v['name']}\u201d is taken in {v['library']} / "
+                        f"{v['series']} — choose another name.")
+                    self.name_edit.setFocus()
+                    self.name_edit.selectAll()
+                    return
+                else:
+                    self.reject()
+                    return
         self.accept()
 
 
@@ -334,9 +463,6 @@ class BlockEditorWidget(QWidget):
             themed_info(parent or self, "Save Block", "Draw or import geometry first.")
             return None
         proj = self._project_scene
-        defs = list(proj._block_definitions.values())
-        libraries = sorted({d.library for d in defs})
-        series = sorted({d.series for d in defs})
         if self._edit_block_id is not None:
             context = "edit"
             icount = proj.instance_count(self._edit_block_id)
@@ -359,7 +485,8 @@ class BlockEditorWidget(QWidget):
                     return f"A block '{name}' already exists in {library} / {series}."
             return None
 
-        dlg = BlockSaveDialog(parent or self, libraries=libraries, series=series,
+        dlg = BlockSaveDialog(parent or self, library_tree=library_tree_for(proj),
+                              collision_id=self._edit_block_id,
                               context=context, instance_count=icount,
                               initial=initial, validator=_validator)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -370,7 +497,8 @@ class BlockEditorWidget(QWidget):
         if defn is None:
             return None
         if v["save_to_library"]:
-            self._save_to_library(defn, parent or self)
+            self._save_to_library(defn, parent or self,
+                                  overwrite=v.get("overwrite", False))
         return defn
 
     # ── Import (BE4) ────────────────────────────────────────────────────────
@@ -465,17 +593,22 @@ class BlockEditorWidget(QWidget):
         if added and not p.insert_at_origin:
             self.editor_scene.begin_move_from(target)
 
-    def _save_to_library(self, defn, parent):
-        """Persist *defn* to the on-disk block library, prompting on collision.
+    def _save_to_library(self, defn, parent, *, overwrite: bool = False):
+        """Persist *defn* to the on-disk block library.
+
+        The Save dialog already resolved any collision (``overwrite`` carries
+        its Overwrite choice); the confirm below only guards a race where the
+        slot got taken after the dialog closed.
 
         Args:
             defn: The ``BlockDefinition`` to persist.
             parent: Qt parent widget for confirmation dialogs.
+            overwrite: Clobber a different block holding the same file.
         """
         from . import block_library
         from .themed_message import themed_confirm
         try:
-            block_library.save_to_library(defn)
+            block_library.save_to_library(defn, overwrite=overwrite)
         except block_library.BlockNameCollision as e:
             if themed_confirm(parent, "Overwrite block?",
                               f"A different block '{e.existing_name}' occupies that "
