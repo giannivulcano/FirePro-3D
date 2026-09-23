@@ -287,3 +287,19 @@ def test_focus_to_property_panel_keeps_edit(shown_model_view):
     le.setFocus(Qt.FocusReason.MouseFocusReason)
     QApplication.processEvents()
     assert t._editing
+
+
+def test_text_placement_is_single_placement_and_keeps_edit_live(scene):
+    """Text is a single-placement tool (user smoke 2026-09-23): after the
+    second click the scene is back in Select with the new box selected AND its
+    inline-edit session still live (the Select switch must not commit/discard
+    the fresh empty box)."""
+    from firepro3d.text_item import editing_text_item
+    scene.set_mode("text")
+    scene._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    scene._press_text(None, QPointF(400, 200), QPointF(400, 200), None, None, None)
+    t = scene._texts[-1]
+    assert scene.mode == "select"
+    assert t.isSelected()
+    assert editing_text_item(scene) is t
+    assert t.toPlainText() == ""

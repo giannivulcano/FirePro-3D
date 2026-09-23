@@ -4212,6 +4212,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
         "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
+        "text",
     })
 
     _ALIGN_PLACEMENT_MODES = frozenset({
@@ -4619,6 +4620,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.removeItem(self._text_preview)
                 self._text_preview = None
             self._text_anchor = None
+            # Single placement: back to Select with the new box selected FIRST —
+            # set_mode commits any live edit, so the session must start after
+            # the switch or the fresh empty box would be discarded.
+            self._end_placement_switch(text)
             # Start empty with a live caret.  No placement snapshot: the
             # session's commit pushes the single place+type step (or discards
             # an empty placement) — spec § Inline edit, Undo.

@@ -836,3 +836,17 @@ def test_right_release_mid_drag_select_does_not_end_it(be):
            Qt.MouseButton.RightButton)
     _mouse(view, QEvent.Type.MouseMove, b)
     assert t.textCursor().hasSelection()
+
+
+def test_placed_text_types_live_after_returning_to_select(be):
+    """Real clicks: place a box with the Text tool → Select mode, and the very
+    next keystroke types into the new box (not a tool shortcut)."""
+    view, scene = be
+    scene.set_mode("text")
+    _click(view, QPointF(0, 0))
+    _click(view, QPointF(600, 300))
+    t = scene._texts[-1]
+    assert scene.mode == "select"
+    _key(view, Qt.Key.Key_L)
+    assert scene.mode == "select"
+    assert "l" in t.toPlainText().lower()
