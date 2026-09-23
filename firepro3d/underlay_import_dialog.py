@@ -595,10 +595,12 @@ class _DialogPdfExtractWorker(QThread):
     aborted = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, path: str, page: int, parent=None):
+    def __init__(self, path: str, page: int, preserve_curves: bool = False,
+                 parent=None):
         super().__init__(parent)
         self._path = path
         self._page = page
+        self._preserve_curves = preserve_curves
         self._cancelled = False
 
     def cancel(self):
@@ -617,7 +619,8 @@ class _DialogPdfExtractWorker(QThread):
             # paths instead of only after the whole page finishes.
             # extract_pdf_vectors_sync returns None when it observed the flag.
             result = extract_pdf_vectors_sync(
-                self._path, self._page, should_cancel=lambda: self._cancelled)
+                self._path, self._page, should_cancel=lambda: self._cancelled,
+                preserve_curves=self._preserve_curves)
             if result is None or self._cancelled:
                 self.aborted.emit()
                 return
@@ -2645,7 +2648,8 @@ class UnderlayImportDialog(HouseDialog):
             "mode": mode, "reset_base": reset_base,
         }
         self._set_loading(f"Extracting vectors from page {page + 1}…")
-        w = _DialogPdfExtractWorker(path, page)
+        w = _DialogPdfExtractWorker(
+            path, page, preserve_curves=getattr(self, "_preserve_curves", False))
         self._pdf_worker = w
         w.status.connect(self._on_pdf_extract_status)
         w.finished_geoms.connect(self._on_pdf_extract_finished)

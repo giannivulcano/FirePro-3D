@@ -88,6 +88,17 @@ UNDERLAY_MM_TO_PX_HINT = 6.0
 # re-extracts. Spinbox range 0.25–4.0.
 PDF_BEZIER_FLATTEN_TOL = 0.5
 
+# ── PDF curve preservation (Block Editor import only, 2d-geometry §3.5.3) ────
+# Two path segments join (same subpath) when their endpoints are within this
+# many PDF points; a larger gap starts a new subpath (a PDF move-to).
+PDF_CURVE_JOIN_EPS = 1e-3
+# A run of cubic Béziers is recognised as a circle / circular arc when every
+# sampled point lies within max(ABS, REL * r) of one circle. The standard
+# 4-segment Bézier circle deviates ~0.027 % of r, so 0.5 % is comfortably
+# loose while still rejecting genuinely elliptical / free-form curves.
+PDF_CIRCLE_FIT_REL_TOL = 0.005
+PDF_CIRCLE_FIT_ABS_TOL = 0.01
+
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires
 # then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks

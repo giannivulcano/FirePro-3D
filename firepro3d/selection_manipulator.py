@@ -301,6 +301,25 @@ class _HandleItem(QGraphicsItem):
 #  SelectionManipulator
 # --------------------------------------------------------------------------- #
 
+def _handle_scene_pos(handle, frame_rect: QRectF, pts_cache: dict) -> QPointF:
+    """``handle.scene_position`` with each item's ``grip_points()`` computed
+    once per pass.
+
+    A plain ``GripHandle`` resolves ``item.grip_points()[index]`` — an O(n)
+    list per call, so positioning an n-point spline/polyline's n hosts was
+    O(n^2) (dominant on large imported selections). Subclasses that override
+    ``scene_position`` keep their own logic.
+    """
+    from .manip_handle import GripHandle
+    if type(handle).scene_position is GripHandle.scene_position:
+        key = id(handle.item)
+        pts = pts_cache.get(key)
+        if pts is None:
+            pts = pts_cache[key] = handle.item.grip_points()
+        return pts[handle.index]
+    return handle.scene_position(frame_rect)
+
+
 class SelectionManipulator(QGraphicsObject):
     """Attach-once selection frame with interior-drag group move.
 
@@ -735,9 +754,10 @@ class SelectionManipulator(QGraphicsObject):
             self._handles[role].setPos(self._rigid[role].scene_position(r))
         self._handles[HandleRole.ROTATE].setPos(
             self._rigid[HandleRole.ROTATE].scene_position(r))
+        pts_cache: dict = {}
         for host in self._host_pool:
             if host.isVisible():
-                host.setPos(host.handle.scene_position(r))
+                host.setPos(_handle_scene_pos(host.handle, r, pts_cache))
         self.update()
 
     def _active_handles(self) -> list:
@@ -785,13 +805,14 @@ class SelectionManipulator(QGraphicsObject):
         for host in self._host_pool[len(handles):]:
             host.hide()
         r = self._rect
+        pts_cache: dict = {}
         for host, handle in zip(self._host_pool, handles):
             host.handle = handle
             host.role = handle.role
             # Back-ref so a GripHandle can read the live rotate-preview angle
             # (grip_render_angle + _preview_rotation_deg) when it paints/hit-tests.
             handle._m = self
-            host.setPos(handle.scene_position(r))
+            host.setPos(_handle_scene_pos(handle, r, pts_cache))
             host.setVisible(handle.visible(self))
 
     # ------------------------------------------------------------- styling --
