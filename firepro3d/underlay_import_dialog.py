@@ -1711,8 +1711,8 @@ class UnderlayImportDialog(HouseDialog):
         content change (initial load, page switch, Modify prefill).
 
         Fits against ``_content_rect`` (geometry only, no overlay markers) and
-        pins ``setSceneRect`` to that same rect so the scene rect can't drift as
-        cleared/added items accumulate. Same geometry → same rect → same fit,
+        pins ``setSceneRect`` to that rect PADDED for free pan (see body) so the
+        scene rect can't drift as cleared/added items accumulate. Same geometry → same rect → same fit,
         so switching PDF pages and back reproduces the identical zoom. Safe
         no-op when there is nothing to show."""
         view = getattr(self, "_preview_view", None)
@@ -3122,8 +3122,8 @@ class UnderlayImportDialog(HouseDialog):
 
     def _on_rubber_band(self, rect: QRectF):
         # *rect* is in preview-SCENE coords, but the geom dicts are in the
-        # preview group's LOCAL coords (the group carries the rotation about
-        # the base point). Map the crop into group-local space so it selects
+        # preview group's LOCAL coords (the group carries the preview rotation
+        # about its fixed (0,0) pivot). Map the crop into group-local space so it selects
         # what the user sees under the rectangle at any rotation.
         group = self._preview_geom_group
         region = group.mapFromScene(rect) if group is not None else QPolygonF(rect)
@@ -3724,8 +3724,7 @@ class UnderlayImportDialog(HouseDialog):
             self._preview_geom_group = None
             self._rebuild_preview()
             return
-        # Rotating about the base point (default: the drawing's corner) swings
-        # the drawing out of the fitted view — the content extent changed, so
+        # Rotating swings the drawing out of the fitted view — the content extent changed, so
         # re-fit exactly as a load does.
         self._fit_preview_to_content()
         self._draw_base_marker()          # the marker rides the rotated drawing

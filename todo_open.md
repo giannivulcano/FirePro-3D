@@ -126,6 +126,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
 
+- [ ] [type:feature] Rename a saved block in place from the Block Editor [P2] [subject:UX]
+  - Details: block polish 2026-09-23 (spec-audit finding). Silent Save keeps name/library/series and Save As makes a NEW id, so the editor can no longer rename a saved block in place (keep `id`, instances follow) — only the Manager's collision Rename reaches `set_block_metadata`. Options: a "Block Properties…" editor verb opening `BlockSaveDialog` in "edit" context (which also restores the "updates N instances" notice), or inline rename in the Blocks browser / Manager. `block_editor.py`, `blocks_browser.py`, `block_manager.py`. ref: `block-system.md` "Save, import placement & library".
 - [ ] [type:maint] [cleanup:delete] Retire the dead `MakeBlockDialog` (`make_block_dialog.py`) [P3] [subject:Code Quality]
   - Details: block polish 2026-09-23 reuse sweep — no production caller left (C7 retired Quick Block; `BlockSaveDialog` replaced it); only `tests/test_block_s2_fixes.py` + the metrics/hexguard lists reference it. Delete the module + prune those references; `block-system.md` still says BlockSaveDialog "extends MakeBlockDialog" (it extends HouseDialog) — fix in the same pass.
 - [ ] [type:feature] Grip object limit for large selections (AutoCAD GRIPOBJLIMIT-style) [P3] [subject:UX]

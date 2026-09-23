@@ -420,7 +420,8 @@ class BlockEditorWidget(QWidget):
             series: Library taxonomy tier-2.
             replace_source: When True and source items were set via
                 ``seed_from_dicts``, consume those items and place one instance.
-            save_to_library: Reserved for the next sub-task (dialog wiring).
+            save_to_library: Unused (library writes happen in the callers:
+                ``save`` / ``_save_via_dialog`` → ``_save_to_library``).
 
         Returns:
             The ``BlockDefinition``, or None if the editor has no geometry.
@@ -479,7 +480,10 @@ class BlockEditorWidget(QWidget):
             return None
         if block_library.source_status(defn) != "project-only":
             self._save_to_library(defn, parent or self)
-        self.editor_scene._show_status(f"Saved block \u201c{defn.name}\u201d", timeout=4000)
+        n = self._project_scene.instance_count(defn.id)
+        self.editor_scene._show_status(
+            f"Saved block \u201c{defn.name}\u201d"
+            + (f" \u2014 updated {n} placed instance(s)" if n else ""), timeout=5000)
         return defn
 
     def save_as(self, parent=None):

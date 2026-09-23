@@ -362,3 +362,16 @@ def test_ctrl_s_dispatches_to_the_active_block_editor(qapp):
         app_main.MainWindow._dispatch_save(_Win(ed))
         app_main.MainWindow._dispatch_save_as(_Win(ed))
     assert calls == ["block_save", "block_save_as", "project_save", "project_save_as"]
+
+
+def test_silent_save_reports_updated_instances(qapp, tmp_path, monkeypatch):
+    # Silent re-Save skips the dialog's "updates N instances" warning, so the
+    # status line carries it instead.
+    from PyQt6.QtCore import QPointF
+    w, mgr, tabs, project, defn, be = _saved_editor(tmp_path, monkeypatch, in_library=False)
+    project.place_block_instance(defn.id, (0.0, 0.0))
+    project.place_block_instance(defn.id, (50.0, 0.0))
+    msgs = []
+    monkeypatch.setattr(w.editor_scene, "_show_status", lambda m, **k: msgs.append(m))
+    w.save()
+    assert msgs and "updated 2 placed instance" in msgs[-1]
