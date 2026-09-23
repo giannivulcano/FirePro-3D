@@ -303,10 +303,12 @@ class TextEditController:
                 event.accept()
                 return True
             return False
-        if self._on_handle(pos):
-            return False                    # not editing: a handle keeps its gesture
         target = self.item_at(pos)
         if target is None:
+            return False
+        # Entry: text wins too (spec Q7) — the candidate's centre grip never
+        # blocks entry; other handles only outside its painted text.
+        if self._handle_wins(target, pos):
             return False
         s.clearSelection()
         target.setSelected(True)

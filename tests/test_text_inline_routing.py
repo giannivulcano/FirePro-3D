@@ -516,3 +516,21 @@ def test_right_click_inside_editing_box_reaches_native_text_menu(be, monkeypatch
     assert len(calls) == 1 and calls[0][0] is t
     assert t.boundingRect().contains(calls[0][1])        # item-local pos
     assert editing_text_item(scene) is t
+
+
+def test_double_click_on_centre_grip_of_selected_text_enters_edit(be):
+    """Entry: text wins over the centre grip too (spec Q7) — double-click
+    anywhere inside the box enters edit, caret at the click."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    scene.clearSelection()
+    t.setSelected(True)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    centre = t.grip_points()[TextItem.MOVE_GRIP_INDEX]
+    assert m.hit_handle(centre), "precondition: centre grip is a handle"
+    pos0 = t.pos()
+    _dbl(view, centre)
+    assert editing_text_item(scene) is t
+    assert t.pos() == pos0                     # the first click's grip gesture moved nothing
+    assert t.textCursor().position() == len("Hello world")   # nearest slot to the click
