@@ -553,6 +553,97 @@ class _PaintedSwitch(QWidget):
         p.end()
 
 
+class CreatableSelector(QWidget):
+    """A :class:`Selector` + "+" button that reveals an inline name field.
+
+    Enter in the field emits ``createRequested(name)`` (the owner creates the
+    entry — e.g. a folder on disk — then calls :meth:`set_items` and selects
+    it); Esc or an empty name just closes the field. Content-agnostic: the
+    widget never creates anything itself.
+
+    Attributes:
+        selector: The dropdown (a :class:`Selector`).
+        add_button: The "+" button.
+        name_edit: The inline name field (hidden until "+" is pressed).
+    """
+    createRequested = pyqtSignal(str)
+
+    def __init__(self, parent=None, *, add_tooltip: str = "Add new…",
+                 placeholder: str = "New name — Enter to create, Esc to cancel"):
+        super().__init__(parent)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(M.XS if hasattr(M, "XS") else 4)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(M.SM)
+        self.selector = Selector()
+        self.add_button = QPushButton("+")
+        self.add_button.setObjectName("creatableAdd")
+        self.add_button.setFixedSize(_SEL_H, _SEL_H)
+        # The house button QSS pads for text labels; a square glyph button
+        # needs zero padding or the "+" is clipped away.
+        self.add_button.setStyleSheet(
+            "QPushButton#creatableAdd { padding: 0px; }")
+        self.add_button.setToolTip(add_tooltip)
+        self.add_button.clicked.connect(self._open_field)
+        row.addWidget(self.selector, 1)
+        row.addWidget(self.add_button)
+        v.addLayout(row)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText(placeholder)
+        self.name_edit.setToolTip(placeholder)
+        # Return/Enter + Esc are handled (and CONSUMED) in eventFilter: a
+        # QLineEdit ignores Return after returnPressed, so it would otherwise
+        # propagate and press the host dialog's default button.
+        self.name_edit.installEventFilter(self)
+        self.name_edit.hide()
+        v.addWidget(self.name_edit)
+
+    # -- content API -------------------------------------------------------
+    def set_items(self, items, current: str | None = None) -> None:
+        """Replace the list (signals blocked) and select *current* if present."""
+        self.selector.blockSignals(True)
+        self.selector.clear()
+        self.selector.addItems(list(items))
+        if current is not None:
+            idx = self.selector.findText(current)
+            if idx >= 0:
+                self.selector.setCurrentIndex(idx)
+        self.selector.blockSignals(False)
+        self.selector.currentTextChanged.emit(self.selector.currentText())
+
+    def items(self) -> list[str]:
+        return [self.selector.itemText(i) for i in range(self.selector.count())]
+
+    # -- inline field ------------------------------------------------------
+    def _open_field(self) -> None:
+        self.name_edit.clear()
+        self.name_edit.show()
+        self.name_edit.setFocus()
+
+    def _close_field(self) -> None:
+        self.name_edit.hide()
+        self.name_edit.clear()
+
+    def _commit_field(self) -> None:
+        name = self.name_edit.text().strip()
+        self._close_field()
+        if name:
+            self.createRequested.emit(name)
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
+        from PyQt6.QtCore import QEvent
+        if obj is self.name_edit and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_field()
+                return True      # don't let Enter press the dialog's default
+            if event.key() == Qt.Key.Key_Escape:
+                self._close_field()
+                return True      # don't let Esc close the parent dialog
+        return super().eventFilter(obj, event)
+
+
 class ToggleSwitch(QWidget):
     """iOS-style painted toggle (sliding knob) + label to the right.
 

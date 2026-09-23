@@ -308,7 +308,7 @@ def test_manager_save_collision_confirmed_overwrites(model_space, qapp, tmp_path
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=root)
     _select_block(dlg, d.id)
-    monkeypatch.setattr(themed_message, "themed_confirm", lambda *a, **k: True)
+    monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "overwrite")
     dlg._save_to_library()
     assert _read_index(tmp_path)["Corner.fpdb"]["id"] == d.id   # overwritten
     dlg.close()
@@ -326,7 +326,7 @@ def test_manager_save_collision_cancelled_preserves_existing(model_space, qapp,
     model_space.register_block_definition(d)
     dlg = BlockManagerDialog(model_space, _MW(), apply_stylesheet=False, root=root)
     _select_block(dlg, d.id)
-    monkeypatch.setattr(themed_message, "themed_confirm", lambda *a, **k: False)
+    monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "cancel")
     dlg._save_to_library()
     assert _read_index(tmp_path)["Corner.fpdb"]["id"] == existing.id  # untouched
     dlg.close()

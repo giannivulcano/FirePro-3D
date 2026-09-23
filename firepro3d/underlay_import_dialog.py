@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
 from .themed_message import themed_warn, themed_confirm, themed_input_text
 from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPainterPath, QFont,
-    QCursor, QPainter, QPixmap, QIcon, QTransform,
+    QCursor, QPainter, QPixmap, QIcon, QTransform, QPolygonF,
 )
 from PyQt6.QtCore import (
     Qt, QPointF, QRectF, QSizeF, QSize, QSettings, QThread, QTimer,
@@ -595,10 +595,12 @@ class _DialogPdfExtractWorker(QThread):
     aborted = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, path: str, page: int, parent=None):
+    def __init__(self, path: str, page: int, preserve_curves: bool = False,
+                 parent=None):
         super().__init__(parent)
         self._path = path
         self._page = page
+        self._preserve_curves = preserve_curves
         self._cancelled = False
 
     def cancel(self):
@@ -617,7 +619,8 @@ class _DialogPdfExtractWorker(QThread):
             # paths instead of only after the whole page finishes.
             # extract_pdf_vectors_sync returns None when it observed the flag.
             result = extract_pdf_vectors_sync(
-                self._path, self._page, should_cancel=lambda: self._cancelled)
+                self._path, self._page, should_cancel=lambda: self._cancelled,
+                preserve_curves=self._preserve_curves)
             if result is None or self._cancelled:
                 self.aborted.emit()
                 return
@@ -971,6 +974,7 @@ class UnderlayImportDialog(HouseDialog):
         self._preserve_curves = False   # BlockImportDialog overrides to True
 
         self._preview_scene = QGraphicsScene()
+        self._fit_src = None   # the _all_geoms list the preview was last fit to
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
         self._preview_view.setObjectName("previewView")
         # A QGraphicsView's sizeHint tracks its sceneRect; a large drawing would
@@ -1707,8 +1711,8 @@ class UnderlayImportDialog(HouseDialog):
         content change (initial load, page switch, Modify prefill).
 
         Fits against ``_content_rect`` (geometry only, no overlay markers) and
-        pins ``setSceneRect`` to that same rect so the scene rect can't drift as
-        cleared/added items accumulate. Same geometry → same rect → same fit,
+        pins ``setSceneRect`` to that rect PADDED for free pan (see body) so the
+        scene rect can't drift as cleared/added items accumulate. Same geometry → same rect → same fit,
         so switching PDF pages and back reproduces the identical zoom. Safe
         no-op when there is nothing to show."""
         view = getattr(self, "_preview_view", None)
@@ -1719,9 +1723,14 @@ class UnderlayImportDialog(HouseDialog):
         if rect.isEmpty():
             return
         fit_rect = rect.adjusted(-10, -10, 10, 10)
-        # Pin the scene rect to the content so the auto-grown default (which only
-        # ever expands) can't skew future pans/fits.
-        scene.setSceneRect(fit_rect)
+        # Pin the scene rect (so the auto-grown default, which only ever
+        # expands, can't skew future pans/fits) — but PADDED well past the
+        # content: a rect pinned to the content leaves the scrollbars nothing
+        # to scroll at fit/zoomed-out, so panning was dead. The pad covers the
+        # widest zoom-out (_ZOOM_MIN of fit) so the drawing can be panned
+        # anywhere in view at any zoom.
+        pad = max(fit_rect.width(), fit_rect.height()) / _PreviewView._ZOOM_MIN
+        scene.setSceneRect(fit_rect.adjusted(-pad, -pad, pad, pad))
         view.fitInView(fit_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_preview_zoom(self, ratio: float) -> None:
@@ -2011,11 +2020,9 @@ class UnderlayImportDialog(HouseDialog):
         self._custom_scale_edit.blockSignals(True)
         self._custom_scale_edit.setText(f"{custom_scale:.5g}")
         self._custom_scale_edit.blockSignals(False)
-        # Rotation
-        rotation = s.value(f"{pfx}rotation", 0.0, type=float) % 360.0
-        self._rotation_edit.blockSignals(True)
-        self._rotation_edit.setText(f"{rotation:.1f}°")
-        self._rotation_edit.blockSignals(False)
+        # Rotation is deliberately NOT restored: a fresh import starts at 0°
+        # (a sticky value silently rotated every later import). Modify reapplies
+        # the record's own rotation in _apply_modify_prefill.
         # Insert at origin
         origin = s.value(f"{pfx}insert_at_origin", True, type=bool)
         self._origin_switch.setChecked(origin)
@@ -2026,7 +2033,7 @@ class UnderlayImportDialog(HouseDialog):
         s = QSettings("GV", "FirePro3D")
         s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
         s.setValue(f"{pfx}custom_scale", self._get_custom_scale())
-        s.setValue(f"{pfx}rotation", self._get_rotation())
+        s.remove(f"{pfx}rotation")   # retired key (rotation is per-import)
         s.setValue(f"{pfx}insert_at_origin", self._origin_switch.isChecked())
 
     # ── File loading ──────────────────────────────────────────────────────────
@@ -2641,7 +2648,8 @@ class UnderlayImportDialog(HouseDialog):
             "mode": mode, "reset_base": reset_base,
         }
         self._set_loading(f"Extracting vectors from page {page + 1}…")
-        w = _DialogPdfExtractWorker(path, page)
+        w = _DialogPdfExtractWorker(
+            path, page, preserve_curves=getattr(self, "_preserve_curves", False))
         self._pdf_worker = w
         w.status.connect(self._on_pdf_extract_status)
         w.finished_geoms.connect(self._on_pdf_extract_finished)
@@ -2998,9 +3006,12 @@ class UnderlayImportDialog(HouseDialog):
         if geom_items:
             group = self._preview_scene.createItemGroup(geom_items)
             group.setData(0, "DXF Underlay")  # snap engine recognises tagged groups
-            bx = self._base_x_edit.value_mm() if hasattr(self, "_base_x_edit") else 0.0
-            by = self._base_y_edit.value_mm() if hasattr(self, "_base_y_edit") else 0.0
-            group.setTransformOriginPoint(bx, by)
+            # Rotate about a FIXED origin (not the base point): the base point is
+            # a source-coord pick mapped through this transform, so re-picking
+            # it must not re-pivot (and jump) the preview. The final placement
+            # (apply_import_transform) depends only on base + rotation, not on
+            # the preview pivot; the view re-fits on rotation.
+            group.setTransformOriginPoint(0.0, 0.0)
             group.setRotation(rotation)
             # Lazy snap index instead of one invisible QGraphicsItem per
             # geometry (~293K items on large drawings, rebuilt on every
@@ -3017,8 +3028,12 @@ class UnderlayImportDialog(HouseDialog):
             self._preview_geom_group = group
 
         self._draw_base_marker()
-        if self._all_geoms:
+        # Fit only when the GEOMETRY changed (load / page / layout switch) —
+        # a crop, crop-clear or layer toggle rebuilds the same content and must
+        # keep the user's current zoom/pan.
+        if self._all_geoms and self._fit_src is not self._all_geoms:
             self._fit_preview_to_content()
+            self._fit_src = self._all_geoms
         self._set_drop_overlay(not self._all_geoms)
 
     @staticmethod
@@ -3045,6 +3060,13 @@ class UnderlayImportDialog(HouseDialog):
 
         bx = self._base_x_edit.value_mm()
         by = self._base_y_edit.value_mm()
+        group = getattr(self, "_preview_geom_group", None)
+        if group is not None:
+            try:   # base is source coords; draw it where that point is DRAWN
+                q = group.mapToScene(QPointF(bx, by))
+                bx, by = q.x(), q.y()
+            except RuntimeError:
+                pass
         s = 15
         pen = QPen(QColor(detect().warn), 2)
         pen.setCosmetic(True)
@@ -3099,9 +3121,15 @@ class UnderlayImportDialog(HouseDialog):
         self._preview_view.set_mode(mode)
 
     def _on_rubber_band(self, rect: QRectF):
+        # *rect* is in preview-SCENE coords, but the geom dicts are in the
+        # preview group's LOCAL coords (the group carries the preview rotation
+        # about its fixed (0,0) pivot). Map the crop into group-local space so it selects
+        # what the user sees under the rectangle at any rotation.
+        group = self._preview_geom_group
+        region = group.mapFromScene(rect) if group is not None else QPolygonF(rect)
         selected = set()
         for idx, g in enumerate(self._all_geoms):
-            if self._geom_in_rect(g, rect):
+            if self._geom_in_rect(g, region):
                 selected.add(idx)
         if selected:
             if self._selected_indices is None:
@@ -3112,21 +3140,16 @@ class UnderlayImportDialog(HouseDialog):
         self._update_status()
         self._set_view_mode("pan")
 
-    def _geom_in_rect(self, g: dict, rect: QRectF) -> bool:
-        kind = g.get("kind")
-        if kind == "line":
-            return (rect.contains(QPointF(g["x1"], g["y1"])) or
-                    rect.contains(QPointF(g["x2"], g["y2"])))
-        elif kind in ("circle", "arc"):
-            cx = g.get("x", g.get("rx", 0)) + g.get("w", g.get("rw", 0)) / 2
-            cy = g.get("y", g.get("ry", 0)) + g.get("h", g.get("rh", 0)) / 2
-            return rect.contains(QPointF(cx, cy))
-        elif kind == "path_points":
-            pts = g.get("points", [])
-            return any(rect.contains(QPointF(p[0], p[1])) for p in pts)
-        elif kind == "text":
-            return rect.contains(QPointF(g.get("x", 0), g.get("y", 0)))
-        return rect.contains(QPointF(0, 0))
+    def _geom_in_rect(self, g: dict, region: QPolygonF) -> bool:
+        """True when any of *g*'s representative points is inside *region*.
+
+        Args:
+            g: Kind-tagged geometry dict (group-local coords).
+            region: Crop polygon in the same group-local coords.
+        """
+        from .dwg_converter import geom_rep_points
+        return any(region.containsPoint(QPointF(x, y), Qt.FillRule.OddEvenFill)
+                   for x, y in geom_rep_points(g))
 
     def _clear_selection(self):
         self._selected_indices = None
@@ -3652,6 +3675,14 @@ class UnderlayImportDialog(HouseDialog):
         self._status_lbl.setText("Click the base / insertion point on the preview…")
 
     def _on_point_picked(self, pt: QPointF):
+        # *pt* is a preview-SCENE point; the base point is stored in SOURCE
+        # (group-local) coords — what apply_import_transform subtracts.
+        group = self._preview_geom_group
+        if group is not None:
+            try:
+                pt = group.mapFromScene(pt)
+            except RuntimeError:
+                pass
         self._base_x_edit.blockSignals(True)
         self._base_y_edit.blockSignals(True)
         self._base_x_edit.set_value_mm(pt.x())
@@ -3686,14 +3717,17 @@ class UnderlayImportDialog(HouseDialog):
         if group is None:
             return
         try:
-            bx = self._base_x_edit.value_mm()
-            by = self._base_y_edit.value_mm()
-            group.setTransformOriginPoint(bx, by)
+            group.setTransformOriginPoint(0.0, 0.0)   # fixed pivot (see rebuild)
             group.setRotation(self._get_rotation())
         except RuntimeError:
             # C++ object deleted (scene was cleared) — rebuild from data
             self._preview_geom_group = None
             self._rebuild_preview()
+            return
+        # Rotating swings the drawing out of the fitted view — the content extent changed, so
+        # re-fit exactly as a load does.
+        self._fit_preview_to_content()
+        self._draw_base_marker()          # the marker rides the rotated drawing
 
     def _get_rotation(self) -> float:
         text = self._rotation_edit.text().strip().rstrip("°").strip()

@@ -13,11 +13,38 @@ import logging
 import os
 import re
 
-from .app_data import app_data_dir
+from .app_data import block_library_dir
 from .block_definition import BlockDefinition
 
 _log = logging.getLogger(__name__)
 _INDEX = "index.json"
+_listeners: list = []     # weak refs to zero-arg callables (library changed)
+
+
+def add_change_listener(callback) -> None:
+    """Call *callback()* after any library write (save / delete / new folder).
+
+    Held weakly (bound methods via ``WeakMethod``) so a closed browser never
+    leaks or gets called; a listener that raises is logged, not propagated.
+    """
+    import weakref
+    ref = (weakref.WeakMethod(callback) if hasattr(callback, "__self__")
+           else weakref.ref(callback))
+    _listeners.append(ref)
+
+
+def _notify_changed() -> None:
+    alive = []
+    for ref in _listeners:
+        cb = ref()
+        if cb is None:
+            continue
+        alive.append(ref)
+        try:
+            cb()
+        except Exception:      # noqa: BLE001 — a dead Qt receiver etc.
+            _log.debug("block library listener failed", exc_info=True)
+    _listeners[:] = alive
 
 
 class BlockNameCollision(Exception):
@@ -36,7 +63,7 @@ class BlockNameCollision(Exception):
 
 
 def _root(root: str | None) -> str:
-    return root if root is not None else app_data_dir("blocks")
+    return root if root is not None else block_library_dir()
 
 
 def sanitize(name: str) -> str:
@@ -47,6 +74,62 @@ def sanitize(name: str) -> str:
 
 def _series_dir(root: str | None, library: str, series: str) -> str:
     return os.path.join(_root(root), sanitize(library), sanitize(series))
+
+
+def list_folders(root: str | None = None) -> dict[str, list[str]]:
+    """The on-disk Library → Series folder tree (names sorted, files ignored).
+
+    Returns:
+        ``{library: [series, ...]}``; ``{}`` when the root does not exist.
+    """
+    base = _root(root)
+    tree: dict[str, list[str]] = {}
+    try:
+        libs = sorted(e for e in os.listdir(base)
+                      if os.path.isdir(os.path.join(base, e)))
+    except OSError:
+        return {}
+    for lib in libs:
+        lib_dir = os.path.join(base, lib)
+        try:
+            tree[lib] = sorted(e for e in os.listdir(lib_dir)
+                               if os.path.isdir(os.path.join(lib_dir, e)))
+        except OSError:
+            tree[lib] = []
+    return tree
+
+
+def create_folder(library: str, series: str | None = None,
+                  root: str | None = None) -> str:
+    """Create a Library (and optionally Series) folder; returns its path.
+
+    Segments are :func:`sanitize`-d exactly as :func:`save_to_library` names
+    them, so a folder made here is the one a later save lands in.
+    """
+    path = os.path.join(_root(root), sanitize(library))
+    if series:
+        path = os.path.join(path, sanitize(series))
+    os.makedirs(path, exist_ok=True)
+    _notify_changed()
+    return path
+
+
+def find_collision(block_id: str, library: str, series: str, name: str,
+                   root: str | None = None) -> str | None:
+    """Name of a DIFFERENT block holding ``<name>.fpdb`` in Library/Series.
+
+    The same probe :func:`save_to_library` refuses on (without writing), so a
+    caller can resolve Overwrite / Rename / Cancel before committing.
+
+    Returns:
+        The occupying block's human name, or None when the slot is free (or
+        already held by *block_id*).
+    """
+    filename = sanitize(name) + ".fpdb"
+    clash = _read_index(_series_dir(root, library, series)).get(filename)
+    if clash is not None and clash.get("id") != block_id:
+        return clash.get("name", filename)
+    return None
 
 
 def _atomic_write_json(path: str, data) -> None:
@@ -90,10 +173,11 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     path = os.path.join(series_dir, filename)
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
-    target_index = _read_index(series_dir)
-    clash = target_index.get(filename)
-    if not overwrite and clash is not None and clash.get("id") != definition.id:
-        raise BlockNameCollision(clash.get("name", filename), filename)
+    if not overwrite:
+        clash_name = find_collision(definition.id, definition.library,
+                                    definition.series, definition.name, root)
+        if clash_name is not None:
+            raise BlockNameCollision(clash_name, filename)
 
     # (b) Re-file: drop any stale copy of this id parked at a different location.
     existing = _find_by_id(definition.id, root)
@@ -110,6 +194,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     index[filename] = {"id": definition.id, "name": definition.name,
                        "version": definition.version, "thumbnail": None}
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+    _notify_changed()
     return path
 
 
@@ -151,6 +236,12 @@ def list_library(root: str | None = None) -> list[dict]:
     """
     return [{"library": library, "series": series, "filename": filename, **meta}
             for library, series, filename, meta in _iter_index_entries(root)]
+
+
+def entry_path(entry: dict, root: str | None = None) -> str:
+    """Absolute ``.fpdb`` path of a :func:`list_library` entry."""
+    return os.path.join(_root(root), entry["library"], entry["series"],
+                        entry["filename"])
 
 
 def load_block(library: str, series: str, filename: str,
@@ -220,3 +311,4 @@ def delete_from_library(library: str, series: str, filename: str,
     if filename in index:
         del index[filename]
         _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+    _notify_changed()

@@ -4,8 +4,8 @@ status: current
 applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-18
-verified-commit: 5cd5941
+last-verified: 2026-09-23
+verified-commit: 434066c
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -115,6 +115,10 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   non-None. Fill is rendered in each item's own `paint()` via `draw_fill()`.
 - Property rows (`_geom2d_properties`) + setter (`_geom2d_set`) + dual-path
   serialization stamps (`_geom2d_to_dict`/`_geom2d_from_dict`).
+- **New-geometry pen (2026-09-23, block polish):** `Model_Space._geom_color_lw()` returns
+  `constants.DEFAULT_GEOMETRY_LINEWEIGHT` (was a hard-coded 2.0) — the weight for every committed
+  tool-drawn primitive **and** Block-Editor-imported ones (`geom_dicts_to_primitives(...,
+  lineweight=)`). Placement ghosts keep their own preview pens (§3.6).
 
 ## 2. Closed polylines (invariant)
 
@@ -188,6 +192,11 @@ shapes) so their geometry is data-parametric and paint-applied.
   as a NURBS evaluator (no DXF I/O — respects the read-only-DXF rule).
   `order = min(degree+1, n_points)`; `.flattening()` tessellates to a
   `QPainterPath` polyline.
+  **Bézier-chain fast path (2026-09-23, block polish):** a non-rational, clamped, degree-3
+  spline whose every interior knot has multiplicity 3 (`n = 3k+1` control points —
+  `_is_bezier_chain`) is a chain of cubic Bézier spans and is drawn **natively and exactly**
+  via `QPainterPath.cubicTo` (the PDF-import form); every other NURBS keeps the ezdxf
+  flattening above.
 - **Grips:** one per control point (drag → rebuild). No centre grip.
   Add/remove control point is deferred.
 - **Placement:** N-click control polygon (mirrors polyline) — Enter/double-click
@@ -200,11 +209,12 @@ full dual-path persistence + enumeration set (§6).
 
 ### 3.5.3 Curve import-extraction contract (block-editor only)
 
-DXF/DWG import into the **Block Editor** preserves arcs, full ellipses and
-splines as these editable primitives (partial ellipses + PDF Béziers still
-tessellate — no primitive exists / disproportionate effort). It is gated by a
-`preserve_curves` flag on `DxfImportWorker` (default **False**, so the underlay
-import path is byte-identical); `BlockImportDialog` sets it True. The shared
+DXF/DWG/PDF import into the **Block Editor** preserves curves **exactly** as
+these editable primitives — no tessellation (2026-09-23, block polish: partial
+ellipses and PDF Béziers joined arcs / full ellipses / splines). It is gated by
+a `preserve_curves` flag on `DxfImportWorker` **and** `PdfImportWorker` (default
+**False**, so the underlay import path is byte-identical); `BlockImportDialog`
+sets it True. The shared
 geom-dict schemas (scene-space; DXF `y` already negated) are:
 
 ```jsonc
@@ -224,6 +234,29 @@ geom-dict schemas (scene-space; DXF `y` already negated) are:
 `ArcItem`/`EllipseItem`/`SplineItem` are the editable targets; the extraction
 maps these dicts via `geometry_import.geom_dicts_to_primitives`. Import rotation
 (`ImportParams.rotation`) is applied to **all** kinds in `apply_import_transform`.
+
+**DXF partial ELLIPSE** (`preserve_curves`) → one exact **rational** `spline`
+dict via ezdxf `BSpline.from_ellipse(entity.construction_tool())` (control
+points Y-negated, knots/weights verbatim). Full ellipses stay `ellipse_full`.
+
+**PDF curves** (`pdf_import_worker`, `preserve_curves`; 2026-09-23, block polish):
+- Each drawing splits into **contiguous subpaths** — a gap >
+  `constants.PDF_CURVE_JOIN_EPS` between segment ends starts a new subpath;
+  `re`/`qu` items stay closed `path_points`.
+- Each **maximal all-Bézier run** is tested against **one** least-squares circle
+  fitted to samples of every segment, accepted when every sample is within
+  `max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL·r)` (values + rationale in
+  `constants.py`). Ends meeting in a full turn → `circle`; otherwise an `arc`
+  (schema above) whose centre is **projected onto the chord's perpendicular
+  bisector** so it passes exactly through the source endpoints. A near-straight
+  run (no bulge beyond tolerance) or a direction reversal is rejected.
+- Stretches between carved circles/arcs merge into **one** piece each:
+  `path_points` if all lines, else **one exact cubic `spline`** — lines
+  degree-elevated to collinear cubics, interior knots multiplicity 3, so each
+  span is the source Bézier verbatim (drawn by the §3.5.2 Bézier-chain path).
+- Flag off (underlay path): Bézier flattening unchanged (`underlay-workflow.md §18.5`).
+
+Guards: `tests/test_block_curve_import.py`.
 
 ## 3.6 Reference lines (placement + selection guides) — invariant
 

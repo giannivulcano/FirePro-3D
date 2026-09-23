@@ -22,7 +22,8 @@ except ImportError:
     fitz = None
     _HAS_FITZ = False
 
-from .constants import PDF_BEZIER_FLATTEN_TOL
+from .constants import (PDF_BEZIER_FLATTEN_TOL, PDF_CURVE_JOIN_EPS,
+                        PDF_CIRCLE_FIT_REL_TOL, PDF_CIRCLE_FIT_ABS_TOL)
 
 # QSettings org/app — must match preferences_dialog._QSETTINGS_ORG/_APP.
 _QSETTINGS_ORG = "GV"
@@ -98,6 +99,196 @@ def _flatten_bezier(
             stack.append((a, ab, abc, abcd))
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Curve preservation (Block Editor import — 2d-geometry §3.5.3)
+# ─────────────────────────────────────────────────────────────────────────────
+# A segment is ("l", p0, p1) or ("c", p0, p1, p2, p3) with (x, y) tuples in
+# PDF page coords (Y-down == scene coords, no flip).
+
+def _dist(a, b) -> float:
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _bez_pt(seg, t: float):
+    """Point at *t* on a cubic segment ("c", p0, p1, p2, p3)."""
+    _, p0, p1, p2, p3 = seg
+    u = 1.0 - t
+    a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return (a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+            a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1])
+
+
+def _fit_circle(pts):
+    """Least-squares (Kasa) circle ``(cx, cy, r)`` through *pts*, or None.
+
+    Solves x² + y² + D·x + E·y + F = 0 in the mean-centred frame (better
+    conditioned). Returns None for a degenerate (collinear) point set.
+    """
+    import numpy as np
+    a = np.asarray(pts, dtype=float)
+    m = a.mean(axis=0)
+    x, y = a[:, 0] - m[0], a[:, 1] - m[1]
+    A = np.column_stack([x, y, np.ones_like(x)])
+    b = -(x * x + y * y)
+    (d, e, f), *_ = np.linalg.lstsq(A, b, rcond=None)
+    rr = (d * d + e * e) / 4.0 - f
+    if not np.isfinite(rr) or rr <= 0:
+        return None
+    return float(m[0] - d / 2.0), float(m[1] - e / 2.0), float(np.sqrt(rr))
+
+
+def _wrap180(deg: float) -> float:
+    return (deg + 180.0) % 360.0 - 180.0
+
+
+def _circular_geom(segs: list, layer: str) -> dict | None:
+    """Recognise a run of cubic Béziers as a circle / circular arc.
+
+    Fits ONE least-squares circle to samples of every segment (a 3-point fit
+    through a short, quantized first segment is too noisy) and accepts when
+    every sample is within ``max(PDF_CIRCLE_FIT_ABS_TOL,
+    PDF_CIRCLE_FIT_REL_TOL * r)``. An OPEN arc is then constrained to pass
+    EXACTLY through the run's source endpoints — its centre is projected onto
+    the chord's perpendicular bisector — because a best-fit circle's ends
+    drift off the source by up to the tolerance and visibly miss the lines
+    they join (2026-09-23 smoke). Returns a ``circle`` or ``arc`` geom dict
+    (the shared scene-space schemas), or None. Arc angles are Qt ``arcTo``
+    angles (0 = +x, positive = visually CCW, i.e. toward -y in these Y-down
+    coords) — the convention ``ArcItem`` consumes.
+    """
+    samples = [_bez_pt(seg, t) for seg in segs
+               for t in (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)]
+    samples.append(segs[-1][4])
+    fit = _fit_circle(samples)
+    if fit is None:
+        return None
+    cx, cy, r = fit
+    tol = max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)
+    p0, p1 = segs[0][1], segs[-1][4]
+    chord = _dist(p0, p1)
+    closed = chord <= tol
+    if not closed:
+        # Constrain the centre to the chord's perpendicular bisector so the
+        # arc passes exactly through both source endpoints.
+        mx, my = (p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0
+        nx, ny = -(p1[1] - p0[1]) / chord, (p1[0] - p0[0]) / chord
+        t_off = (cx - mx) * nx + (cy - my) * ny
+        cx, cy = mx + t_off * nx, my + t_off * ny
+        r = _dist((cx, cy), p0)
+        tol = max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)
+    if any(abs(_dist(q, (cx, cy)) - r) > tol for q in samples):
+        return None
+    if not closed:
+        # A (near-)straight run fits a huge circle within tolerance — it is a
+        # line, not an arc: require real bulge off the chord.
+        ux, uy = (p1[0] - p0[0]) / chord, (p1[1] - p0[1]) / chord
+        bulge = max(abs((q[0] - p0[0]) * uy - (q[1] - p0[1]) * ux) for q in samples)
+        if bulge <= tol:
+            return None
+
+    def ang(q):
+        return math.degrees(math.atan2(-(q[1] - cy), q[0] - cx))
+
+    total = 0.0
+    for seg in segs:
+        a0, am, a3 = ang(seg[1]), ang(_bez_pt(seg, 0.5)), ang(seg[4])
+        sweep = _wrap180(am - a0) + _wrap180(a3 - am)
+        if abs(sweep) < 1e-9 or (total and (sweep > 0) != (total > 0)):
+            return None                     # degenerate or direction reversal
+        total += sweep
+    if abs(total) > 360.5:
+        return None
+    if closed:
+        if abs(abs(total) - 360.0) > 0.5:
+            return None                     # ends meet but not a full turn
+        return {"kind": "circle", "layer": layer,
+                "x": cx - r, "y": cy - r, "w": 2 * r, "h": 2 * r}
+    # Span from the EXACT end angles (the summed per-segment sweeps carry
+    # the direction + >180 disambiguation; the end angle removes drift).
+    a_start, a_end = ang(p0), ang(p1)
+    span = _wrap180(a_end - a_start)
+    if (span > 0) != (total > 0):
+        span += 360.0 if total > 0 else -360.0
+    return {"kind": "arc", "layer": layer,
+            "rx": cx - r, "ry": cy - r, "rw": 2 * r, "rh": 2 * r,
+            "start": a_start, "span": span}
+
+
+def _spline_geom(segs: list, closed: bool, layer: str) -> dict:
+    """One EXACT cubic B-spline through a mixed line/Bézier subpath.
+
+    Each segment contributes 3 control points (a line is degree-elevated to a
+    collinear cubic, so it stays exactly straight); interior knots have
+    multiplicity 3, making each span the source Bézier verbatim — no fitting.
+    """
+    segs = list(segs)
+    start, end = segs[0][1], segs[-1][-1]
+    if closed and _dist(start, end) > PDF_CURVE_JOIN_EPS:
+        segs.append(("l", end, start))
+    cps = [segs[0][1]]
+    for seg in segs:
+        if seg[0] == "l":
+            (x0, y0), (x1, y1) = seg[1], seg[2]
+            cps += [(x0 + (x1 - x0) / 3.0, y0 + (y1 - y0) / 3.0),
+                    (x0 + 2.0 * (x1 - x0) / 3.0, y0 + 2.0 * (y1 - y0) / 3.0),
+                    (x1, y1)]
+        else:
+            cps += [seg[2], seg[3], seg[4]]
+    n = len(segs)
+    knots = ([0.0] * 4 + [float(i) for i in range(1, n) for _ in range(3)]
+             + [float(n)] * 4)
+    return {"kind": "spline", "layer": layer, "control_points": cps,
+            "degree": 3, "knots": knots, "weights": None,
+            "closed": _dist(cps[0], cps[-1]) <= PDF_CURVE_JOIN_EPS}
+
+
+def _piece_geom(segs: list, closed: bool, layer: str) -> dict:
+    """A non-arc piece: ``path_points`` if all lines, else one exact spline."""
+    if not any(sg[0] == "c" for sg in segs):
+        return {"kind": "path_points", "layer": layer,
+                "points": [segs[0][1]] + [sg[-1] for sg in segs],
+                "closed": closed}
+    return _spline_geom(segs, closed, layer)
+
+
+def _subpath_geoms(segs: list, closed: bool, layer: str) -> list[dict]:
+    """Emit geoms for a contiguous subpath (curve-preserving mode).
+
+    Maximal runs of Béziers that fit a circle are carved out as
+    ``circle``/``arc`` (how a DXF would arrive: separate entities); the
+    stretches between them merge into ONE piece each — a spline when they
+    contain a free-form curve, else a polyline. A line-only subpath is
+    emitted exactly as the flattening path does.
+    """
+    if not any(sg[0] == "c" for sg in segs):
+        return [_piece_geom(segs, closed, layer)]
+    work = list(segs)
+    if closed and _dist(work[0][1], work[-1][-1]) > PDF_CURVE_JOIN_EPS:
+        work.append(("l", work[-1][-1], work[0][1]))
+    # Maximal same-kind runs.
+    runs: list[list] = []
+    for sg in work:
+        if runs and runs[-1][0][0] == sg[0]:
+            runs[-1].append(sg)
+        else:
+            runs.append([sg])
+    out: list[dict] = []
+    pending: list = []
+    for run in runs:
+        circ = _circular_geom(run, layer) if run[0][0] == "c" else None
+        if circ is None:
+            pending.extend(run)
+            continue
+        if pending:
+            out.append(_piece_geom(pending, False, layer))
+            pending = []
+        out.append(circ)
+    if pending:
+        whole = len(pending) == len(work)      # nothing carved out
+        out.append(_piece_geom(pending, closed and whole, layer))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,7 +421,12 @@ class PdfImportWorker(QThread):
 
         PyMuPDF coordinate system is top-left Y-down in PDF points (1/72 in),
         which matches Qt's scene coordinate system — no Y-flip needed.
+
+        With ``_preserve_curves`` (Block Editor import) curves are kept exact
+        instead of flattened — see :meth:`_extract_path_curves`.
         """
+        if getattr(self, "_preserve_curves", False):
+            return self._extract_path_curves(path)
         items = path.get("items", [])
         layer = path.get("layer", "") or "PDF Vectors"
         width = float(path.get("width") or 0.0)
@@ -324,6 +520,62 @@ class PdfImportWorker(QThread):
             r["width"] = width
         return results
 
+    def _extract_path_curves(self, path: dict) -> list[dict]:
+        """Curve-preserving variant of :meth:`_extract_path`.
+
+        Splits the drawing into contiguous subpaths (a gap = PDF move-to);
+        each subpath becomes a ``circle``/``arc`` (all-Bézier and circular), a
+        single exact cubic ``spline`` (any other curved subpath) or the usual
+        ``path_points`` (lines only). ``re``/``qu`` items emit closed
+        ``path_points`` exactly as the flattening path does. ``closePath``
+        applies to the drawing's final subpath.
+        """
+        layer = path.get("layer", "") or "PDF Vectors"
+        width = float(path.get("width") or 0.0)
+        results: list[dict] = []
+        segs: list = []
+
+        def xy(p):
+            return (p.x, p.y)
+
+        def flush(closed=False):
+            if segs:
+                results.extend(_subpath_geoms(segs, closed, layer))
+                segs.clear()
+
+        for item in path.get("items", []):
+            kind = item[0]
+            if kind == "l":
+                seg = ("l", xy(item[1]), xy(item[2]))
+            elif kind == "c":
+                seg = ("c", xy(item[1]), xy(item[2]), xy(item[3]), xy(item[4]))
+            elif kind == "re":
+                flush()
+                r = item[1]
+                results.append({"kind": "path_points", "layer": layer,
+                                "points": [(r.x0, r.y0), (r.x1, r.y0),
+                                           (r.x1, r.y1), (r.x0, r.y1)],
+                                "closed": True})
+                continue
+            elif kind == "qu":
+                flush()
+                q = item[1]
+                results.append({"kind": "path_points", "layer": layer,
+                                "points": [(q.ul.x, q.ul.y), (q.ur.x, q.ur.y),
+                                           (q.lr.x, q.lr.y), (q.ll.x, q.ll.y)],
+                                "closed": True})
+                continue
+            else:
+                continue
+            if segs and _dist(segs[-1][-1], seg[1]) > PDF_CURVE_JOIN_EPS:
+                flush()
+            segs.append(seg)
+        flush(bool(path.get("closePath", False)))
+
+        for r in results:
+            r["width"] = width
+        return results
+
     # ─────────────────────────────────────────────────────────────────
     # Text extraction
     # ─────────────────────────────────────────────────────────────────
@@ -380,6 +632,7 @@ def extract_pdf_vectors_sync(
     file_path: str,
     page: int = 0,
     should_cancel=None,
+    preserve_curves: bool = False,
 ) -> tuple[list[dict], list[str]] | None:
     """Extract vector geometry from a PDF page synchronously.
 
@@ -392,6 +645,9 @@ def extract_pdf_vectors_sync(
             Defaults to ``None`` — no polling, i.e. the original behaviour, so
             callers that never cancel (e.g. ``model_space`` reloads) are
             unaffected.
+        preserve_curves: Keep Béziers as exact circle/arc/spline geoms
+            instead of flattening (Block Editor import). Default False keeps
+            the underlay path byte-identical.
 
     Returns:
         ``(geometry_list, layer_names)`` on success, or ``None`` when the run
@@ -411,6 +667,7 @@ def extract_pdf_vectors_sync(
         worker = PdfImportWorker.__new__(PdfImportWorker)
         worker._cancelled = False
         worker._flatten_tol = current_pdf_flatten_tol()
+        worker._preserve_curves = preserve_curves
 
         geometries: list[dict] = []
         layers_set: set[str] = set()

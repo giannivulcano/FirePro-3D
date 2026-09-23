@@ -683,7 +683,11 @@ class BlockManagerDialog(HouseDialog):
         self.scene.delete_block_definition(defn.id)
 
     def _save_to_library(self, overwrite: bool = False) -> None:
-        from .themed_message import themed_confirm, themed_info
+        """Save the selected block to the library; on a collision with a
+        DIFFERENT block offer Overwrite / Rename / Cancel (L141). Rename asks
+        for a new name, applies it via ``set_block_metadata`` (project-unique,
+        undoable) and retries."""
+        from .themed_message import themed_choice, themed_info, themed_input_text
         defn = self._current_def()
         if defn is None:
             return
@@ -691,11 +695,27 @@ class BlockManagerDialog(HouseDialog):
             block_library.save_to_library(defn, root=self._lib_root, overwrite=overwrite)
             self.model.refresh()  # force table cell repaint (status col)
         except block_library.BlockNameCollision as exc:
-            if themed_confirm(
-                    self, "Save to Library",
-                    f"A different block already uses the name “{exc.existing_name}”"
-                    " in the library. Overwrite it?"):
+            choice = themed_choice(
+                self, "Save to Library",
+                f"A different block “{exc.existing_name}” is already saved as "
+                f"{defn.library} / {defn.series} / {defn.name}.",
+                [("Cancel", "cancel", None), ("Rename", "rename", None),
+                 ("Overwrite", "overwrite", "danger")], kind="warn")
+            if choice == "overwrite":
                 self._save_to_library(overwrite=True)
+            elif choice == "rename":
+                new_name, ok = themed_input_text(
+                    self, "Rename block", "New name:", initial=defn.name)
+                new_name = (new_name or "").strip()
+                if not ok or not new_name or new_name == defn.name:
+                    return
+                if not self.scene.set_block_metadata(
+                        defn.id, new_name, defn.library, defn.series):
+                    themed_info(self, "Rename block",
+                                f"“{new_name}” is already used by another block "
+                                f"in {defn.library} / {defn.series}.")
+                    return
+                self._save_to_library()
         except OSError as exc:
             themed_info(self, "Save to Library", f"Could not save:\n{exc}")
             self._sync_ui()
@@ -709,9 +729,9 @@ class BlockManagerDialog(HouseDialog):
     def _load_from_library(self) -> None:
         import os
         from PyQt6.QtWidgets import QFileDialog
-        from .app_data import app_data_dir
+        from .app_data import block_library_dir
         from .themed_message import themed_info
-        blocks_dir = app_data_dir("blocks")
+        blocks_dir = self._lib_root or block_library_dir()
         os.makedirs(blocks_dir, exist_ok=True)
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Load Blocks", blocks_dir,

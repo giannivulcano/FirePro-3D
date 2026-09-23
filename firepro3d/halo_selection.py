@@ -9,6 +9,14 @@ from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtWidgets import QGraphicsItem
 
 
+def _in_scene(item, scene) -> bool:
+    """True when *item* is still alive and parented to *scene*."""
+    try:
+        return item.scene() is scene
+    except RuntimeError:        # C++ object already deleted
+        return False
+
+
 class HaloSelectionMixin:
     # ---- state -------------------------------------------------------------
     def _init_halo_state(self):
@@ -166,7 +174,16 @@ class HaloSelectionMixin:
         return True
 
     def halo_item(self):
-        """The currently highlighted HALO candidate, or None."""
+        """The currently highlighted HALO candidate, or None.
+
+        Candidates removed from the scene since the last mouse move (delete,
+        cut, undo restore) are pruned first, so a stale highlight is never
+        painted over a vanished item while the cursor sits still.
+        """
+        live = [c for c in self._halo_candidates if _in_scene(c, self)]
+        if len(live) != len(self._halo_candidates):
+            self._halo_candidates = live
+            self._halo_index = 0
         if 0 <= self._halo_index < len(self._halo_candidates):
             return self._halo_candidates[self._halo_index]
         return None

@@ -514,6 +514,15 @@ class DxfImportWorker(QThread):
                     "x": -major_len, "y": -minor_len, "w": 2 * major_len, "h": 2 * minor_len,
                     "pos_cx": cx, "pos_cy": -cy, "rotation": -rotation,
                 }
+            elif getattr(self, "_preserve_curves", False):
+                # Partial ellipse -> EXACT rational NURBS (no elliptical-arc
+                # primitive exists; SplineItem stores full NURBS verbatim).
+                from ezdxf.math import BSpline
+                bs = BSpline.from_ellipse(entity.construction_tool())
+                return {"kind": "spline", "layer": layer, "color": color,
+                        "control_points": [(q.x, -q.y) for q in bs.control_points],
+                        "degree": bs.degree, "knots": list(bs.knots()),
+                        "weights": list(bs.weights()), "closed": False}
             else:
                 param_range = end_param - start_param
                 if param_range < 0:

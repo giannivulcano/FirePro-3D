@@ -1937,6 +1937,24 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _is_bezier_chain(n: int, degree: int, knots, weights) -> bool:
+    """True for a non-rational clamped cubic whose every interior knot has
+    multiplicity 3 — i.e. a chain of cubic Bézier spans (``n == 3k + 1``)."""
+    if degree != 3 or n < 4 or (n - 1) % 3 or not knots:
+        return False
+    if weights and any(abs(w - 1.0) > 1e-12 for w in weights):
+        return False
+    if len(knots) != n + 4:
+        return False
+    k = knots
+    if not (k[0] == k[1] == k[2] == k[3] and k[-1] == k[-2] == k[-3] == k[-4]):
+        return False
+    interior = k[4:-4]
+    return all(interior[i] == interior[i + 1] == interior[i + 2]
+               and (i == 0 or interior[i] > interior[i - 1])
+               for i in range(0, len(interior), 3))
+
+
 def _bspline_path(control_points: list[QPointF], degree: int,
                   knots: list[float] | None,
                   weights: list[float] | None) -> QPainterPath:
@@ -1952,6 +1970,15 @@ def _bspline_path(control_points: list[QPointF], degree: int,
         return path
     if n == 1:
         path.moveTo(control_points[0])
+        return path
+    if _is_bezier_chain(n, degree, knots, weights):
+        # Piecewise-Bézier form (e.g. PDF-imported curves): each span IS a
+        # cubic Bézier, so Qt draws it exactly and natively — ~100x faster
+        # than the pure-Python NURBS flattening below.
+        path.moveTo(control_points[0])
+        for i in range(1, n, 3):
+            path.cubicTo(control_points[i], control_points[i + 1],
+                         control_points[i + 2])
         return path
     from ezdxf.math import BSpline
     order = min(degree + 1, n)

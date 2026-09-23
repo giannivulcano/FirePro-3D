@@ -25,6 +25,8 @@ SEH bug #371).
   `snap_engine.SNAP_TOLERANCE_PX` / `SNAP_HYSTERESIS_PX` around every test.
 - **`_isolate_qsettings`** (autouse) + **`_IsolatedQSettings`** (module-level class
   install) — QSettings isolation (#312). See Invariant 1.
+- **`_isolate_block_library`** (autouse, layered on `_isolate_qsettings`) — points
+  `paths/block_dir` at a fresh per-test temp dir. See Invariant 7.
 - **`real_qsettings`** — yields the unpatched `QSettings` class so a test can read
   the REAL registry (only the isolation guard test needs this).
 - **`tmp_settings`** — an explicit INI-backed `QSettings(path, IniFormat)` for
@@ -99,6 +101,13 @@ SEH bug #371).
      dispatched at that loop level. The window lingers until a later test's pump
      flushes it, so its destruction-time signals fire mid-way through an unrelated
      module (why the crash *moves* with test selection).
+7. **No test reads or writes the user's real block library.** A blank
+   `paths/block_dir` resolves to the REAL `%APPDATA%/FirePro3D/blocks`; the Blocks
+   browser reads it at construction and Save flows write it, so a test using the
+   default root was coupled to whatever the developer had saved (2026-09-23: a
+   smoke-test "Test" folder broke `test_block_browser.py`). `_isolate_block_library`
+   sets the override to a per-test temp dir. Tests that need a specific tree still
+   pass an explicit `root=`; a test of the override itself sets/resets the key.
 
 ## Known native-crash families
 

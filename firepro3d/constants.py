@@ -88,6 +88,24 @@ UNDERLAY_MM_TO_PX_HINT = 6.0
 # re-extracts. Spinbox range 0.25–4.0.
 PDF_BEZIER_FLATTEN_TOL = 0.5
 
+# Default pen weight (cosmetic px) for NEW 2D construction geometry — drawn by
+# the placement tools AND imported into the Block Editor, so both look alike.
+DEFAULT_GEOMETRY_LINEWEIGHT = 1.0
+
+# ── PDF curve preservation (Block Editor import only, 2d-geometry §3.5.3) ────
+# Two path segments join (same subpath) when their endpoints are within this
+# many PDF points; a larger gap starts a new subpath (a PDF move-to).
+PDF_CURVE_JOIN_EPS = 1e-3
+# A run of cubic Béziers is recognised as a circle / circular arc when every
+# sampled point lies within max(ABS, REL * r) of its least-squares circle.
+# Measured on real CAD-exported PDFs (2026-09-23): genuine circles sit at
+# <= 0.05 pt absolute residual at ANY radius (coordinates are quantized to a
+# ~0.12 pt grid, so small circles show large RELATIVE error), while free-form
+# curves / glyph outlines sit at >= ~20 % of r. ABS covers the quantization
+# half-step; REL covers large circles.
+PDF_CIRCLE_FIT_REL_TOL = 0.01
+PDF_CIRCLE_FIT_ABS_TOL = 0.06
+
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires
 # then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks

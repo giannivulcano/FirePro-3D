@@ -906,11 +906,38 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._bulk_delete(selected, selected_set)
         finally:
             self.blockSignals(False)
+        # The blocked removals swallowed selectionChanged — re-emit once so the
+        # manipulator frame, property panel and browser drop the deleted items.
+        self.selectionChanged.emit()
 
         # Single scene refresh after all removals
         self.update()
         self._show_status(f"Deleted {len(selected)} item(s)")
         self.push_undo_state()
+
+    def select_items(self, items, *, clear: bool = True):
+        """Select *items* as one batch with a single ``selectionChanged``.
+
+        Per-item ``setSelected`` fires ``selectionChanged`` each time and every
+        listener (manipulator rebake, property panel) walks the whole growing
+        selection — O(n^2) on large batches. Items not in this scene or not
+        selectable are skipped.
+
+        Args:
+            items: Iterable of scene items to select.
+            clear: Clear the existing selection first (default True).
+        """
+        selectable = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        self.blockSignals(True)
+        try:
+            if clear:
+                self.clearSelection()
+            for it in items:
+                if it is not None and it.scene() is self and it.flags() & selectable:
+                    it.setSelected(True)
+        finally:
+            self.blockSignals(False)
+        self.selectionChanged.emit()
 
     def _bulk_delete(self, selected, selected_set):
         """Internal bulk-delete: removes items without per-item scene updates."""
@@ -3175,7 +3202,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _geom_color_lw(self):
         """Return (color, lineweight) for new geometry."""
-        return "#ffffff", 2.0
+        from .constants import DEFAULT_GEOMETRY_LINEWEIGHT
+        return "#ffffff", DEFAULT_GEOMETRY_LINEWEIGHT
 
     def _ensure_underlay_caches(self, *args, **kwargs):
         """Back-compat shell → :class:`UnderlayController`."""
@@ -4385,11 +4413,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.mode not in self._SINGLE_PLACEMENT_MODES:
             return
         self.set_mode("select")          # select mode preserves selection (see set_mode)
-        self.clearSelection()
         items = item if isinstance(item, (list, tuple, set)) else [item]
-        for it in items:
-            if it is not None and it.scene() is self:
-                it.setSelected(True)     # fires selectionChanged -> manipulator rebake
+        self.select_items(items)         # one selectionChanged -> manipulator rebake
 
     def mousePressEvent(self, event):
         # Inert in input mode (see mouseMoveEvent): a click must not commit
@@ -5123,6 +5148,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._move_ghost = []
             self._move_ghost_base = []
             self.set_mode(None)
+
+    def begin_move_from(self, base: QPointF) -> None:
+        """Enter the Move tool on the current selection with *base* preset.
+
+        Skips Move's first (base-point) click: the selection immediately rides
+        the cursor from *base*, and the next click places it (same commit /
+        undo / Esc as an ordinary Move). Used by Block Editor import to place
+        geometry by its picked base point.
+
+        Args:
+            base: Scene point that tracks the cursor.
+        """
+        self.set_mode("move")
+        self.node_start_pos = QPointF(base)
+        self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
 
     def _apply_move_displacement(self, params: dict) -> bool:
         """Apply a typed dX/dY displacement (transform schema — dict, not point).
@@ -6727,10 +6767,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _select_same_level(self, level_name: str):
         """Select all visible entities on the given level."""
-        self.clearSelection()
-        for item in self._items_on_level(level_name):
-            if item.isVisible() and item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
-                item.setSelected(True)
+        self.select_items(i for i in self._items_on_level(level_name)
+                          if i.isVisible())
 
     def _items_on_level(self, level_name: str) -> list:
         """Return all scene items assigned to the given level."""
@@ -6804,10 +6842,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         # Serialize selected items via copy mechanism
         old_selection = list(self.selectedItems())
-        self.clearSelection()
-        for item in items:
-            if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
-                item.setSelected(True)
+        self.select_items(items)
 
         old_clip = QApplication.clipboard().text()
         self.copy_selected_items()
@@ -6821,10 +6856,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         QApplication.clipboard().setText(old_clip)
 
         # Restore original selection
-        self.clearSelection()
-        for item in old_selection:
-            if item.scene() == self:
-                item.setSelected(True)
+        self.select_items(old_selection)
 
         if self._level_manager:
             self._level_manager.apply_to_scene(self)
@@ -6969,16 +7001,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             # Ctrl+A is handled by QShortcut → Model_View._select_all_items()
             # This fallback is kept for completeness.
-            self.blockSignals(True)
-            for item in self.items():
-                if isinstance(item, GridlineItem):
-                    continue
-                if getattr(item, "_exclude_from_bulk_select", False):
-                    continue
-                if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
-                    item.setSelected(True)
-            self.blockSignals(False)
-            self.selectionChanged.emit()
+            self.select_items(
+                (i for i in self.items()
+                 if not isinstance(i, GridlineItem)
+                 and not getattr(i, "_exclude_from_bulk_select", False)),
+                clear=False)
             for v in self.views():
                 v.viewport().update()
         elif event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:

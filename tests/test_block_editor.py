@@ -176,8 +176,9 @@ from firepro3d.block_editor import BlockSaveDialog
 
 
 def test_save_dialog_values_and_validation(qapp):
-    dlg = BlockSaveDialog(None, libraries=["L1"], series=["S1"], context="new")
-    assert dlg.validation_error() is not None          # all blank
+    dlg = BlockSaveDialog(None, library_tree={"L1": ["S1"]}, context="new")
+    dlg.name_edit.clear()
+    assert dlg.validation_error() is not None          # name blank
     dlg.name_edit.setText("N"); dlg.library_combo.setCurrentText("L1")
     dlg.series_combo.setCurrentText("S1")
     assert dlg.validation_error() is None
@@ -196,7 +197,8 @@ def test_save_dialog_seeded_has_replace_checkbox(qapp):
 def test_save_dialog_validator_blocks_duplicate(qapp):
     def val(n, l, s):
         return "dup" if (n, l, s) == ("X", "L", "S") else None
-    dlg = BlockSaveDialog(None, context="new", validator=val)
+    dlg = BlockSaveDialog(None, library_tree={"L": ["S"]}, context="new",
+                          validator=val)
     dlg.name_edit.setText("X"); dlg.library_combo.setCurrentText("L")
     dlg.series_combo.setCurrentText("S")
     assert dlg.validation_error() == "dup"

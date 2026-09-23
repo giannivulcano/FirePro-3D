@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-09-22  # 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: af36ed6   # af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -14,6 +14,7 @@ applies-to:
   - firepro3d/underlay_import_dialog.py
   - firepro3d/make_block_dialog.py
   - firepro3d/block_manager.py
+  - firepro3d/block_editor.py       # BlockSaveDialog chrome (HouseDialog + CreatableSelector); behaviour → block-system.md
 source-tasks:
   - "todo_open.md:69 (FramelessShellMixin governing spec — this closes the orphan)"
   - "todo_open.md:265 (chrome hexguard — partial: new files only)"
@@ -253,6 +254,17 @@ class ToggleSwitch(QWidget):            # binary on/off, accent when on, label r
 
 class Pill(QPushButton):                # compact rounded action button (.pill, RADIUS_PILL)
     def __init__(self, text="", *, icon=None, checkable=False, expanding=False): ...
+
+class CreatableSelector(QWidget):       # Selector + square "+" → inline name field (2026-09-23)
+    def __init__(self, parent=None, *, add_tooltip="Add new…", placeholder=...): ...
+    selector: Selector; add_button: QPushButton; name_edit: QLineEdit
+    def set_items(self, items, current=None)   # signals blocked, then ONE currentTextChanged
+    def items(self) -> list[str]
+    createRequested = pyqtSignal(str)   # Enter commits (stripped, non-empty); Esc / empty closes
+    #   Enter AND Esc are CONSUMED (eventFilter on the field) so the host dialog's
+    #   default button / close never fire. "+" is a _SEL_H square with a zero-padding
+    #   QSS override (house button padding clips the glyph). Content-agnostic: the
+    #   OWNER creates the entry (e.g. a folder) then calls set_items(..., current=new).
 ```
 
 `ToolbarBar` is a **styling hook only** (`#toolbarBar` + QSS), not a widget class.

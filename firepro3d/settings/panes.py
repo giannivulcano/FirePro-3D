@@ -25,7 +25,8 @@ from firepro3d.constants import (
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
-    TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, migrate_data_root, data_root_has_content,
+    TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, BLOCK_DIR_KEY as _BLOCK_DIR_KEY,
+    migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
 from firepro3d.theme import M
@@ -939,6 +940,30 @@ class GeneralPane(SettingsPane):
         tb_row.addWidget(tb_browse)
         tb_row.addWidget(tb_reset)
         dv.addLayout(tb_row)
+
+        # Dedicated block library location — overrides ``<data folder>/blocks``
+        # (the Library/Series tree the Block Editor's Save dialog lists).
+        blk_hint = QLabel(
+            "Block library (optional): a separate folder for your block "
+            "Library/Series tree. Leave blank to use the data folder above.")
+        blk_hint.setWordWrap(True)
+        dv.addWidget(blk_hint)
+        blk_row = QHBoxLayout()
+        self._block_dir_edit = QLineEdit()
+        self._block_dir_edit.setPlaceholderText("(data folder)/blocks")
+        self._block_dir_edit.setToolTip(
+            "Folder holding the block library (Library/Series/*.fpdb). "
+            "Blank = <data folder>/blocks.")
+        blk_browse = QPushButton("Browse…")
+        blk_browse.setToolTip("Choose the block library folder")
+        blk_browse.clicked.connect(self._pick_block_dir)
+        blk_reset = QPushButton("Reset")
+        blk_reset.setToolTip("Use the default (<data folder>/blocks)")
+        blk_reset.clicked.connect(self._block_dir_edit.clear)
+        blk_row.addWidget(self._block_dir_edit, 1)
+        blk_row.addWidget(blk_browse)
+        blk_row.addWidget(blk_reset)
+        dv.addLayout(blk_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -957,6 +982,14 @@ class GeneralPane(SettingsPane):
             self, "Choose title block library folder", start)
         if chosen:
             self._tb_dir_edit.setText(chosen)
+
+    def _pick_block_dir(self) -> None:
+        start = (self._block_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose block library folder", start)
+        if chosen:
+            self._block_dir_edit.setText(chosen)
 
     def migrate_prompt_if_needed(self) -> None:
         """After Apply/OK: if the data root changed and the old root still holds
@@ -1016,6 +1049,9 @@ class GeneralPane(SettingsPane):
         tb = s.value(_TB_DIR_KEY, "", type=str) or ""
         self._tb_dir_snapshot = tb
         self._tb_dir_edit.setText(tb)
+        blk = s.value(_BLOCK_DIR_KEY, "", type=str) or ""
+        self._block_dir_snapshot = blk
+        self._block_dir_edit.setText(blk)
 
     def apply(self) -> None:
         """Write checkbox states + the data-folder/title-block overrides.
@@ -1032,6 +1068,7 @@ class GeneralPane(SettingsPane):
         # Blank clears each override (falls back to the default root).
         s.setValue(_DATA_ROOT_KEY, self._data_folder_edit.text().strip())
         s.setValue(_TB_DIR_KEY, self._tb_dir_edit.text().strip())
+        s.setValue(_BLOCK_DIR_KEY, self._block_dir_edit.text().strip())
 
     def revert(self) -> None:
         """Restore snapshot values to checkboxes + the path fields."""
@@ -1040,6 +1077,7 @@ class GeneralPane(SettingsPane):
                 self._dock_checks[short_key].setChecked(val)
         self._data_folder_edit.setText(getattr(self, "_data_folder_snapshot", ""))
         self._tb_dir_edit.setText(getattr(self, "_tb_dir_snapshot", ""))
+        self._block_dir_edit.setText(getattr(self, "_block_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.

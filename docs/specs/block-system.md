@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) built; native-curve import (arc/ellipse/spline) + thumbnails deferred
-last-verified: 2026-09-18
-verified-commit: 5cd5941
+status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) built; thumbnails + attribute authoring deferred
+last-verified: 2026-09-23
+verified-commit: 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -293,10 +293,12 @@ level does this block show on?" is an **instance** question, so level scope live
 - **Cross-`id` filename collision on Save (2026-09-05).** If the target `<sanitized-name>.fpdb` is
   already held by a *different* `id`, `save_to_library` raises `BlockNameCollision(existing_name)`
   *without touching disk* (collision check precedes re-file/write, so a refused save is inert). The
-  callers (Manager Save button, Make-Block flow) prompt overwrite/cancel (`themed_confirm`); overwrite
-  passes `overwrite=True`. Prevents the earlier silent-overwrite data loss where two blocks named the
-  same string clobbered each other's library entry. *(True rename-on-collision is deferred — overwrite
-  metadata is read-only outside the v2 Editor; see `todo_open.md`.)*
+  callers resolve it as **Overwrite / Rename / Cancel** (2026-09-23, block polish): the Manager's
+  Save-to-Library catches it (Rename → `set_block_metadata`, then retry); the Block Editor's
+  `BlockSaveDialog` pre-probes with `block_library.find_collision` so the choice is made before
+  commit (a residual race falls back to `themed_confirm`). Overwrite passes `overwrite=True`.
+  Prevents the earlier silent-overwrite data loss where two blocks named the same string clobbered
+  each other's library entry.
 - **Make-from-selection with non-primitives selected:** non-primitive items ignored/refused with a
   message; an all-non-primitive selection makes no block.
 - **Corrupt `.fpdb` / stale `index.json`:** tolerant load — skip + log, like the title-block library.
@@ -416,8 +418,9 @@ level does this block show on?" is an **instance** question, so level scope live
 > DD-10 and the "Open in Editor" stub reserve. Native-curve import (arc / full-ellipse / spline →
 > editable primitives, `preserve_curves`-gated on the DXF worker so the underlay path is unchanged;
 > schema in `2d-geometry.md §3.5.3`) + import rotation **ship in the curve-fidelity task**.
-> **Deferred (P1 follow-ups):** partial-ellipse + PDF-Bézier curve import (no primitive / curve-fitting),
-> block attribute authoring, thumbnails, strict ribbon-tab hiding.
+> Partial-ellipse + PDF-Bézier curve import **shipped 2026-09-23 (block polish)** — exact, no
+> tessellation; contract in `2d-geometry.md §3.5.3`. **Deferred (P1 follow-ups):** block attribute
+> authoring, thumbnails, strict ribbon-tab hiding.
 
 The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
 the user draws/imports 2D geometry, sets the origin and metadata, and Saves a definition into the
@@ -449,27 +452,79 @@ project registry — **disconnected from all model views**.
 - **Seeded create is non-destructive:** the editor works on a **copy**; the model is touched only at
   Save via a "replace source with an instance?" prompt (default yes), atomically in the one commit
   undo (source items passed as `source_items`).
-- **Edit-in-place surfaces propagation at Save:** an "updates N instances" confirm fires when the
-  edited definition has live instances (flyweight invariant: `set_primitives` → every
-  `on_definition_changed`).
+- **Edit-in-place propagates at Save** (flyweight invariant: `set_primitives` → every
+  `on_definition_changed`). *As-built (2026-09-23, block polish, `434066c`):* re-Save of a saved
+  block is silent, so `BlockSaveDialog`'s "edit" context is no longer reached; instead the status
+  line reports `Saved block "X" — updated N placed instance(s)` (suffix only when N > 0).
 - **Import DXF/DWG/PDF → editable primitives** via the pure `geometry_import.geom_dicts_to_primitives(
-  geoms, import_scale)` (kind mapping line/circle/arc/path_points/ellipse→primitives, text skipped +
-  counted), reusing the async extraction workers + the `import_scale = real_mm/source_units`
-  convention (a **minimal** scale control, not the full `UnderlayImportDialog`). **SVG deferred.**
+  geoms, import_scale, *, lineweight)` (kind mapping line/circle/arc/path_points/ellipse/spline→
+  primitives, text skipped + counted), reusing the async extraction workers + the `import_scale =
+  real_mm/source_units` convention. The dialog is `BlockImportDialog` (a flattened
+  `UnderlayImportDialog` subclass with `preserve_curves` on — preview UX in `underlay-workflow.md
+  §10.14`). **SVG deferred.**
 - **Metadata authored in the editor** (name + editable library/series combos) via a consolidated
-  `BlockSaveDialog` (extends `MakeBlockDialog`), validated at Save (reuse `set_block_metadata` rules;
+  `BlockSaveDialog` (a `HouseDialog`; the old `MakeBlockDialog` is dead code pending retirement —
+  `todo_open.md`), validated at Save (reuse `set_block_metadata` rules;
   rename keeps `id`). The **Manager detail panel stays read-only** — the editor is *the* editing
   surface (resolves `todo_open.md:66`).
+  *As-built divergence (2026-09-23):* the dialog opens only on a block's first Save and on Save As
+  (new `id`), so renaming a saved block **in place** is not reachable from the editor; the Manager's
+  collision Rename (`set_block_metadata`) is the only in-place rename. Tracked in `todo_open.md`
+  ("Rename a saved block in place from the Block Editor").
 - **Origin:** snapped "Set Origin" tool + persistent marker, default `bbox_top_left`, stored
   definition-local (render-ops already origin-relative). Folds in `todo_open.md:60`.
 - **Restricted "Block Editor" ribbon context** while an editor tab is active (2D geometry +
   modify/transform + constraints + editor verbs only); property panel reused; no level chrome.
 
+### Save, import placement & library (2026-09-23, block polish)
+
+- **Save / Save As** — Block Editor ribbon verbs; Ctrl+S / Ctrl+Shift+S route here when a Block Editor
+  tab is active (`MainWindow._dispatch_save` / `_dispatch_save_as`, else project Save / Save As).
+  `BlockEditorWidget.save()`: a never-saved editor opens `BlockSaveDialog`; afterwards Save is
+  **silent** — an in-place `commit_block` under the current name/library/series that also rewrites
+  the library copy when one exists (`block_library.source_status(defn) != "project-only"`).
+  `save_as()`: dialog prefilled `"<name> copy"`, commits a **new** definition (original + its
+  instances untouched) and the editor then edits the new block. Every commit emits
+  `saved(widget, defn)` → `BlockEditorManager` retitles the tab `Block: <name>` and re-keys it by
+  definition id (so `open_for_definition` focuses it instead of duplicating).
+- **`BlockSaveDialog`** — Library / Series are `ui_kit.CreatableSelector`s (`ui-design-system.md`)
+  fed by `library_tree_for(project)` = on-disk folders (`block_library.list_folders`) ∪ the
+  project's used library/series; Series follows Library; "+" creates the folder on disk at once
+  (`block_library.create_folder`) and selects it. Options are `ToggleSwitch`es; "Also save to
+  library" defaults ON and remembers the last choice (QSettings `BlockEditor/save_to_library`).
+  With it on, a clash with a **different** block's file (`block_library.find_collision`) is
+  resolved in-dialog **before** commit: Overwrite / Rename (dialog stays open on Name) / Cancel.
+- **Import placement by base point** (`import_with_params`) — the dialog's picked base point is the
+  placing grip. *Insert at origin* ON → the base point lands on the block origin (the pinned
+  origin, else the editor origin). OFF → geometry is added base-at-origin, selected, and handed to
+  Move with the base preset (`Model_Space.begin_move_from(base)` — skips Move's base click; same
+  commit / undo / Esc as Move). Importing into an empty editor with no pinned origin pins the origin
+  at the base point.
+- **Imported primitives** take the standard new-geometry line weight (`lineweight=` fed from
+  `_geom_color_lw()` — owned by `2d-geometry.md §1.1`) and are selected as one batch
+  (`select_items` — `selection-mode.md §5.9`).
+- **Text compiles into blocks** — `gather_primitives` includes `_texts` (glyph-outline compile, C5).
+  Retires the "text-in-blocks" deferral.
+- **Library layer** — root = `app_data.block_library_dir()` (precedence + System-Settings row →
+  `settings-dialog.md §4.5b`). New `block_library` API: `list_folders`, `create_folder`,
+  `find_collision`, `entry_path`, and `add_change_listener` (held weakly — `WeakMethod` for bound
+  methods; fired on save / delete / create_folder).
+- **Blocks browser = library view** — every on-disk Library/Series folder (even empty) + every
+  indexed `.fpdb`, merged with the project registry (a library entry whose `id` is in the project
+  lists once, as project). Library-only leaves are italic/dimmed; double-click loads them via
+  `load_blocks_from_files` then emits `blockActivated` (a refused/unreadable load reports and does
+  not place). Bold folder rows + sibling-browser tree chrome; collapsed folders survive refresh;
+  refreshes on `blockDefinitionsChanged`, the library change listener, and `showEvent`. (DD-12 still
+  holds: the Manager's Load stays a browse-anywhere file dialog.)
+
+Guards: `tests/test_block_save_library.py`, `tests/test_block_polish_bugs.py`,
+`tests/test_block_curve_import.py`.
+
 ### Deferred (v2.x)
 
 SVG import; attribute **authoring** (the `attributes` field is carried by clone, not edited);
 trace-over-underlay import fallback; import layer-subset selection; calibrate-by-pick import scale;
-annotative `scale_mode`; text-in-blocks.
+annotative `scale_mode`. *(Text-in-blocks shipped 2026-09-23.)*
 
 ### Build order
 
