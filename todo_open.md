@@ -126,8 +126,11 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
 
-- [ ] [type:feature] Block Save dialog: library/series dropdowns list on-disk library folders, "+" to add a folder, house chrome (custom dropdown + toggle slider), and a Settings default-library-location preference [P2] [subject:UX]
-  - Details: user, 2026-09-23 (block polish batch). Today `block_editor.py` Save dialog's library combo is editable + fed from *project* defs (`sorted({d.library for d in defs})`), and the options are bare `QCheckBox`es. Want: populate from the on-disk 2-tier library tree (`block_library.py`/`app_data.py`), a "+" button to create a new library/series folder, `ui_kit` dropdown + `ToggleSwitch`, plus a Settings-dialog field for the default library root. Also check `make_block_dialog.py` (still plain `QLineEdit`s). ref: `block-system.md`, `ui-design-system.md`.
+- [ ] [type:maint] [cleanup:delete] Retire the dead `MakeBlockDialog` (`make_block_dialog.py`) [P3] [subject:Code Quality]
+  - Details: block polish 2026-09-23 reuse sweep — no production caller left (C7 retired Quick Block; `BlockSaveDialog` replaced it); only `tests/test_block_s2_fixes.py` + the metrics/hexguard lists reference it. Delete the module + prune those references; `block-system.md` still says BlockSaveDialog "extends MakeBlockDialog" (it extends HouseDialog) — fix in the same pass.
+- [ ] [type:feature] Grip object limit for large selections (AutoCAD GRIPOBJLIMIT-style) [P3] [subject:UX]
+  - Details: block polish 2026-09-23 — selecting a whole imported PDF sheet shows ~100k control-point grips (fast after the grip-point cache, but visually overwhelming). Above N selected items (~100) show frame + move only, no per-item grips. `selection_manipulator.py` `_active_handles`; ref `selection-manipulator.md`.
+
 - [ ] [type:feature] Block attributes — author text/numeric attributes on a block definition; placed instances carry a reference level; `=[AttributeName]` dimension binding deferred to the constraints subsystem [P2] [subject:Architecture]
   - Details: user, 2026-09-23 (block polish batch). Schema already reserves `attributes: []` on the definition and `attributes: {}` on instances (`block-system.md` — "no UI in v1"). Scope now: attribute definition (name, type text|number, default) authored in the Block Editor + per-instance values in the property panel + reference-level on placement. Deferred: `=[AttributeName]` expressions in `DimensionEdit` driving geometry (needs the parametric constraint system spec session). Needs a spec extension of `block-system.md` first.
 
@@ -141,8 +144,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: S4.x follow-up. A curated block set shipped with the app + auto-preload into a project via project templates / user profile (user's stated direction; S4.5 loads only what's on disk).
 - [ ] [type:feature] Load-collision: rename-on-load [P3] [subject:UX]
   - Details: S4.x follow-up. Loading a different-`id` block whose `(library,series,name)` is already loaded is refused; offer a rename-on-load instead. `model_space.py`, `block_manager.py`.
-- [ ] [type:feature] Save-collision: rename-on-collision (deferred from the 2026-09-05 identity-lookups fix) [P3] [subject:UX]
-  - Details: S4.x follow-up. A cross-`id` Save-to-Library filename collision now warns + offers overwrite/cancel (`BlockNameCollision`); a true rename option (pick a new name instead of clobbering) is deferred because block metadata is read-only outside the v2 Editor. Wire rename once the Editor / inline-rename exists. `block_manager.py`, `main.py`.
 - [ ] [type:maint] Autofilter polish (partly done 2026-09-05) [P3] [subject:UX]
   - Details: S4.x follow-up — `feat/block-manager-autofilter-polish`: funnel/native-sort-indicator overlap fixed (native indicator suppressed; `FilterHeader` paints its own sort caret left of the funnel) + column widths/order/sort persisted across sessions (`QHeaderView.saveState/restoreState` blob under `BlockManager/headerState`, None-guarded). Footer already reads "N of M blocks · K instances" (adequate — left as-is). Remaining/optional: group-count roll-up N/A (flat). `block_manager.py`.
 - [ ] [type:feature] Feature re-architecture (deferred sibling milestone) [P2] [subject:Architecture]
