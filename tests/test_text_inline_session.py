@@ -14,7 +14,18 @@ def scene(qapp):
     from firepro3d.model_space import Model_Space
     s = Model_Space(scene_role="block_editor")
     s.push_undo_state()                     # baseline so undo() can step back
-    return s
+    yield s
+    import gc
+    from firepro3d.text_item import editing_text_item
+    ed = editing_text_item(s)
+    if ed is not None:
+        # A test that left an inline-edit session live must not leak the
+        # TextItem's caret QTimer / scene._editing_item marker into the next
+        # test's process state — abandon (not commit), the test already made
+        # its assertions.
+        s._text_edit_ctl.abandon(ed)
+    QApplication.processEvents()
+    gc.collect()
 
 
 def _add(scene, text="Hello"):

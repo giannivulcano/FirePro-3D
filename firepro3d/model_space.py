@@ -6816,7 +6816,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # QGraphicsScene delivers it to the focused TextItem.
             super().keyPressEvent(event)
             return
-        if (event.modifiers() == Qt.KeyboardModifier.NoModifier
+        # Numeric-keypad Enter reports as Key_Enter + KeypadModifier — mask
+        # off just that one bit so it still counts as a bare Enter for
+        # edit-entry (a real modifier combo like Ctrl+Enter/Shift+F2 must
+        # still refuse entry, spec § Inline edit).
+        entry_mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        if (entry_mods == Qt.KeyboardModifier.NoModifier
                 and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2)
                 and self.mode in (None, "select")):
             sel = self.selectedItems()

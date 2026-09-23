@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QFontMetricsF, QPainterPath, QTextCursor
+from PyQt6.QtWidgets import QApplication
 
 
 def _text(scene, text="Hello world", align="L", valign="T", box_h=0.0, w=600.0):
@@ -24,7 +25,15 @@ def _text(scene, text="Hello world", align="L", valign="T", box_h=0.0, w=600.0):
 @pytest.fixture
 def scene(qapp):
     from firepro3d.model_space import Model_Space
-    return Model_Space(scene_role="block_editor")
+    s = Model_Space(scene_role="block_editor")
+    yield s
+    import gc
+    from firepro3d.text_item import editing_text_item
+    ed = editing_text_item(s)
+    if ed is not None:
+        s._text_edit_ctl.abandon(ed)
+    QApplication.processEvents()
+    gc.collect()
 
 
 def _set_pos(t, pos, anchor=None):
@@ -286,6 +295,51 @@ def test_blink_timer_runs_only_while_editing(scene):
     t._stop_caret_blink()
     assert not t._caret_timer.isActive()
     assert t._caret_on is False
+
+
+def test_toggle_caret_stops_timer_without_a_scene(qapp):
+    """A stray blink-timer tick on an item with no scene (never added, or
+    isolated from itemChange's OWN ItemSceneChange handling) must stop the
+    timer instead of dereferencing a missing scene.  Built standalone
+    (never ``addItem``-ed) so this exercises ``_toggle_caret``'s guard on
+    its own, independent of the ``itemChange`` hardening covered by
+    ``test_item_change_scene_removal_ends_live_edit`` below."""
+    from firepro3d.text_item import TextItem, TextAnnotationData
+    d = TextAnnotationData(text="Hi", x=0.0, y=0.0, height_mm=40.0, wrap_width_mm=600.0)
+    d.color = "#ffffff"
+    t = TextItem(d)
+    t.begin_edit()                   # _editing=True; scene() is None (never added)
+    t._start_caret_blink()
+    assert t._caret_timer.isActive()
+    t._toggle_caret()                # simulate a tick arriving with no scene
+    assert not t._caret_timer.isActive()
+
+
+def test_toggle_caret_stops_timer_when_not_editing(scene):
+    """A stray blink-timer tick after the session already ended (commit
+    stopped the timer, but a queued Qt tick still fires) must stop the timer
+    rather than flip the (already-hidden) caret."""
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    t._start_caret_blink()
+    t._editing = False               # simulate commit_edit() without stopping the timer
+    t._toggle_caret()
+    assert not t._caret_timer.isActive()
+
+
+def test_item_change_scene_removal_ends_live_edit(scene):
+    """Removing an editing TextItem from its scene (delete mid-edit, or an
+    undo/redo that drops it) must end the session cleanly: stop the blink,
+    clear ``_editing``, and clear the OLD scene's ``_editing_item`` marker —
+    read via ``self.scene()`` BEFORE ``ItemSceneChange`` takes effect."""
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    t._start_caret_blink()
+    assert scene._editing_item is t
+    scene.removeItem(t)
+    assert t._editing is False
+    assert not t._caret_timer.isActive()
+    assert scene._editing_item is None
 
 
 def test_blink_skipped_when_flash_time_zero(scene, monkeypatch):

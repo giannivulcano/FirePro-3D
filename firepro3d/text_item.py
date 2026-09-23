@@ -354,8 +354,22 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def itemChange(self, change, value):
         """Re-derive the sizing mode when the item lands on / leaves a scene,
-        clamp to the paper rect on a paper surface, and live-sync data.x/y."""
+        clamp to the paper rect on a paper surface, live-sync data.x/y, and
+        end a live inline-edit session cleanly if the item is removed from
+        its scene mid-edit (deleted, undone, or reparented).
+
+        ``ItemSceneChange`` fires BEFORE the scene actually changes, so
+        ``self.scene()`` here still reads the OLD scene — the only place the
+        old scene's ``_editing_item`` marker can still be read once the item
+        is gone from it.
+        """
         Change = QGraphicsItem.GraphicsItemChange
+        if change == Change.ItemSceneChange and value is None and self._editing:
+            old_scene = self.scene()
+            self._stop_caret_blink()
+            self._editing = False
+            if old_scene is not None and getattr(old_scene, "_editing_item", None) is self:
+                old_scene._editing_item = None
         if change == Change.ItemSceneHasChanged:
             # The scene (hence the sizing mode) just changed — reformat so the
             # same data renders at the right physical size on this surface.
@@ -1301,7 +1315,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.update()
 
     def _toggle_caret(self) -> None:
-        """Flip the caret's visible/hidden phase (blink-timer tick)."""
+        """Flip the caret's visible/hidden phase (blink-timer tick).
+
+        Guards against a stray timer tick firing after the session ended or
+        the item left its scene (e.g. deleted mid-edit) — stop the timer
+        instead of touching a dead/unparented item.
+        """
+        if not self._editing or self.scene() is None:
+            if self._caret_timer is not None:
+                self._caret_timer.stop()
+            return
         self._caret_on = not self._caret_on
         self.update()
 
@@ -1371,17 +1394,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """Route key events to the editor or to item-level commands.
 
         Model surface while editing: Esc / Ctrl+Enter commit; Ctrl+B/I/U and
-        F1–F12 are swallowed; everything else goes to the Qt text control.
-        Paper while editing: Esc ends the edit (``_on_edit_finished``).
-        Not editing: Delete emits ``delete_requested``.
+        F1–F12 (without Alt) are swallowed; Alt+F-key (e.g. Alt+F4) is left
+        ignored so the window system still gets it; everything else goes to
+        the Qt text control.  Paper while editing: Esc ends the edit
+        (``_on_edit_finished``).  Not editing: Delete emits
+        ``delete_requested``.
         """
         if self._editing and not self._on_paper():
             key = event.key()
-            ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
             if key == Qt.Key.Key_Escape or (
                     ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
                 self._request_commit()
                 event.accept()
+                return
+            if alt and key in self._SWALLOWED_FKEYS:
+                # Alt+F4 (and any other Alt+F-key) must reach the window
+                # system to close/act on the app — never swallow it here.
+                event.ignore()
                 return
             if (ctrl and key in (Qt.Key.Key_B, Qt.Key.Key_I, Qt.Key.Key_U)) \
                     or key in self._SWALLOWED_FKEYS:

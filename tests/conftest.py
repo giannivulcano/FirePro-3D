@@ -222,8 +222,20 @@ def shown_model_view(qapp):
 
     yield view, scene
 
+    import gc
+    from firepro3d.text_item import editing_text_item
+    ed = editing_text_item(scene)
+    if ed is not None:
+        # A test that left an inline-edit session live must not leak the
+        # TextItem's caret QTimer / scene._editing_item marker into the next
+        # test — abandon (not commit) since the test already made its
+        # assertions and any further undo-stack write here would be spurious.
+        scene._text_edit_ctl.abandon(ed)
     scene.cleanup()   # join the underlay DXF worker so it can't outlive the scene (#373)
     view.close()
+    view.deleteLater()
+    QApplication.processEvents()
+    gc.collect()
 
 
 @pytest.fixture

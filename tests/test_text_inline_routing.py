@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QKeySequence, QMouseEvent, QShortcut
+from PyQt6.QtGui import QKeyEvent, QKeySequence, QMouseEvent, QShortcut
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -13,6 +13,9 @@ from firepro3d.text_item import TextItem, TextAnnotationData, editing_text_item
 
 NO = Qt.KeyboardModifier.NoModifier
 CTRL = Qt.KeyboardModifier.ControlModifier
+SHIFT = Qt.KeyboardModifier.ShiftModifier
+ALT = Qt.KeyboardModifier.AltModifier
+KEYPAD = Qt.KeyboardModifier.KeypadModifier
 
 
 @pytest.fixture
@@ -224,3 +227,57 @@ def test_f2_ignored_with_multi_selection(be):
     b.setSelected(True)
     _key(view, Qt.Key.Key_F2)
     assert editing_text_item(scene) is None
+
+
+def test_f2_ignored_when_mode_not_select(be):
+    """Guard: entry is refused outside mode in (None, "select") — set_mode
+    clears selection, so the text is re-selected AFTER switching mode to
+    isolate the mode guard from the (already-covered) selection-count guard."""
+    view, scene = be
+    t = _add(scene)
+    scene.set_mode("draw_line")
+    scene.clearSelection()
+    t.setSelected(True)
+    assert scene.mode == "draw_line"
+    _key(view, Qt.Key.Key_F2)
+    assert editing_text_item(scene) is None
+
+
+@pytest.mark.parametrize("key,mods", [(Qt.Key.Key_Return, CTRL), (Qt.Key.Key_F2, SHIFT)])
+def test_entry_ignored_with_real_modifier(be, key, mods):
+    """Guard: a genuine modifier combo (Ctrl+Enter, Shift+F2) must still
+    refuse entry — only the KeypadModifier bit on Enter is special-cased
+    (see test_keypad_enter_enters_edit)."""
+    view, scene = be
+    t = _add(scene)
+    scene.clearSelection()
+    t.setSelected(True)
+    _key(view, key, mods)
+    assert editing_text_item(scene) is None
+
+
+def test_keypad_enter_enters_edit(be):
+    """Numeric-keypad Enter reports as Key_Enter + KeypadModifier — must
+    still count as a bare Enter for edit-entry."""
+    view, scene = be
+    t = _add(scene)
+    scene.clearSelection()
+    t.setSelected(True)
+    _key(view, Qt.Key.Key_Enter, KEYPAD)
+    assert editing_text_item(scene) is t
+
+
+def test_alt_f4_not_swallowed_while_editing(qapp):
+    """Alt+F-key (e.g. Alt+F4, close-app) must reach the window system even
+    while the model-surface editor owns focus — TextItem.keyPressEvent must
+    leave the event un-accepted (ignored) rather than swallowing it like a
+    bare F-key.  Driven directly against the item (no shown view needed):
+    the claim under test is the event's accept state, not window routing."""
+    d = TextAnnotationData(text="Hello", x=0.0, y=0.0, height_mm=40.0, wrap_width_mm=600.0)
+    d.color = "#ffffff"
+    t = TextItem(d)
+    t.begin_edit()
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F4, ALT)
+    t.keyPressEvent(ev)
+    assert not ev.isAccepted()
+    assert t._editing is True                # session stays live; not commit/swallow

@@ -935,7 +935,16 @@ class Model_View(QGraphicsView):
     }
 
     def event(self, ev: QEvent) -> bool:
-        """Accept the Delete ShortcutOverride during polyline placement.
+        """Accept the Delete ShortcutOverride during polyline placement, and
+        EVERY ShortcutOverride (but Ctrl+S) while a ``TextItem`` inline-edit
+        session is live.
+
+        Inline text edit (spec § Inline edit): while
+        ``editing_text_item(self.scene())`` is not ``None``, the editor owns
+        every key except Ctrl+S — accepting the override here makes Qt
+        deliver a plain KeyPress to the view (and on to the focused
+        ``TextItem``) instead of firing any window / ribbon / QAction
+        shortcut. This is checked first, before the Delete branch below.
 
         The window-level ``QShortcut(Delete)`` in ``main.py`` fires
         ``delete_selected_items`` and suppresses delivery of the KeyPress event
