@@ -1966,6 +1966,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
+        # Every item below is rebuilt from the snapshot, so a HALO candidate is
+        # now a detached object at its pre-restore geometry — drop it (and
+        # repaint) or drawForeground paints a ghost outline there until the
+        # next mouse move.  Covers undo AND redo (both route through here).
+        if self.halo_clear():
+            for v in self.views():
+                v.viewport().update()
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
