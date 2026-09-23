@@ -593,7 +593,9 @@ class CreatableSelector(QWidget):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(placeholder)
         self.name_edit.setToolTip(placeholder)
-        self.name_edit.returnPressed.connect(self._commit_field)
+        # Return/Enter + Esc are handled (and CONSUMED) in eventFilter: a
+        # QLineEdit ignores Return after returnPressed, so it would otherwise
+        # propagate and press the host dialog's default button.
         self.name_edit.installEventFilter(self)
         self.name_edit.hide()
         v.addWidget(self.name_edit)
@@ -632,10 +634,13 @@ class CreatableSelector(QWidget):
 
     def eventFilter(self, obj, event):  # noqa: N802 (Qt API)
         from PyQt6.QtCore import QEvent
-        if (obj is self.name_edit and event.type() == QEvent.Type.KeyPress
-                and event.key() == Qt.Key.Key_Escape):
-            self._close_field()
-            return True          # don't let Esc close the parent dialog
+        if obj is self.name_edit and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_field()
+                return True      # don't let Enter press the dialog's default
+            if event.key() == Qt.Key.Key_Escape:
+                self._close_field()
+                return True      # don't let Esc close the parent dialog
         return super().eventFilter(obj, event)
 
 

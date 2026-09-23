@@ -257,3 +257,22 @@ def test_manager_collision_rename_saves_under_new_name(model_space, qapp, tmp_pa
     assert os.path.isfile(tmp_path / "L" / "S" / "N2.fpdb")
     assert bl.find_collision(theirs.id, "L", "S", "N", root=str(tmp_path)) is None
     dlg.close()
+
+
+def test_enter_in_the_new_folder_field_commits_and_keeps_dialog_open(qapp, tmp_path):
+    # Smoke 2026-09-23: Enter created the folder AND pressed the dialog's
+    # default Save button (QLineEdit ignores Return after returnPressed).
+    dlg = _dialog(tmp_path)
+    dlg.name_edit.setText("N")
+    dlg.show()
+    QTest.qWaitForWindowExposed(dlg)
+    try:
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            dlg.library_sel.add_button.click()
+            field = dlg.library_sel.name_edit
+            QTest.keyClicks(field, f"Lib{int(key)}")
+            QTest.keyClick(field, key)
+            assert (tmp_path / f"Lib{int(key)}").is_dir()
+            assert dlg.isVisible() and dlg.result() != dlg.DialogCode.Accepted
+    finally:
+        dlg.close()
