@@ -18,6 +18,33 @@ from .block_definition import BlockDefinition
 
 _log = logging.getLogger(__name__)
 _INDEX = "index.json"
+_listeners: list = []     # weak refs to zero-arg callables (library changed)
+
+
+def add_change_listener(callback) -> None:
+    """Call *callback()* after any library write (save / delete / new folder).
+
+    Held weakly (bound methods via ``WeakMethod``) so a closed browser never
+    leaks or gets called; a listener that raises is logged, not propagated.
+    """
+    import weakref
+    ref = (weakref.WeakMethod(callback) if hasattr(callback, "__self__")
+           else weakref.ref(callback))
+    _listeners.append(ref)
+
+
+def _notify_changed() -> None:
+    alive = []
+    for ref in _listeners:
+        cb = ref()
+        if cb is None:
+            continue
+        alive.append(ref)
+        try:
+            cb()
+        except Exception:      # noqa: BLE001 — a dead Qt receiver etc.
+            _log.debug("block library listener failed", exc_info=True)
+    _listeners[:] = alive
 
 
 class BlockNameCollision(Exception):
@@ -83,6 +110,7 @@ def create_folder(library: str, series: str | None = None,
     if series:
         path = os.path.join(path, sanitize(series))
     os.makedirs(path, exist_ok=True)
+    _notify_changed()
     return path
 
 
@@ -166,6 +194,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     index[filename] = {"id": definition.id, "name": definition.name,
                        "version": definition.version, "thumbnail": None}
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+    _notify_changed()
     return path
 
 
@@ -207,6 +236,12 @@ def list_library(root: str | None = None) -> list[dict]:
     """
     return [{"library": library, "series": series, "filename": filename, **meta}
             for library, series, filename, meta in _iter_index_entries(root)]
+
+
+def entry_path(entry: dict, root: str | None = None) -> str:
+    """Absolute ``.fpdb`` path of a :func:`list_library` entry."""
+    return os.path.join(_root(root), entry["library"], entry["series"],
+                        entry["filename"])
 
 
 def load_block(library: str, series: str, filename: str,
@@ -276,3 +311,4 @@ def delete_from_library(library: str, series: str, filename: str,
     if filename in index:
         del index[filename]
         _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+    _notify_changed()
