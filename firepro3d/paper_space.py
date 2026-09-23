@@ -26,7 +26,7 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
 )
 from .scale_manager import ScaleManager
-from .text_item import TextAnnotationData, TextItem  # shared data model + unified text primitive (C5); re-exported for callers
+from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
 from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
@@ -1832,7 +1832,7 @@ class PaperGraphicsView(QGraphicsView):
             # QShortcut("Escape") doesn't fire _on_escape before keyPressEvent
             # can cancel the mode.
             if event.key() == Qt.Key.Key_Escape and (
-                    getattr(self._paper_scene, "_editing_item", None) is not None
+                    editing_text_item(self._paper_scene) is not None
                     or self._add_text_mode):
                 event.accept()
                 return True
@@ -1863,7 +1863,7 @@ class PaperGraphicsView(QGraphicsView):
         # QAction because event() accepts the ShortcutOverride for these keys.
         mods = event.modifiers()
         if (mods & Qt.KeyboardModifier.ControlModifier
-                and getattr(self._paper_scene, "_editing_item", None) is None):
+                and editing_text_item(self._paper_scene) is None):
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             key = event.key()
             if key == Qt.Key.Key_Z and not shift:
