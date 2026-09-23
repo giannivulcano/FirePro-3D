@@ -999,6 +999,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Auto-switch active level when switching to a Plan or Detail tab."""
+        self._commit_text_edits()
         # A placement belongs to the view it was started in.  Every plan tab
         # shares one Model_Space, so the preview items render in all of them
         # while the committed geometry is level-filtered into one — and the
@@ -1699,6 +1700,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _export_paper_pdf(self):
         """Export selected sheets to PDF (batch — spec §19.6)."""
+        self._commit_text_edits()
         from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
         from firepro3d.paper_export_dialog import PaperExportDialog
@@ -1753,6 +1755,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _print_paper(self):
         """Print selected sheets via the system print dialog (batch)."""
+        self._commit_text_edits()
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
         from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
@@ -2257,6 +2260,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_active_level_changed(self, name: str):
         """Handle active level change from widget — opens the plan tab."""
+        self._commit_text_edits()
         self._activate_plan_view(name)
 
     # ── Template workflow helpers ─────────────────────────────────────────────
@@ -2390,6 +2394,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""
+        self._commit_text_edits()
         from firepro3d.geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
@@ -3618,6 +3623,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def save_file(self):
+        self._commit_text_edits()
         if self._current_file:
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
@@ -3628,6 +3634,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.save_file_as()
 
     def save_file_as(self):
+        self._commit_text_edits()
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if file:
             self._current_file = file
@@ -3779,6 +3786,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                             "autosave", "recovery.FPD")
 
     def _autosave(self):
+        self._commit_text_edits()
         if not self._modified:
             return
         path = self._autosave_path()
@@ -4409,6 +4417,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.editor_scene
         return self.scene
 
+    def _commit_text_edits(self) -> None:
+        """End any live inline text edit — plan scene + every Block Editor scene.
+
+        Called first by every action that must see committed text (save, autosave,
+        export, tab / level switch, Block Editor open, close) — spec
+        text-annotation-system § Inline edit.
+        """
+        scenes = [self.scene] + [w.editor_scene for w in
+                                 list(self.block_editor_manager._open.values())]
+        for sc in scenes:
+            commit = getattr(sc, "commit_text_edit", None)
+            if commit is not None:
+                commit()
+
     def _adopt_block_editor(self, widget):
         """Wire a new editor scene into the shared interaction envelope.
 
@@ -4664,6 +4686,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
+        self._commit_text_edits()
         if not self._ask_save_changes("closing"):
             event.ignore()
             return
