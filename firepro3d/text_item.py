@@ -1471,6 +1471,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._editing:
             super().contextMenuEvent(event)
             return
+        if editing_text_item(self.scene()) is not None:
+            # Another TextItem is inline-editing: let the right-click
+            # propagate down to it (its native menu) instead of opening this
+            # item's Delete menu on top.
+            event.ignore()
+            return
         menu = QMenu()
         delete = menu.addAction("Delete")
         action = menu.exec(event.screenPos())

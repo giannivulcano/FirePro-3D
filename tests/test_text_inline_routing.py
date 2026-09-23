@@ -534,3 +534,219 @@ def test_double_click_on_centre_grip_of_selected_text_enters_edit(be):
     assert editing_text_item(scene) is t
     assert t.pos() == pos0                     # the first click's grip gesture moved nothing
     assert t.textCursor().position() == len("Hello world")   # nearest slot to the click
+
+
+# ── Review follow-ups (Task 5 review I1/I2/M3/M5/M6) ────────────────────────
+
+def test_lost_release_then_commit_does_not_swallow_next_manip_release(be):
+    """I1: a gate-consumed press whose release is lost (session committed
+    mid-gesture) must not leave a stale flag that swallows the NEXT gesture's
+    release — the manipulator would stay stuck mid-drag."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _mouse(view, QEvent.Type.MouseButtonPress, _char_pt(t, 2))   # gate-consumed
+    scene._text_edit_ctl.commit()        # e.g. modal / autosave; release lost
+    assert editing_text_item(scene) is None
+    scene.clearSelection()
+    t.setSelected(True)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    br = t.grip_points()[4]
+    w0 = t.data.wrap_width_mm
+    dst = QPointF(br.x() + 300.0, br.y())
+    _mouse(view, QEvent.Type.MouseButtonPress, br)
+    _mouse(view, QEvent.Type.MouseMove, dst)
+    assert m.is_dragging(), "precondition: handle drag is live"
+    _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    assert not m.is_dragging(), "manipulator stuck: release swallowed by a stale flag"
+    assert t.data.wrap_width_mm > w0
+
+
+def test_stale_flag_buttonless_move_does_not_extend_selection(be):
+    """I1: after a lost release, a new session's plain hover (no button) must
+    not extend the text selection."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _mouse(view, QEvent.Type.MouseButtonPress, _char_pt(t, 2))
+    scene._text_edit_ctl.commit()
+    _editing(scene, t)                    # new session via the Enter/F2 path
+    _mouse(view, QEvent.Type.MouseMove, _char_pt(t, 8), NO, Qt.MouseButton.NoButton)
+    assert not t.textCursor().hasSelection(), "hover extended the selection"
+
+
+def test_context_menu_reaches_editing_item_under_overlapping_text(be, monkeypatch):
+    """I2: a non-editing TextItem stacked above the editing one must let the
+    right-click through (ignore) instead of opening its own Delete menu."""
+    from PyQt6.QtGui import QContextMenuEvent
+    import firepro3d.text_item as text_item_mod
+    view, scene = be
+    t = _add(scene, "Hello world")
+    other = _add(scene, "Zzzzzzzzzzzz")
+    other.setZValue(t.zValue() + 1)
+    _editing(scene, t)
+    menus, got = [], []
+
+    class _FakeMenu:                       # never block on a real QMenu.exec
+        def __init__(self, *a, **k):
+            menus.append(self)
+
+        def addAction(self, *a, **k):
+            return object()
+
+        def exec(self, *a, **k):
+            return None
+
+    monkeypatch.setattr(text_item_mod, "QMenu", _FakeMenu)
+    real = TextItem.contextMenuEvent
+
+    def _spy(self, ev):
+        got.append(self)
+        if self is t:                      # editing item: record only (native menu blocks)
+            ev.accept()
+            return
+        real(self, ev)
+
+    monkeypatch.setattr(TextItem, "contextMenuEvent", _spy)
+    pt = _char_pt(t, 3)
+    vp = view.mapFromScene(pt)
+    ev = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, vp,
+                           view.viewport().mapToGlobal(vp), NO)
+    QApplication.sendEvent(view.viewport(), ev)
+    QApplication.processEvents()
+    assert menus == [], "overlapping item opened its own menu"
+    assert got and got[-1] is t
+    assert editing_text_item(scene) is t
+
+
+def test_fast_click_far_from_double_click_is_caret_not_line(be):
+    """M3: a quick third click far from the word-select is a caret click, not
+    a triple-click line select."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _dbl(view, _char_pt(t, 1))
+    _click(view, _char_pt(t, 9))
+    assert not t.textCursor().hasSelection(), "far fast click selected the line"
+    assert t.textCursor().position() in (9, 10)
+
+
+def test_drag_select_keeps_cursor_readout_live(be):
+    """M5: the status-bar X/Y readout stays live during a drag-select."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    seen = []
+    scene.cursorMoved.connect(seen.append)
+    a, b = _char_pt(t, 1), _char_pt(t, 5)
+    _mouse(view, QEvent.Type.MouseButtonPress, a)
+    seen.clear()
+    _mouse(view, QEvent.Type.MouseMove, b)
+    _mouse(view, QEvent.Type.MouseButtonRelease, b, NO, Qt.MouseButton.NoButton)
+    assert t.textCursor().hasSelection()
+    assert seen, "cursorMoved starved during drag-select"
+
+
+def _spy_release_pipeline(monkeypatch, scene):
+    """Count calls into the scene's post-gate release pipeline (its first
+    statement after the gate reads the live manipulator)."""
+    calls = []
+    real = scene._live_manip
+
+    def _spy():
+        calls.append(1)
+        return real()
+
+    monkeypatch.setattr(scene, "_live_manip", _spy)
+    return calls
+
+
+def test_drag_select_release_is_consumed_by_gate(be, monkeypatch):
+    """M6: the release ending a drag-select belongs to the text editor — it
+    must not run the scene's manipulator / rubber-band release pipeline."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    a, b = _char_pt(t, 1), _char_pt(t, 5)
+    _mouse(view, QEvent.Type.MouseButtonPress, a)
+    _mouse(view, QEvent.Type.MouseMove, b)
+    calls = _spy_release_pipeline(monkeypatch, scene)
+    _mouse(view, QEvent.Type.MouseButtonRelease, b, NO, Qt.MouseButton.NoButton)
+    assert calls == []
+    assert t.textCursor().hasSelection()
+
+
+def test_double_click_entry_release_is_consumed_by_gate(be, monkeypatch):
+    """M6: the release that follows a double-click entry is swallowed."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    scene.clearSelection()
+    pt = _char_pt(t, 2)
+    _click(view, pt)
+    _mouse(view, QEvent.Type.MouseButtonDblClick, pt)
+    assert editing_text_item(scene) is t
+    calls = _spy_release_pipeline(monkeypatch, scene)
+    _mouse(view, QEvent.Type.MouseButtonRelease, pt, NO, Qt.MouseButton.NoButton)
+    assert calls == []
+
+
+def test_double_click_entry_rotated_centre_aligned_places_caret(be):
+    """M6: entry caret lands at the clicked character on a 30° rotated,
+    centre-aligned box (hit-test honours rotation + alignment)."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    t.data.align = "C"
+    t._apply_format()
+    t.set_angle(30.0)
+    QApplication.processEvents()
+    pt = _char_pt(t, 7)
+    scene.clearSelection()
+    _dbl(view, pt)
+    assert editing_text_item(scene) is t
+    assert t.textCursor().position() in (7, 8)
+
+
+def test_lost_release_mid_session_does_not_hijack_next_handle_drag(be):
+    """I1: a gate-consumed press whose release is lost while the session
+    stays live must not leave the next handle drag hijacked (every press
+    drops the stale pairing flags)."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _mouse(view, QEvent.Type.MouseButtonPress, _char_pt(t, 2))   # release lost
+    m = scene._live_manip()
+    br = t.grip_points()[4]
+    w0 = t.data.wrap_width_mm
+    dst = QPointF(br.x() + 300.0, br.y())
+    _mouse(view, QEvent.Type.MouseButtonPress, br)
+    _mouse(view, QEvent.Type.MouseMove, dst)
+    _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    assert not m.is_dragging()
+    assert t.data.wrap_width_mm > w0
+    assert editing_text_item(scene) is t
+
+
+def test_buttonless_move_after_lost_release_does_not_extend_selection(be):
+    """I1: a hover (no button held) after a lost release, within the same
+    session, must not extend the text selection."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _mouse(view, QEvent.Type.MouseButtonPress, _char_pt(t, 2))   # release lost
+    _mouse(view, QEvent.Type.MouseMove, _char_pt(t, 8), NO, Qt.MouseButton.NoButton)
+    assert not t.textCursor().hasSelection()
+
+
+def test_right_release_mid_drag_select_does_not_end_it(be):
+    """I1: only the LEFT release ends a drag-select — a right-button release
+    arriving mid-drag leaves the selection gesture live."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    a, b = _char_pt(t, 1), _char_pt(t, 5)
+    _mouse(view, QEvent.Type.MouseButtonPress, a)
+    _mouse(view, QEvent.Type.MouseButtonRelease, a, NO, Qt.MouseButton.LeftButton,
+           Qt.MouseButton.RightButton)
+    _mouse(view, QEvent.Type.MouseMove, b)
+    assert t.textCursor().hasSelection()

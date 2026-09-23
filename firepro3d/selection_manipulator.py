@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
@@ -40,6 +40,9 @@ from .dynamic_input import (
 from .manip_math import (
     HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point, move_delta,
 )
+
+if TYPE_CHECKING:                       # runtime import is lazy (circular)
+    from .manip_handle import Handle
 
 log = logging.getLogger(__name__)
 
@@ -586,7 +589,7 @@ class SelectionManipulator(QGraphicsObject):
         """
         return bool(self.handles_at(scene_pos))
 
-    def handles_at(self, scene_pos: QPointF) -> list:
+    def handles_at(self, scene_pos: QPointF) -> List["Handle"]:
         """Every visible handle (the ``Handle`` objects, not their host items)
         whose hit shape contains *scene_pos*.
 
@@ -594,6 +597,14 @@ class SelectionManipulator(QGraphicsObject):
         ``bool(handles_at(...))``); lets a caller ask WHICH handle is under the
         cursor — e.g. the inline text editor ignores a TextItem's own centre
         move grip (``GripHandle`` index ``TextItem.MOVE_GRIP_INDEX``).
+
+        Args:
+            scene_pos: The point to test, in scene coordinates.
+
+        Returns:
+            List[Handle]: The ``manip_handle.Handle`` objects under the point
+            (rigid resize/rotate handles and item grip handles), in host
+            order; empty when the manipulator is hidden or nothing is hit.
         """
         if not self.isVisible():
             return []

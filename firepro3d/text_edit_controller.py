@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QPointF, Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import QApplication, QGraphicsItem, QGraphicsScene
 
@@ -46,6 +46,15 @@ class TextEditController:
         self._mouse_selecting = False     # press inside the box, drag extends
         self._swallow_release = False     # release that belongs to a gate click
         self._last_dbl_t = None           # monotonic time of the last word-select
+        self._last_dbl_screen = None      # screen pos of that word-select (triple gate)
+
+    def _reset_gesture_state(self) -> None:
+        """Forget every in-flight mouse-gesture flag (press / release pairing
+        and the triple-click window) — a session boundary or a fresh press."""
+        self._mouse_selecting = False
+        self._swallow_release = False
+        self._last_dbl_t = None
+        self._last_dbl_screen = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -75,6 +84,7 @@ class TextEditController:
                 when *item* is already the live session.
             scene_pos: Scene point to place the caret at; ``None`` = end of text.
         """
+        self._reset_gesture_state()
         current = editing_text_item(self._scene)
         if current is item:
             if scene_pos is not None:
@@ -113,6 +123,7 @@ class TextEditController:
             edit ended with nothing to push).  Both non-``None`` values are
             truthy, matching the previous "was a session ended" bool.
         """
+        self._reset_gesture_state()        # a lost release must not leak a flag
         s = self._scene
         item = editing_text_item(s)
         if item is None:
@@ -167,22 +178,18 @@ class TextEditController:
         """True when *scene_pos* lies inside *item*'s (rotated) box."""
         return item._box_rect_local().contains(item.mapFromScene(scene_pos))
 
-    def _on_handle(self, scene_pos) -> bool:
-        """True when *scene_pos* is over a visible manipulator handle."""
-        m = self._scene._live_manip()
-        return m is not None and m.isVisible() and m.hit_handle(scene_pos)
-
     def _in_content(self, item: TextItem, scene_pos) -> bool:
         """True when *scene_pos* lies on *item*'s painted text (line rects)."""
         local = item.mapFromScene(scene_pos)
         return any(r.contains(local) for r in item.content_rects_local())
 
     def _handle_wins(self, item: TextItem, scene_pos) -> bool:
-        """While *item* is being edited: does a press at *scene_pos* belong to
-        a manipulator handle rather than the caret?
+        """Does a press at *scene_pos* on *item* (the live session, or the
+        double-click entry candidate) belong to a manipulator handle rather
+        than the text?
 
-        Text wins over handles (user decision): *item*'s own centre move grip
-        is never a handle while editing, and any other handle (resize /
+        Text wins over handles (user decision, spec Q7): *item*'s own centre
+        move grip is never a handle here, and any other handle (resize /
         rotate) wins only when the press is NOT on the painted text content.
         """
         m = self._scene._live_manip()
@@ -203,13 +210,17 @@ class TextEditController:
                 return it
         return None
 
-    def _is_triple(self) -> bool:
+    def _is_triple(self, screen_pos) -> bool:
         """True when a press follows a word-select within the double-click
-        interval (the third click of a triple-click)."""
-        if self._last_dbl_t is None:
+        interval AND within the drag distance (screen px) of it — the third
+        click of a triple-click, not a quick click elsewhere."""
+        if self._last_dbl_t is None or self._last_dbl_screen is None:
             return False
         elapsed_ms = (time.monotonic() - self._last_dbl_t) * 1000.0
-        return elapsed_ms <= QApplication.doubleClickInterval()
+        if elapsed_ms > QApplication.doubleClickInterval():
+            return False
+        moved = (QPointF(screen_pos) - QPointF(self._last_dbl_screen)).manhattanLength()
+        return moved <= QApplication.startDragDistance()
 
     def _select_unit(self, item: TextItem, scene_pos, unit) -> None:
         """Select the word / line under *scene_pos* in *item*."""
@@ -238,9 +249,18 @@ class TextEditController:
         extend / triple-click line select; press outside → commit, then the
         normal press handling runs (select / HALO / tool).
 
+        Every press first drops the press/release pairing flags, so a gesture
+        whose release was lost (session ended mid-drag) cannot leak into this
+        one.  The triple-click window survives (it is what this press tests).
+
+        Args:
+            event: The scene mouse-press event.
+
         Returns:
             bool: True when the text editor consumed the press.
         """
+        self._mouse_selecting = False
+        self._swallow_release = False
         item = editing_text_item(self._scene)
         if item is None or event.button() != Qt.MouseButton.LeftButton:
             return False
@@ -251,8 +271,9 @@ class TextEditController:
             QTimer.singleShot(0, lambda it=item: self._deferred_refocus(it))
             return False
         if self._inside(item, pos):
-            if self._is_triple():
-                self._last_dbl_t = None
+            triple = self._is_triple(event.screenPos())
+            self._last_dbl_t = self._last_dbl_screen = None
+            if triple:
                 self._select_unit(item, pos, QTextCursor.SelectionType.LineUnderCursor)
                 self._swallow_release = True
             else:
@@ -265,26 +286,59 @@ class TextEditController:
         return False
 
     def handle_move(self, event) -> bool:
-        """Drag after an inside press extends the text selection."""
-        item = editing_text_item(self._scene)
-        if item is None or not self._mouse_selecting:
+        """Drag after an inside press extends the text selection.
+
+        Only while the left button is held during a live session; the
+        status-bar X/Y readout (``cursorMoved``) stays live while consumed.
+
+        Args:
+            event: The scene mouse-move event.
+
+        Returns:
+            bool: True when the move extended the text selection (consumed).
+        """
+        if not self._mouse_selecting:
             return False
+        item = editing_text_item(self._scene)
+        if item is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            return False
+        s = self._scene
+        s.cursorMoved.emit(s._format_cursor_readout(event.scenePos()))
         self.set_cursor_at(item, event.scenePos(), keep_anchor=True)
         event.accept()
         return True
 
     def handle_release(self, event) -> bool:
-        """Swallow the release that belongs to a gate-consumed press."""
-        if self._mouse_selecting or self._swallow_release:
-            self._mouse_selecting = False
-            self._swallow_release = False
-            event.accept()
-            return True
-        return False
+        """Swallow the left release that belongs to a gate-consumed press.
+
+        Args:
+            event: The scene mouse-release event.
+
+        Returns:
+            bool: True when the release was the tail of a gate-consumed
+            press / double-click (consumed); False otherwise.
+        """
+        if not (self._mouse_selecting or self._swallow_release):
+            return False
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        self._mouse_selecting = False
+        self._swallow_release = False
+        event.accept()
+        return True
 
     def handle_double_click(self, event) -> bool:
         """Double-click: word-select while editing; else enter edit on the
-        editable TextItem under the cursor (select mode only)."""
+        editable TextItem under the cursor (select mode only).
+
+        Text wins over handles (``_handle_wins``) on both paths.
+
+        Args:
+            event: The scene mouse-double-click event.
+
+        Returns:
+            bool: True when the text editor consumed the double-click.
+        """
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         s = self._scene
@@ -299,6 +353,7 @@ class TextEditController:
                 self._mouse_selecting = False
                 self._select_unit(item, pos, QTextCursor.SelectionType.WordUnderCursor)
                 self._last_dbl_t = time.monotonic()
+                self._last_dbl_screen = QPointF(event.screenPos())
                 self._swallow_release = True
                 event.accept()
                 return True
@@ -324,8 +379,15 @@ class TextEditController:
         ``item.contextMenuEvent(event)`` call): PyQt6's
         ``QGraphicsSceneContextMenuEvent`` exposes no ``setPos``, and only the
         base dispatch stamps the item-local ``pos()`` the text control needs.
-        The manipulator/handles above the item ignore context menus, so the
-        event propagates down to the editing TextItem.
+        The manipulator/handles above the item ignore context menus, and so do
+        non-editing TextItems while a session is live, so the event
+        propagates down to the editing TextItem.
+
+        Args:
+            event: The scene context-menu event.
+
+        Returns:
+            bool: True when the press was inside the editing box (handled).
         """
         item = editing_text_item(self._scene)
         if item is None or not self._inside(item, event.scenePos()):
