@@ -120,15 +120,23 @@ def _bez_pt(seg, t: float):
             a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1])
 
 
-def _circle_through(a, b, c):
-    """Circumcircle ``(cx, cy, r)`` of three points, or None if collinear."""
-    d = 2.0 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
-    if abs(d) < 1e-12:
+def _fit_circle(pts):
+    """Least-squares (Kasa) circle ``(cx, cy, r)`` through *pts*, or None.
+
+    Solves x² + y² + D·x + E·y + F = 0 in the mean-centred frame (better
+    conditioned). Returns None for a degenerate (collinear) point set.
+    """
+    import numpy as np
+    a = np.asarray(pts, dtype=float)
+    m = a.mean(axis=0)
+    x, y = a[:, 0] - m[0], a[:, 1] - m[1]
+    A = np.column_stack([x, y, np.ones_like(x)])
+    b = -(x * x + y * y)
+    (d, e, f), *_ = np.linalg.lstsq(A, b, rcond=None)
+    rr = (d * d + e * e) / 4.0 - f
+    if not np.isfinite(rr) or rr <= 0:
         return None
-    a2, b2, c2 = a[0] ** 2 + a[1] ** 2, b[0] ** 2 + b[1] ** 2, c[0] ** 2 + c[1] ** 2
-    cx = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d
-    cy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d
-    return cx, cy, _dist((cx, cy), a)
+    return float(m[0] - d / 2.0), float(m[1] - e / 2.0), float(np.sqrt(rr))
 
 
 def _wrap180(deg: float) -> float:
@@ -136,28 +144,41 @@ def _wrap180(deg: float) -> float:
 
 
 def _circular_geom(segs: list, layer: str) -> dict | None:
-    """Recognise an all-cubic run as a circle / circular arc.
+    """Recognise a run of cubic Béziers as a circle / circular arc.
 
-    Returns a ``circle`` or ``arc`` geom dict (the shared scene-space
-    schemas), or None when the run is not circular within tolerance. Arc
-    angles are Qt ``arcTo`` angles (0 = +x, positive = visually CCW, i.e.
+    Fits ONE least-squares circle to samples of every segment (a 3-point fit
+    through a short, quantized first segment is too noisy — the 2026-09-23
+    smoke miss) and accepts when every sample is within
+    ``max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)``. Returns a
+    ``circle`` or ``arc`` geom dict (the shared scene-space schemas), or None.
+    Arc angles are Qt ``arcTo`` angles (0 = +x, positive = visually CCW, i.e.
     toward -y in these Y-down coords) — the convention ``ArcItem`` consumes.
     """
-    first = segs[0]
-    fit = _circle_through(first[1], _bez_pt(first, 0.5), first[4])
+    samples = [_bez_pt(seg, t) for seg in segs
+               for t in (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)]
+    samples.append(segs[-1][4])
+    fit = _fit_circle(samples)
     if fit is None:
         return None
     cx, cy, r = fit
     tol = max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)
+    if any(abs(_dist(q, (cx, cy)) - r) > tol for q in samples):
+        return None
+    # A (near-)straight run fits a huge circle within tolerance — it is a
+    # line, not an arc: require real bulge off the chord.
+    p0, p1 = samples[0], samples[-1]
+    chord = _dist(p0, p1)
+    if chord > tol:
+        ux, uy = (p1[0] - p0[0]) / chord, (p1[1] - p0[1]) / chord
+        bulge = max(abs((q[0] - p0[0]) * uy - (q[1] - p0[1]) * ux) for q in samples)
+        if bulge <= tol:
+            return None
 
-    def ang(p):
-        return math.degrees(math.atan2(-(p[1] - cy), p[0] - cx))
+    def ang(q):
+        return math.degrees(math.atan2(-(q[1] - cy), q[0] - cx))
 
     total = 0.0
     for seg in segs:
-        for t in (0.0, 0.25, 0.5, 0.75, 1.0):
-            if abs(_dist(_bez_pt(seg, t), (cx, cy)) - r) > tol:
-                return None
         a0, am, a3 = ang(seg[1]), ang(_bez_pt(seg, 0.5)), ang(seg[4])
         sweep = _wrap180(am - a0) + _wrap180(a3 - am)
         if abs(sweep) < 1e-9 or (total and (sweep > 0) != (total > 0)):
@@ -201,17 +222,51 @@ def _spline_geom(segs: list, closed: bool, layer: str) -> dict:
             "closed": _dist(cps[0], cps[-1]) <= PDF_CURVE_JOIN_EPS}
 
 
+def _piece_geom(segs: list, closed: bool, layer: str) -> dict:
+    """A non-arc piece: ``path_points`` if all lines, else one exact spline."""
+    if not any(sg[0] == "c" for sg in segs):
+        return {"kind": "path_points", "layer": layer,
+                "points": [segs[0][1]] + [sg[-1] for sg in segs],
+                "closed": closed}
+    return _spline_geom(segs, closed, layer)
+
+
 def _subpath_geoms(segs: list, closed: bool, layer: str) -> list[dict]:
-    """Emit one geom for a contiguous subpath (curve-preserving mode)."""
-    if not any(s[0] == "c" for s in segs):
-        return [{"kind": "path_points", "layer": layer,
-                 "points": [segs[0][1]] + [s[-1] for s in segs],
-                 "closed": closed}]
-    if all(s[0] == "c" for s in segs):
-        circ = _circular_geom(segs, layer)
-        if circ is not None:
-            return [circ]
-    return [_spline_geom(segs, closed, layer)]
+    """Emit geoms for a contiguous subpath (curve-preserving mode).
+
+    Maximal runs of Béziers that fit a circle are carved out as
+    ``circle``/``arc`` (how a DXF would arrive: separate entities); the
+    stretches between them merge into ONE piece each — a spline when they
+    contain a free-form curve, else a polyline. A line-only subpath is
+    emitted exactly as the flattening path does.
+    """
+    if not any(sg[0] == "c" for sg in segs):
+        return [_piece_geom(segs, closed, layer)]
+    work = list(segs)
+    if closed and _dist(work[0][1], work[-1][-1]) > PDF_CURVE_JOIN_EPS:
+        work.append(("l", work[-1][-1], work[0][1]))
+    # Maximal same-kind runs.
+    runs: list[list] = []
+    for sg in work:
+        if runs and runs[-1][0][0] == sg[0]:
+            runs[-1].append(sg)
+        else:
+            runs.append([sg])
+    out: list[dict] = []
+    pending: list = []
+    for run in runs:
+        circ = _circular_geom(run, layer) if run[0][0] == "c" else None
+        if circ is None:
+            pending.extend(run)
+            continue
+        if pending:
+            out.append(_piece_geom(pending, False, layer))
+            pending = []
+        out.append(circ)
+    if pending:
+        whole = len(pending) == len(work)      # nothing carved out
+        out.append(_piece_geom(pending, closed and whole, layer))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

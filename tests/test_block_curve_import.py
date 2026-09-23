@@ -258,3 +258,55 @@ def test_selecting_a_long_spline_computes_grips_once_per_item(qapp, monkeypatch)
     assert sc._manipulator.isVisible()
     # One host per control point; positioning them must not be O(n^2).
     assert len(calls) < 10, f"grip_points called {len(calls)}x for one item"
+
+
+# ── Smoke round 2 (2026-09-23) ──────────────────────────────────────────────
+
+def _q(item, step=0.12):
+    """Quantize a fitz 'c' item to the PDF writer's coordinate grid."""
+    return (item[0],) + tuple(_P(round(p.x / step) * step, round(p.y / step) * step)
+                              for p in item[1:])
+
+
+def test_quantized_small_circle_is_still_a_circle():
+    # r = 3 pt on a 0.12 pt grid: the real sample's small symbol circles.
+    items = [_q(_quarter(500.3, 700.7, 3.0, a)) for a in (0, 90, 180, 270)]
+    [c] = _prims(_worker(True)._extract_path(_path(items, close=True)))
+    assert isinstance(c, CircleItem), type(c).__name__
+    r = c.mapRectToScene(c.rect())
+    assert abs(r.width() / 2 - 3.0) < 0.1
+
+
+def test_mixed_path_splits_out_its_circular_arc():
+    arc = _quarter(100, 100, 20, 0)                 # (120,100) -> (100,80)
+    items = [("l", _P(150, 100), _P(120, 100)), arc,
+             ("l", _P(100, 80), _P(100, 30))]
+    prims = _prims(_worker(True)._extract_path(_path(items)))
+    kinds = [type(p).__name__ for p in prims]
+    assert kinds == ["PolylineItem", "ArcItem", "PolylineItem"], kinds
+    s, e = _endpoints(prims[1])
+    assert ({_close(s, (120, 100)), _close(e, (100, 80))} == {True}
+            or {_close(s, (100, 80)), _close(e, (120, 100))} == {True})
+
+
+def test_rotating_the_preview_keeps_the_drawing_in_view(qapp):
+    from PyQt6.QtTest import QTest
+    import sys
+    sys.path.insert(0, "tests")
+    from test_block_polish_bugs import _dialog_with, _seg
+    dlg = _dialog_with([_seg(0, 0, 1000, 0), _seg(0, 0, 0, 600)], 0.0)
+    try:
+        dlg._base_y_edit.set_value_mm(600.0)     # bottom-left, like a PDF load
+        dlg.resize(1100, 700)
+        dlg.show()
+        QTest.qWaitForWindowExposed(dlg)
+        dlg._rebuild_preview()
+        view = dlg._preview_view
+        for rot in (90.0, 45.0, 180.0):
+            dlg._set_rotation(rot)
+            seen = view.mapToScene(view.viewport().rect()).boundingRect()
+            geom = dlg._preview_geom_group.sceneBoundingRect()
+            assert seen.contains(geom), f"{rot}: drawing left the view"
+    finally:
+        dlg.close()
+        dlg.deleteLater()

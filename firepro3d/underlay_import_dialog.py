@@ -3707,6 +3707,11 @@ class UnderlayImportDialog(HouseDialog):
             # C++ object deleted (scene was cleared) — rebuild from data
             self._preview_geom_group = None
             self._rebuild_preview()
+            return
+        # Rotating about the base point (default: the drawing's corner) swings
+        # the drawing out of the fitted view — the content extent changed, so
+        # re-fit exactly as a load does.
+        self._fit_preview_to_content()
 
     def _get_rotation(self) -> float:
         text = self._rotation_edit.text().strip().rstrip("°").strip()
