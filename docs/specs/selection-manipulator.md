@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains
-last-verified: 2026-09-16
-verified-commit: c0e1c28   # bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+last-verified: 2026-09-23
+verified-commit: 434066c   # block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
@@ -496,6 +496,14 @@ non-rigid GRIP role); `_begin_handle` installs the passed handle and fires its
 hosts); new `_reflow_live()` recomputes the frame + repositions rigid + pooled
 hosts every live-apply move **without rebuilding the handle list** (stable
 `_active_handle`).
+
+**Host positioning cost (2026-09-23, block polish).** `_sync_host_pool` and
+`_reflow_live` position pooled hosts via module-level `_handle_scene_pos(handle,
+rect, pts_cache)`: for a **plain** `GripHandle` (its `scene_position` not
+overridden) each item's `grip_points()` is computed **once per pass** and indexed,
+instead of one O(n) call per host (O(n²) for an n-point spline/polyline — dominant
+on large imported selections). Subclasses overriding `scene_position` keep their
+own logic. Guard: `tests/test_block_curve_import.py::test_selecting_a_long_spline_computes_grips_once_per_item`.
 
 **Coexistence gate** (one render path, one hit-test): module-level
 `_item_uses_manip_handles(item)` (in `selection_manipulator.py`) — true when the

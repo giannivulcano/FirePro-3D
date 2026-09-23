@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-18  # 2026-09-18: C7 ribbon rework reconciled — the Underlay ribbon group moved from Manage to the Architecture tab (`8c887aa`); the forward-pointer's "tentative/deferred" ribbon-home clause corrected to as-shipped (ribbon topology → `ribbon-bar.md`, Rule A). Prior 2026-09-15: DxfImportWorker gained a `preserve_curves` flag (default False → underlay path byte-identical); when set (BlockImportDialog only) ARC/SPLINE emit native `arc`/`spline` dicts instead of tessellating, and dwg_converter bounds/viewport/layout helpers + append_geom_to_path/apply_import_transform handle the `spline` kind. The block-editor curve-import CONTRACT (schemas, rotation) lives in `2d-geometry.md §3.5.3` (Rule A). Prior: §10.7 reconciled 2026-09-08.
-verified-commit: 5cd5941
+last-verified: 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: 434066c
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
@@ -629,8 +629,9 @@ placeholder reads "Loading &lt;layout&gt;…" (`b17ea37`) instead of going blank
 
 ### 10.10 Insert-at-origin + rotation pivot (as-built)
 
-Vector underlays rotate about the **base point**, not the centroid, matching the
-import-dialog preview. `apply_import_transform` bakes `coord → (coord − base) ×
+Placed vector underlays rotate about the **base point**, not the centroid (the
+import-dialog *preview* pivots about a fixed source origin instead — §10.14;
+placement depends only on base + rotation). `apply_import_transform` bakes `coord → (coord − base) ×
 scale` into the geometry, so the base point sits at group-local `(0, 0)`;
 `model_space._apply_underlay_display` therefore calls
 `setTransformOriginPoint(0, 0)` on vector `QGraphicsItemGroup`s. Raster pixmaps
@@ -714,6 +715,33 @@ Only when no standard scale is within 2% does the raw measured factor drive
 applied **last** (it re-verifies after the combo/edit writes fire their
 un-verify). Architectural presets now include **`1/32"`, `1/16"`, `3/32"`** in
 addition to the existing larger scales.
+
+### 10.14 Preview frame — crop, pan, fit, rotation (2026-09-23, block polish)
+
+Shared by the underlay import and the Block Editor's `BlockImportDialog`.
+
+- **Fixed rotation pivot.** The preview geometry group rotates about group-local
+  `(0, 0)`, never the base point, so re-picking the base cannot re-pivot (jump)
+  the preview. Base-point picks are mapped into **source** coords
+  (`group.mapFromScene`) — what `apply_import_transform` subtracts — and the base
+  marker is drawn at `group.mapToScene(base)`.
+- **Crop at any rotation.** The rubber band (preview-scene coords) is mapped into
+  the group's local frame (`group.mapFromScene(rect)`); a geom is inside when
+  **any** of its `dwg_converter.geom_rep_points` is — the one rule the crop
+  round-trip (`_geom_in_any_bound`, §10.7/§10.8) also uses.
+- **Free pan.** `_fit_preview_to_content` sets the scene rect to the fit rect
+  **padded** by `max(w, h) / _PreviewView._ZOOM_MIN`, not pinned to the content,
+  so the drawing pans at fit / zoomed-out.
+- **Re-fit policy.** Re-fit only when the geometry list changes (load / page /
+  layout) or on rotation; crop, crop-clear and layer toggles keep the user's
+  zoom/pan.
+- **Rotation is per-import.** A fresh dialog starts at 0°; the retired
+  `UnderlayImport/rotation` QSettings key is not read and is removed on save
+  (scale + insert-at-origin still persist). Modify restores the record's
+  rotation (§10.7).
+
+Guards: `tests/test_block_polish_bugs.py`,
+`tests/test_block_curve_import.py::test_rotating_the_preview_keeps_the_drawing_in_view`.
 
 ---
 

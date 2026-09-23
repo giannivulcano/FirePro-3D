@@ -2,7 +2,7 @@
 
 > **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
 > **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
-> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`)
+> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`); 2026-09-23 (§4.3 removal pruning + §5.9 batch selection, block polish, verified `434066c`)
 > **Revision:** 3 (Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
 > **Absorbs:** TODO "Restore label-only click-selection for rooms"
 >
@@ -125,6 +125,8 @@ The hover outline is gated on `not scene._halo_suppressed()`. HALO is suppressed
 
 **Candidate invalidation on undo/redo (2026-09-23).** `_restore_network` (the single restore path for undo AND redo) rebuilds every item from the snapshot, so any held HALO candidate is a detached object at its pre-restore geometry. It calls `halo_clear()` (+ repaint) before rebuilding, so no ghost outline is painted at the old position; the next mouse move re-acquires the hover. Guard: `tests/test_halo_stale_highlight.py`.
 
+**Candidate pruning on removal (2026-09-23, block polish).** `halo_item()` (`HaloSelectionMixin`) first drops candidates no longer in the scene (delete / cut / restore) and resets the cycle index, so a stale outline is never painted over a vanished item while the cursor sits still. Guard: `tests/test_block_polish_bugs.py::test_halo_highlight_drops_deleted_item`.
+
 ### 4.4 Status readout
 
 When the HALO item resolves to one of several overlapping candidates, the scene emits a `"<Type> — i of N"` readout via its `instructionChanged` signal (status bar), so the user knows a Spacebar cycle (§5.1) is available and where in the ring they are.
@@ -215,6 +217,13 @@ Double-click behaviors in tool modes (finish polyline, close polygon, activate v
 
 Clicking a sprinkler SVG child resolves to the parent Node. The Node is selected and its properties/manipulator handles are shown (§8) — not the sprinkler.
 
+### 5.9 Programmatic batch selection & delete notification (2026-09-23, block polish)
+
+- `Model_Space.select_items(items, *, clear=True)` selects a batch with **one** `selectionChanged` (signals blocked across the loop; items not in this scene or not selectable are skipped). Per-item `setSelected` rebaked the manipulator over the growing selection — O(n²). Routed through it: Block Editor import, select-all (`clear=False`), select-same-level, level copy (select + restore), and the single-placement end-switch.
+- `delete_selected_items` re-emits `selectionChanged` once after its signal-blocked bulk delete, so the manipulator frame, property panel and browser drop the deleted items.
+
+Guards: `tests/test_block_polish_bugs.py` (`test_select_items_emits_selection_changed_once`, `test_delete_notifies_selection_listeners`, `test_delete_hides_manipulator_frame`).
+
 ---
 
 ## 6. Rubber-Band Selection
@@ -292,7 +301,7 @@ Grip and handle interaction is **owned by the `SelectionManipulator`** — since
 | Spacebar | Cycle the HALO preselection through overlapping candidates (§5.1) |
 | Tab | **Not a selection key** — freed for the dynamic-input HUD |
 | Escape | Precedence ladder: cancel manip-drag → cancel band → reset HALO cycle → clear selection (§7.1) |
-| Delete | Delete selected items (existing behavior, not changed by this spec) |
+| Delete | Delete selected items (`delete_selected_items`; one `selectionChanged` re-emit after the bulk delete — §5.9) |
 | F3 | Toggle SNAP (snap engine, independent of selection) |
 
 ---

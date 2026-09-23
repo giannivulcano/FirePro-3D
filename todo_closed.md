@@ -248,6 +248,12 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 - [x] [type:feature] Save-collision: rename-on-collision (deferred from the 2026-09-05 identity-lookups fix) [P3] [subject:UX] [done:2026-09-23]
   - Details: S4.x follow-up. A cross-`id` Save-to-Library filename collision now warns + offers overwrite/cancel (`BlockNameCollision`); a true rename option (pick a new name instead of clobbering) is deferred because block metadata is read-only outside the v2 Editor. Wire rename once the Editor / inline-rename exists. `block_manager.py`, `main.py`.
   - Done: 208f1c7: Overwrite / Rename / Cancel in both the Block Editor Save dialog (Rename stays open on Name) and the Block Manager Save-to-Library (Rename -> set_block_metadata).
+- [x] [type:feature] Block Editor Save Block / Save Block As in the ribbon (+ Ctrl+S / Ctrl+Shift+S) [P2] [subject:UX] [done:2026-09-23]
+  - Details: user, 2026-09-23 (block polish smoke). Done: 4106605 + 434066c — first Save opens the dialog, later Saves are silent (library copy rewritten if present; status reports updated instances); Save As = new block "<name> copy", editor follows; shortcuts dispatch to the active editor tab.
+- [x] [type:feature] Blocks browser: sibling-browser tree chrome + on-disk library view from startup [P2] [subject:UX] [done:2026-09-23]
+  - Details: user, 2026-09-23 (block polish smoke). Done: f7d615d + 0c66329 — bold folder rows / shared indentation+chevrons; on-disk Library/Series folders + .fpdb merged with project blocks (library-only italic, double-click loads + places); block_library change listeners; harness Invariant 7 isolates the library per test (de3b134).
+- [x] [type:bug] Block Editor imported geometry line weight differs from drawn primitives; default primitive weight -> 1 [P2] [subject:CAD] [done:2026-09-23]
+  - Details: user, 2026-09-23. Done: 360835a + de3b134 — constants.DEFAULT_GEOMETRY_LINEWEIGHT (1.0) feeds both _geom_color_lw and the import factory.
 
 ## 🎯 Current Focus — MVP: AHJ Package (decided 2026-06-23 grill; full rationale in `DOCS-REVIEW.md`)
 
