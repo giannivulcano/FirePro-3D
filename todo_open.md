@@ -324,6 +324,9 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Placement-UX overhaul
 
+- [ ] [type:feature] Arc placement: add a third arc type — pick the two END points first, then the CENTRE last [P1] [subject:CAD]
+  - Details: user, 2026-09-23 (block-polish smoke). Existing arc placement variants don't cover "endpoints first, centre last" — the natural way to trace an arc between two known points (e.g. matching imported geometry). Add as a new variant in the ←/→ placement cycle for `ArcItem`; the centre pick is constrained to the perpendicular bisector of the chord (radius follows), with the usual HUD/Tab dimension input + ghost preview. `geometry_drawing_controller.py`, `model_space.py`, `geometry_2d.py` (`ArcItem`). ref: `2d-geometry.md`, placement-UX spec.
+
 - [ ] [type:feature] Merge Line and Polyline into one ←/→ cycle tool [P2] [subject:UX]
   - Details: user, 2026-08-21 — host both under one `draw_line` mode with a line/polyline variant flag (per the `_PLACEMENT_VARIANTS` framework), branching the existing 2-click line vs N-click polyline handlers on it. Remove the placeholder `K` polyline shortcut (`Model_View._TOOL_SHORTCUTS` + Polyline tooltip) once this lands. `model_space.py`, `model_view.py`, `main.py`.
 - [ ] [type:bug] `arc_span` ArcLength desyncs on undo [P3] [subject:UX]

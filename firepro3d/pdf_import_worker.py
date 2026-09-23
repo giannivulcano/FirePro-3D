@@ -147,12 +147,16 @@ def _circular_geom(segs: list, layer: str) -> dict | None:
     """Recognise a run of cubic Béziers as a circle / circular arc.
 
     Fits ONE least-squares circle to samples of every segment (a 3-point fit
-    through a short, quantized first segment is too noisy — the 2026-09-23
-    smoke miss) and accepts when every sample is within
-    ``max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)``. Returns a
-    ``circle`` or ``arc`` geom dict (the shared scene-space schemas), or None.
-    Arc angles are Qt ``arcTo`` angles (0 = +x, positive = visually CCW, i.e.
-    toward -y in these Y-down coords) — the convention ``ArcItem`` consumes.
+    through a short, quantized first segment is too noisy) and accepts when
+    every sample is within ``max(PDF_CIRCLE_FIT_ABS_TOL,
+    PDF_CIRCLE_FIT_REL_TOL * r)``. An OPEN arc is then constrained to pass
+    EXACTLY through the run's source endpoints — its centre is projected onto
+    the chord's perpendicular bisector — because a best-fit circle's ends
+    drift off the source by up to the tolerance and visibly miss the lines
+    they join (2026-09-23 smoke). Returns a ``circle`` or ``arc`` geom dict
+    (the shared scene-space schemas), or None. Arc angles are Qt ``arcTo``
+    angles (0 = +x, positive = visually CCW, i.e. toward -y in these Y-down
+    coords) — the convention ``ArcItem`` consumes.
     """
     samples = [_bez_pt(seg, t) for seg in segs
                for t in (0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)]
@@ -162,13 +166,23 @@ def _circular_geom(segs: list, layer: str) -> dict | None:
         return None
     cx, cy, r = fit
     tol = max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)
+    p0, p1 = segs[0][1], segs[-1][4]
+    chord = _dist(p0, p1)
+    closed = chord <= tol
+    if not closed:
+        # Constrain the centre to the chord's perpendicular bisector so the
+        # arc passes exactly through both source endpoints.
+        mx, my = (p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0
+        nx, ny = -(p1[1] - p0[1]) / chord, (p1[0] - p0[0]) / chord
+        t_off = (cx - mx) * nx + (cy - my) * ny
+        cx, cy = mx + t_off * nx, my + t_off * ny
+        r = _dist((cx, cy), p0)
+        tol = max(PDF_CIRCLE_FIT_ABS_TOL, PDF_CIRCLE_FIT_REL_TOL * r)
     if any(abs(_dist(q, (cx, cy)) - r) > tol for q in samples):
         return None
-    # A (near-)straight run fits a huge circle within tolerance — it is a
-    # line, not an arc: require real bulge off the chord.
-    p0, p1 = samples[0], samples[-1]
-    chord = _dist(p0, p1)
-    if chord > tol:
+    if not closed:
+        # A (near-)straight run fits a huge circle within tolerance — it is a
+        # line, not an arc: require real bulge off the chord.
         ux, uy = (p1[0] - p0[0]) / chord, (p1[1] - p0[1]) / chord
         bulge = max(abs((q[0] - p0[0]) * uy - (q[1] - p0[1]) * ux) for q in samples)
         if bulge <= tol:
@@ -186,12 +200,20 @@ def _circular_geom(segs: list, layer: str) -> dict | None:
         total += sweep
     if abs(total) > 360.5:
         return None
-    if abs(abs(total) - 360.0) <= 0.5 and _dist(segs[0][1], segs[-1][4]) <= tol:
+    if closed:
+        if abs(abs(total) - 360.0) > 0.5:
+            return None                     # ends meet but not a full turn
         return {"kind": "circle", "layer": layer,
                 "x": cx - r, "y": cy - r, "w": 2 * r, "h": 2 * r}
+    # Span from the EXACT end angles (the summed per-segment sweeps carry
+    # the direction + >180 disambiguation; the end angle removes drift).
+    a_start, a_end = ang(p0), ang(p1)
+    span = _wrap180(a_end - a_start)
+    if (span > 0) != (total > 0):
+        span += 360.0 if total > 0 else -360.0
     return {"kind": "arc", "layer": layer,
             "rx": cx - r, "ry": cy - r, "rw": 2 * r, "rh": 2 * r,
-            "start": ang(segs[0][1]), "span": total}
+            "start": a_start, "span": span}
 
 
 def _spline_geom(segs: list, closed: bool, layer: str) -> dict:

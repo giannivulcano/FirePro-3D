@@ -310,3 +310,22 @@ def test_rotating_the_preview_keeps_the_drawing_in_view(qapp):
     finally:
         dlg.close()
         dlg.deleteLater()
+
+
+def test_quantized_arc_ends_exactly_on_its_source_endpoints():
+    # Smoke round 3: a least-squares circle is a BEST fit — on a small,
+    # 0.12 pt-quantized arc its ends missed the adjoining lines by ~0.1 pt.
+    # CAD connectivity needs the arc to hit the source endpoints exactly.
+    runs = [[_q(_quarter(300.3, 400.7, r, a0, ccw_screen=ccw))]
+            for r in (0.8, 3.0, 7.5) for a0 in (10, 100) for ccw in (True, False)]
+    for run in runs:
+        [g] = _worker(True)._extract_path(_path(run))
+        [a] = _prims([g])
+        assert isinstance(a, ArcItem)
+        s, e = _endpoints(a)
+        p0 = (run[0][1].x, run[0][1].y)
+        p3 = (run[-1][4].x, run[-1][4].y)
+        # Qt's arcMoveTo/arcTo itself is only ~5e-4 * r accurate (the analytic
+        # endpoints are exact); the unconstrained best-fit miss was >= 6e-3 * r.
+        tol = 1e-3 * a.radius() if hasattr(a, "radius") else 1e-3 * a._radius
+        assert (_close(s, p0, tol) and _close(e, p3, tol)), (s, e, p0, p3)
