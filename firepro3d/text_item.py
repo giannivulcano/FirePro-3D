@@ -16,6 +16,7 @@ coexist and this module does not rewire them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
 
@@ -167,8 +168,7 @@ class TextAnnotationData:
 
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal          # noqa: E402
 from PyQt6.QtGui import (                                          # noqa: E402
-    QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTextCursor,
-    QTransform,
+    QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTransform,
 )
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu  # noqa: E402
 
@@ -179,6 +179,23 @@ from .constants import (                                           # noqa: E402
 )
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
+
+
+class _LayoutOffsets(NamedTuple):
+    """Document-wide input to :meth:`TextItem._line_origin`.
+
+    Horizontal alignment is deliberately NOT carried here: Qt's own
+    ``QTextLine.cursorToX``/``xToCursor`` are alignment-aware, while
+    ``QTextLine.x()`` is not, so callers derive any horizontal alignment
+    shift from those Qt calls directly rather than from a cached flag here.
+
+    Attributes:
+        voff: Vertical-alignment offset (local, unscaled units) of the whole
+            text block within the box — ``0.0`` for top, half the box/content
+            slack for middle, and the full slack for bottom alignment.
+    """
+
+    voff: float
 
 
 class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
@@ -613,67 +630,94 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             for i in range(layout.lineCount()):
                 line = layout.lineAt(i)
                 origin = self._line_origin(block, line, offsets)
+                # _line_origin is deliberately UNALIGNED (see its docstring):
+                # QTextLine.cursorToX/xToCursor are alignment-aware, so asking
+                # Qt where the line's own first character lands gives the
+                # aligned x directly, without re-deriving alignment here.
+                align_off = line.cursorToX(line.textStart())[0] - line.x()
                 start = line.textStart()
                 length = line.textLength()
                 # A block never contains a newline (Qt splits blocks on \n), so
                 # the run text is used as-is.
                 run_text = block_text[start:start + length].rstrip("\u2028\u2029\n")
                 if run_text:
-                    outline.addText(QPointF(origin.x(), origin.y() + line.ascent()),
+                    outline.addText(QPointF(origin.x() + align_off, origin.y() + line.ascent()),
                                     font, run_text)
             block = block.next()
         return outline
 
     # ── Line geometry shared by glyphs, caret, selection, hit-test ───────────
 
-    def _layout_offsets(self):
-        """Document-wide inputs to :meth:`_line_origin`.
+    def _layout_offsets(self) -> _LayoutOffsets:
+        """Document-wide input to :meth:`_line_origin`.
+
+        Forces the (otherwise lazy) text layout to run so every
+        ``QTextLine``/``QTextBlock`` queried afterwards is up to date.
 
         Returns:
-            ``(align, avail, voff)`` — the option alignment, the content width
-            available for horizontal alignment (``None`` when auto-width), and
-            the vertical-alignment offset of the whole block within the box.
+            _LayoutOffsets: the vertical-alignment offset of the whole text
+            block within the box (see :class:`_LayoutOffsets`).
         """
         doc = self.document()
         doc.documentLayout().documentSize()   # force the lazy layout to run
-        align = doc.defaultTextOption().alignment()
-        tw = doc.textWidth()
-        avail = (tw - 2.0 * doc.documentMargin()) if tw > 0 else None
         vslack = max(0.0, self._box_rect_local().height()
                      - super().boundingRect().height())
         voff = (vslack if self._data.valign == "B"
                 else vslack / 2.0 if self._data.valign == "M" else 0.0)
-        return align, avail, voff
+        return _LayoutOffsets(voff)
 
-    def _line_origin(self, block, line, offsets=None, apply_align_offset=True) -> QPointF:
-        """Painted top-left of *line* in the LOCAL, UNSCALED, UN-rotated frame.
+    def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
+        """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
+        UN-ALIGNED frame.
 
-        QTextDocument keeps every QTextLine at x==0 and applies horizontal
-        alignment only at draw time, so the offset is applied here (left=0,
-        centre=slack/2, right=slack) together with the vertical-align offset.
-        The glyph baseline is ``origin.y() + line.ascent()``.
+        ``QTextLine.x()`` stays at ``0`` regardless of the paragraph's
+        horizontal alignment — Qt only applies that shift inside
+        ``QTextLine.cursorToX``/``xToCursor`` (and at paint time), never in
+        ``line.x()`` itself. This method therefore returns the *unaligned*
+        origin; callers that need the aligned x (currently only the
+        glyph-outline path, via :meth:`_glyph_outline_local`) derive the
+        shift themselves from ``cursorToX``/``xToCursor``, which ARE
+        alignment-aware. Callers that already route every x through
+        ``cursorToX``/``xToCursor`` (caret/selection/hit-test) get the
+        correct aligned position for free and must NOT add a shift here, or
+        alignment would be double-applied.
 
         Args:
-            apply_align_offset: On this Qt build, ``QTextLine.cursorToX``/
-                ``xToCursor`` already fold in the line's horizontal alignment,
-                so the caret/selection/hit-test callers pass ``False`` here to
-                avoid double-applying it; the glyph-outline path (which does
-                not go through ``cursorToX``) keeps the default ``True``.
+            block: The ``QTextBlock`` containing *line*.
+            line: The ``QTextLine`` to place.
+            offsets: A precomputed :meth:`_layout_offsets` result, to avoid
+                recomputing it once per line; computed lazily when omitted.
+
+        Returns:
+            QPointF: the line's unaligned top-left, in local unscaled
+            coordinates. The glyph baseline is ``origin.y() + line.ascent()``.
         """
-        align, avail, voff = offsets if offsets is not None else self._layout_offsets()
-        align_off = 0.0
-        if apply_align_offset and avail is not None:
-            slack = avail - line.naturalTextWidth()
-            if slack > 0:
-                if align & Qt.AlignmentFlag.AlignRight:
-                    align_off = slack
-                elif align & Qt.AlignmentFlag.AlignHCenter:
-                    align_off = slack / 2.0
+        voff = (offsets if offsets is not None else self._layout_offsets()).voff
         bp = block.layout().position()
-        return QPointF(bp.x() + line.x() + align_off, bp.y() + line.y() + voff)
+        return QPointF(bp.x() + line.x(), bp.y() + line.y() + voff)
 
     def _line_for_position(self, pos: int):
-        """``(block, line, rel)`` for document position *pos* (line may be None)."""
+        """Resolve document position *pos* to its block, line, and offset.
+
+        Args:
+            pos: An absolute ``QTextDocument`` character position.
+
+        Returns:
+            tuple[QTextBlock, QTextLine | None, int]: ``(block, line, rel)``
+            — the block containing *pos*, the ``QTextLine`` within that
+            block that *pos* falls on, and ``rel``, *pos* made
+            block-relative and clamped to ``[0, block.length() - 1]`` (i.e.
+            excluding the block's own terminating newline, matching the
+            block-relative addressing ``cursorToX``/``xToCursor`` expect
+            elsewhere in this class). ``line`` is only ever ``None`` if the
+            block has no laid-out lines at all.
+
+        Note:
+            At a soft-wrap boundary, Qt's own cursor affinity maps the
+            position at the end of line N to the start of line N+1 (standard
+            Qt behaviour) — ``lineForTextPosition`` follows that mapping, so
+            a *rel* sitting exactly on such a boundary resolves to line N+1.
+        """
         doc = self.document()
         block = doc.findBlock(pos)
         if not block.isValid():
@@ -690,35 +734,56 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         offsets = self._layout_offsets()
         block, line, rel = self._line_for_position(self.textCursor().position())
         if line is None:
+            # Defensive fallback only: _layout_offsets() above already forced
+            # the lazy layout to run via documentLayout().documentSize(), so
+            # every block has >=1 valid QTextLine afterwards and this branch
+            # should be unreachable in practice.
             m = self.document().documentMargin()
-            return QRectF(m, m + offsets[2], 0.0, QFontMetricsF(self.font()).height())
-        origin = self._line_origin(block, line, offsets, apply_align_offset=False)
+            return QRectF(m, m + offsets.voff, 0.0, QFontMetricsF(self.font()).height())
+        origin = self._line_origin(block, line, offsets)
         x, _ = line.cursorToX(rel)
         return QRectF(origin.x() + (x - line.x()), origin.y(), 0.0, line.height())
 
     def selection_rects_local(self) -> list[QRectF]:
-        """Per-line highlight rects (painted frame) for the cursor's selection."""
+        """Per-line highlight rects (painted frame) for the cursor's selection.
+
+        A selection that crosses a block boundary includes the newline
+        joining the two blocks as a real (if glyph-less) selectable
+        character. Since there is no glyph to highlight, that newline gets
+        its own narrow rect — one space's horizontal advance wide — appended
+        after that line's own rect, so a selected blank line / line break
+        still gets visible feedback.
+        """
         cur = self.textCursor()
         if not cur.hasSelection():
             return []
         s, e = cur.selectionStart(), cur.selectionEnd()
         offsets = self._layout_offsets()
+        newline_w = QFontMetricsF(self.font()).horizontalAdvance(" ")
         rects: list[QRectF] = []
         block = self.document().findBlock(s)
         while block.isValid() and block.position() <= e:
             layout = block.layout()
             bpos = block.position()
-            for i in range(layout.lineCount()):
+            line_count = layout.lineCount()
+            for i in range(line_count):
                 line = layout.lineAt(i)
                 ls = bpos + line.textStart()
-                a, b = max(s, ls), min(e, ls + line.textLength())
-                if a >= b:
-                    continue
-                origin = self._line_origin(block, line, offsets, apply_align_offset=False)
-                xa, _ = line.cursorToX(a - bpos)
-                xb, _ = line.cursorToX(b - bpos)
-                rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
-                                    xb - xa, line.height()))
+                line_end = ls + line.textLength()
+                origin = self._line_origin(block, line, offsets)
+                a, b = max(s, ls), min(e, line_end)
+                if a < b:
+                    xa, _ = line.cursorToX(a - bpos)
+                    xb, _ = line.cursorToX(b - bpos)
+                    rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
+                                        xb - xa, line.height()))
+                # The block-joining newline sits at `line_end` on this (the
+                # block's last) line and is only "selected" when the
+                # selection extends strictly past it.
+                if i == line_count - 1 and block.next().isValid() and s <= line_end < e:
+                    xe, _ = line.cursorToX(line_end - bpos)
+                    rects.append(QRectF(origin.x() + (xe - line.x()), origin.y(),
+                                        newline_w, line.height()))
             block = block.next()
         return rects
 
@@ -727,7 +792,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
         The inverse of :meth:`caret_rect_local`: the line whose painted band
         contains (or is nearest to) the point's y, then ``QTextLine.xToCursor``
-        on the x relative to that line's painted origin.
+        on the x relative to that line's painted origin. A point above the
+        first line or below the last resolves to that nearest line (the
+        running ``dy`` minimum below), matching common editor hit-testing.
         """
         offsets = self._layout_offsets()
         best = None                       # (dy, position)
@@ -736,7 +803,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             layout = block.layout()
             for i in range(layout.lineCount()):
                 line = layout.lineAt(i)
-                origin = self._line_origin(block, line, offsets, apply_align_offset=False)
+                origin = self._line_origin(block, line, offsets)
                 top, bot = origin.y(), origin.y() + line.height()
                 y = local_pt.y()
                 dy = 0.0 if top <= y < bot else min(abs(y - top), abs(y - bot))
