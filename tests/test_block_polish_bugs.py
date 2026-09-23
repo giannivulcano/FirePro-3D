@@ -185,3 +185,54 @@ def test_fresh_import_dialog_starts_at_zero_rotation(qapp):
         assert dlg._get_rotation() == 0.0
     finally:
         dlg.deleteLater()
+
+
+# ── Smoke round 1 (2026-09-23) ──────────────────────────────────────────────
+
+def test_halo_highlight_drops_deleted_item(qapp):
+    from PyQt6.QtGui import QTransform
+    sc = Model_Space()
+    it = _add_line(sc)
+    sc.halo_update(QPointF(500.0, 0.0), 8.0, QTransform())
+    assert sc.halo_item() is it
+    it.setSelected(True)
+    sc.delete_selected_items()          # cursor has NOT moved
+    assert sc.halo_item() is None, "HALO must not keep painting a deleted item"
+
+
+def test_crop_keeps_the_current_view(qapp):
+    from PyQt6.QtTest import QTest
+    dlg = _dialog_with([_seg(0, 0, 1000, 0), _seg(0, 0, 0, 1000)], 0.0)
+    try:
+        dlg.resize(1100, 700)
+        dlg.show()
+        QTest.qWaitForWindowExposed(dlg)
+        dlg._fit_preview_to_content()
+        view = dlg._preview_view
+        view._apply_zoom(4.0)           # user zoomed in to crop a detail
+        before = view.transform()
+        dlg._on_rubber_band(QRectF(-50, -50, 100, 100))
+        assert dlg._selected_indices == {0, 1}
+        assert view.transform() == before, "crop must not re-fit the preview"
+        dlg._clear_selection()
+        assert view.transform() == before, "clearing a crop must not re-fit"
+    finally:
+        dlg.close()
+        dlg.deleteLater()
+
+
+def test_new_block_tab_retitles_and_rekeys_on_save(qapp):
+    from firepro3d.block_editor import BlockEditorManager
+    project = Model_Space()
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    _add_line(w.editor_scene)
+    defn = w.commit_block("Pump", "Lib", "Ser")
+    assert tabs.tabText(tabs.indexOf(w)) == "Block: Pump"
+    # Re-opening the saved block focuses THIS editor, not a duplicate.
+    assert mgr.open_for_definition(defn.id) is w
+    assert tabs.count() == 1
+    # A rename on a later save retitles again.
+    w.commit_block("Pump 2", "Lib", "Ser")
+    assert tabs.tabText(tabs.indexOf(w)) == "Block: Pump 2"

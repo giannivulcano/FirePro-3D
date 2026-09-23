@@ -8,6 +8,7 @@ definition id. See docs/specs/block-system.md §"Block Editor (v2)".
 
 from __future__ import annotations
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
@@ -120,7 +121,13 @@ class BlockEditorWidget(QWidget):
         project_scene: the real project ``Model_Space`` (commit target; used by
             later sub-tasks for Save). The editor draws on its OWN scene.
         block_id: the definition id when editing in place; None for new/blank.
+
+    Signals:
+        saved(BlockEditorWidget, BlockDefinition): emitted after every
+            successful commit (the manager retitles + re-keys the tab from it).
     """
+
+    saved = pyqtSignal(object, object)
 
     def __init__(self, project_scene, *, block_id: str | None = None, parent=None):
         super().__init__(parent)
@@ -308,6 +315,7 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items = []   # consumed / no longer a fresh seed
         self._mark_clean()
         # save_to_library handled in the next sub-task (dialog wiring)
+        self.saved.emit(self, defn)
         return defn
 
     def save(self, parent=None):
@@ -464,7 +472,8 @@ class BlockEditorManager:
         self.on_open = None
 
     def _created(self, w: BlockEditorWidget) -> BlockEditorWidget:
-        """Invoke the shell adoption hook (if any) for a new editor widget."""
+        """Wire the save hook, then invoke the shell adoption hook (if any)."""
+        w.saved.connect(self._on_saved)   # bound method (harness Invariant 6)
         if self.on_open is not None:
             self.on_open(w)
         return w
@@ -494,6 +503,22 @@ class BlockEditorManager:
         idx = self._tabs.addTab(w, f"Block: {title}")
         self._tabs.setCurrentIndex(idx)
         return self._created(w)
+
+    def _on_saved(self, w: BlockEditorWidget, defn) -> None:
+        """Retitle *w*'s tab to the saved name and key it by definition id.
+
+        A new editor starts keyed ``("new", n)``; once saved it IS the editor
+        for ``defn.id``, so ``open_for_definition`` must focus it rather than
+        open a duplicate.
+        """
+        old = getattr(w, "_editor_key", None)
+        if old != defn.id:
+            self._open.pop(old, None)
+            w._editor_key = defn.id
+            self._open[defn.id] = w
+        idx = self._tabs.indexOf(w)
+        if idx != -1:
+            self._tabs.setTabText(idx, f"Block: {defn.name}")
 
     def close(self, widget: BlockEditorWidget) -> None:
         """Remove and dispose an editor tab."""

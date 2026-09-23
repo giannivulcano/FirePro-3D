@@ -971,6 +971,7 @@ class UnderlayImportDialog(HouseDialog):
         self._preserve_curves = False   # BlockImportDialog overrides to True
 
         self._preview_scene = QGraphicsScene()
+        self._fit_src = None   # the _all_geoms list the preview was last fit to
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
         self._preview_view.setObjectName("previewView")
         # A QGraphicsView's sizeHint tracks its sceneRect; a large drawing would
@@ -3020,8 +3021,12 @@ class UnderlayImportDialog(HouseDialog):
             self._preview_geom_group = group
 
         self._draw_base_marker()
-        if self._all_geoms:
+        # Fit only when the GEOMETRY changed (load / page / layout switch) —
+        # a crop, crop-clear or layer toggle rebuilds the same content and must
+        # keep the user's current zoom/pan.
+        if self._all_geoms and self._fit_src is not self._all_geoms:
             self._fit_preview_to_content()
+            self._fit_src = self._all_geoms
         self._set_drop_overlay(not self._all_geoms)
 
     @staticmethod
