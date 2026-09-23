@@ -2344,8 +2344,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.sceneModified.emit()
 
     def redo(self):
-        """Restore the next network state."""
-        self._text_edit_ctl.commit()
+        """Restore the next network state.
+
+        Commits any live inline text edit first (mirrors :meth:`undo`).  If
+        that commit discarded an empty NEW placement (nothing was ever pushed
+        for it — see :meth:`TextEditController.commit`), redo just cancels
+        the placement: it returns here without also stepping the stack
+        forward, since there is no corresponding snapshot to redo into.
+        """
+        if self._text_edit_ctl.commit() == "discarded":
+            return
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
@@ -6803,6 +6811,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # KEY EVENTS
 
     def keyPressEvent(self, event):
+        if editing_text_item(self) is not None:
+            # Inline text edit owns the key: bypass variant/Space/polygon cycles;
+            # QGraphicsScene delivers it to the focused TextItem.
+            super().keyPressEvent(event)
+            return
+        if (event.modifiers() == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2)
+                and self.mode in (None, "select")):
+            sel = self.selectedItems()
+            if len(sel) == 1 and self._text_edit_ctl.can_edit(sel[0]):
+                self._text_edit_ctl.begin(sel[0])
+                event.accept()
+                return
         # ←/→ cycle the placement variant at step 0 (arc, rectangle, …).
         # Consume only when a variant actually cycles; otherwise fall through
         # so the view's default arrow-scroll still works.

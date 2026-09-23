@@ -5,9 +5,10 @@ from PyQt6.QtWidgets import (
 )
 from .themed_message import themed_input_number
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent, QKeySequence
 from . import theme as th
 from .snap_engine import paint_snap_indicator
+from .text_item import editing_text_item
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
@@ -956,6 +957,15 @@ class Model_View(QGraphicsView):
         """
         if (ev.type() == QEvent.Type.ShortcutOverride
                 and isinstance(ev, QKeyEvent)
+                and editing_text_item(self.scene()) is not None
+                and not ev.matches(QKeySequence.StandardKey.Save)):
+            # Inline text edit owns EVERY key except Ctrl+S: accepting the
+            # override makes Qt deliver a plain KeyPress instead of firing any
+            # window / ribbon / QAction shortcut (spec § Inline edit).
+            ev.accept()
+            return True
+        if (ev.type() == QEvent.Type.ShortcutOverride
+                and isinstance(ev, QKeyEvent)
                 and ev.key() == Qt.Key.Key_Delete):
             sc = self.scene()
             if (getattr(sc, "mode", None) == "polyline"
@@ -974,6 +984,11 @@ class Model_View(QGraphicsView):
         return super().event(ev)
 
     def keyPressEvent(self, event):
+        if editing_text_item(self.scene()) is not None:
+            # Editor owns the key: skip Home/Tab-HUD/tool letters and let
+            # QGraphicsView forward it to the scene → focused TextItem.
+            super().keyPressEvent(event)
+            return
         if event.key() == Qt.Key.Key_Home:
             self.fit_to_screen()
             event.accept()

@@ -176,6 +176,24 @@ def test_undo_after_discarded_placement_is_noop(scene):
     assert [x.data.text for x in scene._texts] == ["Hello"]
 
 
+def test_redo_after_discarded_placement_is_noop(scene):
+    """Redo right after (or during) an empty new placement is ALREADY handled
+    by the commit-first discard — it must just cancel the placement, not ALSO
+    step the undo stack forward into unrelated later history, since nothing
+    was ever pushed for the discarded item (mirrors
+    ``test_undo_after_discarded_placement_is_noop``)."""
+    t = _add(scene)                          # a real, tracked, pushed box
+    scene.undo()                             # step back so a redo target exists
+    stack_before = list(scene._undo_stack)
+    pos_before = scene._undo_pos
+    scene.set_mode("text")
+    scene._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    scene._press_text(None, QPointF(400, 200), QPointF(400, 200), None, None, None)
+    scene.redo()                             # commit discards the empty placement
+    assert scene._undo_stack == stack_before
+    assert scene._undo_pos == pos_before
+
+
 def test_redo_commits_first(scene):
     t = _add(scene)
     scene._text_edit_ctl.begin(t)
