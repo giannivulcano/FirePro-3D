@@ -447,27 +447,87 @@ class BlockEditorWidget(QWidget):
         self.saved.emit(self, defn)
         return defn
 
+    def _saved_definition(self):
+        """The project definition this editor edits, or None (never saved)."""
+        if self._edit_block_id is None:
+            return None
+        return self._project_scene.get_block_definition(self._edit_block_id)
+
     def save(self, parent=None):
-        """Open the Save dialog, then commit to the project (+ optional library).
+        """Save Block (ribbon / Ctrl+S).
+
+        A block never saved before opens the Save dialog (it acts as Save As).
+        Afterwards Save is silent: the definition is updated in place (version
+        bump, placed instances refresh) and, when the block already has a
+        library copy, that copy is rewritten too.
 
         Args:
-            parent: Optional Qt parent for the dialog (falls back to self).
+            parent: Optional Qt parent for dialogs (falls back to self).
 
         Returns:
             The committed ``BlockDefinition``, or None if cancelled / no geometry.
         """
         self.editor_scene.commit_text_edit()   # inline text edit ends before saving
+        cur = self._saved_definition()
+        if cur is None:
+            return self._save_via_dialog(parent, save_as=False)
+        if not self._has_geometry(parent):
+            return None
+        from . import block_library
+        defn = self.commit_block(cur.name, cur.library, cur.series)
+        if defn is None:
+            return None
+        if block_library.source_status(defn) != "project-only":
+            self._save_to_library(defn, parent or self)
+        self.editor_scene._show_status(f"Saved block \u201c{defn.name}\u201d", timeout=4000)
+        return defn
+
+    def save_as(self, parent=None):
+        """Save Block As (ribbon / Ctrl+Shift+S): a NEW block from this geometry.
+
+        Opens the Save dialog prefilled with ``"<name> copy"``; the original
+        definition and its placed instances are untouched, and this editor
+        then edits the new block (the manager retitles + re-keys its tab).
+        A never-saved editor behaves exactly like :meth:`save`.
+
+        Args:
+            parent: Optional Qt parent for dialogs (falls back to self).
+
+        Returns:
+            The new ``BlockDefinition``, or None if cancelled / no geometry.
+        """
+        self.editor_scene.commit_text_edit()
+        if self._saved_definition() is None:
+            return self._save_via_dialog(parent, save_as=False)
+        return self._save_via_dialog(parent, save_as=True)
+
+    def _has_geometry(self, parent) -> bool:
+        if self.gather_primitives():
+            return True
+        from .themed_message import themed_info
+        themed_info(parent or self, "Save Block", "Draw or import geometry first.")
+        return False
+
+    def _save_via_dialog(self, parent, *, save_as: bool):
+        """Run the Save dialog, then commit to the project (+ optional library).
+
+        Args:
+            parent: Optional Qt parent for the dialog (falls back to self).
+            save_as: Commit as a NEW definition (Save As) instead of in place.
+        """
         from PyQt6.QtWidgets import QDialog
-        if not self.gather_primitives():
-            from .themed_message import themed_info
-            themed_info(parent or self, "Save Block", "Draw or import geometry first.")
+        if not self._has_geometry(parent):
             return None
         proj = self._project_scene
-        if self._edit_block_id is not None:
+        cur = self._saved_definition()
+        if save_as and cur is not None:
+            context = "new"
+            icount = 0
+            initial = (f"{cur.name} copy", cur.library, cur.series)
+        elif cur is not None:
             context = "edit"
-            icount = proj.instance_count(self._edit_block_id)
-            cur = proj.get_block_definition(self._edit_block_id)
-            initial = (cur.name, cur.library, cur.series) if cur else ("", "", "")
+            icount = proj.instance_count(cur.id)
+            initial = (cur.name, cur.library, cur.series)
         elif self._seed_source_items:
             context = "seeded"
             icount = 0
@@ -476,25 +536,31 @@ class BlockEditorWidget(QWidget):
             context = "new"
             icount = 0
             initial = ("", "", "")
+        # The id this save writes as: a Save As writes a brand-new block.
+        writes_as = None if save_as else self._edit_block_id
 
         def _validator(name, library, series):
             for o in proj._block_definitions.values():
-                if o.id == self._edit_block_id:
+                if o.id == writes_as:
                     continue
                 if (o.library, o.series, o.name) == (library, series, name):
                     return f"A block '{name}' already exists in {library} / {series}."
             return None
 
         dlg = BlockSaveDialog(parent or self, library_tree=library_tree_for(proj),
-                              collision_id=self._edit_block_id,
+                              collision_id=writes_as,
                               context=context, instance_count=icount,
                               initial=initial, validator=_validator)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         v = dlg.values()
+        previous_id = self._edit_block_id
+        if save_as:
+            self._edit_block_id = None          # commit as a NEW definition
         defn = self.commit_block(v["name"], v["library"], v["series"],
-                                 replace_source=v["replace_source"])
+                                 replace_source=v["replace_source"] and not save_as)
         if defn is None:
+            self._edit_block_id = previous_id
             return None
         if v["save_to_library"]:
             self._save_to_library(defn, parent or self,

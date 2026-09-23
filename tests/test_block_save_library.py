@@ -276,3 +276,89 @@ def test_enter_in_the_new_folder_field_commits_and_keeps_dialog_open(qapp, tmp_p
             assert dlg.isVisible() and dlg.result() != dlg.DialogCode.Accepted
     finally:
         dlg.close()
+
+
+# ── Save Block / Save Block As (ribbon + Ctrl+S / Ctrl+Shift+S) ─────────────
+
+def _saved_editor(tmp_path, monkeypatch, *, in_library):
+    from firepro3d.model_space import Model_Space
+    import firepro3d.block_editor as be
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    monkeypatch.setattr(bl, "_root", lambda root: root if root is not None else str(tmp_path))
+    tabs, project = QTabWidget(), Model_Space()
+    mgr = be.BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    w._add_primitive(LineItem(QPointF(0, 0), QPointF(10, 0)))
+    defn = w.commit_block("Valve", "Fire", "Valves")
+    if in_library:
+        bl.save_to_library(defn)
+    w._add_primitive(LineItem(QPointF(0, 0), QPointF(0, 10)))   # an edit
+    return w, mgr, tabs, project, defn, be
+
+
+def test_save_block_after_first_save_is_silent_and_updates_library(qapp, tmp_path, monkeypatch):
+    w, mgr, tabs, project, defn, be = _saved_editor(tmp_path, monkeypatch, in_library=True)
+
+    class _NoDialog:
+        def __init__(self, *a, **k):
+            raise AssertionError("Save on a saved block must not open the dialog")
+    monkeypatch.setattr(be, "BlockSaveDialog", _NoDialog)
+    v0 = defn.version
+    assert w.save() is defn
+    assert defn.version > v0 and len(defn.primitives) == 2
+    assert bl.source_status(defn) == "library", "library copy must be refreshed"
+
+
+def test_save_block_project_only_block_stays_out_of_library(qapp, tmp_path, monkeypatch):
+    w, mgr, tabs, project, defn, be = _saved_editor(tmp_path, monkeypatch, in_library=False)
+    monkeypatch.setattr(be, "BlockSaveDialog", None)
+    w.save()
+    assert bl.source_status(defn) == "project-only"
+
+
+def test_save_block_as_creates_a_new_block_and_editor_follows(qapp, tmp_path, monkeypatch):
+    w, mgr, tabs, project, defn, be = _saved_editor(tmp_path, monkeypatch, in_library=False)
+    seen = {}
+
+    class _Fake:
+        def __init__(self, *a, initial=None, collision_id="x", **k):
+            seen["initial"], seen["collision_id"] = initial, collision_id
+        def exec(self):
+            from PyQt6.QtWidgets import QDialog
+            return QDialog.DialogCode.Accepted
+        def values(self):
+            return {"name": "Valve copy", "library": "Fire", "series": "Valves",
+                    "save_to_library": False, "replace_source": True,
+                    "overwrite": False}
+    monkeypatch.setattr(be, "BlockSaveDialog", _Fake)
+    v0, n0 = defn.version, len(defn.primitives)
+    new = w.save_as()
+    assert seen["initial"] == ("Valve copy", "Fire", "Valves")
+    assert seen["collision_id"] is None
+    assert new is not None and new.id != defn.id and new.name == "Valve copy"
+    assert (defn.version, len(defn.primitives)) == (v0, n0), "original untouched"
+    assert w._edit_block_id == new.id
+    assert tabs.tabText(tabs.indexOf(w)) == "Block: Valve copy"
+    other = mgr.open_for_definition(defn.id)
+    assert other is not w, "the original is no longer this tab's block"
+
+
+def test_ctrl_s_dispatches_to_the_active_block_editor(qapp):
+    import main as app_main
+    calls = []
+
+    class _Ed:
+        def save(self, parent=None): calls.append("block_save")
+        def save_as(self, parent=None): calls.append("block_save_as")
+
+    class _Win:
+        def __init__(self, ed): self._ed = ed
+        def _active_editor_widget(self): return self._ed
+        def save_file(self): calls.append("project_save")
+        def save_file_as(self): calls.append("project_save_as")
+
+    for ed in (_Ed(), None):
+        app_main.MainWindow._dispatch_save(_Win(ed))
+        app_main.MainWindow._dispatch_save_as(_Win(ed))
+    assert calls == ["block_save", "block_save_as", "project_save", "project_save_as"]

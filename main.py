@@ -599,7 +599,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.init_ribbon()
 
         # Global keyboard shortcuts
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
+        # Ctrl+S / Ctrl+Shift+S save the active Block Editor's block when its
+        # tab is current, else the project.
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._dispatch_save)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self).activated.connect(
+            self._dispatch_save_as)
         # Undo/Redo are window-wide now that the ribbon Edit group is retired
         # (a ribbon-button shortcut only fires when its page is the visible one).
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self._dispatch_undo)
@@ -3631,6 +3635,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # MENU BAR HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _dispatch_save(self):
+        """Ctrl+S: Save Block in an active Block Editor tab, else save the project."""
+        w = self._active_editor_widget()
+        if w is not None:
+            w.save(self)
+        else:
+            self.save_file()
+
+    def _dispatch_save_as(self):
+        """Ctrl+Shift+S: Save Block As in a Block Editor tab, else Save Project As."""
+        w = self._active_editor_widget()
+        if w is not None:
+            w.save_as(self)
+        else:
+            self.save_file_as()
+
     def save_file(self):
         self._commit_text_edits()
         if self._current_file:
@@ -4570,7 +4590,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         gb = page.add_group("Block")
         self._be_save_btn = gb.add_small_button(
             "Save\nBlock", _I("make_block_icon.svg"), self._be_save)
-        self._be_save_btn.setToolTip("Save this block to the project (and optionally the library)")
+        self._be_save_btn.setToolTip(
+            "Save Block (Ctrl+S) — update this block in the project (and its "
+            "library copy, if any). First save asks for name/library.")
+        self._be_save_as_btn = gb.add_small_button(
+            "Save\nAs", _I("make_block_icon.svg"), self._be_save_as)
+        self._be_save_as_btn.setToolTip(
+            "Save Block As (Ctrl+Shift+S) — save this geometry as a NEW block; "
+            "the original is left unchanged")
         self._be_origin_btn = gb.add_small_button(
             "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
         self._be_origin_btn.setToolTip("Set the block insertion origin (click to pick, snapped)")
@@ -4622,6 +4649,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self._active_editor_widget()
         if w is not None:
             w.save(self)
+
+    def _be_save_as(self):
+        w = self._active_editor_widget()
+        if w is not None:
+            w.save_as(self)
 
     def _be_set_origin(self):
         w = self._active_editor_widget()
