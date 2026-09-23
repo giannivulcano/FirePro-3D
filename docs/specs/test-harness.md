@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-09-09
-verified-commit: d82ab37
+last-verified: 2026-09-23
+verified-commit: 72412e2
 ---
 
 # Test Harness — Governing Spec
@@ -85,7 +85,28 @@ SEH bug #371).
    the twin of the hydraulic report fixed 2026-09-09. Mirror that fix (→ `QPdfWriter`,
    A4 + res 1200, `doc.print()`) when the thermal-radiation subsystem is next touched.
 
+6. **No `self`-lambda slots on signals of objects that can outlive their
+   receiver.** PyQt auto-disconnects a **bound-method** slot when its receiver
+   `QObject` is destroyed; a `self`-capturing **lambda** has no receiver and stays
+   connected forever. `PaperSpaceWidget.paper_scene` is parentless (Python-owned),
+   so it outlives a deleted `MainWindow` in a reference cycle; when a later GC
+   destroys it, `~QUndoStack` → `clear()` emits `indexChanged(0)` (only if the stack
+   is non-empty) into whatever is still connected. Rule: connect such signals to
+   bound methods (PyQt drops surplus signal args for a no-arg slot). Regression:
+   `tests/test_mainwindow_teardown_gc.py` (child process, exit 0).
+   - **Fixture note:** module-singleton `close()` + `deleteLater()` +
+     `processEvents()` does **not** delete the window — DeferredDelete isn't
+     dispatched at that loop level. The window lingers until a later test's pump
+     flushes it, so its destruction-time signals fire mid-way through an unrelated
+     module (why the crash *moves* with test selection).
+
 ## Known native-crash families
+
+- **Orphaned-lambda destruction emit** — a parentless `PaperScene` (non-empty undo
+  stack) outlives its `MainWindow`; its GC-time `indexChanged` ran `main.py`
+  `self`-lambdas against the dead window (`0xC0000005` "Garbage-collecting →
+  main.py <lambda>", or silent `0xC0000409`/exit 127 at shutdown). Fixed
+  2026-09-23 by bound-method connects (Invariant 6).
 
 - **QPrinter-SEH** — a real `QPrinter` PDF export in-suite raises first-chance SEH
   (e.g. `0xe0000001`). Hydraulic report fixed 2026-09-09; thermal twin latent
