@@ -16,8 +16,9 @@ import time
 from PyQt6 import sip
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
-from PyQt6.QtWidgets import QApplication, QGraphicsItem
+from PyQt6.QtWidgets import QApplication, QGraphicsItem, QGraphicsScene
 
+from .manip_handle import GripHandle
 from .text_item import TextItem, editing_text_item
 
 
@@ -171,6 +172,29 @@ class TextEditController:
         m = self._scene._live_manip()
         return m is not None and m.isVisible() and m.hit_handle(scene_pos)
 
+    def _in_content(self, item: TextItem, scene_pos) -> bool:
+        """True when *scene_pos* lies on *item*'s painted text (line rects)."""
+        local = item.mapFromScene(scene_pos)
+        return any(r.contains(local) for r in item.content_rects_local())
+
+    def _handle_wins(self, item: TextItem, scene_pos) -> bool:
+        """While *item* is being edited: does a press at *scene_pos* belong to
+        a manipulator handle rather than the caret?
+
+        Text wins over handles (user decision): *item*'s own centre move grip
+        is never a handle while editing, and any other handle (resize /
+        rotate) wins only when the press is NOT on the painted text content.
+        """
+        m = self._scene._live_manip()
+        if m is None or not m.isVisible():
+            return False
+        hits = [h for h in m.handles_at(scene_pos)
+                if not (isinstance(h, GripHandle) and h.item is item
+                        and h.index == item.MOVE_GRIP_INDEX)]
+        if not hits:
+            return False
+        return not self._in_content(item, scene_pos)
+
     def item_at(self, scene_pos):
         """Topmost editable TextItem whose rotated box contains *scene_pos*."""
         for it in self._scene.items(scene_pos):
@@ -221,7 +245,7 @@ class TextEditController:
         if item is None or event.button() != Qt.MouseButton.LeftButton:
             return False
         pos = event.scenePos()
-        if self._on_handle(pos):
+        if self._handle_wins(item, pos):
             # Manipulator resize/rotate runs; hand the keyboard back after Qt's
             # click-focus has landed (it lands before our handlers).
             QTimer.singleShot(0, lambda it=item: self._deferred_refocus(it))
@@ -268,9 +292,9 @@ class TextEditController:
         if item is None and s.mode not in (None, "select"):
             return False                    # a placement tool owns the clicks
         pos = event.scenePos()
-        if self._on_handle(pos):
-            return False
         if item is not None:
+            if self._handle_wins(item, pos):
+                return False
             if self._inside(item, pos):
                 self._mouse_selecting = False
                 self._select_unit(item, pos, QTextCursor.SelectionType.WordUnderCursor)
@@ -279,6 +303,8 @@ class TextEditController:
                 event.accept()
                 return True
             return False
+        if self._on_handle(pos):
+            return False                    # not editing: a handle keeps its gesture
         target = self.item_at(pos)
         if target is None:
             return False
@@ -290,10 +316,18 @@ class TextEditController:
         return True
 
     def handle_context_menu(self, event) -> bool:
-        """Right-click inside the editing box → the native text menu."""
+        """Right-click inside the editing box → the native text menu.
+
+        Delivered through ``QGraphicsScene``'s base item dispatch (NOT a direct
+        ``item.contextMenuEvent(event)`` call): PyQt6's
+        ``QGraphicsSceneContextMenuEvent`` exposes no ``setPos``, and only the
+        base dispatch stamps the item-local ``pos()`` the text control needs.
+        The manipulator/handles above the item ignore context menus, so the
+        event propagates down to the editing TextItem.
+        """
         item = editing_text_item(self._scene)
         if item is None or not self._inside(item, event.scenePos()):
             return False
-        event.setPos(item.mapFromScene(event.scenePos()))
-        item.contextMenuEvent(event)
+        QGraphicsScene.contextMenuEvent(self._scene, event)
+        event.accept()
         return True

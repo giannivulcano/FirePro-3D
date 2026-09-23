@@ -837,6 +837,31 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             block = block.next()
         return rects
 
+    def content_rects_local(self) -> list[QRectF]:
+        """Per-line painted-content rects (painted, un-rotated frame).
+
+        One rect per laid-out ``QTextLine``: from the aligned x of its first
+        character to the aligned x past its last (both via ``cursorToX``, so
+        horizontal alignment is honoured), spanning the line's height at its
+        :meth:`_line_origin`.  An empty line yields a zero-width rect (which
+        contains no point).  The inline editor uses the union to decide that
+        a press on painted text beats an overlapping manipulator handle.
+        """
+        offsets = self._layout_offsets()
+        rects: list[QRectF] = []
+        block = self.document().begin()
+        while block.isValid():
+            layout = block.layout()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                origin = self._line_origin(block, line, offsets)
+                xa, _ = line.cursorToX(line.textStart())
+                xb, _ = line.cursorToX(line.textStart() + line.textLength())
+                rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
+                                    xb - xa, line.height()))
+            block = block.next()
+        return rects
+
     def cursor_position_at(self, local_pt: QPointF) -> int:
         """Document position nearest *local_pt* (painted, un-rotated frame).
 
@@ -887,6 +912,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # width; a top/bottom MID-edge (1,5) changes ONLY the height; corners
     # (0,2,4,6) change both.  Freezing the untouched axis is what keeps an
     # auto-height (0) box auto-height after a pure-horizontal drag.
+    # The centre grip translates the box (``apply_grip`` index 8) — the one
+    # grip the inline editor never treats as a handle (text wins there).
+    MOVE_GRIP_INDEX = 8
+
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
 
@@ -916,7 +945,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
         elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
         elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
-        elif index == 8:
+        elif index == self.MOVE_GRIP_INDEX:
             dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
             self._reanchor(dx, dy)
             return
@@ -992,7 +1021,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def manip_box_extra_handles(self):
         from .manip_handle import GripHandle
-        return [GripHandle(self, 8, circular=True)]   # centre move grip (unrotated)
+        return [GripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
 
     def grip_render_angle(self, index: int) -> float:
         return self._angle

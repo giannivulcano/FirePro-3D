@@ -285,14 +285,14 @@ def test_alt_f4_not_swallowed_while_editing(qapp):
 
 # ── Mouse gate ──────────────────────────────────────────────────────────────
 
-def _mouse(view, etype, pt, mods=NO, buttons=Qt.MouseButton.LeftButton):
+def _mouse(view, etype, pt, mods=NO, buttons=Qt.MouseButton.LeftButton,
+           button=Qt.MouseButton.LeftButton):
     vp = view.mapFromScene(pt)
     # Pass the GLOBAL position too: QGraphicsScene hit-tests presses via
     # widget->mapFromGlobal(screenPos), and the 5-arg ctor seeds the global
     # position from QCursor::pos() — every item-level press would miss.
     gp = view.viewport().mapToGlobal(vp)
-    ev = QMouseEvent(etype, QPointF(vp), QPointF(gp), Qt.MouseButton.LeftButton,
-                     buttons, mods)
+    ev = QMouseEvent(etype, QPointF(vp), QPointF(gp), button, buttons, mods)
     QApplication.sendEvent(view.viewport(), ev)
     QApplication.processEvents()
 
@@ -352,7 +352,7 @@ def test_drag_inside_selects_text_not_moves(be):
     t = _add(scene, "Hello world")
     _editing(scene, t)
     pos0 = t.pos()
-    a, b = _char_pt(t, 1), _char_pt(t, 5)
+    a, b = _char_pt(t, 0), _char_pt(t, 5)
     _mouse(view, QEvent.Type.MouseButtonPress, a)
     _mouse(view, QEvent.Type.MouseMove, b)
     _mouse(view, QEvent.Type.MouseButtonRelease, b, NO, Qt.MouseButton.NoButton)
@@ -364,7 +364,7 @@ def test_shift_click_extends_selection(be):
     view, scene = be
     t = _add(scene, "Hello world")
     _editing(scene, t)
-    _click(view, _char_pt(t, 1))
+    _click(view, _char_pt(t, 0))
     _click(view, _char_pt(t, 5), Qt.KeyboardModifier.ShiftModifier)
     assert t.textCursor().hasSelection()
 
@@ -442,4 +442,77 @@ def test_escape_mid_handle_drag_cancels_drag_keeps_editing(be):
     assert t.data.wrap_width_mm == pytest.approx(w0)
     assert editing_text_item(scene) is t
     _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    assert editing_text_item(scene) is t
+
+
+# ── Text wins over handles while editing (user decision) ────────────────────
+
+def _caret_to(t, pos):
+    c = t.textCursor(); c.setPosition(pos); t.setTextCursor(c)
+
+
+def test_press_on_centre_grip_mid_edit_moves_caret_not_box(be):
+    """The centre move grip is never a handle while editing: a press there
+    positions the caret; no manipulator drag, box unchanged."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    centre = t.grip_points()[TextItem.MOVE_GRIP_INDEX]
+    assert m.hit_handle(centre), "precondition: centre grip is a handle"
+    assert not any(r.contains(t.mapFromScene(centre)) for r in t.content_rects_local()),         "precondition: centre grip lies outside the painted text"
+    _caret_to(t, 0)
+    pos0, w0 = t.pos(), t.data.wrap_width_mm
+    dst = QPointF(centre.x() + 200.0, centre.y() + 200.0)
+    _mouse(view, QEvent.Type.MouseButtonPress, centre)
+    assert not m.is_dragging()
+    _mouse(view, QEvent.Type.MouseMove, dst)
+    _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    assert editing_text_item(scene) is t
+    assert t.textCursor().position() == len("Hello world")   # caret moved to the press
+    assert t.pos() == pos0 and t.data.wrap_width_mm == w0
+
+
+def test_press_on_char0_over_left_mid_grip_places_caret(be):
+    """A resize handle overlapping PAINTED text loses to the caret."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    pt = _char_pt(t, 0)
+    assert m.hit_handle(pt), "precondition: char 0 overlaps the left mid-edge grip"
+    _caret_to(t, 5)
+    w0 = t.data.wrap_width_mm
+    _click(view, pt)
+    assert editing_text_item(scene) is t
+    assert t.textCursor().position() in (0, 1)
+    assert not t.textCursor().hasSelection()
+    assert t.data.wrap_width_mm == w0
+
+
+def test_right_click_inside_editing_box_reaches_native_text_menu(be, monkeypatch):
+    """Right press + QContextMenuEvent through the viewport → the scene gate
+    hands the event to the editing TextItem's (native) context menu."""
+    from PyQt6.QtGui import QContextMenuEvent
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    calls = []
+    monkeypatch.setattr(TextItem, "contextMenuEvent",
+                        lambda self, ev: calls.append((self, QPointF(ev.pos()))))
+    # Never block on a real menu if the gate misses.
+    monkeypatch.setattr(scene, "_show_entity_context_menu",
+                        lambda *a, **k: calls.append("entity-menu"))
+    pt = _char_pt(t, 3)
+    _mouse(view, QEvent.Type.MouseButtonPress, pt, NO, Qt.MouseButton.RightButton,
+           Qt.MouseButton.RightButton)
+    vp = view.mapFromScene(pt)
+    ev = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, vp,
+                           view.viewport().mapToGlobal(vp), NO)
+    QApplication.sendEvent(view.viewport(), ev)
+    QApplication.processEvents()
+    assert len(calls) == 1 and calls[0][0] is t
+    assert t.boundingRect().contains(calls[0][1])        # item-local pos
     assert editing_text_item(scene) is t

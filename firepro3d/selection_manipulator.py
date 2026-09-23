@@ -584,8 +584,19 @@ class SelectionManipulator(QGraphicsObject):
         (Shift = aspect/ortho/15°), while a Shift-press on the bare interior
         still falls through to additive/rubber-band selection.
         """
+        return bool(self.handles_at(scene_pos))
+
+    def handles_at(self, scene_pos: QPointF) -> list:
+        """Every visible handle (the ``Handle`` objects, not their host items)
+        whose hit shape contains *scene_pos*.
+
+        Same device-transform hit-test as :meth:`hit_handle` (which is
+        ``bool(handles_at(...))``); lets a caller ask WHICH handle is under the
+        cursor — e.g. the inline text editor ignores a TextItem's own centre
+        move grip (``GripHandle`` index ``TextItem.MOVE_GRIP_INDEX``).
+        """
         if not self.isVisible():
-            return False
+            return []
         # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
         # the item's scene transform and ignores the view zoom, so it only
         # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the
@@ -596,6 +607,7 @@ class SelectionManipulator(QGraphicsObject):
         # (headless).
         view = self._view()
         vt = view.viewportTransform() if view is not None else None
+        hits = []
         for h in list(self._handles.values()) + list(self._host_pool):
             if not h.isVisible():
                 continue
@@ -608,8 +620,8 @@ class SelectionManipulator(QGraphicsObject):
             else:
                 local = h.mapFromScene(scene_pos)
             if h.shape().contains(local):
-                return True
-        return False
+                hits.append(h.handle)
+        return hits
 
     def _frame_is_redundant(self) -> bool:
         """A single box-native item (rect/text/viewport) whose own outline IS
