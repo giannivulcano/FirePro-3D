@@ -248,6 +248,179 @@ post-change `scene.push_undo_state()` per commit, and only when `to_dict()` chan
 This landed in the 2026-09-22 todo #70 smoke fix; before it, the model branch never
 snapshotted, and Ctrl+Z reverted the placement.
 
+## Inline edit (model surface) — PROPOSAL (2026-09-22 grill + design)
+
+> Status: **proposal, unbuilt** (branch `feat/model-text-inline-edit`). Scope =
+> model plan views, detail views, and the Block Editor. **The model-surface
+> primitive sets the edit contract; paper text conforms later** (filed follow-up —
+> paper keeps its current edit behaviour until then). Out of scope: model text seen
+> through a paper viewport, elevation/3D, per-character formatting (own todo).
+
+### Goal
+
+Double-click a model / Block-Editor `TextItem` and type **live, inline, in the
+scene** — visible caret + selection, keys owned by the editor, one undo step per
+edit session.
+
+### Motivation
+
+The panel Content box is the only model-text edit path today. Inline edit is
+blocked by (a) the live engine-less-device bug — `super().paint()` (the
+`QGraphicsTextItem` document renderer, which draws the caret) renders nothing on
+the live viewport (see As-built todo #62); and (b) key hijack — app shortcuts fire
+while typing.
+
+### Behaviour contract (locked, Phase-2 grill)
+
+- **Entry:** double-click inside the box's rotated rect in Select mode (selected
+  or not, including over the manipulator frame interior; a manipulator *handle*
+  wins) → edit, caret at the click. **Enter / F2** with exactly one editable text
+  selected → edit, caret at end. Inert while a placement tool is active. Only
+  top-level, visible, selectable `TextItem`s are candidates (block-contained text
+  is edited in the Block Editor).
+- **Exit = commit, always** (no cancel key; Ctrl+Z reverts afterwards): Esc,
+  Ctrl+Enter, press outside the box, `set_mode` (tool switch / ribbon command),
+  modal dialog, plan-tab / level switch, Block Editor enter/leave, save / save-as /
+  autosave / export / plot, close. **Enter = newline.** Window deactivation
+  (Alt+Tab) and popups do **not** commit.
+- **Key ownership while editing:** every key belongs to the editor except the
+  commit keys and **Ctrl+S** (commits, then saves). Letters/Space type; arrows /
+  Home / End / Ctrl+arrows move (Shift extends); Tab inserts a tab; Delete /
+  Backspace edit chars; Ctrl+A/C/X/V act on text; Ctrl+Z/Y are the editor's own
+  typing history. Ctrl+B/I/U and F1–F12 are swallowed (inert).
+- **Undo:** one scene step per edit session, pushed at commit only if `to_dict()`
+  changed. Place + type + commit = **one** step (no placeholder step). Panel /
+  grip changes during an edit are their own steps and never capture uncommitted
+  text.
+- **Empty:** a new placement starts **empty** (no literal "Text") with the caret
+  showing; committing it empty discards it (no step). Committing an existing box
+  emptied **deletes** it (one step; Ctrl+Z restores).
+- **Visuals / mouse:** blinking caret in the font colour (visible at all zooms, on
+  any fill, rotated); accent selection highlight; click / drag-select /
+  double-click word / triple-click line / Shift+click / native Cut-Copy-Paste
+  menu; live reflow + auto-grow height. **No distinct edit frame** — the normal
+  selection frame + grips stay live: grips resize/rotate mid-edit (text reflows,
+  edit continues); a body drag inside the box **selects text** (not move).
+- **Property panel stays live** during an edit; format changes apply to the whole
+  box without ending it.
+
+### Architecture & Constraints
+
+- **Self-paint on the model surface (Decision IE1).** The model branch of
+  `TextItem.paint` **never calls `super().paint()`**. The Qt text control still
+  owns all editing *logic* (`TextEditorInteraction`: cursor, selection, clipboard,
+  typing undo, word/line clicks) and its state is read from `textCursor()`; only
+  the *painting* is ours. This completes the todo #62 principle — the model
+  surface renders exclusively through direct painter ops that work live — and
+  removes the `engine==0` spam source. The Qt root cause is filed as a separate
+  low-priority diagnostic, relevant only if a model-surface text item ever needs
+  Qt's own document rendering again.
+- **One line-geometry helper (GENERALIZE).** The per-line origin math in
+  `_glyph_outline_local()` (block offset + manual horizontal-align offset +
+  vertical-align slack — Qt keeps every `QTextLine` at x==0) is extracted to
+  `_line_origin(block, line) -> (x, y)`; glyph outlines, caret, and selection all
+  use it so they cannot drift.
+- **One key-ownership predicate.** `editing_text_item(scene)` (module function in
+  `text_item.py`) returns the live, editing `TextItem` from `scene._editing_item`
+  or `None`. It is the sole "editor owns the key" test for every layer below;
+  paper space's inline `_editing_item` checks migrate onto it (paper *behaviour*
+  unchanged).
+- **One commit funnel.** `Model_Space.commit_text_edit()` (idempotent) is the only
+  path that ends a model edit session; every trigger calls it.
+
+### Design
+
+**Key routing (3 layers).**
+1. `Model_View.event`: while `editing_text_item(scene)`, **accept every
+   `ShortcutOverride` except Ctrl+S** — Qt then delivers a plain KeyPress instead
+   of firing any window `QShortcut` (bare `B`, `/`, `Shift+A`, Delete, Escape,
+   Ctrl+Z/Y/C/V/A/D/O/N, F3, F11 in `main.py`), ribbon, or `QAction` shortcut.
+   `save_file` calls `commit_text_edit()` first.
+2. `Model_View.keyPressEvent` and 3. `Model_Space.keyPressEvent`: first statement —
+   if editing, bypass to the default handler (skips tool letters, Home, Tab→HUD,
+   ←/→ variant cycle, Space ambiguity cycle, polygon ↑/↓). `QGraphicsScene` then
+   delivers the key to the focused `TextItem`.
+4. `TextItem.keyPressEvent` (editing): Esc / Ctrl+Enter → commit; Ctrl+B/I/U and
+   F1–F12 swallowed; everything else → Qt text control. Not editing: Enter/F2
+   entry lives in `Model_Space.keyPressEvent`'s non-editing branch.
+
+Detail views inherit via `Model_View`; the Block Editor inherits if its view is a
+`Model_View` (verify in the plan).
+
+**Mouse routing.** A gate at the top of `Model_Space` press / move / release /
+double-click, ahead of the manipulator / HALO / per-mode dispatch:
+- *Entry* (Select mode, double-click inside a candidate's rotated box, not on a
+  handle): `begin_edit()`, then place the caret by mapping the scene point into the
+  **unrotated local layout frame** (the item's composed map overrides) and
+  `documentLayout().hitTest()`.
+- *While editing:* press inside the box and not on a handle → forwarded to the
+  `TextItem` as a text-control mouse event with the position **rewritten to
+  unrotated local** (Qt cannot see the baked rotation); the item grabs the mouse so
+  move/release follow; double/triple-click word/line selection comes free. Press
+  on a handle → manipulator (resize/rotate), then keyboard focus is restored to
+  the item (click-focus lands before handlers). Press outside the box →
+  `commit_text_edit()`, then normal handling of the same click.
+
+**Commit triggers + focus policy.** `commit_text_edit()` is called from: Esc /
+Ctrl+Enter / outside press; the top of `set_mode()`; and in `main.py` the tops of
+save / save-as / autosave / export / plot / plan-tab switch / level switch / Block
+Editor enter-leave / `closeEvent` (the plan greps every entry point). On the model
+surface `TextItem.focusOutEvent` commits **unless** the reason is
+`ActiveWindowFocusReason` / `PopupFocusReason`, the new focus widget is inside
+the `PropertyManager` (panel stays live), or focus stays within one of the
+scene's own views (an in-scene focus-item change, e.g. a manipulator-handle press —
+in-scene clicks are owned by the mouse gate, which commits explicitly on an
+outside press). A modal takes focus → commits. Paper
+focus-out behaviour unchanged.
+
+**Undo.** Session start records `before = to_dict()` and `is_new_placement`.
+`_press_text` **no longer pushes a snapshot** and creates the item with empty text.
+At commit: new + empty → remove item, no push; existing + empty → delete via the
+normal delete path + one push; else push once iff `to_dict() != before`. Mid-edit
+panel/grip snapshots cannot capture typed text because `_data.text` is written
+only at commit (guard test pins this). Undo / redo / `_restore_network` call
+`commit_text_edit()` first (safety net; Ctrl+Z cannot reach scene undo while
+editing). `_delete_single_item` on the editing item ends the session without a
+commit (clears `_editing_item`, releases focus).
+
+**Painting (model branch, inside the rotated save/restore).** Order: fill →
+**selection highlight** (per line overlapping the selection: rect from
+`line.cursorToX(start)` to `cursorToX(end)` × line height, theme `selection` token
+≈40% alpha, behind glyphs) → glyph outlines → **caret** (when blink-on: vertical
+line at `cursorToX(pos)` spanning the line height, **font colour**, cosmetic 1.5 px;
+empty doc → first-line origin with font-metric height) → border. The dashed
+`#88aaff` edit frame is **removed**. **Blink:** a per-item `QTimer` at
+`QApplication.cursorFlashTime()/2`, started by `begin_edit`, stopped at commit;
+repaints only the caret rect; any key / cursor / selection change resets the phase
+to on.
+
+### Acceptance Criteria
+
+- [ ] Every Behaviour-contract bullet above holds on a plan view, a detail view,
+      and the Block Editor.
+- [ ] While editing, bare letters / Space / arrows / Tab / Home / Delete / Ctrl+A/C/V
+      / Ctrl+Z land in the document and leave tool mode, scene selection, scene
+      items, and the scene undo stack unchanged; when NOT editing they keep their
+      app meaning (negative path from the default state).
+- [ ] Caret + selection highlight render with `QGraphicsTextItem.paint` a no-op
+      (the live failure mode), correctly placed for L/C/R, T/M/B, and rotated.
+- [ ] No `engine==0` / `Painter not active` output while editing live.
+- [ ] Undo counts: place+type+commit = 1 step; no-op edit = 0; empty new = 0 and
+      no item; empty existing = 1 (Ctrl+Z restores); mid-edit panel change stores
+      the pre-edit text.
+
+### Verification Checklist
+
+- [ ] Routing / entry / commit / undo / empty guards drive a **shown** `Model_View`
+      with posted events (shortcuts via `windowHandle()`); each shown RED with its
+      fix reverted.
+- [ ] Pixel guards (caret / highlight) RED when the caret is routed back through
+      `super().paint()`.
+- [ ] Full suite once, chunked (full-suite crash playbook).
+- [ ] **Live smoke signed off by the user** (caret visible + blinking, highlight,
+      typing echo, grips mid-edit, Alt+Tab keeps the edit) — headless green alone is
+      not done for this live-only class.
+
 ## Acceptance Criteria
 
 - [ ] `border`/`border_weight`/`border_line_type`/`border_corner` exist on
@@ -362,7 +535,9 @@ Landed:
   Paper text keeps its tested box-native scale path.
 
 **Remaining known issues (P1 follow-ups, filed in todo_open):**
-- **Inline double-click edit** on the model surface — the display renders, but the
+- **Inline double-click edit** on the model surface — *designed 2026-09-22, see
+  "Inline edit (model surface) — PROPOSAL"; build on `feat/model-text-inline-edit`.*
+  The display renders, but the
   edit **caret** still hits the L75-76 engine-less-device paint bug; needs its own
   root-cause.
 - ~~Custom colour-picker widget with "No Fill"~~ — **LANDED 2026-09-22**
