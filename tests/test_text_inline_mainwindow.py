@@ -69,3 +69,18 @@ def test_block_editor_commit_block_commits_first(win, editing):
     s._text_edit_ctl.begin(t)
     win.block_editor_manager.close(ed)
     assert editing_text_item(s) is None
+
+
+def test_autosave_skips_while_editing(win, editing, monkeypatch):
+    """The autosave TIMER must never commit mid-typing — it skips the tick
+    entirely while any scene has a live inline edit, and saves normally once
+    the edit ends."""
+    ed, s, t = editing
+    calls = []
+    monkeypatch.setattr(win.scene, "save_to_file", lambda path: calls.append(path))
+    monkeypatch.setattr(win, "_modified", True)
+    win._autosave()
+    assert calls == [] and editing_text_item(s) is not None
+    win._commit_text_edits()
+    win._autosave()
+    assert len(calls) == 1

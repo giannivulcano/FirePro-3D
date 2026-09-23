@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
+from firepro3d.text_item import editing_text_item
 from firepro3d.sprinkler import Sprinkler
 from firepro3d.pipe import Pipe
 from firepro3d.underlay_import_dialog import UnderlayImportDialog
@@ -3786,7 +3787,17 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                             "autosave", "recovery.FPD")
 
     def _autosave(self):
-        self._commit_text_edits()
+        """Timer-driven autosave — must never interrupt a live inline text edit.
+
+        Unlike every other commit-trigger call site, this one is NOT allowed to
+        end the user's typing mid-session: it runs on a QTimer, so a
+        ``_commit_text_edits()`` call here would silently commit whatever text
+        the user has typed so far, every tick. Skip this tick entirely while
+        any scene has a live session; the next tick after the edit ends saves
+        normally.
+        """
+        if any(editing_text_item(sc) is not None for sc in self._text_edit_scenes()):
+            return
         if not self._modified:
             return
         path = self._autosave_path()
@@ -4417,16 +4428,26 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.editor_scene
         return self.scene
 
+    def _text_edit_scenes(self) -> list:
+        """The plan scene + every open Block Editor's editor_scene.
+
+        Shared list for every app-level inline-text-edit concern (committing,
+        or checking whether a session is live) — spec text-annotation-system
+        § Inline edit.
+        """
+        return [self.scene] + [w.editor_scene for w in
+                               list(self.block_editor_manager._open.values())]
+
     def _commit_text_edits(self) -> None:
         """End any live inline text edit — plan scene + every Block Editor scene.
 
-        Called first by every action that must see committed text (save, autosave,
+        Called first by every action that must see committed text (save,
         export, tab / level switch, Block Editor open, close) — spec
-        text-annotation-system § Inline edit.
+        text-annotation-system § Inline edit. NOT used by ``_autosave``: that
+        timer-driven tick must never end the user's edit mid-typing — see
+        ``_autosave``.
         """
-        scenes = [self.scene] + [w.editor_scene for w in
-                                 list(self.block_editor_manager._open.values())]
-        for sc in scenes:
+        for sc in self._text_edit_scenes():
             commit = getattr(sc, "commit_text_edit", None)
             if commit is not None:
                 commit()
