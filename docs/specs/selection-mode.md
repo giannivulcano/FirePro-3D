@@ -2,7 +2,7 @@
 
 > **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
 > **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
-> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish)
+> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`)
 > **Revision:** 3 (Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
 > **Absorbs:** TODO "Restore label-only click-selection for rooms"
 >
@@ -122,6 +122,8 @@ The hover outline is gated on `not scene._halo_suppressed()`. HALO is suppressed
 - An active manipulator drag (handle/grip/interior-move) or rubber-band drag.
 - **Any active placement/drawing tool** (mode != select) — HALO is a select-mode-only affordance.
 - HALO disabled via the status-bar pill / Preferences (§4.5).
+
+**Candidate invalidation on undo/redo (2026-09-23).** `_restore_network` (the single restore path for undo AND redo) rebuilds every item from the snapshot, so any held HALO candidate is a detached object at its pre-restore geometry. It calls `halo_clear()` (+ repaint) before rebuilding, so no ghost outline is painted at the old position; the next mouse move re-acquires the hover. Guard: `tests/test_halo_stale_highlight.py`.
 
 ### 4.4 Status readout
 
