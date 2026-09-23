@@ -88,6 +88,22 @@ def _isolate_qsettings(tmp_path_factory):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_block_library(_isolate_qsettings, tmp_path_factory):
+    """Point the block library at a FRESH per-test temp dir (Invariant 7).
+
+    ``block_library`` with the default root resolves to ``paths/block_dir`` →
+    else the REAL ``%APPDATA%/FirePro3D/blocks``; the Blocks browser reads it
+    at construction and the Save flows write it. Setting the override in the
+    already-isolated QSettings store keeps every test off the user's library.
+    """
+    from firepro3d.app_data import BLOCK_DIR_KEY
+    from PyQt6.QtCore import QSettings
+    QSettings("GV", "FirePro3D").setValue(
+        BLOCK_DIR_KEY, str(tmp_path_factory.mktemp("block_library")))
+    yield
+
+
 @pytest.fixture
 def real_qsettings():
     """The unpatched QSettings class — lets the isolation guard test read the

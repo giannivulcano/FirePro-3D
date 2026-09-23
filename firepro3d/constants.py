@@ -90,7 +90,7 @@ PDF_BEZIER_FLATTEN_TOL = 0.5
 
 # Default pen weight (cosmetic px) for NEW 2D construction geometry — drawn by
 # the placement tools AND imported into the Block Editor, so both look alike.
-DEFAULT_GEOMETRY_LINEWEIGHT = 2.0
+DEFAULT_GEOMETRY_LINEWEIGHT = 1.0
 
 # ── PDF curve preservation (Block Editor import only, 2d-geometry §3.5.3) ────
 # Two path segments join (same subpath) when their endpoints are within this

@@ -331,7 +331,7 @@ def test_quantized_arc_ends_exactly_on_its_source_endpoints():
         assert (_close(s, p0, tol) and _close(e, p3, tol)), (s, e, p0, p3)
 
 
-def test_editor_import_uses_the_standard_primitive_lineweight(qapp):
+def test_editor_import_uses_the_standard_primitive_lineweight(qapp, monkeypatch):
     # User smoke 2026-09-23: imported geometry drew thinner than drawn
     # primitives (factory fell back to the constructor's 1.0).
     from firepro3d.model_space import Model_Space
@@ -347,9 +347,11 @@ def test_editor_import_uses_the_standard_primitive_lineweight(qapp):
               "pos_cx": 0, "pos_cy": 0, "rotation": 0},
              {"kind": "spline", "control_points": [(0, 0), (3, 5), (6, -5), (9, 0)],
               "degree": 3, "knots": None, "weights": None}]
+    assert w.editor_scene._geom_color_lw()[1] == DEFAULT_GEOMETRY_LINEWEIGHT
+    # A distinct weight, so the guard can't pass on the factory's own default.
+    monkeypatch.setattr(w.editor_scene, "_geom_color_lw", lambda: ("#ffffff", 3.0))
     w._add_imported_geoms(geoms, 1.0)
-    drawn_lw = w.editor_scene._geom_color_lw()[1]
-    assert drawn_lw == DEFAULT_GEOMETRY_LINEWEIGHT
+    drawn_lw = 3.0
     prims = w.gather_primitives()
     assert len(prims) == 6
     assert {round(p.pen().widthF(), 6) for p in prims} == {drawn_lw}
