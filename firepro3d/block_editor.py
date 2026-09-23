@@ -257,7 +257,8 @@ class BlockEditorWidget(QWidget):
         s = self.editor_scene
         items = []
         for attr in ("_draw_lines", "_draw_rects", "_draw_circles",
-                     "_draw_arcs", "_draw_ellipses", "_draw_splines", "_polylines", "_draw_polygons"):
+                     "_draw_arcs", "_draw_ellipses", "_draw_splines", "_polylines", "_draw_polygons",
+                     "_texts"):
             items.extend(getattr(s, attr))
         # Reference lines are scaffolding: included in the block ONLY when
         # explicitly printed; a non-printing reference line is dropped (task D).
@@ -385,10 +386,10 @@ class BlockEditorWidget(QWidget):
             self.editor_scene._show_status(
                 f"Import: nothing usable (skipped {skipped})", timeout=4000)
             return 0, skipped
-        self.editor_scene.clearSelection()
         for it in items:
             self._add_primitive(it)
-            it.setSelected(True)
+        # One selectionChanged for the whole batch (per-item select was O(n^2)).
+        self.editor_scene.select_items(items)
         self.editor_scene.push_undo_state()
         self.editor_scene._show_status(
             f"Imported {len(items)} primitive(s)" +

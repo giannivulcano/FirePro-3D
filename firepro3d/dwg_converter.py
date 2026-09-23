@@ -669,30 +669,45 @@ def filter_geoms_by_bounds(
     return filtered
 
 
+def geom_rep_points(g: dict) -> list[tuple[float, float]]:
+    """Representative points of a kind-tagged geometry dict.
+
+    The single rule for "is this geometry inside a region" — used by the
+    crop round-trip (``_geom_in_any_bound``) and the import-dialog crop.
+    A geometry counts as inside when ANY of these points is.
+
+    Args:
+        g: Kind-tagged geometry dict.
+
+    Returns:
+        List of ``(x, y)`` points; empty for unknown kinds.
+    """
+    kind = g.get("kind")
+    if kind == "line":
+        return [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
+    if kind == "circle":
+        # Center of the bounding rect
+        return [(g["x"] + g["w"] / 2, g["y"] + g["h"] / 2)]
+    if kind == "arc":
+        return [(g["rx"] + g["rw"] / 2, g["ry"] + g["rh"] / 2)]
+    if kind == "ellipse_full":
+        return [(g["pos_cx"], g["pos_cy"])]
+    if kind == "path_points":
+        return [(p[0], p[1]) for p in g.get("points", [])]
+    if kind == "spline":
+        return [(p[0], p[1]) for p in g.get("control_points", [])]
+    if kind == "text":
+        return [(g["x"], g["y"])]
+    return []
+
+
 def _geom_in_any_bound(
     g: dict,
     bounds: list[tuple[float, float, float, float]],
 ) -> bool:
     """Check if any representative point of a geometry dict falls
     within any of the bounding boxes."""
-    kind = g.get("kind")
-    points: list[tuple[float, float]] = []
-
-    if kind == "line":
-        points = [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
-    elif kind == "circle":
-        # Center of the bounding rect
-        points = [(g["x"] + g["w"] / 2, g["y"] + g["h"] / 2)]
-    elif kind == "arc":
-        points = [(g["rx"] + g["rw"] / 2, g["ry"] + g["rh"] / 2)]
-    elif kind == "ellipse_full":
-        points = [(g["pos_cx"], g["pos_cy"])]
-    elif kind == "path_points":
-        points = [(p[0], p[1]) for p in g.get("points", [])]
-    elif kind == "spline":
-        points = [(p[0], p[1]) for p in g.get("control_points", [])]
-    elif kind == "text":
-        points = [(g["x"], g["y"])]
+    points = geom_rep_points(g)
 
     for bx0, by0, bx1, by1 in bounds:
         # Normalise in case min/max are swapped from Y negation

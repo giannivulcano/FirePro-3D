@@ -1387,14 +1387,9 @@ class Model_View(QGraphicsView):
         from .gridline import GridlineItem
         scene = self.scene()
         if scene:
-            scene.blockSignals(True)
-            for item in scene.items():
-                if isinstance(item, GridlineItem):
-                    continue
-                if getattr(item, "_exclude_from_bulk_select", False):
-                    continue
-                if item.flags() & item.GraphicsItemFlag.ItemIsSelectable:
-                    item.setSelected(True)
-            scene.blockSignals(False)
-            scene.selectionChanged.emit()
+            scene.select_items(
+                (i for i in scene.items()
+                 if not isinstance(i, GridlineItem)
+                 and not getattr(i, "_exclude_from_bulk_select", False)),
+                clear=False)
             self.viewport().update()

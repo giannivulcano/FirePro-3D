@@ -126,6 +126,15 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
 
+- [ ] [type:feature] Block Save dialog: library/series dropdowns list on-disk library folders, "+" to add a folder, house chrome (custom dropdown + toggle slider), and a Settings default-library-location preference [P2] [subject:UX]
+  - Details: user, 2026-09-23 (block polish batch). Today `block_editor.py` Save dialog's library combo is editable + fed from *project* defs (`sorted({d.library for d in defs})`), and the options are bare `QCheckBox`es. Want: populate from the on-disk 2-tier library tree (`block_library.py`/`app_data.py`), a "+" button to create a new library/series folder, `ui_kit` dropdown + `ToggleSwitch`, plus a Settings-dialog field for the default library root. Also check `make_block_dialog.py` (still plain `QLineEdit`s). ref: `block-system.md`, `ui-design-system.md`.
+- [ ] [type:bug] Block Editor PDF import is broken — crop area doesn't work, panning is poor, and the PDF never actually imports [P2] [subject:CAD]
+  - Details: user, 2026-09-23 (block polish batch). User has a sample PDF to share. Reproduce first. `block_editor.py`, `block_import_dialog.py`, `geometry_import.py`.
+- [ ] [type:feature] Block attributes — author text/numeric attributes on a block definition; placed instances carry a reference level; `=[AttributeName]` dimension binding deferred to the constraints subsystem [P2] [subject:Architecture]
+  - Details: user, 2026-09-23 (block polish batch). Schema already reserves `attributes: []` on the definition and `attributes: {}` on instances (`block-system.md` — "no UI in v1"). Scope now: attribute definition (name, type text|number, default) authored in the Block Editor + per-instance values in the property panel + reference-level on placement. Deferred: `=[AttributeName]` expressions in `DimensionEdit` driving geometry (needs the parametric constraint system spec session). Needs a spec extension of `block-system.md` first.
+- [ ] [type:bug] Deleting 2D geometry leaves its bounding box / selection frame behind (model space and Block Editor) [P2] [subject:CAD]
+  - Details: user, 2026-09-23 (block polish batch). Reproduce in both surfaces before fixing.
+
 - [ ] [type:feature] Interactive snapped origin-pick for make-from-selection [P3] [subject:UX]
   - Details: S2.x smoke follow-up. v1 uses the selection bounding-box top-left as the block origin (modeless, testable); wire a `set_scale`-style transient single-click snapped origin-pick so the user chooses the insertion base. `main.py`, `model_space.py`.
 - [ ] [type:bug] Block Editor text is never compiled into saved blocks — `gather_primitives` omits `_texts` [P2] [subject:CAD]
