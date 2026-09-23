@@ -70,6 +70,12 @@ def test_window_shortcut_suppressed_while_editing(be):
     sc.activated.connect(lambda: fired.append(1))
     t = _add(scene)
     _editing(scene, t)
+    # NOTE: a bare printable key is ALSO self-protected by Qt's own text
+    # control (QGraphicsTextItem/QTextControl accepts the ShortcutOverride
+    # for a plain character while it holds text-editing focus, independent
+    # of our ShortcutOverride block below) — so this case alone does not
+    # kill mutation (a); see test_real_window_shortcut_suppressed_while_editing
+    # for combos (Escape / Ctrl+D / Ctrl+L) that DO require our block.
     _key(view, Qt.Key.Key_B)
     assert fired == [] and "b" in t.toPlainText().lower()
     scene.commit_text_edit()
@@ -85,6 +91,49 @@ def test_ctrl_s_still_fires_while_editing(be):
     t = _add(scene)
     _editing(scene, t)
     _key(view, Qt.Key.Key_S, CTRL)
+    assert fired == [1]
+
+
+# Mutation-killing guards for the ShortcutOverride block in Model_View.event(),
+# modelled on main.py's REAL window shortcuts: QShortcut("Escape") ->
+# self._on_escape, QShortcut("Ctrl+D") -> set_mode("duplicate") (main.py
+# lines ~624, ~631-632) — plus Ctrl+L, the ad-hoc probe that first proved the
+# block matters for modifier combos (bare printable keys are separately
+# self-protected by Qt's text control; see the "B" test above, which does not
+# exercise this block).
+_REAL_SHORTCUTS = [
+    (Qt.Key.Key_Escape, NO, "Escape"),
+    (Qt.Key.Key_D, CTRL, "Ctrl+D"),
+    (Qt.Key.Key_L, CTRL, "Ctrl+L"),
+]
+
+
+@pytest.mark.parametrize("key,mods,seq", _REAL_SHORTCUTS)
+def test_real_window_shortcut_suppressed_while_editing(be, key, mods, seq):
+    view, scene = be
+    fired = []
+    sc = QShortcut(QKeySequence(seq), view)
+    sc.activated.connect(lambda: fired.append(1))
+    t = _add(scene)
+    _editing(scene, t)
+    _key(view, key, mods)
+    assert fired == []
+    if key == Qt.Key.Key_Escape:
+        assert editing_text_item(scene) is None    # commits via TextItem, not the window shortcut
+    else:
+        assert editing_text_item(scene) is t        # inert; editor stays live (Ctrl+D/Ctrl+L unbound in the editor)
+
+
+@pytest.mark.parametrize("key,mods,seq", _REAL_SHORTCUTS)
+def test_real_window_shortcut_fires_when_not_editing(be, key, mods, seq):
+    """Negative path: from the default (not-editing) state, the SAME window
+    shortcuts fire normally — proves the suppression above is edit-session-
+    scoped, not a blanket swallow."""
+    view, scene = be
+    fired = []
+    sc = QShortcut(QKeySequence(seq), view)
+    sc.activated.connect(lambda: fired.append(1))
+    _key(view, key, mods)
     assert fired == [1]
 
 
