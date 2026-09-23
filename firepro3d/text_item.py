@@ -167,7 +167,8 @@ class TextAnnotationData:
 
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal          # noqa: E402
 from PyQt6.QtGui import (                                          # noqa: E402
-    QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTransform,
+    QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTextCursor,
+    QTransform,
 )
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu  # noqa: E402
 
@@ -601,50 +602,149 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         applied: ``paint`` renders through an already-rotated painter and needs
         the unrotated glyphs, whereas block compilation needs them pre-rotated.
         """
-        doc = self.document()
-        doc.documentLayout().documentSize()   # force the lazy layout to run
+        offsets = self._layout_offsets()
         font = self.font()
-        # QTextDocument keeps every QTextLine at x==0 and applies horizontal
-        # alignment only at draw time, so the glyph-outline path must offset each
-        # line itself: slack = content-width − line width, shifted by the option
-        # alignment (left=0, centre=slack/2, right=slack).
-        align = doc.defaultTextOption().alignment()
-        _tw = doc.textWidth()
-        avail = (_tw - 2.0 * doc.documentMargin()) if _tw > 0 else None
-        # Vertical alignment: shift the whole block within the box-height slack
-        # (top=0, middle=slack/2, bottom=slack). No slack ⇒ no-op (auto-height box).
-        vslack = max(0.0, self._box_rect_local().height() - super().boundingRect().height())
-        voff = (vslack if self._data.valign == "B"
-                else vslack / 2.0 if self._data.valign == "M" else 0.0)
+        doc = self.document()
         outline = QPainterPath()
         block = doc.begin()
         while block.isValid():
             layout = block.layout()
-            block_pos = layout.position()      # block's offset within the document
             block_text = block.text()
             for i in range(layout.lineCount()):
                 line = layout.lineAt(i)
-                align_off = 0.0
-                if avail is not None:
-                    slack = avail - line.naturalTextWidth()
-                    if slack > 0:
-                        if align & Qt.AlignmentFlag.AlignRight:
-                            align_off = slack
-                        elif align & Qt.AlignmentFlag.AlignHCenter:
-                            align_off = slack / 2.0
-                # Each newline starts a NEW block (not a new line in one block),
-                # so the baseline is block_offset + intra-block line y + ascent.
-                base_x = block_pos.x() + line.x() + align_off
-                base_y = block_pos.y() + line.y() + line.ascent() + voff
+                origin = self._line_origin(block, line, offsets)
                 start = line.textStart()
                 length = line.textLength()
                 # A block never contains a newline (Qt splits blocks on \n), so
                 # the run text is used as-is.
-                run_text = block_text[start:start + length].rstrip("  \n")
+                run_text = block_text[start:start + length].rstrip("\u2028\u2029\n")
                 if run_text:
-                    outline.addText(QPointF(base_x, base_y), font, run_text)
+                    outline.addText(QPointF(origin.x(), origin.y() + line.ascent()),
+                                    font, run_text)
             block = block.next()
         return outline
+
+    # ── Line geometry shared by glyphs, caret, selection, hit-test ───────────
+
+    def _layout_offsets(self):
+        """Document-wide inputs to :meth:`_line_origin`.
+
+        Returns:
+            ``(align, avail, voff)`` — the option alignment, the content width
+            available for horizontal alignment (``None`` when auto-width), and
+            the vertical-alignment offset of the whole block within the box.
+        """
+        doc = self.document()
+        doc.documentLayout().documentSize()   # force the lazy layout to run
+        align = doc.defaultTextOption().alignment()
+        tw = doc.textWidth()
+        avail = (tw - 2.0 * doc.documentMargin()) if tw > 0 else None
+        vslack = max(0.0, self._box_rect_local().height()
+                     - super().boundingRect().height())
+        voff = (vslack if self._data.valign == "B"
+                else vslack / 2.0 if self._data.valign == "M" else 0.0)
+        return align, avail, voff
+
+    def _line_origin(self, block, line, offsets=None, apply_align_offset=True) -> QPointF:
+        """Painted top-left of *line* in the LOCAL, UNSCALED, UN-rotated frame.
+
+        QTextDocument keeps every QTextLine at x==0 and applies horizontal
+        alignment only at draw time, so the offset is applied here (left=0,
+        centre=slack/2, right=slack) together with the vertical-align offset.
+        The glyph baseline is ``origin.y() + line.ascent()``.
+
+        Args:
+            apply_align_offset: On this Qt build, ``QTextLine.cursorToX``/
+                ``xToCursor`` already fold in the line's horizontal alignment,
+                so the caret/selection/hit-test callers pass ``False`` here to
+                avoid double-applying it; the glyph-outline path (which does
+                not go through ``cursorToX``) keeps the default ``True``.
+        """
+        align, avail, voff = offsets if offsets is not None else self._layout_offsets()
+        align_off = 0.0
+        if apply_align_offset and avail is not None:
+            slack = avail - line.naturalTextWidth()
+            if slack > 0:
+                if align & Qt.AlignmentFlag.AlignRight:
+                    align_off = slack
+                elif align & Qt.AlignmentFlag.AlignHCenter:
+                    align_off = slack / 2.0
+        bp = block.layout().position()
+        return QPointF(bp.x() + line.x() + align_off, bp.y() + line.y() + voff)
+
+    def _line_for_position(self, pos: int):
+        """``(block, line, rel)`` for document position *pos* (line may be None)."""
+        doc = self.document()
+        block = doc.findBlock(pos)
+        if not block.isValid():
+            block = doc.lastBlock()
+        layout = block.layout()
+        rel = max(0, min(pos - block.position(), block.length() - 1))
+        line = layout.lineForTextPosition(rel)
+        if not line.isValid():
+            line = layout.lineAt(layout.lineCount() - 1) if layout.lineCount() else None
+        return block, line, rel
+
+    def caret_rect_local(self) -> QRectF:
+        """Zero-width caret rect (painted frame) for the current text cursor."""
+        offsets = self._layout_offsets()
+        block, line, rel = self._line_for_position(self.textCursor().position())
+        if line is None:
+            m = self.document().documentMargin()
+            return QRectF(m, m + offsets[2], 0.0, QFontMetricsF(self.font()).height())
+        origin = self._line_origin(block, line, offsets, apply_align_offset=False)
+        x, _ = line.cursorToX(rel)
+        return QRectF(origin.x() + (x - line.x()), origin.y(), 0.0, line.height())
+
+    def selection_rects_local(self) -> list[QRectF]:
+        """Per-line highlight rects (painted frame) for the cursor's selection."""
+        cur = self.textCursor()
+        if not cur.hasSelection():
+            return []
+        s, e = cur.selectionStart(), cur.selectionEnd()
+        offsets = self._layout_offsets()
+        rects: list[QRectF] = []
+        block = self.document().findBlock(s)
+        while block.isValid() and block.position() <= e:
+            layout = block.layout()
+            bpos = block.position()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                ls = bpos + line.textStart()
+                a, b = max(s, ls), min(e, ls + line.textLength())
+                if a >= b:
+                    continue
+                origin = self._line_origin(block, line, offsets, apply_align_offset=False)
+                xa, _ = line.cursorToX(a - bpos)
+                xb, _ = line.cursorToX(b - bpos)
+                rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
+                                    xb - xa, line.height()))
+            block = block.next()
+        return rects
+
+    def cursor_position_at(self, local_pt: QPointF) -> int:
+        """Document position nearest *local_pt* (painted, un-rotated frame).
+
+        The inverse of :meth:`caret_rect_local`: the line whose painted band
+        contains (or is nearest to) the point's y, then ``QTextLine.xToCursor``
+        on the x relative to that line's painted origin.
+        """
+        offsets = self._layout_offsets()
+        best = None                       # (dy, position)
+        block = self.document().begin()
+        while block.isValid():
+            layout = block.layout()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                origin = self._line_origin(block, line, offsets, apply_align_offset=False)
+                top, bot = origin.y(), origin.y() + line.height()
+                y = local_pt.y()
+                dy = 0.0 if top <= y < bot else min(abs(y - top), abs(y - bot))
+                if best is None or dy < best[0]:
+                    rel = line.xToCursor(local_pt.x() - origin.x() + line.x())
+                    best = (dy, block.position() + rel)
+            block = block.next()
+        return best[1] if best is not None else 0
 
     # ── Grip protocol (9 box grips) ─────────────────────────────────────────
     # Indices (clockwise from top-left, matching RectangleItem/NoteAnnotation):
