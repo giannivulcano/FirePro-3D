@@ -3472,6 +3472,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.is_input_mode():
             self.cursorMoved.emit(self._format_cursor_readout(event.scenePos()))
             return
+        # Inline text edit: a drag after an inside press extends the selection.
+        if self._text_edit_ctl.handle_move(event):
+            return
         # ── Selection-manipulator drag owns the mouse ───────────────────
         # While a manipulator gesture is in flight, moves belong to the
         # grabber (held-transform preview); the placement machinery below
@@ -4384,6 +4387,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Inert in input mode (see mouseMoveEvent): a click must not commit
         # geometry behind an open HUD.
         if self.is_input_mode():
+            return
+        # Inline text edit owns presses inside its box (caret / drag-select);
+        # an outside press commits and falls through (spec § Inline edit).
+        if self._text_edit_ctl.handle_press(event):
             return
         if event.button() == Qt.MouseButton.RightButton:
             # Don't pass right-click to base — it deselects items.
@@ -6389,6 +6396,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # ``_last_press_pos`` (its press was swallowed) against a fresh release.
         if self.is_input_mode():
             return
+        # Inline text edit: swallow the release of a gate-consumed press.
+        if self._text_edit_ctl.handle_release(event):
+            return
         # ── Selection-manipulator drag release ──────────────────────────
         # Deliver straight to the grabber: bake + commit happen in
         # SelectionManipulator._finish; the marker-deselect logic below is
@@ -6423,6 +6433,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # arrives incomplete; acting on the tail of it would end a pipe or
         # polyline chain the user never finished.
         if self.is_input_mode():
+            return
+        # Inline text edit: double-click enters edit (select mode) or, while
+        # editing, selects the word under the cursor.
+        if self._text_edit_ctl.handle_double_click(event):
             return
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
@@ -6502,6 +6516,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def contextMenuEvent(self, event):
         """Show context menu on right-click for underlays or scene entities."""
+        # Right-click inside the inline-editing box → the native text menu.
+        if self._text_edit_ctl.handle_context_menu(event):
+            return
         # Right-click confirms design area selection
         if self.mode == "design_area":
             self._spr_ctl.confirm_design_area()
@@ -6811,6 +6828,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # KEY EVENTS
 
     def keyPressEvent(self, event):
+        # Esc mid-manipulator-drag cancels the gesture (restore pre-drag
+        # state, no commit) before any other Escape handling runs — ahead of
+        # the inline-edit bypass too, so a handle drag during an edit session is
+        # cancelled (edit stays open) instead of committing the text mid-drag.
+        if event.key() == Qt.Key.Key_Escape:
+            _manip = self._live_manip()
+            if _manip is not None and _manip.is_dragging():
+                _manip.cancel_drag()
+                event.accept()
+                return
         if editing_text_item(self) is not None:
             # Inline text edit owns the key: bypass variant/Space/polygon cycles;
             # QGraphicsScene delivers it to the focused TextItem.
@@ -6875,14 +6902,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._refresh_opening_ghost()
                 event.accept()
                 return
-        # Esc mid-manipulator-drag cancels the gesture (restore pre-drag
-        # state, no commit) before any other Escape handling runs.
-        if event.key() == Qt.Key.Key_Escape:
-            _manip = self._live_manip()
-            if _manip is not None and _manip.is_dragging():
-                _manip.cancel_drag()
-                event.accept()
-                return
+        # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

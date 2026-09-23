@@ -11,9 +11,12 @@ Governing spec: docs/specs/text-annotation-system.md § Inline edit (model surfa
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+import time
+
+from PyQt6 import sip
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
-from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtWidgets import QApplication, QGraphicsItem
 
 from .text_item import TextItem, editing_text_item
 
@@ -39,6 +42,9 @@ class TextEditController:
             scene: The ``Model_Space`` this controller is composed on.
         """
         self._scene = scene
+        self._mouse_selecting = False     # press inside the box, drag extends
+        self._swallow_release = False     # release that belongs to a gate click
+        self._last_dbl_t = None           # monotonic time of the last word-select
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -149,3 +155,145 @@ class TextEditController:
                       else QTextCursor.MoveMode.MoveAnchor)
         item.setTextCursor(c)
         item._reset_caret_phase()
+
+    # ── Mouse gate (runs ahead of manipulator / HALO / per-mode dispatch) ──
+    #
+    # Called from Model_Space's mouse handlers right after their input-mode
+    # guard.  Each ``handle_*`` returns True when the text editor consumed the
+    # event (the scene handler then returns without any further dispatch).
+
+    def _inside(self, item: TextItem, scene_pos) -> bool:
+        """True when *scene_pos* lies inside *item*'s (rotated) box."""
+        return item._box_rect_local().contains(item.mapFromScene(scene_pos))
+
+    def _on_handle(self, scene_pos) -> bool:
+        """True when *scene_pos* is over a visible manipulator handle."""
+        m = self._scene._live_manip()
+        return m is not None and m.isVisible() and m.hit_handle(scene_pos)
+
+    def item_at(self, scene_pos):
+        """Topmost editable TextItem whose rotated box contains *scene_pos*."""
+        for it in self._scene.items(scene_pos):
+            if (isinstance(it, TextItem) and self.can_edit(it)
+                    and self._inside(it, scene_pos)):
+                return it
+        return None
+
+    def _is_triple(self) -> bool:
+        """True when a press follows a word-select within the double-click
+        interval (the third click of a triple-click)."""
+        if self._last_dbl_t is None:
+            return False
+        elapsed_ms = (time.monotonic() - self._last_dbl_t) * 1000.0
+        return elapsed_ms <= QApplication.doubleClickInterval()
+
+    def _select_unit(self, item: TextItem, scene_pos, unit) -> None:
+        """Select the word / line under *scene_pos* in *item*."""
+        self.set_cursor_at(item, scene_pos, keep_anchor=False)
+        c = item.textCursor()
+        c.select(unit)
+        item.setTextCursor(c)
+        item._reset_caret_phase()
+
+    def _refocus(self, item: TextItem) -> None:
+        """Hand keyboard focus back to *item* if it is still the live session."""
+        if editing_text_item(self._scene) is item:
+            item.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _deferred_refocus(self, item: TextItem) -> None:
+        """Queued refocus target — guards a deleted / moved item first."""
+        if sip.isdeleted(item) or item.scene() is not self._scene:
+            return
+        self._refocus(item)
+
+    def handle_press(self, event) -> bool:
+        """Left press while editing.
+
+        Handle press → the manipulator gesture runs (keyboard handed back
+        after Qt's click-focus lands); press inside the box → caret / Shift
+        extend / triple-click line select; press outside → commit, then the
+        normal press handling runs (select / HALO / tool).
+
+        Returns:
+            bool: True when the text editor consumed the press.
+        """
+        item = editing_text_item(self._scene)
+        if item is None or event.button() != Qt.MouseButton.LeftButton:
+            return False
+        pos = event.scenePos()
+        if self._on_handle(pos):
+            # Manipulator resize/rotate runs; hand the keyboard back after Qt's
+            # click-focus has landed (it lands before our handlers).
+            QTimer.singleShot(0, lambda it=item: self._deferred_refocus(it))
+            return False
+        if self._inside(item, pos):
+            if self._is_triple():
+                self._last_dbl_t = None
+                self._select_unit(item, pos, QTextCursor.SelectionType.LineUnderCursor)
+                self._swallow_release = True
+            else:
+                shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.set_cursor_at(item, pos, keep_anchor=shift)
+                self._mouse_selecting = True
+            event.accept()
+            return True
+        self.commit()                       # outside press: commit, then normal handling
+        return False
+
+    def handle_move(self, event) -> bool:
+        """Drag after an inside press extends the text selection."""
+        item = editing_text_item(self._scene)
+        if item is None or not self._mouse_selecting:
+            return False
+        self.set_cursor_at(item, event.scenePos(), keep_anchor=True)
+        event.accept()
+        return True
+
+    def handle_release(self, event) -> bool:
+        """Swallow the release that belongs to a gate-consumed press."""
+        if self._mouse_selecting or self._swallow_release:
+            self._mouse_selecting = False
+            self._swallow_release = False
+            event.accept()
+            return True
+        return False
+
+    def handle_double_click(self, event) -> bool:
+        """Double-click: word-select while editing; else enter edit on the
+        editable TextItem under the cursor (select mode only)."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        s = self._scene
+        item = editing_text_item(s)
+        if item is None and s.mode not in (None, "select"):
+            return False                    # a placement tool owns the clicks
+        pos = event.scenePos()
+        if self._on_handle(pos):
+            return False
+        if item is not None:
+            if self._inside(item, pos):
+                self._mouse_selecting = False
+                self._select_unit(item, pos, QTextCursor.SelectionType.WordUnderCursor)
+                self._last_dbl_t = time.monotonic()
+                self._swallow_release = True
+                event.accept()
+                return True
+            return False
+        target = self.item_at(pos)
+        if target is None:
+            return False
+        s.clearSelection()
+        target.setSelected(True)
+        self.begin(target, scene_pos=pos)
+        self._swallow_release = True
+        event.accept()
+        return True
+
+    def handle_context_menu(self, event) -> bool:
+        """Right-click inside the editing box → the native text menu."""
+        item = editing_text_item(self._scene)
+        if item is None or not self._inside(item, event.scenePos()):
+            return False
+        event.setPos(item.mapFromScene(event.scenePos()))
+        item.contextMenuEvent(event)
+        return True

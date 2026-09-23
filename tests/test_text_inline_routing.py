@@ -281,3 +281,165 @@ def test_alt_f4_not_swallowed_while_editing(qapp):
     t.keyPressEvent(ev)
     assert not ev.isAccepted()
     assert t._editing is True                # session stays live; not commit/swallow
+
+
+# ── Mouse gate ──────────────────────────────────────────────────────────────
+
+def _mouse(view, etype, pt, mods=NO, buttons=Qt.MouseButton.LeftButton):
+    vp = view.mapFromScene(pt)
+    # Pass the GLOBAL position too: QGraphicsScene hit-tests presses via
+    # widget->mapFromGlobal(screenPos), and the 5-arg ctor seeds the global
+    # position from QCursor::pos() — every item-level press would miss.
+    gp = view.viewport().mapToGlobal(vp)
+    ev = QMouseEvent(etype, QPointF(vp), QPointF(gp), Qt.MouseButton.LeftButton,
+                     buttons, mods)
+    QApplication.sendEvent(view.viewport(), ev)
+    QApplication.processEvents()
+
+
+def _click(view, pt, mods=NO):
+    _mouse(view, QEvent.Type.MouseButtonPress, pt, mods)
+    _mouse(view, QEvent.Type.MouseButtonRelease, pt, mods, Qt.MouseButton.NoButton)
+
+
+def _dbl(view, pt):
+    _click(view, pt)
+    _mouse(view, QEvent.Type.MouseButtonDblClick, pt)
+    _mouse(view, QEvent.Type.MouseButtonRelease, pt, NO, Qt.MouseButton.NoButton)
+
+
+def _char_pt(t, pos):
+    """Scene point just right of the caret slot *pos* (mid line).
+
+    Restores the item's text cursor afterwards: measuring must not move the
+    live caret/anchor (a Shift-click test measures between its two clicks)."""
+    saved = t.textCursor()
+    c = t.textCursor(); c.setPosition(pos); t.setTextCursor(c)
+    r = t.caret_rect_local()
+    t.setTextCursor(saved)
+    return t.mapToScene(QPointF(r.x() + 2.0, r.center().y()))
+
+
+def test_double_click_unselected_text_enters_with_caret_at_click(be):
+    view, scene = be
+    t = _add(scene, "Hello")
+    pt = _char_pt(t, 2)
+    scene.clearSelection()
+    _dbl(view, pt)
+    assert editing_text_item(scene) is t
+    assert t.textCursor().position() in (2, 3)
+
+
+def test_double_click_ignored_while_placement_tool_active(be):
+    view, scene = be
+    t = _add(scene, "Hello")
+    scene.set_mode("draw_line")
+    _dbl(view, _char_pt(t, 2))
+    assert editing_text_item(scene) is None
+
+
+def test_click_inside_moves_caret(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _click(view, _char_pt(t, 6))
+    assert editing_text_item(scene) is t
+    assert t.textCursor().position() in (6, 7)
+
+
+def test_drag_inside_selects_text_not_moves(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    pos0 = t.pos()
+    a, b = _char_pt(t, 1), _char_pt(t, 5)
+    _mouse(view, QEvent.Type.MouseButtonPress, a)
+    _mouse(view, QEvent.Type.MouseMove, b)
+    _mouse(view, QEvent.Type.MouseButtonRelease, b, NO, Qt.MouseButton.NoButton)
+    assert t.textCursor().hasSelection()
+    assert t.pos() == pos0
+
+
+def test_shift_click_extends_selection(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _click(view, _char_pt(t, 1))
+    _click(view, _char_pt(t, 5), Qt.KeyboardModifier.ShiftModifier)
+    assert t.textCursor().hasSelection()
+
+
+def test_double_click_while_editing_selects_word(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    _dbl(view, _char_pt(t, 7))
+    assert t.textCursor().selectedText() == "world"
+
+
+def test_triple_click_selects_line(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    pt = _char_pt(t, 7)
+    _dbl(view, pt)
+    _click(view, pt)
+    assert t.textCursor().selectedText() == "Hello world"
+
+
+def test_outside_press_commits_and_is_handled(be):
+    view, scene = be
+    t = _add(scene, "Hello")
+    other = _add(scene, "Other", y=1000.0)
+    _editing(scene, t)
+    pt = _char_pt(other, 1)
+    # A real click is preceded by hover: select-mode picks a TextItem through
+    # the HALO preselection (halo_update runs on view mouse-move), not the
+    # press-time item_under resolve (which has no TextItem branch).
+    _mouse(view, QEvent.Type.MouseMove, pt, NO, Qt.MouseButton.NoButton)
+    _click(view, pt)
+    assert editing_text_item(scene) is None
+    assert other.isSelected()
+
+
+def test_handle_drag_resizes_and_keeps_editing(be):
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    br = t.grip_points()[4]                        # bottom-right corner grip
+    assert m is not None and m.hit_handle(br), "precondition: BR grip is a handle"
+    w0 = t.data.wrap_width_mm
+    dst = QPointF(br.x() + 300.0, br.y())
+    _mouse(view, QEvent.Type.MouseButtonPress, br)
+    _mouse(view, QEvent.Type.MouseMove, dst)
+    _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    QApplication.processEvents()
+    assert editing_text_item(scene) is t
+    assert t.data.wrap_width_mm > w0
+    assert t.hasFocus(), "keyboard handed back to the editor after the handle press"
+
+
+def test_escape_mid_handle_drag_cancels_drag_keeps_editing(be):
+    """Esc during a live manipulator drag while editing cancels the GESTURE
+    (box restored) and leaves the edit session open — it must not commit the
+    text mid-gesture (the scene's editing bypass must not pre-empt it)."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    QApplication.processEvents()
+    m = scene._live_manip()
+    br = t.grip_points()[4]
+    assert m is not None and m.hit_handle(br), "precondition: BR grip is a handle"
+    w0 = t.data.wrap_width_mm
+    dst = QPointF(br.x() + 300.0, br.y())
+    _mouse(view, QEvent.Type.MouseButtonPress, br)
+    _mouse(view, QEvent.Type.MouseMove, dst)
+    assert m.is_dragging(), "precondition: handle drag is live"
+    _key(view, Qt.Key.Key_Escape)
+    assert not m.is_dragging()
+    assert t.data.wrap_width_mm == pytest.approx(w0)
+    assert editing_text_item(scene) is t
+    _mouse(view, QEvent.Type.MouseButtonRelease, dst, NO, Qt.MouseButton.NoButton)
+    assert editing_text_item(scene) is t
