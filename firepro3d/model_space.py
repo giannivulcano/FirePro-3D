@@ -5148,6 +5148,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._move_ghost_base = []
             self.set_mode(None)
 
+    def begin_move_from(self, base: QPointF) -> None:
+        """Enter the Move tool on the current selection with *base* preset.
+
+        Skips Move's first (base-point) click: the selection immediately rides
+        the cursor from *base*, and the next click places it (same commit /
+        undo / Esc as an ordinary Move). Used by Block Editor import to place
+        geometry by its picked base point.
+
+        Args:
+            base: Scene point that tracks the cursor.
+        """
+        self.set_mode("move")
+        self.node_start_pos = QPointF(base)
+        self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
+
     def _apply_move_displacement(self, params: dict) -> bool:
         """Apply a typed dX/dY displacement (transform schema — dict, not point).
 

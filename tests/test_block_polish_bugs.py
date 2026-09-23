@@ -236,3 +236,75 @@ def test_new_block_tab_retitles_and_rekeys_on_save(qapp):
     # A rename on a later save retitles again.
     w.commit_block("Pump 2", "Lib", "Ser")
     assert tabs.tabText(tabs.indexOf(w)) == "Block: Pump 2"
+
+
+# ── Smoke round 3: import base point / insert-at-origin ─────────────────────
+
+def _params(base, origin, rot=0.0, scale=2.0):
+    from firepro3d.underlay_import_dialog import ImportParams
+    p = ImportParams()
+    p.geom_list = [_seg(10, 20, 60, 20), _seg(60, 20, 60, 80)]
+    p.scale, p.base_x, p.base_y, p.rotation = scale, base[0], base[1], rot
+    p.insert_at_origin = origin
+    return p
+
+
+def _vertex_at(w, pt, tol=1e-6):
+    """True if some imported line has an endpoint at scene point *pt*."""
+    for it in w.editor_scene._draw_lines:
+        for q in (it.mapToScene(it.line().p1()), it.mapToScene(it.line().p2())):
+            if abs(q.x() - pt[0]) < tol and abs(q.y() - pt[1]) < tol:
+                return True
+    return False
+
+
+def test_insert_at_origin_lands_base_point_on_new_block_origin(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    w = BlockEditorWidget(Model_Space())
+    w.import_with_params(_params(base=(60, 20), origin=True))
+    assert _vertex_at(w, (0.0, 0.0)), "picked base vertex must land on the origin"
+    o = w.origin_point()
+    assert (o.x(), o.y()) == (0.0, 0.0) and w._origin is not None, (
+        "an empty editor's origin is pinned at the import base point")
+
+
+def test_insert_at_origin_honours_a_pinned_origin(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    w = BlockEditorWidget(Model_Space())
+    w.set_origin_point(QPointF(100.0, 50.0))
+    w.import_with_params(_params(base=(60, 20), origin=True, rot=90.0))
+    assert _vertex_at(w, (100.0, 50.0))
+
+
+def test_insert_off_places_base_point_where_the_user_clicks(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    w = BlockEditorWidget(Model_Space())
+    w.import_with_params(_params(base=(60, 20), origin=False))
+    sc = w.editor_scene
+    assert sc.mode == "move", "Off must hand the import to an interactive move"
+    assert len(sc.selectedItems()) == 2
+    click = QPointF(300.0, 200.0)
+    sc._press_paste_move(None, click, click, None, None, None)   # the placing click
+    assert _vertex_at(w, (300.0, 200.0)), "base vertex must follow to the click"
+    assert sc.mode != "move"
+
+
+def test_base_pick_on_rotated_preview_records_the_source_point(qapp):
+    # Smoke round 3 dump: with the preview rotated 90 deg the picked base was
+    # stored in ROTATED preview coords (y=4746 on a 2592-tall page), so the
+    # import landed far from the picked feature.
+    dlg = _dialog_with([_seg(100, 200, 400, 200), _seg(400, 200, 400, 500)], 90.0)
+    try:
+        group = dlg._preview_geom_group
+        seen = group.mapToScene(QPointF(400, 200))      # where the corner DRAWS
+        before = group.sceneTransform()
+        dlg._on_point_picked(seen)
+        assert (round(dlg._base_x_edit.value_mm(), 6),
+                round(dlg._base_y_edit.value_mm(), 6)) == (400.0, 200.0)
+        assert dlg._preview_geom_group.sceneTransform() == before, (
+            "picking a base point must not move the preview")
+        h, v = dlg._base_markers
+        mark = QPointF(v.line().x1(), h.line().y1())
+        assert (mark - seen).manhattanLength() < 1e-6, "marker sits on the pick"
+    finally:
+        dlg.deleteLater()

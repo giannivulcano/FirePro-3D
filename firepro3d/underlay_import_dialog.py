@@ -3006,9 +3006,12 @@ class UnderlayImportDialog(HouseDialog):
         if geom_items:
             group = self._preview_scene.createItemGroup(geom_items)
             group.setData(0, "DXF Underlay")  # snap engine recognises tagged groups
-            bx = self._base_x_edit.value_mm() if hasattr(self, "_base_x_edit") else 0.0
-            by = self._base_y_edit.value_mm() if hasattr(self, "_base_y_edit") else 0.0
-            group.setTransformOriginPoint(bx, by)
+            # Rotate about a FIXED origin (not the base point): the base point is
+            # a source-coord pick mapped through this transform, so re-picking
+            # it must not re-pivot (and jump) the preview. The final placement
+            # (apply_import_transform) depends only on base + rotation, not on
+            # the preview pivot; the view re-fits on rotation.
+            group.setTransformOriginPoint(0.0, 0.0)
             group.setRotation(rotation)
             # Lazy snap index instead of one invisible QGraphicsItem per
             # geometry (~293K items on large drawings, rebuilt on every
@@ -3057,6 +3060,13 @@ class UnderlayImportDialog(HouseDialog):
 
         bx = self._base_x_edit.value_mm()
         by = self._base_y_edit.value_mm()
+        group = getattr(self, "_preview_geom_group", None)
+        if group is not None:
+            try:   # base is source coords; draw it where that point is DRAWN
+                q = group.mapToScene(QPointF(bx, by))
+                bx, by = q.x(), q.y()
+            except RuntimeError:
+                pass
         s = 15
         pen = QPen(QColor(detect().warn), 2)
         pen.setCosmetic(True)
@@ -3665,6 +3675,14 @@ class UnderlayImportDialog(HouseDialog):
         self._status_lbl.setText("Click the base / insertion point on the preview…")
 
     def _on_point_picked(self, pt: QPointF):
+        # *pt* is a preview-SCENE point; the base point is stored in SOURCE
+        # (group-local) coords — what apply_import_transform subtracts.
+        group = self._preview_geom_group
+        if group is not None:
+            try:
+                pt = group.mapFromScene(pt)
+            except RuntimeError:
+                pass
         self._base_x_edit.blockSignals(True)
         self._base_y_edit.blockSignals(True)
         self._base_x_edit.set_value_mm(pt.x())
@@ -3699,9 +3717,7 @@ class UnderlayImportDialog(HouseDialog):
         if group is None:
             return
         try:
-            bx = self._base_x_edit.value_mm()
-            by = self._base_y_edit.value_mm()
-            group.setTransformOriginPoint(bx, by)
+            group.setTransformOriginPoint(0.0, 0.0)   # fixed pivot (see rebuild)
             group.setRotation(self._get_rotation())
         except RuntimeError:
             # C++ object deleted (scene was cleared) — rebuild from data
@@ -3712,6 +3728,7 @@ class UnderlayImportDialog(HouseDialog):
         # the drawing out of the fitted view — the content extent changed, so
         # re-fit exactly as a load does.
         self._fit_preview_to_content()
+        self._draw_base_marker()          # the marker rides the rotated drawing
 
     def _get_rotation(self) -> float:
         text = self._rotation_edit.text().strip().rstrip("°").strip()

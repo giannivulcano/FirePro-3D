@@ -420,7 +420,6 @@ class BlockEditorWidget(QWidget):
         """
         from PyQt6.QtWidgets import QDialog
         from .block_import_dialog import BlockImportDialog
-        from . import dwg_converter
         dlg = BlockImportDialog(self, scale_manager=self.editor_scene.scale_manager)
         try:
             if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -428,12 +427,43 @@ class BlockEditorWidget(QWidget):
             p = dlg.get_import_params()
         finally:
             dlg.deleteLater()
-        # Bake the dialog's resolved base-shift + scale into the (already
-        # layer-filtered) geom dicts, then convert to native primitives. Scale is
-        # already applied here, so pass 1.0 to the factory.
+        self.import_with_params(p)
+
+    def import_with_params(self, p):
+        """Place an accepted import's geometry (the dialog-free half of Import).
+
+        The picked **base point** is the grip that places the geometry:
+
+        * ``insert_at_origin`` on — the base point lands on the block origin
+          (the pinned origin, else the editor origin).
+        * off — the geometry is added base-at-origin, selected, and handed to
+          the Move tool with the base point preset, so it rides the cursor
+          (OSNAP / ALIGN / HUD) until the placing click.
+
+        Importing into an EMPTY editor with no pinned origin pins the origin
+        at the base point (so the marker sits where the base point was picked,
+        not at the geometry's bbox corner).
+
+        Args:
+            p: ``ImportParams`` from ``BlockImportDialog.get_import_params()``.
+        """
+        from PyQt6.QtCore import QPointF
+        from . import dwg_converter
+        was_empty = not self.gather_primitives()
+        # Base-shift + scale + rotation: the base point maps to (0, 0). Scale is
+        # baked here, so the primitive factory gets 1.0.
         geoms = dwg_converter.apply_import_transform(
             p.geom_list, p.scale, p.base_x, p.base_y, p.rotation)
-        self._add_imported_geoms(geoms, 1.0)
+        target = QPointF(0.0, 0.0)
+        if p.insert_at_origin and self._origin is not None:
+            target = QPointF(self._origin)
+            geoms = dwg_converter.apply_import_transform(
+                geoms, 1.0, -target.x(), -target.y())
+        if was_empty and self._origin is None:
+            self.set_origin_point(QPointF(0.0, 0.0))
+        added, _skipped = self._add_imported_geoms(geoms, 1.0)
+        if added and not p.insert_at_origin:
+            self.editor_scene.begin_move_from(target)
 
     def _save_to_library(self, defn, parent):
         """Persist *defn* to the on-disk block library, prompting on collision.
