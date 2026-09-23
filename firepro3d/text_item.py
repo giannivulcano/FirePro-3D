@@ -166,16 +166,19 @@ class TextAnnotationData:
 # Governing spec: docs/specs/2026-09-17-containment-implementation-design.md §A2.
 # Retirement of the two old classes and the paper repoint happen in a LATER task.
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal          # noqa: E402
+from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal   # noqa: E402
 from PyQt6.QtGui import (                                          # noqa: E402
     QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTransform,
 )
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu  # noqa: E402
+from PyQt6.QtWidgets import (                                      # noqa: E402
+    QApplication, QGraphicsItem, QGraphicsTextItem, QMenu,
+)
 
+from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
-    TEXT_METRIC_REF_PX,
+    TEXT_CARET_WIDTH_PX, TEXT_METRIC_REF_PX, TEXT_SELECTION_ALPHA,
 )
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
@@ -234,6 +237,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data = data
         self._editing = False
         self._text_before_edit = data.text
+
+        # Inline-edit session state (model surface; spec § Inline edit).
+        self._caret_timer: QTimer | None = None
+        self._caret_on = False
+        self._edit_before: dict | None = None   # to_dict() at session start
+        self._edit_is_new = False               # session started by placement
 
         # Bake-at-rest rotation state (data-only — NO held Qt transform).
         # _angle mirrors self._data.angle for the map* overrides; _pivot is
@@ -538,9 +547,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
         Renders (with the bake-at-rest rotation applied like NoteAnnotation):
         (1) a colour fill over the box rect when ``fill_color`` is set,
-        (2) the text via super(), (3) the lighter #88aaff cosmetic border while
-        inline-editing (the EDITING state — distinct from SELECTED, whose frame
-        is drawn by the scene's SelectionManipulator).
+        (2) the text via super() on paper / glyph outlines + self-painted
+        selection + caret on the model surface, (3) the paper-only dashed
+        editing frame.
         """
         box = self._box_rect_local()
         painter.save()
@@ -555,24 +564,31 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # paper viewport device (zoom-invariant, live caret) — keep it.
             super().paint(painter, option, widget)
         else:
-            # Model / Block-Editor surface: the document renderer draws NOTHING on
-            # the live viewport's engine-less paint device (the pre-existing
-            # engine==0 bug — todo L75-76; fill/border via the direct painter draw
-            # fine).  Render the text as filled glyph outlines through the SAME
-            # painter-fill path.  The painter is already rotated, so the UNROTATED
-            # local outline is used.
+            # Model / Block-Editor surface: EVERYTHING is drawn through direct
+            # painter ops, never super().paint() — the document renderer draws
+            # nothing on the live viewport's engine-less device (todo #62 /
+            # engine==0).  Selection highlight → glyph outlines → caret.
+            if self._editing:
+                sel = theme.detect().color("selection", TEXT_SELECTION_ALPHA)
+                for r in self.selection_rects_local():
+                    painter.fillRect(r.intersected(box), sel)
             outline = self._glyph_outline_local()
             if not outline.isEmpty():
                 painter.fillPath(outline, QColor(self._data.color))
-            if self._editing:
-                # Overlay the live editor (caret/selection) on top; its glyphs are
-                # invisible-live but harmless — the caret is a separate follow-up.
-                super().paint(painter, option, widget)
+            if self._editing and self._caret_on:
+                cr = self.caret_rect_local()
+                pen = QPen(QColor(self._data.color))
+                pen.setCosmetic(True)
+                pen.setWidthF(TEXT_CARET_WIDTH_PX)
+                painter.setPen(pen)
+                painter.drawLine(cr.topLeft(), cr.bottomLeft())
         if self._data.border:
             painter.setPen(self._frame_pen())
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._frame_path())
-        if self._editing:
+        if self._editing and self.is_device_independent():
+            # Paper keeps its dashed EDITING frame; the model surface shows the
+            # normal selection frame only (spec § Inline edit — no edit frame).
             pen = QPen(QColor("#88aaff"))
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
@@ -706,10 +722,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             tuple[QTextBlock, QTextLine | None, int]: ``(block, line, rel)``
             — the block containing *pos*, the ``QTextLine`` within that
             block that *pos* falls on, and ``rel``, *pos* made
-            block-relative and clamped to ``[0, block.length() - 1]`` (i.e.
-            excluding the block's own terminating newline, matching the
-            block-relative addressing ``cursorToX``/``xToCursor`` expect
-            elsewhere in this class). ``line`` is only ever ``None`` if the
+            block-relative and clamped so it is at most the end-of-text
+            position (the block separator slot), never past it — matching
+            the block-relative addressing ``cursorToX``/``xToCursor`` expect
+            elsewhere in this class. ``line`` is only ever ``None`` if the
             block has no laid-out lines at all.
 
         Note:
@@ -1245,6 +1261,36 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         new = self.commit_edit()
         if scene is not None and hasattr(scene, "_push_text_edit"):
             scene._push_text_edit(self._data, old, new)
+
+    def _start_caret_blink(self) -> None:
+        """Start the self-painted caret blink (platform flash rate)."""
+        if self._caret_timer is None:
+            self._caret_timer = QTimer(self)
+            self._caret_timer.timeout.connect(self._toggle_caret)
+        self._caret_on = True
+        flash = QApplication.cursorFlashTime()
+        if flash > 0:                     # 0/negative = platform "no blink"
+            self._caret_timer.start(max(1, flash // 2))
+        self.update()
+
+    def _stop_caret_blink(self) -> None:
+        if self._caret_timer is not None:
+            self._caret_timer.stop()
+        self._caret_on = False
+        self.update()
+
+    def _toggle_caret(self) -> None:
+        self._caret_on = not self._caret_on
+        self.update()
+
+    def _reset_caret_phase(self) -> None:
+        """Show the caret now and restart the blink (after a key / cursor move)."""
+        if not self._editing:
+            return
+        self._caret_on = True
+        if self._caret_timer is not None and self._caret_timer.isActive():
+            self._caret_timer.start()
+        self.update()
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Enter inline-edit mode on a double-click while not already editing."""

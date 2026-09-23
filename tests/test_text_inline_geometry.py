@@ -180,20 +180,102 @@ def test_hit_test_off_text_extremes(scene):
 
 
 def test_line_for_position_past_end_clamps_to_document_end(scene):
-    """_line_for_position(pos) for a pos far past the document end resolves
-    to the same block/line/rel as the document's actual end position, and
-    the caret geometry built from either is identical."""
+    """_line_for_position(99), far past a 5-char document's end, resolves to
+    the same block-relative position as the document's real end — and caret
+    geometry built through the public caret_rect_local() is identical whether
+    the cursor is set to the document end or to 99 (Qt's own
+    QTextCursor.setPosition guard leaves an out-of-range cursor at its
+    previous — here, the end — position, so this also holds through the
+    public path, not just the internal clamp)."""
     t = _text(scene, "Hello")
     end_pos = len(t.toPlainText())
-    block_a, line_a, rel_a = t._line_for_position(99)
-    block_b, line_b, rel_b = t._line_for_position(end_pos)
-    assert block_a.blockNumber() == block_b.blockNumber()
-    assert rel_a == rel_b
-    offsets = t._layout_offsets()
-    origin_a = t._line_origin(block_a, line_a, offsets)
-    origin_b = t._line_origin(block_b, line_b, offsets)
-    xa, _ = line_a.cursorToX(rel_a)
-    xb, _ = line_b.cursorToX(rel_b)
-    caret_x_a = origin_a.x() + (xa - line_a.x())
-    caret_x_b = origin_b.x() + (xb - line_b.x())
-    assert abs(caret_x_a - caret_x_b) < 1e-6
+    assert t._line_for_position(99)[2] == end_pos
+    _set_pos(t, end_pos)
+    r_end = t.caret_rect_local()
+    _set_pos(t, 99)
+    r_99 = t.caret_rect_local()
+    assert r_end == r_99
+
+
+# ── Painting (live failure mode simulated: QGraphicsTextItem.paint is a no-op) ──
+
+def _render(t, w=800, h=300, pad=20):
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem
+    img = QImage(w, h, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    p.translate(pad, pad)
+    t.paint(p, QStyleOptionGraphicsItem(), None)
+    p.end()
+    return img
+
+
+def _bright_in_column(img, x, y0, y1):
+    return sum(1 for y in range(max(0, y0), min(img.height(), y1))
+               for dx in (-1, 0, 1)
+               if 0 <= x + dx < img.width() and img.pixelColor(x + dx, y).lightness() > 128)
+
+
+@pytest.fixture
+def no_doc_render(monkeypatch):
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    monkeypatch.setattr(QGraphicsTextItem, "paint", lambda self, p, o, w=None: None)
+
+
+def test_caret_paints_without_document_renderer(scene, no_doc_render):
+    t = _text(scene, "Hi   ")               # trailing spaces → caret column is blank
+    t.begin_edit()
+    _set_pos(t, 4)
+    t._caret_on = True
+    r = t.caret_rect_local()
+    img = _render(t)
+    n = _bright_in_column(img, round(r.x()) + 20, round(r.top()) + 20, round(r.bottom()) + 20)
+    assert n > 0.5 * r.height(), f"caret not painted ({n}px)"
+
+
+def test_caret_hidden_in_off_blink_phase(scene, no_doc_render):
+    t = _text(scene, "Hi   ")
+    t.begin_edit()
+    _set_pos(t, 4)
+    t._caret_on = False
+    r = t.caret_rect_local()
+    img = _render(t)
+    n = _bright_in_column(img, round(r.x()) + 20, round(r.top()) + 20, round(r.bottom()) + 20)
+    assert n < 0.2 * r.height()
+
+
+def test_selection_highlight_paints_without_document_renderer(scene, no_doc_render):
+    t = _text(scene, "Hello")
+    t.begin_edit()
+    t._caret_on = False
+    plain = _render(t)
+    _set_pos(t, 5, anchor=0)
+    sel = _render(t)
+    rect = t.selection_rects_local()[0].translated(20, 20)
+    changed = sum(1 for y in range(int(rect.top()), int(rect.bottom()))
+                  for x in range(int(rect.left()), int(rect.right()))
+                  if plain.pixel(x, y) != sel.pixel(x, y))
+    assert changed > 0.2 * rect.width() * rect.height()
+
+
+def test_model_surface_never_calls_document_renderer(scene, monkeypatch):
+    """The engine==0 source is gone: model paint never reaches super().paint()."""
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    calls = []
+    monkeypatch.setattr(QGraphicsTextItem, "paint",
+                        lambda self, p, o, w=None: calls.append(1))
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    _render(t)
+    assert calls == []
+
+
+def test_blink_timer_runs_only_while_editing(scene):
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    t._start_caret_blink()
+    assert t._caret_timer is not None and t._caret_timer.isActive()
+    t._stop_caret_blink()
+    assert not t._caret_timer.isActive()
+    assert t._caret_on is False
