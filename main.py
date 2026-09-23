@@ -435,18 +435,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.current_text_template.data
         self.paper_space_widget.paper_scene.selectionChanged.connect(
             self.update_paper_property_manager)
+        # Bound methods, never ``self`` lambdas: the parentless PaperScene can
+        # outlive this window, and ~QUndoStack emits indexChanged on destruction;
+        # PyQt auto-disconnects bound-method slots when the receiver dies, a
+        # lambda never (test-harness.md Invariant 6).
         self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
-            lambda _=0: self.update_paper_property_manager())
+            self.update_paper_property_manager)
         self.paper_space_widget.add_text_mode_toggled.connect(
             self._on_add_text_mode_toggled)
         self.paper_space_widget.add_text_mode_toggled.connect(
             self._sync_add_text_ribbon_btn)
         self.paper_space_widget.add_text_mode_toggled.connect(
-            lambda _on: self._update_font_group_context())
+            self._update_font_group_context)
         self.paper_space_widget.paper_scene.selectionChanged.connect(
             self._update_font_group_context)
         self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
-            lambda _=0: self._update_font_group_context())
+            self._update_font_group_context)
 
         self.model_browser = ModelBrowser()
         self.model_browser.set_scene(self.scene)

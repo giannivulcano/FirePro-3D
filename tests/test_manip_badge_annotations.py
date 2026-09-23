@@ -157,14 +157,15 @@ def test_note_annotation_moves_via_manipulator(qapp, scene_and_view):
     note = TextItem(TextAnnotationData(text="Hello", x=100.0, y=100.0))
     scene.addItem(note)
     scene._texts.append(note)
-    # Model text is box-native (frame + resize + move + rotate).
-    assert item_capabilities(note) == {"translate", "scale", "rotate"}
+    # Model text: move + rotate; resize is font-constant via the parametric
+    # grips, so no "scale" cap (text-annotation-system.md).
+    assert item_capabilities(note) == {"translate", "rotate"}
 
     note.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
     assert note in manip.selection_items()
-    # Box-native → rigid resize handles now show (was translate-only / no handles).
+    # Resize handles still show — the parametric grips (manip_handles).
     assert _visible_handles(manip) != []
 
     scene.push_undo_state()

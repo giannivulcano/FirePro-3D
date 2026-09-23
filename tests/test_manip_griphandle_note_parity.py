@@ -119,9 +119,14 @@ def test_first_resize_from_auto_width_seeds_wrap(qapp):
 
 # ── Task 4: box-native manip_* + coexistence gate (angle 0) ──────────────────
 
-def test_caps_are_box_native_when_unrotated(qapp):
+def test_caps_are_font_constant_on_model_surface(qapp):
+    """Model text drops "scale" (font-constant resize via the parametric grips —
+    text-annotation-system.md); paper text keeps the box-native scale path."""
     note = _note("Hi", x=0, y=0)
-    assert note.manip_capabilities() == {"translate", "scale", "rotate"}
+    assert note.manip_capabilities() == {"translate", "rotate"}
+    paper = _note("Hi", x=0, y=0)
+    paper._force_device_independent = True
+    assert paper.manip_capabilities() == {"translate", "scale", "rotate"}
 
 
 def test_manip_handles_present(qapp):
