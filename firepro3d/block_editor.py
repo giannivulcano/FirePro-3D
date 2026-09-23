@@ -507,3 +507,13 @@ class BlockEditorManager:
     def forget(self, widget: BlockEditorWidget) -> None:
         """Drop a widget from tracking (called when its tab is closed elsewhere)."""
         self._open.pop(getattr(widget, "_editor_key", None), None)
+
+    def open_editors(self) -> list:
+        """Return the currently open editor widgets (stable-ish, dict order).
+
+        Public accessor for callers outside the manager (e.g. main.py's
+        ``_text_edit_scenes``) that must not reach into the private ``_open``
+        dict directly.
+        """
+        return list(self._open.values())
+

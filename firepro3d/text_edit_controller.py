@@ -262,7 +262,17 @@ class TextEditController:
         self._mouse_selecting = False
         self._swallow_release = False
         item = editing_text_item(self._scene)
-        if item is None or event.button() != Qt.MouseButton.LeftButton:
+        if item is None:
+            return False
+        if event.button() != Qt.MouseButton.LeftButton:
+            # Right-click outside the box commits (mirrors the left-press
+            # outside-commit rule below); inside, the session stays live so
+            # the native context menu can open (handle_context_menu).  Middle
+            # button (pan) never reaches here — Model_View intercepts it for
+            # panning before the event is forwarded to the scene.
+            if (event.button() == Qt.MouseButton.RightButton
+                    and not self._inside(item, event.scenePos())):
+                self.commit()
             return False
         pos = event.scenePos()
         if self._handle_wins(item, pos):

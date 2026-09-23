@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QKeySequence, QMouseEvent, QShortcut
+from PyQt6.QtGui import QKeyEvent, QKeySequence, QMouseEvent, QShortcut, QTextCursor
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -516,6 +516,92 @@ def test_right_click_inside_editing_box_reaches_native_text_menu(be, monkeypatch
     assert len(calls) == 1 and calls[0][0] is t
     assert t.boundingRect().contains(calls[0][1])        # item-local pos
     assert editing_text_item(scene) is t
+
+
+def test_right_click_outside_editing_box_commits(be):
+    """M6: a right-click OUTSIDE the editing box commits the session (mirrors
+    the left-press outside-commit rule) — only a right-click INSIDE the box
+    keeps it live for the native context menu (see the "inside" test above)."""
+    view, scene = be
+    t = _add(scene, "Hello")
+    other = _add(scene, "Other", y=1000.0)
+    _editing(scene, t)
+    pt = _char_pt(other, 1)
+    _mouse(view, QEvent.Type.MouseMove, pt, NO, Qt.MouseButton.NoButton)
+    _mouse(view, QEvent.Type.MouseButtonPress, pt, NO, Qt.MouseButton.RightButton,
+           Qt.MouseButton.RightButton)
+    assert editing_text_item(scene) is None
+    assert t.data.text == "Hello"
+
+
+def test_middle_click_pan_does_not_commit_edit(be):
+    """M6 (negative path): a middle-click (pan) — INSIDE or outside the box —
+    must never commit; Model_View intercepts MiddleButton for panning before
+    it ever reaches the scene's mouse gate."""
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    pt = _char_pt(t, 2)
+    _mouse(view, QEvent.Type.MouseButtonPress, pt, NO, Qt.MouseButton.MiddleButton,
+           Qt.MouseButton.MiddleButton)
+    assert editing_text_item(scene) is t
+    _mouse(view, QEvent.Type.MouseButtonRelease, pt, NO, Qt.MouseButton.NoButton,
+           Qt.MouseButton.MiddleButton)
+    assert editing_text_item(scene) is t
+
+
+# ── Coverage gap (b): clipboard while editing must not touch the scene ──────
+
+def test_ctrl_c_ctrl_v_while_editing_leave_scene_untouched(be):
+    """Coverage gap (b): Ctrl+C / Ctrl+V while editing are the text control's
+    own clipboard ops (spec: 'Ctrl+A/C/X/V act on text') — they must not
+    reach the scene's own copy/paste (item count unchanged, no scene items
+    pasted), and the system clipboard ends up holding the copied TEXT, not a
+    serialized scene item."""
+    from PyQt6.QtGui import QGuiApplication
+    view, scene = be
+    t = _add(scene, "Hello world")
+    _editing(scene, t)
+    n_items = len(scene._texts)
+    saved_clip = QGuiApplication.clipboard().text()
+    try:
+        c = t.textCursor()
+        c.setPosition(0)
+        c.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        t.setTextCursor(c)
+        _key(view, Qt.Key.Key_C, CTRL)
+        assert QGuiApplication.clipboard().text() == "Hello"
+        c2 = t.textCursor()
+        c2.setPosition(len(t.toPlainText()))
+        t.setTextCursor(c2)
+        _key(view, Qt.Key.Key_V, CTRL)
+        assert editing_text_item(scene) is t
+        assert len(scene._texts) == n_items
+        assert "Hello" in t.toPlainText()
+    finally:
+        QGuiApplication.clipboard().setText(saved_clip)
+
+
+# ── Coverage gap (c): plan-role scene, legacy-loaded TextItem ───────────────
+
+def test_plan_role_scene_inline_edit_full_cycle(shown_model_view):
+    """Coverage gap (c): the model-surface inline-edit contract holds on a
+    PLAN-role scene too, not only scene_role='block_editor' — with a TextItem
+    added directly (mirrors a legacy-loaded project's text, never routed
+    through _press_text). Double-click enters edit, typing works, Esc
+    commits."""
+    view, scene = shown_model_view
+    assert scene.scene_role != "block_editor"
+    t = _add(scene, "Hello")
+    scene.clearSelection()
+    pt = _char_pt(t, 2)
+    _dbl(view, pt)
+    assert editing_text_item(scene) is t
+    _key(view, Qt.Key.Key_X)
+    assert "x" in t.toPlainText().lower()
+    _key(view, Qt.Key.Key_Escape)
+    assert editing_text_item(scene) is None
+    assert "x" in t.data.text.lower()
 
 
 def test_double_click_on_centre_grip_of_selected_text_enters_edit(be):

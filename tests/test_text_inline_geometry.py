@@ -362,6 +362,66 @@ def test_reset_caret_phase_shows_caret_while_editing(scene):
     assert t._caret_on is True
 
 
+def test_caret_paints_correctly_when_rotated(scene, no_doc_render):
+    """Coverage gap (a): the caret must still land correctly on a rotated
+    (30°) box. ``paint()`` composes the rotation via
+    ``painter.setWorldTransform(self._rotation_transform(), True)`` around
+    the UNROTATED local geometry, so the caret's painted pixels sit along
+    ``t._rotation_transform().map(caret_rect_local())``, not a vertical
+    on-screen column."""
+    t = _text(scene, "Hi   ")               # trailing spaces -> blank caret column
+    t.set_angle(30.0)
+    t.begin_edit()
+    _set_pos(t, 4)
+    t._caret_on = True
+    r = t.caret_rect_local()
+    rot = t._rotation_transform()
+    pad = 250
+    img = _render(t, w=800, h=800, pad=pad)
+    n_hit, samples = 0, 14
+    for i in range(samples):
+        frac = i / (samples - 1)
+        local_pt = QPointF(r.x(), r.top() + frac * r.height())
+        mapped = rot.map(local_pt)
+        px, py = round(mapped.x()) + pad, round(mapped.y()) + pad
+        if any(0 <= px + dx < img.width() and 0 <= py < img.height()
+               and img.pixelColor(px + dx, py).lightness() > 128
+               for dx in (-2, -1, 0, 1, 2)):
+            n_hit += 1
+    assert n_hit >= 0.7 * samples, \
+        f"rotated caret not painted along its mapped length ({n_hit}/{samples})"
+
+
+def test_selection_highlight_paints_correctly_when_rotated(scene, no_doc_render):
+    """Coverage gap (a): the selection highlight must also follow the
+    rotation — checked by diffing a plain vs. selected render inside the
+    bounding box of the selection rect mapped through
+    ``t._rotation_transform()`` (its painted, on-screen footprint)."""
+    t = _text(scene, "Hello")
+    t.set_angle(30.0)
+    t.begin_edit()
+    t._caret_on = False
+    pad = 250
+    plain = _render(t, w=800, h=800, pad=pad)
+    _set_pos(t, 5, anchor=0)
+    sel = _render(t, w=800, h=800, pad=pad)
+    rect = t.selection_rects_local()[0]
+    rot = t._rotation_transform()
+    corners = [rot.map(QPointF(x, y)) for x, y in
+               [(rect.left(), rect.top()), (rect.right(), rect.top()),
+                (rect.right(), rect.bottom()), (rect.left(), rect.bottom())]]
+    xs = [c.x() + pad for c in corners]
+    ys = [c.y() + pad for c in corners]
+    x0, x1 = int(min(xs)) - 2, int(max(xs)) + 2
+    y0, y1 = int(min(ys)) - 2, int(max(ys)) + 2
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(sel.width(), x1), min(sel.height(), y1)
+    changed = sum(1 for y in range(y0, y1) for x in range(x0, x1)
+                  if plain.pixel(x, y) != sel.pixel(x, y))
+    assert changed > 0.1 * (x1 - x0) * (y1 - y0), \
+        f"rotated selection highlight not painted in its mapped footprint ({changed}px)"
+
+
 def test_selection_clips_to_box_when_content_overflows(scene, no_doc_render, monkeypatch):
     """A box shorter than its content (overflow) must not paint the selection
     highlight below `_box_rect_local().bottom()` — guards the

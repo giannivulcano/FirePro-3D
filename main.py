@@ -1048,6 +1048,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.block_editor import BlockEditorWidget
         widget = self.central_tabs.widget(index)
         if isinstance(widget, BlockEditorWidget):
+            widget.editor_scene.commit_text_edit()   # end any live inline edit
+            # BEFORE is_dirty(): the dirty flag is set only by sceneModified
+            # (push_undo_state) and is blind to live typing alone — committing
+            # first lets a real text change surface here if there is one.
             if widget.is_dirty():
                 from firepro3d.themed_message import themed_confirm
                 if not themed_confirm(self, "Discard changes?",
@@ -3646,12 +3650,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self._add_recent_file(file)
 
     def open_file(self):
+        self._commit_text_edits()
         file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.FPD);;JSON Files (*.json)")
         if file:
             self._load_project(file)
 
     def _load_project(self, file: str):
         """Load a project file and update all UI state."""
+        self._commit_text_edits()
         self._current_file = file
         self._apply_loaded_file(file)
         # Clear dirty flag before the divergence prompt so the autosave timer
@@ -3770,6 +3776,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._recent_menu.addAction("(No recent files)").setEnabled(False)
 
     def _open_recent(self, path: str):
+        self._commit_text_edits()
         if not os.path.isfile(path):
             themed_warn(self, "File Not Found", f"Cannot find:\n{path}")
             if path in self._recent_files:
@@ -3871,6 +3878,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
+        self._commit_text_edits()
         if not self._ask_save_changes("starting a new project"):
             return
         self._current_file = None
@@ -4434,9 +4442,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Shared list for every app-level inline-text-edit concern (committing,
         or checking whether a session is live) — spec text-annotation-system
         § Inline edit.
+
+        Guarded with ``getattr`` because this can be called (via a
+        ``currentChanged`` signal) before ``block_editor_manager`` exists —
+        ``currentChanged`` is connected during tab-widget setup, ahead of the
+        manager's construction in ``__init__``.
         """
-        return [self.scene] + [w.editor_scene for w in
-                               list(self.block_editor_manager._open.values())]
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is None:
+            return [self.scene]
+        return [self.scene] + [w.editor_scene for w in mgr.open_editors()]
 
     def _commit_text_edits(self) -> None:
         """End any live inline text edit — plan scene + every Block Editor scene.

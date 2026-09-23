@@ -1146,9 +1146,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _set_property_model(self, key: str, value) -> None:
         """Apply a model-surface panel commit to ``_data`` (no undo push)."""
         if key == "Text":
+            if str(value) == self._data.text:
+                return   # stale panel replay (e.g. focus-out during a live
+                         # inline edit) — not a real change; never wipe the
+                         # live-typed document.
             self._data.text = str(value)
             self.setPlainText(self._data.text)
         elif key == "Content":
+            if str(value) == self._data.text:
+                return   # see "Text" above
             self._data.text = str(value)
             self.setPlainText(self._data.text)
         elif key == "Font":

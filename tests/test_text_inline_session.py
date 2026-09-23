@@ -124,6 +124,24 @@ def test_midedit_panel_change_does_not_bake_typed_text(scene):
     assert scene._text_edit_ctl is not None and t._editing   # panel kept the edit open
 
 
+def test_stale_panel_content_replay_does_not_wipe_live_typing(scene):
+    """I3: the property-panel Content box re-emits its stale (pre-edit)
+    ``_data.text`` on every focus-out (``_MultilineEdit``), including a click
+    back onto the canvas while an inline edit is live. That stale value must
+    NOT stomp the live-typed document — ``_set_property_model`` skips the
+    ``setPlainText``/data write when the incoming value already equals
+    ``_data.text`` (the panel is repeating what it already showed, not
+    authoring a real change)."""
+    t = _add(scene)
+    scene._text_edit_ctl.begin(t)
+    _type(t, "XYZ")
+    stale = t.data.text                    # "Hello" — unwritten until commit
+    assert stale == "Hello" and t.toPlainText() == "XYZ"
+    t.set_property("Content", stale)
+    assert t.toPlainText() == "XYZ", "stale panel replay wiped the live document"
+    assert t._editing, "the stale replay must not end the session either"
+
+
 def test_set_mode_commits(scene):
     t = _add(scene)
     scene._text_edit_ctl.begin(t)

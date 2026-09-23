@@ -63,12 +63,122 @@ def test_tab_change_commits(win, editing):
     assert editing_text_item(s) is None
 
 
-def test_block_editor_commit_block_commits_first(win, editing):
+def test_block_editor_manager_close_commits_first(win, editing):
+    """Renamed from test_block_editor_commit_block_commits_first — this drives
+    BlockEditorManager.close(), not commit_block(); see
+    test_commit_block_commits_first / test_save_commits_first below for the
+    widget-level methods."""
     ed, s, t = editing
     ed.editor_scene.commit_text_edit()            # sanity: shell exists on the editor scene
     s._text_edit_ctl.begin(t)
     win.block_editor_manager.close(ed)
     assert editing_text_item(s) is None
+
+
+def test_commit_block_commits_first(win, editing, monkeypatch):
+    """BlockEditorWidget.commit_block() must commit the live inline edit before
+    doing anything else (it reads gather_primitives()/to_dict() right after)."""
+    ed, s, t = editing
+    monkeypatch.setattr(ed._project_scene, "commit_block_definition",
+                        lambda *a, **k: None)
+    ed.commit_block("Name", "Lib", "Series")
+    assert editing_text_item(s) is None and t.data.text == "Changed"
+
+
+def test_save_commits_first(win, editing, monkeypatch):
+    """BlockEditorWidget.save() must commit the live inline edit before it
+    even checks gather_primitives() for the empty-editor guard. The fixture's
+    editor holds only a TextItem — gather_primitives() (pre-existing, not
+    this branch's concern; see the "Pre-existing" report note) omits
+    ``_texts``, so save() takes its "no geometry" early-return path, which
+    itself pops a modal (themed_info); stub it out so the modal never blocks."""
+    from firepro3d import themed_message as _tm
+    ed, s, t = editing
+    monkeypatch.setattr(_tm, "themed_info", lambda *a, **k: None)
+    ed.save()
+    assert editing_text_item(s) is None and t.data.text == "Changed"
+
+
+def test_tab_close_commits_before_discard_prompt(win, editing, monkeypatch):
+    """I1: the REAL tab-X close path (_on_tab_close_requested) must commit the
+    live inline edit BEFORE the is_dirty() discard-prompt check — otherwise
+    is_dirty() (blind to live typing, only set by sceneModified) sees a clean
+    editor, skips the prompt, and BlockEditorManager.forget() drops the tab
+    with the typed text never written to _data.text."""
+    ed, s, t = editing
+    idx = win.central_tabs.indexOf(ed)
+    seen = []
+
+    def fake_confirm(*args, **kwargs):
+        seen.append((editing_text_item(s), t.data.text))
+        return True   # "Discard" -> proceed with the close
+
+    monkeypatch.setattr("firepro3d.themed_message.themed_confirm", fake_confirm)
+    win._on_tab_close_requested(idx)
+    assert seen == [(None, "Changed")], \
+        "text must be committed BEFORE the discard prompt runs"
+    assert win.central_tabs.indexOf(ed) == -1
+    assert ed not in list(win.block_editor_manager.open_editors())
+
+
+def test_new_file_commits_before_ask_save_changes(win, editing, monkeypatch):
+    """I2: new_file() must commit the live inline edit BEFORE
+    _ask_save_changes — otherwise _modified may still be False (live typing
+    alone never marks the scene dirty) and the prompt never sees the change."""
+    ed, s, t = editing
+    seen = []
+
+    def fake_ask(*args, **kwargs):
+        seen.append((editing_text_item(s), t.data.text, win._modified))
+        return False   # cancel -> new_file stops before mutating anything else
+
+    monkeypatch.setattr(win, "_ask_save_changes", fake_ask)
+    win.new_file()
+    assert seen and seen[0][:2] == (None, "Changed")
+
+
+def test_open_file_commits_before_dialog(win, editing, monkeypatch):
+    """I2: open_file() must commit the live inline edit before the (modal)
+    file dialog even opens."""
+    ed, s, t = editing
+    from PyQt6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
+    win.open_file()
+    assert editing_text_item(s) is None and t.data.text == "Changed"
+
+
+def test_open_recent_commits_before_load(win, editing, monkeypatch):
+    """I2: _open_recent() must commit before _load_project runs."""
+    ed, s, t = editing
+    import os
+    monkeypatch.setattr(os.path, "isfile", lambda p: False)   # short-circuit; no real load
+    monkeypatch.setattr(_main_module, "themed_warn", lambda *a, **k: None)
+    win._open_recent("nonexistent.fpd")
+    assert editing_text_item(s) is None and t.data.text == "Changed"
+
+
+def test_load_project_commits_first(win, editing, monkeypatch):
+    """I2: _load_project() itself must also commit first (belt-and-suspenders
+    with open_file/_open_recent, and the sole guard for any other caller)."""
+    ed, s, t = editing
+    monkeypatch.setattr(win, "_apply_loaded_file", lambda file: None)
+    monkeypatch.setattr(win, "_add_recent_file", lambda path: None)
+    monkeypatch.setattr(win, "_maybe_offer_template_push", lambda: None)
+    win._load_project("dummy.fpd")
+    assert editing_text_item(s) is None and t.data.text == "Changed"
+
+
+def test_text_edit_scenes_survives_pre_init(win):
+    """M7: _text_edit_scenes() must not AttributeError if called before
+    block_editor_manager exists (e.g. a currentChanged signal firing during
+    MainWindow.__init__, between the tab-widget setup and the manager's
+    construction)."""
+    real = win.block_editor_manager
+    try:
+        del win.block_editor_manager
+        assert win._text_edit_scenes() == [win.scene]
+    finally:
+        win.block_editor_manager = real
 
 
 def test_autosave_skips_while_editing(win, editing, monkeypatch):
