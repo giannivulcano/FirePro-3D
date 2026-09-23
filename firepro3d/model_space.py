@@ -31,7 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
-from .text_item import TextItem, TextAnnotationData
+from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -71,6 +71,7 @@ from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController
 from .wall_placement_controller import WallPlacementController
 from .feature_placement_controller import FeaturePlacementController
+from .text_edit_controller import TextEditController
 from .network_codec import (
     serialize_node, serialize_pipe,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -191,6 +192,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
+        self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -863,6 +865,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns True if the item was handled, False otherwise.
         """
+        if item is not None and item is editing_text_item(self):
+            self._text_edit_ctl.abandon(item)
         # Map each geometry type to the list that tracks it
         type_to_list = {
             PolylineItem:        self._polylines,
@@ -1049,6 +1053,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        self._text_edit_ctl.commit()     # a tool switch ends any inline edit
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
@@ -2258,6 +2263,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._in_undo_restore = False
 
+    def commit_text_edit(self) -> bool:  # shell → TextEditController
+        """End any live inline text edit on this scene (idempotent)."""
+        return self._text_edit_ctl.commit()
+
     def push_undo_state(self):
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore:
@@ -2307,6 +2316,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def undo(self):
         """Restore the previous network state."""
+        self._text_edit_ctl.commit()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1
@@ -2319,6 +2329,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def redo(self):
         """Restore the next network state."""
+        self._text_edit_ctl.commit()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
@@ -4548,7 +4559,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # TextAnnotationData), tracked in self._texts and serialized via
             # both the file and undo paths — NOT a NoteAnnotation any more.
             data = TextAnnotationData(
-                text="Text", x=rect.x(), y=rect.y(),
+                text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
                 height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
             # Seed white ink so a freshly placed model text isn't invisible
@@ -4565,15 +4576,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             text.update()
             self._texts.append(text)
             self.requestPropertyUpdate.emit(text)
-            # Drop straight into inline-edit mode so the user can type (parity
-            # with the old NoteAnnotation TextEditorInteraction placement).
-            text.begin_edit()
             # Remove preview
             if self._text_preview is not None:
                 self.removeItem(self._text_preview)
                 self._text_preview = None
             self._text_anchor = None
-            self.push_undo_state()
+            # Start empty with a live caret.  No placement snapshot: the
+            # session's commit pushes the single place+type step (or discards
+            # an empty placement) — spec § Inline edit, Undo.
+            self._text_edit_ctl.begin(text, is_new=True)
 
     def _press_draw_arc(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell → GeometryDrawingController (slice 9)
         return self._geom_ctl._press_draw_arc(event, pos, snapped, item_under, node_under, pipe_under)

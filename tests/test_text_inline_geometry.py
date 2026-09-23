@@ -286,3 +286,54 @@ def test_blink_timer_runs_only_while_editing(scene):
     t._stop_caret_blink()
     assert not t._caret_timer.isActive()
     assert t._caret_on is False
+
+
+def test_blink_skipped_when_flash_time_zero(scene, monkeypatch):
+    """cursorFlashTime()==0 means "platform: no blink" — the timer must not
+    start, but the caret stays visible (not blinked away)."""
+    from PyQt6.QtWidgets import QApplication
+    monkeypatch.setattr(QApplication, "cursorFlashTime", lambda: 0)
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    t._start_caret_blink()
+    assert t._caret_timer is None or not t._caret_timer.isActive()
+    assert t._caret_on is True
+
+
+def test_reset_caret_phase_shows_caret_while_editing(scene):
+    t = _text(scene, "Hi")
+    t.begin_edit()
+    t._caret_on = False
+    t._reset_caret_phase()
+    assert t._caret_on is True
+
+
+def test_selection_clips_to_box_when_content_overflows(scene, no_doc_render, monkeypatch):
+    """A box shorter than its content (overflow) must not paint the selection
+    highlight below `_box_rect_local().bottom()` — guards the
+    `.intersected(box)` clip in TextItem.paint(). Mutation: drop
+    `.intersected(box)` → RED.
+
+    `_box_rect_local()` itself always auto-grows to at least the content
+    height (never shrinks below it — see its docstring), so an overflowing
+    box cannot occur through `box_height_mm` alone. The scenario is forced
+    directly by patching `_box_rect_local` to a rect a third as tall as the
+    real (content-fitted) box, isolating the paint()-level clip from that
+    auto-grow behaviour.
+    """
+    from firepro3d.text_item import TextItem
+    t = _text(scene, "line one\nline two\nline three")
+    t.begin_edit()
+    t._caret_on = False
+    full = t._box_rect_local()
+    short = QRectF(full.left(), full.top(), full.width(), full.height() / 3.0)
+    monkeypatch.setattr(TextItem, "_box_rect_local", lambda self: short)
+    pad = 20
+    plain = _render(t, h=300, pad=pad)
+    _set_pos(t, len(t.toPlainText()), anchor=0)     # select everything
+    sel = _render(t, h=300, pad=pad)
+    below = round(short.bottom()) + pad + 1
+    changed = sum(1 for y in range(below, sel.height())
+                  for x in range(sel.width())
+                  if plain.pixel(x, y) != sel.pixel(x, y))
+    assert changed == 0, f"selection painted {changed}px below box bottom"

@@ -184,6 +184,26 @@ from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
 
 
+def editing_text_item(scene) -> "TextItem | None":
+    """The TextItem currently inline-editing on *scene*, else ``None``.
+
+    The single "does the text editor own this key/click?" test for every input
+    layer (model view, model scene, paper view).  Reads the ``_editing_item``
+    marker that :meth:`TextItem.begin_edit` sets, validated as still alive, on
+    this scene, and still editing.
+    """
+    if scene is None:
+        return None
+    item = getattr(scene, "_editing_item", None)
+    if item is None:
+        return None
+    try:
+        alive = item.scene() is scene and bool(getattr(item, "_editing", False))
+    except RuntimeError:                  # wrapped C++ object already deleted
+        alive = False
+    return item if alive else None
+
+
 class _LayoutOffsets(NamedTuple):
     """Document-wide input to :meth:`TextItem._line_origin`.
 
@@ -1274,12 +1294,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.update()
 
     def _stop_caret_blink(self) -> None:
+        """Stop the blink timer and hide the caret."""
         if self._caret_timer is not None:
             self._caret_timer.stop()
         self._caret_on = False
         self.update()
 
     def _toggle_caret(self) -> None:
+        """Flip the caret's visible/hidden phase (blink-timer tick)."""
         self._caret_on = not self._caret_on
         self.update()
 
@@ -1292,16 +1314,55 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._caret_timer.start()
         self.update()
 
+    _SWALLOWED_FKEYS = frozenset(getattr(Qt.Key, f"Key_F{i}") for i in range(1, 13))
+
     def mouseDoubleClickEvent(self, event) -> None:
-        """Enter inline-edit mode on a double-click while not already editing."""
+        """Paper: enter inline-edit on double-click.  Model: the scene's mouse
+        gate (TextEditController) owns entry — ignore here so a double-click
+        while a placement tool is active can never enter edit."""
+        if not self._on_paper():
+            event.ignore()
+            return
         if not self._editing:
             self.begin_edit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
+    def _request_commit(self) -> None:
+        """Model surface: end the session through the scene's commit funnel."""
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "commit_text_edit"):
+            sc.commit_text_edit()
+        else:
+            self.commit_edit()
+
+    def _focus_out_keeps_edit(self, event) -> bool:
+        """Model-surface focus-out exceptions (spec § Inline edit)."""
+        if event.reason() in (Qt.FocusReason.ActiveWindowFocusReason,
+                              Qt.FocusReason.PopupFocusReason):
+            return True
+        fw = QApplication.focusWidget()
+        sc = self.scene()
+        if fw is not None and sc is not None and any(
+                fw is v or fw is v.viewport() for v in sc.views()):
+            return True               # in-scene focus-item change (e.g. handle press)
+        w = fw
+        while w is not None:
+            # Name match (not isinstance) avoids importing the panel module here.
+            if type(w).__name__ == "PropertyManager":
+                return True           # panel stays live during an edit
+            w = w.parentWidget()
+        return False
+
     def focusOutEvent(self, event) -> None:
-        """Auto-commit the edit when the item loses keyboard focus."""
+        """Paper: auto-commit on focus loss.  Model: commit unless the focus
+        change is window deactivation / popup / in-scene / the property panel."""
+        if self._editing and not self._on_paper():
+            if not self._focus_out_keeps_edit(event):
+                self._request_commit()
+            super().focusOutEvent(event)
+            return
         if self._editing:
             self._on_edit_finished()
         super().focusOutEvent(event)
@@ -1309,11 +1370,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def keyPressEvent(self, event) -> None:
         """Route key events to the editor or to item-level commands.
 
-        While editing: Esc ends the edit (paper undo-routed via
-        ``_on_edit_finished``); other keys pass to the editor (Enter=newline).
-        While not editing: Delete emits ``delete_requested`` (the paper scene
-        routes it through DeleteTextAnnotationCommand); other keys delegate.
+        Model surface while editing: Esc / Ctrl+Enter commit; Ctrl+B/I/U and
+        F1–F12 are swallowed; everything else goes to the Qt text control.
+        Paper while editing: Esc ends the edit (``_on_edit_finished``).
+        Not editing: Delete emits ``delete_requested``.
         """
+        if self._editing and not self._on_paper():
+            key = event.key()
+            ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            if key == Qt.Key.Key_Escape or (
+                    ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+                self._request_commit()
+                event.accept()
+                return
+            if (ctrl and key in (Qt.Key.Key_B, Qt.Key.Key_I, Qt.Key.Key_U)) \
+                    or key in self._SWALLOWED_FKEYS:
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            self._reset_caret_phase()
+            return
         if self._editing:
             if event.key() == Qt.Key.Key_Escape:
                 self._on_edit_finished()
