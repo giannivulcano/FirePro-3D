@@ -333,6 +333,10 @@ def test_selection_clips_to_box_when_content_overflows(scene, no_doc_render, mon
     _set_pos(t, len(t.toPlainText()), anchor=0)     # select everything
     sel = _render(t, h=300, pad=pad)
     below = round(short.bottom()) + pad + 1
+    inside = sum(1 for y in range(0, min(below - 1, sel.height()))
+                 for x in range(sel.width())
+                 if plain.pixel(x, y) != sel.pixel(x, y))
+    assert inside > 0, "selection did not paint any highlight inside the box"
     changed = sum(1 for y in range(below, sel.height())
                   for x in range(sel.width())
                   if plain.pixel(x, y) != sel.pixel(x, y))

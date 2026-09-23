@@ -193,6 +193,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
+        self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -2263,8 +2264,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._in_undo_restore = False
 
-    def commit_text_edit(self) -> bool:  # shell → TextEditController
-        """End any live inline text edit on this scene (idempotent)."""
+    def commit_text_edit(self) -> "str | None":  # shell → TextEditController
+        """End any live inline text edit on this scene (idempotent).
+
+        Returns:
+            str | None: ``None`` when there was no live session; otherwise
+            ``"discarded"`` (an empty new placement was removed with no undo
+            push — see :meth:`TextEditController.commit`) or ``"committed"``
+            (every other outcome).  Both are truthy.
+        """
         return self._text_edit_ctl.commit()
 
     def push_undo_state(self):
@@ -2315,8 +2323,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = False
 
     def undo(self):
-        """Restore the previous network state."""
-        self._text_edit_ctl.commit()
+        """Restore the previous network state.
+
+        Commits any live inline text edit first.  If that commit discarded an
+        empty NEW placement (nothing was ever pushed for it — see
+        :meth:`TextEditController.commit`), Ctrl+Z / ribbon Undo just cancels
+        the placement: it returns here without also stepping the stack back,
+        since there is no corresponding snapshot to undo past.
+        """
+        if self._text_edit_ctl.commit() == "discarded":
+            return
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1

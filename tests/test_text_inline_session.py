@@ -103,10 +103,13 @@ def test_empty_new_placement_is_discarded_without_step(scene):
 
 def test_midedit_panel_change_does_not_bake_typed_text(scene):
     t = _add(scene)
+    n = len(scene._undo_stack)
     scene._text_edit_ctl.begin(t)
     _type(t, "Half-typ")
     t.set_property("Font Color", "#ff0000")
+    assert len(scene._undo_stack) == n + 1                    # exactly one step
     assert scene._undo_stack[-1]["texts"][0]["text"] == "Hello"
+    assert t.toPlainText() == "Half-typ"                      # typed text survives, un-baked
     assert scene._text_edit_ctl is not None and t._editing   # panel kept the edit open
 
 
@@ -137,6 +140,52 @@ def test_delete_during_edit_ends_session_cleanly(scene):
     assert t._caret_timer is None or not t._caret_timer.isActive()
 
 
+def test_rebegin_on_live_new_placement_keeps_is_new(scene):
+    """A second `begin()` call on the item that is ALREADY the live session
+    (e.g. a second click landing back on the freshly-placed, still-empty box)
+    must only reposition the caret — it must not reset `_edit_before`/
+    `_edit_is_new`, or the box's "new placement, discard-if-empty" rule would
+    be lost and an empty commit would wrongly push an undo step."""
+    n = len(scene._undo_stack)
+    scene.set_mode("text")
+    scene._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    scene._press_text(None, QPointF(400, 200), QPointF(400, 200), None, None, None)
+    t = scene._texts[-1]
+    assert t._edit_is_new is True
+    scene._text_edit_ctl.begin(t)            # re-begin on the already-live item
+    assert t._edit_is_new is True            # not clobbered back to False
+    scene.commit_text_edit()
+    assert scene._texts == []                # still discarded (empty, new)
+    assert len(scene._undo_stack) == n       # ...and still with no undo step
+
+
+def test_undo_after_discarded_placement_is_noop(scene):
+    """Ctrl+Z / ribbon Undo right after (or during) an empty new placement is
+    ALREADY handled by the commit-first discard — it must just cancel the
+    placement, not ALSO step the undo stack back into unrelated prior
+    history, since nothing was ever pushed for the discarded item."""
+    t = _add(scene)                          # a real, tracked, pushed box
+    stack_before = list(scene._undo_stack)
+    pos_before = scene._undo_pos
+    scene.set_mode("text")
+    scene._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    scene._press_text(None, QPointF(400, 200), QPointF(400, 200), None, None, None)
+    scene.undo()                             # commit discards the empty placement
+    assert scene._undo_stack == stack_before
+    assert scene._undo_pos == pos_before
+    assert [x.data.text for x in scene._texts] == ["Hello"]
+
+
+def test_redo_commits_first(scene):
+    t = _add(scene)
+    scene._text_edit_ctl.begin(t)
+    _type(t, "X")
+    scene.redo()                                # commit pushes the edit first
+    from firepro3d.text_item import editing_text_item
+    assert editing_text_item(scene) is None
+    assert t.data.text == "X"
+
+
 # ── Focus policy (needs a shown view so focus is real) ─────────────────────
 
 def test_window_deactivation_keeps_edit(shown_model_view):
@@ -160,6 +209,20 @@ def test_focus_to_other_widget_commits(shown_model_view):
     le.setFocus(Qt.FocusReason.MouseFocusReason)
     QApplication.processEvents()
     assert not t._editing and t.data.text == "Y"
+
+
+def test_focus_within_own_view_keeps_edit(shown_model_view):
+    """A focus change that stays on the scene's own view/viewport — e.g. a
+    manipulator grip grabbing item-level focus in the same widget — must not
+    end the session (only a WIDGET-level focus move elsewhere commits)."""
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    t = _add(scene)
+    scene._text_edit_ctl.begin(t)
+    _type(t, "Z")
+    assert QApplication.focusWidget() in (view, view.viewport())
+    scene.sendEvent(t, QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason))
+    assert t._editing
 
 
 def test_focus_to_property_panel_keeps_edit(shown_model_view):
