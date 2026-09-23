@@ -517,7 +517,8 @@ class BlockEditorWidget(QWidget):
         Returns:
             Tuple ``(added, skipped)`` — counts of accepted and dropped items.
         """
-        items, skipped = geometry_import.geom_dicts_to_primitives(geoms, import_scale)
+        items, skipped = geometry_import.geom_dicts_to_primitives(
+            geoms, import_scale, lineweight=self.editor_scene._geom_color_lw()[1])
         if not items:
             self.editor_scene._show_status(
                 f"Import: nothing usable (skipped {skipped})", timeout=4000)

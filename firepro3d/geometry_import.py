@@ -65,7 +65,8 @@ def bbox_top_left(items) -> QPointF:
     return QPointF(min_x, min_y)
 
 
-def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
+def geom_dicts_to_primitives(geoms, import_scale: float = 1.0, *,
+                             lineweight: float = 1.0):
     """Convert kind-tagged import geom dicts to editable primitives.
 
     Handles ``line`` -> LineItem, ``circle`` -> CircleItem, ``path_points`` ->
@@ -87,11 +88,14 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
     Args:
         geoms: list of extraction dicts (dxf/pdf/dwg worker output).
         import_scale: real-mm per source-unit multiplier (must be > 0).
+        lineweight: Pen weight for every produced primitive (the Block
+            Editor passes the standard new-geometry weight).
 
     Returns:
         ``(items, skipped)`` — the primitive list and the skipped-dict count.
     """
     s = float(import_scale)
+    lw = float(lineweight)
     items = []
     skipped = 0
     for g in geoms:
@@ -102,7 +106,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
         if kind == "line":
             try:
                 it = LineItem(QPointF(g["x1"] * s, g["y1"] * s),
-                              QPointF(g["x2"] * s, g["y2"] * s), color)
+                              QPointF(g["x2"] * s, g["y2"] * s), color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "circle":
@@ -110,7 +114,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 cx = (g["x"] + g["w"] / 2.0) * s
                 cy = (g["y"] + g["h"] / 2.0) * s
                 r = (g["w"] / 2.0) * s
-                it = CircleItem(QPointF(cx, cy), r, color)
+                it = CircleItem(QPointF(cx, cy), r, color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "path_points":
@@ -119,7 +123,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 skipped += 1
                 continue
             try:
-                poly = PolylineItem(QPointF(pts[0][0] * s, pts[0][1] * s), color)
+                poly = PolylineItem(QPointF(pts[0][0] * s, pts[0][1] * s), color, lw)
                 for px, py in pts[1:]:
                     poly.append_point(QPointF(px * s, py * s))
                 if g.get("closed"):
@@ -135,7 +139,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
             try:
                 cps = [QPointF(px * s, py * s) for px, py in pts]
                 it = SplineItem(cps, int(g.get("degree", 3)),
-                                g.get("knots"), g.get("weights"), color)
+                                g.get("knots"), g.get("weights"), color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "arc":
@@ -143,7 +147,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 cx = (g["rx"] + g["rw"] / 2.0) * s
                 cy = (g["ry"] + g["rh"] / 2.0) * s
                 r = (g["rw"] / 2.0) * s
-                it = ArcItem(QPointF(cx, cy), r, g["start"], g["span"], color)
+                it = ArcItem(QPointF(cx, cy), r, g["start"], g["span"], color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "ellipse_full":
@@ -153,7 +157,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0):
                 rx = (g["w"] / 2.0) * s
                 ry = (g["h"] / 2.0) * s
                 it = EllipseItem(QPointF(cx, cy), rx, ry,
-                                 g.get("rotation", 0.0), color)
+                                 g.get("rotation", 0.0), color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         else:

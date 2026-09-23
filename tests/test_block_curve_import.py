@@ -329,3 +329,27 @@ def test_quantized_arc_ends_exactly_on_its_source_endpoints():
         # endpoints are exact); the unconstrained best-fit miss was >= 6e-3 * r.
         tol = 1e-3 * a.radius() if hasattr(a, "radius") else 1e-3 * a._radius
         assert (_close(s, p0, tol) and _close(e, p3, tol)), (s, e, p0, p3)
+
+
+def test_editor_import_uses_the_standard_primitive_lineweight(qapp):
+    # User smoke 2026-09-23: imported geometry drew thinner than drawn
+    # primitives (factory fell back to the constructor's 1.0).
+    from firepro3d.model_space import Model_Space
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.constants import DEFAULT_GEOMETRY_LINEWEIGHT
+    w = BlockEditorWidget(Model_Space())
+    geoms = [{"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+             {"kind": "circle", "x": 0, "y": 0, "w": 10, "h": 10},
+             {"kind": "path_points", "points": [(0, 0), (5, 5), (9, 0)]},
+             {"kind": "arc", "rx": 0, "ry": 0, "rw": 10, "rh": 10,
+              "start": 0, "span": 90},
+             {"kind": "ellipse_full", "x": -5, "y": -2, "w": 10, "h": 4,
+              "pos_cx": 0, "pos_cy": 0, "rotation": 0},
+             {"kind": "spline", "control_points": [(0, 0), (3, 5), (6, -5), (9, 0)],
+              "degree": 3, "knots": None, "weights": None}]
+    w._add_imported_geoms(geoms, 1.0)
+    drawn_lw = w.editor_scene._geom_color_lw()[1]
+    assert drawn_lw == DEFAULT_GEOMETRY_LINEWEIGHT
+    prims = w.gather_primitives()
+    assert len(prims) == 6
+    assert {round(p.pen().widthF(), 6) for p in prims} == {drawn_lw}

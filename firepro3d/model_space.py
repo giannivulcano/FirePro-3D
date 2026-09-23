@@ -3202,7 +3202,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _geom_color_lw(self):
         """Return (color, lineweight) for new geometry."""
-        return "#ffffff", 2.0
+        from .constants import DEFAULT_GEOMETRY_LINEWEIGHT
+        return "#ffffff", DEFAULT_GEOMETRY_LINEWEIGHT
 
     def _ensure_underlay_caches(self, *args, **kwargs):
         """Back-compat shell → :class:`UnderlayController`."""
