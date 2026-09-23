@@ -16,6 +16,7 @@ coexist and this module does not rewire them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
 
@@ -165,19 +166,59 @@ class TextAnnotationData:
 # Governing spec: docs/specs/2026-09-17-containment-implementation-design.md §A2.
 # Retirement of the two old classes and the paper repoint happen in a LATER task.
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal          # noqa: E402
+from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal   # noqa: E402
 from PyQt6.QtGui import (                                          # noqa: E402
     QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QTransform,
 )
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsTextItem, QMenu  # noqa: E402
+from PyQt6.QtWidgets import (                                      # noqa: E402
+    QApplication, QGraphicsItem, QGraphicsTextItem, QMenu,
+)
 
+from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
-    TEXT_METRIC_REF_PX,
+    TEXT_CARET_WIDTH_PX, TEXT_METRIC_REF_PX, TEXT_SELECTION_ALPHA,
 )
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
+
+
+def editing_text_item(scene) -> "TextItem | None":
+    """The TextItem currently inline-editing on *scene*, else ``None``.
+
+    The single "does the text editor own this key/click?" test for every input
+    layer (model view, model scene, paper view).  Reads the ``_editing_item``
+    marker that :meth:`TextItem.begin_edit` sets, validated as still alive, on
+    this scene, and still editing.
+    """
+    if scene is None:
+        return None
+    item = getattr(scene, "_editing_item", None)
+    if item is None:
+        return None
+    try:
+        alive = item.scene() is scene and bool(getattr(item, "_editing", False))
+    except RuntimeError:                  # wrapped C++ object already deleted
+        alive = False
+    return item if alive else None
+
+
+class _LayoutOffsets(NamedTuple):
+    """Document-wide input to :meth:`TextItem._line_origin`.
+
+    Horizontal alignment is deliberately NOT carried here: Qt's own
+    ``QTextLine.cursorToX``/``xToCursor`` are alignment-aware, while
+    ``QTextLine.x()`` is not, so callers derive any horizontal alignment
+    shift from those Qt calls directly rather than from a cached flag here.
+
+    Attributes:
+        voff: Vertical-alignment offset (local, unscaled units) of the whole
+            text block within the box — ``0.0`` for top, half the box/content
+            slack for middle, and the full slack for bottom alignment.
+    """
+
+    voff: float
 
 
 class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
@@ -216,6 +257,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data = data
         self._editing = False
         self._text_before_edit = data.text
+
+        # Inline-edit session state (model surface; spec § Inline edit).
+        self._caret_timer: QTimer | None = None
+        self._caret_on = False
+        self._edit_before: dict | None = None   # to_dict() at session start
+        self._edit_is_new = False               # session started by placement
 
         # Bake-at-rest rotation state (data-only — NO held Qt transform).
         # _angle mirrors self._data.angle for the map* overrides; _pivot is
@@ -307,8 +354,22 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def itemChange(self, change, value):
         """Re-derive the sizing mode when the item lands on / leaves a scene,
-        clamp to the paper rect on a paper surface, and live-sync data.x/y."""
+        clamp to the paper rect on a paper surface, live-sync data.x/y, and
+        end a live inline-edit session cleanly if the item is removed from
+        its scene mid-edit (deleted, undone, or reparented).
+
+        ``ItemSceneChange`` fires BEFORE the scene actually changes, so
+        ``self.scene()`` here still reads the OLD scene — the only place the
+        old scene's ``_editing_item`` marker can still be read once the item
+        is gone from it.
+        """
         Change = QGraphicsItem.GraphicsItemChange
+        if change == Change.ItemSceneChange and value is None and self._editing:
+            old_scene = self.scene()
+            self._stop_caret_blink()
+            self._editing = False
+            if old_scene is not None and getattr(old_scene, "_editing_item", None) is self:
+                old_scene._editing_item = None
         if change == Change.ItemSceneHasChanged:
             # The scene (hence the sizing mode) just changed — reformat so the
             # same data renders at the right physical size on this surface.
@@ -520,9 +581,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
         Renders (with the bake-at-rest rotation applied like NoteAnnotation):
         (1) a colour fill over the box rect when ``fill_color`` is set,
-        (2) the text via super(), (3) the lighter #88aaff cosmetic border while
-        inline-editing (the EDITING state — distinct from SELECTED, whose frame
-        is drawn by the scene's SelectionManipulator).
+        (2) the text via super() on paper / glyph outlines + self-painted
+        selection + caret on the model surface, (3) the paper-only dashed
+        editing frame.
         """
         box = self._box_rect_local()
         painter.save()
@@ -537,24 +598,31 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # paper viewport device (zoom-invariant, live caret) — keep it.
             super().paint(painter, option, widget)
         else:
-            # Model / Block-Editor surface: the document renderer draws NOTHING on
-            # the live viewport's engine-less paint device (the pre-existing
-            # engine==0 bug — todo L75-76; fill/border via the direct painter draw
-            # fine).  Render the text as filled glyph outlines through the SAME
-            # painter-fill path.  The painter is already rotated, so the UNROTATED
-            # local outline is used.
+            # Model / Block-Editor surface: EVERYTHING is drawn through direct
+            # painter ops, never super().paint() — the document renderer draws
+            # nothing on the live viewport's engine-less device (todo #62 /
+            # engine==0).  Selection highlight → glyph outlines → caret.
+            if self._editing:
+                sel = theme.detect().color("selection", TEXT_SELECTION_ALPHA)
+                for r in self.selection_rects_local():
+                    painter.fillRect(r.intersected(box), sel)
             outline = self._glyph_outline_local()
             if not outline.isEmpty():
                 painter.fillPath(outline, QColor(self._data.color))
-            if self._editing:
-                # Overlay the live editor (caret/selection) on top; its glyphs are
-                # invisible-live but harmless — the caret is a separate follow-up.
-                super().paint(painter, option, widget)
+            if self._editing and self._caret_on:
+                cr = self.caret_rect_local()
+                pen = QPen(QColor(self._data.color))
+                pen.setCosmetic(True)
+                pen.setWidthF(TEXT_CARET_WIDTH_PX)
+                painter.setPen(pen)
+                painter.drawLine(cr.topLeft(), cr.bottomLeft())
         if self._data.border:
             painter.setPen(self._frame_pen())
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._frame_path())
-        if self._editing:
+        if self._editing and self.is_device_independent():
+            # Paper keeps its dashed EDITING frame; the model surface shows the
+            # normal selection frame only (spec § Inline edit — no edit frame).
             pen = QPen(QColor("#88aaff"))
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
@@ -601,50 +669,224 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         applied: ``paint`` renders through an already-rotated painter and needs
         the unrotated glyphs, whereas block compilation needs them pre-rotated.
         """
-        doc = self.document()
-        doc.documentLayout().documentSize()   # force the lazy layout to run
+        offsets = self._layout_offsets()
         font = self.font()
-        # QTextDocument keeps every QTextLine at x==0 and applies horizontal
-        # alignment only at draw time, so the glyph-outline path must offset each
-        # line itself: slack = content-width − line width, shifted by the option
-        # alignment (left=0, centre=slack/2, right=slack).
-        align = doc.defaultTextOption().alignment()
-        _tw = doc.textWidth()
-        avail = (_tw - 2.0 * doc.documentMargin()) if _tw > 0 else None
-        # Vertical alignment: shift the whole block within the box-height slack
-        # (top=0, middle=slack/2, bottom=slack). No slack ⇒ no-op (auto-height box).
-        vslack = max(0.0, self._box_rect_local().height() - super().boundingRect().height())
-        voff = (vslack if self._data.valign == "B"
-                else vslack / 2.0 if self._data.valign == "M" else 0.0)
+        doc = self.document()
         outline = QPainterPath()
         block = doc.begin()
         while block.isValid():
             layout = block.layout()
-            block_pos = layout.position()      # block's offset within the document
             block_text = block.text()
             for i in range(layout.lineCount()):
                 line = layout.lineAt(i)
-                align_off = 0.0
-                if avail is not None:
-                    slack = avail - line.naturalTextWidth()
-                    if slack > 0:
-                        if align & Qt.AlignmentFlag.AlignRight:
-                            align_off = slack
-                        elif align & Qt.AlignmentFlag.AlignHCenter:
-                            align_off = slack / 2.0
-                # Each newline starts a NEW block (not a new line in one block),
-                # so the baseline is block_offset + intra-block line y + ascent.
-                base_x = block_pos.x() + line.x() + align_off
-                base_y = block_pos.y() + line.y() + line.ascent() + voff
+                origin = self._line_origin(block, line, offsets)
+                # _line_origin is deliberately UNALIGNED (see its docstring):
+                # QTextLine.cursorToX/xToCursor are alignment-aware, so asking
+                # Qt where the line's own first character lands gives the
+                # aligned x directly, without re-deriving alignment here.
+                align_off = line.cursorToX(line.textStart())[0] - line.x()
                 start = line.textStart()
                 length = line.textLength()
                 # A block never contains a newline (Qt splits blocks on \n), so
                 # the run text is used as-is.
-                run_text = block_text[start:start + length].rstrip("  \n")
+                run_text = block_text[start:start + length].rstrip("\u2028\u2029\n")
                 if run_text:
-                    outline.addText(QPointF(base_x, base_y), font, run_text)
+                    outline.addText(QPointF(origin.x() + align_off, origin.y() + line.ascent()),
+                                    font, run_text)
             block = block.next()
         return outline
+
+    # ── Line geometry shared by glyphs, caret, selection, hit-test ───────────
+
+    def _layout_offsets(self) -> _LayoutOffsets:
+        """Document-wide input to :meth:`_line_origin`.
+
+        Forces the (otherwise lazy) text layout to run so every
+        ``QTextLine``/``QTextBlock`` queried afterwards is up to date.
+
+        Returns:
+            _LayoutOffsets: the vertical-alignment offset of the whole text
+            block within the box (see :class:`_LayoutOffsets`).
+        """
+        doc = self.document()
+        doc.documentLayout().documentSize()   # force the lazy layout to run
+        vslack = max(0.0, self._box_rect_local().height()
+                     - super().boundingRect().height())
+        voff = (vslack if self._data.valign == "B"
+                else vslack / 2.0 if self._data.valign == "M" else 0.0)
+        return _LayoutOffsets(voff)
+
+    def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
+        """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
+        UN-ALIGNED frame.
+
+        ``QTextLine.x()`` stays at ``0`` regardless of the paragraph's
+        horizontal alignment — Qt only applies that shift inside
+        ``QTextLine.cursorToX``/``xToCursor`` (and at paint time), never in
+        ``line.x()`` itself. This method therefore returns the *unaligned*
+        origin; callers that need the aligned x (currently only the
+        glyph-outline path, via :meth:`_glyph_outline_local`) derive the
+        shift themselves from ``cursorToX``/``xToCursor``, which ARE
+        alignment-aware. Callers that already route every x through
+        ``cursorToX``/``xToCursor`` (caret/selection/hit-test) get the
+        correct aligned position for free and must NOT add a shift here, or
+        alignment would be double-applied.
+
+        Args:
+            block: The ``QTextBlock`` containing *line*.
+            line: The ``QTextLine`` to place.
+            offsets: A precomputed :meth:`_layout_offsets` result, to avoid
+                recomputing it once per line; computed lazily when omitted.
+
+        Returns:
+            QPointF: the line's unaligned top-left, in local unscaled
+            coordinates. The glyph baseline is ``origin.y() + line.ascent()``.
+        """
+        voff = (offsets if offsets is not None else self._layout_offsets()).voff
+        bp = block.layout().position()
+        return QPointF(bp.x() + line.x(), bp.y() + line.y() + voff)
+
+    def _line_for_position(self, pos: int):
+        """Resolve document position *pos* to its block, line, and offset.
+
+        Args:
+            pos: An absolute ``QTextDocument`` character position.
+
+        Returns:
+            tuple[QTextBlock, QTextLine | None, int]: ``(block, line, rel)``
+            — the block containing *pos*, the ``QTextLine`` within that
+            block that *pos* falls on, and ``rel``, *pos* made
+            block-relative and clamped so it is at most the end-of-text
+            position (the block separator slot), never past it — matching
+            the block-relative addressing ``cursorToX``/``xToCursor`` expect
+            elsewhere in this class. ``line`` is only ever ``None`` if the
+            block has no laid-out lines at all.
+
+        Note:
+            At a soft-wrap boundary, Qt's own cursor affinity maps the
+            position at the end of line N to the start of line N+1 (standard
+            Qt behaviour) — ``lineForTextPosition`` follows that mapping, so
+            a *rel* sitting exactly on such a boundary resolves to line N+1.
+        """
+        doc = self.document()
+        block = doc.findBlock(pos)
+        if not block.isValid():
+            block = doc.lastBlock()
+        layout = block.layout()
+        rel = max(0, min(pos - block.position(), block.length() - 1))
+        line = layout.lineForTextPosition(rel)
+        if not line.isValid():
+            line = layout.lineAt(layout.lineCount() - 1) if layout.lineCount() else None
+        return block, line, rel
+
+    def caret_rect_local(self) -> QRectF:
+        """Zero-width caret rect (painted frame) for the current text cursor."""
+        offsets = self._layout_offsets()
+        block, line, rel = self._line_for_position(self.textCursor().position())
+        if line is None:
+            # Defensive fallback only: _layout_offsets() above already forced
+            # the lazy layout to run via documentLayout().documentSize(), so
+            # every block has >=1 valid QTextLine afterwards and this branch
+            # should be unreachable in practice.
+            m = self.document().documentMargin()
+            return QRectF(m, m + offsets.voff, 0.0, QFontMetricsF(self.font()).height())
+        origin = self._line_origin(block, line, offsets)
+        x, _ = line.cursorToX(rel)
+        return QRectF(origin.x() + (x - line.x()), origin.y(), 0.0, line.height())
+
+    def selection_rects_local(self) -> list[QRectF]:
+        """Per-line highlight rects (painted frame) for the cursor's selection.
+
+        A selection that crosses a block boundary includes the newline
+        joining the two blocks as a real (if glyph-less) selectable
+        character. Since there is no glyph to highlight, that newline gets
+        its own narrow rect — one space's horizontal advance wide — appended
+        after that line's own rect, so a selected blank line / line break
+        still gets visible feedback.
+        """
+        cur = self.textCursor()
+        if not cur.hasSelection():
+            return []
+        s, e = cur.selectionStart(), cur.selectionEnd()
+        offsets = self._layout_offsets()
+        newline_w = QFontMetricsF(self.font()).horizontalAdvance(" ")
+        rects: list[QRectF] = []
+        block = self.document().findBlock(s)
+        while block.isValid() and block.position() <= e:
+            layout = block.layout()
+            bpos = block.position()
+            line_count = layout.lineCount()
+            for i in range(line_count):
+                line = layout.lineAt(i)
+                ls = bpos + line.textStart()
+                line_end = ls + line.textLength()
+                origin = self._line_origin(block, line, offsets)
+                a, b = max(s, ls), min(e, line_end)
+                if a < b:
+                    xa, _ = line.cursorToX(a - bpos)
+                    xb, _ = line.cursorToX(b - bpos)
+                    rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
+                                        xb - xa, line.height()))
+                # The block-joining newline sits at `line_end` on this (the
+                # block's last) line and is only "selected" when the
+                # selection extends strictly past it.
+                if i == line_count - 1 and block.next().isValid() and s <= line_end < e:
+                    xe, _ = line.cursorToX(line_end - bpos)
+                    rects.append(QRectF(origin.x() + (xe - line.x()), origin.y(),
+                                        newline_w, line.height()))
+            block = block.next()
+        return rects
+
+    def content_rects_local(self) -> list[QRectF]:
+        """Per-line painted-content rects (painted, un-rotated frame).
+
+        One rect per laid-out ``QTextLine``: from the aligned x of its first
+        character to the aligned x past its last (both via ``cursorToX``, so
+        horizontal alignment is honoured), spanning the line's height at its
+        :meth:`_line_origin`.  An empty line yields a zero-width rect (which
+        contains no point).  The inline editor uses the union to decide that
+        a press on painted text beats an overlapping manipulator handle.
+        """
+        offsets = self._layout_offsets()
+        rects: list[QRectF] = []
+        block = self.document().begin()
+        while block.isValid():
+            layout = block.layout()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                origin = self._line_origin(block, line, offsets)
+                xa, _ = line.cursorToX(line.textStart())
+                xb, _ = line.cursorToX(line.textStart() + line.textLength())
+                rects.append(QRectF(origin.x() + (xa - line.x()), origin.y(),
+                                    xb - xa, line.height()))
+            block = block.next()
+        return rects
+
+    def cursor_position_at(self, local_pt: QPointF) -> int:
+        """Document position nearest *local_pt* (painted, un-rotated frame).
+
+        The inverse of :meth:`caret_rect_local`: the line whose painted band
+        contains (or is nearest to) the point's y, then ``QTextLine.xToCursor``
+        on the x relative to that line's painted origin. A point above the
+        first line or below the last resolves to that nearest line (the
+        running ``dy`` minimum below), matching common editor hit-testing.
+        """
+        offsets = self._layout_offsets()
+        best = None                       # (dy, position)
+        block = self.document().begin()
+        while block.isValid():
+            layout = block.layout()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                origin = self._line_origin(block, line, offsets)
+                top, bot = origin.y(), origin.y() + line.height()
+                y = local_pt.y()
+                dy = 0.0 if top <= y < bot else min(abs(y - top), abs(y - bot))
+                if best is None or dy < best[0]:
+                    rel = line.xToCursor(local_pt.x() - origin.x() + line.x())
+                    best = (dy, block.position() + rel)
+            block = block.next()
+        return best[1] if best is not None else 0
 
     # ── Grip protocol (9 box grips) ─────────────────────────────────────────
     # Indices (clockwise from top-left, matching RectangleItem/NoteAnnotation):
@@ -670,6 +912,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # width; a top/bottom MID-edge (1,5) changes ONLY the height; corners
     # (0,2,4,6) change both.  Freezing the untouched axis is what keeps an
     # auto-height (0) box auto-height after a pure-horizontal drag.
+    # The centre grip translates the box (``apply_grip`` index 8) — the one
+    # grip the inline editor never treats as a handle (text wins there).
+    MOVE_GRIP_INDEX = 8
+
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
 
@@ -699,7 +945,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
         elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
         elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
-        elif index == 8:
+        elif index == self.MOVE_GRIP_INDEX:
             dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
             self._reanchor(dx, dy)
             return
@@ -775,7 +1021,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def manip_box_extra_handles(self):
         from .manip_handle import GripHandle
-        return [GripHandle(self, 8, circular=True)]   # centre move grip (unrotated)
+        return [GripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
 
     def grip_render_angle(self, index: int) -> float:
         return self._angle
@@ -900,9 +1146,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _set_property_model(self, key: str, value) -> None:
         """Apply a model-surface panel commit to ``_data`` (no undo push)."""
         if key == "Text":
+            if str(value) == self._data.text:
+                return   # stale panel replay (e.g. focus-out during a live
+                         # inline edit) — not a real change; never wipe the
+                         # live-typed document.
             self._data.text = str(value)
             self.setPlainText(self._data.text)
         elif key == "Content":
+            if str(value) == self._data.text:
+                return   # see "Text" above
             self._data.text = str(value)
             self.setPlainText(self._data.text)
         elif key == "Font":
@@ -1079,16 +1331,96 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if scene is not None and hasattr(scene, "_push_text_edit"):
             scene._push_text_edit(self._data, old, new)
 
+    def _start_caret_blink(self) -> None:
+        """Start the self-painted caret blink (platform flash rate)."""
+        if self._caret_timer is None:
+            self._caret_timer = QTimer(self)
+            self._caret_timer.timeout.connect(self._toggle_caret)
+        self._caret_on = True
+        flash = QApplication.cursorFlashTime()
+        if flash > 0:                     # 0/negative = platform "no blink"
+            self._caret_timer.start(max(1, flash // 2))
+        self.update()
+
+    def _stop_caret_blink(self) -> None:
+        """Stop the blink timer and hide the caret."""
+        if self._caret_timer is not None:
+            self._caret_timer.stop()
+        self._caret_on = False
+        self.update()
+
+    def _toggle_caret(self) -> None:
+        """Flip the caret's visible/hidden phase (blink-timer tick).
+
+        Guards against a stray timer tick firing after the session ended or
+        the item left its scene (e.g. deleted mid-edit) — stop the timer
+        instead of touching a dead/unparented item.
+        """
+        if not self._editing or self.scene() is None:
+            if self._caret_timer is not None:
+                self._caret_timer.stop()
+            return
+        self._caret_on = not self._caret_on
+        self.update()
+
+    def _reset_caret_phase(self) -> None:
+        """Show the caret now and restart the blink (after a key / cursor move)."""
+        if not self._editing:
+            return
+        self._caret_on = True
+        if self._caret_timer is not None and self._caret_timer.isActive():
+            self._caret_timer.start()
+        self.update()
+
+    _SWALLOWED_FKEYS = frozenset(getattr(Qt.Key, f"Key_F{i}") for i in range(1, 13))
+
     def mouseDoubleClickEvent(self, event) -> None:
-        """Enter inline-edit mode on a double-click while not already editing."""
+        """Paper: enter inline-edit on double-click.  Model: the scene's mouse
+        gate (TextEditController) owns entry — ignore here so a double-click
+        while a placement tool is active can never enter edit."""
+        if not self._on_paper():
+            event.ignore()
+            return
         if not self._editing:
             self.begin_edit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
+    def _request_commit(self) -> None:
+        """Model surface: end the session through the scene's commit funnel."""
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "commit_text_edit"):
+            sc.commit_text_edit()
+        else:
+            self.commit_edit()
+
+    def _focus_out_keeps_edit(self, event) -> bool:
+        """Model-surface focus-out exceptions (spec § Inline edit)."""
+        if event.reason() in (Qt.FocusReason.ActiveWindowFocusReason,
+                              Qt.FocusReason.PopupFocusReason):
+            return True
+        fw = QApplication.focusWidget()
+        sc = self.scene()
+        if fw is not None and sc is not None and any(
+                fw is v or fw is v.viewport() for v in sc.views()):
+            return True               # in-scene focus-item change (e.g. handle press)
+        w = fw
+        while w is not None:
+            # Name match (not isinstance) avoids importing the panel module here.
+            if type(w).__name__ == "PropertyManager":
+                return True           # panel stays live during an edit
+            w = w.parentWidget()
+        return False
+
     def focusOutEvent(self, event) -> None:
-        """Auto-commit the edit when the item loses keyboard focus."""
+        """Paper: auto-commit on focus loss.  Model: commit unless the focus
+        change is window deactivation / popup / in-scene / the property panel."""
+        if self._editing and not self._on_paper():
+            if not self._focus_out_keeps_edit(event):
+                self._request_commit()
+            super().focusOutEvent(event)
+            return
         if self._editing:
             self._on_edit_finished()
         super().focusOutEvent(event)
@@ -1096,11 +1428,35 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def keyPressEvent(self, event) -> None:
         """Route key events to the editor or to item-level commands.
 
-        While editing: Esc ends the edit (paper undo-routed via
-        ``_on_edit_finished``); other keys pass to the editor (Enter=newline).
-        While not editing: Delete emits ``delete_requested`` (the paper scene
-        routes it through DeleteTextAnnotationCommand); other keys delegate.
+        Model surface while editing: Esc / Ctrl+Enter commit; Ctrl+B/I/U and
+        F1–F12 (without Alt) are swallowed; Alt+F-key (e.g. Alt+F4) is left
+        ignored so the window system still gets it; everything else goes to
+        the Qt text control.  Paper while editing: Esc ends the edit
+        (``_on_edit_finished``).  Not editing: Delete emits
+        ``delete_requested``.
         """
+        if self._editing and not self._on_paper():
+            key = event.key()
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+            if key == Qt.Key.Key_Escape or (
+                    ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+                self._request_commit()
+                event.accept()
+                return
+            if alt and key in self._SWALLOWED_FKEYS:
+                # Alt+F4 (and any other Alt+F-key) must reach the window
+                # system to close/act on the app — never swallow it here.
+                event.ignore()
+                return
+            if (ctrl and key in (Qt.Key.Key_B, Qt.Key.Key_I, Qt.Key.Key_U)) \
+                    or key in self._SWALLOWED_FKEYS:
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            self._reset_caret_phase()
+            return
         if self._editing:
             if event.key() == Qt.Key.Key_Escape:
                 self._on_edit_finished()
@@ -1120,6 +1476,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         inline-editing)."""
         if self._editing:
             super().contextMenuEvent(event)
+            return
+        if editing_text_item(self.scene()) is not None:
+            # Another TextItem is inline-editing: let the right-click
+            # propagate down to it (its native menu) instead of opening this
+            # item's Delete menu on top.
+            event.ignore()
             return
         menu = QMenu()
         delete = menu.addAction("Delete")

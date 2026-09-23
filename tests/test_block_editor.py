@@ -60,6 +60,20 @@ def test_close_removes_tab_and_untracks(qapp):
     assert tabs.indexOf(w2) != -1
 
 
+def test_open_editors_returns_open_widgets(qapp):
+    """M8: a public accessor for the open editor widgets — main._text_edit_scenes
+    reads this instead of the private ``_open`` dict."""
+    project = Model_Space()
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    assert mgr.open_editors() == []
+    w1 = mgr.open_new()
+    w2 = mgr.open_new()
+    assert set(mgr.open_editors()) == {w1, w2}
+    mgr.close(w1)
+    assert mgr.open_editors() == [w2]
+
+
 # ---------------------------------------------------------------------------
 # BE2.2a: seeding + headless Save core + dirty tracking
 # ---------------------------------------------------------------------------

@@ -288,6 +288,7 @@ class BlockEditorWidget(QWidget):
         Returns:
             The ``BlockDefinition``, or None if the editor has no geometry.
         """
+        self.editor_scene.commit_text_edit()   # inline text edit ends before saving
         items = self.gather_primitives()
         prims = [it.to_dict() for it in items]
         if not prims:
@@ -317,6 +318,7 @@ class BlockEditorWidget(QWidget):
         Returns:
             The committed ``BlockDefinition``, or None if cancelled / no geometry.
         """
+        self.editor_scene.commit_text_edit()   # inline text edit ends before saving
         from PyQt6.QtWidgets import QDialog
         if not self.gather_primitives():
             from .themed_message import themed_info
@@ -494,6 +496,8 @@ class BlockEditorManager:
 
     def close(self, widget: BlockEditorWidget) -> None:
         """Remove and dispose an editor tab."""
+        if hasattr(widget, "editor_scene"):
+            widget.editor_scene.commit_text_edit()
         idx = self._tabs.indexOf(widget)
         if idx != -1:
             self._tabs.removeTab(idx)
@@ -503,3 +507,13 @@ class BlockEditorManager:
     def forget(self, widget: BlockEditorWidget) -> None:
         """Drop a widget from tracking (called when its tab is closed elsewhere)."""
         self._open.pop(getattr(widget, "_editor_key", None), None)
+
+    def open_editors(self) -> list:
+        """Return the currently open editor widgets (stable-ish, dict order).
+
+        Public accessor for callers outside the manager (e.g. main.py's
+        ``_text_edit_scenes``) that must not reach into the private ``_open``
+        dict directly.
+        """
+        return list(self._open.values())
+

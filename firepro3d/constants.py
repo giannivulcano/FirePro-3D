@@ -233,6 +233,10 @@ MANIP_HANDLE_FILL_LIGHT = "#ffffff"         # fill on a light canvas
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
 
+# ── Model-surface inline edit (text-annotation-system.md § Inline edit) ─────
+TEXT_CARET_WIDTH_PX = 1.5        # cosmetic inline-edit caret width (screen px)
+TEXT_SELECTION_ALPHA = 100        # 0-255 alpha of the inline-edit selection highlight
+
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's
 # size dropdown and its grow/shrink stepping (units-and-formatting.md).
 FONT_SIZE_LADDER_PT = (8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72)

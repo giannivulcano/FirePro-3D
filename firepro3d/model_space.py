@@ -31,7 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
-from .text_item import TextItem, TextAnnotationData
+from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -71,6 +71,7 @@ from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController
 from .wall_placement_controller import WallPlacementController
 from .feature_placement_controller import FeaturePlacementController
+from .text_edit_controller import TextEditController
 from .network_codec import (
     serialize_node, serialize_pipe,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -191,6 +192,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
+        self._text_edit_ctl = TextEditController(self)  # inline text-edit session
+        self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
@@ -863,6 +866,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns True if the item was handled, False otherwise.
         """
+        if item is not None and item is editing_text_item(self):
+            self._text_edit_ctl.abandon(item)
         # Map each geometry type to the list that tracks it
         type_to_list = {
             PolylineItem:        self._polylines,
@@ -1049,6 +1054,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        self._text_edit_ctl.commit()     # a tool switch ends any inline edit
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
@@ -1960,6 +1966,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
+        # Every item below is rebuilt from the snapshot, so a HALO candidate is
+        # now a detached object at its pre-restore geometry — drop it (and
+        # repaint) or drawForeground paints a ghost outline there until the
+        # next mouse move.  Covers undo AND redo (both route through here).
+        if self.halo_clear():
+            for v in self.views():
+                v.viewport().update()
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -2258,6 +2271,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._in_undo_restore = False
 
+    def commit_text_edit(self) -> "str | None":  # shell → TextEditController
+        """End any live inline text edit on this scene (idempotent).
+
+        Returns:
+            str | None: ``None`` when there was no live session; otherwise
+            ``"discarded"`` (an empty new placement was removed with no undo
+            push — see :meth:`TextEditController.commit`) or ``"committed"``
+            (every other outcome).  Both are truthy.
+        """
+        return self._text_edit_ctl.commit()
+
     def push_undo_state(self):
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore:
@@ -2306,7 +2330,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = False
 
     def undo(self):
-        """Restore the previous network state."""
+        """Restore the previous network state.
+
+        Commits any live inline text edit first.  If that commit discarded an
+        empty NEW placement (nothing was ever pushed for it — see
+        :meth:`TextEditController.commit`), Ctrl+Z / ribbon Undo just cancels
+        the placement: it returns here without also stepping the stack back,
+        since there is no corresponding snapshot to undo past.
+        """
+        if self._text_edit_ctl.commit() == "discarded":
+            return
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1
@@ -2318,7 +2351,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.sceneModified.emit()
 
     def redo(self):
-        """Restore the next network state."""
+        """Restore the next network state.
+
+        Commits any live inline text edit first (mirrors :meth:`undo`).  If
+        that commit discarded an empty NEW placement (nothing was ever pushed
+        for it — see :meth:`TextEditController.commit`), redo just cancels
+        the placement: it returns here without also stepping the stack
+        forward, since there is no corresponding snapshot to redo into.
+        """
+        if self._text_edit_ctl.commit() == "discarded":
+            return
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
@@ -3437,6 +3479,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.is_input_mode():
             self.cursorMoved.emit(self._format_cursor_readout(event.scenePos()))
             return
+        # Inline text edit: a drag after an inside press extends the selection.
+        if self._text_edit_ctl.handle_move(event):
+            return
         # ── Selection-manipulator drag owns the mouse ───────────────────
         # While a manipulator gesture is in flight, moves belong to the
         # grabber (held-transform preview); the placement machinery below
@@ -4167,6 +4212,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
         "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
+        "text",
     })
 
     _ALIGN_PLACEMENT_MODES = frozenset({
@@ -4349,6 +4395,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Inert in input mode (see mouseMoveEvent): a click must not commit
         # geometry behind an open HUD.
         if self.is_input_mode():
+            return
+        # Inline text edit owns presses inside its box (caret / drag-select);
+        # an outside press commits and falls through (spec § Inline edit).
+        if self._text_edit_ctl.handle_press(event):
             return
         if event.button() == Qt.MouseButton.RightButton:
             # Don't pass right-click to base — it deselects items.
@@ -4548,7 +4598,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # TextAnnotationData), tracked in self._texts and serialized via
             # both the file and undo paths — NOT a NoteAnnotation any more.
             data = TextAnnotationData(
-                text="Text", x=rect.x(), y=rect.y(),
+                text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
                 height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
             # Seed white ink so a freshly placed model text isn't invisible
@@ -4565,15 +4615,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             text.update()
             self._texts.append(text)
             self.requestPropertyUpdate.emit(text)
-            # Drop straight into inline-edit mode so the user can type (parity
-            # with the old NoteAnnotation TextEditorInteraction placement).
-            text.begin_edit()
             # Remove preview
             if self._text_preview is not None:
                 self.removeItem(self._text_preview)
                 self._text_preview = None
             self._text_anchor = None
-            self.push_undo_state()
+            # Single placement: back to Select with the new box selected FIRST —
+            # set_mode commits any live edit, so the session must start after
+            # the switch or the fresh empty box would be discarded.
+            self._end_placement_switch(text)
+            # Start empty with a live caret.  No placement snapshot: the
+            # session's commit pushes the single place+type step (or discards
+            # an empty placement) — spec § Inline edit, Undo.
+            self._text_edit_ctl.begin(text, is_new=True)
 
     def _press_draw_arc(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell → GeometryDrawingController (slice 9)
         return self._geom_ctl._press_draw_arc(event, pos, snapped, item_under, node_under, pipe_under)
@@ -6354,6 +6408,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # ``_last_press_pos`` (its press was swallowed) against a fresh release.
         if self.is_input_mode():
             return
+        # Inline text edit: swallow the release of a gate-consumed press.
+        if self._text_edit_ctl.handle_release(event):
+            return
         # ── Selection-manipulator drag release ──────────────────────────
         # Deliver straight to the grabber: bake + commit happen in
         # SelectionManipulator._finish; the marker-deselect logic below is
@@ -6388,6 +6445,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # arrives incomplete; acting on the tail of it would end a pipe or
         # polyline chain the user never finished.
         if self.is_input_mode():
+            return
+        # Inline text edit: double-click enters edit (select mode) or, while
+        # editing, selects the word under the cursor.
+        if self._text_edit_ctl.handle_double_click(event):
             return
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
@@ -6467,6 +6528,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def contextMenuEvent(self, event):
         """Show context menu on right-click for underlays or scene entities."""
+        # Right-click inside the inline-editing box → the native text menu.
+        if self._text_edit_ctl.handle_context_menu(event):
+            return
         # Right-click confirms design area selection
         if self.mode == "design_area":
             self._spr_ctl.confirm_design_area()
@@ -6776,6 +6840,34 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # KEY EVENTS
 
     def keyPressEvent(self, event):
+        # Esc mid-manipulator-drag cancels the gesture (restore pre-drag
+        # state, no commit) before any other Escape handling runs — ahead of
+        # the inline-edit bypass too, so a handle drag during an edit session is
+        # cancelled (edit stays open) instead of committing the text mid-drag.
+        if event.key() == Qt.Key.Key_Escape:
+            _manip = self._live_manip()
+            if _manip is not None and _manip.is_dragging():
+                _manip.cancel_drag()
+                event.accept()
+                return
+        if editing_text_item(self) is not None:
+            # Inline text edit owns the key: bypass variant/Space/polygon cycles;
+            # QGraphicsScene delivers it to the focused TextItem.
+            super().keyPressEvent(event)
+            return
+        # Numeric-keypad Enter reports as Key_Enter + KeypadModifier — mask
+        # off just that one bit so it still counts as a bare Enter for
+        # edit-entry (a real modifier combo like Ctrl+Enter/Shift+F2 must
+        # still refuse entry, spec § Inline edit).
+        entry_mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        if (entry_mods == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2)
+                and self.mode in (None, "select")):
+            sel = self.selectedItems()
+            if len(sel) == 1 and self._text_edit_ctl.can_edit(sel[0]):
+                self._text_edit_ctl.begin(sel[0])
+                event.accept()
+                return
         # ←/→ cycle the placement variant at step 0 (arc, rectangle, …).
         # Consume only when a variant actually cycles; otherwise fall through
         # so the view's default arrow-scroll still works.
@@ -6822,14 +6914,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._refresh_opening_ghost()
                 event.accept()
                 return
-        # Esc mid-manipulator-drag cancels the gesture (restore pre-drag
-        # state, no commit) before any other Escape handling runs.
-        if event.key() == Qt.Key.Key_Escape:
-            _manip = self._live_manip()
-            if _manip is not None and _manip.is_dragging():
-                _manip.cancel_drag()
-                event.accept()
-                return
+        # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

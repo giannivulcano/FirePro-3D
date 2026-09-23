@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
@@ -40,6 +40,9 @@ from .dynamic_input import (
 from .manip_math import (
     HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point, move_delta,
 )
+
+if TYPE_CHECKING:                       # runtime import is lazy (circular)
+    from .manip_handle import Handle
 
 log = logging.getLogger(__name__)
 
@@ -584,8 +587,27 @@ class SelectionManipulator(QGraphicsObject):
         (Shift = aspect/ortho/15°), while a Shift-press on the bare interior
         still falls through to additive/rubber-band selection.
         """
+        return bool(self.handles_at(scene_pos))
+
+    def handles_at(self, scene_pos: QPointF) -> List["Handle"]:
+        """Every visible handle (the ``Handle`` objects, not their host items)
+        whose hit shape contains *scene_pos*.
+
+        Same device-transform hit-test as :meth:`hit_handle` (which is
+        ``bool(handles_at(...))``); lets a caller ask WHICH handle is under the
+        cursor — e.g. the inline text editor ignores a TextItem's own centre
+        move grip (``GripHandle`` index ``TextItem.MOVE_GRIP_INDEX``).
+
+        Args:
+            scene_pos: The point to test, in scene coordinates.
+
+        Returns:
+            List[Handle]: The ``manip_handle.Handle`` objects under the point
+            (rigid resize/rotate handles and item grip handles), in host
+            order; empty when the manipulator is hidden or nothing is hit.
+        """
         if not self.isVisible():
-            return False
+            return []
         # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
         # the item's scene transform and ignores the view zoom, so it only
         # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the
@@ -596,6 +618,7 @@ class SelectionManipulator(QGraphicsObject):
         # (headless).
         view = self._view()
         vt = view.viewportTransform() if view is not None else None
+        hits = []
         for h in list(self._handles.values()) + list(self._host_pool):
             if not h.isVisible():
                 continue
@@ -608,8 +631,8 @@ class SelectionManipulator(QGraphicsObject):
             else:
                 local = h.mapFromScene(scene_pos)
             if h.shape().contains(local):
-                return True
-        return False
+                hits.append(h.handle)
+        return hits
 
     def _frame_is_redundant(self) -> bool:
         """A single box-native item (rect/text/viewport) whose own outline IS

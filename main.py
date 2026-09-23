@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
+from firepro3d.text_item import editing_text_item
 from firepro3d.sprinkler import Sprinkler
 from firepro3d.pipe import Pipe
 from firepro3d.underlay_import_dialog import UnderlayImportDialog
@@ -999,6 +1000,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Auto-switch active level when switching to a Plan or Detail tab."""
+        self._commit_text_edits()
         # A placement belongs to the view it was started in.  Every plan tab
         # shares one Model_Space, so the preview items render in all of them
         # while the committed geometry is level-filtered into one — and the
@@ -1046,6 +1048,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.block_editor import BlockEditorWidget
         widget = self.central_tabs.widget(index)
         if isinstance(widget, BlockEditorWidget):
+            widget.editor_scene.commit_text_edit()   # end any live inline edit
+            # BEFORE is_dirty(): the dirty flag is set only by sceneModified
+            # (push_undo_state) and is blind to live typing alone — committing
+            # first lets a real text change surface here if there is one.
             if widget.is_dirty():
                 from firepro3d.themed_message import themed_confirm
                 if not themed_confirm(self, "Discard changes?",
@@ -1699,6 +1705,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _export_paper_pdf(self):
         """Export selected sheets to PDF (batch — spec §19.6)."""
+        self._commit_text_edits()
         from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
         from firepro3d.paper_export_dialog import PaperExportDialog
@@ -1753,6 +1760,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _print_paper(self):
         """Print selected sheets via the system print dialog (batch)."""
+        self._commit_text_edits()
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
         from PyQt6.QtWidgets import QDialog
         from firepro3d import paper_export
@@ -2257,6 +2265,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_active_level_changed(self, name: str):
         """Handle active level change from widget — opens the plan tab."""
+        self._commit_text_edits()
         self._activate_plan_view(name)
 
     # ── Template workflow helpers ─────────────────────────────────────────────
@@ -2390,6 +2399,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""
+        self._commit_text_edits()
         from firepro3d.geometry_2d import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
         PRIM = (LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem)
@@ -3618,6 +3628,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def save_file(self):
+        self._commit_text_edits()
         if self._current_file:
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
@@ -3628,6 +3639,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.save_file_as()
 
     def save_file_as(self):
+        self._commit_text_edits()
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if file:
             self._current_file = file
@@ -3638,12 +3650,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self._add_recent_file(file)
 
     def open_file(self):
+        self._commit_text_edits()
         file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.FPD);;JSON Files (*.json)")
         if file:
             self._load_project(file)
 
     def _load_project(self, file: str):
         """Load a project file and update all UI state."""
+        self._commit_text_edits()
         self._current_file = file
         self._apply_loaded_file(file)
         # Clear dirty flag before the divergence prompt so the autosave timer
@@ -3762,6 +3776,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._recent_menu.addAction("(No recent files)").setEnabled(False)
 
     def _open_recent(self, path: str):
+        self._commit_text_edits()
         if not os.path.isfile(path):
             themed_warn(self, "File Not Found", f"Cannot find:\n{path}")
             if path in self._recent_files:
@@ -3779,6 +3794,17 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                             "autosave", "recovery.FPD")
 
     def _autosave(self):
+        """Timer-driven autosave — must never interrupt a live inline text edit.
+
+        Unlike every other commit-trigger call site, this one is NOT allowed to
+        end the user's typing mid-session: it runs on a QTimer, so a
+        ``_commit_text_edits()`` call here would silently commit whatever text
+        the user has typed so far, every tick. Skip this tick entirely while
+        any scene has a live session; the next tick after the edit ends saves
+        normally.
+        """
+        if any(editing_text_item(sc) is not None for sc in self._text_edit_scenes()):
+            return
         if not self._modified:
             return
         path = self._autosave_path()
@@ -3852,6 +3878,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
+        self._commit_text_edits()
         if not self._ask_save_changes("starting a new project"):
             return
         self._current_file = None
@@ -4409,6 +4436,37 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.editor_scene
         return self.scene
 
+    def _text_edit_scenes(self) -> list:
+        """The plan scene + every open Block Editor's editor_scene.
+
+        Shared list for every app-level inline-text-edit concern (committing,
+        or checking whether a session is live) — spec text-annotation-system
+        § Inline edit.
+
+        Guarded with ``getattr`` because this can be called (via a
+        ``currentChanged`` signal) before ``block_editor_manager`` exists —
+        ``currentChanged`` is connected during tab-widget setup, ahead of the
+        manager's construction in ``__init__``.
+        """
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is None:
+            return [self.scene]
+        return [self.scene] + [w.editor_scene for w in mgr.open_editors()]
+
+    def _commit_text_edits(self) -> None:
+        """End any live inline text edit — plan scene + every Block Editor scene.
+
+        Called first by every action that must see committed text (save,
+        export, tab / level switch, Block Editor open, close) — spec
+        text-annotation-system § Inline edit. NOT used by ``_autosave``: that
+        timer-driven tick must never end the user's edit mid-typing — see
+        ``_autosave``.
+        """
+        for sc in self._text_edit_scenes():
+            commit = getattr(sc, "commit_text_edit", None)
+            if commit is not None:
+                commit()
+
     def _adopt_block_editor(self, widget):
         """Wire a new editor scene into the shared interaction envelope.
 
@@ -4664,6 +4722,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
+        self._commit_text_edits()
         if not self._ask_save_changes("closing"):
             event.ignore()
             return
