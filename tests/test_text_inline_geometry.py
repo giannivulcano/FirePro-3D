@@ -260,13 +260,20 @@ def test_selection_highlight_paints_without_document_renderer(scene, no_doc_rend
 
 
 def test_model_surface_never_calls_document_renderer(scene, monkeypatch):
-    """The engine==0 source is gone: model paint never reaches super().paint()."""
+    """The engine==0 source is gone: model paint never reaches super().paint().
+
+    Selection + caret-on are both armed so every editing paint branch (
+    selection highlight, glyph outline, caret) actually executes this pass —
+    otherwise a caret-only regression could hide behind the default
+    ``_caret_on == False`` and slip past this guard undetected."""
     from PyQt6.QtWidgets import QGraphicsTextItem
     calls = []
     monkeypatch.setattr(QGraphicsTextItem, "paint",
                         lambda self, p, o, w=None: calls.append(1))
     t = _text(scene, "Hi")
     t.begin_edit()
+    _set_pos(t, 2, anchor=0)
+    t._caret_on = True
     _render(t)
     assert calls == []
 
