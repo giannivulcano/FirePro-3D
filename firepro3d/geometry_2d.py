@@ -1317,7 +1317,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             "Type": {"type": "label", "value": "Circle"},
             "Centre": {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
             "Radius": {"type": "dimension", "value": self._fmt(self._radius),
-                       "value_mm": self._radius, "minimum": 0.0},
+                       "value_mm": self._radius,
+                       "minimum": 1.0 - 1e-9},   # reject below the 1 mm floor
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
@@ -1551,7 +1552,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "Type":        {"type": "label", "value": "Arc"},
             "Centre":      {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
             "Radius":      {"type": "dimension", "value": self._fmt(self._radius),
-                            "value_mm": self._radius, "minimum": 0.0},
+                            "value_mm": self._radius,
+                            "minimum": 0.01 - 1e-12},   # reject below the floor
             "Start Angle": {"type": "label", "value": f"{self._start_deg:.1f}°"},
             "Span":        {"type": "dimension",
                             "value": ScaleManager.format_span(self._span_deg),
