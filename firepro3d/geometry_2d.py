@@ -767,6 +767,22 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             return t.map(obj)
         return t.map(QPointF(obj))
 
+    def mapToParent(self, *args):
+        """Local→parent through the data rotation, then Qt's own pos/transform.
+
+        Overridden like :meth:`mapToScene` so ``mapToParent`` consumers (e.g.
+        ``BlockDefinition._compile``) see the rotated footprint instead of the
+        axis-aligned local ``rect()``.  Same overloads: ``QPointF``, ``(x, y)``
+        or ``QPainterPath``.
+        """
+        t = self._rotation_transform()
+        if len(args) == 2:                       # (x, y)
+            return super().mapToParent(t.map(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, QPainterPath):
+            return super().mapToParent(t.map(obj))
+        return super().mapToParent(t.map(QPointF(obj)))
+
     def mapFromScene(self, *args):
         """Scene→local inverse of :meth:`mapToScene`."""
         inv, ok = self._rotation_transform().inverted()

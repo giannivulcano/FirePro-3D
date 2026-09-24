@@ -229,7 +229,11 @@ def perpendicular_distance(source, pt: QPointF) -> float:
         return abs(math.hypot(pt.x() - cx, pt.y() - cy) - r)
 
     if isinstance(source, RectangleItem):
-        r = source.mapRectToScene(source.rect())
+        # Measure in the rect's LOCAL (axis-aligned) frame so a data-rotated
+        # rect is measured against its real edges, not its AABB (rotation is
+        # rigid, so local distances equal scene distances).
+        r = source.rect()
+        pt = source.mapFromScene(pt)
         # Distance to nearest edge
         cx = max(r.left(), min(pt.x(), r.right()))
         cy = max(r.top(), min(pt.y(), r.bottom()))
@@ -271,9 +275,9 @@ def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
         r = source.boundingRect().width() / 2
         return dist if d >= r else -dist
     if isinstance(source, RectangleItem):
-        # cursor outside → grow, cursor inside → shrink
-        r = source.mapRectToScene(source.rect())
-        if r.contains(side_pt):
+        # cursor outside → grow, cursor inside → shrink (tested in the
+        # rect's local frame so a rotated rect uses its real footprint).
+        if source.rect().contains(source.mapFromScene(side_pt)):
             return -dist
         return dist
     if isinstance(source, ArcItem):
@@ -327,11 +331,17 @@ def make_offset_item(source, signed_dist: float):
         return item
 
     if isinstance(source, RectangleItem):
-        r = source.mapRectToScene(source.rect())
+        # Offset the LOCAL rect, then carry the source's data rotation so a
+        # rotated rect offsets to a concentric rotated rect (not its AABB).
+        # Pivot: a centre-following pivot stays centred on the (unchanged)
+        # centre; an explicit pivot is kept verbatim, same footprint maths.
+        r = source.rect()
         new_r = r.adjusted(-signed_dist, -signed_dist, signed_dist, signed_dist)
         if new_r.width() <= 0 or new_r.height() <= 0:
             return None
         item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
+        if source._angle != 0.0:
+            item.set_angle(source._angle, source._pivot)
         return item
 
     if isinstance(source, ArcItem):
