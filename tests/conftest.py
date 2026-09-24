@@ -80,6 +80,26 @@ def _preserve_snap_globals():
 
 
 @pytest.fixture(autouse=True)
+def _preserve_halo_globals():
+    """Snapshot/restore the HALO tunable module globals (aperture/band)."""
+    from firepro3d import halo_selection as hs
+    saved = (hs.HALO_APERTURE_PX, hs.HALO_PRIORITY_BAND_PX)
+    yield
+    hs.HALO_APERTURE_PX, hs.HALO_PRIORITY_BAND_PX = saved
+
+
+@pytest.fixture(autouse=True)
+def _preserve_grip_object_limit():
+    """Snapshot/restore ``selection_manipulator.GRIP_OBJECT_LIMIT`` (an
+    app-wide module global a test may set to exercise the grip-object-limit
+    branch) so it can't leak into a later test under random ordering."""
+    from firepro3d import selection_manipulator as sm
+    saved = sm.GRIP_OBJECT_LIMIT
+    yield
+    sm.GRIP_OBJECT_LIMIT = saved
+
+
+@pytest.fixture(autouse=True)
 def _isolate_qsettings(tmp_path_factory):
     """Point the isolated QSettings store at a FRESH per-test temp dir (#312), so
     a key written by one test can't leak into the next. The class-level redirect

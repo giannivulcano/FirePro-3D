@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-09-23
-verified-commit: 434066c
+last-verified: 2026-09-24
+verified-commit: f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
@@ -84,7 +84,7 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 ### 4.4 UX pane consolidation + OSNAP parity
 - **SNAP** sub-tab: tolerance / hysteresis / grip radius + 8 snap-type toggles + **angle-snap moved in** (own container, default 5°). **Dead grid-spacing removed.**
 - **ALIGN** sub-tab: the `align/*` knobs (enabled, path aperture, dwell, max points, 4 direction flags).
-- **HALO** sub-tab: `halo/enabled` + `halo/aperture_px` **only** (migrate the interim tab as-is; richer HALO is separate deferred todos).
+- **HALO** sub-tab: Enable + Aperture + Priority band (2026-09-24; keys/semantics owned by `selection-mode.md §4.5` — the old `halo/aperture_px` key is retired). The SNAP sub-tab also carries **Grip object limit** (owned by `selection-manipulator.md`).
 - Writes the **same keys** the retired dialogs did (behavior parity). `apply()`/`revert()` call **`snap_toolbar.refresh_from_engine()`** so the live snap bar and the pane stay in sync through the shared `snap/*` keys. Post chrome-revamp (merge 0a7b44a) the `snap_toolbar=` constructor arg is passed the footer's **`InlineOsnapBar`** (`firepro3d/footer_rail.py`), which satisfies the same `refresh_from_engine()` contract the retired `_SnapToolbar` did.
 - **Retire:** delete `_open_snap_tolerance_dialog` + `_open_snap_settings`; remove the Manage "Snap Settings" button; repoint or remove "Angle Snap". The bare `QSettings()` at ~2443 vanishes with the deletion (Explore confirmed it is the only bare site).
 - **Snap entry points (post chrome-revamp).** The ribbon **Snap group is deleted** — its ribbon "Snap Settings…" / Angle-Snap entries are gone. **Angle-snap remains reachable in this UX pane** (pane content unchanged). The live in-canvas snap control is now the footer rail's **`InlineOsnapBar`** (contract owned by `mainwindow-chrome-revamp.md`); **right-clicking the footer rail's SNAP pill** opens `SystemSettingsDialog` directly on this UX pane via `select_pane("ux")`.

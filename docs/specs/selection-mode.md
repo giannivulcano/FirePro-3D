@@ -1,9 +1,9 @@
 # Selection Mode — Specification
 
 > **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
-> **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
-> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`); 2026-09-23 (§4.3 removal pruning + §5.9 batch selection, block polish, verified `434066c`)
-> **Revision:** 3 (Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
+> **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/halo_selection.py` (ranking + band + app-wide HALO tunables), `firepro3d/view_scale.py` (visible-view hit width), `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
+> **Date:** 2026-05-02 (spec); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`); 2026-09-23 (§4.3 removal pruning + §5.9 batch selection, block polish, verified `434066c`); 2026-09-24 (Rev 4: HALO pixel ranking, app-wide aperture/band, no band preview, batched band commit, verified `f2b1d99`)
+> **Revision:** 4 (Rev 4: HALO ranks SNAP-style — px distance to the drawn trace, Z only inside a px priority band; aperture/band app-wide + tunable; live band preview removed. Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
 > **Absorbs:** TODO "Restore label-only click-selection for rooms"
 >
 > **Ownership boundary:** this spec owns **what gets selected** (HALO preselection, disambiguation, click/rubber-band picking, priority). `selection-manipulator.md` owns **what happens to the selection** (frame, handles, rigid transforms, grip editing). Grip activation is delegated there (§8).
@@ -66,7 +66,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 
 ## 3. Selection Priority
 
-Selection priority follows runtime Z-order. When multiple selectable items overlap under the cursor, the highest-Z item wins. HALO preselection (§4) and Spacebar-cycle (§5.1) both consume the shared `halo_rank` ordering, which sorts by **runtime-Z descending → screen-distance from the cursor → the §3.1 priority tie-break → stable id**.
+Selection priority is **closest-first, Z within a band** (Rev 4, 2026-09-24 — replaces pure Z-first, under which a tiny item near the cursor beat a long item the cursor was actually on). HALO preselection (§4) and Spacebar-cycle (§5.1) both consume the shared `halo_rank` ordering, judged in **screen pixels** against each candidate's *drawn trace* (SNAP picker model, `snapping-engine.md §6.1`): candidates within `HALO_PRIORITY_BAND_PX` of the closest rank by **runtime-Z descending**, then distance; the rest rank by distance; stable id last. Runtime Z (and so the §3.1 table) decides only between candidates inside the band.
 
 Runtime Z values are owned by `view-relationships.md §7.3` + `constants.py` — the §3.1 table below is a *priority tie-break reference*, not the authoritative Z source; do not treat its numbers as canonical.
 
@@ -101,9 +101,10 @@ Runtime Z values are owned by `view-relationships.md §7.3` + `constants.py` —
 
 ### 4.1 Aperture pick & shared ranking
 
-- Per move, `Model_View.mouseMoveEvent` calls `Model_Space.halo_update(scene_pos, aperture, dt)`. The aperture is a pixel radius, stored per-scene as `Model_Space._halo_aperture_px` (default `constants.HALO_APERTURE_PX`, user-overridable — §4.5).
+- Per move, `Model_View.mouseMoveEvent` calls `Model_Space.halo_update(scene_pos, aperture, dt)`. The aperture is a screen-pixel radius read live from the app-wide module global `halo_selection.HALO_APERTURE_PX` (default `constants.HALO_APERTURE_PX`, user-tunable — §4.5); the view converts it to a scene-unit search box for the `scene.items()` pre-filter.
 - `halo_candidates_at` gathers candidates within the aperture, filtered by: `isVisible()` (which already reflects the `LevelManager` z-slab sweep — do not re-filter by level here), the `_halo_is_underlay` parent-walk (an underlay group is appended **LAST**, never interleaved), and `ItemIsSelectable`.
-- A **pure, shared** `halo_rank` orders candidates: **runtime-Z descending → screen-distance from the cursor → §3.1 priority tie-break → stable id**. `halo_rank` is deterministic and consumed identically by hover, cycle, and click — there is no separate per-consumer ordering.
+- **Distance** is `halo.halo_pick_distance_px`: the cursor's px distance to the item's drawn trace (the same geometry §4.2 outlines), mapped through `item.deviceTransform(dt)` so it is zoom-invariant and correct for `ItemIgnoresTransformations` markers. Inside an **area** item it is 0 — filled 2D geometry (`fill_type`), classes flagged `HALO_AREA` (walls, slabs, roofs, openings, rooms, nodes, design areas, view arrows, gridline/elevation bubbles, solid elevation proxies) and shape-fallback items (text, SVG, blocks). Open geometry is measured to its stroke (never `QPainterPath.contains`, which implicitly closes open paths). A resolved parent takes the **minimum** over its raw child hits (a bubble/label counts for its gridline). Candidates farther than the aperture are dropped.
+- A **pure, shared** `halo_rank` orders candidates: judged in **screen pixels** against each candidate's *drawn trace* (SNAP picker model, `snapping-engine.md §6.1`): candidates within `HALO_PRIORITY_BAND_PX` of the closest rank by **runtime-Z descending**, then distance; the rest rank by distance; stable id last (band = `halo_selection.HALO_PRIORITY_BAND_PX`, default `constants.HALO_PRIORITY_BAND_PX`). `halo_rank` is deterministic and consumed identically by hover, cycle, and click — there is no separate per-consumer ordering.
 - `halo_item()` returns the current top-ranked (or cycled — §5.1) candidate; `None` when the aperture is empty.
 
 ### 4.2 Hover outline
@@ -134,12 +135,14 @@ When the HALO item resolves to one of several overlapping candidates, the scene 
 ### 4.5 Enable / disable (pill + Preferences)
 
 - A **HALO** on/off pill sits beside the SNAP/ALIGN pills (`main.py`); its state persists under QSettings `halo/enabled`. See `snap-toolbar.md` for the pill's UI contract.
-- A minimal Preferences **HALO** tab exposes Enable + the aperture (px), the latter persisted under `halo/aperture_px` and applied to `Model_Space._halo_aperture_px`.
+- The Preferences **HALO** tab exposes Enable + **Aperture** (px) + **Priority band** (px). Aperture/band are **app-wide** module globals (`halo_selection.HALO_APERTURE_PX` / `HALO_PRIORITY_BAND_PX`, the `SNAP_TOLERANCE_PX` pattern) honored by every scene (plan, Block Editor, elevation), persisted under `halo/pick_aperture_px` / `halo/priority_band_px` and restored by `main.py`. The retired key `halo/aperture_px` is **deliberately ignored**: nearly every install persisted the old 6 px there, which would put the aperture inside the band (making Z decide everything again).
 
 ### 4.6 Performance
 
 - Use the `scene.items(...)` spatial index over the aperture — never full-scene iteration (thin cosmetic items need the spatial index; see the sceneBoundingRect/cosmetic caveat).
 - The pick runs on every mouse move and must stay cheap; `dt` is threaded through for throttle/early-out.
+- Item `shape()` hit widths are N screen px at the **visible** view's zoom via `view_scale.scene_hit_width` (no mm floor) — never `views()[0]` (`snapping-engine.md §14.4`); otherwise the aperture pre-filter catches items far from the cursor when zoomed in.
+- Known cost (2026-09-24 bench, 20k-primitive PDF import): the `scene.items()` box query is ~50 ms/move because the model scene is `NoIndex`; the px ranking adds ~3–7 ms. Filed follow-up (spatial index).
 
 ---
 
@@ -156,7 +159,7 @@ When multiple selectable items fall within the HALO aperture, **Spacebar** cycle
 4. Moving the cursor re-runs `halo_update` and resets the cycle.
 5. Escape resets the cycle (§7.1 precedence ladder).
 
-**Candidate list & order:** the `halo_rank` ordering (§4.1) — runtime-Z desc → screen-distance → §3.1 priority → stable id — with the underlay group (if any) appended LAST.
+**Candidate list & order:** the `halo_rank` ordering (§4.1) — px distance to the trace, runtime-Z inside the priority band, stable id — with the underlay group (if any) appended LAST.
 
 **Status readout:** `"<Type> — i of N"` via `instructionChanged` (§4.4).
 
@@ -246,8 +249,8 @@ The blue/solid ↔ green/dashed flip is live during the drag as direction change
 
 - Starts on an **empty-canvas press only**.
 - Drag < 5px: treated as click, no rubber-band.
-- Commit is `commit_rubber_band(rect, crossing, additive, dt)`, which is passed the view `viewportTransform()` (needed to map the shape-based hit-test). Both commit and the live preview (below) share one query, `rubber_band_hits(rect, crossing, dt)`.
-- **Live preview:** while the band is dragged, the items it *would* select are HALO-highlighted (multi-item, `selection_hover` outline) and update live as the rect grows / the direction flips; `Model_Space._band_preview` is refreshed per move (`update_band_preview`) and cleared on release, `<5px` click, and Escape. This is separate from the single-item hover (which stays suppressed during the drag, §4.3).
+- Commit is `commit_rubber_band(rect, crossing, additive, dt)`, which is passed the view `viewportTransform()` (needed to map the shape-based hit-test); it selects the `rubber_band_hits(rect, crossing, dt)` result through `select_items` — **one** `selectionChanged` for the whole batch (§5.9; per-item selection was O(n²): >10 min on an 85k-primitive import).
+- **No live preview** (removed 2026-09-24, user decision): nothing is highlighted while dragging — the per-move query + per-item glow cost seconds per frame on large drawings. Colours: window = `band_window` token (blue, solid), crossing = `band_crossing` token (green, dashed) — `halo.paint_rubber_band`.
 - **Plain drag:** clears current selection before applying rubber-band results.
 - **Ctrl+drag:** additive — rubber-band results are added to the existing selection.
 - Items with the `_exclude_from_bulk_select` flag (DetailMarker, ViewMarkerArrow) are excluded from both modes.
@@ -324,7 +327,7 @@ Grip and handle interaction is **owned by the `SelectionManipulator`** — since
 | Escape | Mode-dependent | Precedence ladder (§7.1) | **SHIPPED** |
 | Double-click (select) | Falls through to Qt | Regular click, no special action | **CLARIFIED** |
 | Grip / handle ownership | Split (view-level grip loop + `_find_grip_hit`) | Owned by `SelectionManipulator` (U4); this spec delegates (§8) | **DELEGATED** |
-| Selection priority | Implicit Z-order | `halo_rank`: runtime-Z → screen-dist → §3.1 priority → id | **FORMALIZED** |
+| Selection priority | Implicit Z-order | `halo_rank`: px distance to trace; Z inside a px band; id (Rev 4) | **FORMALIZED** |
 | Ctrl+click over manip frame | (n/a) | Swallowed by interior-press guard — known pre-existing gap, filed | **KNOWN GAP** |
 
 ---
@@ -349,7 +352,7 @@ Leg A (plan scene, 2026-09-13) — shipped:
 - [x] Double-click in select mode behaves as regular click
 - [x] HALO suppressed during rubber-band drag, manipulator drag, and active tools
 - [x] Performance: HALO pick uses the spatial index, not full scene iteration
-- [x] HALO on/off pill (persisted `halo/enabled`) + Preferences HALO tab (aperture-px, persisted `halo/aperture_px`)
+- [x] HALO on/off pill (persisted `halo/enabled`) + Preferences HALO tab (aperture + priority band, app-wide, persisted `halo/pick_aperture_px` / `halo/priority_band_px` — Rev 4)
 
 Known pre-existing gap (filed, not resolved by Leg A):
 
@@ -383,10 +386,10 @@ scene-agnostic **`HaloSelectionMixin`** (`firepro3d/halo_selection.py`) — the 
 aperture pick / scene-drawn rubber-band engine + 5 overridable hooks (`_halo_resolve`,
 `_halo_is_underlay`, `_halo_candidate_ok`, `_halo_in_view_range`, `_halo_mode_ok`). `Model_Space`
 overrides the hooks to keep §1–§12 plan behavior; `ElevationScene` mixes in with an elevation
-`_halo_resolve` (bubble/label child → parent gridline/datum) and generic defaults for the rest (no
+`_halo_resolve` (walks the full parent chain: a bubble **and its label text** → parent gridline/datum) and generic defaults for the rest (no
 underlays, no rooms, no tool modes in elevation). `_halo_cycle` (Spacebar) lives on the mixin;
 `_emit_halo_readout` stays scene-specific (Model_Space → `instructionChanged`, Elevation →
-`cursorMoved`). Rubber-band paint is shared via `halo.paint_rubber_band`. The manipulator is the
+`cursorMoved`). Rubber-band paint is shared via `halo.paint_rubber_band`; like plan, there is no live band preview and the commit is one batched `select_items` (inherited from the mixin). The manipulator is the
 **sole grip owner** in elevation — the legacy `ElevationScene._find_grip_hit` + `ElevationView.paintEvent`
 grip loop are retired (the borrowed `_grip_item`/`_grip_dragging` state is kept for `GripHandle`).
 

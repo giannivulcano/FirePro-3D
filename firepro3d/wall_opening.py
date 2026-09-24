@@ -43,6 +43,7 @@ from .constants import (
     OPENING_ALIGNMENTS,
 )
 from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for, feature_label
+from .view_scale import scene_hit_width
 
 if TYPE_CHECKING:
     from .wall import WallSegment
@@ -77,13 +78,8 @@ WINDOW_DEFAULT = "900×1200"
 
 
 def _scene_hit_width(item) -> float:
-    sc = item.scene()
-    if sc:
-        views = sc.views()
-        if views:
-            scale = views[0].transform().m11()
-            return max(4.0, 12.0 / max(scale, 1e-6))
-    return 6.0
+    """~12 screen px at the visible view's zoom (see view_scale)."""
+    return scene_hit_width(item, 12.0, 6.0)
 
 
 # ── WallOpening ───────────────────────────────────────────────────────────────
@@ -106,6 +102,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     """
 
     KIND = "opening"   # matches legacy test checks; used by to_dict
+    HALO_AREA = True   # HALO: cursor inside = direct hit
 
     def __init__(self, wall=None, *, feature_id: str = "door_914",
                  offset_along: float = 0.0,

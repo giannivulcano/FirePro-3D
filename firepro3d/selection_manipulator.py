@@ -33,6 +33,7 @@ from .constants import (
     MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX,
     MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
     SELECTION_GRIP_SIZE_MM, SELECTION_GRIP_OUTLINE_WIDTH_MM,
+    GRIP_OBJECT_LIMIT as _GRIP_OBJECT_LIMIT_DEFAULT,
 )
 from .dynamic_input import (
     resolve_manip_move, resolve_manip_resize,
@@ -45,6 +46,11 @@ if TYPE_CHECKING:                       # runtime import is lazy (circular)
     from .manip_handle import Handle
 
 log = logging.getLogger(__name__)
+
+# App-wide, user-tunable (Preferences); read at call time. AutoCAD GRIPOBJLIMIT
+# equivalent: above this many selected items, the manipulator shows the frame
+# only (no per-item grip hosts) so large selections stay responsive.
+GRIP_OBJECT_LIMIT: int = _GRIP_OBJECT_LIMIT_DEFAULT
 
 MANIP_Z = 1e6          # spec: manipulator sits above all scene content
 _SHAPE_PAD_PX = 3.0    # interior hit slack so hairline frames stay grabbable
@@ -337,6 +343,7 @@ class SelectionManipulator(QGraphicsObject):
         self._rect = QRectF()
         self._sel_ids: frozenset = frozenset()
         self._items: List[QGraphicsItem] = []
+        self._item_set: set = set(self._items)  # kept in sync with self._items
 
         # drag state
         self._mode: Optional[str] = None
@@ -401,6 +408,7 @@ class SelectionManipulator(QGraphicsObject):
             return
         if not self._mode_allows(sc):
             self._items = []
+            self._item_set = set(self._items)
             self._sel_ids = frozenset()
             self.hide()
             return
@@ -432,6 +440,7 @@ class SelectionManipulator(QGraphicsObject):
                     "(no translate capability)", type(it).__name__)
 
         self._items = self._top_level_only(kept)
+        self._item_set = set(self._items)
         if not self._items:
             self.hide()
             return
@@ -459,8 +468,12 @@ class SelectionManipulator(QGraphicsObject):
     def wraps(self, item: QGraphicsItem) -> bool:
         """True when *item* is one of the items this manipulator currently
         boxes (drawForeground consults this to skip the legacy per-item
-        selection boundary — the manipulator frame is the one boundary)."""
-        return item in self._items
+        selection boundary — the manipulator frame is the one boundary).
+
+        O(1) via ``self._item_set``, a membership set kept in sync with
+        ``self._items`` at every assignment (a list scan here was O(n) per
+        call and O(n^2) across a large selection's paint pass)."""
+        return item in self._item_set
 
     def _is_box_native_single(self, item: QGraphicsItem) -> bool:
         """True when *item* is the sole selection AND scale-capable (box-native,
@@ -730,6 +743,11 @@ class SelectionManipulator(QGraphicsObject):
             if extra is not None:
                 handles.extend(extra())
             return handles
+        # Grip-object limit (AutoCAD GRIPOBJLIMIT): above this many selected
+        # items, per-item grip hosts would be thousands of hosts (63k @ 20k
+        # items measured) — show the frame + interior move only.
+        if len(self._items) > GRIP_OBJECT_LIMIT:
+            return []
         item_handles = []
         any_provider = False
         for it in self._items:

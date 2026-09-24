@@ -11,6 +11,7 @@ from .displayable_item import DisplayableItemMixin
 
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     RADIUS = 13
+    HALO_AREA = True  # HALO: cursor inside = direct hit
 
     # Class-level toggle — all nodes share the same visibility state.
     # Toggled by Model_Space.set_coverage_overlay(visible).

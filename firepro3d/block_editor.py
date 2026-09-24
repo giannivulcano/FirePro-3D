@@ -369,6 +369,14 @@ class BlockEditorWidget(QWidget):
             self._add_primitive(cls.from_dict(d))
         if source_items is not None:
             self._seed_source_items = list(source_items)
+        # The seeded geometry is the undo baseline (index 0) and cannot be
+        # undone away. Without this the stack still held only the scene's empty
+        # construction snapshot, so Ctrl+Z after the first edit wiped the whole
+        # block. Mirrors the default-grid seed in main.py / scene_io load.
+        sc = self.editor_scene
+        sc._undo_stack = []
+        sc._undo_pos = -1
+        sc.push_undo_state()
         self._mark_clean()   # seeding is not a user edit
 
     def seed_from_definition(self, defn):

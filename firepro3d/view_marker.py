@@ -129,6 +129,7 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
     """
 
     PAPER_EXCLUDED = True   # elevation tags are authoring furniture — never plot
+    HALO_AREA = True         # HALO: filled selectable polygon — cursor inside = direct hit
 
     _CIRCLE_R = BUBBLE_RADIUS_MM * 3.0          # circle radius (3× default)
     # Tip distance chosen so the two tangent lines meet at ~80°:

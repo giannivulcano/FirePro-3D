@@ -20,6 +20,7 @@ from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker
                          QPolygonF, QTransform)
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import PATTERN_NAMES
+from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
 
@@ -177,20 +178,8 @@ class Geometry2DMixin:
 
 
 def _scene_hit_width(item) -> float:
-    """Viewport-scale-aware hit width — always ~10 screen pixels regardless of zoom.
-
-    Cosmetic pens have a fixed screen-pixel width but their shape() is in scene
-    units.  At high zoom the two coincide; at low zoom a 1px cosmetic pen maps to
-    a tiny fraction of a scene unit, making the item nearly impossible to click.
-    This helper returns a scene-unit width that is always ~10 screen pixels.
-    """
-    sc = item.scene()
-    if sc:
-        views = sc.views()
-        if views:
-            scale = views[0].transform().m11()
-            return max(2.0, 10.0 / max(scale, 1e-6))
-    return 6.0
+    """~10 screen px at the visible view's zoom (see view_scale)."""
+    return scene_hit_width(item, 10.0, 6.0)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -660,6 +660,8 @@ class DesignArea(QGraphicsPathItem):
     listing-violation messages in ``spacing_warnings``.
     """
 
+    HALO_AREA = True  # HALO: filled region — cursor inside = direct hit
+
     def __init__(self, sprinklers=None, parent=None):
         super().__init__(parent)
         self._sprinklers: list = list(sprinklers or [])

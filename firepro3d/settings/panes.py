@@ -8,6 +8,7 @@ Governing spec: ``docs/specs/settings-dialog.md``.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from PyQt6.QtCore import QSettings
@@ -22,6 +23,7 @@ from firepro3d.constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
+    HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX, GRIP_OBJECT_LIMIT,
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
@@ -30,6 +32,8 @@ from firepro3d.app_data import (
 )
 from firepro3d.ui_kit import ToggleSwitch
 from firepro3d.theme import M
+
+log = logging.getLogger(__name__)
 
 
 class SettingsPane(QWidget):
@@ -57,9 +61,6 @@ _SNAP_TYPES: list[tuple[str, str]] = [
 _QSETTINGS_ORG  = "GV"
 _QSETTINGS_APP  = "FirePro3D"
 
-# Default for halo aperture — matches HALO_APERTURE_PX in constants.py (6 px).
-_HALO_APERTURE_DEFAULT: int = 6
-
 _FACTORY_DEFAULTS: dict = {
     "tol_px":       15,
     "hysteresis_px": 3,
@@ -77,7 +78,9 @@ _FACTORY_DEFAULTS: dict = {
     "align_dir_perpendicular": ALIGN_DIR_PERPENDICULAR_DEFAULT,
     # ── HALO ──────────────────────────────────────────────────────────────────
     "halo_enabled":  True,
-    "halo_aperture": _HALO_APERTURE_DEFAULT,
+    "halo_aperture": HALO_APERTURE_PX,
+    "halo_band":     HALO_PRIORITY_BAND_PX,
+    "grip_obj_limit": GRIP_OBJECT_LIMIT,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
@@ -155,6 +158,15 @@ class UXPane(SettingsPane):
         self._grip_spin.setSingleStep(50)
         self._grip_spin.setSuffix(" px")
         tol_form.addRow("Grip handle radius:", self._grip_spin)
+
+        self._grip_limit_spin = QSpinBox()
+        self._grip_limit_spin.setRange(1, 100000)
+        self._grip_limit_spin.setSingleStep(50)
+        self._grip_limit_spin.setToolTip(
+            "Grip object limit: when more than this many items are selected, "
+            "only the selection frame is shown (no per-item grips) so large "
+            "selections stay responsive. Like AutoCAD's GRIPOBJLIMIT.")
+        tol_form.addRow("Grip object limit:", self._grip_limit_spin)
 
         self._angle_spin = QSpinBox()
         self._angle_spin.setRange(1, 90)
@@ -237,7 +249,20 @@ class UXPane(SettingsPane):
         self._halo_aperture.setRange(1, 100)
         self._halo_aperture.setSingleStep(1)
         self._halo_aperture.setSuffix(" px")
+        self._halo_aperture.setToolTip(
+            "Grab radius: how close (screen px) the cursor must be to an item's "
+            "drawn geometry for HALO to highlight it. Zoom-independent.")
         halo_form.addRow("Aperture:", self._halo_aperture)
+
+        self._halo_band = QSpinBox()
+        self._halo_band.setRange(0, 100)
+        self._halo_band.setSingleStep(1)
+        self._halo_band.setSuffix(" px")
+        self._halo_band.setToolTip(
+            "Priority band: items within this many screen px of the closest one "
+            "are ranked by draw order (nodes over pipes over walls); beyond it, "
+            "the closest item wins. Like SNAP's priority band.")
+        halo_form.addRow("Priority band:", self._halo_band)
 
         halo_layout.addWidget(halo_group)
         halo_layout.addStretch()
@@ -321,12 +346,17 @@ class UXPane(SettingsPane):
         module global.
         """
         from firepro3d import snap_engine
+        from firepro3d import halo_selection
+        from firepro3d import selection_manipulator
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         # Always from the module globals
         tol_px = snap_engine.SNAP_TOLERANCE_PX
         hyst_px = snap_engine.SNAP_HYSTERESIS_PX
+        halo_aperture = int(halo_selection.HALO_APERTURE_PX)
+        halo_band = int(halo_selection.HALO_PRIORITY_BAND_PX)
+        grip_obj_limit = int(selection_manipulator.GRIP_OBJECT_LIMIT)
 
         if self._scene is not None:
             eng = self._scene._snap_engine
@@ -351,8 +381,6 @@ class UXPane(SettingsPane):
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
             halo_on = bool(getattr(self._scene, "halo_enabled", True))
-            halo_aperture = int(getattr(self._scene, "_halo_aperture_px",
-                                        _HALO_APERTURE_DEFAULT))
         else:
             grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
             angle_deg = s.value("snap/angle_deg", 5, type=int)
@@ -374,8 +402,6 @@ class UXPane(SettingsPane):
                     val = val.lower() not in ("false", "0")
                 snap_flags[attr] = bool(val)
             halo_on = s.value("halo/enabled", True, type=bool)
-            halo_aperture = s.value("halo/aperture_px",
-                                    _HALO_APERTURE_DEFAULT, type=int)
 
         # Build snapshot before touching widgets
         self._snapshot = {
@@ -393,6 +419,8 @@ class UXPane(SettingsPane):
             "align_dir_perpendicular": align_perp,
             "halo_enabled":   halo_on,
             "halo_aperture":  halo_aperture,
+            "halo_band":      halo_band,
+            "grip_obj_limit": grip_obj_limit,
             **snap_flags,
         }
 
@@ -400,6 +428,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(tol_px)
         self._hyst_spin.setValue(hyst_px)
         self._grip_spin.setValue(grip_px)
+        self._grip_limit_spin.setValue(grip_obj_limit)
         self._angle_spin.setValue(int(angle_deg))
         self._align_cb.setChecked(align_on)
         self._align_tol_spin.setValue(int(align_tol))
@@ -413,6 +442,7 @@ class UXPane(SettingsPane):
             cb.setChecked(snap_flags[attr])
         self._halo_enable.setChecked(halo_on)
         self._halo_aperture.setValue(halo_aperture)
+        self._halo_band.setValue(halo_band)
 
     def apply(self) -> None:
         """Write widget values to snap_engine, live objects, and QSettings.
@@ -438,6 +468,19 @@ class UXPane(SettingsPane):
         s.setValue("snap/grip_tolerance_px", grip_px)
         if self._scene is not None:
             self._scene._grip_tolerance_px = grip_px
+
+        # ── Grip object limit (app-wide module global — selection-manipulator) ─
+        from firepro3d import selection_manipulator
+        selection_manipulator.GRIP_OBJECT_LIMIT = self._grip_limit_spin.value()
+        s.setValue("select/grip_object_limit", selection_manipulator.GRIP_OBJECT_LIMIT)
+        if self._scene is not None:
+            manip = getattr(self._scene, "_manipulator", None)
+            if manip is not None:
+                try:
+                    manip.rebake()
+                except Exception:
+                    log.exception("SelectionManipulator.rebake() failed while "
+                                  "applying grip_object_limit")
 
         # ── Per-type snap flags ───────────────────────────────────────────────
         if self._scene is not None:
@@ -487,16 +530,16 @@ class UXPane(SettingsPane):
                                          parallel=align_par,
                                          perpendicular=align_perp)
 
-        # ── HALO ─────────────────────────────────────────────────────────────
+        # ── HALO (app-wide module globals — selection-mode §4.5) ──────────────
+        from firepro3d import halo_selection
         halo_on = self._halo_enable.isChecked()
-        halo_aperture = self._halo_aperture.value()
+        halo_selection.HALO_APERTURE_PX = self._halo_aperture.value()
+        halo_selection.HALO_PRIORITY_BAND_PX = self._halo_band.value()
         s.setValue("halo/enabled", halo_on)
-        s.setValue("halo/aperture_px", halo_aperture)
-        if self._scene is not None:
-            if hasattr(self._scene, "halo_enabled"):
-                self._scene.halo_enabled = halo_on
-            if hasattr(self._scene, "_halo_aperture_px"):
-                self._scene._halo_aperture_px = halo_aperture
+        s.setValue("halo/pick_aperture_px", halo_selection.HALO_APERTURE_PX)
+        s.setValue("halo/priority_band_px", halo_selection.HALO_PRIORITY_BAND_PX)
+        if self._scene is not None and hasattr(self._scene, "halo_enabled"):
+            self._scene.halo_enabled = halo_on
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -510,6 +553,8 @@ class UXPane(SettingsPane):
         so it reflects the rolled-back state.
         """
         from firepro3d import snap_engine
+        from firepro3d import halo_selection
+        from firepro3d import selection_manipulator
 
         if not self._snapshot:
             return
@@ -520,11 +565,28 @@ class UXPane(SettingsPane):
         # ── Hysteresis (always) ───────────────────────────────────────────────
         snap_engine.SNAP_HYSTERESIS_PX = self._snapshot["hysteresis_px"]
 
+        # ── HALO aperture + priority band (always — module globals) ───────────
+        halo_selection.HALO_APERTURE_PX = self._snapshot["halo_aperture"]
+        halo_selection.HALO_PRIORITY_BAND_PX = self._snapshot["halo_band"]
+
+        # ── Grip object limit (always — module global) ────────────────────────
+        selection_manipulator.GRIP_OBJECT_LIMIT = self._snapshot["grip_obj_limit"]
+        if self._scene is not None:
+            manip = getattr(self._scene, "_manipulator", None)
+            if manip is not None:
+                try:
+                    manip.rebake()
+                except Exception:
+                    log.exception("SelectionManipulator.rebake() failed while "
+                                  "reverting grip_object_limit")
+
         # ── Live scene objects ─────────────────────────────────────────────────
         if self._scene is not None:
             self._scene._grip_tolerance_px = self._snapshot["grip_px"]
             self._scene._snap_angle_deg = self._snapshot["angle_deg"]
             self._scene.set_align_enabled(self._snapshot["align"])
+            if hasattr(self._scene, "halo_enabled"):
+                self._scene.halo_enabled = self._snapshot["halo_enabled"]
             self._scene._align_path_tol_px = float(
                 self._snapshot["align_path_tol_px"])
             ctrl = getattr(self._scene, "_align_controller", None)
@@ -548,6 +610,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(self._snapshot["tol_px"])
         self._hyst_spin.setValue(self._snapshot["hysteresis_px"])
         self._grip_spin.setValue(self._snapshot["grip_px"])
+        self._grip_limit_spin.setValue(self._snapshot["grip_obj_limit"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
         self._align_cb.setChecked(self._snapshot["align"])
         self._align_tol_spin.setValue(int(self._snapshot["align_path_tol_px"]))
@@ -562,6 +625,7 @@ class UXPane(SettingsPane):
             cb.setChecked(self._snapshot[attr])
         self._halo_enable.setChecked(self._snapshot["halo_enabled"])
         self._halo_aperture.setValue(self._snapshot["halo_aperture"])
+        self._halo_band.setValue(self._snapshot["halo_band"])
 
     def reset_to_defaults(self) -> None:
         """Set every SNAP-pane widget to factory defaults and apply live."""
@@ -569,6 +633,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(d["tol_px"])
         self._hyst_spin.setValue(d["hysteresis_px"])
         self._grip_spin.setValue(d["grip_px"])
+        self._grip_limit_spin.setValue(d["grip_obj_limit"])
         self._angle_spin.setValue(int(d["angle_deg"]))
         self._align_cb.setChecked(d["align"])
         self._align_tol_spin.setValue(int(d["align_path_tol_px"]))
@@ -582,6 +647,7 @@ class UXPane(SettingsPane):
             cb.setChecked(d[attr])
         self._halo_enable.setChecked(d["halo_enabled"])
         self._halo_aperture.setValue(d["halo_aperture"])
+        self._halo_band.setValue(d["halo_band"])
         self.apply()
 
 

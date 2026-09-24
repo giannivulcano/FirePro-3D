@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
 )
 
 from .constants import DEFAULT_LEVEL, MIN_FLOOR_THICKNESS_MM
+from .view_scale import scene_hit_width
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -65,13 +66,8 @@ def _resolve_boundary_z(mode, level, offset_mm, abs_z_mm, level_manager):
 
 
 def _scene_hit_width(item) -> float:
-    sc = item.scene()
-    if sc:
-        views = sc.views()
-        if views:
-            scale = views[0].transform().m11()
-            return max(4.0, 12.0 / max(scale, 1e-6))
-    return 6.0
+    """~12 screen px at the visible view's zoom (see view_scale)."""
+    return scene_hit_width(item, 12.0, 6.0)
 
 
 # ── FloorSlab ────────────────────────────────────────────────────────────────
@@ -85,6 +81,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     2D rendering: semi-transparent filled polygon with outline.
     3D mesh: flat polygon extruded downward by ``thickness_mm``.
     """
+
+    HALO_AREA = True  # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#8888cc"):

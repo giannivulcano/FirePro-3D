@@ -102,6 +102,8 @@ class _ElevReadOnlyProxyMixin:
 class _ElevProxyRect(_ElevReadOnlyProxyMixin, QGraphicsRectItem):
     """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
 
+    HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
+
 
 class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
     """Read-only line proxy (pipes)."""
@@ -109,6 +111,8 @@ class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
 
 class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
     """Read-only ellipse proxy (sprinklers)."""
+
+    HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +125,8 @@ class _ElevBubble(QGraphicsEllipseItem):
     Clicking selects the parent composite item.  Visual appearance mirrors
     the plan-view GridBubble.
     """
+
+    HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
 
     def __init__(self, radius: float, label: str, color: QColor,
                  fill: QColor, parent: QGraphicsItem | None = None):
@@ -577,11 +583,14 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
     # ── HALO hooks ─────────────────────────────────────────────────────────
 
     def _halo_resolve(self, item):
-        """Resolve a hit child to its selectable parent: a bubble/label decoration
-        resolves to its parent gridline/datum; everything else is identity."""
-        parent = item.parentItem()
-        if isinstance(parent, (ElevGridlineItem, ElevDatumItem)):
-            return parent
+        """Resolve a hit decoration to its selectable owner: walk the FULL parent
+        chain so a bubble's label text (a grandchild) resolves to the gridline/
+        datum too; everything else is identity."""
+        p = item.parentItem()
+        while p is not None:
+            if isinstance(p, (ElevGridlineItem, ElevDatumItem)):
+                return p
+            p = p.parentItem()
         return item
 
     def _emit_halo_readout(self):

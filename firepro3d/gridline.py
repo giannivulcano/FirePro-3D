@@ -165,6 +165,7 @@ class GridBubble(QGraphicsEllipseItem):
     """Fixed-size circle with a centred label (constant screen pixels)."""
 
     RADIUS_PX = 14.0  # screen pixels — constant regardless of zoom
+    HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
 
     def __init__(self, label: str, parent: QGraphicsItem | None = None):
         r = self.RADIUS_PX

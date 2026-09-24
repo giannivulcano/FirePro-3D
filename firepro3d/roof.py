@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
 )
 
 from .constants import DEFAULT_LEVEL, Z_ROOF
+from .view_scale import scene_hit_width
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -93,13 +94,8 @@ from .geometry_intersect import line_line_intersection_unbounded as _line_inters
 
 
 def _scene_hit_width(item) -> float:
-    sc = item.scene()
-    if sc:
-        views = sc.views()
-        if views:
-            scale = views[0].transform().m11()
-            return max(4.0, 12.0 / max(scale, 1e-6))
-    return 6.0
+    """~12 screen px at the visible view's zoom (see view_scale)."""
+    return scene_hit_width(item, 12.0, 6.0)
 
 
 # ── RoofItem ─────────────────────────────────────────────────────────────────
@@ -113,6 +109,8 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     2D rendering: semi-transparent filled polygon with ridge lines.
     3D mesh: pitched or flat polygon at eave height.
     """
+
+    HALO_AREA = True  # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#D2B48C"):

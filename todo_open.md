@@ -50,8 +50,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ### Post-MVP order
 
-- [ ] [type:feature] #1 post-MVP: selection-mode hub (hover pre-highlight + crossing rubber-band + Tab disambiguation + label-only click) [P2] [subject:Architecture]
-  - Details: spec done (`docs/specs/selection-mode.md`). ref: selection-mode-spec.
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
@@ -480,16 +478,18 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: split out of U5 Leg B (2026-09-14). Elevation has no undo stack — gridline/datum annotation-extent grip edits commit directly (parity, no undo). Add an undo path (own stack or a bridge to the model stack) so elevation extent edits are undoable; also make the datum's horizontal extent persist (gridline extent already persists via `_gridline_z_overrides`/`to_dict`; datum is session-only). `elevation_scene.py`, `elevation_manager.py`.
 - [ ] [type:feature] manip_handles for 2D-geometry-in-elevation (rides Leg B frame) [P3] [subject:Architecture]
   - Details: split out of U5 Leg B. When 2D geometry can be placed/anchored in elevation (see "Vertical / elevation plane anchoring for 2D geometry" + "Project flat 2D geometry into elevation scenes"), give those items `manip_handles()` so they ride the elevation `SelectionManipulator` frame Leg B built. `geometry_2d.py`, `elevation_scene.py`.
-- [ ] [type:bug] Elevation HALO hover misses the label text inside a gridline/datum bubble [P3] [subject:UX]
-  - Details: cosmetic, from U5 Leg B seam review (2026-09-14). Elevation `_halo_resolve` walks ONE parent level (bubble/label child → parent gridline/datum), so hovering the tiny `QGraphicsSimpleTextItem` INSIDE an `_ElevBubble` (a grandchild of the gridline) doesn't light the HALO hover outline. Selection still works (bubbles are small; `_ElevBubble.mousePressEvent` selects the parent). Make `_halo_resolve` walk the full parent chain if it bothers. `elevation_scene.py`.
 - [ ] [type:feature] U5 Leg C — 3D-scene selection + handle providers [P2] [subject:Architecture]
   - Details: pick-ray/actor selection + handle providers for the 3D view. `view_3d.py` is a SPEC-INDEX **orphan** — forge a 3D-view selection governing spec first (orphan gate). Depends on plan-view selection-mode (Leg A, done). `view_3d.py`. ref: selection-manipulator §Unification U5, "Spec session: 3D view selection mode".
 - [ ] [type:bug] Ctrl+click over the manipulator frame is swallowed (no additive toggle there) [P2] [subject:UX]
   - Details: PRE-EXISTING, surfaced by the U5 Leg A seam review. The manipulator interior-press guard (`model_space.py` ~4267) routes any press over the frame to the manipulator BEFORE `_press_select_item`, excluding only Shift — so a Ctrl+click additive/toggle landing on the frame never reaches selection once something is selected. Can't simply add Ctrl to the exclusion (a Ctrl+press on a resize handle starts Ctrl-from-centre scale). Needs a design pass distinguishing Ctrl+click-additive (frame interior) from Ctrl+press-on-handle-scale. `model_space.py`, `selection_manipulator.py`.
 - [ ] [type:feature] HALO "pick from list" for dense stacks [P3] [subject:UX]
   - Details: deferred from U5 Leg A (part of the user's HALO design). When Spacebar-cycling through many overlapping candidates gets tedious, offer a pick-from-list dropdown at the cursor. `model_space.py`, `model_view.py`. ref: selection-mode §4 (HALO).
-- [ ] [type:maint] Dedicated rubber-band / HALO band colour tokens [P3] [subject:UX]
-  - Details: U5 Leg A's scene-drawn band reuses `selection` (window) + `ok` (crossing) theme tokens; in the dark theme both are green-ish, so the window-vs-crossing colour contrast is weak (solid-vs-dashed style still distinguishes them). Add dedicated `band_window`/`band_crossing` tokens if a distinct blue is wanted. `theme.py`, `model_view.py`.
+- [ ] [type:maint] HALO hover on huge drawings: spatial index for the model scene [P2] [subject:Performance]
+  - Details: 2026-09-24 bench (Block Editor, Sample.pdf): the HALO `scene.items(box)` pre-filter is ~50 ms/move @ 20k primitives (~200 ms+ @ 85k) because Model_Space is `NoIndex`; identical on main, px ranking adds only 3–7 ms. NoIndex was chosen deliberately — needs its own perf spike (BspTreeIndex vs a HALO-side cache) on real data. `model_space.py`, `halo_selection.py`.
+- [ ] [type:bug] Remaining `views()[0]` zoom reads (render + tool tolerances) [P2] [subject:UX]
+  - Details: found 2026-09-24 while fixing hit widths. In the app `views()[0]` is the vestigial never-shown view frozen at m11 = 1.0 (snapping-engine.md §14.4), so these are world-unit, not screen-constant: `displayable_item.py` + `hatch_patterns.py` hatch tile size, `wall.py` hatch spacing, `pipe.py` endpoint dots, `scene_tools.py` pick tolerances (3 sites). Route through `view_scale.scene_view_scale` (render sites may prefer `painter.deviceTransform()`).
+- [ ] [type:maint] Large-selection select_items cost (~8–10 s @ 85k primitives) [P3] [subject:Performance]
+  - Details: 2026-09-24 bench: Ctrl+A / whole-drawing band = one `selectionChanged` now, but the per-item `setSelected` loop + manipulator rebake over 85k items still costs ~8–10 s headless. Profile the listeners (manipulator `_top_level_only`/bounds union, property panel) before optimising. `halo_selection.py`, `selection_manipulator.py`.
 - [ ] [type:maint] Level-chip tint parity (holistic-review note) [P3] [subject:UX]
   - Details: delegate level chips derive `chip`→`raised (#24282D)` / `chip_ink`→`muted (#98A1AA)`, slightly darker/dimmer than the old bespoke `#2C3137`/`#B7BFC7`. Legible, accepted at smoke; promote `chip`/`chip_ink` to their own primitives if exact parity is wanted. `theme.py`, `underlay_manager_delegates.py`.
 - [ ] [type:feature] Latched `detect()` in construction-time consumers [P3] [subject:UX]
