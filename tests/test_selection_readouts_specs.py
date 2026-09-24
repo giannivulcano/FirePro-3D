@@ -2,7 +2,7 @@
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QRectF
 
 from firepro3d.geometry_2d import LineItem, ReferenceLineItem
 from firepro3d.selection_readouts import DimSpec, readout_text
@@ -228,3 +228,227 @@ def test_set_vertex_angle_keeps_side(qapp):
     assert _by_key(p)["ang:1"].value == pytest.approx(45.0)
     assert p._points[0] == QPointF(0, 0) and p._points[1] == QPointF(100, 0)
     assert p._points[2].y() < 0                           # still the upper side
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Fix round: non-finite input hardening, polyline index robustness, floor
+# consistency, arc_math reuse, degenerate-spec skipping, undo bookkeeping.
+# ─────────────────────────────────────────────────────────────────────────
+
+from firepro3d.model_space import Model_Space
+
+
+def _rect2():
+    return RectangleItem(QPointF(0, 0), QPointF(200, 100))
+
+
+def _circle2():
+    return CircleItem(QPointF(0, 0), 100.0)
+
+
+def _arc2():
+    return ArcItem(QPointF(0, 0), 100.0, 30.0, 120.0)
+
+
+def _ellipse2():
+    return EllipseItem(QPointF(0, 0), 300.0, 100.0, 0.0)
+
+
+def _polygon2():
+    return RegularPolygonItem(QPointF(0, 0), 6, 100.0, 0.0, True)
+
+
+def _polyline2():
+    return _poly([(0, 0), (100, 0), (100, -100)])
+
+
+_NAN_INF_CASES = [
+    ("line_length", lambda: LineItem(QPointF(0, 0), QPointF(100, 0)),
+     lambda it: it.set_length,
+     lambda it: (QPointF(it.line().p1()), QPointF(it.line().p2()))),
+    ("rect_width", _rect2, lambda it: it.set_width, lambda it: QRectF(it.rect())),
+    ("rect_height", _rect2, lambda it: it.set_height, lambda it: QRectF(it.rect())),
+    ("circle_radius", _circle2, lambda it: it.set_radius,
+     lambda it: (QPointF(it._center), it._radius)),
+    ("arc_radius", _arc2, lambda it: it.set_radius,
+     lambda it: (QPointF(it._center), it._radius, it._start_deg, it._span_deg)),
+    ("arc_span", _arc2, lambda it: it.set_span,
+     lambda it: (QPointF(it._center), it._radius, it._start_deg, it._span_deg)),
+    ("ellipse_rx", _ellipse2, lambda it: it.set_rx, lambda it: (it._rx, it._ry)),
+    ("ellipse_ry", _ellipse2, lambda it: it.set_ry, lambda it: (it._rx, it._ry)),
+    ("polygon_radius", _polygon2, lambda it: it.set_radius, lambda it: it._radius_mm),
+    ("polyline_seg_length", _polyline2,
+     lambda it: (lambda v: it.set_segment_length(0, v)),
+     lambda it: [QPointF(p) for p in it._points]),
+    ("polyline_vertex_angle", _polyline2,
+     lambda it: (lambda v: it.set_vertex_angle(1, v)),
+     lambda it: [QPointF(p) for p in it._points]),
+]
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize("name,make,get_setter,snapshot", _NAN_INF_CASES,
+                         ids=[c[0] for c in _NAN_INF_CASES])
+def test_setters_reject_non_finite(qapp, name, make, get_setter, snapshot, bad):
+    it = make()
+    before = snapshot(it)
+    get_setter(it)(bad)          # must not raise and must not mutate geometry
+    after = snapshot(it)
+    assert before == after
+
+
+def test_polyline_set_segment_length_out_of_range_noop(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)])
+    before = [QPointF(pt) for pt in p._points]
+    p.set_segment_length(5, 40.0)     # out of range
+    p.set_segment_length(-1, 40.0)    # negative
+    assert p._points == before
+
+
+def test_polyline_set_vertex_angle_out_of_range_noop(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)])
+    before = [QPointF(pt) for pt in p._points]
+    p.set_vertex_angle(5, 45.0)
+    p.set_vertex_angle(-1, 45.0)
+    assert p._points == before
+
+
+def test_polyline_single_vertex_setters_noop(qapp):
+    p = PolylineItem(QPointF(0, 0))       # n == 1
+    before = [QPointF(pt) for pt in p._points]
+    p.set_segment_length(0, 40.0)
+    p.set_vertex_angle(0, 45.0)
+    assert p._points == before
+    assert p.dimension_specs() == []
+
+
+def test_polyline_zero_points_setters_noop(qapp):
+    p = PolylineItem(QPointF(0, 0))
+    p._points = []                        # degenerate — robustness only
+    p.set_segment_length(0, 40.0)
+    p.set_vertex_angle(0, 45.0)
+    assert p._points == []
+    assert p.dimension_specs() == []
+
+
+def test_polyline_open_endpoint_angle_noop(qapp):
+    # Open polyline: the two endpoint vertices (0 and n-1) are never valid
+    # angle indices.
+    p = _poly([(0, 0), (100, 0), (100, -100)])
+    before = [QPointF(pt) for pt in p._points]
+    p.set_vertex_angle(0, 45.0)
+    p.set_vertex_angle(2, 45.0)           # n - 1
+    assert p._points == before
+
+
+def test_circle_radius_minimum_just_below_floor(qapp):
+    c = CircleItem(QPointF(0, 0), 100.0)
+    s = _by_key(c)["radius"]
+    assert s.minimum == pytest.approx(1.0 - 1e-9)
+
+
+def test_arc_radius_minimum_just_below_floor(qapp):
+    a = ArcItem(QPointF(0, 0), 100.0, 0.0, 90.0)
+    s = _by_key(a)["radius"]
+    assert s.minimum == pytest.approx(0.01 - 1e-12)
+
+
+def test_ellipse_r1_r2_minimum_just_below_floor(qapp):
+    from firepro3d.geometry_2d import _AXIS_MIN
+    e = EllipseItem(QPointF(0, 0), 300.0, 100.0, 0.0)
+    d = _by_key(e)
+    assert d["r1"].minimum == pytest.approx(_AXIS_MIN - 1e-9)
+    assert d["r2"].minimum == pytest.approx(_AXIS_MIN - 1e-9)
+
+
+@pytest.mark.parametrize("inscribed", [True, False])
+def test_polygon_radial_at_rotation_matches_vertex_or_edge_mid(qapp, inscribed):
+    p = RegularPolygonItem(QPointF(0, 0), 6, 100.0, 30.0, inscribed)
+    s = _by_key(p)["radius"]
+    verts = p.vertices()
+    if inscribed:
+        assert any(math.hypot(v.x() - s.b.x(), v.y() - s.b.y()) < 1e-6
+                   for v in verts)
+    else:
+        n = len(verts)
+        mids = [QPointF((verts[k].x() + verts[(k + 1) % n].x()) / 2,
+                        (verts[k].y() + verts[(k + 1) % n].y()) / 2)
+               for k in range(n)]
+        assert any(math.hypot(m.x() - s.b.x(), m.y() - s.b.y()) < 1e-6
+                   for m in mids)
+
+
+def test_ellipse_radials_at_rotation(qapp):
+    e = EllipseItem(QPointF(0, 0), 300.0, 100.0, 40.0)
+    d = _by_key(e)
+    assert (d["r1"].b.x(), d["r1"].b.y()) == pytest.approx(
+        (300 * math.cos(math.radians(40)), -300 * math.sin(math.radians(40))))
+    assert (d["r2"].b.x(), d["r2"].b.y()) == pytest.approx(
+        (100 * math.cos(math.radians(130)), -100 * math.sin(math.radians(130))))
+    d["r1"].apply(500.0)
+    assert e._rx == pytest.approx(500.0) and e._ry == pytest.approx(100.0)
+
+
+def test_set_vertex_angle_keeps_side_cw_turn(qapp):
+    p = _poly([(0, 0), (100, 0), (100, 100)])
+    _by_key(p)["ang:1"].apply(30.0)
+    assert _by_key(p)["ang:1"].value == pytest.approx(30.0)
+    assert p._points[0] == QPointF(0, 0) and p._points[1] == QPointF(100, 0)
+    assert p._points[2].y() > 0                           # still the lower side
+
+
+def test_closed_polyline_set_angle_last_vertex_rotates_vertex0_only(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100), (0, -100)], closed=True)
+    n = len(p._points)
+    before = [QPointF(pt) for pt in p._points]
+    _by_key(p)[f"ang:{n - 1}"].apply(60.0)
+    for idx in range(1, n - 1):
+        assert p._points[idx] == before[idx]
+    assert p._points[n - 1] == before[n - 1]
+    assert p._points[0] != before[0]
+
+
+def test_closed_polyline_zero_length_closing_segment_skipped(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100), (0, 0)], closed=True)
+    d = _by_key(p)
+    n = len(p._points)
+    assert f"seg:{n - 1}" not in d
+
+
+def test_arc_set_span_clamps_ends(qapp):
+    a = ArcItem(QPointF(0, 0), 100.0, 0.0, 90.0)
+    for v in (-10.0, 0.0, 400.0, 360.0):
+        a.set_span(v)
+        assert 0.0 < a._span_deg < 360.0
+
+
+@pytest.mark.parametrize("make,key,val,check", [
+    (_ellipse2, "R1", 500.0, lambda it: it._rx),
+    (_ellipse2, "R2", 500.0, lambda it: it._ry),
+    (_polygon2, "Radius", 50.0, lambda it: it._radius_mm),
+])
+def test_set_property_pushes_one_undo_step(qapp, make, key, val, check):
+    s = Model_Space(scene_role="block_editor")
+    it = make()
+    s.addItem(it)
+    s.push_undo_state()                       # baseline
+    pos0 = s._undo_pos
+    it.set_property(key, val)
+    assert check(it) == pytest.approx(val)
+    assert s._undo_pos == pos0 + 1
+
+
+@pytest.mark.parametrize("make,setter,val,check", [
+    (_ellipse2, "set_rx", 500.0, lambda it: it._rx),
+    (_ellipse2, "set_ry", 500.0, lambda it: it._ry),
+    (_polygon2, "set_radius", 50.0, lambda it: it._radius_mm),
+])
+def test_pure_setters_push_no_undo(qapp, make, setter, val, check):
+    s = Model_Space(scene_role="block_editor")
+    it = make()
+    s.addItem(it)
+    s.push_undo_state()
+    pos0 = s._undo_pos
+    getattr(it, setter)(val)
+    assert check(it) == pytest.approx(val)
+    assert s._undo_pos == pos0

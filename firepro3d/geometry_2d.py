@@ -24,6 +24,10 @@ from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
 
+# Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
+# that needs to reject a vanishingly short segment (2d-geometry.md §8).
+_EPS_LEN = 1e-9
+
 
 def _manip_wraps(item) -> bool:
     """True when the scene's selection manipulator currently boxes *item*.
@@ -295,12 +299,6 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
 
-    _EPS_LEN = 1e-9
-
-    @staticmethod
-    def _yup_deg(frm: QPointF, to: QPointF) -> float:
-        return math.degrees(math.atan2(-(to.y() - frm.y()), to.x() - frm.x()))
-
     def _seg_indices(self) -> list[int]:
         n = len(self._points)
         return list(range(n)) if self.is_closed() else list(range(max(n - 1, 0)))
@@ -312,22 +310,32 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def _vertex_sweep(self, i: int):
         """(start_deg, span_deg, ccw) of the <=180° angle at vertex *i*;
         ccw=True when the next leg is CCW of the previous one."""
+        from .arc_math import yup_angle
         n = len(self._points)
         v = self._points[i]
-        a_prev = self._yup_deg(v, self._points[(i - 1) % n])
-        a_next = self._yup_deg(v, self._points[(i + 1) % n])
+        a_prev = yup_angle(v, self._points[(i - 1) % n])
+        a_next = yup_angle(v, self._points[(i + 1) % n])
         inc = (a_next - a_prev) % 360.0
         if inc <= 180.0:
             return a_prev, inc, True
         return a_next, 360.0 - inc, False
 
     def set_segment_length(self, i: int, length_mm: float) -> None:
-        """Set segment *i*'s length, moving only its end vertex (wraps)."""
+        """Set segment *i*'s length, moving only its end vertex (wraps).
+
+        No-op for a non-finite/non-positive length, a degenerate segment, or
+        an *i* outside the current segment set (index robustness — this is
+        called from paint-adjacent HUD/readout code, so it must never raise).
+        """
+        if not math.isfinite(length_mm) or length_mm <= 0:
+            return
         n = len(self._points)
+        if not (0 <= i < n) or i not in self._seg_indices():
+            return
         j = (i + 1) % n
         a, b = self._points[i], self._points[j]
         cur = math.hypot(b.x() - a.x(), b.y() - a.y())
-        if length_mm <= 0 or cur < self._EPS_LEN:
+        if cur < _EPS_LEN:
             return
         k = length_mm / cur
         self._points[j] = QPointF(a.x() + (b.x() - a.x()) * k,
@@ -336,13 +344,25 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def set_vertex_angle(self, i: int, theta_deg: float) -> None:
         """Set the <=180° angle at vertex *i* by rotating vertex (i+1)%n about
-        it (same side kept). Clamped to (0, 180]."""
+        it (same side kept). Clamped to (0, 180].
+
+        No-op for a non-finite angle, too few vertices, an *i* outside
+        [0, n), or (open polyline) an *i* that is not an interior vertex —
+        index robustness (see :meth:`set_segment_length`).
+        """
+        if not math.isfinite(theta_deg):
+            return
         n = len(self._points)
+        if n < 3 or not (0 <= i < n):
+            return
+        if not self.is_closed() and not (0 < i < n - 1):
+            return
         theta = min(max(float(theta_deg), 1e-6), 180.0)
         v = self._points[i]
         j = (i + 1) % n
-        a_prev = self._yup_deg(v, self._points[(i - 1) % n])
-        a_next = self._yup_deg(v, self._points[j])
+        from .arc_math import yup_angle
+        a_prev = yup_angle(v, self._points[(i - 1) % n])
+        a_next = yup_angle(v, self._points[j])
         _, _, ccw = self._vertex_sweep(i)
         target = a_prev + theta if ccw else a_prev - theta
         d = math.radians(target - a_next)
@@ -360,13 +380,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         specs = []
         zero = set()
         for i in self._seg_indices():
-            if self._seg_len(i) < self._EPS_LEN:
+            seg_len = self._seg_len(i)
+            if not math.isfinite(seg_len) or seg_len < _EPS_LEN:
                 zero.update({i, (i + 1) % n})
                 continue
             j = (i + 1) % n
             specs.append(DimSpec(
                 kind="linear", key=f"seg:{i}", field=f"Seg {i + 1}", prefix="",
-                value=self._seg_len(i), field_kind="dimension",
+                value=seg_len, field_kind="dimension",
                 apply=lambda v, i=i: self.set_segment_length(i, v),
                 a=QPointF(self._points[i]), b=QPointF(self._points[j])))
         verts = range(n) if self.is_closed() else range(1, n - 1)
@@ -374,6 +395,10 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if i in zero:
                 continue
             start, span, _ = self._vertex_sweep(i)
+            # Doubled-back vertex (the outgoing leg folds back onto the
+            # incoming one): a degenerate ~0° angle, skip it.
+            if not math.isfinite(span) or span < 1e-6:
+                continue
             leg = min(self._seg_len((i - 1) % n), self._seg_len(i))
             specs.append(DimSpec(
                 kind="angular", key=f"ang:{i}", field=f"Angle {i + 1}", prefix="",
@@ -616,10 +641,12 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     def set_length(self, length_mm: float) -> None:
         """Set the length, keeping ``pt1`` and the direction. No-op if <= 0
         or the line is degenerate."""
+        if not math.isfinite(length_mm):
+            return
         dx = self._pt2.x() - self._pt1.x()
         dy = self._pt2.y() - self._pt1.y()
         cur = math.hypot(dx, dy)
-        if length_mm <= 0 or cur < 1e-9:
+        if length_mm <= 0 or cur < _EPS_LEN:
             return
         k = length_mm / cur
         self._pt2 = QPointF(self._pt1.x() + dx * k, self._pt1.y() + dy * k)
@@ -629,7 +656,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         from .selection_readouts import DimSpec
         length = math.hypot(self._pt2.x() - self._pt1.x(),
                             self._pt2.y() - self._pt1.y())
-        if length < 1e-9:
+        if not math.isfinite(length) or length < _EPS_LEN:
             return []
         return [DimSpec(kind="linear", key="length", field="Length", prefix="",
                         value=length, field_kind="dimension",
@@ -1036,6 +1063,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     def set_width(self, width_mm: float) -> None:
         """Set the local-x extent, keeping the left edge. No-op if <= 0."""
+        if not math.isfinite(width_mm):
+            return
         if width_mm <= 0:
             return
         r = self.rect()
@@ -1045,6 +1074,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     def set_height(self, height_mm: float) -> None:
         """Set the local-y extent, keeping the bottom edge. No-op if <= 0."""
+        if not math.isfinite(height_mm):
+            return
         if height_mm <= 0:
             return
         r = self.rect()
@@ -1056,18 +1087,24 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     def dimension_specs(self) -> list:
         from .selection_readouts import DimSpec
         r = self.rect()
-        bl = self.mapToScene(QPointF(r.left(), r.bottom()))
-        br = self.mapToScene(QPointF(r.right(), r.bottom()))
-        tr = self.mapToScene(QPointF(r.right(), r.top()))
-        c = self.mapToScene(r.center())
-        return [
-            DimSpec(kind="linear", key="width", field="Width", prefix="",
-                    value=r.width(), field_kind="dimension",
-                    apply=self.set_width, a=bl, b=br, away=c),
-            DimSpec(kind="linear", key="height", field="Height", prefix="",
-                    value=r.height(), field_kind="dimension",
-                    apply=self.set_height, a=br, b=tr, away=c),
-        ]
+        specs = []
+        if math.isfinite(r.width()) and r.width() >= _EPS_LEN:
+            bl = self.mapToScene(QPointF(r.left(), r.bottom()))
+            br = self.mapToScene(QPointF(r.right(), r.bottom()))
+            c = self.mapToScene(r.center())
+            specs.append(DimSpec(
+                kind="linear", key="width", field="Width", prefix="",
+                value=r.width(), field_kind="dimension",
+                apply=self.set_width, a=bl, b=br, away=c))
+        if math.isfinite(r.height()) and r.height() >= _EPS_LEN:
+            br = self.mapToScene(QPointF(r.right(), r.bottom()))
+            tr = self.mapToScene(QPointF(r.right(), r.top()))
+            c = self.mapToScene(r.center())
+            specs.append(DimSpec(
+                kind="linear", key="height", field="Height", prefix="",
+                value=r.height(), field_kind="dimension",
+                apply=self.set_height, a=br, b=tr, away=c))
+        return specs
 
     def translate(self, dx: float, dy: float):
         self.prepareGeometryChange()
@@ -1314,6 +1351,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
 
     def set_radius(self, radius_mm: float) -> None:
         """Set the radius, keeping the centre (floor 1 mm, as apply_grip)."""
+        if not math.isfinite(radius_mm):
+            return
         self._radius = max(1.0, float(radius_mm))
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
@@ -1321,8 +1360,13 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     def dimension_specs(self) -> list:
         from .selection_readouts import DimSpec
         c, r = QPointF(self._center), self._radius
+        if not math.isfinite(r):
+            return []
+        # Just below the 1 mm floor, so the floor value itself is still
+        # accepted (``minimum`` is a strict "greater than").
         return [DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
                         value=r, field_kind="dimension", apply=self.set_radius,
+                        minimum=1.0 - 1e-9,
                         a=c, b=QPointF(c.x() + r, c.y()),
                         away=QPointF(c.x(), c.y() + r))]   # label above the radial
 
@@ -1586,25 +1630,27 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
 
-    def _point_at(self, deg: float) -> QPointF:
-        a = math.radians(deg)
-        return QPointF(self._center.x() + self._radius * math.cos(a),
-                       self._center.y() - self._radius * math.sin(a))
-
     def set_span(self, span_deg: float) -> None:
         """Set the included angle, keeping centre / radius / start (end moves
         CCW). Clamped to (0, 360)."""
+        if not math.isfinite(span_deg):
+            return
         self._span_deg = min(max(float(span_deg), 1e-6), 360.0 - 1e-6)
         self._rebuild_path()
 
     def set_radius(self, radius_mm: float) -> None:
         """Set the radius, keeping centre and both angles (floor 0.01 mm)."""
+        if not math.isfinite(radius_mm):
+            return
         self._radius = max(float(radius_mm), 0.01)
         self._rebuild_path()
 
     def dimension_specs(self) -> list:
+        from .arc_math import point_at
         from .selection_readouts import DimSpec
         c = QPointF(self._center)
+        if not (math.isfinite(self._span_deg) and math.isfinite(self._radius)):
+            return []
         return [
             DimSpec(kind="angular", key="angle", field="Angle", prefix="",
                     value=self._span_deg, field_kind="span",
@@ -1613,9 +1659,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                     start_deg=self._start_deg, span_deg=self._span_deg),
             DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
                     value=self._radius, field_kind="dimension",
-                    apply=self.set_radius, minimum=0.0,
-                    a=c, b=self._point_at(self._start_deg),
-                    away=self._point_at(self._start_deg + self._span_deg)),
+                    apply=self.set_radius,
+                    # Just below the 0.01 mm floor, so the floor value itself
+                    # is still accepted (``minimum`` is a strict "greater than").
+                    minimum=0.01 - 1e-12,
+                    a=c, b=point_at(c, self._radius, self._start_deg),
+                    away=point_at(c, self._radius,
+                                  self._start_deg + self._span_deg)),
         ]
 
     def manip_handles(self):
@@ -1881,19 +1931,21 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
     def set_radius(self, mm: float) -> None:
         """Set the stored defining radius (circumradius if inscribed, apothem if
         circumscribed); keeps centre / sides / rotation. No-op if <= 0."""
+        if not math.isfinite(mm):
+            return
         if mm <= 0:
             return
         self._radius_mm = float(mm)
         self._regenerate()
 
     def dimension_specs(self) -> list:
+        from .arc_math import point_at
         from .selection_readouts import DimSpec
-        a = math.radians(self._rotation_deg)
+        if not math.isfinite(self._radius_mm):
+            return []
         c = QPointF(self._center)
-        b = QPointF(c.x() + self._radius_mm * math.cos(a),
-                    c.y() - self._radius_mm * math.sin(a))
-        away = QPointF(c.x() - self._radius_mm * math.sin(a),
-                       c.y() - self._radius_mm * math.cos(a))   # +90° side
+        b = point_at(c, self._radius_mm, self._rotation_deg)
+        away = point_at(c, self._radius_mm, self._rotation_deg + 90.0)
         return [DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
                         value=self._radius_mm, field_kind="dimension",
                         apply=self.set_radius, a=c, b=b, away=away)]
@@ -2081,24 +2133,35 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def set_rx(self, mm: float) -> None:
         """R1 (rx semi-axis); keeps centre + rotation. Floor _AXIS_MIN."""
+        if not math.isfinite(mm):
+            return
         self._rx = max(float(mm), _AXIS_MIN)
         self._regenerate()
 
     def set_ry(self, mm: float) -> None:
         """R2 (ry semi-axis); keeps centre + rotation. Floor _AXIS_MIN."""
+        if not math.isfinite(mm):
+            return
         self._ry = max(float(mm), _AXIS_MIN)
         self._regenerate()
 
     def dimension_specs(self) -> list:
         from .selection_readouts import DimSpec
+        if not (math.isfinite(self._rx) and math.isfinite(self._ry)):
+            return []
         c = QPointF(self._center)
+        # Just below _AXIS_MIN, so the floor value itself is still accepted
+        # (``minimum`` is a strict "greater than").
+        floor = _AXIS_MIN - 1e-9
         return [
             DimSpec(kind="linear", key="r1", field="R1", prefix="R1",
                     value=self._rx, field_kind="dimension", apply=self.set_rx,
+                    minimum=floor,
                     a=c, b=self._axis_endpoint(self._rx, 0.0),
                     away=self._axis_endpoint(self._ry, 90.0)),
             DimSpec(kind="linear", key="r2", field="R2", prefix="R2",
                     value=self._ry, field_kind="dimension", apply=self.set_ry,
+                    minimum=floor,
                     a=c, b=self._axis_endpoint(self._ry, 90.0),
                     away=self._axis_endpoint(self._rx, 0.0)),
         ]

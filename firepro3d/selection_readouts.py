@@ -2,8 +2,9 @@
 
 A readout is a transient, painted record — never a QGraphicsItem and never a
 child of its primitive. Primitives describe their dimensions via
-``dimension_specs() -> list[DimSpec]``; ``SelectionReadoutController`` (below)
-turns the live selection into painted, pickable, editable labels.
+``dimension_specs() -> list[DimSpec]``; ``SelectionReadoutController`` (added
+in Task 10) will turn the live selection into painted, pickable, editable
+labels.
 """
 from __future__ import annotations
 
