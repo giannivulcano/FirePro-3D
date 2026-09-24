@@ -32,7 +32,7 @@ from .display_manager import apply_category_defaults
 from .wall import WallSegment, compute_wall_quad
 from .geometry_2d import (rect_side_ghost, rect_signed_depth,
                           rect_from_side_and_depth, apply_rect_ghost,
-                          rotated_rect_corners)
+                          rotated_rect_corners, _rect_solve)
 
 
 class WallPlacementController:
@@ -379,11 +379,18 @@ class WallPlacementController:
                 a, b = rect_side_ghost(base, snapped, s._wall_rect_from_center)
                 s._wall_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
         else:
-            sol = apply_rect_ghost(s._wall_rect_preview, base, side, snapped,
-                                   s._wall_rect_from_center)
-            if sol is not None:
+            apply_rect_ghost(s._wall_rect_preview, base, side, snapped,
+                             s._wall_rect_from_center)
+            # The overlay tracks the same floorless shape as the ghost, so a
+            # sub-0.5 mm depth collapses it onto the side (not a stale depth).
+            ghost = _rect_solve(base, side,
+                                rect_signed_depth(base, side, snapped),
+                                s._wall_rect_from_center, 0.0)
+            if ghost is not None:
                 self._update_wall_rect_thickness_preview(
-                    rotated_rect_corners(*sol))
+                    rotated_rect_corners(*ghost))
+            elif s._wall_rect_thickness_preview is not None:
+                s._wall_rect_thickness_preview.hide()
         s.publish_placement_state(base, snapped)
 
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):

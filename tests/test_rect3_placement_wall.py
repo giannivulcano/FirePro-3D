@@ -156,3 +156,17 @@ def test_wall_rect_centre_side_prompt(centre_scene):
     assert got[-1] == "Pick edge midpoint (width + angle)"
     _press(centre_scene, 2000, 0)
     assert got[-1] == "Pick depth (second side)"
+
+
+def test_wall_rect_overlay_collapses_when_cursor_returns_to_side(scene):
+    """Deeper hover, then back onto the side line (depth < 0.5): the
+    thickness overlay collapses onto the side instead of keeping the old depth."""
+    _press(scene, 0, 0); _press(scene, 4000, 0)
+    scene._move_wall_rect(_MoveEventStub(), QPointF(2000, -1500))
+    deep = scene._wall_rect_thickness_preview.path().boundingRect()
+    scene._move_wall_rect(_MoveEventStub(), QPointF(2000, -0.2))
+    flat = scene._wall_rect_thickness_preview.path().boundingRect()
+    t = scene._get_wall_template()._thickness_mm
+    assert deep.height() > 1500
+    assert flat.height() <= t + 1.0          # just the wall band along the side
+    assert flat.width() >= 4000
