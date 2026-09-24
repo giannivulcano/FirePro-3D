@@ -122,6 +122,8 @@ class _ElevBubble(QGraphicsEllipseItem):
     the plan-view GridBubble.
     """
 
+    HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
+
     def __init__(self, radius: float, label: str, color: QColor,
                  fill: QColor, parent: QGraphicsItem | None = None):
         super().__init__(-radius, -radius, 2 * radius, 2 * radius, parent)

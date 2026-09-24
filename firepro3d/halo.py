@@ -143,7 +143,7 @@ def halo_pick_distance_px(item, cursor_vp, dt) -> float:
     scale = max(abs(dt.m11()), abs(dt.m22()), 1e-9)
     try:
         dev = item.deviceTransform(dt).map(_halo_local(item, scale))
-    except Exception:
+    except RuntimeError:  # C++ object deleted mid-hover
         return math.inf
     if dev.isEmpty():
         return math.inf
