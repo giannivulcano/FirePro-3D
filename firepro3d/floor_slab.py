@@ -82,6 +82,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     3D mesh: flat polygon extruded downward by ``thickness_mm``.
     """
 
+    HALO_AREA = True  # HALO: cursor inside = direct hit
+
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#8888cc"):
         super().__init__()

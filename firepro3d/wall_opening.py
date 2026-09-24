@@ -102,6 +102,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     """
 
     KIND = "opening"   # matches legacy test checks; used by to_dict
+    HALO_AREA = True   # HALO: cursor inside = direct hit
 
     def __init__(self, wall=None, *, feature_id: str = "door_914",
                  offset_along: float = 0.0,

@@ -111,6 +111,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Thickness, Colour, Fill Mode, Base Level, Top Level, Height
     """
 
+    HALO_AREA = True  # HALO: cursor inside = direct hit
+
     def __init__(self, pt1: QPointF, pt2: QPointF,
                  thickness_mm: float = DEFAULT_THICKNESS_MM,
                  color: str | QColor = "#cccccc"):

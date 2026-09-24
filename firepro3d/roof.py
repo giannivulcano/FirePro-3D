@@ -110,6 +110,8 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     3D mesh: pitched or flat polygon at eave height.
     """
 
+    HALO_AREA = True  # HALO: cursor inside = direct hit
+
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#D2B48C"):
         super().__init__()

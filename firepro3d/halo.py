@@ -1,4 +1,6 @@
 """HALO preselection-highlight overlay painter (mirrors paint_snap_indicator)."""
+import math
+
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath
 from PyQt6.QtWidgets import (QGraphicsPathItem, QGraphicsLineItem,
@@ -7,6 +9,9 @@ from PyQt6.QtWidgets import (QGraphicsPathItem, QGraphicsLineItem,
 
 from .constants import (HALO_TRACE_COLOR, HALO_TRACE_ALPHA,
                         HALO_TRACE_WIDTH_PX, HALO_GLOW_PX)
+
+_TRACED_TYPES = (QGraphicsPathItem, QGraphicsLineItem, QGraphicsRectItem,
+                 QGraphicsEllipseItem, QGraphicsPolygonItem)
 
 
 def _halo_trace_path_local(item):
@@ -56,6 +61,20 @@ def _halo_trace_path_local(item):
     return item.shape()
 
 
+def _halo_local(item, scene_scale=None):
+    """Local-space trace: the composite ``halo_trace_path`` hook when present,
+    else the type-based :func:`_halo_trace_path_local` dispatch."""
+    hook = getattr(item, "halo_trace_path", None)
+    if callable(hook):
+        try:
+            local = hook(scene_scale)
+        except Exception:
+            local = None
+        if local is not None and not local.isEmpty():
+            return local
+    return _halo_trace_path_local(item)
+
+
 def halo_scene_path(item, scene_scale=None):
     """The item's traced primitive geometry mapped to scene coords via Qt's
     canonical sceneTransform (respects pos()/transform(); does NOT re-apply
@@ -69,15 +88,77 @@ def halo_scene_path(item, scene_scale=None):
     scene→device scale, passed through for screen-fixed sub-parts (e.g. a
     gridline's ``ItemIgnoresTransformations`` bubbles). Falls back to the
     type-based :func:`_halo_trace_path_local` dispatch."""
-    hook = getattr(item, "halo_trace_path", None)
-    if callable(hook):
-        try:
-            local = hook(scene_scale)
-        except Exception:
-            local = None
-        if local is not None and not local.isEmpty():
-            return item.sceneTransform().map(local)
-    return item.sceneTransform().map(_halo_trace_path_local(item))
+    return item.sceneTransform().map(_halo_local(item, scene_scale))
+
+
+def halo_is_area(item) -> bool:
+    """True when a cursor INSIDE the item's trace is a direct hit (distance 0).
+
+    Areas: filled 2D geometry (``fill_type != "none"``), classes flagged
+    ``HALO_AREA = True`` (walls, slabs, roofs, openings, rooms, nodes), and any
+    item whose trace falls back to ``shape()`` (text boxes, SVG, blocks).
+    Open geometry (lines, arcs, unfilled outlines) is measured to its stroke —
+    ``QPainterPath.contains`` implicitly closes open paths, so it must not be
+    used for them.
+    """
+    fill = getattr(item, "fill_type", None)
+    if fill is not None and fill != "none":
+        return True
+    if getattr(item, "HALO_AREA", False):
+        return True
+    if callable(getattr(item, "halo_trace_path", None)):
+        return False
+    if isinstance(item, QGraphicsPathItem):
+        return item.path().isEmpty()        # empty path -> shape() fallback
+    return not isinstance(item, _TRACED_TYPES)
+
+
+def _seg_dist(p, a, b):
+    """Minimum distance from point *p* to segment *a*-*b* (clamped projection).
+
+    Private mirror of ``tool_geometry.point_to_segment_dist`` — kept local
+    rather than imported so ``halo.py`` (imported by the scene/view modules on
+    every hover) doesn't pull in ``tool_geometry``'s ``geometry_2d`` item-class
+    dependency.
+    """
+    dx = b.x() - a.x()
+    dy = b.y() - a.y()
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-12:
+        return math.hypot(p.x() - a.x(), p.y() - a.y())
+    t = ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / len_sq
+    t = max(0.0, min(1.0, t))
+    proj_x = a.x() + t * dx
+    proj_y = a.y() + t * dy
+    return math.hypot(p.x() - proj_x, p.y() - proj_y)
+
+
+def halo_pick_distance_px(item, cursor_vp, dt) -> float:
+    """Screen-px distance from *cursor_vp* (viewport coords) to *item*'s drawn
+    trace — the SNAP acceptance model (snapping-engine.md §6.1), judged in
+    pixels via ``item.deviceTransform(dt)`` so it is zoom-invariant and correct
+    for ``ItemIgnoresTransformations`` markers. 0.0 inside an area item;
+    ``math.inf`` when the item has no traceable geometry.
+    """
+    scale = max(abs(dt.m11()), abs(dt.m22()), 1e-9)
+    try:
+        dev = item.deviceTransform(dt).map(_halo_local(item, scale))
+    except Exception:
+        return math.inf
+    if dev.isEmpty():
+        return math.inf
+    if halo_is_area(item) and dev.contains(cursor_vp):
+        return 0.0
+    cx, cy = cursor_vp.x(), cursor_vp.y()
+    best = math.inf
+    for poly in dev.toSubpathPolygons():
+        n = len(poly)
+        if n == 1:
+            p = poly[0]
+            best = min(best, math.hypot(cx - p.x(), cy - p.y()))
+        for i in range(n - 1):
+            best = min(best, _seg_dist(cursor_vp, poly[i], poly[i + 1]))
+    return best
 
 
 def paint_halo_highlight(painter, view, item, theme, *,
