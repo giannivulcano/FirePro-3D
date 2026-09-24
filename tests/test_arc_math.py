@@ -5,7 +5,7 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.arc_math import (yup_angle, point_at, chord_frame,
                                 project_to_bisector, arc_through_chord,
-                                center_for_radius, arc_from_three_points)
+                                center_for_radius)
 
 
 def _close(p, q, tol=1e-6):
@@ -60,17 +60,3 @@ def test_center_for_radius():
     assert _close(c, QPointF(5, -12))
     assert center_for_radius(a, b, 4.9, +1) is None      # < half chord
     assert _close(center_for_radius(a, b, 5.0, -1), QPointF(5, 0))
-
-
-def test_three_point_arc_ccw_and_orientation_refusal():
-    c = QPointF(0, 0)
-    s, m, e = point_at(c, 10, 0), point_at(c, 10, 45), point_at(c, 10, 90)
-    res = arc_from_three_points(s, m, e)
-    assert res is not None
-    cc, r, st, sp = res
-    assert _close(cc, c) and r == pytest.approx(10)
-    assert st == pytest.approx(0.0) and sp == pytest.approx(90.0)
-    # mid NOT on the CCW sweep start→end → refused (would have to run CW)
-    assert arc_from_three_points(e, m, s) is None
-    # collinear → refused
-    assert arc_from_three_points(QPointF(0, 0), QPointF(1, 0), QPointF(2, 0)) is None

@@ -93,28 +93,3 @@ def center_for_radius(a: QPointF, b: QPointF, radius: float, side_sign: int):
     t = math.sqrt(max(radius * radius - h * h, 0.0))
     t = t if side_sign >= 0 else -t
     return QPointF(m.x() + t * nx, m.y() + t * ny)
-
-
-def arc_from_three_points(p_start: QPointF, p_mid: QPointF, p_end: QPointF):
-    """CCW arc from *p_start* through *p_mid* to *p_end*.
-
-    Returns ``(centre, radius, start_deg, span_deg)``, or None when the points
-    are collinear or *p_mid* is not on the CCW sweep start→end (the arc would
-    have to run clockwise — callers hold the last valid shape).
-    """
-    ax, ay = p_start.x(), p_start.y()
-    bx, by = p_mid.x(), p_mid.y()
-    cx, cy = p_end.x(), p_end.y()
-    d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-    if abs(d) < 1e-6:
-        return None
-    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
-    ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
-    uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
-    centre = QPointF(ux, uy)
-    r = math.hypot(ax - ux, ay - uy)
-    ts = yup_angle(centre, p_start)
-    span = (yup_angle(centre, p_end) - ts) % 360.0
-    if not ((yup_angle(centre, p_mid) - ts) % 360.0 < span):
-        return None
-    return centre, r, _norm360(ts), span

@@ -51,69 +51,75 @@ def test_centre_crossing_chord_turns_minor_into_major():
     assert a._span_deg > 180.0
 
 
-def test_endpoint_grip_lands_under_cursor_other_end_and_mid_fixed():
+def _drag(a, index, target, mods=Qt.KeyboardModifier.NoModifier):
+    h = [x for x in a.manip_handles() if x.index == index][0]
+    m = _M()
+    h.on_press(m)
+    h.on_drag(m, target, mods)
+    return h, m
+
+
+def _radial(c, r, p):
+    d = math.hypot(p.x() - c.x(), p.y() - c.y())
+    return QPointF(c.x() + (p.x() - c.x()) * r / d, c.y() + (p.y() - c.y()) * r / d)
+
+
+@pytest.mark.parametrize("index, target", [(1, QPointF(60, 20)),
+                                           (1, QPointF(100, 20)),
+                                           (2, QPointF(-20, -70)),
+                                           (2, QPointF(-40, 10))])
+def test_endpoint_grip_slides_on_circle_centre_and_other_end_fixed(index, target):
+    """User 2026-09-24 (reverses the 3-point refit): centre, radius and the
+    other endpoint stay fixed; the dragged end lands at the cursor's radial
+    projection onto the press-time circle."""
     a = _arc()
-    mid0 = a.arc_midpoint()
-    e0 = a.grip_points()[2]
-    h = [x for x in a.manip_handles() if x.index == 1][0]
+    other = 3 - index
+    o0 = a.grip_points()[other]
+    h, _m = _drag(a, index, target)
     assert isinstance(h, ArcEndpointGripHandle)
-    m = _M()
-    h.on_press(m)
-    h.on_drag(m, QPointF(60, 20), Qt.KeyboardModifier.NoModifier)
-    assert _close(a.grip_points()[1], QPointF(60, 20))
-    assert _close(a.grip_points()[2], e0)
-    # the press-time midpoint is still ON the arc
-    c, r = a._center, a._radius
-    assert math.hypot(mid0.x() - c.x(), mid0.y() - c.y()) == pytest.approx(r)
-
-
-def test_ctrl_endpoint_slides_along_press_circle():
-    a = _arc()
-    h = [x for x in a.manip_handles() if x.index == 1][0]
-    m = _M()
-    h.on_press(m)
-    h.on_drag(m, QPointF(100, 20), Qt.KeyboardModifier.ControlModifier)
-    assert a._radius == pytest.approx(50.0)
     assert _close(a._center, QPointF(0, 0))
+    assert a._radius == pytest.approx(50.0)
+    assert _close(a.grip_points()[other], o0)
+    assert _close(a.grip_points()[index], _radial(QPointF(0, 0), 50.0, target))
 
 
-def test_collinear_endpoint_drag_holds_last_valid_shape():
+def test_start_drag_span_formula():
+    a = _arc()                                    # start 0°, end 90°
+    _drag(a, 1, QPointF(-50, -50))                # 135° → span (90 − 135) mod 360
+    assert a._start_deg == pytest.approx(135.0)
+    assert a._span_deg == pytest.approx(315.0)
+
+
+def test_end_drag_span_formula():
     a = _arc()
-    h = [x for x in a.manip_handles() if x.index == 1][0]
-    m = _M()
-    h.on_press(m)
+    _drag(a, 2, QPointF(0, 50))                   # 270° → span 270
+    assert a._start_deg == pytest.approx(0.0)
+    assert a._span_deg == pytest.approx(270.0)
+
+
+def test_ctrl_has_no_special_meaning():
+    a, b = _arc(), _arc()
+    _drag(a, 1, QPointF(60, 20))
+    _drag(b, 1, QPointF(60, 20), Qt.KeyboardModifier.ControlModifier)
+    assert a.to_dict() == b.to_dict()
+
+
+@pytest.mark.parametrize("index, target", [(2, QPointF(50, 0.1)),     # span ≈ 0°
+                                           (1, QPointF(0.1, -50))])   # span ≈ 0°
+def test_degenerate_span_holds_last_valid_shape(index, target):
+    a = _arc()
     before = a.to_dict()
-    mid, end = a.arc_midpoint(), a.grip_points()[2]
-    # a point on the line through end and mid (beyond mid) → collinear
-    p = QPointF(mid.x() + (mid.x() - end.x()), mid.y() + (mid.y() - end.y()))
-    h.on_drag(m, p, Qt.KeyboardModifier.NoModifier)
+    _drag(a, index, target)
     assert a.to_dict() == before
 
 
 def test_endpoint_esc_restores_exactly():
     a = _arc()
     before = a.to_dict()
-    h = [x for x in a.manip_handles() if x.index == 2][0]
-    m = _M()
-    h.on_press(m)
-    h.on_drag(m, QPointF(-20, -70), Qt.KeyboardModifier.NoModifier)
+    h, m = _drag(a, 2, QPointF(-20, -70))
+    assert a.to_dict() != before
     h.on_cancel(m)
-    after = a.to_dict()
-    for k in ("cx", "cy", "radius", "start_deg", "span_deg"):
-        assert after[k] == pytest.approx(before[k], abs=1e-6)
-    assert a._arc_refit_ref is None
-
-
-def test_ctrl_endpoint_lands_at_radial_projection_end_fixed():
-    a = _arc()
-    e0 = a.grip_points()[2]
-    h = [x for x in a.manip_handles() if x.index == 1][0]
-    m = _M()
-    h.on_press(m)
-    h.on_drag(m, QPointF(100, 20), Qt.KeyboardModifier.ControlModifier)
-    d = math.hypot(100, 20)
-    assert _close(a.grip_points()[1], QPointF(100 * 50 / d, 20 * 50 / d))
-    assert _close(a.grip_points()[2], e0)
+    assert a.to_dict() == before
 
 
 # ── negative-span (CW, e.g. mirrored) arcs normalise to CCW form ────────────
@@ -161,13 +167,13 @@ def test_negative_span_centre_grip_keeps_both_endpoints():
 
 @pytest.mark.parametrize("index, target", [(1, QPointF(60, 20)),
                                            (2, QPointF(-20, -60))])
-def test_negative_span_endpoint_grip_moves_under_cursor(index, target):
+def test_negative_span_endpoint_grip_slides_on_circle(index, target):
     a = _cw_arc()
-    h = [x for x in a.manip_handles() if x.index == index][0]
-    m = _M()
-    h.on_press(m)
-    h.on_drag(m, target, Qt.KeyboardModifier.NoModifier)
-    assert _close(a.grip_points()[index], target)
+    other = a.grip_points()[3 - index]
+    _drag(a, index, target)
+    assert _close(a._center, QPointF(0, 0)) and a._radius == pytest.approx(50.0)
+    assert _close(a.grip_points()[3 - index], other)
+    assert _close(a.grip_points()[index], _radial(QPointF(0, 0), 50.0, target))
 
 
 def test_centre_grip_esc_restores_without_angle_noise():
@@ -188,3 +194,12 @@ def test_full_circle_centre_grip_translates():
     a.apply_grip(0, QPointF(10, 20))
     assert _close(a._center, QPointF(10, 20))
     assert a._radius == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("index", [1, 2])
+def test_endpoint_esc_restores_byte_exact_for_odd_angles(index):
+    a = ArcItem(QPointF(13.7, -4.1), 37.3, 17.3, 61.7)
+    before = a.to_dict()
+    h, m = _drag(a, index, QPointF(-30.0, 25.0))
+    h.on_cancel(m)
+    assert a.to_dict() == before

@@ -411,41 +411,26 @@ class EndpointGripHandle(GripHandle):
 
 
 class ArcEndpointGripHandle(GripHandle):
-    """An ``ArcItem`` start/end grip: 3-point refit against the press-time
-    other endpoint + arc midpoint (``ArcItem.begin_endpoint_refit``). Ctrl
-    projects the drag radially onto the press-time circle, so the refit keeps
-    the circle and only the endpoint's angle changes."""
+    """An ``ArcItem`` start/end grip: the endpoint slides along the circle
+    (centre, radius and the other endpoint fixed — ``ArcItem.apply_grip``).
+    No modifier semantics. Snapshots the full arc data on press so Esc
+    restores it byte-exactly (re-deriving the angle from the snapshot grip
+    point would leave float noise)."""
 
     def __init__(self, item, index: int):
         super().__init__(item, index, circular=True)
 
     def _extra_snapshots(self, m) -> None:
-        self.item.begin_endpoint_refit()
+        it = self.item
+        self._arc0 = (QPointF(it._center), it._radius, it._start_deg,
+                      it._span_deg)
 
-    def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
-        if not (mods & Qt.KeyboardModifier.ControlModifier):
-            return pt
-        ref = getattr(self.item, "_arc_refit_ref", None)
-        if ref is None:
-            return pt
-        c, r = ref["center"], ref["radius"]
-        dx, dy = pt.x() - c.x(), pt.y() - c.y()
-        d = math.hypot(dx, dy)
-        if d < 1e-9:
-            return pt
-        return QPointF(c.x() + dx * r / d, c.y() + dy * r / d)
-
-    def on_release(self, m, scene_pos: QPointF, mods) -> None:
-        try:
-            super().on_release(m, scene_pos, mods)
-        finally:
-            self.item.end_endpoint_refit()
-
-    def on_cancel(self, m) -> None:
-        try:
-            super().on_cancel(m)      # restores via apply_grip WITH the ref live
-        finally:
-            self.item.end_endpoint_refit()
+    def _restore_extra(self, m) -> None:
+        it = self.item
+        c, r, st, sp = self._arc0
+        it._center, it._radius = QPointF(c), r
+        it._start_deg, it._span_deg = st, sp
+        it._rebuild_path()
 
 
 class WallEndpointGripHandle(EndpointGripHandle):
