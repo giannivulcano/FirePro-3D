@@ -163,3 +163,68 @@ def test_polygon_defining_radius_radial(qapp, inscribed):
         assert any(math.hypot(v.x() - 100, v.y()) < 1e-6 for v in p.vertices())
     s.apply(50.0)
     assert p._radius_mm == pytest.approx(50.0) and p._sides == 6
+
+
+from firepro3d.geometry_2d import PolylineItem
+
+
+def _poly(pts, closed=False):
+    p = PolylineItem(QPointF(*pts[0]))
+    for x, y in pts[1:]:
+        p.append_point(QPointF(x, y))
+    if closed:
+        p.close()
+    return p
+
+
+def test_polyline_open_segments_and_angles(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)])          # right, then up (screen)
+    d = _by_key(p)
+    assert set(d) == {"seg:0", "seg:1", "ang:1"}
+    assert d["seg:0"].value == pytest.approx(100.0)
+    assert d["ang:1"].value == pytest.approx(90.0)
+    assert d["ang:1"].field == "Angle 2" and d["seg:0"].field == "Seg 1"
+
+
+def test_polyline_angle_is_le_180_side(qapp):
+    p = _poly([(0, 0), (100, 0), (0, -10)])             # sharp turn
+    a = _by_key(p)["ang:1"]
+    assert 0 < a.value <= 180 and a.value == pytest.approx(
+        math.degrees(math.atan2(10, 100)), abs=1e-6)
+
+
+def test_polyline_closed_has_closing_segment_and_all_angles(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100), (0, -100)], closed=True)
+    d = _by_key(p)
+    assert {"seg:0", "seg:1", "seg:2", "seg:3"} <= set(d)
+    assert {"ang:0", "ang:1", "ang:2", "ang:3"} <= set(d)
+    assert all(d[f"ang:{i}"].value == pytest.approx(90.0) for i in range(4))
+
+
+def test_polyline_zero_length_segment_skipped(qapp):
+    p = _poly([(0, 0), (100, 0), (100, 0), (100, -50)])
+    d = _by_key(p)
+    assert "seg:1" not in d and "ang:1" not in d and "ang:2" not in d
+
+
+def test_set_segment_length_moves_end_vertex_only(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)])
+    _by_key(p)["seg:0"].apply(40.0)
+    assert p._points[0] == QPointF(0, 0)
+    assert (p._points[1].x(), p._points[1].y()) == pytest.approx((40.0, 0.0))
+    assert p._points[2] == QPointF(100, -100)            # downstream untouched
+
+
+def test_closed_closing_segment_wraps_to_vertex0(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)], closed=True)
+    _by_key(p)["seg:2"].apply(50.0)                       # (100,-100) -> vertex 0
+    v2, v0 = p._points[2], p._points[0]
+    assert math.hypot(v0.x() - v2.x(), v0.y() - v2.y()) == pytest.approx(50.0)
+
+
+def test_set_vertex_angle_keeps_side(qapp):
+    p = _poly([(0, 0), (100, 0), (100, -100)])
+    _by_key(p)["ang:1"].apply(45.0)
+    assert _by_key(p)["ang:1"].value == pytest.approx(45.0)
+    assert p._points[0] == QPointF(0, 0) and p._points[1] == QPointF(100, 0)
+    assert p._points[2].y() < 0                           # still the upper side

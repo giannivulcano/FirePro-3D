@@ -293,6 +293,96 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._points[index] = pos
             self._rebuild_path()
 
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    _EPS_LEN = 1e-9
+
+    @staticmethod
+    def _yup_deg(frm: QPointF, to: QPointF) -> float:
+        return math.degrees(math.atan2(-(to.y() - frm.y()), to.x() - frm.x()))
+
+    def _seg_indices(self) -> list[int]:
+        n = len(self._points)
+        return list(range(n)) if self.is_closed() else list(range(max(n - 1, 0)))
+
+    def _seg_len(self, i: int) -> float:
+        a, b = self._points[i], self._points[(i + 1) % len(self._points)]
+        return math.hypot(b.x() - a.x(), b.y() - a.y())
+
+    def _vertex_sweep(self, i: int):
+        """(start_deg, span_deg, ccw) of the <=180° angle at vertex *i*;
+        ccw=True when the next leg is CCW of the previous one."""
+        n = len(self._points)
+        v = self._points[i]
+        a_prev = self._yup_deg(v, self._points[(i - 1) % n])
+        a_next = self._yup_deg(v, self._points[(i + 1) % n])
+        inc = (a_next - a_prev) % 360.0
+        if inc <= 180.0:
+            return a_prev, inc, True
+        return a_next, 360.0 - inc, False
+
+    def set_segment_length(self, i: int, length_mm: float) -> None:
+        """Set segment *i*'s length, moving only its end vertex (wraps)."""
+        n = len(self._points)
+        j = (i + 1) % n
+        a, b = self._points[i], self._points[j]
+        cur = math.hypot(b.x() - a.x(), b.y() - a.y())
+        if length_mm <= 0 or cur < self._EPS_LEN:
+            return
+        k = length_mm / cur
+        self._points[j] = QPointF(a.x() + (b.x() - a.x()) * k,
+                                  a.y() + (b.y() - a.y()) * k)
+        self._rebuild_path()
+
+    def set_vertex_angle(self, i: int, theta_deg: float) -> None:
+        """Set the <=180° angle at vertex *i* by rotating vertex (i+1)%n about
+        it (same side kept). Clamped to (0, 180]."""
+        n = len(self._points)
+        theta = min(max(float(theta_deg), 1e-6), 180.0)
+        v = self._points[i]
+        j = (i + 1) % n
+        a_prev = self._yup_deg(v, self._points[(i - 1) % n])
+        a_next = self._yup_deg(v, self._points[j])
+        _, _, ccw = self._vertex_sweep(i)
+        target = a_prev + theta if ccw else a_prev - theta
+        d = math.radians(target - a_next)
+        dx, dy = self._points[j].x() - v.x(), self._points[j].y() - v.y()
+        c, s = math.cos(d), math.sin(d)
+        self._points[j] = QPointF(v.x() + dx * c + dy * s,
+                                  v.y() - dx * s + dy * c)
+        self._rebuild_path()
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        n = len(self._points)
+        if n < 2:
+            return []
+        specs = []
+        zero = set()
+        for i in self._seg_indices():
+            if self._seg_len(i) < self._EPS_LEN:
+                zero.update({i, (i + 1) % n})
+                continue
+            j = (i + 1) % n
+            specs.append(DimSpec(
+                kind="linear", key=f"seg:{i}", field=f"Seg {i + 1}", prefix="",
+                value=self._seg_len(i), field_kind="dimension",
+                apply=lambda v, i=i: self.set_segment_length(i, v),
+                a=QPointF(self._points[i]), b=QPointF(self._points[j])))
+        verts = range(n) if self.is_closed() else range(1, n - 1)
+        for i in verts:
+            if i in zero:
+                continue
+            start, span, _ = self._vertex_sweep(i)
+            leg = min(self._seg_len((i - 1) % n), self._seg_len(i))
+            specs.append(DimSpec(
+                kind="angular", key=f"ang:{i}", field=f"Angle {i + 1}", prefix="",
+                value=span, field_kind="span",
+                apply=lambda v, i=i: self.set_vertex_angle(i, v),
+                maximum=180.0, center=QPointF(self._points[i]),
+                ref_radius=leg, start_deg=start, span_deg=span))
+        return specs
+
     def manip_handles(self):
         """U3: expose each vertex as a live-apply GripHandle. All grips are
         vertices (no midpoint/convenience grips), so all render round per the
