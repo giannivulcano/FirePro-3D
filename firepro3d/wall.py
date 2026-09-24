@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
+from .view_scale import scene_hit_width
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -47,13 +48,8 @@ _SELECTION_COLOR = QColor("red")
 
 
 def _scene_hit_width(item) -> float:
-    sc = item.scene()
-    if sc:
-        views = sc.views()
-        if views:
-            scale = views[0].transform().m11()
-            return max(4.0, 14.0 / max(scale, 1e-6))
-    return 8.0
+    """~14 screen px at the visible view's zoom (see view_scale)."""
+    return scene_hit_width(item, 14.0, 8.0)
 
 
 def compute_wall_quad(

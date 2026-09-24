@@ -8,6 +8,7 @@ from .cad_math import CAD_Math
 from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
+from .view_scale import scene_hit_width
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
@@ -388,11 +389,9 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         path.moveTo(ln.p1())
         path.lineTo(ln.p2())
         stroker = QPainterPathStroker()
-        sc = self.scene()
-        views = sc.views() if sc else []
-        scale = views[0].transform().m11() if views else 1.0
-        # Take max of actual pen width and 16 screen-pixel equivalent
-        hit_w = max(self.pen().widthF(), 16.0 / max(scale, 1e-6))
+        # Take max of actual pen width and 16 screen-pixel equivalent at the
+        # visible view's zoom (see view_scale).
+        hit_w = max(self.pen().widthF(), scene_hit_width(self, 16.0, 16.0))
         stroker.setWidth(hit_w)
         return stroker.createStroke(path)
 
