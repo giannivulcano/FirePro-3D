@@ -74,7 +74,7 @@ once so that the gridline-spacing / constraint dims and ALIGN §8 node dims can 
 ### Constants (signed-off mockup, grill Q12 applied)
 `SELDIM_FONT_PX = 10`, `SELDIM_LABEL_OFFSET_PX = 14` (applied to **every** linear label, away side),
 `SELDIM_ARC_REF_FRAC = 0.19`, `SELDIM_ARC_REF_MIN_PX = 25`, `SELDIM_ARROW_PX = 7`,
-`SELDIM_DASH = (4, 3)`, `SELDIM_FIT_MARGIN_PX = 4`. Text-only (no box), aligned + readable
+`SELDIM_DASH = (4, 3)`, `SELDIM_FIT_MARGIN_PX = 4`, `SELDIM_ARC_LABEL_GAP_PX = 4`, `SELDIM_PICK_PAD_PX = 3`. **Angular labels sit just outside their reference arc on the bisector** (gap 4 px) — with text-only labels an on-arc label would be struck through by the dashed arc (same reason as grill Q12; decided at plan time). Text-only (no box), aligned + readable
 rotation, symbol prefixes on, arrows on angular ends. Colours: text `ink`, arc + arrows `muted`,
 hover glow = HALO accent (`HALO_TRACE_*`).
 
