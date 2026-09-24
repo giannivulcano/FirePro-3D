@@ -241,3 +241,106 @@ def test_grip_beats_label(be, monkeypatch):
     m = sc._live_manip()
     monkeypatch.setattr(m, "hit_handle", lambda _p: True)
     assert sc.readouts.entry_at(v, c) is None
+
+
+# ── Task 13: integration guards — live refresh, units, transient, Ctrl+Z ──
+from firepro3d.scale_manager import DisplayUnit
+
+
+def _text_of(v, sc, key="length"):
+    return next(e.layout.text for e in sc.readouts.layouts(v) if e.spec.key == key)
+
+
+def test_grip_drag_updates_text(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    before = _text_of(v, sc)
+    ln.apply_grip(2, QPointF(450, 0))                 # the grip path's mutation
+    assert _text_of(v, sc) != before
+
+
+def test_units_change_repaints_without_mouse_move(be, monkeypatch):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    calls = []
+    monkeypatch.setattr(sc.readouts, "refresh", lambda: calls.append(1))
+    sc.set_display_unit(DisplayUnit.METRIC_MM)
+    assert calls, "units change must force a readout repaint"
+    assert _text_of(v, sc).endswith("mm")
+
+
+def _add_tracked_line(sc):
+    """A line registered in the scene's tracking list, so undo snapshots it
+    (bare ``addItem`` is invisible to ``_capture_network``)."""
+    ln = _add_line(sc)
+    sc._draw_lines.append(ln)
+    return ln
+
+
+def test_undo_restores_value(be):
+    v, sc = be
+    ln = _add_tracked_line(sc)
+    sc.push_undo_state()
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    sc.readouts.hud.committed.emit({"Length": 500.0})
+    assert ln.line().length() == pytest.approx(500.0)
+    sc.undo()
+    restored = [i for i in sc.items() if isinstance(i, LineItem)]
+    assert len(restored) == 1
+    assert restored[0].line().length() == pytest.approx(300.0)
+
+
+def test_ctrl_z_in_field_is_field_undo_not_scene_undo(be):
+    v, sc = be
+    ln = _add_tracked_line(sc)
+    sc.push_undo_state()
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    pos0 = sc._undo_pos
+    ed = sc.readouts.hud.editor("Length")
+    QTest.keyClicks(ed, "9")
+    QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    assert sc._undo_pos == pos0 and sc.readouts.is_editing()
+    assert ln.line().length() == pytest.approx(300.0)
+
+
+def test_hidden_in_placement_and_text_edit(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    assert sc.readouts.entries() != []                # precondition: visible
+    sc.set_mode("draw_line")
+    assert sc.readouts.entries() == []
+
+
+def test_transient_not_in_bounding_rect_or_serialization(be, monkeypatch):
+    """Readouts add no scene items and no bounding-rect extent.
+
+    Selecting also shows the selection manipulator's grip handles (real
+    QGraphicsItems, not readouts), so the baseline is the SAME selection with
+    the readout gate forced off; turning readouts on must change nothing.
+    """
+    v, sc = be
+    ln = _add_line(sc)
+    d0 = ln.to_dict()
+    ctl = sc.readouts
+    monkeypatch.setattr(ctl, "readouts_active", lambda: False)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    r0 = sc.itemsBoundingRect()
+    ids0 = {id(i) for i in sc.items()}
+    monkeypatch.undo()                                # readouts back on
+    ctl.refresh()
+    QApplication.processEvents()
+    assert ctl.entries() != []                        # precondition: visible
+    v.viewport().grab()                               # force a real paint pass
+    assert sc.itemsBoundingRect() == r0
+    assert {id(i) for i in sc.items()} == ids0
+    assert ln.to_dict() == d0
+    assert all(type(i).__module__ not in ("firepro3d.selection_readouts",
+                                          "firepro3d.readout_paint")
+               for i in sc.items())
