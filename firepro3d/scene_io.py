@@ -506,6 +506,11 @@ class SceneIOMixin:
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
         self._draw_rect_side_pt = None
+        self._draw_rect_ref_line0 = None
+        self._wall_rect_side_pt = None
+        self._wall_rect_ref_line0 = None
+        self._floor_rect_side_pt = None
+        self._floor_rect_ref_line0 = None
         self._draw_circle_center = None
         self._draw_rect_preview = None
         self._draw_circle_preview = None
