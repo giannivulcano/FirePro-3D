@@ -8,6 +8,7 @@ Governing spec: ``docs/specs/settings-dialog.md``.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from PyQt6.QtCore import QSettings
@@ -22,7 +23,7 @@ from firepro3d.constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
-    HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX,
+    HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX, GRIP_OBJECT_LIMIT,
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
@@ -31,6 +32,8 @@ from firepro3d.app_data import (
 )
 from firepro3d.ui_kit import ToggleSwitch
 from firepro3d.theme import M
+
+log = logging.getLogger(__name__)
 
 
 class SettingsPane(QWidget):
@@ -77,6 +80,7 @@ _FACTORY_DEFAULTS: dict = {
     "halo_enabled":  True,
     "halo_aperture": HALO_APERTURE_PX,
     "halo_band":     HALO_PRIORITY_BAND_PX,
+    "grip_obj_limit": GRIP_OBJECT_LIMIT,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
@@ -154,6 +158,15 @@ class UXPane(SettingsPane):
         self._grip_spin.setSingleStep(50)
         self._grip_spin.setSuffix(" px")
         tol_form.addRow("Grip handle radius:", self._grip_spin)
+
+        self._grip_limit_spin = QSpinBox()
+        self._grip_limit_spin.setRange(1, 100000)
+        self._grip_limit_spin.setSingleStep(50)
+        self._grip_limit_spin.setToolTip(
+            "Grip object limit: when more than this many items are selected, "
+            "only the selection frame is shown (no per-item grips) so large "
+            "selections stay responsive. Like AutoCAD's GRIPOBJLIMIT.")
+        tol_form.addRow("Grip object limit:", self._grip_limit_spin)
 
         self._angle_spin = QSpinBox()
         self._angle_spin.setRange(1, 90)
@@ -334,6 +347,7 @@ class UXPane(SettingsPane):
         """
         from firepro3d import snap_engine
         from firepro3d import halo_selection
+        from firepro3d import selection_manipulator
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
@@ -342,6 +356,7 @@ class UXPane(SettingsPane):
         hyst_px = snap_engine.SNAP_HYSTERESIS_PX
         halo_aperture = int(halo_selection.HALO_APERTURE_PX)
         halo_band = int(halo_selection.HALO_PRIORITY_BAND_PX)
+        grip_obj_limit = int(selection_manipulator.GRIP_OBJECT_LIMIT)
 
         if self._scene is not None:
             eng = self._scene._snap_engine
@@ -405,6 +420,7 @@ class UXPane(SettingsPane):
             "halo_enabled":   halo_on,
             "halo_aperture":  halo_aperture,
             "halo_band":      halo_band,
+            "grip_obj_limit": grip_obj_limit,
             **snap_flags,
         }
 
@@ -412,6 +428,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(tol_px)
         self._hyst_spin.setValue(hyst_px)
         self._grip_spin.setValue(grip_px)
+        self._grip_limit_spin.setValue(grip_obj_limit)
         self._angle_spin.setValue(int(angle_deg))
         self._align_cb.setChecked(align_on)
         self._align_tol_spin.setValue(int(align_tol))
@@ -451,6 +468,19 @@ class UXPane(SettingsPane):
         s.setValue("snap/grip_tolerance_px", grip_px)
         if self._scene is not None:
             self._scene._grip_tolerance_px = grip_px
+
+        # ── Grip object limit (app-wide module global — selection-manipulator) ─
+        from firepro3d import selection_manipulator
+        selection_manipulator.GRIP_OBJECT_LIMIT = self._grip_limit_spin.value()
+        s.setValue("select/grip_object_limit", selection_manipulator.GRIP_OBJECT_LIMIT)
+        if self._scene is not None:
+            manip = getattr(self._scene, "_manipulator", None)
+            if manip is not None:
+                try:
+                    manip.rebake()
+                except Exception:
+                    log.exception("SelectionManipulator.rebake() failed while "
+                                  "applying grip_object_limit")
 
         # ── Per-type snap flags ───────────────────────────────────────────────
         if self._scene is not None:
@@ -524,6 +554,7 @@ class UXPane(SettingsPane):
         """
         from firepro3d import snap_engine
         from firepro3d import halo_selection
+        from firepro3d import selection_manipulator
 
         if not self._snapshot:
             return
@@ -537,6 +568,17 @@ class UXPane(SettingsPane):
         # ── HALO aperture + priority band (always — module globals) ───────────
         halo_selection.HALO_APERTURE_PX = self._snapshot["halo_aperture"]
         halo_selection.HALO_PRIORITY_BAND_PX = self._snapshot["halo_band"]
+
+        # ── Grip object limit (always — module global) ────────────────────────
+        selection_manipulator.GRIP_OBJECT_LIMIT = self._snapshot["grip_obj_limit"]
+        if self._scene is not None:
+            manip = getattr(self._scene, "_manipulator", None)
+            if manip is not None:
+                try:
+                    manip.rebake()
+                except Exception:
+                    log.exception("SelectionManipulator.rebake() failed while "
+                                  "reverting grip_object_limit")
 
         # ── Live scene objects ─────────────────────────────────────────────────
         if self._scene is not None:
@@ -568,6 +610,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(self._snapshot["tol_px"])
         self._hyst_spin.setValue(self._snapshot["hysteresis_px"])
         self._grip_spin.setValue(self._snapshot["grip_px"])
+        self._grip_limit_spin.setValue(self._snapshot["grip_obj_limit"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
         self._align_cb.setChecked(self._snapshot["align"])
         self._align_tol_spin.setValue(int(self._snapshot["align_path_tol_px"]))
@@ -590,6 +633,7 @@ class UXPane(SettingsPane):
         self._tol_spin.setValue(d["tol_px"])
         self._hyst_spin.setValue(d["hysteresis_px"])
         self._grip_spin.setValue(d["grip_px"])
+        self._grip_limit_spin.setValue(d["grip_obj_limit"])
         self._angle_spin.setValue(int(d["angle_deg"]))
         self._align_cb.setChecked(d["align"])
         self._align_tol_spin.setValue(int(d["align_path_tol_px"]))

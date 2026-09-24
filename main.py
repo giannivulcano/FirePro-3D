@@ -746,6 +746,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if self.settings.contains("snap/grip_tolerance_px"):
             self.scene._grip_tolerance_px = self.settings.value(
                 "snap/grip_tolerance_px", 200, type=int)
+        from firepro3d import selection_manipulator
+        selection_manipulator.GRIP_OBJECT_LIMIT = self.settings.value(
+            "select/grip_object_limit", selection_manipulator.GRIP_OBJECT_LIMIT,
+            type=int)
         # Restore per-type snap toggles
         _snap_attrs = ["snap_endpoint", "snap_midpoint", "snap_intersection",
                        "snap_center", "snap_quadrant", "snap_nearest",
