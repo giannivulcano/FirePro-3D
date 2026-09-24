@@ -11,7 +11,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from firepro3d.geometry_2d import RectangleItem
-from firepro3d.manip_handle import GripHandle, ResizeHandle, RotateHandle
+from firepro3d.manip_handle import GripHandle, ResizeHandle
 from firepro3d.manip_math import HandleRole
 
 _ROUND = {0, 2, 4, 6, 8}          # corners + centre round; edge midpoints square

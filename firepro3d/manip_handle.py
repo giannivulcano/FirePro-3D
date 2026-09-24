@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
 
 from .manip_math import (
     HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point,
-    resize_delta, rotate_delta,
+    resize_delta,
 )
 
 # Corner roles render as circles; edge midpoints as squares (mockup style A).
@@ -40,19 +40,9 @@ class Handle:
     the SelectionManipulator, exposing the Handle-facing context API.
     """
 
-    role: HandleRole = HandleRole.ROTATE
-    gesture_mode: str = ""            # "resize"/"rotate" — sets manip._mode
+    role: HandleRole                  # set by every concrete subclass
+    gesture_mode: str = ""            # "resize"/"grip" — sets manip._mode
     hud_schema: Optional[str] = None  # DynamicInput schema name, or None
-    _m = None                         # back-ref to the manipulator (set on attach)
-
-    def _live_preview_rotation(self) -> float:
-        """The manipulator's in-progress rotate-preview angle (Y-up deg), 0 when
-        not rotating or unattached. Lets a screen-constant (ItemIgnores-
-        Transformations) handle turn with the frame during the held-preview,
-        before the release bake."""
-        m = self._m
-        fn = getattr(m, "_preview_rotation_deg", None) if m is not None else None
-        return fn() if fn is not None else 0.0
 
     # -- geometry / appearance (the host delegates to these) -----------------
     def scene_position(self, frame_rect: QRectF) -> QPointF:
@@ -169,87 +159,10 @@ class ResizeHandle(Handle):
             m._bake_scale(m._typed_items, self.role, (fx, fy), m._typed_r0, m._typed_b0)
 
 
-class RotateHandle(Handle):
-    """The rotate knob above the top-edge midpoint (held-preview → manip_rotate)."""
-
-    role = HandleRole.ROTATE
-    gesture_mode = "rotate"
-    hud_schema = "manip_rotate"
-
-    def scene_position(self, frame_rect: QRectF) -> QPointF:
-        return _rect_point(frame_rect, 0.5, 0.0)
-
-    def shape(self, *, size, grab_pad) -> QPainterPath:
-        from .selection_manipulator import _ROTATE_OFFSET_PX, _ROTATE_RADIUS_PX
-        c = QPointF(0.0, -_ROTATE_OFFSET_PX)
-        r = _ROTATE_RADIUS_PX + grab_pad
-        path = QPainterPath()
-        path.addEllipse(c, r, r)
-        ang = self._live_preview_rotation()
-        if ang:
-            # Swing the knob around the anchor with the frame during a rotate
-            # preview (Qt y-down rotate is CW+; negate the Y-up angle).
-            path = QTransform().rotate(-ang).map(path)
-        return path
-
-    def paint(self, painter, *, size, border, fill, hover, border_width):
-        from .selection_manipulator import _ROTATE_OFFSET_PX, _ROTATE_RADIUS_PX
-        ang = self._live_preview_rotation()
-        painter.save()
-        if ang:
-            painter.rotate(-ang)            # stem+knob swing with the frame
-        c = QPointF(0.0, -_ROTATE_OFFSET_PX)
-        stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
-        painter.setPen(stem)
-        painter.drawLine(QPointF(0, 0), c)
-        painter.setPen(QPen(border, border_width))
-        painter.setBrush(QBrush(border if hover else fill))
-        painter.drawEllipse(c, _ROTATE_RADIUS_PX, _ROTATE_RADIUS_PX)
-        painter.restore()
-
-    def cursor(self, m) -> QCursor:
-        return m._rotate_cursor
-
-    def visible(self, m) -> bool:
-        return m._show_rotate_knob()
-
-    def hud_values(self, m) -> dict:
-        return {}
-
-    # -- drag lifecycle ------------------------------------------------------
-    def on_drag(self, m, scene_pos, mods) -> None:
-        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        center = m._B0.map(m._R0.center())
-        snap = m._ROTATE_SNAP_DEG if shift else None
-        d, total = rotate_delta(center, m._start_scene, scene_pos, m._base_angle, snap)
-        m._apply(d)
-        m._feed_hud({"Angle": -total})
-
-    def on_release(self, m, scene_pos, mods) -> None:
-        from .selection_manipulator import _yup_angle_from_delta
-        from PyQt6.QtGui import QTransform
-        d = QTransform(m._D)
-        moved = m._moved
-        m._restore_preview()
-        m._end_drag()
-        if moved:
-            angle = _yup_angle_from_delta(d)
-            if abs(angle) > 1e-9:
-                pivot = m._B0_at_press.map(m._R0_at_press.center())
-                m._bake_rotate([r[0] for r in m._items0_at_press], angle, pivot)
-
-    def commit_typed(self, m, values) -> None:
-        from .dynamic_input import resolve_manip_rotate
-        angle = resolve_manip_rotate(None, values)["angle_deg"]
-        if abs(angle) > 1e-9:
-            pivot = m._typed_b0.map(m._typed_r0.center())
-            m._bake_rotate(m._typed_items, angle, pivot)
-
-
 class GripHandle(Handle):
     """A live-apply parametric grip (U3).
 
-    Unlike the held-preview ResizeHandle/RotateHandle, this handle mutates real
+    Unlike the held-preview ResizeHandle, this handle mutates real
     geometry every move via ``item.apply_grip(index, pt)`` — the live-apply drag
     the U2 Handle contract was designed to admit. ``role`` is the non-rigid
     ``HandleRole.GRIP`` so the manipulator's rigid role dict never resolves it;
@@ -279,18 +192,11 @@ class GripHandle(Handle):
         axis-aligned, the default for every unmigrated item). Ignored for circular
         grips (a disc is rotation-invariant). A square is symmetric under 90°/
         reflection, so the sign/exact-axis choice is visually immaterial; both
-        shape() and paint() apply the SAME value so hit-test matches render.
-
-        During a rotate held-preview the item's own angle isn't mutated until the
-        release bake, so add the manipulator's LIVE preview rotation (0 unless a
-        rotate is in progress) — the grips turn with the item as the knob drags,
-        and because it's the same angle the bake applies there's no jump on
-        commit. ``self._m`` (the manipulator) is set by the host on attach."""
+        shape() and paint() apply the SAME value so hit-test matches render."""
         if self.circular:
             return 0.0
         fn = getattr(self.item, "grip_render_angle", None)
-        base = 0.0 if fn is None else float(fn(self.index))
-        return base + self._live_preview_rotation()
+        return 0.0 if fn is None else float(fn(self.index))
 
     def shape(self, *, size: float, grab_pad: float) -> QPainterPath:
         half = size / 2.0 + grab_pad

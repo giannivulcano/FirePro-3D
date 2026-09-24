@@ -910,7 +910,7 @@ class SheetViewport(QGraphicsObject):
     # The paper scene's SelectionManipulator drives resize/move through these;
     # the retired _apply_grip_resize / _nts_free_resize crop×scale semantics now
     # live in the single home _resize_on_paper (below).  Paper viewports do NOT
-    # implement manip_rotate in v1 (no rotate knob).
+    # implement manip_rotate in v1.
 
     def manip_capabilities(self) -> set:
         """Dynamic capability narrowing (spec: item may drop a capability).

@@ -35,7 +35,7 @@ class TestRegistry:
             "line", "circle", "polygon",
             "displacement", "distance", "spacing_count",
             "arc_span", "arc_radius", "rotation", "track",
-            "manip_move", "manip_resize", "manip_rotate",
+            "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
 
@@ -95,7 +95,7 @@ class TestRegistry:
         assert need == {"line", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
                         "rotation",
-                        "track", "manip_move", "manip_resize", "manip_rotate",
+                        "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
 

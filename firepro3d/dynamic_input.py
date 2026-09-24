@@ -268,15 +268,6 @@ def resolve_manip_resize(anchor, values: dict) -> dict:
     return {"width": values["Width"], "height": values["Height"]}
 
 
-def resolve_manip_rotate(anchor, values: dict) -> dict:
-    """Return the manipulator rotation for a typed angle (Y-up degrees).
-
-    v1 only wires the plumbing — the rotate gesture arrives with the rotate
-    knob — so this yields the absolute orientation the applier rotates to.
-    """
-    return {"angle_deg": values["Angle"]}
-
-
 def resolve_spacing_count(anchor, values: dict) -> dict:
     """Return spacing plus an integer count, floored at one.
 
@@ -446,15 +437,6 @@ SCHEMAS: dict[str, Schema] = {
             FieldSpec("Height", "H", FieldKind.DIMENSION, minimum=0.0),
         ),
         resolve=resolve_manip_resize,
-        returns_point=False,
-        needs_anchor=True,
-    ),
-    "manip_rotate": Schema(
-        name="manip_rotate",
-        fields=(
-            FieldSpec("Angle", "A", FieldKind.ANGLE),
-        ),
-        resolve=resolve_manip_rotate,
         returns_point=False,
         needs_anchor=True,
     ),

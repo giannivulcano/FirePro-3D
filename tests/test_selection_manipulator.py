@@ -285,7 +285,7 @@ def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
     assert not _manip(scene).is_dragging()
 
 
-# ── Task 5: resize handles + rotate knob (capability-gated) ─────────────────
+# ── Task 5: resize handles (capability-gated) ───────────────────────────────
 
 def test_rect_shows_nine_local_grips_no_resize_handles(qapp, scene_and_view):
     """Task 9 (migrated from the 8-resize-handles expectation): a rect shows its
@@ -308,39 +308,17 @@ def test_rect_shows_nine_local_grips_no_resize_handles(qapp, scene_and_view):
 def test_line_shows_no_resize_handles(qapp, scene_and_view):
     scene, view = scene_and_view
     from firepro3d.geometry_2d import LineItem
-    from firepro3d.manip_math import HandleRole, _RESIZE_ROLES
+    from firepro3d.manip_math import _RESIZE_ROLES
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(ln)
     ln.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
-    # U1: a parametric line has no scale -> the 8 resize handles stay hidden
-    # (frame + its own grips), but it now implements manip_rotate, so the
-    # rotate knob IS shown (rigid rotate is universal after U1).
+    # A parametric line has no scale -> the 8 resize handles stay hidden
+    # (frame + its own grips). No rotate knob exists (removed 2026-09-23;
+    # guarded in tests/test_no_rotate_knob.py).
     for role in _RESIZE_ROLES:
         assert not manip._handles[role].isVisible()
-    assert manip._handles[HandleRole.ROTATE].isVisible()
-
-
-def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
-    scene, view = scene_and_view
-    from firepro3d.geometry_2d import RectangleItem
-    from firepro3d.manip_math import HandleRole
-    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
-    scene.addItem(r)
-    r.setSelected(True)
-    qapp.processEvents()
-    manip = _manip(scene)
-    # Drive the manipulator API directly (adapted to the ported signatures).
-    # Centre is (150, 125); start due-east, drag to due-north → ~90° CCW,
-    # Shift snaps the absolute angle to 15°.
-    manip._begin("rotate", QPointF(200, 125), QPointF(200, 125), HandleRole.ROTATE)
-    manip._update(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier,
-                  QPointF(150, 25))
-    manip._finish(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier)
-    qapp.processEvents()
-    assert r._angle % 15.0 == 0.0 and r._angle != 0.0
-    assert r.rotation() == 0.0            # baked-at-rest: no held Qt transform
 
 
 def test_rect_grip_resize_bakes_one_undo_no_transform(qapp, scene_and_view):
@@ -383,31 +361,6 @@ def test_scene_clear_then_press_self_heals(qapp, scene_and_view):
     _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(50, 50))
     _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(50, 50))
     assert not sip.isdeleted(scene._live_manip())
-
-
-def test_rotate_knob_press_starts_rotation_via_gate(qapp, scene_and_view):
-    """Regression (live smoke 2026-08-30): the rotate knob sits ABOVE the frame,
-    so the model press-router must route knob presses to the manipulator
-    (hit_test includes handles, not just the frame shape). A real posted press
-    on the knob must begin a rotate gesture — not fall through to selection
-    (which is why 'rotation doesn't work')."""
-    scene, view = scene_and_view
-    from firepro3d.geometry_2d import RectangleItem
-    from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
-    r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
-    scene.addItem(r)
-    r.setSelected(True)
-    qapp.processEvents()
-    manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
-    rect = manip._rect
-    knob = QPointF(rect.center().x(), rect.top() - _ROTATE_OFFSET_PX)
-    assert manip.hit_test(knob)                       # the gate would route it
-    _post_mouse(view, QEvent.Type.MouseButtonPress, knob)
-    assert manip._mode == "rotate"                    # rotate gesture began
-    _post_mouse(view, QEvent.Type.MouseMove, QPointF(rect.left() - 25, rect.center().y()))
-    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(rect.left() - 25, rect.center().y()))
-    assert r._angle != 0.0                             # actually rotated
-    assert r.rotation() == 0.0                         # baked at rest
 
 
 def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view):
