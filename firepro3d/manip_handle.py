@@ -433,13 +433,21 @@ class RectGripHandle(GripHandle):
     Ctrl = symmetric about the centre, Shift = keep aspect (corners). Angle and
     pivot are untouched. Esc restores the whole rect (both sides may move).
 
-    The scene→local mapping uses the PRESS-time inverse rotation, so a
-    centre-following pivot (``_pivot is None``) that shifts as the rect resizes
-    cannot skew the local frame mid-drag."""
+    A rotated rect with a centre-following pivot (``_pivot is None``) has its
+    pivot PINNED to the press-time centre (footprint unchanged at press) so the
+    rotation origin cannot drift as the rect resizes — otherwise the held
+    opposite corner/edge would move in scene. The scene→local mapping uses the
+    press-time inverse rotation (taken after pinning). Esc restores the
+    original ``_pivot`` (None) exactly."""
 
     def _extra_snapshots(self, m) -> None:
-        self._r0 = QRectF(self.item.rect())
-        inv, ok = self.item._rotation_transform().inverted()
+        it = self.item
+        self._r0 = QRectF(it.rect())
+        self._pivot_pinned = it._pivot is None and it._angle != 0.0
+        if self._pivot_pinned:
+            self._pivot0 = None
+            it._pivot = QPointF(it.rect().center())
+        inv, ok = it._rotation_transform().inverted()
         self._inv0 = inv if ok else QTransform()
 
     def _apply(self, pt: QPointF, mods) -> None:
@@ -454,6 +462,16 @@ class RectGripHandle(GripHandle):
     def _restore_extra(self, m) -> None:
         self.item.prepareGeometryChange()
         self.item.setRect(QRectF(self._r0))
+        if getattr(self, "_pivot_pinned", False):
+            self.item._pivot = self._pivot0
+
+    def on_release(self, m, scene_pos: QPointF, mods) -> None:
+        # A click without a drag must leave the rect byte-identical: un-pin the
+        # press-time pivot (a real drag keeps it pinned so the committed
+        # footprint matches the preview).
+        if not m._moved and getattr(self, "_pivot_pinned", False):
+            self.item._pivot = self._pivot0
+        super().on_release(m, scene_pos, mods)
 
 
 class EndpointGripHandle(GripHandle):

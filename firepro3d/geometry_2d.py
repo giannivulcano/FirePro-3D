@@ -1005,6 +1005,12 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         return [RectGripHandle(self, i, circular=i in (0, 2, 4, 6, 8))
                 for i in range(9)]
 
+    def manip_frame_redundant(self) -> bool:
+        """True while unrotated: the rect's own outline coincides with the
+        manipulator's axis-aligned frame, so the dashed frame is suppressed.
+        A rotated rect keeps the frame (its bounds add information)."""
+        return self._angle == 0.0
+
     def grip_render_angle(self, index: int) -> float:
         """Rotate the square edge-midpoint grips to the rect's baked Y-up
         orientation so their edges align with the (rotated) rect edges; the round

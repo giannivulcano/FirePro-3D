@@ -150,3 +150,49 @@ def test_release_commits_once_with_final_point():
     h.on_release(m, QPointF(50, 30), CTRL)
     assert it.rect() == QRectF(-10, -10, 60, 40)
     assert commits == ["grip"]
+
+
+def test_centre_pivot_plain_drag_holds_opposite_corner_and_esc_exact():
+    """Review follow-up: a rotated rect with a centre-following pivot
+    (``_pivot is None``) must not drift — a plain BR drag holds TL in scene;
+    Esc restores the rect AND ``_pivot is None``."""
+    it = RectangleItem(QPointF(0, 0), QPointF(40, 20))
+    it.set_angle(30.0)                                   # _pivot is None
+    tl0 = it.grip_points()[0]
+    h = it.manip_handles()[4]
+    m = _M()
+    h.on_press(m)
+    br = it.grip_points()[4]
+    target = QPointF(br.x() + 40, br.y() + 40)
+    h.on_drag(m, target, NONE)
+    h.on_drag(m, target, NONE)
+    assert _close(it.grip_points()[0], tl0)
+    assert _close(it.grip_points()[4], target)
+    h.on_cancel(m)
+    assert it._pivot is None
+    assert it.rect() == QRectF(0, 0, 40, 20)
+
+
+def test_centre_pivot_click_without_drag_leaves_pivot_none():
+    it = RectangleItem(QPointF(0, 0), QPointF(40, 20))
+    it.set_angle(30.0)
+    h = it.manip_handles()[4]
+    m = _M()
+    m._moved = False
+    h.on_press(m)
+    h.on_release(m, it.grip_points()[4], NONE)
+    assert it._pivot is None
+
+
+def test_frame_redundant_only_for_unrotated_rect(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.selection_manipulator import SelectionManipulator
+    scene = QGraphicsScene()
+    r = RectangleItem(QPointF(0, 0), QPointF(40, 20))
+    scene.addItem(r)
+    m = SelectionManipulator(scene)
+    r.setSelected(True); qapp.processEvents()
+    assert m._items == [r]
+    assert m._frame_is_redundant() is True               # outline == frame
+    r.set_angle(30.0, QPointF(0, 0))
+    assert m._frame_is_redundant() is False              # rotated: keep frame

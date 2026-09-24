@@ -658,8 +658,15 @@ class SelectionManipulator(QGraphicsObject):
         the bounding box — drawing the frame just traces the shape.  Show the
         handles alone (PowerPoint/Figma style); keep the frame for multi-select
         and non-box shapes, where the bounding box adds information."""
-        return (len(self._items) == 1
-                and self._is_box_native_single(self._items[0]))
+        if len(self._items) != 1:
+            return False
+        it = self._items[0]
+        if self._is_box_native_single(it):
+            return True
+        # Opt-in for non-box-native items whose outline can still coincide with
+        # the frame (an unrotated RectangleItem).
+        fn = getattr(it, "manip_frame_redundant", None)
+        return bool(fn()) if fn is not None else False
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
