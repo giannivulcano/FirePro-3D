@@ -192,9 +192,12 @@ def test_spacebar_cycles_overlapping_candidates(qapp, elevation_scene_for):
     b = _proxy(1000, 1000, 500, 500)
     elev.addItem(a)
     elev.addItem(b)
-    # Hover over the shared region to populate the candidate list (no dt/view
-    # needed for the pure scene query).
-    changed = elev.halo_update(QPointF(1250, 1250), 5.0, QTransform())
+    # Hover ON the shared outline (their common top-left corner). HALO now
+    # ranks by px distance to the drawn trace, not bbox/shape-box overlap
+    # (Task 3, retired the old "aperture box intersects" contract) — an
+    # unfilled proxy rect's interior (250 px from any edge here) is no
+    # longer a hit at a 5 px aperture, so the probe must sit on the outline.
+    changed = elev.halo_update(QPointF(1000, 1000), 5.0, QTransform())
     assert changed
     assert len(elev._halo_candidates) >= 2
     first = elev.halo_item()

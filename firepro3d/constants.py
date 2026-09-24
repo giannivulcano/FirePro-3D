@@ -276,7 +276,10 @@ TB_INSERT_BAND_PX = 6               # Arrangements canvas: hit-band (px) around 
 TB_POOL_CARD_W = 150                # Arrangements tab: pool card list width (px); consumed by Task 10
 
 # HALO preselection-highlight engine
-HALO_APERTURE_PX = 6      # screen-space pick aperture radius (px)
+HALO_APERTURE_PX = 15     # screen-space pick aperture radius (px)
+# SNAP-style priority band (px): candidates within this px distance of the
+# closest hit rank by runtime-Z desc, then distance (selection-mode.md §4.1).
+HALO_PRIORITY_BAND_PX = 12
 HALO_CYCLE_RESET_PX = 4   # cursor move beyond this rebuilds the candidate list
 # HALO trace-outline render (selection-mode.md §4.2): a single accent line that
 # traces the primitive's drawn geometry (not the fattened shape() hit-region),
