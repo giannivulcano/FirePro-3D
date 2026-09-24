@@ -464,40 +464,13 @@ _DIRECTIONAL_SCHEMAS = frozenset({"track", "rect_depth", "rect_depth_center"})
 # ── HUD widget ────────────────────────────────────────────────────────────
 
 def _format_span(deg: float) -> str:
-    """Format an arc-span magnitude in degrees, **without** ±180 normalisation.
-
-    Unlike ``ScaleManager.format_angle`` (a heading, wrapped to (-180, 180]),
-    a span is an unsigned sweep up to 360°, so 270° must render as ``"270°"``
-    rather than ``"-90°"``.  Two decimals, trailing zeros trimmed; non-finite
-    input renders ``"0°"`` rather than raising (this reaches Qt paint paths).
-    """
-    if not math.isfinite(deg):
-        return "0°"
-    s = f"{deg:.2f}".rstrip("0").rstrip(".")
-    return f"{s}°"
+    """Shell → :meth:`ScaleManager.format_span` (the one home)."""
+    return ScaleManager.format_span(deg)
 
 
 def _parse_span(text: str) -> float | None:
-    """Parse an arc-span magnitude in degrees, **without** normalisation.
-
-    Accepts a bare number or a trailing ``°``/``deg``/``degrees`` (same grammar
-    as ``ScaleManager.parse_angle``) but returns the value unwrapped, so a typed
-    ``270`` stays 270 rather than folding to −90.  The applier normalises the
-    final sweep and rejects a degenerate one, so the field itself stays lenient.
-
-    Returns:
-        The span in degrees, or None when unparseable so ``DimensionEdit``
-        reverts to the last valid value.
-    """
-    if not text:
-        return None
-    m = ScaleManager._ANGLE_RE.match(str(text))
-    if not m:
-        return None
-    try:
-        return float(m.group(1))
-    except (TypeError, ValueError):
-        return None
+    """Shell → :meth:`ScaleManager.parse_span` (the one home)."""
+    return ScaleManager.parse_span(text)
 
 
 def _format_count(value: float) -> str:
