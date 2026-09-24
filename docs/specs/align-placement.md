@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-03
-verified-commit: b5ddacf
+last-verified: 2026-09-23
+verified-commit: d31bfda
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -302,23 +302,38 @@ asserted. A **transform** schema resolves to a plain dict handled by its own app
 
 | Schema | Fields | `resolve` → | Built clients (`_APPLIER_FOR_MODE`) |
 |---|---|---|---|
-| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2**, **`wall` (line/polyline)**, **`pipe` (relative/absolute Angle — see §4a)** |
-| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` (sizing step), **`wall` (rect sizing)** |
+| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2** (all variants; End Points = the chord from A), **`wall` (line/polyline)**, **`floor` (polygon)**, **`pipe` (relative/absolute Angle — see §4a)** |
+| `rect_side` | W (Length), Angle | `QPointF` (side end) | 3-click rect **side** step, corner variant — `draw_rectangle`, `wall` rect, `floor` rect (resolve/seed shared with `line`) |
+| `rect_side_center` | W (**full** width), Angle | `QPointF` (edge midpoint, W/2 from the centre) | same, centre variant |
+| `rect_depth` | H (**signed**, + = left of the side) | `QPointF` | 3-click rect **depth** step, corner variant (reads the side's left normal from `__dir__`) |
+| `rect_depth_center` | H (**full** height) | `QPointF` (H/2 off the centre) | same, centre variant |
 | `circle` | Radius | `QPointF` | `draw_circle` |
-| `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 |
-| `rotation` | Angle | `{"angle_deg": float}` | `draw_rectangle` / `wall` (rotate step) |
+| `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 (Center / Start variants) |
+| `arc_radius` | Radius | `{"radius": float}` | `draw_arc` step 3, End Points variant (centre on the chord bisector; radius < ½ chord refused by the applier) |
+| `rotation` | Angle | `{"angle_deg": float}` | `polygon` / `place_block` (rotate step) |
 | `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
 | `distance` | Distance | `{"distance": float}` | `gridline_offset` |
 | `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |
 | **`track`** | **Distance** (signed) | **`QPointF`** | **ALIGN on-path (§5.7)** |
 
-Angles are **Y-up** (0° = right, 90° = up; scene Y is down). Rectangle X/Y are
-**signed**. `arc`/`rectangle`/`wall` are **step-aware**: `active_schema()` returns a
+Angles are **Y-up** (0° = right, 90° = up; scene Y is down). The corner-variant
+rect depth H is **signed**. `arc`/`rectangle`/`wall`/`floor`/`polygon` are
+**step-aware**: `active_schema()` returns a
 different schema per placement step and the existing `_sync_dynamic_input` rebuild
 swaps the HUD's field set. `arc_span` uses `FieldKind.SPAN` (unsigned 0–360°,
 non-normalising) so a reflex sweep reads 270°; its Arc-length field is a derived view
 coupled through the seeded radius (`set_coupling_radius`, in mm). The `rotation` angle
-is Y-up (CCW+) and negated at Qt's `setRotation` (CW+ on the Y-down scene).
+is Y-up (CCW+) and negated at Qt's `setRotation` (CW+ on the Y-down scene). The
+rect flow and the End Points arc are owned by `2d-geometry.md §4`; the deleted
+`rectangle` / `rectangle_center` schemas, the rect/wall/floor use of `rotation`,
+and the manipulator's `manip_rotate` schema (removed with the knob —
+`selection-manipulator.md`) no longer exist.
+
+**Direction injection (`__dir__`) is shared.** Schemas in `_DIRECTIONAL_SCHEMAS`
+(`dynamic_input.py`: `track`, `rect_depth`, `rect_depth_center`) receive a unit
+direction armed via `DynamicInputHud.set_track_direction` under the reserved
+`"__dir__"` key — `track`'s path direction (§5.7) or the rect's first-side left
+normal — so their resolvers stay pure `(anchor, values)` functions.
 
 **Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`) decides
 whether the HUD may open without a placement anchor. Every placement requires one;
@@ -390,8 +405,8 @@ primitive schema stays live).
   Registered for `draw_arc`, `draw_rectangle`, `wall`.
 - **Ghost updates on field commit** — `DynamicInputHud.fieldCommitted` redraws the
   live preview from current HUD values on each Tab field-commit, for all clients.
-- **Ctrl angle-snap + reference guides** — 45° constrain during arc / rect-rotate
-  steps, with protractor datum/sweep guides.
+- **Ctrl angle-snap + reference guides** — 45° constrain during the arc steps
+  (protractor datum/sweep guides) and the rect side step.
 - **Single-key tool shortcuts** — L/R/C/A/G (+ K placeholder for polyline),
   scene-focus-gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the
   visible view so step-0 keys reach the scene.
