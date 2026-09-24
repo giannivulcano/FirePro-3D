@@ -81,6 +81,26 @@ class ReadoutEntry:
     layout: object
 
 
+@dataclass
+class _EditSession:
+    """One open readout edit (selection-mode §15 input mode).
+
+    Attributes:
+        view: The ``Model_View`` whose viewport parents the HUD.
+        hud: The one-field ``DynamicInputHud``.
+        item: The primitive being edited.
+        spec: The dimension being edited (its ``apply`` is the setter).
+        key: ``(id(item), spec.key)`` — the label hidden while editing.
+        kind: The ``FieldKind`` of the HUD's single field.
+    """
+    view: object
+    hud: object
+    item: object
+    spec: DimSpec
+    key: tuple
+    kind: object
+
+
 class SelectionReadoutController:
     """Owns selection dimension readouts on one Model_Space (selection-mode §15).
 
@@ -253,18 +273,115 @@ class SelectionReadoutController:
             self.cancel_edit()
         self.refresh()
 
-    # ── edit session (Task 11) ───────────────────────────────────────────
+    # ── edit session ─────────────────────────────────────────────────────
     def is_editing(self) -> bool:
         """Whether a readout edit session is open."""
         return self._edit is not None
 
     def begin_edit(self, view, e: ReadoutEntry) -> None:
-        """Open the one-field HUD on *e* (implemented in Task 11)."""
-        raise NotImplementedError
+        """Open a latched, engaged one-field HUD on *e* (selection-mode §15).
+
+        The HUD seeds from the spec's live value, latches to the label's scene
+        position (so pan/zoom carry it) and takes the keyboard: from here until
+        commit/cancel ``Model_Space.is_input_mode()`` is True.
+        """
+        from .dynamic_input import DynamicInputHud, FieldKind, FieldSpec, Schema
+        self.cancel_edit()
+        kind = (FieldKind.SPAN if e.spec.field_kind == "span"
+                else FieldKind.DIMENSION)
+        schema = Schema(name="readout",
+                        fields=(FieldSpec(e.spec.field, e.spec.field, kind,
+                                          e.spec.minimum),),
+                        resolve=lambda _anchor, values: values,
+                        returns_point=False)
+        sm = getattr(self._scene, "scale_manager", None)
+        hud = DynamicInputHud(schema, sm, view.viewport())
+        # set_values takes schema (scene) units for DIMENSION and converts to
+        # mm with the same calibration guard, so mirror it on the way in.
+        seed = e.spec.value
+        if kind is FieldKind.DIMENSION and sm is not None and sm.is_calibrated:
+            seed = sm.mm_to_scene(seed)
+        hud.set_values({e.spec.field: seed})
+        self._edit = _EditSession(view=view, hud=hud, item=e.item,
+                                  spec=e.spec, key=self._key(e), kind=kind)
+        hud.committed.connect(self._on_committed)
+        hud.cancelled.connect(self._on_cancelled)
+        anchor = view.mapToScene(e.layout.center.toPoint())
+        view.place_dynamic_input(hud, anchor)
+        hud.show()
+        hud.engage()
+        self.refresh()
+
+    def _on_committed(self, values: dict) -> None:
+        """HUD ``committed`` slot: validate, apply, push one undo step.
+
+        A Qt slot — it must never raise (PyQt6 aborts the process on an
+        exception escaping a slot), so everything is guarded.
+        """
+        s = self._edit
+        if s is None or not self._scene_alive() or sip.isdeleted(s.hud):
+            return
+        try:
+            from .dynamic_input import FieldKind
+            v = float(values.get(s.spec.field, s.spec.value))
+            if s.kind is FieldKind.DIMENSION:
+                v = s.hud.scene_to_mm(v)
+            if (v <= s.spec.minimum
+                    or (s.spec.maximum is not None and v > s.spec.maximum)):
+                s.hud.reject_commit()          # stays open, red border
+                return
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout commit read failed")
+            self.cancel_edit()
+            return
+        try:
+            s.spec.apply(v)
+        except Exception:                      # never half-apply into undo
+            import logging
+            logging.getLogger(__name__).exception("readout apply failed")
+            self.cancel_edit()
+            return
+        try:
+            self._scene.push_undo_state()      # mutate-then-push: one step
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout undo push failed")
+        self._end_session()
+
+    def _on_cancelled(self) -> None:
+        """HUD ``cancelled`` slot (Escape). Never raises."""
+        try:
+            self.cancel_edit()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout cancel failed")
 
     def cancel_edit(self) -> None:
-        """Close any open edit session without applying (Task 11)."""
-        self._edit = None
+        """Close any open edit session without applying."""
+        if self._edit is not None:
+            self._end_session()
+
+    def _end_session(self) -> None:
+        """Tear the HUD down, release the latch and hand focus back."""
+        s, self._edit = self._edit, None
+        if s is None:
+            return
+        hud = s.hud
+        if not sip.isdeleted(hud):
+            for sig, slot in ((hud.committed, self._on_committed),
+                              (hud.cancelled, self._on_cancelled)):
+                try:
+                    sig.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            hud.hide()
+            hud.deleteLater()
+        view = s.view
+        if view is not None and not sip.isdeleted(view):
+            view._dyn_anchor_scene = None      # don't leak the latch to placement
+            view.setFocus()
+        self.refresh()
 
     @property
     def hud(self):

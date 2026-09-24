@@ -2915,8 +2915,26 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     ENGAGE_CHARS = "0123456789.-"
 
     def is_input_mode(self) -> bool:
-        """Shell → PlacementInputCoordinator.is_input_mode."""
-        return self._plc.is_input_mode()
+        """Placement HUD engaged OR a selection-readout edit is open.
+
+        selection-mode §15: while either holds the canvas is inert and Ctrl+Z
+        belongs to the field.  The placement half is
+        ``PlacementInputCoordinator.is_input_mode``.
+        """
+        if self._plc.is_input_mode():
+            return True
+        ro = getattr(self, "readouts", None)     # absent mid-__init__
+        return ro is not None and ro.is_editing()
+
+    def active_hud(self):
+        """The HUD that currently owns input.
+
+        The readout editor if one is open, else the placement HUD (either may
+        be None).
+        """
+        ro = getattr(self, "readouts", None)
+        hud = ro.hud if ro is not None else None
+        return hud if hud is not None else self.dynamic_input
 
     def _hud_available(self) -> bool:
         """Shell → PlacementInputCoordinator._hud_available."""

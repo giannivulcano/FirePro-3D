@@ -101,3 +101,68 @@ def test_scene_teardown_with_selection_exits_cleanly():
     r = subprocess.run([sys.executable, "-c", _TEARDOWN_SCRIPT], cwd=root, env=env,
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, (r.returncode, r.stderr[-2000:])
+
+
+# ── Task 11: edit session + input-mode generalization ─────────────────────
+from firepro3d.dynamic_input import DynamicInputHud
+
+
+def _label_center(v, sc, key="length"):
+    return next(e.layout.center for e in sc.readouts.layouts(v) if e.spec.key == key)
+
+
+def test_begin_edit_engages_hud_and_input_mode(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    e = sc.readouts.layouts(v)[0]
+    sc.readouts.begin_edit(v, e)
+    hud = sc.readouts.hud
+    assert isinstance(hud, DynamicInputHud) and hud.is_engaged()
+    assert sc.is_input_mode() and sc.active_hud() is hud
+    assert ln.isSelected()
+
+
+def test_commit_applies_one_undo_step(be):
+    v, sc = be
+    ln = _add_line(sc)
+    sc.push_undo_state()
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    pos0 = sc._undo_pos
+    sc.readouts.hud.committed.emit({"Length": 500.0})
+    assert ln.line().length() == pytest.approx(500.0)
+    assert sc._undo_pos == pos0 + 1
+    assert not sc.readouts.is_editing() and not sc.is_input_mode()
+
+
+def test_out_of_range_rejects_and_stays_open(be):
+    v, sc = be
+    from firepro3d.geometry_2d import ArcItem
+    a = ArcItem(QPointF(0, 0), 200.0, 0.0, 90.0)
+    sc.addItem(a)
+    a.setSelected(True)
+    e = next(x for x in sc.readouts.layouts(v) if x.spec.key == "angle")
+    sc.readouts.begin_edit(v, e)
+    sc.readouts.hud.committed.emit({"Angle": 400.0})
+    assert sc.readouts.is_editing() and a._span_deg == pytest.approx(90.0)
+
+
+def test_escape_cancels(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    ed = sc.readouts.hud.editor("Length")
+    QTest.keyClick(ed, Qt.Key.Key_Escape)
+    assert not sc.readouts.is_editing()
+    assert ln.line().length() == pytest.approx(300.0)
+
+
+def test_selection_change_cancels(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    sc.clearSelection()
+    assert not sc.readouts.is_editing()

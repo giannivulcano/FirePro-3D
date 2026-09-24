@@ -671,6 +671,22 @@ class Model_View(QGraphicsView):
     # -----------------------------
     def mousePressEvent(self, event):
         sc = self.scene()
+        # Selection-readout edit open (selection-mode §15): the canvas is inert.
+        # A middle press still pans (navigating while typing); any other press
+        # outside the HUD cancels the edit and is consumed — no deselect, no
+        # band, no manipulator gesture.
+        ro = getattr(sc, "readouts", None) if sc is not None else None
+        if ro is not None and ro.is_editing():
+            if event.button() == Qt.MouseButton.MiddleButton:
+                self._panning = True
+                self._pan_start = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                if ro.hud is not None:
+                    ro.hud.restore_focus()
+            else:
+                ro.cancel_edit()
+            event.accept()
+            return
         hud = getattr(sc, "dynamic_input", None) if sc is not None else None
         if hud is not None and sc.is_input_mode():
             # Gated on input mode, not on the HUD existing: under decision S1 a
@@ -1012,7 +1028,9 @@ class Model_View(QGraphicsView):
     def _reposition_dynamic_input(self) -> None:
         """Re-place the open HUD, if there is one parented here."""
         sc = self.scene()
-        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        hud = (sc.active_hud() if sc is not None and hasattr(sc, "active_hud")
+               else getattr(sc, "dynamic_input", None) if sc is not None
+               else None)
         if hud is None or hud.parentWidget() is not self.viewport():
             return
         self.place_dynamic_input(hud)
