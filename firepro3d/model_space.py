@@ -2668,10 +2668,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Return the ``track`` Schema when the on-path swap should be live, else None.
 
         Scoped to placement modes whose normal (non-track) schema resolves to a
-        point — line/circle/rectangle-sizing and friends.  A transform mode
-        (move, the gridline replicate modes) or the rectangle/polygon rotate
-        step has no meaningful "distance along a path", so the swap is refused
-        there and the primitive schema stays live.  The mode must also be able
+        point — line/circle/the 3-click rect side + depth steps and friends.  A
+        transform mode (move, the gridline replicate modes) or the polygon /
+        block rotate step has no meaningful "distance along a path", so the
+        swap is refused there and the primitive schema stays live.  The mode must also be able
         to commit a typed point (``_APPLIER_FOR_MODE``), or an engaged track HUD
         would dead-end — the same honesty gate ``_hud_available`` applies.
         """
@@ -6056,7 +6056,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             True when the side was fixed, False when refused (no base, or a
             FULL side under 0.5 mm — the placement stays at the side step).
         """
-        from .geometry_2d import rect_side_ghost
+        from .geometry_2d import rect_side_ghost, apply_rect_ghost
         base = self._floor_rect_anchor
         if base is None:
             return False
@@ -6069,6 +6069,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._floor_rect_ref_line0 is not None:
             a, b = rect_side_ghost(base, side_pt, self._floor_rect_from_center)
             self._floor_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
+        # Zero-depth ghost: the fixed side, until the cursor gives it depth.
+        apply_rect_ghost(self._floor_rect_preview, base, side_pt, side_pt,
+                         self._floor_rect_from_center)
         self.clear_placement_state()
         self.instructionChanged.emit("Pick depth (second side)")
         return True

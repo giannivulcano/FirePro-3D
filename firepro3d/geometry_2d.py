@@ -2294,6 +2294,16 @@ def rect_from_side_and_depth(base, side_pt, depth, from_center):
         rectangle — the unrotated local rect about ``pivot = base``.  None
         when a FULL extent is under 0.5 mm.
     """
+    return _rect_solve(base, side_pt, depth, from_center, 0.5)
+
+
+def _rect_solve(base, side_pt, depth, from_center, min_extent):
+    """``rect_from_side_and_depth`` with the minimum FULL extent as a parameter.
+
+    ``min_extent=0.0`` admits a zero-depth (line-along-the-side) rect — the
+    ghost shape — while commits use the 0.5 mm floor.  None for a
+    degenerate (zero-length) side whatever the floor.
+    """
     f = rect_side_frame(base, side_pt)
     if f is None:
         return None
@@ -2301,11 +2311,11 @@ def rect_from_side_and_depth(base, side_pt, depth, from_center):
     bx, by = base.x(), base.y()
     if from_center:
         h = abs(depth)
-        if 2 * length < 0.5 or 2 * h < 0.5:
+        if 2 * length < min_extent or 2 * h < min_extent:
             return None
         return (QPointF(bx - length, by - h), QPointF(bx + length, by + h),
                 angle, QPointF(base))
-    if length < 0.5 or abs(depth) < 0.5:
+    if length < min_extent or abs(depth) < min_extent:
         return None
     # Unrotated local frame: the side runs +x from base, positive depth is
     # Y-up (screen -y); set_angle then turns it about base onto the real side.
@@ -2318,23 +2328,23 @@ def apply_rect_ghost(preview, base, side_pt, cursor, from_center):
 
     One home for the 2D / wall / floor depth-step ghost.  Uses the same Qt
     transform ``RectangleItem.set_angle`` does, so the ghost matches the
-    committed item.
+    committed item.  The ghost is drawn WITHOUT the 0.5 mm floor, so a
+    near-zero depth shows as a line along the first side (not a stale shape).
 
     Returns:
-        The ``rect_from_side_and_depth`` solution, or None (the ghost is left
-        at its last valid shape).
+        The ``rect_from_side_and_depth`` solution — None when a full extent is
+        under 0.5 mm (the commit would refuse it) even though the ghost was
+        still drawn.
     """
-    sol = rect_from_side_and_depth(base, side_pt,
-                                   rect_signed_depth(base, side_pt, cursor),
-                                   from_center)
-    if preview is None or sol is None:
-        return sol
-    pt1, pt2, ang, piv = sol
-    preview.setRotation(0.0)
-    preview.setRect(QRectF(pt1, pt2).normalized())
-    preview.setTransformOriginPoint(piv)
-    preview.setRotation(-ang)            # Y-up CCW → Qt CW negate
-    return sol
+    depth = rect_signed_depth(base, side_pt, cursor)
+    ghost = _rect_solve(base, side_pt, depth, from_center, 0.0)
+    if preview is not None and ghost is not None:
+        pt1, pt2, ang, piv = ghost
+        preview.setRotation(0.0)
+        preview.setRect(QRectF(pt1, pt2).normalized())
+        preview.setTransformOriginPoint(piv)
+        preview.setRotation(-ang)        # Y-up CCW → Qt CW negate
+    return rect_from_side_and_depth(base, side_pt, depth, from_center)
 
 
 def rotated_rect_corners(pt1, pt2, angle_deg, pivot):

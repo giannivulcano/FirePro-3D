@@ -445,6 +445,9 @@ class WallPlacementController:
         if s._wall_rect_ref_line0 is not None:
             a, b = rect_side_ghost(base, side_pt, s._wall_rect_from_center)
             s._wall_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
+        # Zero-depth ghost: the fixed side, until the cursor gives it depth.
+        apply_rect_ghost(s._wall_rect_preview, base, side_pt, side_pt,
+                         s._wall_rect_from_center)
         s.clear_placement_state()
         s.instructionChanged.emit("Pick depth (second side)")
         return True

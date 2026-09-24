@@ -687,7 +687,7 @@ class GeometryDrawingController:
             s._draw_rect_anchor = QPointF(snapped)
             s.update_preview_node(snapped)
             s.instructionChanged.emit(
-                "Pick side midpoint (direction + width)" if s._draw_rect_from_center
+                "Pick edge midpoint (width + angle)" if s._draw_rect_from_center
                 else "Pick first side (direction + width)")
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
             _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
@@ -730,6 +730,9 @@ class GeometryDrawingController:
         if s._draw_rect_ref_line0 is not None:
             a, b = rect_side_ghost(base, side_pt, s._draw_rect_from_center)
             s._draw_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
+        # Zero-depth ghost: the fixed side, until the cursor gives it depth.
+        apply_rect_ghost(s._draw_rect_preview, base, side_pt, side_pt,
+                         s._draw_rect_from_center)
         s.clear_placement_state()
         s.instructionChanged.emit("Pick depth (second side)")
         return True

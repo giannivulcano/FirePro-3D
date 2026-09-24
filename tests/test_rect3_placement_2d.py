@@ -140,3 +140,39 @@ def test_roundtrip(scene):
     back = RectangleItem.from_dict(it.to_dict())
     for a, b in zip(back.grip_points(), it.grip_points()):
         assert _close(a, b)
+
+
+def _ghost_bounds(preview):
+    return preview.mapToScene(preview.rect()).boundingRect()
+
+
+def test_ghost_after_side_click_spans_the_side(scene):
+    """Right after click 2 the ghost is the zero-depth rect along the side —
+    not the zero-size click-1 dot."""
+    _press(scene, 0, 0); _press(scene, 30, -40)
+    br = _ghost_bounds(scene._draw_rect_preview)
+    assert br.left() == pytest.approx(0, abs=1e-6)
+    assert br.right() == pytest.approx(30, abs=1e-6)
+    assert br.top() == pytest.approx(-40, abs=1e-6)
+    assert br.bottom() == pytest.approx(0, abs=1e-6)
+
+
+def test_ghost_follows_sub_floor_depth(scene):
+    """|depth| < 0.5 still redraws the ghost (a thin rect), though a commit
+    would refuse it."""
+    _press(scene, 0, 0); _press(scene, 40, 0)
+    scene._move_draw_rectangle(None, QPointF(20, 5))       # valid depth first
+    scene._move_draw_rectangle(None, QPointF(20, 0.2))     # sub-floor depth
+    br = _ghost_bounds(scene._draw_rect_preview)
+    assert br.width() == pytest.approx(40, abs=1e-6)
+    assert br.height() == pytest.approx(0.2, abs=1e-6)
+
+
+def test_track_point_at_depth_step_uses_perpendicular_part(scene):
+    """An ALIGN ``track``-resolved point may sit off the side's normal: only
+    its perpendicular component sets H; the side (W) is unchanged."""
+    _press(scene, 0, 0); _press(scene, 40, 0)
+    assert scene._apply_rectangle_dynamic_input(QPointF(100, -12)) is True
+    cs = _corners(scene._draw_rects[-1])
+    assert sorted(round(c.x(), 6) for c in cs) == [0, 0, 40, 40]
+    assert sorted(round(c.y(), 6) for c in cs) == [-12, -12, 0, 0]

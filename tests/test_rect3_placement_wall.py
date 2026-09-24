@@ -139,3 +139,20 @@ def test_wall_rect_side_step_ghost_is_side_guide(scene):
     line = scene._wall_rect_ref_line0.line()
     assert (line.x2(), line.y2()) == pytest.approx((3000, 0))
     assert scene._wall_rect_thickness_preview is None
+
+
+def test_wall_rect_ghost_after_side_click_spans_the_side(scene):
+    _press(scene, 0, 0); _press(scene, 3000, -4000)
+    p = scene._wall_rect_preview
+    br = p.mapToScene(p.rect()).boundingRect()
+    assert (br.left(), br.right()) == pytest.approx((0, 3000), abs=1e-6)
+    assert (br.top(), br.bottom()) == pytest.approx((-4000, 0), abs=1e-6)
+
+
+def test_wall_rect_centre_side_prompt(centre_scene):
+    got = []
+    centre_scene.instructionChanged.connect(got.append)
+    _press(centre_scene, 0, 0)
+    assert got[-1] == "Pick edge midpoint (width + angle)"
+    _press(centre_scene, 2000, 0)
+    assert got[-1] == "Pick depth (second side)"
