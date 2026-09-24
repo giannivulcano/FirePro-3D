@@ -35,7 +35,7 @@ class TestRegistry:
         assert set(SCHEMAS) == {
             "line", "rectangle", "rectangle_center", "circle", "polygon",
             "displacement", "distance", "spacing_count",
-            "arc_span", "rotation", "track",
+            "arc_span", "arc_radius", "rotation", "track",
             "manip_move", "manip_resize", "manip_rotate",
         }
 
@@ -94,14 +94,16 @@ class TestRegistry:
     def test_requires_anchor_covers_placements_plus_move(self):
         """The engage/commit anchor gate keys on this, not on ``is_placement``.
 
-        Every placement needs an anchor; ``move`` and ``arc_span`` are the
-        transforms that also do (a base point / an armed centre+radius+start),
+        Every placement needs an anchor; ``move``, ``arc_span`` and
+        ``arc_radius`` are the transforms that also do (a base point / an
+        armed centre+radius+start / an armed chord),
         so neither opens a HUD before that state exists.  The gridline
         replicate transforms are anchorless.
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "rectangle", "rectangle_center", "circle",
-                        "polygon", "displacement", "arc_span", "rotation",
+                        "polygon", "displacement", "arc_span", "arc_radius",
+                        "rotation",
                         "track", "manip_move", "manip_resize", "manip_rotate"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):

@@ -1244,6 +1244,7 @@ class GeometryDrawingController:
         if s._draw_arc_step == 0:
             s._draw_arc_ep_a = QPointF(snapped)
             s._draw_arc_ep_major = False
+            s._draw_arc_ep_side = 1        # fresh placement: no inherited side
             s._draw_arc_step = 1
             s.update_preview_node(snapped)
             s.instructionChanged.emit("Pick second end point")
@@ -1284,7 +1285,7 @@ class GeometryDrawingController:
         s._draw_arc_ref_start = s._make_ref_line()    # centre → A
         s._draw_arc_ref_sweep = s._make_ref_line()    # centre → B
         s.clear_placement_state()
-        s.instructionChanged.emit("Pick centre point (Space: minor/major)")
+        s.instructionChanged.emit("Pick center point (Space: minor/major)")
         return True
 
     def _arc_ep_solve(self, cursor):

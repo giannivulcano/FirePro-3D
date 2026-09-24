@@ -7,10 +7,6 @@ from firepro3d.model_space import Model_Space, _ARC_VARIANT_ENDPOINTS
 from firepro3d.geometry_2d import ArcItem
 
 
-def _close(p, q, tol=1e-6):
-    return abs(p.x() - q.x()) < tol and abs(p.y() - q.y()) < tol
-
-
 @pytest.fixture
 def scene(qapp):
     s = Model_Space(scene_role="block_editor")
@@ -87,3 +83,32 @@ def test_start_variant_prompt_asks_for_centre(qapp):     # fold G
     s.instructionChanged.connect(seen.append)
     s._press_draw_arc(None, None, QPointF(0, 0), None, None, None)
     assert seen[-1] == "Pick center point"
+
+
+def test_escape_mid_centre_step_tears_down_previews(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    scene._move_draw_arc(None, QPointF(50, 40))
+    items = [scene._draw_arc_preview, scene._draw_arc_ref_line0,
+             scene._draw_arc_ref_start, scene._draw_arc_ref_sweep]
+    assert all(i is not None and i.scene() is scene for i in items)
+    scene.set_mode("select")
+    assert all(i.scene() is None for i in items)
+    assert scene._draw_arc_ep_a is None and scene._draw_arc_ep_b is None
+    assert scene._draw_arc_step == 0
+
+
+def test_semicircle_keeps_last_hovered_side(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    scene._move_draw_arc(None, QPointF(50, 40))      # hover: centre below
+    _press(scene, 50, 0)                              # commit on the chord
+    arc = _placed(scene)
+    assert arc._span_deg == pytest.approx(180.0)
+    assert arc.arc_midpoint().y() < 0.0              # bulges up (away)
+
+
+def test_typed_radius_preview_point_on_bisector(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    anchor = scene.get_placement_anchor()
+    c = scene._transform_preview_point({"radius": 60.0}, anchor)
+    assert c.x() == pytest.approx(50.0)
+    assert math.hypot(c.x(), c.y()) == pytest.approx(60.0)
