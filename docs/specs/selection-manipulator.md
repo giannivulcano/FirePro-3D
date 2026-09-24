@@ -1,12 +1,12 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook
-last-verified: 2026-09-23
-verified-commit: d31bfda   # arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24)
+last-verified: 2026-09-24
+verified-commit: 4e48885   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles
   - firepro3d/manip_math.py
-  - firepro3d/arc_math.py                # ArcItem centre/endpoint grip refits (shared with End Points placement — 2d-geometry.md §4)
+  - firepro3d/arc_math.py                # ArcItem centre-grip bisector math + angle helpers (shared with End Points placement — 2d-geometry.md §4)
   - firepro3d/model_view.py              # drawForeground snap/constraint overlay + manipulator render_overlay (grip-render loop retired U4)
   - firepro3d/scene_tools.py             # legacy _find_grip_hit retired U4 (no grip code remains)
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
@@ -767,17 +767,19 @@ shared with the End Points placement — `2d-geometry.md §4`):
   kept, so dragging across the chord grows the arc through a semicircle into a
   major arc). A full-circle arc (no chord) translates instead. A degenerate
   result holds the last valid shape.
-- **Start (1) / End (2)** — `ArcEndpointGripHandle(GripHandle)`: a **3-point
-  refit** — the dragged endpoint lands on the point while the other endpoint and
-  the arc **midpoint** stay fixed, both taken at **press** time
-  (`_extra_snapshots` → `ArcItem.begin_endpoint_refit()` snapshots
-  start/end/mid/centre/radius into `_arc_refit_ref`; cleared by
-  `end_endpoint_refit()` on release/cancel). **Ctrl** projects the drag radially
-  onto the press-time circle (`_transform_point`), so only the endpoint's angle
-  changes. A collinear or orientation-flipping point is **invalid → the last
-  valid shape holds**. Esc restores through `apply_grip` with the ref still live.
+- **Start (1) / End (2)** — `ArcEndpointGripHandle(GripHandle)` (2026-09-24,
+  replaces the 3-point refit): the **centre, radius and the other endpoint stay
+  fixed**; the drag point is projected radially onto the circle and only the
+  dragged endpoint's angle changes. Start drag: start = angle(point), span =
+  (end angle − start) mod 360; end drag: span = (angle(point) − start) mod 360.
+  A span < 0.5° or > 359.5° (or a point on the centre) **holds the last valid
+  shape**. No modifier semantics (Ctrl is not special). The circle is invariant
+  during the drag, so `apply_grip` reads the live centre/radius (no press-time
+  ref on the item). The handle snapshots the arc data on press
+  (`_extra_snapshots`) and `_restore_extra` writes it back, so Esc restores
+  byte-exactly.
 - `ArcItem` stores every arc CCW (a negative span is normalised in `__init__`),
-  which the refits assume.
+  which the span formulas assume.
 
 **RegularPolygonItem.manip_handles()** → `default_grip_handles(self,
 circular=all indices)`: centre + N vertices, all round (centre = move; each
@@ -860,7 +862,7 @@ byte-parity vs legacy `apply_grip`, one-undo, Esc restore),
 adds Ctrl-constrain-wiring + midpoint-translate), and
 `tests/test_manip_griphandle_arc_parity.py` (Arc — shape, end-grip apply,
 posted start-grip drag, one-commit, Esc-restore) + `tests/test_arc_grip_reshape.py`
-(bisector centre, 3-point refit, Ctrl along-circle, invalid holds) +
+(bisector centre, endpoint slide-along-circle, span formulas, Ctrl not special, degenerate-span holds, byte-exact Esc) +
 `tests/test_arc_math.py`, and
 `tests/test_manip_griphandle_polygon_parity.py` (RegularPolygon parity — shape,
 handle-count-tracks-sides, centre/vertex legacy-apply match, posted centre+vertex

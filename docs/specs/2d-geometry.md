@@ -6,8 +6,8 @@ applies-to:
   - firepro3d/arc_math.py      # pure arc construction (End Points placement + arc grips)
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-23
-verified-commit: d31bfda
+last-verified: 2026-09-24
+verified-commit: 4e48885
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -287,8 +287,14 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 - Items that expose defining geometry render it as reference lines on selection:
   `EllipseItem` (major + minor axes), `SplineItem` (control polygon),
   `RegularPolygonItem` (circumradius circle), **`RectangleItem` (corner
-  diagonals), `CircleItem` (radius guide + bounding box)** — the latter two via
+  diagonals), `CircleItem` (radius guide + bounding box), `ArcItem` (radials
+  centre → start and centre → end, 2026-09-24)** — the latter three via
   `_selection_ref_segments()`.
+- Because an arc's centre can lie outside its path bounds, a **selected**
+  `ArcItem`'s `boundingRect()` also covers the centre (`itemChange` calls
+  `prepareGeometryChange()` on `ItemSelectedChange`) so the radials repaint; its
+  `shape()` stays the stroked arc, so clicking empty space near the centre does
+  not select it.
 
 ## 4. Placement workflows (`model_space.py`)
 
@@ -349,15 +355,22 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   cursor is projected onto it). The default is the **minor** arc, bulging away
   from the centre's side of the chord; **Space** toggles minor ↔ major (reset per
   placement); with the centre on the chord (semicircle) the last non-zero side is
-  kept. Guides: centre → apex, centre → A, centre → B. Step 3 HUD = `arc_radius`
-  (typed radius places the centre on the bisector on the live side; a radius
-  below ½ chord is refused). One home for the math: `arc_math.py`
-  (`project_to_bisector`, `arc_through_chord`, `center_for_radius`,
-  `arc_from_three_points`).
+  kept. **90° snap (2026-09-24):** for the mouse preview and click commit, when
+  the centre's signed bisector distance |t| is within the OSNAP aperture of the
+  half-chord h (the radials C→A and C→B perpendicular), |t| is pinned to h (sign
+  kept) so the arc is exactly 90° minor / 270° major. The window is
+  `SNAP_TOLERANCE_PX` converted by the active view zoom (`px_to_scene` +
+  `_active_view_scale()`; with no view attached the scale falls back to 1.0,
+  i.e. `SNAP_TOLERANCE_PX` scene mm). Guides: centre → apex, centre → A,
+  centre → B. Step 3 HUD = `arc_radius` (typed radius places the centre on the
+  bisector on the live side — exact, **never** 90°-snapped; a radius below ½
+  chord is refused). One home for the math: `arc_math.py`
+  (`project_to_bisector`, `arc_through_chord`, `center_for_radius`); the snap
+  lives in `GeometryDrawingController._arc_ep_solve(snap90=…)`.
 - **`ArcItem` storage is CCW:** a negative (CW) span passed to `__init__` (mirror
   tool, legacy saves) is normalised to the same geometric arc with a positive span
   (start += span, span = −span). Grips: centre / start / end — their drag
-  semantics (bisector slide; 3-point refit) are owned by
+  semantics (centre: bisector slide; ends: slide along the circle) are owned by
   `selection-manipulator.md` (U3 ArcItem).
 - **Placement selection (no accumulation):** every primitive is
   `setSelected(True)` on commit, and the commit **clears the prior selection
