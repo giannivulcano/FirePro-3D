@@ -34,7 +34,6 @@ class HaloSelectionMixin:
         self._halo_index: int = 0
         self._halo_pick_pos = None
         self.halo_enabled: bool = True
-        self._band_preview: list = []
         self._rb_active_flag: bool = False
 
     # ---- overridable hooks (plan-neutral defaults) -------------------------
@@ -129,10 +128,40 @@ class HaloSelectionMixin:
         ranked = [r for r in ranked if self._halo_candidate_ok(r, scene_pos)]
         return ranked
 
+    def select_items(self, items, *, clear: bool = True):
+        """Select *items* as one batch with a single ``selectionChanged``.
+
+        Per-item ``setSelected`` fires ``selectionChanged`` each time and every
+        listener (manipulator rebake, property panel) walks the whole growing
+        selection — O(n^2) on large batches. Items not in this scene or not
+        selectable are skipped.
+
+        Args:
+            items: Iterable of scene items to select.
+            clear: Clear the existing selection first (default True).
+        """
+        selectable = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        self.blockSignals(True)
+        try:
+            if clear:
+                self.clearSelection()
+            for it in items:
+                if it is not None and it.scene() is self and it.flags() & selectable:
+                    it.setSelected(True)
+        finally:
+            self.blockSignals(False)
+        self.selectionChanged.emit()
+
     def commit_rubber_band(self, scene_rect, crossing: bool, additive: bool,
                            dt=None):
-        """Select items in scene_rect. window(crossing=False)->fully contained,
-        crossing=True->intersecting. additive (Ctrl) adds to current selection.
+        """Select items in scene_rect as ONE batch. window(crossing=False)
+        ->fully contained, crossing=True->intersecting. additive (Ctrl) adds
+        to current selection.
+
+        Delegates to :meth:`select_items` (single ``selectionChanged``
+        emission) rather than per-item ``setSelected`` — the latter is O(n^2)
+        on large bands (every listener walks the growing selection on every
+        emission; >10 min on 85k items).
 
         ``dt`` is the view's device transform (``viewportTransform()``). It must
         be supplied so ``ItemIgnoresTransformations`` markers (Nodes) are hit
@@ -141,19 +170,15 @@ class HaloSelectionMixin:
         ``dt`` is None (headless/unit tests) the 2-arg query is used.
         """
         hits = self.rubber_band_hits(scene_rect, crossing, dt)
-        if not additive:
-            self.clearSelection()
-        for r in hits:
-            r.setSelected(True)
+        self.select_items(hits, clear=not additive)
 
     def rubber_band_hits(self, scene_rect, crossing: bool, dt=None):
         """Resolved, filtered items a window(crossing=False)/crossing band selects.
 
-        Pure query (no selection side-effects): shared by
-        :meth:`commit_rubber_band` (which selects them) and the live band
-        preview (which HALO-highlights them). Mirrors the historical
-        commit filter semantics exactly, with dedupe on resolved identity so a
-        parent hit via multiple children is highlighted once.
+        Pure query (no selection side-effects): the set :meth:`commit_rubber_band`
+        selects. Mirrors the historical commit filter semantics exactly, with
+        dedupe on resolved identity so a parent hit via multiple children is
+        counted once.
 
         ``dt`` is the view's device transform (``viewportTransform()``); it
         must be supplied so ``ItemIgnoresTransformations`` markers (Nodes) hit
@@ -186,17 +211,6 @@ class HaloSelectionMixin:
             seen.add(id(r))
             out.append(r)
         return out
-
-    def update_band_preview(self, scene_rect, crossing: bool, dt=None):
-        """Recompute the live band preselection preview set (highlighted, not
-        selected). Called from the view's move handler while banding."""
-        self._band_preview = self.rubber_band_hits(scene_rect, crossing, dt)
-
-    def clear_band_preview(self) -> bool:
-        """Drop the band preview set. Returns True if it had been populated."""
-        had = bool(self._band_preview)
-        self._band_preview = []
-        return had
 
     def _halo_cycle(self) -> bool:
         """Spacebar in select mode: advance the HALO preselection highlight."""
@@ -248,7 +262,6 @@ class HaloSelectionMixin:
             if getattr(v, "_rb_active", False):
                 v._rb_active = False
                 self._rb_active_flag = False
-                self.clear_band_preview()
                 v.viewport().update()
                 return True
         if self.halo_item() is not None or self._halo_candidates:

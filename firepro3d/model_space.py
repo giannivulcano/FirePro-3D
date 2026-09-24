@@ -205,9 +205,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
-        # HALO hover + rubber-band preview state (U5) — scene-owned; view drives
-        # via halo_update (A6). Extracted to HaloSelectionMixin (Leg B): inits
-        # _halo_candidates/_halo_index/_halo_pick_pos/_band_preview/halo_enabled/
+        # HALO hover + rubber-band state (U5) — scene-owned; view drives via
+        # halo_update (A6). Extracted to HaloSelectionMixin (Leg B): inits
+        # _halo_candidates/_halo_index/_halo_pick_pos/halo_enabled/
         # _rb_active_flag. Aperture + priority band are app-wide module globals
         # on halo_selection (selection-mode §4.5) — no per-scene aperture.
         self._init_halo_state()
@@ -922,30 +922,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.update()
         self._show_status(f"Deleted {len(selected)} item(s)")
         self.push_undo_state()
-
-    def select_items(self, items, *, clear: bool = True):
-        """Select *items* as one batch with a single ``selectionChanged``.
-
-        Per-item ``setSelected`` fires ``selectionChanged`` each time and every
-        listener (manipulator rebake, property panel) walks the whole growing
-        selection — O(n^2) on large batches. Items not in this scene or not
-        selectable are skipped.
-
-        Args:
-            items: Iterable of scene items to select.
-            clear: Clear the existing selection first (default True).
-        """
-        selectable = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-        self.blockSignals(True)
-        try:
-            if clear:
-                self.clearSelection()
-            for it in items:
-                if it is not None and it.scene() is self and it.flags() & selectable:
-                    it.setSelected(True)
-        finally:
-            self.blockSignals(False)
-        self.selectionChanged.emit()
 
     def _bulk_delete(self, selected, selected_set):
         """Internal bulk-delete: removes items without per-item scene updates."""

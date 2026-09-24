@@ -117,15 +117,13 @@ class ElevationView(QGraphicsView):
         self._emit_coords(scene_pos)
         sc = self.scene()
         if self._rb_active:
-            # Live scene-drawn band: extend + refresh the band preselection
-            # preview (flips window<->crossing on direction). Single-item HALO
-            # is suppressed scene-side via _rb_active_flag.
+            # Live scene-drawn band: extend it and repaint. No live
+            # preselection preview (user decision 2026-09-24 — recomputing
+            # rubber_band_hits and HALO-outlining every hit item on each move
+            # was too slow on a large drawing; selection-mode §6.3). The
+            # single-item HALO update is skipped while banding too (suppressed
+            # scene-side via _rb_active_flag).
             self._rb_end = event.pos()
-            if sc is not None and hasattr(sc, "update_band_preview"):
-                start = self.mapToScene(self._rb_start)
-                rect = QRectF(start, scene_pos).normalized()
-                crossing = self._rb_end.x() < self._rb_start.x()
-                sc.update_band_preview(rect, crossing, self.viewportTransform())
             self.viewport().update()
             return
         # HALO hover update (scene-agnostic engine on the mixin).
@@ -165,8 +163,6 @@ class ElevationView(QGraphicsView):
             if sc is not None:
                 if hasattr(sc, "_rb_active_flag"):
                     sc._rb_active_flag = False
-                if hasattr(sc, "clear_band_preview"):
-                    sc.clear_band_preview()
             self.viewport().update()
             super().mouseReleaseEvent(event)
             return
@@ -188,10 +184,8 @@ class ElevationView(QGraphicsView):
             halo = scene.halo_item() if hasattr(scene, "halo_item") else None
             if halo is not None:
                 paint_halo_highlight(painter, self, halo, theme)
-        # Live band: multi-item preselection outlines + the band rect on top.
+        # Live band rect (no preselection preview — see mouseMoveEvent).
         if self._rb_active:
-            for it in getattr(scene, "_band_preview", None) or []:
-                paint_halo_highlight(painter, self, it, theme)
             if self._rb_end is not None and self._rb_start is not None:
                 paint_rubber_band(painter, self, self._rb_start,
                                   self._rb_end, theme)
