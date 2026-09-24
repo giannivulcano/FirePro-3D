@@ -557,12 +557,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.footer = FooterRail(snap_engine_obj=self.scene._snap_engine)
         status_bar.addPermanentWidget(self.footer, 1)
 
-        # HALO: restore persisted on/off + aperture into the scene, reflect on pill.
-        from firepro3d.constants import HALO_APERTURE_PX
+        # HALO: restore persisted on/off, aperture + priority band (app-wide
+        # module globals — selection-mode §4.5). Keys are v2: the old
+        # halo/aperture_px (6 px) would put the band wider than the aperture.
+        from firepro3d import halo_selection
         _halo_on = self.settings.value("halo/enabled", True, type=bool)
         self.scene.halo_enabled = _halo_on
-        self.scene._halo_aperture_px = self.settings.value(
-            "halo/aperture_px", HALO_APERTURE_PX, type=int)
+        halo_selection.HALO_APERTURE_PX = self.settings.value(
+            "halo/pick_aperture_px", halo_selection.HALO_APERTURE_PX, type=int)
+        halo_selection.HALO_PRIORITY_BAND_PX = self.settings.value(
+            "halo/priority_band_px", halo_selection.HALO_PRIORITY_BAND_PX, type=int)
         self.footer.set_halo_on(_halo_on)
 
         # Footer interactions → active scene / dialogs.

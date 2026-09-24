@@ -45,8 +45,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM,
-                       HALO_APERTURE_PX)
+                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -209,12 +208,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # HALO hover + rubber-band preview state (U5) — scene-owned; view drives
         # via halo_update (A6). Extracted to HaloSelectionMixin (Leg B): inits
         # _halo_candidates/_halo_index/_halo_pick_pos/_band_preview/halo_enabled/
-        # _rb_active_flag.
+        # _rb_active_flag. Aperture + priority band are app-wide module globals
+        # on halo_selection (selection-mode §4.5) — no per-scene aperture.
         self._init_halo_state()
-        # HALO aperture (pick half-size in device px). Seeded from the constant;
-        # main loads halo/aperture_px from QSettings and the prefs spinbox
-        # updates it live. Model_View.mouseMoveEvent reads it per move.
-        self._halo_aperture_px: int = HALO_APERTURE_PX
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection

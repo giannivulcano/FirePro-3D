@@ -773,10 +773,9 @@ class Model_View(QGraphicsView):
             super().mouseMoveEvent(event)
             sc = self.scene()
             if sc is not None and hasattr(sc, "halo_update") and not self._panning:
-                from .constants import HALO_APERTURE_PX
-                aperture_px = getattr(sc, "_halo_aperture_px", HALO_APERTURE_PX)
+                from . import halo_selection
                 dt = self.viewportTransform()
-                a_scene = aperture_px / max(self.transform().m11(), 1e-9)
+                a_scene = halo_selection.HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
                 if sc.halo_update(self.mapToScene(event.pos()), a_scene, dt):
                     self.viewport().update()
             if getattr(self, "_crosshair_enabled", False):

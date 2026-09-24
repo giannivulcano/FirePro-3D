@@ -52,12 +52,11 @@ class ElevationView(QGraphicsView):
 
         # Scene-drawn band state (viewport px). _rb_start is latched on press;
         # _rb_active/_rb_end track the live window/crossing band (mirrors
-        # Model_View). Aperture (px) for the HALO pick.
+        # Model_View). HALO aperture is the app-wide halo_selection module
+        # global (selection-mode §4.5) — read live, not cached here.
         self._rb_start = None
         self._rb_active = False
         self._rb_end = None
-        from .constants import HALO_APERTURE_PX
-        self._halo_aperture_px = HALO_APERTURE_PX
 
         # Ctrl+A — select all (excluding gridlines and datums)
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
@@ -131,8 +130,8 @@ class ElevationView(QGraphicsView):
             return
         # HALO hover update (scene-agnostic engine on the mixin).
         if sc is not None and hasattr(sc, "halo_update"):
-            aperture_px = getattr(sc, "_halo_aperture_px", self._halo_aperture_px)
-            a_scene = aperture_px / max(self.transform().m11(), 1e-9)
+            from . import halo_selection
+            a_scene = halo_selection.HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
             if sc.halo_update(scene_pos, a_scene, self.viewportTransform()):
                 self.viewport().update()
         super().mouseMoveEvent(event)

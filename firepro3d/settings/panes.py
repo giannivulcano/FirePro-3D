@@ -22,6 +22,7 @@ from firepro3d.constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
+    HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX,
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
@@ -57,9 +58,6 @@ _SNAP_TYPES: list[tuple[str, str]] = [
 _QSETTINGS_ORG  = "GV"
 _QSETTINGS_APP  = "FirePro3D"
 
-# Default for halo aperture — matches HALO_APERTURE_PX in constants.py (6 px).
-_HALO_APERTURE_DEFAULT: int = 6
-
 _FACTORY_DEFAULTS: dict = {
     "tol_px":       15,
     "hysteresis_px": 3,
@@ -77,7 +75,8 @@ _FACTORY_DEFAULTS: dict = {
     "align_dir_perpendicular": ALIGN_DIR_PERPENDICULAR_DEFAULT,
     # ── HALO ──────────────────────────────────────────────────────────────────
     "halo_enabled":  True,
-    "halo_aperture": _HALO_APERTURE_DEFAULT,
+    "halo_aperture": HALO_APERTURE_PX,
+    "halo_band":     HALO_PRIORITY_BAND_PX,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
@@ -237,7 +236,20 @@ class UXPane(SettingsPane):
         self._halo_aperture.setRange(1, 100)
         self._halo_aperture.setSingleStep(1)
         self._halo_aperture.setSuffix(" px")
+        self._halo_aperture.setToolTip(
+            "Grab radius: how close (screen px) the cursor must be to an item's "
+            "drawn geometry for HALO to highlight it. Zoom-independent.")
         halo_form.addRow("Aperture:", self._halo_aperture)
+
+        self._halo_band = QSpinBox()
+        self._halo_band.setRange(0, 100)
+        self._halo_band.setSingleStep(1)
+        self._halo_band.setSuffix(" px")
+        self._halo_band.setToolTip(
+            "Priority band: items within this many screen px of the closest one "
+            "are ranked by draw order (nodes over pipes over walls); beyond it, "
+            "the closest item wins. Like SNAP's priority band.")
+        halo_form.addRow("Priority band:", self._halo_band)
 
         halo_layout.addWidget(halo_group)
         halo_layout.addStretch()
@@ -321,12 +333,15 @@ class UXPane(SettingsPane):
         module global.
         """
         from firepro3d import snap_engine
+        from firepro3d import halo_selection
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         # Always from the module globals
         tol_px = snap_engine.SNAP_TOLERANCE_PX
         hyst_px = snap_engine.SNAP_HYSTERESIS_PX
+        halo_aperture = int(halo_selection.HALO_APERTURE_PX)
+        halo_band = int(halo_selection.HALO_PRIORITY_BAND_PX)
 
         if self._scene is not None:
             eng = self._scene._snap_engine
@@ -351,8 +366,6 @@ class UXPane(SettingsPane):
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
             halo_on = bool(getattr(self._scene, "halo_enabled", True))
-            halo_aperture = int(getattr(self._scene, "_halo_aperture_px",
-                                        _HALO_APERTURE_DEFAULT))
         else:
             grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
             angle_deg = s.value("snap/angle_deg", 5, type=int)
@@ -374,8 +387,6 @@ class UXPane(SettingsPane):
                     val = val.lower() not in ("false", "0")
                 snap_flags[attr] = bool(val)
             halo_on = s.value("halo/enabled", True, type=bool)
-            halo_aperture = s.value("halo/aperture_px",
-                                    _HALO_APERTURE_DEFAULT, type=int)
 
         # Build snapshot before touching widgets
         self._snapshot = {
@@ -393,6 +404,7 @@ class UXPane(SettingsPane):
             "align_dir_perpendicular": align_perp,
             "halo_enabled":   halo_on,
             "halo_aperture":  halo_aperture,
+            "halo_band":      halo_band,
             **snap_flags,
         }
 
@@ -413,6 +425,7 @@ class UXPane(SettingsPane):
             cb.setChecked(snap_flags[attr])
         self._halo_enable.setChecked(halo_on)
         self._halo_aperture.setValue(halo_aperture)
+        self._halo_band.setValue(halo_band)
 
     def apply(self) -> None:
         """Write widget values to snap_engine, live objects, and QSettings.
@@ -487,16 +500,16 @@ class UXPane(SettingsPane):
                                          parallel=align_par,
                                          perpendicular=align_perp)
 
-        # ── HALO ─────────────────────────────────────────────────────────────
+        # ── HALO (app-wide module globals — selection-mode §4.5) ──────────────
+        from firepro3d import halo_selection
         halo_on = self._halo_enable.isChecked()
-        halo_aperture = self._halo_aperture.value()
+        halo_selection.HALO_APERTURE_PX = self._halo_aperture.value()
+        halo_selection.HALO_PRIORITY_BAND_PX = self._halo_band.value()
         s.setValue("halo/enabled", halo_on)
-        s.setValue("halo/aperture_px", halo_aperture)
-        if self._scene is not None:
-            if hasattr(self._scene, "halo_enabled"):
-                self._scene.halo_enabled = halo_on
-            if hasattr(self._scene, "_halo_aperture_px"):
-                self._scene._halo_aperture_px = halo_aperture
+        s.setValue("halo/pick_aperture_px", halo_selection.HALO_APERTURE_PX)
+        s.setValue("halo/priority_band_px", halo_selection.HALO_PRIORITY_BAND_PX)
+        if self._scene is not None and hasattr(self._scene, "halo_enabled"):
+            self._scene.halo_enabled = halo_on
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -510,6 +523,7 @@ class UXPane(SettingsPane):
         so it reflects the rolled-back state.
         """
         from firepro3d import snap_engine
+        from firepro3d import halo_selection
 
         if not self._snapshot:
             return
@@ -520,11 +534,17 @@ class UXPane(SettingsPane):
         # ── Hysteresis (always) ───────────────────────────────────────────────
         snap_engine.SNAP_HYSTERESIS_PX = self._snapshot["hysteresis_px"]
 
+        # ── HALO aperture + priority band (always — module globals) ───────────
+        halo_selection.HALO_APERTURE_PX = self._snapshot["halo_aperture"]
+        halo_selection.HALO_PRIORITY_BAND_PX = self._snapshot["halo_band"]
+
         # ── Live scene objects ─────────────────────────────────────────────────
         if self._scene is not None:
             self._scene._grip_tolerance_px = self._snapshot["grip_px"]
             self._scene._snap_angle_deg = self._snapshot["angle_deg"]
             self._scene.set_align_enabled(self._snapshot["align"])
+            if hasattr(self._scene, "halo_enabled"):
+                self._scene.halo_enabled = self._snapshot["halo_enabled"]
             self._scene._align_path_tol_px = float(
                 self._snapshot["align_path_tol_px"])
             ctrl = getattr(self._scene, "_align_controller", None)
@@ -562,6 +582,7 @@ class UXPane(SettingsPane):
             cb.setChecked(self._snapshot[attr])
         self._halo_enable.setChecked(self._snapshot["halo_enabled"])
         self._halo_aperture.setValue(self._snapshot["halo_aperture"])
+        self._halo_band.setValue(self._snapshot["halo_band"])
 
     def reset_to_defaults(self) -> None:
         """Set every SNAP-pane widget to factory defaults and apply live."""
@@ -582,6 +603,7 @@ class UXPane(SettingsPane):
             cb.setChecked(d[attr])
         self._halo_enable.setChecked(d["halo_enabled"])
         self._halo_aperture.setValue(d["halo_aperture"])
+        self._halo_band.setValue(d["halo_band"])
         self.apply()
 
 
