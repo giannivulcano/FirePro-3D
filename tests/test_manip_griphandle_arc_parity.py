@@ -2,11 +2,13 @@
 undo per gesture; Esc restores; snap parity (grid fallback).
 
 U3 migration of ArcItem onto manip_handles(). Mirrors the SplineItem parity
-file; the arc's grips (centre/start/end) have no special drag semantics (the
-legacy grip path explicitly excludes arc from Ctrl-constrain) and all render
-round per the house rule (centre = move grip; start/end = geometric endpoints)."""
+file. All three grips render round per the house rule. Re-shape semantics
+(user 2026-09-23): the centre grip slides on the endpoints' bisector and the
+start/end grips 3-point refit against the other endpoint + press-time arc
+midpoint — covered in depth by tests/test_arc_grip_reshape.py."""
 import math
 
+import pytest
 from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
@@ -90,6 +92,8 @@ def test_posted_drag_moves_start_grip(qapp):
     qapp.processEvents()
     a = _make_arc()
     scene.addItem(a)
+    end0 = a.grip_points()[2]
+    mid0 = a.arc_midpoint()
     m = SelectionManipulator(scene)
     a.setSelected(True)
     qapp.processEvents()
@@ -99,8 +103,12 @@ def test_posted_drag_moves_start_grip(qapp):
     moved = a.grip_points()[1]
     assert abs(moved.x() - 80) < 1e-6
     assert abs(moved.y() - 20) < 1e-6
-    # the centre is untouched by a start-grip drag
-    assert a.grip_points()[0] == QPointF(0, 0)
+    # 3-point refit (user 2026-09-23): the end grip and the press-time arc
+    # midpoint stay fixed; the centre/radius re-fit around them
+    end1 = a.grip_points()[2]
+    assert abs(end1.x() - end0.x()) < 1e-6 and abs(end1.y() - end0.y()) < 1e-6
+    assert math.hypot(mid0.x() - a._center.x(),
+                      mid0.y() - a._center.y()) == pytest.approx(a._radius)
 
 
 def test_one_commit_per_gesture(qapp):
@@ -133,5 +141,10 @@ def test_esc_restores_and_no_commit(qapp):
     m._update(QPointF(0, 50), Qt.KeyboardModifier.NoModifier, QPointF(0, 50))
     assert a._span_deg != 90.0                        # mutated live
     m.cancel_drag()
-    assert a.to_dict() == before                       # restored exactly
+    after = a.to_dict()                                # restored (the 3-point
+    for k in before:                                   # refit re-derives the
+        if isinstance(before[k], float):               # centre -> float noise)
+            assert abs(after[k] - before[k]) < 1e-6, k
+        else:
+            assert after[k] == before[k], k
     assert calls == []                                 # no undo entry on cancel

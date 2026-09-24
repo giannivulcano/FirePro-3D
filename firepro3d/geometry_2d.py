@@ -1297,6 +1297,9 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._radius = max(radius, 0.01)
         self._start_deg = start_deg
         self._span_deg = span_deg
+        # Press-time reference for an endpoint-grip drag (3-point refit): the
+        # fixed other endpoint + arc midpoint + circle. None outside a drag.
+        self._arc_refit_ref: "dict | None" = None
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -1373,34 +1376,78 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             QPointF(cx + r * math.cos(ea), cy - r * math.sin(ea)),  # 2 end
         ]
 
+    def arc_midpoint(self) -> QPointF:
+        """The point halfway along the arc (Y-up start + span/2)."""
+        from .arc_math import point_at
+        return point_at(self._center, self._radius,
+                        self._start_deg + self._span_deg / 2.0)
+
+    def begin_endpoint_refit(self) -> None:
+        """Snapshot the endpoint-drag reference (called by the grip on press)."""
+        pts = self.grip_points()
+        self._arc_refit_ref = {"start": pts[1], "end": pts[2],
+                               "mid": self.arc_midpoint(),
+                               "center": QPointF(self._center),
+                               "radius": self._radius}
+
+    def end_endpoint_refit(self) -> None:
+        self._arc_refit_ref = None
+
     def apply_grip(self, index: int, pos: QPointF):
+        """Re-shape the arc from a grip drag (user 2026-09-23).
+
+        * 0 centre — both endpoints stay fixed; the centre is projected onto
+          their perpendicular bisector (radius/bulge follow; CCW start→end is
+          kept, so crossing the chord grows the arc through a semicircle into a
+          major arc). A full-circle arc (no chord) translates instead.
+        * 1 start / 2 end — the dragged endpoint lands on *pos*; the other
+          endpoint and the arc midpoint (press-time, via ``_arc_refit_ref``;
+          the live midpoint outside a drag) stay fixed — a 3-point refit. A
+          collinear / orientation-flipping *pos* holds the last valid shape.
+        """
+        from .arc_math import (project_to_bisector, arc_from_three_points,
+                               yup_angle)
         if index == 0:
-            self._center = pos
-        elif index == 1:
-            # Move start point — change radius and start angle
-            dx = pos.x() - self._center.x()
-            dy = pos.y() - self._center.y()
-            self._radius = max(math.hypot(dx, dy), 0.01)
-            self._start_deg = math.degrees(math.atan2(-dy, dx))
-        elif index == 2:
-            # Move end point — change span angle
-            dx = pos.x() - self._center.x()
-            dy = pos.y() - self._center.y()
-            end_deg = math.degrees(math.atan2(-dy, dx))
-            self._span_deg = (end_deg - self._start_deg) % 360
-            if self._span_deg == 0:
-                self._span_deg = 360
+            pts = self.grip_points()
+            s, e = pts[1], pts[2]
+            proj = project_to_bisector(s, e, pos)
+            if proj is None or abs(self._span_deg) >= 360.0:
+                self._center = QPointF(pos)
+            else:
+                c, _t = proj
+                r = math.hypot(s.x() - c.x(), s.y() - c.y())
+                span = (yup_angle(c, e) - yup_angle(c, s)) % 360.0
+                if r < 0.01 or span < 1e-6:
+                    return                       # hold last valid shape
+                self._center = c
+                self._radius = r
+                self._start_deg = yup_angle(c, s) % 360.0
+                self._span_deg = span
+        elif index in (1, 2):
+            ref = self._arc_refit_ref
+            if ref is None:
+                pts = self.grip_points()
+                ref = {"start": pts[1], "end": pts[2], "mid": self.arc_midpoint()}
+            res = (arc_from_three_points(pos, ref["mid"], ref["end"]) if index == 1
+                   else arc_from_three_points(ref["start"], ref["mid"], pos))
+            if res is None:
+                return                           # hold last valid shape
+            c, r, st, sp = res
+            if r < 0.01 or sp < 1e-6:
+                return
+            self._center, self._radius = c, r
+            self._start_deg, self._span_deg = st, sp
+        else:
+            return
         self._rebuild_path()
 
     def manip_handles(self):
-        """U3: centre + start + end as live-apply GripHandles, all round (centre =
-        move grip; start/end are the arc's geometric endpoints) per the house
-        rule (vertex/endpoint + centre/move grips = round disc). No special drag
-        semantics — the legacy grip path explicitly excludes arc from
-        Ctrl-constrain (model_space grip drag). The manipulator renders/hit-tests/
-        commits them; the legacy grip paths skip this item (coexistence gate)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0, 1, 2})
+        """U3: centre grip (bisector slide) + start/end ``ArcEndpointGripHandle``s
+        (3-point refit, Ctrl = slide along the circle). All round (house rule)."""
+        from .manip_handle import GripHandle, ArcEndpointGripHandle
+        return [GripHandle(self, 0, circular=True),
+                ArcEndpointGripHandle(self, 1),
+                ArcEndpointGripHandle(self, 2)]
 
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
