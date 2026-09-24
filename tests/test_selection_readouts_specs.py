@@ -91,3 +91,49 @@ def test_rect_set_height_keeps_bottom_edge(qapp, angle):
     br1 = r.mapToScene(QPointF(r.rect().right(), r.rect().bottom()))
     assert (bl1.x(), bl1.y()) == pytest.approx((bl0.x(), bl0.y()))
     assert (br1.x(), br1.y()) == pytest.approx((br0.x(), br0.y()))
+
+
+from firepro3d.geometry_2d import CircleItem, ArcItem
+
+
+def test_circle_radius_spec_and_setter(qapp):
+    c = CircleItem(QPointF(50, 60), 100.0)
+    s = _by_key(c)["radius"]
+    assert s.prefix == "R" and s.value == pytest.approx(100.0)
+    assert s.a == QPointF(50, 60) and s.b == QPointF(150, 60)   # single radial, +x
+    s.apply(40.0)
+    assert c._radius == pytest.approx(40.0) and c._center == QPointF(50, 60)
+    assert c.rect().width() == pytest.approx(80.0)
+
+
+def test_circle_radius_floor(qapp):
+    c = CircleItem(QPointF(0, 0), 100.0)
+    c.set_radius(0.2)
+    assert c._radius == pytest.approx(1.0)       # existing floor (apply_grip)
+
+
+def test_arc_specs(qapp):
+    a = ArcItem(QPointF(0, 0), 100.0, 30.0, 120.0)
+    d = _by_key(a)
+    ang, rad = d["angle"], d["radius"]
+    assert ang.kind == "angular" and ang.field_kind == "span"
+    assert ang.value == pytest.approx(120.0)
+    assert (ang.start_deg, ang.span_deg, ang.ref_radius) == pytest.approx((30.0, 120.0, 100.0))
+    assert ang.maximum < 360.0
+    assert rad.prefix == "R" and rad.value == pytest.approx(100.0)
+    # radius along the START radial: (r cos30, -r sin30)
+    assert (rad.b.x(), rad.b.y()) == pytest.approx((100 * math.cos(math.radians(30)),
+                                                    -100 * math.sin(math.radians(30))))
+
+
+def test_arc_set_span_keeps_start(qapp):
+    a = ArcItem(QPointF(0, 0), 100.0, 30.0, 120.0)
+    _by_key(a)["angle"].apply(45.0)
+    assert a._start_deg == pytest.approx(30.0) and a._span_deg == pytest.approx(45.0)
+
+
+def test_arc_set_radius_keeps_centre_and_angles(qapp):
+    a = ArcItem(QPointF(5, 5), 100.0, 30.0, 120.0)
+    _by_key(a)["radius"].apply(250.0)
+    assert a._radius == pytest.approx(250.0) and a._center == QPointF(5, 5)
+    assert (a._start_deg, a._span_deg) == pytest.approx((30.0, 120.0))

@@ -1220,6 +1220,22 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def set_radius(self, radius_mm: float) -> None:
+        """Set the radius, keeping the centre (floor 1 mm, as apply_grip)."""
+        self._radius = max(1.0, float(radius_mm))
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        c, r = QPointF(self._center), self._radius
+        return [DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
+                        value=r, field_kind="dimension", apply=self.set_radius,
+                        a=c, b=QPointF(c.x() + r, c.y()),
+                        away=QPointF(c.x(), c.y() + r))]   # label above the radial
+
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
@@ -1477,6 +1493,40 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         else:
             return
         self._rebuild_path()
+
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def _point_at(self, deg: float) -> QPointF:
+        a = math.radians(deg)
+        return QPointF(self._center.x() + self._radius * math.cos(a),
+                       self._center.y() - self._radius * math.sin(a))
+
+    def set_span(self, span_deg: float) -> None:
+        """Set the included angle, keeping centre / radius / start (end moves
+        CCW). Clamped to (0, 360)."""
+        self._span_deg = min(max(float(span_deg), 1e-6), 360.0 - 1e-6)
+        self._rebuild_path()
+
+    def set_radius(self, radius_mm: float) -> None:
+        """Set the radius, keeping centre and both angles (floor 0.01 mm)."""
+        self._radius = max(float(radius_mm), 0.01)
+        self._rebuild_path()
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        c = QPointF(self._center)
+        return [
+            DimSpec(kind="angular", key="angle", field="Angle", prefix="",
+                    value=self._span_deg, field_kind="span",
+                    apply=self.set_span, maximum=360.0 - 1e-6,
+                    center=c, ref_radius=self._radius,
+                    start_deg=self._start_deg, span_deg=self._span_deg),
+            DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
+                    value=self._radius, field_kind="dimension",
+                    apply=self.set_radius, minimum=0.0,
+                    a=c, b=self._point_at(self._start_deg),
+                    away=self._point_at(self._start_deg + self._span_deg)),
+        ]
 
     def manip_handles(self):
         """U3: centre grip (bisector slide) + start/end ``ArcEndpointGripHandle``s
