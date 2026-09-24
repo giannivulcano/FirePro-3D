@@ -105,6 +105,10 @@ class GeometryDrawingController:
             s._draw_arc_radius = 0.0
             s._draw_arc_start_deg = 0.0
             s._draw_arc_step = 0
+            s._draw_arc_ep_a = None
+            s._draw_arc_ep_b = None
+            s._draw_arc_ep_major = False
+            s._draw_arc_ep_side = 1
             if s._draw_arc_radius_line is not None:
                 if s._draw_arc_radius_line.scene() is s:
                     s.removeItem(s._draw_arc_radius_line)
@@ -941,6 +945,9 @@ class GeometryDrawingController:
         the relevant preview item or the centre is None (before the first click,
         or between steps).
         """
+        from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            return self._preview_from_arc_ep(resolved)
         s = self._scene
         if s._draw_arc_center is None:
             return
@@ -970,6 +977,9 @@ class GeometryDrawingController:
             s._draw_arc_preview.setPath(path)
 
     def _move_draw_arc(self, event, snapped):
+        from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            return self._move_draw_arc_ep(event, snapped)
         s = self._scene
         s.preview_pipe.hide()
         if s._draw_arc_step == 0:
@@ -993,13 +1003,19 @@ class GeometryDrawingController:
         s.publish_placement_state(s._draw_arc_center, snapped)
 
     def _press_draw_arc(self, event, pos, snapped, item_under, node_under, pipe_under):
+        from firepro3d.model_space import _ARC_VARIANT_START, _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            return self._press_draw_arc_ep(event, snapped)
         s = self._scene
         if s._draw_arc_step == 0:
-            # Click 1 — set centre
+            # Click 1 — the centre (center-first) or the start point (start-first)
             s._draw_arc_center = snapped
             s._draw_arc_step = 1
             s.update_preview_node(snapped)
-            s.instructionChanged.emit("Pick start angle point")
+            # Start-first's next pick is the centre, not a start angle.
+            s.instructionChanged.emit(
+                "Pick center point" if s._arc_variant == _ARC_VARIANT_START
+                else "Pick start angle point")
             # Create radius preview line (centre → cursor)
             line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                      snapped.x(), snapped.y())
@@ -1036,6 +1052,18 @@ class GeometryDrawingController:
         if s._draw_arc_radius_line is not None:
             s.removeItem(s._draw_arc_radius_line)
             s._draw_arc_radius_line = None
+        self._make_arc_preview_path()
+        # Span-step angle guides: 0° datum + start radial (static) + a live sweep
+        # radial that tracks the cursor.
+        self._clear_arc_ref_lines()
+        s._draw_arc_ref_line0 = s._make_ref_line()
+        s._draw_arc_ref_start = s._make_ref_line()
+        s._draw_arc_ref_sweep = s._make_ref_line()
+        self._set_arc_ref_lines()
+
+    def _make_arc_preview_path(self) -> None:
+        """Create the dashed arc preview path item (all arc variants)."""
+        s = self._scene
         preview = QGraphicsPathItem()
         _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         _prev_pen.setCosmetic(True)
@@ -1044,13 +1072,6 @@ class GeometryDrawingController:
         preview.setZValue(200)
         s.addItem(preview)
         s._draw_arc_preview = preview
-        # Span-step angle guides: 0° datum + start radial (static) + a live sweep
-        # radial that tracks the cursor.
-        self._clear_arc_ref_lines()
-        s._draw_arc_ref_line0 = s._make_ref_line()
-        s._draw_arc_ref_start = s._make_ref_line()
-        s._draw_arc_ref_sweep = s._make_ref_line()
-        self._set_arc_ref_lines()
 
     def _commit_draw_arc_rim_at(self, point) -> bool:
         """Step-1 applier: fix radius + start angle, then advance to the span step.
@@ -1126,6 +1147,9 @@ class GeometryDrawingController:
         Returns:
             The step applier's verdict, or False outside steps 1/2.
         """
+        from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            return self._apply_arc_ep_dynamic_input(geometry)
         s = self._scene
         if s._draw_arc_step == 1:
             return self._commit_draw_arc_rim_at(geometry)          # QPointF
@@ -1169,6 +1193,22 @@ class GeometryDrawingController:
         _c, _lw = s._geom_color_lw()
         item = ArcItem(s._draw_arc_center, s._draw_arc_radius,
                        s._draw_arc_start_deg, span, _c, _lw)
+        self._finish_arc_commit(item)
+        return True
+
+    # Step-0 prompt re-emitted after a commit, per arc variant.
+    _ARC_STEP0_PROMPT = {"center": "Pick center point",
+                         "start": "Pick start point",
+                         "endpoints": "Pick first end point"}
+
+    def _finish_arc_commit(self, item) -> None:
+        """Add a committed ``ArcItem`` and reset every arc variant's state.
+
+        The shared tail of the centre/start and End Points commits: select the
+        new item, tear down previews/guides, reset the step state, push undo and
+        re-prompt for the variant's first pick.
+        """
+        s = self._scene
         s.addItem(item)
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1178,14 +1218,185 @@ class GeometryDrawingController:
         if s._draw_arc_preview is not None:
             s.removeItem(s._draw_arc_preview)
             s._draw_arc_preview = None
+        if s._draw_arc_radius_line is not None:
+            if s._draw_arc_radius_line.scene() is s:
+                s.removeItem(s._draw_arc_radius_line)
+            s._draw_arc_radius_line = None
         self._clear_arc_ref_lines()
         s._draw_arc_center = None
         s._draw_arc_radius = 0.0
         s._draw_arc_start_deg = 0.0
         s._draw_arc_step = 0
+        s._draw_arc_ep_a = None
+        s._draw_arc_ep_b = None
+        s._draw_arc_ep_major = False
+        s.clear_placement_state()
         s.push_undo_state()
-        s.instructionChanged.emit("Pick center point")
+        s.instructionChanged.emit(self._ARC_STEP0_PROMPT.get(s._arc_variant,
+                                                             "Pick center point"))
         s._end_placement_switch(item)
+
+    # ── Arc: End Points variant (A → B → centre on the chord bisector) ──────
+
+    def _press_draw_arc_ep(self, event, snapped):
+        """End Points click router: end A, end B (chord), then the centre."""
+        s = self._scene
+        if s._draw_arc_step == 0:
+            s._draw_arc_ep_a = QPointF(snapped)
+            s._draw_arc_ep_major = False
+            s._draw_arc_step = 1
+            s.update_preview_node(snapped)
+            s.instructionChanged.emit("Pick second end point")
+            s._draw_arc_radius_line = s._make_ref_line()        # chord rubber band
+            s._draw_arc_radius_line.setLine(snapped.x(), snapped.y(),
+                                            snapped.x(), snapped.y())
+        elif s._draw_arc_step == 1:
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
+            self._commit_draw_arc_ep_chord_at(snapped)
+        else:
+            self._commit_draw_arc_ep_at(snapped)
+
+    def _commit_draw_arc_ep_chord_at(self, point) -> bool:
+        """Step-1 applier: fix end point B (mouse 2nd click + ``line`` HUD).
+
+        Returns:
+            True when the arc advanced to the centre step, False when unarmed
+            or the chord is under the 0.5 mm floor.
+        """
+        s = self._scene
+        a = s._draw_arc_ep_a
+        if a is None:
+            return False
+        if math.hypot(point.x() - a.x(), point.y() - a.y()) < 0.5:
+            s._show_status("Arc chord too small — pick again", timeout=2000)
+            return False
+        s._draw_arc_ep_b = QPointF(point)
+        s._draw_arc_step = 2
+        if s._draw_arc_radius_line is not None:
+            if s._draw_arc_radius_line.scene() is s:
+                s.removeItem(s._draw_arc_radius_line)
+            s._draw_arc_radius_line = None
+        self._make_arc_preview_path()
+        self._clear_arc_ref_lines()
+        s._draw_arc_ref_line0 = s._make_ref_line()    # centre → apex (radius trace)
+        s._draw_arc_ref_start = s._make_ref_line()    # centre → A
+        s._draw_arc_ref_sweep = s._make_ref_line()    # centre → B
+        s.clear_placement_state()
+        s.instructionChanged.emit("Pick centre point (Space: minor/major)")
+        return True
+
+    def _arc_ep_solve(self, cursor):
+        """``(centre, r, start°, span°)`` of the End-Points arc for *cursor*, or None.
+
+        The cursor is projected onto the chord bisector; the arc bulges away
+        from the centre's side (minor) unless Space toggled major. Updates the
+        remembered side whenever the centre is off the chord.
+        """
+        from .arc_math import project_to_bisector, arc_through_chord
+        s = self._scene
+        a, b = s._draw_arc_ep_a, s._draw_arc_ep_b
+        if a is None or b is None:
+            return None
+        proj = project_to_bisector(a, b, cursor)
+        if proj is None:
+            return None
+        c, t = proj
+        if abs(t) > 1e-9:
+            s._draw_arc_ep_side = 1 if t > 0 else -1
+        side = s._draw_arc_ep_side
+        r, st, sp = arc_through_chord(a, b, c,
+                                      side if s._draw_arc_ep_major else -side)
+        return c, r, st, sp
+
+    def _preview_from_arc_ep(self, cursor) -> None:
+        """End Points preview: chord rubber band (step 1) or arc + guides (step 2).
+
+        Step 2 draws the arc ghost plus dashed radials centre→apex, centre→A
+        and centre→B.  A no-op before the relevant items exist.
+        """
+        s = self._scene
+        if s._draw_arc_step == 1:
+            a = s._draw_arc_ep_a
+            if s._draw_arc_radius_line is not None and a is not None:
+                s._draw_arc_radius_line.setLine(a.x(), a.y(), cursor.x(), cursor.y())
+            return
+        if s._draw_arc_step != 2 or s._draw_arc_preview is None:
+            return
+        sol = self._arc_ep_solve(cursor)
+        if sol is None:
+            return
+        from .arc_math import point_at
+        c, r, st, sp = sol
+        rect = QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r)
+        path = QPainterPath()
+        path.arcMoveTo(rect, st)
+        path.arcTo(rect, st, sp)
+        s._draw_arc_preview.setPath(path)
+        apex = point_at(c, r, st + sp / 2.0)
+        for line, p in ((s._draw_arc_ref_line0, apex),
+                        (s._draw_arc_ref_start, s._draw_arc_ep_a),
+                        (s._draw_arc_ref_sweep, s._draw_arc_ep_b)):
+            if line is not None:
+                line.setLine(c.x(), c.y(), p.x(), p.y())
+
+    def _move_draw_arc_ep(self, event, snapped):
+        """End Points mouse-move: track, preview and publish the HUD state."""
+        s = self._scene
+        s.preview_pipe.hide()
+        if s._draw_arc_step == 0:
+            s.update_preview_node(snapped)
+            return
+        s.preview_node.hide()
+        if (s._draw_arc_step == 1 and event is not None
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
+        self._preview_from_arc_ep(snapped)
+        s.publish_placement_state(s.get_placement_anchor(), snapped)
+
+    def _toggle_arc_ep_major(self) -> None:
+        """Space: flip minor ↔ major and refresh the ghost at the resolved point."""
+        s = self._scene
+        s._draw_arc_ep_major = not s._draw_arc_ep_major
+        pt = s.get_resolved_point()
+        if pt is not None:
+            self._preview_from_arc_ep(pt)
+
+    def _arc_ep_center_for_radius(self, radius):
+        """Centre on the bisector for a typed radius, on the live side, or None."""
+        from .arc_math import center_for_radius
+        s = self._scene
+        if s._draw_arc_ep_a is None or s._draw_arc_ep_b is None:
+            return None
+        return center_for_radius(s._draw_arc_ep_a, s._draw_arc_ep_b, radius,
+                                 s._draw_arc_ep_side)
+
+    def _apply_arc_ep_dynamic_input(self, geometry) -> bool:
+        """End Points HUD applier: chord point (step 1) or ``{"radius"}`` (step 2)."""
+        s = self._scene
+        if s._draw_arc_step == 1:
+            return self._commit_draw_arc_ep_chord_at(geometry)          # QPointF
+        if s._draw_arc_step == 2:
+            c = self._arc_ep_center_for_radius(geometry["radius"])      # dict
+            if c is None:
+                s._show_status("Radius smaller than half the chord", timeout=2000)
+                return False
+            return self._commit_draw_arc_ep_at(c)
+        return False
+
+    def _commit_draw_arc_ep_at(self, cursor) -> bool:
+        """Commit the End Points arc for the centre *cursor* projects to."""
+        s = self._scene
+        sol = self._arc_ep_solve(cursor)
+        if sol is None:
+            return False
+        c, r, st, sp = sol
+        if sp < 0.5 or sp > 359.5:
+            s._show_status("Arc span too small — skipped", timeout=2000)
+            return False
+        _c, _lw = s._geom_color_lw()
+        self._finish_arc_commit(ArcItem(c, r, st, sp, _c, _lw))
         return True
 
     # ── Polygon (3-step centre→radius→rotate, ↑/↓ sides + ←/→ inscribed. The

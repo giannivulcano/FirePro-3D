@@ -40,7 +40,8 @@ class PlacementInputCoordinator:
         same state.  The lambdas receive the scene (``s``) at cycle time so they
         can call scene methods directly.
         """
-        from firepro3d.model_space import _ARC_VARIANT_CENTER, _ARC_VARIANT_START
+        from firepro3d.model_space import (_ARC_VARIANT_CENTER, _ARC_VARIANT_START,
+                                           _ARC_VARIANT_ENDPOINTS)
 
         self._PLACEMENT_VARIANTS = {
             "draw_line": [
@@ -54,6 +55,8 @@ class PlacementInputCoordinator:
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
                 ("Start Point Arc", "Select start point to begin",
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_START)),
+                ("End Points Arc", "Select first end point to begin",
+                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_ENDPOINTS)),
             ],
             "draw_rectangle": [
                 ("Corner Rectangle", "Pick first corner",
@@ -608,9 +611,19 @@ class PlacementInputCoordinator:
             a = self._scene._polygon_center
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_arc":
+            from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+            if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+                # End Points: end A for the chord step, the chord midpoint for
+                # the centre (Radius) step.
+                a, b = self._scene._draw_arc_ep_a, self._scene._draw_arc_ep_b
+                if self._scene._draw_arc_step == 1 and a is not None:
+                    return QPointF(a)
+                if self._scene._draw_arc_step == 2 and a is not None and b is not None:
+                    return QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
+                return None
             # The anchor is the FIRST click, stored in ``_draw_arc_center`` for
-            # both variants (the centre in center-first, the start point in
-            # start-first).  None at step 0, before that first click.
+            # the centre/start variants (the centre in center-first, the start
+            # point in start-first).  None at step 0, before that first click.
             a = self._scene._draw_arc_center
             return QPointF(a) if (self._scene._draw_arc_step in (1, 2)
                                   and a is not None) else None
@@ -765,7 +778,17 @@ class PlacementInputCoordinator:
         radius + start angle (the ``line`` schema, Length=radius, Angle=start°),
         step 2 types the sweep (``arc_span``).  Step 0 has no HUD — there is no
         anchor before the first click, so nothing to read out or seed from.
+
+        The End Points variant types the chord at step 1 (``line`` from end A)
+        and the radius at step 2 (``arc_radius``; centre on the bisector).
         """
+        from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            if self._scene._draw_arc_step == 1:
+                return SCHEMAS.get("line")          # chord length + angle from A
+            if self._scene._draw_arc_step == 2:
+                return SCHEMAS.get("arc_radius")
+            return None
         if self._scene._draw_arc_step == 1:
             return SCHEMAS.get("line")
         if self._scene._draw_arc_step == 2:
@@ -1003,6 +1026,13 @@ class PlacementInputCoordinator:
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": self._scene._rect_rotation_angle_to(point)}
+        if schema.name == "arc_radius":
+            # End Points step 3: the live radius of the arc the resolved point
+            # (projected onto the chord bisector) would commit.
+            point = self.get_resolved_point()
+            sol = (self._scene._geom_ctl._arc_ep_solve(point)
+                   if point is not None else None)
+            return {"Radius": sol[1] if sol is not None else 0.0}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click
             # or a typed Span commits.  Without this the readout sits at 0 the

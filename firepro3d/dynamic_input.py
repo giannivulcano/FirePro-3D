@@ -237,6 +237,11 @@ def resolve_distance(anchor, values: dict) -> dict:
     return {"distance": values["Distance"]}
 
 
+def resolve_arc_radius(anchor, values: dict) -> dict:
+    """End-Points arc step 3: the typed radius (centre placed on the bisector)."""
+    return {"radius": values["Radius"]}
+
+
 def resolve_arc_span(anchor, values: dict) -> dict:
     """Return the arc sweep for a typed span (Y-up degrees, canonical).
 
@@ -403,6 +408,13 @@ SCHEMAS: dict[str, Schema] = {
         # Anchored transform: the centre/radius/start are armed in the scene
         # before step 3, so the HUD stays shut until they exist — like ``move``.
         needs_anchor=True,
+    ),
+    "arc_radius": Schema(
+        name="arc_radius",
+        fields=(FieldSpec("Radius", "R", FieldKind.DIMENSION, minimum=0.0),),
+        resolve=resolve_arc_radius,
+        returns_point=False,
+        needs_anchor=True,          # A and B armed first (anchor = chord midpoint)
     ),
     "rotation": Schema(
         name="rotation",

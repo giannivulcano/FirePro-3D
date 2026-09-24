@@ -4637,7 +4637,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _mode("Polyline", "polyline_icon.svg", "polyline",
               "Draw a polyline (multi-segment)")
         _mode("Arc", "arc_icon.svg", "draw_arc",
-              "Draw an arc (3-click) — ←/→ toggles start point")
+              "Draw an arc — ←/→ cycles Center / Start / End Points")
         _mode("Polygon", "polygon_icon.svg", "polygon",
               "Draw a regular polygon — ↑/↓ sides, "
               "←/→ inscribed/circumscribed (P)")

@@ -142,6 +142,7 @@ _GHOST_NODE_MARKER_MM = 120.0  # half-size of the move/paste ghost cross for nod
 # fails loudly at import instead of silently falling into centre-first.
 _ARC_VARIANT_CENTER = "center"   # centre-first: click 1 is the arc centre
 _ARC_VARIANT_START = "start"     # start-first: click 1 is the start point
+_ARC_VARIANT_ENDPOINTS = "endpoints"  # end-points-first: A, B, then centre on the bisector
 
 
 def _record_levels(params, active: str) -> list[str]:
@@ -314,6 +315,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # arrow-key CYCLE that flips this lands in a later task; the geometry is
         # already variant-aware so it can be driven by setting the flag.
         self._arc_variant: str = _ARC_VARIANT_CENTER
+        # End-Points variant state: the two picked ends, the minor/major toggle
+        # (Space, reset per placement) and the last non-zero centre side (+1 =
+        # chord left normal) — resolves the semicircle when the centre sits on
+        # the chord.
+        self._draw_arc_ep_a: "QPointF | None" = None
+        self._draw_arc_ep_b: "QPointF | None" = None
+        self._draw_arc_ep_major: bool = False
+        self._draw_arc_ep_side: int = 1
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
         # Arc span-step angle guides from the centre (protractor): a 0° datum
@@ -2956,6 +2965,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             whose preview-on-commit is deferred (the gridline replicate modes,
             which carry a signed side the typed value alone does not fix).
         """
+        if (self.mode == "draw_arc" and self._draw_arc_step == 2
+                and self._arc_variant == _ARC_VARIANT_ENDPOINTS):
+            return self._geom_ctl._arc_ep_center_for_radius(resolved["radius"])
         if self.mode == "move":
             offset = resolved["offset"]
             return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
@@ -3236,6 +3248,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return True
         if self.mode == "opening":
             self._cycle_opening_alignment()
+            return True
+        if (self.mode == "draw_arc" and self._arc_variant == _ARC_VARIANT_ENDPOINTS
+                and self._draw_arc_step == 2):
+            self._geom_ctl._toggle_arc_ep_major()
             return True
         return False
 

@@ -21,6 +21,7 @@ from firepro3d.model_space import (
     Model_Space,
     _ARC_VARIANT_CENTER,
     _ARC_VARIANT_START,
+    _ARC_VARIANT_ENDPOINTS,
 )
 
 
@@ -35,19 +36,21 @@ def scene(qapp):
 
 
 class TestArcVariantCycle:
-    def test_cycle_flips_center_to_start_and_wraps(self, scene):
+    def test_cycle_center_start_endpoints_and_wraps(self, scene):
         scene.set_mode("draw_arc")
         assert scene._arc_variant == _ARC_VARIANT_CENTER
         assert scene.cycle_placement_variant(+1) is True
         assert scene._arc_variant == _ARC_VARIANT_START
-        # Second call wraps back to center.
+        assert scene.cycle_placement_variant(+1) is True
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
+        # Third call wraps back to center.
         assert scene.cycle_placement_variant(+1) is True
         assert scene._arc_variant == _ARC_VARIANT_CENTER
 
     def test_negative_direction_cycles(self, scene):
         scene.set_mode("draw_arc")
         assert scene.cycle_placement_variant(-1) is True
-        assert scene._arc_variant == _ARC_VARIANT_START
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
 
     def test_no_cycle_past_step_zero(self, scene):
         scene.set_mode("draw_arc")
@@ -178,11 +181,11 @@ class TestArrowKeyWiring:
         assert scene._arc_variant == _ARC_VARIANT_CENTER
         assert ev.isAccepted()
 
-    def test_left_arrow_from_center_wraps_to_start(self, scene):
+    def test_left_arrow_from_center_wraps_to_endpoints(self, scene):
         scene.set_mode("draw_arc")
         ev = _arrow(Qt.Key.Key_Left)
         scene.keyPressEvent(ev)
-        assert scene._arc_variant == _ARC_VARIANT_START
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
         assert ev.isAccepted()
 
     def test_no_consume_past_step_zero(self, scene):
