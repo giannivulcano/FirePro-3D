@@ -328,7 +328,9 @@ def test_quantized_arc_ends_exactly_on_its_source_endpoints():
         # Qt's arcMoveTo/arcTo itself is only ~5e-4 * r accurate (the analytic
         # endpoints are exact); the unconstrained best-fit miss was >= 6e-3 * r.
         tol = 1e-3 * a.radius() if hasattr(a, "radius") else 1e-3 * a._radius
-        assert (_close(s, p0, tol) and _close(e, p3, tol)), (s, e, p0, p3)
+        # Unordered: ArcItem stores CW arcs in CCW form (start/end swap).
+        assert ((_close(s, p0, tol) and _close(e, p3, tol))
+                or (_close(s, p3, tol) and _close(e, p0, tol))), (s, e, p0, p3)
 
 
 def test_editor_import_uses_the_standard_primitive_lineweight(qapp, monkeypatch):

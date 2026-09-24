@@ -1295,7 +1295,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         super().__init__()
         self._center = QPointF(center)
         self._radius = max(radius, 0.01)
-        self._start_deg = start_deg
+        # Store every arc in CCW form (span > 0): a negative (CW) span — the
+        # mirror tool, legacy saves — is the same geometric arc starting at
+        # start + span. The grip refits assume CCW start→end.
+        from .arc_math import _norm360
+        if span_deg < 0:
+            start_deg, span_deg = start_deg + span_deg, -span_deg
+        self._start_deg = _norm360(start_deg)
         self._span_deg = span_deg
         # Press-time reference for an endpoint-grip drag (3-point refit): the
         # fixed other endpoint + arc midpoint + circle. None outside a drag.
@@ -1406,22 +1412,23 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
           collinear / orientation-flipping *pos* holds the last valid shape.
         """
         from .arc_math import (project_to_bisector, arc_from_three_points,
-                               yup_angle)
+                               yup_angle, _norm360)
         if index == 0:
             pts = self.grip_points()
             s, e = pts[1], pts[2]
             proj = project_to_bisector(s, e, pos)
-            if proj is None or abs(self._span_deg) >= 360.0:
+            if proj is None or abs(self._span_deg) >= 360.0 - 1e-6:
                 self._center = QPointF(pos)
             else:
                 c, _t = proj
                 r = math.hypot(s.x() - c.x(), s.y() - c.y())
-                span = (yup_angle(c, e) - yup_angle(c, s)) % 360.0
+                ts = yup_angle(c, s)
+                span = (yup_angle(c, e) - ts) % 360.0   # CCW start→end kept
                 if r < 0.01 or span < 1e-6:
                     return                       # hold last valid shape
                 self._center = c
                 self._radius = r
-                self._start_deg = yup_angle(c, s) % 360.0
+                self._start_deg = _norm360(ts)
                 self._span_deg = span
         elif index in (1, 2):
             ref = self._arc_refit_ref

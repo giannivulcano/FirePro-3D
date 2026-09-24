@@ -1001,6 +1001,11 @@ class SceneTools:
                 # Compute angular position of click within arc span
                 rel_click = (click_angle - start) % 360
                 rel_trim = (trim_angle - start) % 360
+                # The trim point must fall strictly inside the (CCW, span > 0)
+                # arc, else the kept span would be <= 0 (a CW / empty arc).
+                if not (0.01 < rel_trim < span - 0.01):
+                    self._scene._show_status("Trim point is not on the arc")
+                    return
 
                 if rel_click < rel_trim:
                     # Click is before trim point — keep from trim to end
