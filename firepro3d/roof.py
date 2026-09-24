@@ -379,8 +379,8 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         math unchanged (``_rebuild_path`` regenerates overhang + ridge). Zero
         special semantics — polygons are excluded from the legacy Ctrl-constrain
         block, and a roof is not grip-coupled to neighbours — so no
-        ``EndpointGripHandle``/propagation. The rotate knob coexists
-        (``manip_rotate``); not box-native (no ``manip_scale``)."""
+        ``EndpointGripHandle``/propagation. Keeps ``manip_rotate`` (future
+        Rotate transform); not box-native (no ``manip_scale``)."""
         from .manip_handle import default_grip_handles
         return default_grip_handles(self, circular=set(range(len(self._points))))
 

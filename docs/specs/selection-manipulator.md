@@ -1,16 +1,17 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains
-last-verified: 2026-09-23
-verified-commit: 434066c   # block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24)
+last-verified: 2026-09-24
+verified-commit: 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
-  - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle/RotateHandle); U3: GripHandle + EndpointGripHandle + default_grip_handles
+  - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles
   - firepro3d/manip_math.py
+  - firepro3d/arc_math.py                # ArcItem centre-grip bisector math + angle helpers (shared with End Points placement — 2d-geometry.md §4)
   - firepro3d/model_view.py              # drawForeground snap/constraint overlay + manipulator render_overlay (grip-render loop retired U4)
   - firepro3d/scene_tools.py             # legacy _find_grip_hit retired U4 (no grip code remains)
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/geometry_2d.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
+  - firepro3d/geometry_2d.py   # RectangleItem bake-at-rest + manip capabilities + rect_grip_resize; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
   - firepro3d/view_marker.py             # U3: ViewMarkerArrow manip adapter -> shared SharedCropBox (parametric crop, translate-only caps, own outline dropped)
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
@@ -32,18 +33,29 @@ source-tasks:
 > path, hit-test, and undo funnel. Only U5 (selection-mode integration + elevation/3D
 > handle providers) remains.
 
+> **Rotate knob removed (2026-09-23, user decision).** The manipulator shows **no
+> rotate affordance for any item or selection** — `RotateHandle`,
+> `HandleRole.ROTATE`, the knob's stem/cursor/constants, `_bake_rotate`, the
+> held rotate preview and the `manip_rotate` HUD schema are deleted (guard:
+> `tests/test_no_rotate_knob.py`). Per-item **`manip_rotate(angle, pivot)`** and
+> `item_capabilities`' `"rotate"` mapping are **retained** for a future Rotate
+> transform (filed in `todo_open.md`). Every rotate-knob / rotate-gesture
+> statement below not marked historical is superseded by this note.
+
 # Unified Selection Manipulator — Governing Spec
 
 ## Goal
 
 One scene-level, capability-driven **selection manipulator** — adopted from the
 `selection_box.py` prototype (attach-once `QGraphicsObject`, 8 resize handles +
-rotate knob, interior-drag move, click-through, modifier keys, Esc-cancel, live
+[prototype] rotate knob, interior-drag move, click-through, modifier keys, Esc-cancel, live
 readout, pure transform math) — as the single home for selection feedback and
-**rigid transforms** (move / rotate / scale) across the model and paper scenes.
+**rigid transforms** (move / scale; the rotate gesture was removed 2026-09-23)
+across the model and paper scenes.
 Parametric grip editing (`grip_points()`/`apply_grip()`) is preserved and
 rendered inside the manipulator frame; the manipulator adds what items cannot
-do today: interactive rotation, group move, and a unified interaction model.
+do today: group move and a unified interaction model (interactive rotation
+shipped in v1/U1 and was removed 2026-09-23).
 
 ## Motivation
 
@@ -62,13 +74,13 @@ manipulator is **capability-gated**, not one-size.
   (QGraphicsObject)`, instantiated **once per scene** (`Model_Space`,
   `PaperScene`), added to the scene, tracks `scene.selectionChanged`, wraps the
   selection's union `manip_bounds()`, `z = 1e6`. Screen-constant children
-  (`ItemIgnoresTransformations`): 8 resize `_Handle`s, one rotate `_Handle`
-  (knob on a stem above the top-edge midpoint), rotate cursor. Handle sizing:
+  (`ItemIgnoresTransformations`): 8 resize handles plus pooled hosts for the
+  items' own grips (no rotate knob — removed 2026-09-23). Handle sizing:
   px in the model scene, paper-mm in the paper scene (theming.md split).
 - The prototype's **pure transform math** is ported verbatim and unit-tested:
   `resize_factors` (keep-aspect, from-center, negative-factor mirroring),
-  `rotate_delta` (absolute-angle snap), `move_delta` (ortho), `_about`,
-  `transform_angle_deg`.
+  `resize_delta`, `move_delta` (ortho), `_about` (`rotate_delta` /
+  `transform_angle_deg` deleted with the knob, 2026-09-23).
 
 ### Capability protocol (duck-typed, house idiom)
 
@@ -76,25 +88,27 @@ manipulator is **capability-gated**, not one-size.
 |---|---|---|
 | `manip_bounds() -> QRectF` | all (fallback `sceneBoundingRect()`; cosmetic-pen items provide it explicitly) | box the frame wraps |
 | `manip_translate(dx, dy)` | all selectable items (adapter over `translate()`/`moveBy()`) | baked move |
-| `manip_rotate(angle_deg, pivot)` | **U1: all parametric items** (wall, node→pipes ride, gridline, room [group-follow only], floor, roof, line/polyline/circle/arc/regular-polygon) + box-native (rect, badge) | baked rotate, app Y-up (CCW+) sign — `CAD_Math.rotate_point(p, pivot, -angle_deg)`; angle-carriers (gridline `_angle_deg`, arc `_start_deg`, regpoly `_rotation_deg`, badge `_angle`) accumulate `% 360` |
-| `manip_scale(fx, fy, anchor)` | v1: box-native only | baked resize in the item's own semantics |
+| `manip_rotate(angle_deg, pivot)` | **U1: all parametric items** (wall, node→pipes ride, gridline, room, floor, roof, line/polyline/circle/arc/regular-polygon/ellipse/rect) + badge + text | **no manipulator consumer since 2026-09-23** (knob removed; kept for the future Rotate transform). Baked rotate, app Y-up (CCW+) sign — `CAD_Math.rotate_point(p, pivot, -angle_deg)`; angle-carriers (gridline `_angle_deg`, arc `_start_deg`, regpoly `_rotation_deg`, badge `_angle`) accumulate `% 360` |
+| `manip_scale(fx, fy, anchor)` | box-native only (text, `SheetViewport`; **not** `RectangleItem` since 2026-09-23) | baked resize in the item's own semantics |
 
-**Box-native (v1 rotate/scale set):** `RectangleItem`, `SheetViewport`,
-`TextAnnotationItem`, `DesignAreaBadge`, note/dimension annotations. An item
+**Box-native (scale set):** `SheetViewport`, `TextAnnotationItem` / text
+blocks, `DesignAreaBadge`, note/dimension annotations (`RectangleItem` left this
+set 2026-09-23 — it is parametric, see its U3 as-built). An item
 adopts only the capabilities that are semantically valid for it (e.g. the
 fixed-layout badge may implement translate+rotate but not scale) — the handle
 gating reads what each item actually implements.
-`manip_scale` maps onto each item's own model — RectangleItem corner geometry;
-TextAnnotation `wrap_width_mm`/`box_height_mm` + reposition; SheetViewport
+`manip_scale` maps onto each item's own model — TextAnnotation `wrap_width_mm`/`box_height_mm` + reposition; SheetViewport
 **crop-rect change at fixed scale** (on-paper size = crop×scale invariant —
 paper-space.md owns that rule).
 
-**Handle gating:** frame + interior-move whenever selection non-empty; rotate
-knob iff every selected item implements `manip_rotate` (v1: single box-native
-item; paper viewport/text do NOT implement it in v1 — no knob there); 8 resize
-handles iff a single item with `manip_scale`. Parametric single-select: frame +
-the item's own `grip_points()` (unchanged pipeline). Multi-select: frame +
-group move only.
+**Handle gating (as-built 2026-09-23):** frame + interior-move whenever the
+selection is non-empty; **no rotate knob, ever**. 8 rigid resize handles iff a
+**single** item with the `scale` capability (`_is_box_native_single`; it may add
+`manip_box_extra_handles()`). Otherwise the union of the selected items'
+declared `manip_handles()` (an empty declared set is honoured — U5 Leg B); the
+rigid set is the fallback only when no selected item declares handles. The
+dashed frame is suppressed for a box-native single item and for any single item
+whose `manip_frame_redundant()` returns True (an unrotated `RectangleItem`).
 
 ### Event routing & coexistence
 
@@ -107,12 +121,12 @@ group move only.
   selection boundary is superseded for manipulator-wrapped items (one boundary,
   drawn by the manipulator frame).
 - Styling: accent-styled from theme `selection` / `selection_active` tokens
-  (theming.md owns the tokens). Final handle/knob look is **mockup-gated**
+  (theming.md owns the tokens). Final handle look is **mockup-gated**
   (rendered candidates → user picks) before implementation binds.
 - **Shift+press routing (2026-09-16):** the model-scene press guard
   (`Model_Space._manip_press_should_route`) routes a press to the manipulator
   when it lands on the frame; a **Shift-press on a HANDLE** still routes (Shift =
-  aspect/ortho/15° constraint), while a Shift-press on the bare frame **interior**
+  aspect/ortho constraint), while a Shift-press on the bare frame **interior**
   is excluded so additive-select / floor-vertex editing keep working.
   `SelectionManipulator.hit_handle(scene_pos)` is the handle-only hit test the
   guard uses (vs `hit_test` = interior **or** handle).
@@ -125,11 +139,11 @@ group move only.
 
 ### Transform lifecycle (held preview, bake on release)
 
-1. **Press** (handle/knob/interior): snapshot per-item pre-drag state; record
+1. **Press** (handle/interior): snapshot per-item pre-drag state; record
    the grab point.
 2. **Move**: delta from pure math. **Snap-then-transform** — move snaps the
    dragged grab point via `snap_engine.find(…, held=…)`; resize snaps the
-   dragged handle point; rotate takes no OSNAP (Shift = 15° absolute snap).
+   dragged handle point.
    Preview = prototype held transform prepended to each item's `transform()`.
    No geometry edits, no constraint solve during the drag.
 3. **Release**: clear preview transforms → **bake once** through each item's
@@ -147,8 +161,8 @@ rendering path changes).
 
 ### HUD (readout + typed input)
 
-Three `DynamicInputHud` transform schemas: `manip_move` (dX/dY),
-`manip_resize` (W/H), `manip_rotate` (Angle, Y-up, `FieldKind.ANGLE`).
+Two `DynamicInputHud` transform schemas: `manip_move` (dX/dY) and
+`manip_resize` (W/H) (`manip_rotate` deleted with the knob, 2026-09-23).
 Passive: `set_values()` reseeded every move — **the HUD is the readout** (the
 prototype's `_Readout` child is not ported). Typed: engage → `committed` →
 apply the exact value → bake + undo as if released.
@@ -175,20 +189,24 @@ apply the exact value → bake + undo as if released.
   and per-move constraint solves; Esc is trivial.
 - **Capability gating** over uniform box transforms: bounding-box scale is
   semantically wrong for parametric items; they keep their grips.
-- **Rotation as data, not transform, at rest** (RectangleItem `_angle` field);
-  interactive rotation generalizes from RectangleItem's proven pattern.
-- Full prototype interaction set in v1 (click-through, Esc, Shift
-  ortho/aspect/15°, Ctrl scale-about-center); **movable pivot deferred**.
+- **Rotation as data, not transform, at rest** (RectangleItem `_angle` field).
+  (Interactive rotation shipped in v1/U1 and was **removed 2026-09-23**; a
+  Rotate transform is to follow.)
+- Prototype interaction set (click-through, Esc, Shift ortho/aspect, Ctrl
+  scale-about-center); the v1 Shift-15° rotate snap left with the knob;
+  **movable pivot deferred**.
 
 ## Acceptance Criteria
 
 - [ ] One `SelectionManipulator` per scene (model + paper); frame + interior
       move on every selectable item; accent-tokened styling (mockup-approved).
-- [ ] Handles capability-gated exactly as specified (knob/8-handles/parametric
-      grips-in-frame/multi-select-move-only).
+- [ ] Handles capability-gated exactly as specified (8-handles/parametric
+      grips-in-frame/multi-select-move-only); **no rotate knob on any item or
+      selection** (`tests/test_no_rotate_knob.py`).
 - [ ] Universal baked move incl. multi-select group move; grab-point OSNAP.
-- [ ] Rotate + scale on box-native items; Shift-15°; typed-angle via HUD;
-      Y-up readout; RectangleItem baked-at-rest migration, old saves load.
+- [ ] Scale on box-native items; RectangleItem baked-at-rest migration, old
+      saves load. (~~Rotate; Shift-15°; typed-angle via HUD~~ — removed
+      2026-09-23 with the knob.)
 - [ ] Paper per-item handle code retired with behavior parity (crop×scale rule,
       text box model, identical command outcomes).
 - [ ] Esc restores pre-drag state exactly; one undo per gesture per domain;
@@ -213,9 +231,8 @@ apply the exact value → bake + undo as if released.
 
 - **[P1] SHIPPED (U1, 2026-08-31):** parametric items implement `manip_rotate`
   (baked vertex rotation) → rotation is universal; group rotate lights up for
-  mixed selections. (Annotations remain translate-only — a mixed selection that
-  includes a note/dimension hides the rotate knob; adding rotate there is the
-  next label-rotate follow-up.)
+  mixed selections. (The rotate knob that consumed it was **removed
+  2026-09-23**; `manip_rotate` stays for a future Rotate transform.)
 - Paper viewport/text rotation semantics; movable rotation pivot; group scale.
 - HALO preselection / disambiguation-cycle / rubber-band — owned by
   `selection-mode.md` (Leg A built 2026-09-13 in the plan scene), which owns
@@ -247,7 +264,7 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
 - **U1 — universal rigid rotate** ✅ **DONE (2026-08-31):** every parametric item
   implements `manip_rotate` (baked). Group rotate lights up. Manipulator now
   does rigid transforms for ALL items. Room is group-follow only
-  (`MANIP_NO_SOLO_ROTATE`); the fitting-refresh step is shared across
+  (`MANIP_NO_SOLO_ROTATE` — deleted 2026-09-23 with the knob); the fitting-refresh step is shared across
   move/rotate/scale bakes. **Bug fixed en route:** `hit_test` mapped
   `ItemIgnoresTransformations` handles with plain `mapFromScene` (correct only at
   m11==1), so the rotate knob was unhittable at the fit-to-view zoom and the
@@ -255,7 +272,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
 - **U2 — the `Handle` model** ✅ **DONE (2026-09-08):** defined one `Handle`
   behavior abstraction (role, position, drag→edit, commit) + a `manip_handles()`
   capability with a live-fallback sourcing path; re-expressed the manipulator's
-  own resize/rotate handles as `Handle`s. Pure internal refactor — the 6 manip
+  own resize/rotate handles as `Handle`s (`RotateHandle` since deleted,
+  2026-09-23). Pure internal refactor — the 6 manip
   test files pass unmodified. See **"U2 — Handle model (as-built)"** below.
 - **U3 — migrate items onto `manip_handles`, one per PR** — **IN PROGRESS.**
   ✅ **CircleItem DONE (2026-09-08)** — landed the live-apply `GripHandle`
@@ -278,7 +296,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   semantics (the legacy grip path explicitly excludes arc from Ctrl-constrain):
   `default_grip_handles(self, circular={0,1,2})` (centre + start + end, all round
   — centre = move grip, start/end = the arc's geometric endpoints). Same shape as
-  Spline/Polyline. ✅ **RegularPolygonItem DONE (2026-09-10)** — zero special
+  Spline/Polyline. *(Superseded 2026-09-23: the arc now has real grip semantics
+  — see the ArcItem as-built below.)* ✅ **RegularPolygonItem DONE (2026-09-10)** — zero special
   semantics (legacy grip path excludes polygon from Ctrl-constrain):
   `default_grip_handles(self, circular=all indices)` (centre + N vertices, all
   round — centre = move, vertices = the polygon's defining points; dragging a
@@ -295,7 +314,9 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   double up; a ROTATED rect (scale cap dropped) surfaces its parametric grips
   (live-apply; `apply_grip` resizes in the local frame — replaces the legacy green
   grips). `provides_handles_for` kept internal (`_active_handles` +
-  `_frame_is_redundant`). Each
+  `_frame_is_redundant`). *(Superseded 2026-09-23: the rect is no longer
+  box-native — 9 `RectGripHandle`s at every angle; see the RectangleItem as-built
+  below.)* Each
   item exposes its parametric points as `GripHandle`s
   whose drag calls its existing `apply_grip`; the manipulator renders/hit-tests
   them inside the frame. Carry the per-item drag semantics that live in
@@ -313,12 +334,12 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   `scene._snapshot_wall_endpoints`/`_restore_wall_endpoints`, homed in
   `WallPlacementController`, reached via duck-typed scene bridges); a mid (2) round
   move grip (translates the whole wall) and a width (3) square thickness grip,
-  both plain `GripHandle`s that never propagate. The rotate knob coexists (wall
-  has `manip_rotate`, like EllipseItem); not box-native (no `manip_scale`).
+  both plain `GripHandle`s that never propagate. Wall keeps `manip_rotate` (no
+  knob since 2026-09-23); not box-native (no `manip_scale`).
   Remaining, simplest-first:
   Gridline
   (+parallel-delta), Room, DesignArea,
-  **Text blocks — both BOUNDING-BOX-governed (box-native, like Rectangle: frame +
+  **Text blocks — both BOUNDING-BOX-governed (box-native, like Rectangle then was: frame +
   resize + move + rotate, NOT a single MText position grip)**: (a) ✅ **NoteAnnotation
   DONE (2026-09-11)** — the 2D-geometry MTEXT text block UPGRADED to box-native
   (resize = wrap-width + `box_height`, font untouched; bake-at-rest rotation, text
@@ -396,19 +417,19 @@ forwards `paint`/`shape`/`cursor`/`mousePress` to its `Handle`. Rigid handles ke
 rendering via role-keyed hosts (`manip._handles[role]` preserved); widget-less
 item handles (U3) get pooled hosts (`_sync_host_pool`).
 
-**`Handle` contract:** `role`, `gesture_mode` (`"resize"`/`"rotate"` → sets
-`_mode`), `hud_schema`; `scene_position(rect)`, `shape(*,size,grab_pad)`,
+**`Handle` contract:** `role`, `gesture_mode` (`"resize"`, or `"grip"` for U3
+live-apply handles → sets `_mode`), `hud_schema`; `scene_position(rect)`, `shape(*,size,grab_pad)`,
 `paint(painter,*,size,border,fill,hover,border_width)`, `cursor(m)`, `visible(m)`;
 lifecycle `on_press/on_drag/on_release/on_cancel(m,…)`, `commit_typed(m,values)`,
-`hud_values(m)`. Subclasses: `ResizeHandle`, `RotateHandle`. (U3 adds
-`GripHandle` — live-apply.)
+`hud_values(m)`. Subclasses: `ResizeHandle` (`RotateHandle` deleted
+2026-09-23). (U3 adds `GripHandle` — live-apply.)
 
 **Delegation, no drag-model branch.** The manipulator owns drag *state* +
 the held-preview toolkit (`_apply`/`_bake_*`/`_snap`/`_feed_hud`/`_snapshot_items`/
 `_restore_preview` — bodies unchanged); `_begin`/`_update`/`_finish`/
 `_on_hud_committed`/`cancel_drag` delegate the per-kind work to
 `_active_handle.on_*`. Held-preview handles (resize/rotate) *orchestrate* the
-toolkit; a live-apply handle (U3 parametric) calls `apply_grip`+solve in `on_drag`
+toolkit (rigid resize only since the knob's removal); a live-apply handle (U3 parametric) calls `apply_grip`+solve in `on_drag`
 and never touches `_apply` — the manipulator is oblivious. Interior-drag **move
 stays a manipulator-level gesture** (not a Handle).
 
@@ -423,11 +444,11 @@ return, so they are unaffected. `_layout` positions/gates the rigid role-hosts a
 any item handles.
 
 **Handle-facing context API** (manipulator privates a Handle may read):
-`_snap`, `_apply`, `_bake_move/_bake_scale/_bake_rotate`, `_feed_hud`,
-`_restore_preview`, `_end_drag`, `_last_factors`, `_R0`/`_B0`/`_start_scene`/`_D`/
-`_base_angle`, the `_*_at_press` release-bake snapshot trio, the `_typed_*`
-typed-commit trio, `_ROTATE_SNAP_DEG`, `_moved`, `_resize_cursor`,
-`_show_scale_handles`/`_show_rotate_knob`.
+`_snap`, `_apply`, `_bake_move/_bake_scale`, `_feed_hud`,
+`_restore_preview`, `_end_drag`, `_last_factors`, `_R0`/`_B0`/`_start_scene`/`_D`,
+the `_*_at_press` release-bake snapshot trio, the `_typed_*` typed-commit trio,
+`_moved`, `_resize_cursor`, `_show_scale_handles`. (`_bake_rotate`,
+`_base_angle`, `_ROTATE_SNAP_DEG`, `_show_rotate_knob` deleted 2026-09-23.)
 
 **Known limitation → U3 must fix:** `_begin_handle(handle, …)` calls
 `_begin(handle.gesture_mode, …, handle.role)`, and `_begin` installs
@@ -439,8 +460,7 @@ install the passed handle** (e.g. `_active_handle = handle` after `_begin`) so a
 pooled/item host press drives the item's handle. Parity-safe (for rigid handles
 `handle is self._rigid[role]`).
 
-**Tests:** `tests/test_manip_handle.py` (contract units + knob-outline-width
-guard), `tests/test_manip_handle_admissibility.py` (live-apply lifecycle +
+**Tests:** `tests/test_manip_handle.py` (contract units), `tests/test_manip_handle_admissibility.py` (live-apply lifecycle +
 `manip_handles()` consumption + legacy seams intact),
 `tests/test_manip_u2_parity.py` (posted-event vs slot byte-parity + no-op/Esc).
 The 6 pre-U2 manip test files pass unmodified.
@@ -463,13 +483,15 @@ returns `item.grip_points()[index]` (rides the live grip); `visible` mirrors
   saving prior values) so the snap authority runs exactly as legacy; snapshot all
   grip points for Esc.
 - `on_drag`: `pt = scene.get_effective_position(scene_pos)` (getattr fallback for
-  plain scenes) → `_transform_point` hook → `apply_grip` → `_after_apply` hook →
+  plain scenes) → `_transform_point` hook → **`_apply(pt, mods)` hook** (default
+  `item.apply_grip(index, pt)`; subclasses override it to use press-time state /
+  modifiers — `RectGripHandle`) → `_after_apply` hook →
   `scene._tools._solve_constraints(item)` → `m._reflow_live()`. Records
   `self._last_pt`.
 - `on_release`: capture `moved`; re-apply the release point **only if it differs
   from `_last_pt`** (Qt normally delivers a final move at the release position →
   re-apply skipped, so a future `_after_apply` propagation override cannot
-  double-fire); `_clear_grip_state`; `m._end_drag()`; then if `moved`, solve +
+  double-fire; the re-apply goes through the same `_apply` hook); `_clear_grip_state`; `m._end_drag()`; then if `moved`, solve +
   `commit_hook("grip")` (one undo per gesture).
 - `on_cancel`: re-apply the snapshot for **only the dragged grip**
   (`apply_grip(self.index, snapshot[index])`) + `_restore_extra` for sibling/
@@ -479,8 +501,10 @@ returns `item.grip_points()[index]` (rides the live grip); `visible` mirrors
   grip like the midpoint recomputes from the endpoints anyway. Fixed 2026-09-09
   during the LineItem migration.)
 
-**Four per-item semantics are ADMITTED (not built here) as extension points:**
-`_transform_point` (Ctrl angle-constrain), `_after_apply` (gridline
+**Per-item semantics are ADMITTED (not built here) as extension points:**
+`_transform_point` (Ctrl angle-constrain), `_apply` (press-time / modifier-aware
+apply, added 2026-09-23; `on_cancel` bypasses it and restores via `apply_grip`
+directly), `_after_apply` (gridline
 parallel-delta / wall-endpoint propagation), `_extra_snapshots`/`_restore_extra`
 (siblings), plus the always-run solver pass. Proven by
 `test_manip_griphandle_admissibility.py` fake-handle overrides.
@@ -511,7 +535,8 @@ item's `manip_handles()` returns a non-empty list. `Model_View.drawForeground`'s
 grip loop and `scene_tools._find_grip_hit` both `continue` past such items. This
 is now the **single** legacy-path skip: since RectangleItem (the only model-scene
 box-native item) provides `manip_handles`, the separate `provides_handles_for`
-skip was removed from both paths (2026-09-10). `provides_handles_for` remains an
+skip was removed from both paths (2026-09-10; historical — RectangleItem left the
+box-native set 2026-09-23). `provides_handles_for` remains an
 internal helper (`_active_handles` picks the rigid resize set for a box-native
 single item; `_frame_is_redundant`). U4 deletes the legacy paths + the helper.
 
@@ -567,8 +592,8 @@ only restores the dragged grip. Both wall-graph helpers live in
 `WallPlacementController`, reached through thin `Model_Space` bridges; all scene
 calls are getattr-guarded so a headless plain scene degrades to no-propagation.
 The mid/width grips are plain `GripHandle`s and never propagate. `apply_grip`
-carries the edit math (endpoints, translate, thickness) unchanged; the rotate
-knob coexists (wall has `manip_rotate`); not box-native.
+carries the edit math (endpoints, translate, thickness) unchanged; wall keeps
+`manip_rotate` (no knob since 2026-09-23); not box-native.
 
 **GridlineItem.manip_handles()** → `[GridlineGripHandle(0, opp=1, round),
 GridlineGripHandle(1, opp=0, round), GridlineGripHandle(2, round),
@@ -593,8 +618,8 @@ gridline's original on-axis point is idempotent, so restore is exact). The scene
 helpers live directly in `Model_Space` (gridline has no domain controller yet).
 The legacy `_PullTabGrip` child items (the pre-U3 endpoint/bubble grip visuals)
 are **removed** — grips are manipulator-owned; `_LockIndicator` stays and nudges
-`manipulator.rebake()` on lock-toggle so grip visibility re-evaluates. Rotate knob
-coexists (`manip_rotate`); not box-native. Hover grip-preview dropped (U5).
+`manipulator.rebake()` on lock-toggle so grip visibility re-evaluates. Keeps
+`manip_rotate` (no knob since 2026-09-23); not box-native. Hover grip-preview dropped (U5).
 
 **Room.manip_handles()** → `default_grip_handles(self, circular={0})`. The simplest
 migrated item: a SINGLE label-centre grip (round — a move affordance that
@@ -605,8 +630,8 @@ returns `[]` too — Room is the first item to exercise the **state-dependent em
 which is harmless because `grip_points()` is empty then (nothing renders on either
 path). Zero special drag semantics (`apply_grip(0)` moves the label; no
 Ctrl-constrain, no sibling propagation — the boundary vertices are wall-derived
-and NOT exposed as grips). `MANIP_NO_SOLO_ROTATE=True` → a solo room shows no
-rotate knob (rotate only in a multi-select group).
+and NOT exposed as grips). (`MANIP_NO_SOLO_ROTATE` — the solo-room knob
+suppression — was deleted 2026-09-23 with the knob.)
 
 **DesignArea.manip_handles()** → `default_grip_handles(self, circular={0})`. A Room
 twin: a SINGLE badge-centre grip (round move affordance), conditionally present —
@@ -623,14 +648,14 @@ len(self._points))))`: one round grip per boundary vertex — a PolylineItem twi
 unchanged. **Zero special drag semantics**: polygons are explicitly excluded from
 the legacy Ctrl-constrain block (*"rect, arc, polygon, circle … must NOT be
 affected"*), and a floor's boundary is not grip-coupled to neighbours, so no
-`EndpointGripHandle`/`_transform_point`/propagation. The rotate knob coexists
-(`manip_rotate`); not box-native (no `manip_scale` → caps `{translate, rotate}`).
+`EndpointGripHandle`/`_transform_point`/propagation. Keeps `manip_rotate` (no
+knob); not box-native (no `manip_scale` → caps `{translate, rotate}`).
 
 **RoofItem.manip_handles()** → identical to FloorSlab (`default_grip_handles(self,
 circular=set(range(len(self._points))))`): one round grip per boundary vertex.
 `apply_grip` → `_rebuild_path` (regenerates overhang + ridge) unchanged. Zero
-special semantics (same polygon-boundary reasoning as FloorSlab); rotate knob
-coexists; not box-native.
+special semantics (same polygon-boundary reasoning as FloorSlab); keeps
+`manip_rotate` (no knob); not box-native.
 
 **DimensionAnnotation.manip_handles()** → `default_grip_handles(self, circular={0})`:
 the SINGLE offset grip (at the offset-line midpoint) on the unified path —
@@ -646,10 +671,10 @@ grip) with no resize/rotate handles. Serialized via `network_codec` (no
 `to_dict`), so parity is asserted on `_offset_dist`.
 
 **NoteAnnotation — box-native MTEXT (`annotations.py`).** The model-scene MTEXT
-note migrated from translate-only to **box-native** (like RectangleItem: frame +
-resize + move + rotate). `manip_capabilities()` = `{translate, scale, rotate}`
+note migrated from translate-only to **box-native** (as RectangleItem then was:
+frame + resize + move; the rotate knob it also had was removed 2026-09-23). `manip_capabilities()` = `{translate, scale, rotate}`
 unrotated, dropping `scale` when `_angle != 0` so the 9 parametric grips surface
-(RectangleItem convention). `manip_handles()` = `default_grip_handles(self,
+(the pre-2026-09-23 RectangleItem convention). `manip_handles()` = `default_grip_handles(self,
 circular={0,2,4,6,8})`; `manip_box_extra_handles()` = the centre move grip (index
 8) alongside the rigid resize set when unrotated. **Resize** clones the paper
 `TextAnnotationItem` semantics: horizontal handles set the wrap width
@@ -733,14 +758,28 @@ Tests: `tests/test_manip_griphandle_viewmarker_parity.py` (incl.
 host pool — the earlier parity tests called `manip_handles()` directly and masked
 the staleness).
 
-**ArcItem.manip_handles()** → `default_grip_handles(self, circular={0, 1, 2})`:
-3 handles (centre + start + end), all round — centre is a move grip, start/end
-are the arc's geometric endpoints (curve termini), per the house rule. **Zero
-special drag semantics**: the legacy grip drag (`model_space.py`) explicitly
-excludes arc from Ctrl-constrain (*"rect, arc, polygon, circle … must NOT be
-affected by this block"*), so no `EndpointGripHandle`/`_transform_point`. Same
-shape as Spline/Polyline; `apply_grip` already carries the edit math (centre =
-translate; start = radius+start-angle; end = span-angle).
+**ArcItem.manip_handles()** (re-shaped 2026-09-23) → `[GripHandle(0,
+circular), ArcEndpointGripHandle(1), ArcEndpointGripHandle(2)]` — centre + start +
+end, all round. Semantics (`ArcItem.apply_grip`; the math lives in `arc_math.py`,
+shared with the End Points placement — `2d-geometry.md §4`):
+- **Centre (0)** — both endpoints stay fixed; the drag point is projected onto
+  their perpendicular bisector and radius / start / span follow (CCW start→end is
+  kept, so dragging across the chord grows the arc through a semicircle into a
+  major arc). A full-circle arc (no chord) translates instead. A degenerate
+  result holds the last valid shape.
+- **Start (1) / End (2)** — `ArcEndpointGripHandle(GripHandle)` (2026-09-24,
+  replaces the 3-point refit): the **centre, radius and the other endpoint stay
+  fixed**; the drag point is projected radially onto the circle and only the
+  dragged endpoint's angle changes. Start drag: start = angle(point), span =
+  (end angle − start) mod 360; end drag: span = (angle(point) − start) mod 360.
+  A span < 0.5° or > 359.5° (or a point on the centre) **holds the last valid
+  shape**. No modifier semantics (Ctrl is not special). The circle is invariant
+  during the drag, so `apply_grip` reads the live centre/radius (no press-time
+  ref on the item). The handle snapshots the arc data on press
+  (`_extra_snapshots`) and `_restore_extra` writes it back, so Esc restores
+  byte-exactly.
+- `ArcItem` stores every arc CCW (a negative span is normalised in `__init__`),
+  which the span formulas assume.
 
 **RegularPolygonItem.manip_handles()** → `default_grip_handles(self,
 circular=all indices)`: centre + N vertices, all round (centre = move; each
@@ -759,20 +798,24 @@ special semantics (not Wall/Gridline/Line → no Ctrl-constrain); not box-native
 `grip_render_angle` hook (below), so they stay aligned to the axes at placement
 angle and after a rotate.
 
-**RectangleItem.manip_handles()** (box-native special) → `default_grip_handles(
-self, circular={0,2,4,6,8})`: the 9 rect grips (corners 0,2,4,6 + centre 8 round;
-edge midpoints 1,3,5,7 square). These surface **only for a ROTATED rect** — an
-unrotated rect is box-native (`provides_handles_for` → `_active_handles` returns
-the rigid resize set), so it shows the 8 resize handles + rotate knob and the
-grips don't double up. A rotated rect drops the `scale` cap → its parametric grips
-drive edits via `apply_grip` (resize in the rect's own local frame, no shear),
-replacing the legacy green grips. `grip_render_angle` returns `_angle` so the
-square edge-midpoint grips align with the rotated edges. Providing `manip_handles`
-makes `_item_uses_manip_handles` the single coexistence gate (see above). The
-**centre MOVE grip is present for BOTH states**: the rotated rect exposes it as
-grip 8 of its parametric handles; the unrotated (box-native) rect adds it via
-`manip_box_extra_handles()` → `_active_handles` appends it to the rigid resize set
-(the rigid set has no centre handle — move is otherwise interior-drag only).
+**RectangleItem.manip_handles()** (reworked 2026-09-23 — **no longer
+box-native**) → 9 `RectGripHandle`s at **every** angle (corners 0,2,4,6 +
+centre 8 round; edge midpoints 1,3,5,7 square, aligned via `grip_render_angle` →
+`_angle`). The rect has no `manip_scale`, so the rigid resize handles never
+surface for it and `_is_box_native_single` is False. **`RectGripHandle(GripHandle)`**
+overrides `_apply` to resize in the rect's LOCAL frame from the **press-time**
+rect (`rect_grip_resize` in `geometry_2d.py`, the one home for the math): the
+drag point is mapped through the press-time inverse rotation; **Ctrl** = resize
+symmetrically about the centre; **Shift** = keep aspect (corners only; no effect
+on edges); the centre grip (8) moves. Angle is untouched. For a rotated rect whose
+pivot follows its centre (`_pivot is None`), the pivot is **pinned** to the
+press-time centre during the drag so the held opposite side does not drift in
+scene; a click without a drag un-pins it (byte-identical), and Esc restores the
+whole press-time rect + the original pivot. **Frame:** `manip_frame_redundant()`
+is True at 0° (the outline coincides with the frame → dashed frame suppressed);
+a rotated rect keeps the frame. (The earlier box-native split — rigid resize
+set + `manip_box_extra_handles` centre grip unrotated, `apply_grip` grips only
+when rotated — is gone.)
 
 **Grip-shape house rule (2026-09-09 smoke; refined 2026-09-10).** Vertex/endpoint
 grips and centre/**move** grips render **round** (disc); only inert/derived
@@ -798,19 +841,10 @@ so its 4 square axis grips track the ellipse's placement angle and post-hoc
 rotate. `_HandleItem.boundingRect` already reserves `√2·half` for a rotated
 square.
 
-*Live during the rotate held-preview:* the rotate knob is held-preview (the
-item's angle isn't mutated until the release bake), so screen-constant
-(`ItemIgnoresTransformations`) handles would keep their pre-drag orientation
-while the frame turns. `Handle._live_preview_rotation()` returns the
-manipulator's `_preview_rotation_deg()` (= `_yup_angle_from_delta(self._D)` while
-`_mode == "rotate"`, else 0); it's added to a square grip's `_render_angle` **and**
-used by `RotateHandle.shape/paint` to swing the knob+stem with the frame. Because
-it's the same angle the release bake applies, there's no jump on commit. The
-manipulator sets `handle._m` on every handle (rigid at construction; grips in
-`_sync_host_pool`), and `_apply` repaints all handle hosts each rotate move
-(their orientation depends on `_D`, which a transform-change repaint doesn't
-otherwise track). This makes the rotate knob swing for **any** rotatable item
-(box-native rects included), not just the ellipse.
+*Live during the rotate held-preview (historical):* `Handle._live_preview_rotation()`
+swung square grips and the knob with the frame during a rotate drag; it, the
+`Handle._m` back-ref and `_preview_rotation_deg` were deleted with the knob
+(2026-09-23). `_render_angle` is now `grip_render_angle` alone.
 
 **Known follow-up (filed):** `_item_uses_manip_handles` treats an empty
 `manip_handles()` as "not migrated"; unreachable for CircleItem (always 5), but a
@@ -826,18 +860,20 @@ byte-parity vs legacy `apply_grip`, one-undo, Esc restore),
 `tests/test_manip_griphandle_spline_parity.py`,
 `tests/test_manip_griphandle_line_parity.py` (Polyline/Spline/Line parity; Line
 adds Ctrl-constrain-wiring + midpoint-translate), and
-`tests/test_manip_griphandle_arc_parity.py` (Arc parity — shape, end-grip/span
-legacy-apply match, posted start-grip drag, one-commit, Esc-restore), and
+`tests/test_manip_griphandle_arc_parity.py` (Arc — shape, end-grip apply,
+posted start-grip drag, one-commit, Esc-restore) + `tests/test_arc_grip_reshape.py`
+(bisector centre, endpoint slide-along-circle, span formulas, Ctrl not special, degenerate-span holds, byte-exact Esc) +
+`tests/test_arc_math.py`, and
 `tests/test_manip_griphandle_polygon_parity.py` (RegularPolygon parity — shape,
 handle-count-tracks-sides, centre/vertex legacy-apply match, posted centre+vertex
 drag, one-commit, Esc-restore, gate recognition), and
 `tests/test_manip_griphandle_ellipse_parity.py` (Ellipse parity — shape [centre
 round, axis grips square], major/minor/centre legacy-apply match, posted
 major+centre drag, one-commit, Esc-restore, gate recognition), and
-`tests/test_manip_griphandle_rect_parity.py` (Rectangle box-native — shape, gate
-True both states, unrotated shows rigid resize handles [not grips], rotated shows
-9 parametric grips, rotated-corner apply parity, posted centre-drag, `_find_grip_hit`
-skip both states).
+`tests/test_manip_griphandle_rect_parity.py` (Rectangle — shape, 9 grips and no
+resize handles in both states, rotated-corner apply, posted centre-drag) +
+`tests/test_rect_grips_unified.py` (local-frame resize, Ctrl/Shift, pivot pin,
+frame suppression) + `tests/test_no_rotate_knob.py` (no knob anywhere).
 `test_scene_tools.py` asserts
 the migrated circle/polyline/spline/line/arc/**rect** are skipped by
 `_find_grip_hit` (the rect legacy-hit test became the "migrated → skipped"

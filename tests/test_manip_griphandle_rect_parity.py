@@ -1,11 +1,9 @@
-"""RectangleItem U3 box-native migration.
+"""RectangleItem U3 grips (unified, Task 9 of arc-rect-grip-polish).
 
-Rect provides manip_handles() (9 grips). For an UNROTATED rect the manipulator
-shows its rigid
-RESIZE handles (_is_box_native_single → _active_handles returns the rigid set),
-NOT the parametric grips — no double-up. A ROTATED rect drops the scale cap, so
-its parametric grips surface (live-apply; apply_grip resizes in the rect's own
-local frame), replacing the legacy green grips.
+Rect provides manip_handles() (9 RectGripHandles) and has NO ``scale``
+capability, so at EVERY angle the manipulator surfaces the rect's own
+live-apply local-frame grips (4 corners, 4 edge mids, centre move) — never the
+rigid RESIZE handles.
 """
 import pytest
 from PyQt6.QtCore import QPointF, QEvent, Qt
@@ -13,7 +11,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from firepro3d.geometry_2d import RectangleItem
-from firepro3d.manip_handle import GripHandle, ResizeHandle, RotateHandle
+from firepro3d.manip_handle import GripHandle, ResizeHandle
 from firepro3d.manip_math import HandleRole
 
 _ROUND = {0, 2, 4, 6, 8}          # corners + centre round; edge midpoints square
@@ -50,29 +48,28 @@ def test_grip_render_angle_is_rect_angle():
     assert r.grip_render_angle(1) == pytest.approx(30.0)
 
 
-def test_unrotated_rect_shows_resize_handles_plus_centre_move(qapp):
-    """Box-native single rect: the active handles are the rigid RESIZE/ROTATE set
-    PLUS the centre MOVE grip — the 8 edge/corner parametric grips do NOT show
-    (they'd double up with the resize handles), but the centre handle is present
-    for the unrotated rect too (consistency with the rotated parametric path)."""
+def test_unrotated_rect_shows_nine_grips_no_resize_handles(qapp):
+    """Migrated from the retired box-native path (8 rigid resize handles + a
+    centre MOVE grip): an unrotated rect now shows the SAME 9 local-frame grips
+    as a rotated one, and no rigid ResizeHandle."""
     from firepro3d.selection_manipulator import SelectionManipulator
+    from firepro3d.manip_handle import RectGripHandle
     scene = QGraphicsScene()
     view = QGraphicsView(scene); view.resize(400, 400); view.show()
     qapp.processEvents()
     r = _make_rect(); scene.addItem(r)
     m = SelectionManipulator(scene)
     r.setSelected(True); qapp.processEvents()
-    assert m._is_box_native_single(r) is True
+    assert m._is_box_native_single(r) is False
     active = m._active_handles()
-    rigid = [h for h in active if isinstance(h, (ResizeHandle, RotateHandle))]
-    grips = [h for h in active if isinstance(h, GripHandle)]
-    assert len(rigid) == 9                       # 8 resize + rotate knob
-    assert [h.index for h in grips] == [8]       # only the centre MOVE grip
-    assert grips[0].circular is True             # round
+    assert not [h for h in active if isinstance(h, ResizeHandle)]
+    grips = [h for h in active if isinstance(h, RectGripHandle)]
+    assert [h.index for h in grips] == list(range(9))
+    assert grips[8].circular is True             # centre move grip is round
 
 
 def test_unrotated_rect_centre_grip_moves(qapp):
-    """The centre grip on an unrotated (box-native) rect translates it."""
+    """The centre grip on an unrotated rect translates it."""
     from firepro3d.selection_manipulator import SelectionManipulator
     scene = QGraphicsScene()
     view = QGraphicsView(scene); view.resize(600, 600); view.show()
@@ -90,8 +87,8 @@ def test_unrotated_rect_centre_grip_moves(qapp):
 
 
 def test_rotated_rect_shows_parametric_grips(qapp):
-    """A rotated rect drops scale → not box-native → its live-apply parametric
-    grips surface via the manipulator (replacing the legacy green grips)."""
+    """A rotated rect (like an unrotated one) is not box-native → its live-apply
+    parametric grips surface via the manipulator."""
     from firepro3d.selection_manipulator import SelectionManipulator
     scene = QGraphicsScene()
     view = QGraphicsView(scene); view.resize(400, 400); view.show()

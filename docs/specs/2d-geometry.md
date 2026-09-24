@@ -3,9 +3,11 @@ title: 2D Geometry System
 status: current
 applies-to:
   - firepro3d/geometry_2d.py
+  - firepro3d/arc_math.py      # pure arc construction (End Points placement + arc grips)
+  - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-09-23
-verified-commit: 434066c
+last-verified: 2026-09-24
+verified-commit: 62683b9
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -55,9 +57,9 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 | `LineItem` | `QGraphicsLineItem` | finite 2-point line |
 | `ReferenceLineItem` | `LineItem` | **non-printing** finite reference/construction line (per-item `printed` flag) |
 | `PolylineItem` | `QGraphicsPathItem` | multi-segment polyline, **open or closed** |
-| `RectangleItem` | `QGraphicsRectItem` | axis-aligned rect + optional rotation |
+| `RectangleItem` | `QGraphicsRectItem` | axis-aligned local rect + rotation as data (`_angle`/`_pivot`); every consumer must honour it — `mapToScene`/`mapFromScene`/`mapToParent`/`mapRectToScene` are overridden, and block compile, mirror/scale/explode/offset go through the rotated corners |
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
-| `ArcItem` | `QGraphicsPathItem` | 3-point / centre arc |
+| `ArcItem` | `QGraphicsPathItem` | centre + radius + start/span (stored CCW, span > 0) |
 | `RegularPolygonItem` | `QGraphicsPathItem` | **parametric** regular N-gon |
 | `EllipseItem` | `QGraphicsPathItem` | centre + rx/ry + **Y-up rotation** |
 | `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights) |
@@ -261,7 +263,7 @@ Guards: `tests/test_block_curve_import.py`.
 ## 3.6 Reference lines (placement + selection guides) — invariant
 
 A **reference line** is the canonical dashed guide the 2D-geometry tools use to
-show *defining geometry* — axes, radii, control polygons, the 0° datum / sweep
+show *defining geometry* — axes, radii, control polygons, the centre→endpoint / sweep
 radials. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
 in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 `setCosmetic(True)`). The scene-side factory `Model_Space._make_ref_line()` /
@@ -285,8 +287,14 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 - Items that expose defining geometry render it as reference lines on selection:
   `EllipseItem` (major + minor axes), `SplineItem` (control polygon),
   `RegularPolygonItem` (circumradius circle), **`RectangleItem` (corner
-  diagonals), `CircleItem` (radius guide + bounding box)** — the latter two via
+  diagonals), `CircleItem` (radius guide + bounding box), `ArcItem` (radials
+  centre → start and centre → end, 2026-09-24)** — the latter three via
   `_selection_ref_segments()`.
+- Because an arc's centre can lie outside its path bounds, a **selected**
+  `ArcItem`'s `boundingRect()` also covers the centre (`itemChange` calls
+  `prepareGeometryChange()` on `ItemSelectedChange`) so the radials repaint; its
+  `shape()` stays the stroked arc, so clicking empty space near the centre does
+  not select it.
 
 ## 4. Placement workflows (`model_space.py`)
 
@@ -312,15 +320,58 @@ registered by adding rows to the dispatch tables: `_PRESS_DISPATCH`,
 field-commit path), the instruction map, cursor map (`model_view.py`),
 `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`, and `get_placement_anchor`.
 
-- **Line/rect/circle/arc:** see the existing 2-click (+ rect/arc rotate/variant)
-  handlers. Rectangle & Arc expose ←/→ placement variants; rectangle & polygon
-  have a rotate step whose HUD uses the shared **"rotation"** schema (step-aware
-  `active_schema`; the rotation seed dispatches by mode to the correct pivot).
-  **Centre-mode rectangles** (2D-geo, wall, floor) use a dedicated
-  **`rectangle_center`** HUD schema whose `W`/`H` fields are the **full** width
-  and height (not the corner-mode signed half-extents) — `active_schema` picks it
-  when the primitive's `_*_rect_from_center` flag is set. See
-  `dynamic_input.py` (`seed_rectangle_center`/`resolve_rectangle_center`).
+- **Line/rect/circle/arc:** see the per-mode handlers in
+  `geometry_drawing_controller.py`. Rectangle & Arc expose ←/→ placement variants
+  (a Ctrl/Shift/Alt/Meta-modified arrow does **not** cycle the variant). The
+  polygon keeps a rotate step on the shared **"rotation"** schema; the rectangle
+  has **no** rotate step (its angle comes from the first side — below).
+- **Rectangle — 3-click base → side → depth (2026-09-23; shared by 2D rect, wall
+  rect, floor rect).** Click 1 = **base**; click 2 fixes the **first side** (its
+  angle + W); click 3 fixes the **depth** (H) perpendicular to that side, and the
+  rect commits already rotated (`RectangleItem.set_angle(angle, pivot=base)`; 0°
+  stays axis-aligned). Corner variant: base = a corner, `base → click 2` is the
+  full side W, depth is **signed** (+ = left of the side, Y-up; − = the other
+  side). Centre variant: base = the centre, click 2 = the **edge midpoint** (half
+  a W from the centre; the side guide is drawn mirrored through the base), depth
+  magnitude = half of H. Ctrl angle-constrains the side step. HUD schemas: side →
+  `rect_side` (W + Angle, corner) / `rect_side_center` (W is the **full** width);
+  depth → `rect_depth` (signed H) / `rect_depth_center` (full H) — the depth
+  resolvers read the side's left normal via the `__dir__` injection
+  (`align-placement.md §5.2` owns the schema table). The depth-step ghost is drawn
+  **floorless** (a near-zero depth shows as a line along the side) while the
+  commit rejects any full extent < 0.5 mm (the step stays armed); a side < 0.5 mm
+  is likewise refused. **One home:** the pure helpers in `geometry_2d.py` —
+  `rect_side_frame`, `rect_signed_depth`, `rect_side_ghost`,
+  `rect_from_side_and_depth` (commit, 0.5 mm floor) / `_rect_solve` (floor as a
+  parameter), `apply_rect_ghost` (the ghost fit, same transform as `set_angle`),
+  `rotated_rect_corners` — wall and floor call these, never re-derive the math.
+  (`rect_sizing_points` and the `rectangle` / `rectangle_center` schemas are
+  deleted.)
+- **Arc — three ←/→ variants.** *Center* (centre → start point [radius + start
+  angle, `line` HUD] → end [`arc_span` HUD]); *Start* (start point → centre →
+  end, same schemas); *End Points* (2026-09-23): end **A** → end **B** (the chord;
+  `line` HUD from A, Ctrl angle-constrains, chord < 0.5 mm rejected) → the
+  **centre**, which is constrained to the chord's perpendicular bisector (the
+  cursor is projected onto it). The default is the **minor** arc, bulging away
+  from the centre's side of the chord; **Space** toggles minor ↔ major (reset per
+  placement); with the centre on the chord (semicircle) the last non-zero side is
+  kept. **90° snap (2026-09-24):** for the mouse preview and click commit, when
+  the centre's signed bisector distance |t| is within the OSNAP aperture of the
+  half-chord h (the radials C→A and C→B perpendicular), |t| is pinned to h (sign
+  kept) so the arc is exactly 90° minor / 270° major. The window is
+  `SNAP_TOLERANCE_PX` converted by the active view zoom (`px_to_scene` +
+  `_active_view_scale()`; with no view attached the scale falls back to 1.0,
+  i.e. `SNAP_TOLERANCE_PX` scene mm). Guides: centre → apex, centre → A,
+  centre → B. Step 3 HUD = `arc_radius` (typed radius places the centre on the
+  bisector on the live side — exact, **never** 90°-snapped; a radius below ½
+  chord is refused). One home for the math: `arc_math.py`
+  (`project_to_bisector`, `arc_through_chord`, `center_for_radius`); the snap
+  lives in `GeometryDrawingController._arc_ep_solve(snap90=…)`.
+- **`ArcItem` storage is CCW:** a negative (CW) span passed to `__init__` (mirror
+  tool, legacy saves) is normalised to the same geometric arc with a positive span
+  (start += span, span = −span). Grips: centre / start / end — their drag
+  semantics (centre: bisector slide; ends: slide along the circle) are owned by
+  `selection-manipulator.md` (U3 ArcItem).
 - **Placement selection (no accumulation):** every primitive is
   `setSelected(True)` on commit, and the commit **clears the prior selection
   first** so placing several in a row leaves only the last-placed item selected
@@ -331,7 +382,7 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   finish *open*; **Delete** pops the last vertex (routed via a `Model_View`
   `ShortcutOverride` accept so it beats the window Delete shortcut; cancels at one
   vertex). All stay in polyline mode.
-- **Polygon (3-step, mirrors centre-rectangle):** centre → radius (axis-aligned) →
+- **Polygon (3-step):** centre → radius (axis-aligned) →
   rotate. `↑/↓` change #sides and `←/→` toggle inscribed/circumscribed **live at
   every step**; a dashed **reference circle** shows during placement and while the
   polygon is **selected**; the readout carries the sides/shape hints; the HUD
@@ -341,18 +392,17 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   as a first-class client. One `"wall"` scene-mode carries `_wall_primitive ∈
   {"line","polyline","rect"}` + `_wall_rect_from_center`; ←/→ cycles all four
   variants (Line / Polyline / Corner Rect / Center Rect) via `_PLACEMENT_VARIANTS`;
-  the rect variants share the same **3-step** pattern (anchor → size → rotate)
-  and use the shared **"rotation"** HUD schema for the rotate step (step-aware
-  `active_schema`). `rect_sizing_points()` in `geometry_2d.py` is now
-  **shared** between the 2D-geo rectangle and the wall rectangle. See
+  the rect variants use the same **3-click base → side → depth** flow and
+  `rect_side*`/`rect_depth*` schemas as the 2D rectangle (above; the
+  `geometry_2d.py` rect helpers are the one home). See
   `wall-room-floor-system.md §4.4` for the full wall-placement contract.
 - **Floor (2026-08-28):** floor placement registers into the same dispatch as a
   first-class client, mirroring the wall. One `"floor"` scene-mode carries
   `_floor_primitive ∈ {"rect","polygon"}` + `_floor_rect_from_center`; ←/→ cycles
   Corner Rect / Center Rect / Polygon via `_PLACEMENT_VARIANTS`; the rect variants
-  share the **3-step** (anchor → size → rotate) pattern with the shared
-  **"rotation"** HUD schema (step-aware `active_schema` → `_floor_schema_for_primitive`),
-  and reuse `rect_sizing_points()` / `rotated_rect_corners()`. The polygon variant
+  use the same **3-click base → side → depth** flow + `rect_side*`/`rect_depth*`
+  schemas as the 2D rectangle (`_floor_schema_for_primitive`; the `geometry_2d.py`
+  rect helpers are the one home). The polygon variant
   shares the polyline close-ring / Enter / double-click / **Delete-pop** UX. `F`
   shortcut; `set_mode("floor_rect")` is a back-compat alias. The floor commits **one**
   closed-polygon `FloorSlab` (not N segments). See `wall-room-floor-system.md §11.4`

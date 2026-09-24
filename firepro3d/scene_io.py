@@ -505,6 +505,12 @@ class SceneIOMixin:
         self._block_definitions = {}
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
+        self._draw_rect_side_pt = None
+        self._draw_rect_ref_line0 = None
+        self._wall_rect_side_pt = None
+        self._wall_rect_ref_line0 = None
+        self._floor_rect_side_pt = None
+        self._floor_rect_ref_line0 = None
         self._draw_circle_center = None
         self._draw_rect_preview = None
         self._draw_circle_preview = None
@@ -512,6 +518,10 @@ class SceneIOMixin:
         self._draw_arc_radius = 0.0
         self._draw_arc_start_deg = 0.0
         self._draw_arc_step = 0
+        self._draw_arc_ep_a = None
+        self._draw_arc_ep_b = None
+        self._draw_arc_ep_major = False
+        self._draw_arc_ep_side = 1
         self._draw_arc_radius_line = None
         self._draw_arc_preview = None
         self._text_anchor = None

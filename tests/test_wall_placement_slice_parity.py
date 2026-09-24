@@ -93,7 +93,7 @@ def test_backcompat_shells_wall(scene):
 def test_wall_state_stays_scene_side(scene):
     """Behavior-home: wall state remains Model_Space attributes (NOT moved to _wall_ctl)."""
     for attr in ("_walls", "_next_wall_num", "_wall_primitive", "_wall_alignment",
-                 "_wall_anchor", "_wall_rect_rotating", "_wall_rect_pivot"):
+                 "_wall_anchor", "_wall_rect_side_pt", "_wall_rect_pivot"):
         assert hasattr(scene, attr), f"scene lost state {attr}"
 
 
@@ -163,10 +163,10 @@ def test_wall_endpoint_propagation_live(shown_model_view):
 
 
 def test_wall_rect_draw_live(shown_model_view):
-    """Rect primitive: anchor → size → rotate(~0°) commits 4 walls and re-arms.
+    """Rect primitive: base → side → depth commits 4 walls and re-arms.
 
     Mirrors test_wall_placement_workflow.test_corner_rect_wall_builds_four_walls_
-    with_rotate, plus the C2 re-arm assertion (_wall_rect_rotating back to False).
+    three_clicks, plus the C2 re-arm assertion (_wall_rect_side_pt back to None).
     """
     view, scene = shown_model_view
     scene.set_mode("wall")
@@ -175,13 +175,13 @@ def test_wall_rect_draw_live(shown_model_view):
     assert scene._wall_primitive == "rect"
     assert scene._wall_rect_from_center is False
     n0 = len(scene._walls)
-    _click(view, QPointF(0, 0))            # anchor (first corner)
-    _click(view, QPointF(1000, 800))       # opposite corner → enters rotate step
-    assert scene._wall_rect_rotating is True, "After 2nd click, must be in rotate step"
-    _click(view, QPointF(1200, 0))         # third click: rotate commit ~0°
+    _click(view, QPointF(0, 0))            # base
+    _click(view, QPointF(1000, 0))         # first side → enters the depth step
+    assert scene._wall_rect_side_pt is not None, "After 2nd click, must be in depth step"
+    _click(view, QPointF(500, 800))        # third click: depth commit
     assert len(scene._walls) == n0 + 4, f"Expected {n0 + 4} walls, got {len(scene._walls)}"
-    # Continuous placement re-arms fresh (rotate step cleared, anchor reset).
-    assert scene._wall_rect_rotating is False
+    # Placement re-arms fresh (depth step cleared, anchor reset).
+    assert scene._wall_rect_side_pt is None
     assert scene._wall_rect_anchor is None
 
 
@@ -190,7 +190,7 @@ def test_wall_hud_typed_commit_live(shown_model_view):
 
     Line: click an anchor then feed the resolved point via _apply_wall_dynamic_input
     (mirrors test_wall_placement_workflow.test_typed_line_wall_matches_mouse).
-    Rect: the 3-step typed path (anchor click → sized point → typed angle) builds 4.
+    Rect: the 3-click typed path (base click → typed side → typed depth) builds 4.
     """
     view, scene = shown_model_view
     # -- Line variant --
@@ -208,11 +208,12 @@ def test_wall_hud_typed_commit_live(shown_model_view):
     scene.cycle_placement_variant(+1)            # polyline -> corner rect
     assert scene._wall_primitive == "rect"
     n0 = len(scene._walls)
-    _click(view, QPointF(0, 0))                  # step 1: anchor
-    ok = scene._apply_wall_dynamic_input(QPointF(1000, 800))   # step 2: size -> rotate
+    _click(view, QPointF(0, 0))                  # step 1: base
+    base = scene._wall_rect_anchor
+    ok = scene._apply_wall_dynamic_input(QPointF(base.x() + 1000, base.y()))  # side
     assert ok is not False
-    assert scene._wall_rect_rotating is True
-    ok2 = scene._apply_wall_dynamic_input({"angle_deg": 0.0})  # step 3: commit at 0°
+    assert scene._wall_rect_side_pt is not None
+    ok2 = scene._apply_wall_dynamic_input(QPointF(base.x() + 500, base.y() + 800))  # depth
     assert ok2 is not False
     assert len(scene._walls) == n0 + 4
 

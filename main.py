@@ -2305,9 +2305,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "pipe":           "Click to place first node, then second node",
         "sprinkler":      "Click a node or pipe to place sprinkler",
         "draw_line":      "Click first point, then second point (Tab for exact input)",
-        "draw_rectangle": "Click first corner, then opposite corner (Tab for exact input)",
+        "draw_rectangle": "Click base point, then first side, then depth (Tab for exact input)",
         "draw_circle":    "Click center, then radius point (Tab for exact input)",
-        "draw_arc":       "Click center, then start angle, then end angle",
+        "draw_arc":       "Click the arc points for the active variant (←/→ cycles Center / Start / End Points)",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
@@ -4637,7 +4637,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _mode("Polyline", "polyline_icon.svg", "polyline",
               "Draw a polyline (multi-segment)")
         _mode("Arc", "arc_icon.svg", "draw_arc",
-              "Draw an arc (3-click) — ←/→ toggles start point")
+              "Draw an arc — ←/→ cycles Center / Start / End Points")
         _mode("Polygon", "polygon_icon.svg", "polygon",
               "Draw a regular polygon — ↑/↓ sides, "
               "←/→ inscribed/circumscribed (P)")

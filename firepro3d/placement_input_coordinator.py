@@ -40,7 +40,8 @@ class PlacementInputCoordinator:
         same state.  The lambdas receive the scene (``s``) at cycle time so they
         can call scene methods directly.
         """
-        from firepro3d.model_space import _ARC_VARIANT_CENTER, _ARC_VARIANT_START
+        from firepro3d.model_space import (_ARC_VARIANT_CENTER, _ARC_VARIANT_START,
+                                           _ARC_VARIANT_ENDPOINTS)
 
         self._PLACEMENT_VARIANTS = {
             "draw_line": [
@@ -54,6 +55,8 @@ class PlacementInputCoordinator:
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
                 ("Start Point Arc", "Select start point to begin",
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_START)),
+                ("End Points Arc", "Select first end point to begin",
+                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_ENDPOINTS)),
             ],
             "draw_rectangle": [
                 ("Corner Rectangle", "Pick first corner",
@@ -97,15 +100,13 @@ class PlacementInputCoordinator:
         if s.mode == "draw_arc":
             return s._draw_arc_step == 0
         if s.mode == "draw_rectangle":
-            return s._draw_rect_anchor is None and not s._draw_rect_rotating
+            return s._draw_rect_anchor is None
         if s.mode == "wall":
             return (s._wall_anchor is None
-                    and s._wall_rect_anchor is None
-                    and not s._wall_rect_rotating)
+                    and s._wall_rect_anchor is None)
         if s.mode == "floor":
             return (s._floor_active is None
-                    and s._floor_rect_anchor is None
-                    and not s._floor_rect_rotating)
+                    and s._floor_rect_anchor is None)
         return False
 
     def _apply_current_variant(self) -> None:
@@ -264,14 +265,13 @@ class PlacementInputCoordinator:
         if schema.returns_point:
             self._scene._preview_from_resolved(resolved)
         elif schema.name == "rotation":
-            # The rectangle and polygon rotate transforms' preview is an *angle*,
-            # not a point, so it does not route through ``_transform_preview_point``
-            # / ``_preview_from_resolved`` (which are point-based).  Dispatch to
-            # the mode-appropriate helper.
+            # The polygon rotate transform's preview is an *angle*, not a
+            # point, so it does not route through ``_transform_preview_point``
+            # / ``_preview_from_resolved`` (which are point-based).  (The 2D
+            # rect no longer has a rotate step — its side/depth schemas are
+            # point schemas.)
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
-            else:
-                self._scene._preview_rectangle_rotation(resolved["angle_deg"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -589,13 +589,8 @@ class PlacementInputCoordinator:
             a = self._scene._draw_line_anchor
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_rectangle":
-            # Sizing step: the first-click anchor.  Rotate step: the pivot the
-            # rotation turns about (the first-click anchor — one of the rect's
-            # corners — in corner mode, the centre in centre mode).  Both
-            # variants store it in ``_draw_rect_pivot``.
-            if self._scene._draw_rect_rotating:
-                p = self._scene._draw_rect_pivot
-                return QPointF(p) if p is not None else None
+            # The base (corner, or centre) anchors both the side and the
+            # depth HUD steps.
             a = self._scene._draw_rect_anchor
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_circle":
@@ -608,28 +603,32 @@ class PlacementInputCoordinator:
             a = self._scene._polygon_center
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_arc":
+            from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+            if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+                # End Points: end A for the chord step, the chord midpoint for
+                # the centre (Radius) step.
+                a, b = self._scene._draw_arc_ep_a, self._scene._draw_arc_ep_b
+                if self._scene._draw_arc_step == 1 and a is not None:
+                    return QPointF(a)
+                if self._scene._draw_arc_step == 2 and a is not None and b is not None:
+                    return QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
+                return None
             # The anchor is the FIRST click, stored in ``_draw_arc_center`` for
-            # both variants (the centre in center-first, the start point in
-            # start-first).  None at step 0, before that first click.
+            # the centre/start variants (the centre in center-first, the start
+            # point in start-first).  None at step 0, before that first click.
             a = self._scene._draw_arc_center
             return QPointF(a) if (self._scene._draw_arc_step in (1, 2)
                                   and a is not None) else None
         if self._scene.mode == "wall":
             if self._scene._wall_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._scene._wall_rect_rotating:
-                    p = self._scene._wall_rect_pivot
-                    return QPointF(p) if p is not None else None
+                # 3-click rect: the base anchors both the side and depth steps.
                 a = self._scene._wall_rect_anchor
                 return QPointF(a) if a is not None else None
             a = self._scene._wall_anchor
             return QPointF(a) if a is not None else None
         if self._scene.mode == "floor":
             if self._scene._floor_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._scene._floor_rect_rotating:
-                    p = self._scene._floor_rect_pivot
-                    return QPointF(p) if p is not None else None
+                # 3-click rect: the base anchors both the side and depth steps.
                 a = self._scene._floor_rect_anchor
                 return QPointF(a) if a is not None else None
             # Polygon: anchor is the last placed vertex (rubber-band from it).
@@ -731,19 +730,62 @@ class PlacementInputCoordinator:
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.
 
-        Rectangle placement is 3-step (Task 12): the two-click **sizing** step
-        types the far corner (the ``rectangle`` X/Y schema), then the
-        **rotate** step types the absolute orientation (the ``rotation``
-        transform).  ``_draw_rect_rotating`` picks which one is live.  Unlike
-        arc there is no anchorless step 0 — the sizing schema has an anchor from
-        the first click, and before that first click the anchor gate keeps the
-        HUD shut anyway.
+        Rectangle placement is 3-click (base → side → depth; 2d-geometry.md
+        §4): the **side** step types W + Angle (``rect_side``, or
+        ``rect_side_center`` whose W is the full width), then the **depth**
+        step types H (``rect_depth`` signed, or ``rect_depth_center`` full
+        height).  ``_draw_rect_side_pt`` picks the step.  Before the first
+        click the anchor gate keeps the HUD shut.
         """
-        if self._scene._draw_rect_rotating:
-            return SCHEMAS.get("rotation")
-        if self._scene._draw_rect_from_center:
-            return SCHEMAS.get("rectangle_center")
-        return SCHEMAS.get("rectangle")
+        return self._rect3_schema(self._scene._draw_rect_side_pt is not None,
+                                  self._scene._draw_rect_from_center)
+
+    # ── 3-click rect family (2D rect / wall rect / floor rect) ─────────────
+
+    def _rect_family_state(self):
+        """``(base, side_pt, from_center)`` of the live 3-click rect placement.
+
+        Covers the 2D rect, the wall rect and the floor rect; None for any
+        other mode.  ``side_pt`` is None while the first side is being picked.
+        """
+        s = self._scene
+        if s.mode == "draw_rectangle":
+            return s._draw_rect_anchor, s._draw_rect_side_pt, s._draw_rect_from_center
+        if s.mode == "wall" and s._wall_primitive == "rect":
+            return s._wall_rect_anchor, s._wall_rect_side_pt, s._wall_rect_from_center
+        if s.mode == "floor" and s._floor_primitive == "rect":
+            return s._floor_rect_anchor, s._floor_rect_side_pt, s._floor_rect_from_center
+        return None
+
+    def _rect_depth_normal(self):
+        """Unit left normal (Qt coords) of the fixed first side, or None."""
+        from .geometry_2d import rect_side_frame
+        st = self._rect_family_state()
+        if st is None or st[0] is None or st[1] is None:
+            return None
+        f = rect_side_frame(st[0], st[1])
+        return None if f is None else f[2]
+
+    def _seed_rect_depth(self, schema) -> dict:
+        """Seed a ``rect_depth*`` HUD from the resolved point's signed depth.
+
+        The corner variant reads the signed depth (+ = left of the first
+        side); the centre variant reads the FULL height (twice the half-depth).
+        """
+        from .geometry_2d import rect_signed_depth
+        st = self._rect_family_state()
+        point = self.get_resolved_point()
+        if st is None or st[0] is None or st[1] is None or point is None:
+            return {"H": 0.0}
+        d = rect_signed_depth(st[0], st[1], point)
+        return {"H": 2.0 * abs(d)} if schema.name == "rect_depth_center" else {"H": d}
+
+    @staticmethod
+    def _rect3_schema(depth_step: bool, from_center: bool):
+        """The side- or depth-step schema of a 3-click rect placement."""
+        if depth_step:
+            return SCHEMAS.get("rect_depth_center" if from_center else "rect_depth")
+        return SCHEMAS.get("rect_side_center" if from_center else "rect_side")
 
     def _polygon_schema_for_step(self):
         """Return the polygon schema for the current step.
@@ -765,7 +807,17 @@ class PlacementInputCoordinator:
         radius + start angle (the ``line`` schema, Length=radius, Angle=start°),
         step 2 types the sweep (``arc_span``).  Step 0 has no HUD — there is no
         anchor before the first click, so nothing to read out or seed from.
+
+        The End Points variant types the chord at step 1 (``line`` from end A)
+        and the radius at step 2 (``arc_radius``; centre on the bisector).
         """
+        from firepro3d.model_space import _ARC_VARIANT_ENDPOINTS
+        if self._scene._arc_variant == _ARC_VARIANT_ENDPOINTS:
+            if self._scene._draw_arc_step == 1:
+                return SCHEMAS.get("line")          # chord length + angle from A
+            if self._scene._draw_arc_step == 2:
+                return SCHEMAS.get("arc_radius")
+            return None
         if self._scene._draw_arc_step == 1:
             return SCHEMAS.get("line")
         if self._scene._draw_arc_step == 2:
@@ -789,32 +841,26 @@ class PlacementInputCoordinator:
     def _wall_schema_for_primitive(self):
         """HUD schema for the active wall primitive.
 
-        Line/polyline → ``line`` schema.  Rect → step-aware: sizing step uses
-        ``rectangle`` schema; rotate step uses ``rotation`` schema (mirrors
-        ``_rectangle_schema_for_step``).
+        Line/polyline → ``line`` schema.  Rect → the 3-click rect's side- or
+        depth-step schema (``_rect3_schema``; mirrors
+        ``_rectangle_schema_for_step``), picked by ``_wall_rect_side_pt``.
         """
         if self._scene._wall_primitive == "rect":
-            if self._scene._wall_rect_rotating:
-                return SCHEMAS.get("rotation")
-            if self._scene._wall_rect_from_center:
-                return SCHEMAS.get("rectangle_center")
-            return SCHEMAS.get("rectangle")
+            return self._rect3_schema(self._scene._wall_rect_side_pt is not None,
+                                      self._scene._wall_rect_from_center)
         return SCHEMAS.get("line")
 
     def _floor_schema_for_primitive(self):
         """HUD schema for the active floor primitive.
 
-        Rect → step-aware: sizing step uses ``rectangle`` schema, rotate step
-        uses ``rotation`` schema.  Polygon → ``line`` schema (per-segment
-        length/angle readout, same as the wall line/polyline).  Mirrors
-        ``_wall_schema_for_primitive``.
+        Rect → the 3-click rect's side- or depth-step schema
+        (``_rect3_schema``), picked by ``_floor_rect_side_pt``.  Polygon →
+        ``line`` schema (per-segment length/angle readout, same as the wall
+        line/polyline).  Mirrors ``_wall_schema_for_primitive``.
         """
         if self._scene._floor_primitive == "rect":
-            if self._scene._floor_rect_rotating:
-                return SCHEMAS.get("rotation")
-            if self._scene._floor_rect_from_center:
-                return SCHEMAS.get("rectangle_center")
-            return SCHEMAS.get("rectangle")
+            return self._rect3_schema(self._scene._floor_rect_side_pt is not None,
+                                      self._scene._floor_rect_from_center)
         return SCHEMAS.get("line")
 
     # -------------------------------------------------------------------------
@@ -946,6 +992,10 @@ class PlacementInputCoordinator:
             # already measured when it recovered the winning ray.  Seeding it
             # keeps the readout showing how far along the path the cursor sits.
             return {"Distance": self._scene._align_track_dist}
+        if schema.name in ("rect_depth", "rect_depth_center"):
+            # No cursor-derived inverse (``seed`` is None): the depth is
+            # measured against the fixed first side held in scene state.
+            return self._seed_rect_depth(schema)
         if self._scene.mode == "pipe" and schema.name == "line":
             # Pipe's Angle is relative (connected) or absolute (free); the frame
             # must match _commit_pipe_typed's, so seed via the dedicated helper.
@@ -987,22 +1037,24 @@ class PlacementInputCoordinator:
             # Seed the live orientation: the pivot→resolved-point heading, the
             # same absolute angle the mouse and ``resolve_rotation`` use.  0°
             # (axis-aligned) before anything is published.  The pivot differs by
-            # mode — the polygon rotate step pivots about its centre, the
-            # rectangle about its stored pivot, the wall-rectangle about its
-            # own stored pivot — so dispatch to the matching angle helper (all
-            # share the same Y-up formula).
+            # mode — the polygon rotate step pivots about its centre, the block
+            # about its insertion point — so dispatch to the matching angle
+            # helper (all share the same Y-up formula).
             point = self.get_resolved_point()
             if point is None:
                 return {"Angle": 0.0}
             if self._scene.mode == "polygon":
                 return {"Angle": self._scene._polygon_rotation_angle_to(point)}
-            if self._scene.mode == "wall":
-                return {"Angle": self._scene._wall_rect_rotation_angle_to(point)}
-            if self._scene.mode == "floor":
-                return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
-            return {"Angle": self._scene._rect_rotation_angle_to(point)}
+            return {"Angle": 0.0}
+        if schema.name == "arc_radius":
+            # End Points step 3: the live radius of the arc the resolved point
+            # (projected onto the chord bisector) would commit.
+            point = self.get_resolved_point()
+            sol = (self._scene._geom_ctl._arc_ep_solve(point)
+                   if point is not None else None)
+            return {"Radius": sol[1] if sol is not None else 0.0}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click
             # or a typed Span commits.  Without this the readout sits at 0 the
@@ -1066,6 +1118,9 @@ class PlacementInputCoordinator:
     def _arm_track_direction(self, hud, schema) -> None:
         """Inject the winning path's unit direction into a ``track`` HUD.
 
+        Also arms a ``rect_depth*`` HUD with the first side's left normal
+        (``_rect_depth_normal``) — the same ``"__dir__"`` injection.
+
         ``resolve_track`` reads the direction from the values dict under the
         reserved ``"__dir__"`` key, injected by ``DynamicInputHud.values`` from
         whatever ``set_track_direction`` last armed.  The direction is fixed for
@@ -1073,6 +1128,10 @@ class PlacementInputCoordinator:
         sync and at engage) keeps it current as the swap turns on and off.  A
         no-op for every other schema; other HUDs ignore the armed direction.
         """
+        if schema is not None and schema.name in ("rect_depth", "rect_depth_center"):
+            # The rect depth step measures along the first side's left normal.
+            hud.set_track_direction(self._rect_depth_normal())
+            return
         if schema is None or schema.name != "track":
             return
         direction = (self._scene._align_track_ray.direction

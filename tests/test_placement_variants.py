@@ -21,6 +21,7 @@ from firepro3d.model_space import (
     Model_Space,
     _ARC_VARIANT_CENTER,
     _ARC_VARIANT_START,
+    _ARC_VARIANT_ENDPOINTS,
 )
 
 
@@ -35,19 +36,21 @@ def scene(qapp):
 
 
 class TestArcVariantCycle:
-    def test_cycle_flips_center_to_start_and_wraps(self, scene):
+    def test_cycle_center_start_endpoints_and_wraps(self, scene):
         scene.set_mode("draw_arc")
         assert scene._arc_variant == _ARC_VARIANT_CENTER
         assert scene.cycle_placement_variant(+1) is True
         assert scene._arc_variant == _ARC_VARIANT_START
-        # Second call wraps back to center.
+        assert scene.cycle_placement_variant(+1) is True
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
+        # Third call wraps back to center.
         assert scene.cycle_placement_variant(+1) is True
         assert scene._arc_variant == _ARC_VARIANT_CENTER
 
     def test_negative_direction_cycles(self, scene):
         scene.set_mode("draw_arc")
         assert scene.cycle_placement_variant(-1) is True
-        assert scene._arc_variant == _ARC_VARIANT_START
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
 
     def test_no_cycle_past_step_zero(self, scene):
         scene.set_mode("draw_arc")
@@ -73,9 +76,10 @@ class TestRectangleVariantCycle:
         scene._draw_rect_anchor = QPointF(0, 0)  # first corner placed
         assert scene.cycle_placement_variant(+1) is False
 
-    def test_no_cycle_while_rotating(self, scene):
+    def test_no_cycle_at_depth_step(self, scene):
         scene.set_mode("draw_rectangle")
-        scene._draw_rect_rotating = True
+        scene._draw_rect_anchor = QPointF(0, 0)
+        scene._draw_rect_side_pt = QPointF(40, 0)   # first side fixed
         assert scene.cycle_placement_variant(+1) is False
 
 
@@ -178,11 +182,11 @@ class TestArrowKeyWiring:
         assert scene._arc_variant == _ARC_VARIANT_CENTER
         assert ev.isAccepted()
 
-    def test_left_arrow_from_center_wraps_to_start(self, scene):
+    def test_left_arrow_from_center_wraps_to_endpoints(self, scene):
         scene.set_mode("draw_arc")
         ev = _arrow(Qt.Key.Key_Left)
         scene.keyPressEvent(ev)
-        assert scene._arc_variant == _ARC_VARIANT_START
+        assert scene._arc_variant == _ARC_VARIANT_ENDPOINTS
         assert ev.isAccepted()
 
     def test_no_consume_past_step_zero(self, scene):
@@ -201,6 +205,28 @@ class TestArrowKeyWiring:
         scene.keyPressEvent(ev)
         # Variant machinery untouched; event falls through (not accepted here).
         assert not ev.isAccepted()
+
+    @pytest.mark.parametrize("mod", [
+        Qt.KeyboardModifier.ControlModifier,
+        Qt.KeyboardModifier.ShiftModifier,
+        Qt.KeyboardModifier.AltModifier,
+        Qt.KeyboardModifier.MetaModifier,
+    ])
+    def test_modified_arrow_does_not_cycle_variant(self, scene, mod):
+        """Fold E: Ctrl/Shift/Alt/Meta+arrow is not a variant cycle."""
+        scene.set_mode("draw_arc")
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, mod, "")
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_CENTER
+
+    def test_keypad_modified_arrow_still_cycles(self, scene):
+        """Qt sets KeypadModifier on arrow keys on some platforms — still cycle."""
+        scene.set_mode("draw_arc")
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right,
+                       Qt.KeyboardModifier.KeypadModifier, "")
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_START
+        assert ev.isAccepted()
 
     def test_rectangle_right_arrow_flips_and_accepts(self, scene):
         scene.set_mode("draw_rectangle")

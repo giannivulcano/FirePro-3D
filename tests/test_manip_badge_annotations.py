@@ -21,7 +21,6 @@ from firepro3d.level_manager import LevelManager
 from firepro3d.scale_manager import ScaleManager
 from firepro3d.model_view import Model_View
 from firepro3d.selection_manipulator import SelectionManipulator
-from firepro3d.manip_math import HandleRole
 
 
 @pytest.fixture
@@ -96,10 +95,9 @@ def test_badge_moves_via_manipulator_one_undo(qapp, scene_and_view):
     manip = _manip(scene)
     assert manip.isVisible()
     assert da in manip.selection_items()          # wrapped (not excluded)
-    # U1: the badge is a rotatable label — the rotate knob shows; no resize
-    # handles (a fixed-layout table is not scalable).
+    # No resize handles (a fixed-layout table is not scalable); no rotate
+    # knob exists (removed 2026-09-23).
     from firepro3d.manip_math import _RESIZE_ROLES
-    assert manip._handles[HandleRole.ROTATE].isVisible()
     assert all(not manip._handles[r].isVisible() for r in _RESIZE_ROLES)
 
     scene.push_undo_state()                        # baseline

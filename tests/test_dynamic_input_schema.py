@@ -10,7 +10,6 @@ from PyQt6.QtCore import QPointF
 from firepro3d.dynamic_input import (
     FieldKind, FieldSpec, SCHEMAS,
     resolve_line, seed_line,
-    resolve_rectangle, seed_rectangle,
     resolve_circle, seed_circle,
     resolve_displacement, resolve_distance, resolve_spacing_count,
     resolve_arc_span, resolve_rotation,
@@ -33,10 +32,11 @@ class TestRegistry:
 
     def test_schemas_registered(self):
         assert set(SCHEMAS) == {
-            "line", "rectangle", "rectangle_center", "circle", "polygon",
+            "line", "circle", "polygon",
             "displacement", "distance", "spacing_count",
-            "arc_span", "rotation", "track",
-            "manip_move", "manip_resize", "manip_rotate",
+            "arc_span", "arc_radius", "rotation", "track",
+            "manip_move", "manip_resize",
+            "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
 
     def test_line_fields(self):
@@ -52,15 +52,6 @@ class TestRegistry:
                  if s.name == "Count"][0]
         assert count.kind is FieldKind.COUNT
         assert count.minimum == 0.0     # DimensionEdit uses strict >, so >= 1
-
-    def test_rectangle_extents_allow_negatives(self):
-        """Signed extents need an unbounded field, as displacement dX/dY do.
-
-        ``DimensionEdit`` reverts anything not strictly greater than *minimum*,
-        so a 0.0 floor would reject the negative seed a left/down drag produces.
-        """
-        for spec in SCHEMAS["rectangle"].fields:
-            assert spec.minimum is None, spec.name
 
     def test_placement_flag_matches_resolve_return_type(self):
         """``is_placement`` must agree with what ``resolve`` actually returns.
@@ -94,15 +85,19 @@ class TestRegistry:
     def test_requires_anchor_covers_placements_plus_move(self):
         """The engage/commit anchor gate keys on this, not on ``is_placement``.
 
-        Every placement needs an anchor; ``move`` and ``arc_span`` are the
-        transforms that also do (a base point / an armed centre+radius+start),
+        Every placement needs an anchor; ``move``, ``arc_span`` and
+        ``arc_radius`` are the transforms that also do (a base point / an
+        armed centre+radius+start / an armed chord),
         so neither opens a HUD before that state exists.  The gridline
         replicate transforms are anchorless.
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
-        assert need == {"line", "rectangle", "rectangle_center", "circle",
-                        "polygon", "displacement", "arc_span", "rotation",
-                        "track", "manip_move", "manip_resize", "manip_rotate"}
+        assert need == {"line", "circle",
+                        "polygon", "displacement", "arc_span", "arc_radius",
+                        "rotation",
+                        "track", "manip_move", "manip_resize",
+                        "rect_side", "rect_side_center", "rect_depth",
+                        "rect_depth_center"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
@@ -147,48 +142,6 @@ class TestLine:
         back = resolve_line(ANCHOR, seed_line(ANCHOR, point))
         assert back.x() == pytest.approx(point.x())
         assert back.y() == pytest.approx(point.y())
-
-
-class TestRectangle:
-
-    def test_resolve_is_y_up(self):
-        out = resolve_rectangle(QPointF(0, 0), {"X": 30.0, "Y": 40.0})
-        assert out.x() == pytest.approx(30.0)
-        assert out.y() == pytest.approx(-40.0)
-
-    def test_seed_keeps_sign(self):
-        """A down-left drag seeds negative extents.
-
-        Corner mode builds ``QRectF(anchor, snapped)``, so the sign IS the
-        geometry — dropping it moves the rectangle to the opposite quadrant.
-        """
-        vals = seed_rectangle(QPointF(0, 0), QPointF(-30, 40))
-        assert vals["X"] == pytest.approx(-30.0)
-        assert vals["Y"] == pytest.approx(-40.0)      # Y-up: +40 scene = -40 up
-
-    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
-    def test_seed_round_trips_in_every_quadrant(self, dx, dy):
-        """Rectangle seeds are an exact inverse, corner included.
-
-        Only signed extents survive the round trip; ``abs()`` extents rebuild
-        every corner in the up-right quadrant.
-        """
-        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
-        back = resolve_rectangle(ANCHOR, seed_rectangle(ANCHOR, point))
-        assert back.x() == pytest.approx(point.x())
-        assert back.y() == pytest.approx(point.y())
-
-    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
-    def test_from_centre_extents_are_direction_independent(self, dx, dy):
-        """From-centre mode re-applies ``abs()``, so signed seeds are safe.
-
-        This is the half-extent derivation from the click-commit path; it must
-        stay identical whichever quadrant the drag went into.
-        """
-        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
-        back = resolve_rectangle(ANCHOR, seed_rectangle(ANCHOR, point))
-        assert abs(back.x() - ANCHOR.x()) == pytest.approx(abs(dx))
-        assert abs(back.y() - ANCHOR.y()) == pytest.approx(abs(dy))
 
 
 class TestCircle:

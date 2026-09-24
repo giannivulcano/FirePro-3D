@@ -62,6 +62,29 @@ def test_node_manip_rotate_keeps_z(scene):
     approx_pt(n.scenePos(), p0)
 
 
+def test_node_manip_rotate_pipe_tracks_nodes(scene):
+    """Migrated from the retired group-rotate knob gesture: Pipe has no
+    manip_rotate of its own — rotating its nodes via Node.manip_rotate moves the
+    pipe endpoints for free (Node.itemChange)."""
+    from firepro3d.node import Node
+    from firepro3d.pipe import Pipe
+    n1 = Node(0, 0, z=0.0)
+    n2 = Node(100, 0, z=0.0)
+    scene.addItem(n1)
+    scene.addItem(n2)
+    pipe = Pipe(n1, n2)
+    scene.addItem(pipe)
+    assert not hasattr(pipe, "manip_rotate")
+    pivot = QPointF(50, 30)
+    p1_0, p2_0 = QPointF(n1.scenePos()), QPointF(n2.scenePos())
+    n1.manip_rotate(90.0, pivot)
+    n2.manip_rotate(90.0, pivot)
+    approx_pt(n1.scenePos(), rot_yup(p1_0, pivot, 90.0))
+    approx_pt(n2.scenePos(), rot_yup(p2_0, pivot, 90.0))
+    approx_pt(pipe.line().p1(), n1.scenePos())
+    approx_pt(pipe.line().p2(), n2.scenePos())
+
+
 def test_gridline_manip_rotate_origin_and_angle(scene):
     from firepro3d.gridline import GridlineItem
     g = GridlineItem(QPointF(0, 0), QPointF(100, 0), label="A")
@@ -101,11 +124,6 @@ def test_room_manip_rotate_boundary(scene):
     r.manip_rotate(-90.0, pivot)
     for got, orig in zip(r._boundary, b0):
         approx_pt(got, orig)
-
-
-def test_room_marks_no_solo_rotate():
-    from firepro3d.room import Room
-    assert getattr(Room, "MANIP_NO_SOLO_ROTATE", False) is True
 
 
 def test_floor_manip_rotate_points_keeps_zrange(scene):

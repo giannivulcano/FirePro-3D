@@ -7,6 +7,12 @@ OPPOSITE CORNER, so the rectangle jumped ~the handle displacement on release.
 Ground truth: a from-centre resize must leave the rectangle's centre unchanged.
 Driven through the real ResizeHandle.on_drag -> on_release -> _bake_scale seam
 (snap neutralised — orthogonal to this bug), plus a direct _bake_scale contrast.
+
+Migrated (arc-rect-grip-polish Task 9): RectangleItem no longer uses the rigid
+resize path (it resizes via its own local-frame grips; Ctrl there is covered by
+tests/test_rect_grips_unified.py). The rigid path is still live for other
+box-native items (text, viewport, note), so it is exercised here with a minimal
+scale-capable rect double whose ``manip_scale`` is the retired rect bake.
 """
 
 from __future__ import annotations
@@ -14,12 +20,35 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QTransform
 
-from firepro3d.geometry_2d import RectangleItem
+from PyQt6.QtWidgets import QGraphicsRectItem
+
 from firepro3d.manip_math import HandleRole
 
 
+class _ScalableRect(QGraphicsRectItem):
+    """Box-native (``manip_scale``) axis-aligned rect: scales every edge about
+    the scene ``anchor`` (held fixed) — the retired RectangleItem bake."""
+
+    def __init__(self, rect):
+        super().__init__(rect)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+
+    def translate(self, dx, dy):
+        self.setRect(self.rect().translated(dx, dy))
+
+    def manip_bounds(self):
+        return QRectF(self.rect())
+
+    def manip_scale(self, fx, fy, anchor):
+        r, a = self.rect(), anchor
+        self.setRect(QRectF(
+            QPointF(a.x() + (r.left() - a.x()) * fx, a.y() + (r.top() - a.y()) * fy),
+            QPointF(a.x() + (r.right() - a.x()) * fx, a.y() + (r.bottom() - a.y()) * fy),
+        ).normalized())
+
+
 def _rect(scene):
-    item = RectangleItem(QPointF(0, 0), QPointF(100, 100), "#ffffff", 1.0)
+    item = _ScalableRect(QRectF(0, 0, 100, 100))
     scene.addItem(item)
     return item
 

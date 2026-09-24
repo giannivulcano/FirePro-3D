@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-09-16
-verified-commit: e7fe388
+last-verified: 2026-09-24
+verified-commit: 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -22,7 +22,7 @@ applies-to:
 **Impl note (2026-09-16):** wall/floor/roof/opening placement is now **single-placement** (returns to Select with the placed item selected after a completed placement) — via `Model_Space._end_placement_switch` gated on `_SINGLE_PLACEMENT_MODES` (see `2d-geometry.md §4`). Chain gestures (wall-polyline, floor-polygon) switch only when the chain completes (loop-close / Enter / close-near-first); a wall rectangle commits its 4 segments and selects them all.
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
 **Design note (2026-08-23):** §7 rewritten as a **first-principles redesign** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill).
-**Impl note (2026-08-28):** §11 (Floor Slab) **rewritten as-built** on `feat/floor-workflow-elevation-model` — the floor gains a **two-boundary elevation model** (independent top + bottom, each with a reference mode), the owning `.level`-for-geometry is **retired** (visibility is pure z-range), and placement is folded onto the unified 2D-geometry dispatch (mirrors the wall §4.4 pattern: one checkable **Floor** button, `F`, ←/→ primitive cycle, rect rotate-step, polygon, continuous placement). §11.10 records the plan view-range upper-bound derivation cross-reference. Verified against commit `579e841`; tests `tests/test_floor_{elevation_model,elevation_projection,serialization,visibility,placement_workflow,panel_display,template_persistence}.py`, `tests/test_graphic_override.py`.
+**Impl note (2026-08-28):** §11 (Floor Slab) **rewritten as-built** on `feat/floor-workflow-elevation-model` — the floor gains a **two-boundary elevation model** (independent top + bottom, each with a reference mode), the owning `.level`-for-geometry is **retired** (visibility is pure z-range), and placement is folded onto the unified 2D-geometry dispatch (mirrors the wall §4.4 pattern: one checkable **Floor** button, `F`, ←/→ primitive cycle, rect rotate-step [superseded 2026-09-23 by the 3-click base → side → depth rect, §11.4], polygon, continuous placement). §11.10 records the plan view-range upper-bound derivation cross-reference. Verified against commit `579e841`; tests `tests/test_floor_{elevation_model,elevation_projection,serialization,visibility,placement_workflow,panel_display,template_persistence}.py`, `tests/test_graphic_override.py`.
 
 **Impl note (2026-08-24):** §7 **Phase A BUILT** as-built on `feat/opening-feature-element` (subagent-driven; `feature.py`, `feature_browser.py`, rewritten `wall_opening.py`, + model_space/main/elevation_scene/view_3d/display_manager/level_manager/wall wiring; ~40 commits; full suite green). Verified against commit `f5b63b2`; tests `tests/test_opening_{feature,placement,render,persistence,ribbon}.py`. **As-built refinements over the §7 draft** (from smoke tests): (a) **z-order** — an opening is pinned just above its host wall (`level_manager._apply_elev_z`) so its plan gap cuts the wall regardless of head-vs-wall height (§7.7); (b) **plan gap fill** = scene background on screen / paper-white on sheets (not white/dark block); door swing arc spans the opening; (c) **3D** — the door/window **frame is a fixed-depth object** (`_FRAME_DEPTH_MM`), only the wall **cut** matches wall depth; `wall.get_3d_mesh` builds from `quad_points` (un-mitered) so opening jambs stay perpendicular on joined walls (3D corners butt-join — follow-up to re-mitre); walls made watertight through openings (capped reveals, §7.8.3); (d) **paper space** — openings use the "Wall" paper category + a paper-aware gap fill; (e) **undo** — openings ride the existing snapshot undo (no new mechanism, §7.11 correction); (f) a **pre-placement property template** (`current_opening_template`, QSettings `template/opening`) lets sill/size/orientation be set before placing (§7.6). Deferred (filed in TODO): Phase B Manager, Phase C Editor, 3D `boolean_difference`/re-mitre, vertical-plane anchoring, elevation projection polish, panel polish.
 
@@ -182,15 +182,16 @@ Wall placement is a first-class client of the unified 2D-geometry placement disp
 
 **Polyline variant:** chains segments. Ctrl constrains angle. Close-near-start snaps the tip to the chain's first point and ends the chain. Each committed segment calls `_auto_join_wall()`. Otherwise identical to Line.
 
-**Corner / Center Rectangle — 3-step placement:**
-1. **Anchor** — first click sets the first corner (Corner variant) or the centre (Center variant).
-2. **Sizing** — second click fixes the opposite corner; produces an axis-aligned bounding rectangle. `rect_sizing_points()` (shared with 2D-geo rect, see `geometry_2d.py`) computes `pt1/pt2` from anchor + corner + the `from_center` flag.
-3. **Rotate step** — third click sets the rectangle's orientation. Ctrl snaps to 45° increments (pivot = rectangle centroid). HUD uses the `rotation` schema (Y-up CCW, seeded live from the wall pivot). Commit at the desired angle; four mitered `WallSegment`s are built and auto-joined.
+**Corner / Center Rectangle — 3-click base → side → depth (2026-09-23):** the
+same flow, schemas, ghost/commit rules and `geometry_2d.py` helpers as the 2D
+rectangle — owned by `2d-geometry.md §4` (Rule A; not restated here). The wall
+specifics: the solved rect's 4 scene corners (`rotated_rect_corners`) become four
+mitered `WallSegment`s, each auto-joined (§5.3), and the wall-thickness overlay
+follows the (floorless) depth ghost.
 
 **Dynamic Input HUD:** wall is a built HUD client. `active_schema()` dispatches by primitive and step:
 - `_wall_primitive in ("line", "polyline")` → `line` schema (Length + Angle)
-- `_wall_primitive == "rect"`, sizing step → `rectangle` schema (X, Y signed)
-- `_wall_primitive == "rect"`, rotate step → `rotation` schema (Angle)
+- `_wall_primitive == "rect"` → the 3-click rect's side / depth schema (`rect_side*` / `rect_depth*`; `_wall_schema_for_primitive`, picked by `_wall_rect_side_pt`)
 
 Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse placement produce identical geometry (structural commit parity per `align-placement.md §4.2`).
 
@@ -730,13 +731,17 @@ Floor placement is a first-class client of the unified 2D-geometry placement dis
 | 1 | Floor (Center Rectangle) | Pick centre point |
 | 2 | Floor (Polygon) | Pick first boundary point |
 
-**Rect (Corner/Center) — 3-step:** anchor → sizing → **rotate**, mirroring the wall rect. `rect_sizing_points()` computes the axis-aligned `pt1/pt2` from anchor + corner + `from_center`; `rotated_rect_corners()` produces the 4 rotated scene corners committed as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect's 4 segments). Ctrl snaps to 45° about the pivot (= the anchor). Rotate-step guides (`_floor_rect_ref_line0/A`) + a spinning dashed preview show the orientation.
+**Rect (Corner/Center) — 3-click base → side → depth (2026-09-23):** the same
+flow as the wall / 2D rectangle, owned by `2d-geometry.md §4` (Rule A). The floor
+specific: the solved rect's 4 scene corners (`rotated_rect_corners`) are committed
+as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect's
+4 segments).
 
 **Polygon:** click-vertex boundary; **click near the first vertex (≥3 verts) / Enter / double-click** closes; **Delete** pops the last vertex (routed through `Model_View` for both the polygon and the tool-shortcut path; discards the in-progress slab at one vertex). `close_polygon()` finalizes; minimum 3 points. Vertex insert/remove after placement via `insert_point()` / `remove_point()` (keeps ≥ 3). The old click-near-a-vertex-to-delete-mid-placement gesture was removed (Delete replaces it).
 
-**Continuous** placement (each commit re-arms; Esc exits to select). The **passive HUD** shows geometry only (rect W/H then rotate Angle; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
+**Continuous** placement (each commit re-arms; Esc exits to select). The **passive HUD** shows geometry only (rect side W + Angle, then depth H; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
 
-**Dispatch surfaces** (all mirror the wall): `_press_floor_router` / `_move_floor_router` dispatch on `_floor_primitive`; `_apply_floor_dynamic_input` handles typed placement (rect sizing→rotate→commit; polygon routes the point through the vertex handler); `_floor_schema_for_primitive` (rect sizing → `rectangle`, rect rotate → `rotation`, polygon → `line`); `_PLACEMENT_VARIANTS["floor"]`; and a **`floor` branch in `_transform_seed_values`** (the rotate-step live angle seed — the `project_transform_seed_hud_per_mode` precedent).
+**Dispatch surfaces** (all mirror the wall): `_press_floor_router` / `_move_floor_router` dispatch on `_floor_primitive`; `_apply_floor_dynamic_input` handles typed placement (rect side → depth → commit; polygon routes the point through the vertex handler); `_floor_schema_for_primitive` (rect → `rect_side*` / `rect_depth*` by step, polygon → `line`); `_PLACEMENT_VARIANTS["floor"]`. (The rect rotate step and its `_transform_seed_values` floor branch are gone.)
 
 **Naming:** a placed floor takes the floor template's user-authored name (the placeholder `"(Template)"` and blank both fall back to `"Floor"`), **uniquified** against existing floor names — a "Slab" collision yields `Slab 1`, `Slab 2`, … (suffix starts at 1). Named *before* the slab is appended to `_floor_slabs` so it does not collide with itself.
 

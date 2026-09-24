@@ -336,13 +336,10 @@ class SceneTools:
                 r = item._radius
                 item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
             elif isinstance(item, RectangleItem):
-                # Convert to polyline (axis-aligned rect can't represent rotation)
-                rect = item.rect()
-                corners = [QPointF(rect.left(), rect.top()),
-                           QPointF(rect.right(), rect.top()),
-                           QPointF(rect.right(), rect.bottom()),
-                           QPointF(rect.left(), rect.bottom()),
-                           QPointF(rect.left(), rect.top())]
+                # Convert to polyline. Use the rect's SCENE corners (its data
+                # rotation ``_angle``/``_pivot`` applied), not the local rect().
+                g = item.grip_points()
+                corners = [g[0], g[2], g[4], g[6], g[0]]
                 rotated = [rp(c, pivot, angle_deg) for c in corners]
                 pl = PolylineItem(rotated[0],
                                   color=item.pen().color().name(),
@@ -386,10 +383,18 @@ class SceneTools:
                 r = item._radius
                 item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
             elif isinstance(item, RectangleItem):
+                # Uniform scale commutes with the data rotation: scale the
+                # rotation origin about ``base`` (-> o'), then scale the local
+                # rect about the OLD origin and re-seat it on o'.
+                o = item._rotation_origin()
+                o2 = sp(o, base, factor)
                 rect = item.rect()
-                tl = sp(rect.topLeft(), base, factor)
-                br = sp(rect.bottomRight(), base, factor)
-                item.setRect(QRectF(tl, br))
+                tl = rect.topLeft() - o
+                br = rect.bottomRight() - o
+                item.prepareGeometryChange()
+                item.setRect(QRectF(o2 + tl * factor, o2 + br * factor).normalized())
+                if item._pivot is not None:
+                    item._pivot = QPointF(o2)
             elif isinstance(item, ArcItem):
                 item._center = sp(item._center, base, factor)
                 item._radius *= factor
@@ -433,11 +438,24 @@ class SceneTools:
                 self._scene._draw_circles.append(ci)
                 new_items.append(ci)
             elif isinstance(item, RectangleItem):
-                rect = item.rect()
-                tl = mp(rect.topLeft(), axis_p1, axis_p2)
-                br = mp(rect.bottomRight(), axis_p1, axis_p2)
-                ri = RectangleItem(tl, br, color=item.pen().color().name(),
+                # A mirrored rect is still a rect: same w/h, centred on the
+                # mirrored centre, with its side direction reflected across
+                # the axis.  Rebuilt about a centre-following pivot (the
+                # resolved footprint is identical for any pivot choice).
+                g = item.grip_points()
+                c = mp(g[8], axis_p1, axis_p2)
+                d = mp(g[2], axis_p1, axis_p2) - mp(g[0], axis_p1, axis_p2)
+                w, h = item.rect().width(), item.rect().height()
+                ri = RectangleItem(QPointF(c.x() - w / 2, c.y() - h / 2),
+                                   QPointF(c.x() + w / 2, c.y() + h / 2),
+                                   color=item.pen().color().name(),
                                    lineweight=item.pen().widthF())
+                # Y-up CCW angle of the mirrored TL->TR side.  A centred rect
+                # is 180-deg symmetric, so fold to [0, 180) and leave an
+                # axis-aligned result at angle 0 (no redundant rotation).
+                ang = math.degrees(math.atan2(-d.y(), d.x())) % 180.0
+                if min(ang, 180.0 - ang) > 1e-9:
+                    ri.set_angle(ang)
                 self._scene.addItem(ri)
                 self._scene._draw_rects.append(ri)
                 new_items.append(ri)
@@ -538,9 +556,9 @@ class SceneTools:
                 if item in self._scene._polylines:
                     self._scene._polylines.remove(item)
             elif isinstance(item, RectangleItem):
-                rect = item.rect()
-                corners = [rect.topLeft(), rect.topRight(),
-                           rect.bottomRight(), rect.bottomLeft()]
+                # Scene corners (data rotation applied), not the local rect().
+                g = item.grip_points()
+                corners = [g[0], g[2], g[4], g[6]]
                 for i in range(4):
                     ln = LineItem(QPointF(corners[i]), QPointF(corners[(i+1)%4]),
                                   color=color, lineweight=lw)
@@ -839,6 +857,14 @@ class SceneTools:
             h.setZValue(250)
             self._scene.addItem(h)
             return h
+        elif isinstance(item, RectangleItem) and item._angle != 0.0:
+            # Data-rotated rect: highlight the rotated footprint, not rect().
+            h = QGraphicsPathItem(item.mapToScene(item.get_closed_path()))
+            h.setPen(highlight_pen)
+            h.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            h.setZValue(250)
+            self._scene.addItem(h)
+            return h
         elif hasattr(item, 'rect'):
             h = QGraphicsRectItem(item.rect())
             h.setPen(highlight_pen)
@@ -1001,6 +1027,11 @@ class SceneTools:
                 # Compute angular position of click within arc span
                 rel_click = (click_angle - start) % 360
                 rel_trim = (trim_angle - start) % 360
+                # The trim point must fall strictly inside the (CCW, span > 0)
+                # arc, else the kept span would be <= 0 (a CW / empty arc).
+                if not (0.01 < rel_trim < span - 0.01):
+                    self._scene._show_status("Trim point is not on the arc")
+                    return
 
                 if rel_click < rel_trim:
                     # Click is before trim point — keep from trim to end

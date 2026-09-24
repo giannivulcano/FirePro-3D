@@ -462,7 +462,7 @@ def test_hud_angle_live_seeds_during_polygon_rotate(scene):
     """The HUD Angle field seeds from the LIVE cursor angle during polygon rotate.
 
     Root of the smoke bug: the "rotation" seed was hardcoded to the rectangle
-    pivot (`_rect_rotation_angle_to`), which is unset during polygon placement,
+    pivot (the since-retired 2D-rect rotate helper), unset during polygon placement,
     so the HUD Angle stayed at 0.  It must seed from the polygon centre.
     """
     from firepro3d.dynamic_input import SCHEMAS

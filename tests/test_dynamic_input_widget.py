@@ -239,12 +239,12 @@ class TestHudValues:
         assert hud.has_invalid_field() is False
 
     def test_negative_dimension_allowed_where_no_minimum(self, sm_uncal):
-        """Rectangle X/Y are signed by design — a negative must not flag."""
-        hud = DynamicInputHud(SCHEMAS["rectangle"], sm_uncal)
-        hud.set_values({"X": 100.0, "Y": 100.0})
-        hud.editor("X").setText("-250")
+        """Displacement dX/dY are signed by design — a negative must not flag."""
+        hud = DynamicInputHud(SCHEMAS["displacement"], sm_uncal)
+        hud.set_values({"dX": 100.0, "dY": 100.0})
+        hud.editor("dX").setText("-250")
         got = hud.values()
-        assert got["X"] == pytest.approx(-250.0)
+        assert got["dX"] == pytest.approx(-250.0)
         assert hud.has_invalid_field() is False
 
     def test_valid_entry_that_merely_reformats_is_not_flagged(self, sm_uncal):
@@ -329,12 +329,12 @@ class TestHudValues:
 
     def test_untouched_field_is_never_flagged(self, sm_uncal):
         """A seeded, untouched field commits as untouched — not as invalid."""
-        hud = DynamicInputHud(SCHEMAS["rectangle"], sm_uncal)
+        hud = DynamicInputHud(SCHEMAS["displacement"], sm_uncal)
         # Imperial display quantizes, so the seed guard matters here.
-        hud.set_values({"X": 1234.567, "Y": -890.1})
+        hud.set_values({"dX": 1234.567, "dY": -890.1})
         got = hud.values()
-        assert got["X"] == pytest.approx(1234.567)
-        assert got["Y"] == pytest.approx(-890.1)
+        assert got["dX"] == pytest.approx(1234.567)
+        assert got["dY"] == pytest.approx(-890.1)
         assert hud.has_invalid_field() is False
 
 
@@ -1354,6 +1354,24 @@ class TestArcSpanCoupling:
         assert span.text() == "270°"                            # readout not "-90°"
         assert hud.editor("ArcLength").value_mm() == pytest.approx(
             math.radians(270.0) * self._R, abs=1e-3)
+
+    def test_undo_resyncs_arc_length(self, shown_hud):
+        """Fold F: undoing a Span edit re-derives ArcLength from the restored
+        Span (``set_value_mm`` emits no valueChanged, so the coupling must be
+        re-run by hand or ArcLength stays at the undone edit's value)."""
+        hud = self._arc_hud(shown_hud)
+        span = hud.editor("Span")
+        _type(span, "90")
+        QTest.keyClick(span, Qt.Key.Key_Tab)     # commit 90°, wraps to Arc
+        span.setFocus(Qt.FocusReason.OtherFocusReason)
+        _type(span, "45")
+        QTest.keyClick(span, Qt.Key.Key_Tab)     # commit 45°
+        assert hud.editor("ArcLength").value_mm() == pytest.approx(
+            math.radians(45.0) * self._R, abs=1e-3)
+        assert hud.undo() is True
+        assert span.value_mm() == pytest.approx(90.0)
+        assert hud.editor("ArcLength").value_mm() == pytest.approx(
+            math.radians(span.value_mm()) * self._R, abs=1e-3)
 
     def test_coupling_does_not_run_without_a_radius(self, shown_hud):
         """No radius armed → editing Span leaves ArcLength untouched."""

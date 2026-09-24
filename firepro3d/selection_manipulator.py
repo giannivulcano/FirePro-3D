@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
-    QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap, QTransform,
+    QColor, QCursor, QPainter, QPainterPath, QPen, QTransform,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -30,12 +30,12 @@ from PyQt6.QtWidgets import (
 
 from . import theme
 from .constants import (
-    MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX, MANIP_KNOB_RADIUS_PX,
-    MANIP_STEM_LEN_PX, MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
+    MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX,
+    MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
     SELECTION_GRIP_SIZE_MM, SELECTION_GRIP_OUTLINE_WIDTH_MM,
 )
 from .dynamic_input import (
-    resolve_manip_move, resolve_manip_resize, resolve_manip_rotate,
+    resolve_manip_move, resolve_manip_resize,
 )
 from .manip_math import (
     HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point, move_delta,
@@ -52,19 +52,16 @@ _BOUND_PAD_PX = 6.0    # boundingRect pad (>= shape pad; generous for culling)
 
 # Handle metrics (device px; ItemIgnoresTransformations keeps them zoom-constant).
 # Style A (mockup-approved 2026-08-30): dark-filled square handles with a theme
-# ``selection`` outline at rest / ``selection_active`` while dragging/hovered; a
-# hollow rotate knob. The fill is theme-derived (see ``_handle_fill``). Metrics
+# ``selection`` outline at rest / ``selection_active`` while dragging/hovered.
+# The fill is theme-derived (see ``_handle_fill``). Metrics
 # live in constants.py (one home).
 _HANDLE_SIZE_PX = MANIP_HANDLE_SIZE_PX      # square side
 _HANDLE_BORDER_PX = MANIP_HANDLE_BORDER_PX
 _HANDLE_GRAB_PAD_PX = 3.0    # extra hit slack around the square
-_ROTATE_OFFSET_PX = MANIP_STEM_LEN_PX     # stem length from the top-mid to the knob
-_ROTATE_RADIUS_PX = MANIP_KNOB_RADIUS_PX
-_ROTATE_SNAP_DEG = 15.0      # Shift-snap increment (absolute angle)
 
 
 def _handle_fill() -> QColor:
-    """Handle/knob fill for the active theme (mockup style A).
+    """Handle fill for the active theme (mockup style A).
 
     A function of the theme: near-black on a dark canvas, white on a light
     canvas, so the square reads against the canvas while the ``selection``
@@ -75,12 +72,11 @@ def _handle_fill() -> QColor:
     light = QColor(t.ground).lightness() >= 128
     return QColor(MANIP_HANDLE_FILL_LIGHT if light else MANIP_HANDLE_FILL_DARK)
 
-#: Manipulator gesture mode -> dynamic-input schema name.  Move drives a
-#: gesture in v1; resize/rotate are wired ready for their handles (Task 5).
+#: Manipulator gesture mode -> dynamic-input schema name (move + rigid resize;
+#: live-apply grips have no HUD).
 _SCHEMA_FOR_MODE = {
     "move": "manip_move",
     "resize": "manip_resize",
-    "rotate": "manip_rotate",
 }
 
 
@@ -172,40 +168,8 @@ def bake_translate(item, dx: float, dy: float) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-#  Rotate cursor + grab handles (ported from the SelectionBox prototype)
+#  Grab handles (ported from the SelectionBox prototype)
 # --------------------------------------------------------------------------- #
-
-def _yup_angle_from_delta(d: QTransform) -> float:
-    """App-convention (Y-up CCW+) rotation angle of a scene-space delta.
-
-    ``rotate_delta`` builds ``d`` with Qt's ``rotate`` (y-down CW+), so the
-    x-axis image gives the Qt angle; negate for the app's Y-up readout/bake
-    convention (matching ``RectangleItem.set_angle``)."""
-    v = d.map(QPointF(1.0, 0.0)) - d.map(QPointF(0.0, 0.0))
-    return -math.degrees(math.atan2(v.y(), v.x()))
-
-
-def _make_rotate_cursor(size: int = 22) -> QCursor:
-    """A small circular-arrow cursor (Qt has no stock rotate cursor)."""
-    pm = QPixmap(size, size)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    rect = QRectF(4, 4, size - 8, size - 8)
-    for color, width in ((QColor(0, 0, 0, 200), 3.4), (QColor(255, 255, 255), 1.6)):
-        pen = QPen(color, width)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-        p.drawArc(rect, 30 * 16, 280 * 16)
-        cx, cy = size / 2.0, size / 2.0
-        r = rect.width() / 2.0
-        ax = cx + r * math.cos(math.radians(-30))
-        ay = cy - r * math.sin(math.radians(30))
-        p.drawLine(QPointF(ax, ay), QPointF(ax - 4.2, ay - 1.2))
-        p.drawLine(QPointF(ax, ay), QPointF(ax + 1.4, ay - 4.4))
-    p.end()
-    return QCursor(pm, size // 2, size // 2)
-
 
 class _HandleItem(QGraphicsItem):
     """Screen-constant host for a Handle. Renders + receives Qt events; forwards
@@ -233,7 +197,7 @@ class _HandleItem(QGraphicsItem):
                      not manip._handle_mm)
         self.setAcceptHoverEvents(True)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
-        self.setZValue(2.0 if handle.role is not HandleRole.ROTATE else 1.5)
+        self.setZValue(2.0)
 
     # -- geometry (device px OR paper mm; anchored at the handle position) -----
 
@@ -250,9 +214,6 @@ class _HandleItem(QGraphicsItem):
         return self._size() / 2.0 + self._grab_pad()
 
     def boundingRect(self) -> QRectF:
-        if self.role is HandleRole.ROTATE:
-            r = _ROTATE_OFFSET_PX + _ROTATE_RADIUS_PX + self._grab_pad() + 2.0
-            return QRectF(-r, -r, 2 * r, 2 * r)
         h = self._half() * math.sqrt(2.0)   # covers the square at any rotation
         return QRectF(-h, -h, 2 * h, 2 * h)
 
@@ -327,8 +288,9 @@ class SelectionManipulator(QGraphicsObject):
     press inside the frame begins a held-transform preview, release bakes
     real coordinates through :func:`bake_translate` and fires the
     ``commit_hook`` once (one undo per gesture). A plain click falls through
-    to normal picking (:meth:`_click_through`). Resize handles / rotate knob
-    arrive in later tasks.
+    to normal picking (:meth:`_click_through`). Resize handles and item grips
+    are capability-gated children (no rotate affordance — removed 2026-09-23;
+    per-item ``manip_rotate`` stays for a future Rotate transform).
 
     Args:
         scene: The scene to attach to (added + ``selectionChanged`` tracked).
@@ -342,8 +304,7 @@ class SelectionManipulator(QGraphicsObject):
         handle_units: ``"px"`` (default, model scene) sizes resize handles in
             device pixels via ``ItemIgnoresTransformations``; ``"mm"`` (paper
             scene) sizes them in paper millimetres so they plot/print true to
-            scale (theming.md split; no rotate knob shows on paper because
-            paper items don't implement ``manip_rotate``).
+            scale (theming.md split).
     """
 
     #: Screen-only selection feedback — never plots.  Honoured by
@@ -385,7 +346,6 @@ class SelectionManipulator(QGraphicsObject):
         self._start_scene = QPointF()
         self._press_screen = QPointF()
         self._moved = False
-        self._base_angle = 0.0
         self._last_factors: Tuple[float, float] = (1.0, 1.0)
         self._last_from_center: bool = False   # Ctrl state of the last resize drag frame
         self._items0: List[Tuple[QGraphicsItem, QTransform,
@@ -406,26 +366,19 @@ class SelectionManipulator(QGraphicsObject):
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self.hide()
 
-        # Absolute-angle Shift-snap increment, exposed to Handles (rotate).
-        self._ROTATE_SNAP_DEG = _ROTATE_SNAP_DEG
-
-        # Screen-constant children: 8 resize handles + one rotate knob.  Each is
+        # Screen-constant children: 8 resize handles.  Each is
         # a _HandleItem host wrapping a rigid Handle behavior object; the
         # manipulator orchestrates the held-preview toolkit while the Handle
         # decides geometry/gating/lifecycle.  Visibility is capability-gated in
         # ``_layout`` (frame+move only for multi-select / parametric single-select).
-        from .manip_handle import ResizeHandle, RotateHandle
+        from .manip_handle import ResizeHandle
         self._rigid = {role: ResizeHandle(role) for role in _RESIZE_ROLES}
-        self._rigid[HandleRole.ROTATE] = RotateHandle()
-        for _h in self._rigid.values():     # back-ref for live rotate-preview
-            _h._m = self
         self._handles = {role: _HandleItem(self, self._rigid[role])
                          for role in self._rigid}
         self._host_pool = []            # widget-less sourced handles (U3/stub) — Task 3 uses it
         self._active_handle = None
         for h in self._handles.values():
             h.hide()
-        self._rotate_cursor = _make_rotate_cursor()
 
         scene.addItem(self)
         scene.selectionChanged.connect(self._on_selection_changed)
@@ -511,7 +464,7 @@ class SelectionManipulator(QGraphicsObject):
 
     def _is_box_native_single(self, item: QGraphicsItem) -> bool:
         """True when *item* is the sole selection AND scale-capable (box-native,
-        like RectangleItem): the manipulator shows its own rigid RESIZE handles
+        like a text annotation or paper viewport): the manipulator shows its own rigid RESIZE handles
         instead of the item's parametric grips, and draws no redundant frame
         (the item's own outline IS the box).  Parametric items (no
         ``manip_scale``) surface their grips inside the frame.
@@ -587,10 +540,10 @@ class SelectionManipulator(QGraphicsObject):
     def hit_test(self, scene_pos: QPointF) -> bool:
         """True if *scene_pos* is over the frame interior OR any visible handle.
 
-        The rotate knob (and the outer half of the corner/edge handles) sits
-        OUTSIDE the frame ``shape()``, so the model scene's press router must
-        test the handles too — otherwise a knob/handle press falls through to
-        selection and the gesture (rotation especially) never starts.
+        The outer half of the corner/edge handles and item grips sits OUTSIDE
+        the frame ``shape()``, so the model scene's press router must test the
+        handles too — otherwise a handle press falls through to selection and
+        the gesture never starts.
         """
         if not self.isVisible():
             return False
@@ -622,7 +575,7 @@ class SelectionManipulator(QGraphicsObject):
 
         Returns:
             List[Handle]: The ``manip_handle.Handle`` objects under the point
-            (rigid resize/rotate handles and item grip handles), in host
+            (rigid resize handles and item grip handles), in host
             order; empty when the manipulator is hidden or nothing is hit.
         """
         if not self.isVisible():
@@ -630,7 +583,7 @@ class SelectionManipulator(QGraphicsObject):
         # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
         # the item's scene transform and ignores the view zoom, so it only
         # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the
-        # mapped point is wrong and the knob/handles read as not-hit — the press
+        # mapped point is wrong and the handles read as not-hit — the press
         # then falls through to selection and clears it.  Map through the view's
         # device transform instead (Qt's canonical path for screen-constant
         # items), falling back to mapFromScene only when no view is reachable
@@ -654,12 +607,19 @@ class SelectionManipulator(QGraphicsObject):
         return hits
 
     def _frame_is_redundant(self) -> bool:
-        """A single box-native item (rect/text/viewport) whose own outline IS
+        """A single box-native item (text/viewport) whose own outline IS
         the bounding box — drawing the frame just traces the shape.  Show the
         handles alone (PowerPoint/Figma style); keep the frame for multi-select
         and non-box shapes, where the bounding box adds information."""
-        return (len(self._items) == 1
-                and self._is_box_native_single(self._items[0]))
+        if len(self._items) != 1:
+            return False
+        it = self._items[0]
+        if self._is_box_native_single(it):
+            return True
+        # Opt-in for non-box-native items whose outline can still coincide with
+        # the frame (an unrotated RectangleItem).
+        fn = getattr(it, "manip_frame_redundant", None)
+        return bool(fn()) if fn is not None else False
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
@@ -713,25 +673,19 @@ class SelectionManipulator(QGraphicsObject):
         painter.restore()
 
     def _layout(self) -> None:
-        """Position the resize handles + rotate knob and capability-gate them.
+        """Position the resize handles and capability-gate them.
 
         Resize handles show only for a single item that implements
-        ``manip_scale``; the rotate knob shows only when every selected item
-        implements ``manip_rotate`` (spec handle-gating).  Multi-select or a
+        ``manip_scale`` (spec handle-gating); there is no rotate affordance.
+        Multi-select or a
         parametric single-select gets frame + interior-move only — the handles
         stay hidden and the item's own grips (drawn by Model_View) drive edits.
         """
         r = self._rect
         for role in _RESIZE_ROLES:
             self._handles[role].setPos(self._rigid[role].scene_position(r))
-        # Knob anchored at the top-edge midpoint; the stem/knob draw upward from
-        # there in device space (see RotateHandle.shape/paint).
-        self._handles[HandleRole.ROTATE].setPos(
-            self._rigid[HandleRole.ROTATE].scene_position(r))
         for role in _RESIZE_ROLES:
             self._handles[role].setVisible(self._rigid[role].visible(self))
-        self._handles[HandleRole.ROTATE].setVisible(
-            self._rigid[HandleRole.ROTATE].visible(self))
         item_handles = [h for h in self._active_handles()
                         if h not in self._rigid.values()]
         self._sync_host_pool(item_handles)
@@ -752,8 +706,6 @@ class SelectionManipulator(QGraphicsObject):
         self._rect = r
         for role in _RESIZE_ROLES:
             self._handles[role].setPos(self._rigid[role].scene_position(r))
-        self._handles[HandleRole.ROTATE].setPos(
-            self._rigid[HandleRole.ROTATE].scene_position(r))
         pts_cache: dict = {}
         for host in self._host_pool:
             if host.isVisible():
@@ -765,17 +717,15 @@ class SelectionManipulator(QGraphicsObject):
         box-native single item (``_is_box_native_single``), else the item-provided
         grips (U3), else the rigid set (fallback).
 
-        The box-native branch is what keeps a RectangleItem showing its 8 resize
-        handles + rotate knob (not its 9 parametric grips) while UNROTATED — a
-        rect provides ``manip_handles`` for the unified coexistence gate, but its
-        grips must not double up with the resize handles. A ROTATED rect drops
-        ``scale`` → not box-native → its parametric grips surface (live-apply,
-        local-frame resize)."""
+        The box-native branch keeps a scale-capable item (e.g. a text
+        annotation) showing its rigid resize handles instead of any parametric
+        grips it provides, so the two sets never double up. A RectangleItem is
+        NOT box-native (no ``scale``): it always shows its own 9 local-frame
+        grips (``RectGripHandle``) at every angle."""
         if len(self._items) == 1 and self._is_box_native_single(self._items[0]):
             handles = list(self._rigid.values())
-            # A box-native item may add handles the rigid resize set lacks — e.g.
-            # RectangleItem's centre MOVE grip — so the centre handle is present
-            # for the unrotated rect too (not only the rotated parametric path).
+            # A box-native item may add handles the rigid resize set lacks (e.g.
+            # a text annotation's extra grips via manip_box_extra_handles).
             extra = getattr(self._items[0], "manip_box_extra_handles", None)
             if extra is not None:
                 handles.extend(extra())
@@ -809,9 +759,6 @@ class SelectionManipulator(QGraphicsObject):
         for host, handle in zip(self._host_pool, handles):
             host.handle = handle
             host.role = handle.role
-            # Back-ref so a GripHandle can read the live rotate-preview angle
-            # (grip_render_angle + _preview_rotation_deg) when it paints/hit-tests.
-            handle._m = self
             host.setPos(_handle_scene_pos(handle, r, pts_cache))
             host.setVisible(handle.visible(self))
 
@@ -829,11 +776,9 @@ class SelectionManipulator(QGraphicsObject):
             return QColor("#8FE3B4" if active else "#63BE8B")
 
     def _cursor_for(self, role: HandleRole) -> QCursor:
-        """Role cursor: the rotate glyph for the knob, else an axis-aware resize
-        cursor.  The frame is unrotated at rest, so the outward direction of each
-        resize handle in device space is just its ``_ROLE_GEOM`` direction."""
-        if role is HandleRole.ROTATE:
-            return self._rotate_cursor
+        """Axis-aware resize cursor.  The frame is unrotated at rest, so the
+        outward direction of each resize handle in device space is just its
+        ``_ROLE_GEOM`` direction."""
         _, _, dx, dy = _ROLE_GEOM[role]
         ang = math.degrees(math.atan2(float(dy), float(dx))) % 180.0
         if ang < 22.5 or ang >= 157.5:
@@ -971,8 +916,7 @@ class SelectionManipulator(QGraphicsObject):
         Runs during a live gesture: the user armed the drag, then engaged the
         HUD and typed exact numbers.  The typed values are resolved through the
         active schema into the same bake a released drag produces (shared
-        ``_bake_*`` helpers), and committed once.  Handles move / resize /
-        rotate — the three transform gestures.
+        ``_bake_*`` helpers), and committed once.  Handles move / resize.
         """
         if self._mode is None:
             return
@@ -1013,33 +957,12 @@ class SelectionManipulator(QGraphicsObject):
         for it, _s0, _inv, t0 in self._items0:
             it.setTransform(t0)
 
-    def _preview_rotation_deg(self) -> float:
-        """Y-up (CCW+) rotation currently applied by an in-progress ROTATE
-        held-preview; 0 when not rotating. Lets a migrated item's square grips
-        (``grip_render_angle``) track the rotate knob LIVE — the item's own
-        angle is not mutated until the release bake, so without this the grips
-        would keep their pre-drag orientation while the item visibly turns.
-        Uses the same ``_yup_angle_from_delta`` the bake uses → no jump on
-        commit."""
-        if self._mode != "rotate":
-            return 0.0
-        return _yup_angle_from_delta(self._D)
-
     def _resize_cursor(self, role: HandleRole) -> QCursor:
         return self._cursor_for(role)
 
     def _show_scale_handles(self) -> bool:
         caps = [item_capabilities(i) for i in self._items]
         return len(self._items) == 1 and bool(caps) and "scale" in caps[0]
-
-    def _show_rotate_knob(self) -> bool:
-        caps = [item_capabilities(i) for i in self._items]
-        if not self._items or not all("rotate" in c for c in caps):
-            return False
-        if len(self._items) == 1 and getattr(self._items[0],
-                                             "MANIP_NO_SOLO_ROTATE", False):
-            return False
-        return True
 
     def _begin(self, mode: str, scene_pos: QPointF, screen_pos: QPointF,
                role: Optional[HandleRole] = None) -> None:
@@ -1051,7 +974,6 @@ class SelectionManipulator(QGraphicsObject):
         self._start_scene = QPointF(scene_pos)
         self._press_screen = QPointF(screen_pos)
         self._moved = False
-        self._base_angle = 0.0            # frame is unrotated at rest (baked)
         self._last_factors = (1.0, 1.0)
         self._last_from_center = False
         self._D = QTransform()
@@ -1111,14 +1033,6 @@ class SelectionManipulator(QGraphicsObject):
         self.setTransform(self._B0 * d)
         for it, s0, s0_inv, t0 in self._items0:
             it.setTransform(s0 * d * s0_inv * t0)
-        if self._mode == "rotate":
-            # Square grips + the rotate knob read the live preview angle; force
-            # their hosts to repaint so they turn with the frame as the knob
-            # drags (their own orientation depends on _D, which Qt's transform-
-            # change repaint doesn't otherwise track).
-            for host in list(self._handles.values()) + self._host_pool:
-                if host.isVisible():
-                    host.update()
 
     def _finish(self, scene_pos: QPointF, mods: Qt.KeyboardModifier) -> None:
         if self._mode is None:
@@ -1152,7 +1066,7 @@ class SelectionManipulator(QGraphicsObject):
         self._close_hud()
 
     def _refresh_fittings(self, items) -> None:
-        """Refresh any node fittings after a bake (shared by move/rotate/scale
+        """Refresh any node fittings after a bake (shared by move/scale
         so they cannot drift on fitting freshness)."""
         for it in items:
             fitting = getattr(it, "fitting", None)
@@ -1216,27 +1130,6 @@ class SelectionManipulator(QGraphicsObject):
             tools._solve_constraints()
         if self._commit_hook is not None:
             self._commit_hook("resize")
-
-    def _bake_rotate(self, items, angle_deg: float, pivot: QPointF) -> None:
-        """Bake a rotate of *items* by ``angle_deg`` (Y-up CCW+) about *pivot*.
-
-        One undo per gesture, shared by the released-drag path and the typed
-        (HUD) path so they can never diverge.
-        """
-        for it in items:
-            fn = getattr(it, "manip_rotate", None)
-            if fn is None:
-                log.warning("SelectionManipulator: %s has no manip_rotate — "
-                            "rotate not baked", type(it).__name__)
-                continue
-            fn(angle_deg, pivot)
-        self._refresh_fittings(items)
-        sc = self.scene()
-        tools = getattr(sc, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints()
-        if self._commit_hook is not None:
-            self._commit_hook("rotate")
 
     def cancel_drag(self) -> None:
         """Abort the active drag and restore the pre-drag state (no commit)."""

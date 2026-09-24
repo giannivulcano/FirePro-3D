@@ -309,7 +309,7 @@ class DetailMarker(QGraphicsPathItem):
     # bugs.) Grips 0-7 render SQUARE (resize handles); the bubble (grip 8) is a
     # ROUND move grip. Caps = {translate} (no manip_scale) → the manipulator
     # shows its dashed FRAME as the visible bounding box (NOT redundant) + the
-    # grips. Axis-aligned (no manip_rotate → no rotate knob).
+    # grips. Axis-aligned (no manip_rotate).
 
     def manip_bounds(self) -> QRectF:
         return QRectF(self._crop_rect)       # the frame wraps the crop rect

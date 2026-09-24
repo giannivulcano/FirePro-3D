@@ -2,16 +2,14 @@
 
 Ported verbatim from the SelectionBox prototype (FPD Design, 2026-08).
 All functions are pure (QTransform/QRectF/QPointF in -> out) and are the
-unit-tested core of resize/rotate/move gestures. Angles here follow Qt's
-y-down screen convention; the Y-up (CCW+) app convention is applied at the
-manipulator boundary, not in this module.
+unit-tested core of resize/move gestures.
 """
 
 from __future__ import annotations
 
 import math
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Tuple
 
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QTransform
@@ -30,7 +28,6 @@ class HandleRole(Enum):
     BOTTOM = 5
     BOTTOM_LEFT = 6
     LEFT = 7
-    ROTATE = 8
     GRIP = 9        # U3: non-rigid role for live-apply parametric grips
 
 
@@ -137,32 +134,6 @@ def resize_delta(
     return inv * t_local * box_tf, fx, fy
 
 
-def rotate_delta(
-    center_scene: QPointF,
-    start_scene: QPointF,
-    cur_scene: QPointF,
-    base_angle_deg: float,
-    snap_deg: Optional[float],
-) -> Tuple[QTransform, float]:
-    """Scene-space delta D for a rotate drag and the new absolute angle.
-
-    Snapping (when ``snap_deg``) snaps the *absolute* box angle, CAD-style.
-    """
-    a0 = math.degrees(math.atan2(start_scene.y() - center_scene.y(),
-                                 start_scene.x() - center_scene.x()))
-    a1 = math.degrees(math.atan2(cur_scene.y() - center_scene.y(),
-                                 cur_scene.x() - center_scene.x()))
-    d = a1 - a0
-    total = base_angle_deg + d
-    if snap_deg:
-        total = round(total / snap_deg) * snap_deg
-        d = total - base_angle_deg
-    rot = QTransform()
-    rot.rotate(d)
-    total = (total + 180.0) % 360.0 - 180.0
-    return _about(center_scene, rot), total
-
-
 def move_delta(start_scene: QPointF, cur_scene: QPointF, ortho: bool) -> QTransform:
     """Scene-space delta D for a move drag (``ortho`` = axis lock)."""
     d = cur_scene - start_scene
@@ -172,9 +143,3 @@ def move_delta(start_scene: QPointF, cur_scene: QPointF, ortho: bool) -> QTransf
         else:
             d.setX(0.0)
     return QTransform.fromTranslate(d.x(), d.y())
-
-
-def transform_angle_deg(m: QTransform) -> float:
-    """Rotation of a transform's x axis, degrees, y-down positive clockwise."""
-    v = m.map(QPointF(1.0, 0.0)) - m.map(QPointF(0.0, 0.0))
-    return math.degrees(math.atan2(v.y(), v.x()))

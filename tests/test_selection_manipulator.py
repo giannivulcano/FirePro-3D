@@ -285,81 +285,66 @@ def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
     assert not _manip(scene).is_dragging()
 
 
-# ── Task 5: resize handles + rotate knob (capability-gated) ─────────────────
+# ── Task 5: resize handles (capability-gated) ───────────────────────────────
 
-def test_rect_shows_8_handles_and_knob(qapp, scene_and_view):
+def test_rect_shows_nine_local_grips_no_resize_handles(qapp, scene_and_view):
+    """Task 9 (migrated from the 8-resize-handles expectation): a rect shows its
+    own 9 local-frame grips at angle 0 — the rigid resize handles stay hidden."""
     scene, view = scene_and_view
     from firepro3d.geometry_2d import RectangleItem
+    from firepro3d.manip_handle import RectGripHandle
+    from firepro3d.manip_math import _RESIZE_ROLES
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
     r.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
-    visible = [h for h in manip.childItems() if h.isVisible()]
-    assert len(visible) >= 9   # 8 resize + rotate knob
+    for role in _RESIZE_ROLES:
+        assert not manip._handles[role].isVisible()
+    grips = [h for h in manip._active_handles() if isinstance(h, RectGripHandle)]
+    assert [h.index for h in grips] == list(range(9))
 
 
 def test_line_shows_no_resize_handles(qapp, scene_and_view):
     scene, view = scene_and_view
     from firepro3d.geometry_2d import LineItem
-    from firepro3d.manip_math import HandleRole, _RESIZE_ROLES
+    from firepro3d.manip_math import _RESIZE_ROLES
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(ln)
     ln.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
-    # U1: a parametric line has no scale -> the 8 resize handles stay hidden
-    # (frame + its own grips), but it now implements manip_rotate, so the
-    # rotate knob IS shown (rigid rotate is universal after U1).
+    # A parametric line has no scale -> the 8 resize handles stay hidden
+    # (frame + its own grips). No rotate knob exists (removed 2026-09-23;
+    # guarded in tests/test_no_rotate_knob.py).
     for role in _RESIZE_ROLES:
         assert not manip._handles[role].isVisible()
-    assert manip._handles[HandleRole.ROTATE].isVisible()
 
 
-def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
+def test_rect_grip_resize_bakes_one_undo_no_transform(qapp, scene_and_view):
+    """Migrated from the retired rigid-resize bake: a POSTED drag on the rect's
+    bottom-right grip from (200,150) to (300,200) grows it about the held
+    top-left (100,100), with no held transform and exactly one undo entry."""
     scene, view = scene_and_view
     from firepro3d.geometry_2d import RectangleItem
-    from firepro3d.manip_math import HandleRole
-    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
-    scene.addItem(r)
-    r.setSelected(True)
-    qapp.processEvents()
-    manip = _manip(scene)
-    # Drive the manipulator API directly (adapted to the ported signatures).
-    # Centre is (150, 125); start due-east, drag to due-north → ~90° CCW,
-    # Shift snaps the absolute angle to 15°.
-    manip._begin("rotate", QPointF(200, 125), QPointF(200, 125), HandleRole.ROTATE)
-    manip._update(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier,
-                  QPointF(150, 25))
-    manip._finish(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier)
-    qapp.processEvents()
-    assert r._angle % 15.0 == 0.0 and r._angle != 0.0
-    assert r.rotation() == 0.0            # baked-at-rest: no held Qt transform
-
-
-def test_resize_gesture_bakes_scale_no_transform(qapp, scene_and_view):
-    scene, view = scene_and_view
-    from firepro3d.geometry_2d import RectangleItem
-    from firepro3d.manip_math import HandleRole
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
     scene._draw_rects.append(r)
     r.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
-    # Drag the bottom-right handle from (200,150) out to (300,200): the rect's
-    # width/height should grow, anchored at the top-left (100,100).
-    manip._begin("resize", QPointF(200, 150), QPointF(200, 150),
-                 HandleRole.BOTTOM_RIGHT)
-    manip._update(QPointF(300, 200), Qt.KeyboardModifier.NoModifier,
-                  QPointF(300, 200))
-    manip._finish(QPointF(300, 200), Qt.KeyboardModifier.NoModifier)
-    qapp.processEvents()
+    undo_depth0 = len(scene._undo_stack)
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(200, 150))
+    assert manip._mode == "grip"
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(250, 175))
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(300, 200))
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(300, 200))
     assert r.transform().isIdentity()                 # baked, no held transform
-    assert abs(r.rect().left() - 100.0) < 2.0         # TL anchor held
+    assert abs(r.rect().left() - 100.0) < 2.0         # TL held
     assert abs(r.rect().top() - 100.0) < 2.0
-    assert r.rect().width() > 120.0                    # grew from 100 wide
-    assert r.rect().height() > 60.0                    # grew from 50 tall
+    assert abs(r.rect().width() - 200.0) < 2.0        # grew from 100 wide
+    assert abs(r.rect().height() - 100.0) < 2.0       # grew from 50 tall
+    assert len(scene._undo_stack) == undo_depth0 + 1
 
 
 def test_scene_clear_then_press_self_heals(qapp, scene_and_view):
@@ -378,37 +363,11 @@ def test_scene_clear_then_press_self_heals(qapp, scene_and_view):
     assert not sip.isdeleted(scene._live_manip())
 
 
-def test_rotate_knob_press_starts_rotation_via_gate(qapp, scene_and_view):
-    """Regression (live smoke 2026-08-30): the rotate knob sits ABOVE the frame,
-    so the model press-router must route knob presses to the manipulator
-    (hit_test includes handles, not just the frame shape). A real posted press
-    on the knob must begin a rotate gesture — not fall through to selection
-    (which is why 'rotation doesn't work')."""
-    scene, view = scene_and_view
-    from firepro3d.geometry_2d import RectangleItem
-    from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
-    r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
-    scene.addItem(r)
-    r.setSelected(True)
-    qapp.processEvents()
-    manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
-    rect = manip._rect
-    knob = QPointF(rect.center().x(), rect.top() - _ROTATE_OFFSET_PX)
-    assert manip.hit_test(knob)                       # the gate would route it
-    _post_mouse(view, QEvent.Type.MouseButtonPress, knob)
-    assert manip._mode == "rotate"                    # rotate gesture began
-    _post_mouse(view, QEvent.Type.MouseMove, QPointF(rect.left() - 25, rect.center().y()))
-    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(rect.left() - 25, rect.center().y()))
-    assert r._angle != 0.0                             # actually rotated
-    assert r.rotation() == 0.0                         # baked at rest
-
-
 def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view):
-    """Regression (live smoke 2026-08-30): a box-native item's own parametric
-    grips must be retired from the legacy pipeline when the manipulator shows
-    its resize handles — otherwise the coincident rect grip (a) double-draws
-    and (b) steals the handle press, which deselected the item. Pressing a
-    corner handle must keep the rect selected and start a resize gesture."""
+    """Regression (live smoke 2026-08-30): pressing a rect's corner handle must
+    keep the rect selected and start its gesture (not deselect it). Since Task 9
+    the corner handle IS the rect's own local-frame grip (no rigid resize
+    handle to double up with)."""
     scene, view = scene_and_view
     from firepro3d.geometry_2d import RectangleItem
     r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
@@ -416,10 +375,10 @@ def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view)
     r.setSelected(True)
     qapp.processEvents()
     manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
-    assert manip._is_box_native_single(r)                 # grips retired for r
-    corner = manip._rect.topRight()
+    assert not manip._is_box_native_single(r)             # no rigid resize set
+    corner = r.grip_points()[2]                           # TR grip
     assert manip.hit_test(corner)
     _post_mouse(view, QEvent.Type.MouseButtonPress, corner)
     assert r.isSelected()                                # NOT deselected
-    assert manip._mode == "resize"                       # resize gesture began
+    assert manip._mode == "grip"                         # grip gesture began
     _post_mouse(view, QEvent.Type.MouseButtonRelease, corner)

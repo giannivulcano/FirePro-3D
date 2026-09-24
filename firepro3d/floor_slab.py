@@ -274,8 +274,9 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         Every vertex is a round grip (house rule); ``apply_grip`` carries the
         edit math unchanged. Zero special semantics — polygons are excluded from
         the legacy Ctrl-constrain block, and a floor's neighbours are not
-        grip-coupled — so no ``EndpointGripHandle``/propagation. The rotate knob
-        coexists (``manip_rotate``); not box-native (no ``manip_scale``)."""
+        grip-coupled — so no ``EndpointGripHandle``/propagation. Keeps
+        ``manip_rotate`` (future Rotate transform); not box-native (no
+        ``manip_scale``)."""
         from .manip_handle import default_grip_handles
         return default_grip_handles(self, circular=set(range(len(self._points))))
 

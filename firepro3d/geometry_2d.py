@@ -767,6 +767,22 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             return t.map(obj)
         return t.map(QPointF(obj))
 
+    def mapToParent(self, *args):
+        """Local→parent through the data rotation, then Qt's own pos/transform.
+
+        Overridden like :meth:`mapToScene` so ``mapToParent`` consumers (e.g.
+        ``BlockDefinition._compile``) see the rotated footprint instead of the
+        axis-aligned local ``rect()``.  Same overloads: ``QPointF``, ``(x, y)``
+        or ``QPainterPath``.
+        """
+        t = self._rotation_transform()
+        if len(args) == 2:                       # (x, y)
+            return super().mapToParent(t.map(QPointF(args[0], args[1])))
+        obj = args[0]
+        if isinstance(obj, QPainterPath):
+            return super().mapToParent(t.map(obj))
+        return super().mapToParent(t.map(QPointF(obj)))
+
     def mapFromScene(self, *args):
         """Scene→local inverse of :meth:`mapToScene`."""
         inv, ok = self._rotation_transform().inverted()
@@ -876,32 +892,18 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         """Resize or translate the rectangle by dragging one of its 9 grips.
 
         ``pos`` arrives in SCENE coords; it is mapped to LOCAL first so the
-        resize runs in the rectangle's own (rotated) frame.  At angle 0 the
-        map is identity and behaviour matches the pre-rotation implementation.
+        resize runs in the rectangle's own (rotated) frame (one home:
+        :func:`rect_grip_resize`, plain mode — no Ctrl/Shift). Interactive
+        drags go through ``RectGripHandle``, which resizes from the PRESS-time
+        rect with the modifiers; this is the programmatic single-shot path.
         """
-        local = self.mapFromScene(pos)
-        r = self.rect()
-        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
-
-        if   index == 0:  new_r = QRectF(QPointF(local.x(), local.y()), QPointF(ri,  b )).normalized()
-        elif index == 1:  new_r = QRectF(QPointF(l,  local.y()), QPointF(ri,  b )).normalized()
-        elif index == 2:  new_r = QRectF(QPointF(l,  local.y()), QPointF(local.x(), b )).normalized()
-        elif index == 3:  new_r = QRectF(QPointF(l,  t ), QPointF(local.x(), b )).normalized()
-        elif index == 4:  new_r = QRectF(QPointF(l,  t ), QPointF(local.x(), local.y())).normalized()
-        elif index == 5:  new_r = QRectF(QPointF(l,  t ), QPointF(ri,  local.y())).normalized()
-        elif index == 6:  new_r = QRectF(QPointF(local.x(), t ), QPointF(ri,  local.y())).normalized()
-        elif index == 7:  new_r = QRectF(QPointF(local.x(), t ), QPointF(ri,  b )).normalized()
-        elif index == 8:
-            # Centre grip → translate (in local frame)
-            dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
-            new_r = r.translated(dx, dy)
-        else:
+        if not 0 <= index <= 8:
             return
         self.prepareGeometryChange()
-        self.setRect(new_r)
+        self.setRect(rect_grip_resize(self.rect(), index, self.mapFromScene(pos),
+                                      False, False))
         # A centre-following pivot (``_pivot is None``) re-derives from the new
-        # rect centre automatically (see ``_rotation_origin``); no held origin
-        # to update now that rotation is baked-at-rest data.
+        # rect centre automatically (see ``_rotation_origin``).
 
     def translate(self, dx: float, dy: float):
         self.prepareGeometryChange()
@@ -1006,38 +1008,24 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     # ── Manipulator capability protocol (selection-manipulator.md) ──────────
 
-    def manip_capabilities(self) -> set:
-        """Narrow the duck-typed capability set for the current state.
-
-        Resize is only correct while the rect is axis-aligned: the manipulator
-        frame + its ``(fx, fy)`` factors live in the selection's axis-aligned
-        scene bounds, but ``manip_scale`` applies them in the rect's rotated
-        local frame — which shears (or swaps W/H at 90°/270°) once ``_angle``
-        is non-zero. So a rotated rect exposes move + rotate only (no resize
-        handles); rotate it back to 0° to resize, or see the ``rotated-rect
-        resize`` follow-up. Unrotated rects keep the full set.
-        """
-        if self._angle != 0.0:
-            return {"translate", "rotate"}
-        return {"translate", "rotate", "scale"}
-
     def manip_handles(self):
-        """U3 (box-native special): expose the 9 rect grips as live-apply
-        GripHandles.
-
-        For an UNROTATED rect the manipulator shows its rigid RESIZE handles
-        instead (``_is_box_native_single`` → ``_active_handles`` returns the rigid
-        set), so these grips only surface for a ROTATED rect (whose ``scale`` cap
-        is dropped) — driving edits via ``apply_grip`` in the rect's own rotated
-        LOCAL frame (no shear). Since U4 the manipulator is the sole grip
-        renderer/hit-tester (the legacy grip paths were retired), so
-        ``manip_handles`` is simply this item's handle set.
+        """U3: the rect's own 9 live-apply grips at EVERY angle.
 
         Corners (0,2,4,6) + centre (8) render round; edge midpoints (1,3,5,7)
-        square — matching the rigid resize-handle look; the square grips align to
-        the rect's angle via ``grip_render_angle``."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0, 2, 4, 6, 8})
+        square and align to the rect's angle via ``grip_render_angle``. Each is
+        a ``RectGripHandle``: local-frame resize from the press-time rect,
+        Ctrl = symmetric about the centre, Shift (corners) = keep aspect,
+        centre grip = move. The rect exposes no ``scale`` capability, so the
+        manipulator's rigid resize handles never surface for it."""
+        from .manip_handle import RectGripHandle
+        return [RectGripHandle(self, i, circular=i in (0, 2, 4, 6, 8))
+                for i in range(9)]
+
+    def manip_frame_redundant(self) -> bool:
+        """True while unrotated: the rect's own outline coincides with the
+        manipulator's axis-aligned frame, so the dashed frame is suppressed.
+        A rotated rect keeps the frame (its bounds add information)."""
+        return self._angle == 0.0
 
     def grip_render_angle(self, index: int) -> float:
         """Rotate the square edge-midpoint grips to the rect's baked Y-up
@@ -1045,19 +1033,10 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         corner/centre grips ignore it (rotation-invariant)."""
         return self._angle
 
-    def manip_box_extra_handles(self):
-        """Handles shown ALONGSIDE the rigid resize set when the rect is
-        box-native (unrotated): the centre move grip (index 8), which the rigid
-        resize set otherwise lacks (move is interior-drag only). Keeps the centre
-        handle present for BOTH unrotated and rotated rects — a rotated rect
-        already exposes it as grip 8 of its parametric ``manip_handles``."""
-        from .manip_handle import GripHandle
-        return [GripHandle(self, 8, circular=True)]
-
     def manip_bounds(self) -> QRectF:
-        """The rect's own geometry in scene coords so the manipulator handles
-        hug the shape (not the pen-padded ``sceneBoundingRect``).  For a rotated
-        rect this is the axis-aligned bounds, which is the correct frame wrap."""
+        """The rect's own geometry in scene coords so the manipulator frame
+        hugs the shape (not the pen-padded ``sceneBoundingRect``).  For a rotated
+        rect this is the axis-aligned bounds of the rotated footprint."""
         return self.mapRectToScene(self.rect())
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
@@ -1065,26 +1044,6 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         ``pivot`` (Y-up CCW+).  One home with ``set_angle`` so the manipulator
         and the placement rotate-step cannot drift."""
         self.set_angle(self._angle + angle_deg, pivot)
-
-    def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
-        """Baked resize about a scene ``anchor`` by factors ``(fx, fy)``.
-
-        Scales every rect edge about the anchor (held fixed) in the rect's own
-        frame, so the baked result reproduces the manipulator's preview EXACTLY
-        for ANY anchor — a corner (incl. the anti-diagonal TR/BL), an edge
-        midpoint (one factor is 1.0), or the centre (Ctrl / from-centre).  A
-        previous version only handled the TL/BR diagonal, so a top-right or
-        bottom-left drag held the wrong corner fixed and the item jumped
-        (translated) on commit.  Negative factors mirror (normalised).
-        """
-        r = self.rect()
-        a = self.mapFromScene(anchor)          # anchor in the rect's local frame
-        left = a.x() + (r.left() - a.x()) * fx
-        right = a.x() + (r.right() - a.x()) * fx
-        top = a.y() + (r.top() - a.y()) * fy
-        bottom = a.y() + (r.bottom() - a.y()) * fy
-        self.prepareGeometryChange()
-        self.setRect(QRectF(QPointF(left, top), QPointF(right, bottom)).normalized())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1295,7 +1254,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         super().__init__()
         self._center = QPointF(center)
         self._radius = max(radius, 0.01)
-        self._start_deg = start_deg
+        # Store every arc in CCW form (span > 0): a negative (CW) span — the
+        # mirror tool, legacy saves — is the same geometric arc starting at
+        # start + span. The grip refits assume CCW start→end.
+        from .arc_math import _norm360
+        if span_deg < 0:
+            start_deg, span_deg = start_deg + span_deg, -span_deg
+        self._start_deg = _norm360(start_deg)
         self._span_deg = span_deg
 
         self.init_displayable(level=None)   # level-less primitive (C3)
@@ -1373,34 +1338,79 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             QPointF(cx + r * math.cos(ea), cy - r * math.sin(ea)),  # 2 end
         ]
 
+    def arc_midpoint(self) -> QPointF:
+        """The point halfway along the arc (Y-up start + span/2)."""
+        from .arc_math import point_at
+        return point_at(self._center, self._radius,
+                        self._start_deg + self._span_deg / 2.0)
+
+    def begin_endpoint_refit(self) -> None:
+        """Snapshot the endpoint-drag reference (called by the grip on press)."""
+        pts = self.grip_points()
+        self._arc_refit_ref = {"start": pts[1], "end": pts[2],
+                               "mid": self.arc_midpoint(),
+                               "center": QPointF(self._center),
+                               "radius": self._radius}
+
+    def end_endpoint_refit(self) -> None:
+        self._arc_refit_ref = None
+
     def apply_grip(self, index: int, pos: QPointF):
+        """Re-shape the arc from a grip drag (user 2026-09-23).
+
+        * 0 centre — both endpoints stay fixed; the centre is projected onto
+          their perpendicular bisector (radius/bulge follow; CCW start→end is
+          kept, so crossing the chord grows the arc through a semicircle into a
+          major arc). A full-circle arc (no chord) translates instead.
+        * 1 start / 2 end — the centre, radius and the other endpoint stay
+          fixed (user 2026-09-24); *pos* is projected radially onto the circle
+          and only the dragged endpoint's angle changes. A span within 0.5° of
+          0° / 360° (or *pos* on the centre) holds the last valid shape.
+        """
+        from .arc_math import project_to_bisector, yup_angle, _norm360
         if index == 0:
-            self._center = pos
-        elif index == 1:
-            # Move start point — change radius and start angle
-            dx = pos.x() - self._center.x()
-            dy = pos.y() - self._center.y()
-            self._radius = max(math.hypot(dx, dy), 0.01)
-            self._start_deg = math.degrees(math.atan2(-dy, dx))
-        elif index == 2:
-            # Move end point — change span angle
-            dx = pos.x() - self._center.x()
-            dy = pos.y() - self._center.y()
-            end_deg = math.degrees(math.atan2(-dy, dx))
-            self._span_deg = (end_deg - self._start_deg) % 360
-            if self._span_deg == 0:
-                self._span_deg = 360
+            pts = self.grip_points()
+            s, e = pts[1], pts[2]
+            proj = project_to_bisector(s, e, pos)
+            if proj is None or abs(self._span_deg) >= 360.0 - 1e-6:
+                self._center = QPointF(pos)
+            else:
+                c, _t = proj
+                r = math.hypot(s.x() - c.x(), s.y() - c.y())
+                ts = yup_angle(c, s)
+                span = (yup_angle(c, e) - ts) % 360.0   # CCW start→end kept
+                if r < 0.01 or span < 1e-6:
+                    return                       # hold last valid shape
+                self._center = c
+                self._radius = r
+                self._start_deg = _norm360(ts)
+                self._span_deg = span
+        elif index in (1, 2):
+            c = self._center
+            if math.hypot(pos.x() - c.x(), pos.y() - c.y()) < 1e-9:
+                return                           # no radial direction
+            theta = yup_angle(c, pos)
+            if index == 1:
+                start = theta
+                span = (self._start_deg + self._span_deg - theta) % 360.0
+            else:
+                start = self._start_deg
+                span = (theta - self._start_deg) % 360.0
+            if span < 0.5 or span > 359.5:
+                return                           # hold last valid shape
+            self._start_deg = _norm360(start)
+            self._span_deg = span
+        else:
+            return
         self._rebuild_path()
 
     def manip_handles(self):
-        """U3: centre + start + end as live-apply GripHandles, all round (centre =
-        move grip; start/end are the arc's geometric endpoints) per the house
-        rule (vertex/endpoint + centre/move grips = round disc). No special drag
-        semantics — the legacy grip path explicitly excludes arc from
-        Ctrl-constrain (model_space grip drag). The manipulator renders/hit-tests/
-        commits them; the legacy grip paths skip this item (coexistence gate)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0, 1, 2})
+        """U3: centre grip (bisector slide) + start/end ``ArcEndpointGripHandle``s
+        (slide along the circle). All round (house rule)."""
+        from .manip_handle import GripHandle, ArcEndpointGripHandle
+        return [GripHandle(self, 0, circular=True),
+                ArcEndpointGripHandle(self, 1),
+                ArcEndpointGripHandle(self, 2)]
 
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
@@ -1448,11 +1458,43 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawPath(self.path())
+        if self.isSelected():
+            if not _manip_wraps(self):
+                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                highlight.setCosmetic(True)
+                painter.setPen(highlight)
+                painter.drawPath(self.path())
+            # Centre→start / centre→end reference radials — shown whenever
+            # selected (a content aid, NOT the selection highlight). Canonical
+            # width-1 dashed style, matching EllipseItem's axis guides.
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for a, b in self._selection_ref_segments():
+                painter.drawLine(a, b)
+
+    def _selection_ref_segments(self):
+        """Reference radials centre→start and centre→end (scene coords)."""
+        c, s, e = self.grip_points()
+        return [(c, s), (c, e)]
+
+    def itemChange(self, change, value):
+        # The selected bounds grow to cover the radials (the centre can lie
+        # outside the arc's path bounds) — tell the scene before they change.
+        if change == self.GraphicsItemChange.ItemSelectedChange:
+            self.prepareGeometryChange()
+        return super().itemChange(change, value)
+
+    def boundingRect(self) -> QRectF:
+        """Path bounds; when selected, also the centre so the reference
+        radials repaint/cull correctly. Hit-testing uses :meth:`shape`, which
+        stays the stroked arc."""
+        base = super().boundingRect()
+        if not self.isSelected():
+            return base
+        c = self._center
+        return base.united(QRectF(c.x() - 1.0, c.y() - 1.0, 2.0, 2.0))
 
     def shape(self) -> QPainterPath:
         """Return a stroked arc path; when the arc is a closed circle and is
@@ -2172,32 +2214,177 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pure geometry helpers — shared by 2D-geo and wall rectangle placement
+# Pure geometry helpers — shared by 2D-geo / wall / floor rectangle placement
 # ─────────────────────────────────────────────────────────────────────────────
 
-def rect_sizing_points(anchor, corner, from_center):
-    """Return axis-aligned (pt1_topleft, pt2_bottomright) from two placement points.
+# Grip indices (clockwise from top-left): 0 TL 1 TM 2 TR 3 RM 4 BR 5 BM 6 BL 7 LM 8 C
+_RECT_CORNER_OPPOSITE = {0: 4, 2: 6, 4: 0, 6: 2}
+
+
+def rect_grip_resize(r0: QRectF, index: int, p: QPointF,
+                     from_center: bool, keep_aspect: bool) -> QRectF:
+    """New LOCAL rect after dragging grip *index* of the press-time rect *r0*.
 
     Args:
-        anchor: First placement click (QPointF).  Corner mode: one corner of
-            the rectangle.  Centre mode: the rectangle centre.
-        corner: Second placement click (QPointF).  Corner mode: the diagonally
-            opposite corner.  Centre mode: any corner — half-extents are taken
-            as ``abs(corner - anchor)``.
-        from_center: True for centre mode, False for corner mode.
+        r0: The press-time rect, in the item's LOCAL (axis-aligned) frame.
+        index: Grip index (0 TL, 1 TM, 2 TR, 3 RM, 4 BR, 5 BM, 6 BL, 7 LM,
+            8 centre).
+        p: The drag point in the same LOCAL frame.
+        from_center: Ctrl — resize symmetrically about the ``r0`` centre.
+        keep_aspect: Shift — keep ``r0``'s aspect ratio (corners only; no
+            effect on edge grips).
 
     Returns:
-        ``(pt1, pt2)`` where pt1 is the top-left and pt2 the bottom-right of
-        the normalised axis-aligned bounding box.
+        The new normalised local rect. The centre grip (8) translates.
+    """
+    cx, cy = r0.center().x(), r0.center().y()
+    l, t, ri, b = r0.left(), r0.top(), r0.right(), r0.bottom()
+    if index == 8:
+        return r0.translated(p.x() - cx, p.y() - cy)
+    if index in _RECT_CORNER_OPPOSITE:
+        pts = {0: (l, t), 2: (ri, t), 4: (ri, b), 6: (l, b)}
+        ox, oy = pts[index]
+        ax, ay = (cx, cy) if from_center else pts[_RECT_CORNER_OPPOSITE[index]]
+        dx, dy = p.x() - ax, p.y() - ay
+        if keep_aspect:
+            bx, by = ox - ax, oy - ay
+            fx = dx / bx if bx else 0.0
+            fy = dy / by if by else 0.0
+            s = fx if abs(fx) >= abs(fy) else fy
+            dx, dy = s * bx, s * by
+        corner = QPointF(ax + dx, ay + dy)
+        other = QPointF(ax - dx, ay - dy) if from_center else QPointF(ax, ay)
+        return QRectF(corner, other).normalized()
+    # Edges: one axis only (Shift has no effect).
+    if index in (1, 5):
+        y = p.y()
+        if from_center:
+            return QRectF(QPointF(l, y), QPointF(ri, 2 * cy - y)).normalized()
+        return QRectF(QPointF(l, y), QPointF(ri, b if index == 1 else t)).normalized()
+    if index in (3, 7):
+        x = p.x()
+        if from_center:
+            return QRectF(QPointF(x, t), QPointF(2 * cx - x, b)).normalized()
+        return QRectF(QPointF(x, t), QPointF(l if index == 3 else ri, b)).normalized()
+    return QRectF(r0)
+
+
+def rect_side_frame(base, side_pt):
+    """Return the frame of the first rect side ``base → side_pt``.
+
+    Args:
+        base: The first placement click (QPointF).
+        side_pt: The second placement click (QPointF).
+
+    Returns:
+        ``(length, angle_deg, (nx, ny))`` — ``angle_deg`` is Y-up degrees CCW
+        from +x and ``(nx, ny)`` the unit left normal (Qt coords), the
+        direction a POSITIVE depth extends.  None when the side is degenerate.
+    """
+    dx, dy = side_pt.x() - base.x(), side_pt.y() - base.y()
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return None
+    ux, uy = dx / length, dy / length
+    return length, math.degrees(math.atan2(-dy, dx)), (uy, -ux)
+
+
+def rect_signed_depth(base, side_pt, cursor) -> float:
+    """Signed perpendicular distance of *cursor* from the side line (+ = left).
+
+    Returns 0.0 for a degenerate side.
+    """
+    f = rect_side_frame(base, side_pt)
+    if f is None:
+        return 0.0
+    nx, ny = f[2]
+    return (cursor.x() - base.x()) * nx + (cursor.y() - base.y()) * ny
+
+
+def rect_side_ghost(base, cursor, from_center):
+    """Return the segment drawn while picking the first side.
+
+    ``base → cursor`` in the corner variant; the full side centred on *base*
+    (mirrored through it) in the centre variant.
     """
     if from_center:
-        hw = abs(corner.x() - anchor.x())
-        hh = abs(corner.y() - anchor.y())
-        return (QPointF(anchor.x() - hw, anchor.y() - hh),
-                QPointF(anchor.x() + hw, anchor.y() + hh))
-    r = QRectF(anchor, corner).normalized()
-    return (QPointF(r.x(), r.y()),
-            QPointF(r.x() + r.width(), r.y() + r.height()))
+        return (QPointF(2 * base.x() - cursor.x(), 2 * base.y() - cursor.y()),
+                QPointF(cursor))
+    return QPointF(base), QPointF(cursor)
+
+
+def rect_from_side_and_depth(base, side_pt, depth, from_center):
+    """Solve the 3-click rectangle (base → side → depth; 2d-geometry.md §4).
+
+    Corner variant: *base* is a corner, ``base → side_pt`` is the first side
+    (W, angle) and *depth* the signed second side (H, + = left of the side).
+    Centre variant: *base* is the centre, ``|base → side_pt|`` is HALF of W
+    along the angle and ``|depth|`` is half of H.
+
+    Args:
+        base: First click (corner or centre), QPointF.
+        side_pt: Second click (side end or side midpoint), QPointF.
+        depth: Signed perpendicular depth (see ``rect_signed_depth``).
+        from_center: True for the centre variant.
+
+    Returns:
+        ``(pt1, pt2, angle_deg, pivot)`` such that
+        ``RectangleItem(pt1, pt2).set_angle(angle_deg, pivot)`` and
+        ``rotated_rect_corners(pt1, pt2, angle_deg, pivot)`` give the
+        rectangle — the unrotated local rect about ``pivot = base``.  None
+        when a FULL extent is under 0.5 mm.
+    """
+    return _rect_solve(base, side_pt, depth, from_center, 0.5)
+
+
+def _rect_solve(base, side_pt, depth, from_center, min_extent):
+    """``rect_from_side_and_depth`` with the minimum FULL extent as a parameter.
+
+    ``min_extent=0.0`` admits a zero-depth (line-along-the-side) rect — the
+    ghost shape — while commits use the 0.5 mm floor.  None for a
+    degenerate (zero-length) side whatever the floor.
+    """
+    f = rect_side_frame(base, side_pt)
+    if f is None:
+        return None
+    length, angle, _n = f
+    bx, by = base.x(), base.y()
+    if from_center:
+        h = abs(depth)
+        if 2 * length < min_extent or 2 * h < min_extent:
+            return None
+        return (QPointF(bx - length, by - h), QPointF(bx + length, by + h),
+                angle, QPointF(base))
+    if length < min_extent or abs(depth) < min_extent:
+        return None
+    # Unrotated local frame: the side runs +x from base, positive depth is
+    # Y-up (screen -y); set_angle then turns it about base onto the real side.
+    r = QRectF(QPointF(bx, by), QPointF(bx + length, by - depth)).normalized()
+    return r.topLeft(), r.bottomRight(), angle, QPointF(base)
+
+
+def apply_rect_ghost(preview, base, side_pt, cursor, from_center):
+    """Fit a ``QGraphicsRectItem`` ghost to the 3-click rect at *cursor*.
+
+    One home for the 2D / wall / floor depth-step ghost.  Uses the same Qt
+    transform ``RectangleItem.set_angle`` does, so the ghost matches the
+    committed item.  The ghost is drawn WITHOUT the 0.5 mm floor, so a
+    near-zero depth shows as a line along the first side (not a stale shape).
+
+    Returns:
+        The ``rect_from_side_and_depth`` solution — None when a full extent is
+        under 0.5 mm (the commit would refuse it) even though the ghost was
+        still drawn.
+    """
+    depth = rect_signed_depth(base, side_pt, cursor)
+    ghost = _rect_solve(base, side_pt, depth, from_center, 0.0)
+    if preview is not None and ghost is not None:
+        pt1, pt2, ang, piv = ghost
+        preview.setRotation(0.0)
+        preview.setRect(QRectF(pt1, pt2).normalized())
+        preview.setTransformOriginPoint(piv)
+        preview.setRotation(-ang)        # Y-up CCW → Qt CW negate
+    return rect_from_side_and_depth(base, side_pt, depth, from_center)
 
 
 def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
@@ -2221,27 +2408,16 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     Returns:
         List of four QPointF in order TL, TR, BR, BL.
     """
-    import math as _math
+    from .cad_math import CAD_Math
     local = [
         QPointF(pt1.x(), pt1.y()),   # TL
         QPointF(pt2.x(), pt1.y()),   # TR
         QPointF(pt2.x(), pt2.y()),   # BR
         QPointF(pt1.x(), pt2.y()),   # BL
     ]
-    rad = _math.radians(angle_deg)
-    ca, sa = _math.cos(rad), _math.sin(rad)
-    out = []
-    for p in local:
-        dx = p.x() - pivot.x()
-        dy = p.y() - pivot.y()
-        # Qt rotation with angle -angle_deg (CW negate of Y-up angle):
-        # cos(-a) = ca, sin(-a) = -sa
-        # x' = ca*dx + sa*dy   (= cos(-a)*dx - sin(-a)*dy)
-        # y' = -sa*dx + ca*dy  (= sin(-a)*dx + cos(-a)*dy)
-        rx = ca * dx + sa * dy
-        ry = -sa * dx + ca * dy
-        out.append(QPointF(pivot.x() + rx, pivot.y() + ry))
-    return out
+    # Y-up CCW angle → CAD_Math's screen-space rotate takes the negation
+    # (the same CW negate ``set_angle`` applies via ``setRotation``).
+    return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
 
 
 class GeometryTemplate:

@@ -87,14 +87,15 @@ def test_commit_block_commits_first(win, editing, monkeypatch):
 
 def test_save_commits_first(win, editing, monkeypatch):
     """BlockEditorWidget.save() must commit the live inline edit before it
-    even checks gather_primitives() for the empty-editor guard. The fixture's
-    editor holds only a TextItem — gather_primitives() (pre-existing, not
-    this branch's concern; see the "Pre-existing" report note) omits
-    ``_texts``, so save() takes its "no geometry" early-return path, which
-    itself pops a modal (themed_info); stub it out so the modal never blocks."""
+    even checks gather_primitives() for the empty-editor guard. Both modal
+    exits are stubbed so the test never blocks on a real dialog: the "no
+    geometry" early-return (themed_info) and — since block polish made text a
+    block primitive, so a text-only editor is no longer empty — the unsaved
+    block's Save dialog (``_save_via_dialog``)."""
     from firepro3d import themed_message as _tm
     ed, s, t = editing
     monkeypatch.setattr(_tm, "themed_info", lambda *a, **k: None)
+    monkeypatch.setattr(ed, "_save_via_dialog", lambda *a, **k: None)
     ed.save()
     assert editing_text_item(s) is None and t.data.text == "Changed"
 

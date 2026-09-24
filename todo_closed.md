@@ -2,6 +2,42 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Arc / rect / grip polish (End Points arc, arc grips, knob removal, 3-click rects, unified rect grips) — 2026-09-24
+
+- [x] [type:feature] Ctrl/from-centre + Shift-constrained resize for ROTATED rectangles [P3] [subject:CAD] [done:2026-09-24]
+  - Details: user, 2026-09-16 smoke — the Ctrl-from-centre resize (fix #425/426) and Shift-constrained resize only work on UNROTATED rects. Root cause: an unrotated rect is box-native → rigid 8 resize handles via `manip_scale`/`_bake_scale` (where `from_center` + Shift live); a ROTATED rect drops the `scale` cap and surfaces its 9 **parametric grips** (`RectangleItem.apply_grip`, local-frame resize) which have NO from-centre or aspect logic. Add Ctrl-from-centre (resize symmetric about the rect centre — moves both opposite edges) + Shift keep-aspect to the parametric rect-grip drag (a `GripHandle`/`apply_grip` enhancement; note from-centre isn't a pure point transform, so `_transform_point` alone won't cover it). Applies to the rotated RectangleItem grip path. `firepro3d/geometry_2d.py` (`RectangleItem.apply_grip`), `firepro3d/manip_handle.py` (`GripHandle`). ref: selection-manipulator.
+  - Done: Fold B — rects always show 9 local-frame RectGripHandles at every angle, Ctrl from centre / Shift keep aspect; box-native rect resize retired. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:feature] Arc placement: add a third arc type — pick the two END points first, then the CENTRE last [P1] [subject:CAD] [done:2026-09-24]
+  - Details: user, 2026-09-23 (block-polish smoke). Existing arc placement variants don't cover "endpoints first, centre last" — the natural way to trace an arc between two known points (e.g. matching imported geometry). Add as a new variant in the ←/→ placement cycle for `ArcItem`; the centre pick is constrained to the perpendicular bisector of the chord (radius follows), with the usual HUD/Tab dimension input + ghost preview. `geometry_drawing_controller.py`, `model_space.py`, `geometry_2d.py` (`ArcItem`). ref: `2d-geometry.md`, placement-UX spec.
+  - Done: End Points variant shipped (A→B→centre on the bisector, Space minor/major, 90°/270° snap, Radius HUD). Branch `feat/arc-rect-grip-polish`.
+- [x] [type:feature] Arc (and other primitive) vertex grips edit geometry instead of moving the whole item [P1] [subject:CAD] [done:2026-09-24]
+  - Details: user, 2026-09-23. The ArcItem centre grip translates the whole arc and the start grip rotates it (span kept); the user wants the centre grip to move the centre only (re-shaping/resizing the arc) and the same "vertex handle edits only that vertex" rule applied across the other primitives' vertex grips (line mid, circle/ellipse/polygon/rect centre grips currently translate). Whole-item move stays interior-drag. `geometry_2d.py` (`apply_grip`), `manip_handle.py`. ref: selection-manipulator U3, 2d-geometry.
+  - Done: ArcItem centre grip slides on the chord bisector (endpoints fixed); endpoint grips slide along the circle (centre + other end fixed). Other primitives' centre grips stay as move (grill Q5). Selected arcs show centre→end radials. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:feature] Remove the rotate knob from 2D primitives and multi-selections of primitives [P1] [subject:UX] [done:2026-09-24]
+  - Details: user, 2026-09-23. Hide the manipulator rotate knob (`_show_rotate_knob`, `selection_manipulator.py`) for primitives + group (multi) selections of primitives. ⚠️ The knob is currently the ONLY reachable post-placement rotate for most primitives (the `rotate` mode lost its ribbon entry with the Modify tab) — needs a replacement rotate path decided in the grill. `selection_manipulator.py`, `geometry_2d.py`. ref: selection-manipulator (handle gating).
+  - Done: Removed APP-WIDE (grill Q1: all classes/selections); per-item manip_rotate retained; Rotate transform filed as follow-up. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:feature] Rectangle placement rethink — base point, then angle + 1st dimension, then 2nd dimension (ellipse-like) [P1] [subject:CAD] [done:2026-09-24]
+  - Details: user, 2026-09-23. Click 1 = base point (corner or centre variant), click 2 = direction/angle + first side, click 3 = second side (perpendicular). Replaces anchor→opposite-corner→rotate. Supersedes "3-point / arbitrary-rotated rectangle". Item model/serialization unchanged (`RectangleItem(pt1,pt2).set_angle`). `geometry_drawing_controller.py`, `placement_input_coordinator.py`, `dynamic_input.py`. ref: 2d-geometry §4.
+  - Done: 2D + wall + floor rects now base → side (angle+W) → depth (H); rect_side*/rect_depth* HUD schemas; roof parity filed. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:bug] Start-Point arc variant shows "Pick start angle point" at step 1 (should ask for the centre) [P3] [subject:UX] [done:2026-09-24]
+  - Details: found in the 2026-09-23 reuse sweep — `_press_draw_arc` emits the centre-first prompt for both variants. `geometry_drawing_controller.py`.
+  - Done: Prompt now 'Pick center point' (fold G). Branch `feat/arc-rect-grip-polish`.
+- [x] [type:bug] `arc_span` ArcLength desyncs on undo [P3] [subject:UX] [done:2026-09-24]
+  - Details: editing Span writes ArcLength via `set_value_mm` (no `valueChanged`), so the HUD undo stack never records ArcLength and a Ctrl+Z restores only Span, leaving the derived field stale. Low impact (ArcLength never reaches the applier). Re-run the coupling after an undo that touches a coupled field. `dynamic_input.py`.
+  - Done: Fold F — HUD undo re-runs the Span↔ArcLength coupling. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:bug] Ctrl/Shift+arrow also cycles a placement variant [P3] [subject:UX] [done:2026-09-24]
+  - Details: the ←/→ cycle keys in `keyPressEvent` don't check modifiers, so a modified arrow cycles at step 0. Gate on `NoModifier` if it conflicts with any future modified-arrow binding. `model_space.py`.
+  - Done: Fold E — modified arrows no longer cycle (KeypadModifier allowed). Branch `feat/arc-rect-grip-polish`.
+- [x] [type:feature] 3-point / arbitrary-rotated rectangle as a distinct placement mode [P3] [subject:CAD] [done:2026-09-24]
+  - Details: the current rotate step layers rotation on an axis-aligned 2-click rect; a true 3-point rotated rect (baseline + depth) is deferred.
+  - Done: Fold A — SUPERSEDED by the base→side→depth rect placement. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:bug] RectangleItem group-rotate external-pivot reconciliation [P3] [subject:CAD] [done:2026-09-24]
+  - Details: `RectangleItem.manip_rotate` stores the group's external scene pivot as `_pivot` (baked-at-rest); the footprint renders correctly rotated, but `rect()` (axis-aligned storage) no longer matches the visual centroid, so a subsequent resize can jump. Pre-existing RectangleItem design, exposed now that a rect can ride a mixed group rotate. Reconcile `rect()`/`_pivot` after a group rotate (or re-derive the pivot to the rect centre on the next resize). `geometry_2d.py`.
+  - Done: Fold C — MOOT: the knob's _bake_rotate was the only external-pivot caller; grep shows no production manip_rotate( callers remain. Branch `feat/arc-rect-grip-polish`.
+- [x] [type:maint] Reuse cleanup: `rotated_rect_corners` via `CAD_Math.rotate_point` [P3] [subject:Code Quality] [done:2026-09-24]
+  - Details: the standalone helper duplicates the Y-up→Qt rotation math the primitive now provides; collapse to one home (skipped in U1 to minimise change surface; verify `test_rectangle_bake.py` stays green). `geometry_2d.py`.
+  - Done: Fold D — now CAD_Math.rotate_point(p, pivot, -angle). Branch `feat/arc-rect-grip-polish`.
+
 ## Text annotation system — model-surface inline edit — 2026-09-23
 
 Shipped on `feat/model-text-inline-edit` (Large tier; /todo Phase 1→1b→2 grill (12 Qs)→3 brainstorm (spec § "Inline edit (model surface)")→4 plan (8 tasks)→5 subagent-driven with two-stage review per task + whole-branch seam review + fix round→6 smoke (2 findings fixed)). Governing spec `docs/specs/text-annotation-system.md` (AS-BUILT section) + `selection-mode.md` §4.3.
