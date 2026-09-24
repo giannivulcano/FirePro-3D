@@ -83,7 +83,7 @@ def test_drawing_shells_present(shown_model_view):
         # rectangle
         "_press_draw_rectangle", "_move_draw_rectangle", "_preview_from_rectangle",
         "_apply_rectangle_dynamic_input", "_commit_rectangle_rotated",
-        "_advance_rectangle_to_rotate_step",
+        "_advance_rectangle_to_depth_step",
         # circle
         "_press_draw_circle", "_move_draw_circle", "_preview_from_circle",
         "_commit_draw_circle_at",
@@ -130,7 +130,7 @@ def test_draw_circle_two_click_creates_circle(shown_model_view):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# C0-4  Rectangle: three real clicks (anchor → size → rotate-commit) → one rect
+# C0-4  Rectangle: three real clicks (base → side → depth-commit) → one rect
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -140,8 +140,8 @@ def test_draw_rectangle_three_click_creates_rect(shown_model_view):
     assert len(scene._draw_rects) == 0
 
     _press_at(view, QPointF(0, 0))       # anchor + preview
-    _press_at(view, QPointF(400, 200))   # size → enter rotate step
-    _press_at(view, QPointF(600, 200))   # commit at orientation
+    _press_at(view, QPointF(400, 0))     # first side → enter depth step
+    _press_at(view, QPointF(400, 200))   # commit at depth
 
     assert len(scene._draw_rects) == 1, "one rectangle must be committed by three clicks"
 

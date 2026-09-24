@@ -464,7 +464,7 @@ def test_wall_rect_rotate_hud_angle_live_seeds(qapp, shown_model_view):
     """Rotate-step passive HUD seeds the live pivot→cursor angle (not frozen 0°).
 
     Regression: ``_transform_seed_values`` for the "rotation" schema fell through
-    to ``_rect_rotation_angle_to``, which reads the 2D-geo ``_draw_rect_pivot``
+    to the (since-retired) 2D-rect rotate helper, which read ``_draw_rect_pivot``
     (None during wall placement) → 0°.  A ``wall`` branch now uses
     ``_wall_rect_rotation_angle_to`` (the wall pivot).
     """

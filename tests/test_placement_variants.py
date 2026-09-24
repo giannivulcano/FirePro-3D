@@ -76,9 +76,10 @@ class TestRectangleVariantCycle:
         scene._draw_rect_anchor = QPointF(0, 0)  # first corner placed
         assert scene.cycle_placement_variant(+1) is False
 
-    def test_no_cycle_while_rotating(self, scene):
+    def test_no_cycle_at_depth_step(self, scene):
         scene.set_mode("draw_rectangle")
-        scene._draw_rect_rotating = True
+        scene._draw_rect_anchor = QPointF(0, 0)
+        scene._draw_rect_side_pt = QPointF(40, 0)   # first side fixed
         assert scene.cycle_placement_variant(+1) is False
 
 

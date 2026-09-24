@@ -251,20 +251,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
         self._draw_rect_from_center: bool = False                # center vs corner rectangle
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
-        # Rectangle rotate step (Task 12).  Placement is 3-step: two clicks size
-        # the axis-aligned rect, then a third rotates it.  ``_draw_rect_rotating``
-        # is the step flag; the sized rect corners and the rotate pivot are
-        # stashed while it is True (pivot = the first-click anchor — one of the
-        # rect's corners — in corner mode, the centre in centre mode).  A 0°
-        # rotate is the default axis-aligned end state.
-        self._draw_rect_rotating: bool = False
+        # 3-click rect (user 2026-09-23; 2d-geometry.md §4): base (anchor) →
+        # side (angle + W) → depth (H), like the ellipse.  ``_draw_rect_side_pt``
+        # is None while picking the side and set while picking the depth.  The
+        # sized local rect + pivot (= the base: a corner, or the centre in the
+        # centre variant) are solved right before the shared committer
+        # ``_commit_rectangle_rotated`` turns them to the side's angle.
+        self._draw_rect_side_pt: "QPointF | None" = None
         self._draw_rect_sized_pt1: "QPointF | None" = None
         self._draw_rect_sized_pt2: "QPointF | None" = None
         self._draw_rect_pivot: "QPointF | None" = None
-        # Rotate-step reference guides: a 0° datum (horizontal) + the live sweep
-        # line from the pivot, protractor-style (see _update_rect_ref_lines).
+        # Side guide: base → cursor (full side through the centre in the
+        # centre variant), fixed once the side is picked.
         self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
-        self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         # Ellipse drawing (3-click: centre → major endpoint → minor extent)
         self._ellipse_center: "QPointF | None" = None
@@ -3697,9 +3696,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _preview_from_rectangle(self, corner) -> None:  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._preview_from_rectangle(corner)
 
-    def _preview_rectangle_rotation(self, angle_deg) -> None:  # shell (slice 8)
-        return self._geom_ctl._preview_rectangle_rotation(angle_deg)
-
     def _make_ref_line(self):
         """Create a dashed cosmetic angle-reference guide line, added to scene."""
         line = QGraphicsLineItem()
@@ -3727,7 +3723,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.addItem(circle)
         return circle
 
-    def _clear_rect_ref_lines(self) -> None:  # shell (slice 8); _update_rect_ref_lines moved (internal-only)
+    def _clear_rect_ref_lines(self) -> None:  # shell (slice 8)
         return self._geom_ctl._clear_rect_ref_lines()
 
     def _move_draw_rectangle(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
@@ -5608,11 +5604,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_draw_rectangle(event, pos, snapped, item_under, node_under, pipe_under)
 
-    def _rect_rotation_angle_to(self, cursor) -> float:  # shell → GeometryDrawingController (slice 8)
-        return self._geom_ctl._rect_rotation_angle_to(cursor)
-
-    def _advance_rectangle_to_rotate_step(self, corner) -> bool:  # shell (slice 8)
-        return self._geom_ctl._advance_rectangle_to_rotate_step(corner)
+    def _advance_rectangle_to_depth_step(self, side_pt) -> bool:  # shell (slice 8)
+        return self._geom_ctl._advance_rectangle_to_depth_step(side_pt)
 
     def _apply_rectangle_dynamic_input(self, geometry) -> bool:  # shell (slice 8)
         return self._geom_ctl._apply_rectangle_dynamic_input(geometry)
@@ -5620,16 +5613,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _commit_rectangle_rotated(self, angle_deg) -> bool:
         """Commit the sized rectangle rotated to ``angle_deg`` about its pivot.
 
-        The real commit for the 3-step placement (Task 12).  The 2-click sizing
-        already produced ``_draw_rect_sized_pt1/_pt2`` (axis-aligned) and the
-        ``_draw_rect_pivot`` the rotation turns about (the first-click anchor —
-        one of the rect's corners — in corner mode, the centre in centre mode).
-        This builds the ``RectangleItem`` from those
-        corners and applies ``set_angle(angle_deg, pivot)`` — a 0° rotate leaves
-        it exactly axis-aligned, the old 2-click end state.
-
-        Shared by the third mouse click and the ``rotation`` Dynamic Input value
-        (both route in through ``_apply_rectangle_rotation``).
+        The real commit for the 3-click placement (base → side → depth).  The
+        depth step solves the unrotated local rect into
+        ``_draw_rect_sized_pt1/_pt2`` and the ``_draw_rect_pivot`` (the base —
+        a corner, or the centre in the centre variant); this builds the
+        ``RectangleItem`` from those corners and applies
+        ``set_angle(angle_deg, pivot)`` with the first side's angle.
 
         Args:
             angle_deg: Absolute orientation, Y-up degrees from +x.
@@ -5637,7 +5626,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             True when a ``RectangleItem`` was committed, False when the sizing
             state is missing or the sized rect is degenerate (a guard — the
-            floor already gated at the sizing step).
+            0.5 mm floor already gated at the side/depth steps).
         """
         return self._geom_ctl._commit_rectangle_rotated(angle_deg)
 

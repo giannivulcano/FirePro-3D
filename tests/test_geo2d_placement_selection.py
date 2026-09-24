@@ -76,9 +76,10 @@ def test_line_single_placement(shown_model_view):
 def test_rectangle_single_placement(shown_model_view):
     view, scene = shown_model_view
     scene.set_mode("draw_rectangle")
-    _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(400, 200)); _press_at(view, QPointF(400, 200))
+    # 3-click: base → side end → depth (2d-geometry.md §4).
+    _press_at(view, QPointF(0, 0)); _press_at(view, QPointF(400, 0)); _press_at(view, QPointF(400, 200))
     scene.set_mode("draw_rectangle")
-    _press_at(view, QPointF(2000, 0)); _press_at(view, QPointF(2400, 200)); _press_at(view, QPointF(2400, 200))
+    _press_at(view, QPointF(2000, 0)); _press_at(view, QPointF(2400, 0)); _press_at(view, QPointF(2400, 200))
     _assert_last_selected_and_in_select(scene, "_draw_rects")
 
 

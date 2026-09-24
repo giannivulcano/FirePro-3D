@@ -100,7 +100,7 @@ class PlacementInputCoordinator:
         if s.mode == "draw_arc":
             return s._draw_arc_step == 0
         if s.mode == "draw_rectangle":
-            return s._draw_rect_anchor is None and not s._draw_rect_rotating
+            return s._draw_rect_anchor is None
         if s.mode == "wall":
             return (s._wall_anchor is None
                     and s._wall_rect_anchor is None
@@ -267,14 +267,13 @@ class PlacementInputCoordinator:
         if schema.returns_point:
             self._scene._preview_from_resolved(resolved)
         elif schema.name == "rotation":
-            # The rectangle and polygon rotate transforms' preview is an *angle*,
-            # not a point, so it does not route through ``_transform_preview_point``
-            # / ``_preview_from_resolved`` (which are point-based).  Dispatch to
-            # the mode-appropriate helper.
+            # The polygon rotate transform's preview is an *angle*, not a
+            # point, so it does not route through ``_transform_preview_point``
+            # / ``_preview_from_resolved`` (which are point-based).  (The 2D
+            # rect no longer has a rotate step — its side/depth schemas are
+            # point schemas.)
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
-            else:
-                self._scene._preview_rectangle_rotation(resolved["angle_deg"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -592,13 +591,8 @@ class PlacementInputCoordinator:
             a = self._scene._draw_line_anchor
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_rectangle":
-            # Sizing step: the first-click anchor.  Rotate step: the pivot the
-            # rotation turns about (the first-click anchor — one of the rect's
-            # corners — in corner mode, the centre in centre mode).  Both
-            # variants store it in ``_draw_rect_pivot``.
-            if self._scene._draw_rect_rotating:
-                p = self._scene._draw_rect_pivot
-                return QPointF(p) if p is not None else None
+            # The base (corner, or centre) anchors both the side and the
+            # depth HUD steps.
             a = self._scene._draw_rect_anchor
             return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_circle":
@@ -744,19 +738,15 @@ class PlacementInputCoordinator:
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.
 
-        Rectangle placement is 3-step (Task 12): the two-click **sizing** step
-        types the far corner (the ``rectangle`` X/Y schema), then the
-        **rotate** step types the absolute orientation (the ``rotation``
-        transform).  ``_draw_rect_rotating`` picks which one is live.  Unlike
-        arc there is no anchorless step 0 — the sizing schema has an anchor from
-        the first click, and before that first click the anchor gate keeps the
-        HUD shut anyway.
+        Rectangle placement is 3-click (base → side → depth; 2d-geometry.md
+        §4): the **side** step types W + Angle (``rect_side``, or
+        ``rect_side_center`` whose W is the full width), then the **depth**
+        step types H (``rect_depth`` signed, or ``rect_depth_center`` full
+        height).  ``_draw_rect_side_pt`` picks the step.  Before the first
+        click the anchor gate keeps the HUD shut.
         """
-        if self._scene._draw_rect_rotating:
-            return SCHEMAS.get("rotation")
-        if self._scene._draw_rect_from_center:
-            return SCHEMAS.get("rectangle_center")
-        return SCHEMAS.get("rectangle")
+        return self._rect3_schema(self._scene._draw_rect_side_pt is not None,
+                                  self._scene._draw_rect_from_center)
 
     # ── 3-click rect family (2D rect / wall rect / floor rect) ─────────────
 
@@ -1066,9 +1056,8 @@ class PlacementInputCoordinator:
             # same absolute angle the mouse and ``resolve_rotation`` use.  0°
             # (axis-aligned) before anything is published.  The pivot differs by
             # mode — the polygon rotate step pivots about its centre, the
-            # rectangle about its stored pivot, the wall-rectangle about its
-            # own stored pivot — so dispatch to the matching angle helper (all
-            # share the same Y-up formula).
+            # wall/floor rectangle about its own stored pivot — so dispatch to
+            # the matching angle helper (all share the same Y-up formula).
             point = self.get_resolved_point()
             if point is None:
                 return {"Angle": 0.0}
@@ -1080,7 +1069,7 @@ class PlacementInputCoordinator:
                 return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
-            return {"Angle": self._scene._rect_rotation_angle_to(point)}
+            return {"Angle": 0.0}
         if schema.name == "arc_radius":
             # End Points step 3: the live radius of the arc the resolved point
             # (projected onto the chord bisector) would commit.
