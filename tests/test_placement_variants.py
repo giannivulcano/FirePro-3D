@@ -205,6 +205,28 @@ class TestArrowKeyWiring:
         # Variant machinery untouched; event falls through (not accepted here).
         assert not ev.isAccepted()
 
+    @pytest.mark.parametrize("mod", [
+        Qt.KeyboardModifier.ControlModifier,
+        Qt.KeyboardModifier.ShiftModifier,
+        Qt.KeyboardModifier.AltModifier,
+        Qt.KeyboardModifier.MetaModifier,
+    ])
+    def test_modified_arrow_does_not_cycle_variant(self, scene, mod):
+        """Fold E: Ctrl/Shift/Alt/Meta+arrow is not a variant cycle."""
+        scene.set_mode("draw_arc")
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, mod, "")
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_CENTER
+
+    def test_keypad_modified_arrow_still_cycles(self, scene):
+        """Qt sets KeypadModifier on arrow keys on some platforms — still cycle."""
+        scene.set_mode("draw_arc")
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right,
+                       Qt.KeyboardModifier.KeypadModifier, "")
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_START
+        assert ev.isAccepted()
+
     def test_rectangle_right_arrow_flips_and_accepts(self, scene):
         scene.set_mode("draw_rectangle")
         assert scene._draw_rect_from_center is False

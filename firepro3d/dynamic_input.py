@@ -1205,6 +1205,9 @@ class DynamicInputHud(QWidget):
             # scene<->mm conversion lives at the values()/set_values boundary.
             editor.set_value_mm(previous)
             self._committed[name] = previous
+            # set_value_mm emits no valueChanged, so re-run the Span<->ArcLength
+            # coupling by hand or the derived field stays stale (fold F).
+            self._couple(name)
         finally:
             self._undoing = False
         self._clear_invalid(name)

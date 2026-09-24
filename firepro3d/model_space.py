@@ -6918,8 +6918,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return
         # ←/→ cycle the placement variant at step 0 (arc, rectangle, …).
         # Consume only when a variant actually cycles; otherwise fall through
-        # so the view's default arrow-scroll still works.
-        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+        # so the view's default arrow-scroll still works.  A Ctrl/Shift/Alt/
+        # Meta-modified arrow is some other chord, not a variant cycle;
+        # KeypadModifier is deliberately allowed (Qt sets it on arrow keys on
+        # some platforms).
+        if (event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right)
+                and not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                              | Qt.KeyboardModifier.ShiftModifier
+                                              | Qt.KeyboardModifier.AltModifier
+                                              | Qt.KeyboardModifier.MetaModifier))):
             direction = -1 if event.key() == Qt.Key.Key_Left else +1
             if self.cycle_placement_variant(direction):
                 event.accept()
