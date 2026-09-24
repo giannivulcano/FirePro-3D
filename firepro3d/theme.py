@@ -250,6 +250,10 @@ class Theme:
     def danger_soft(self) -> str: return _rgba(self.danger, 38)
     @property
     def toggle_knob(self) -> str: return self.on_accent
+    @property
+    def band_window(self) -> str: return self.selection_hover     # blue, solid band
+    @property
+    def band_crossing(self) -> str: return self.ok                # green, dashed band
 
     def color(self, name: str, alpha: int = 255) -> QColor:
         """Resolve a primitive OR semantic token name to a QColor.

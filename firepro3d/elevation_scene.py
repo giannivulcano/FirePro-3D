@@ -583,11 +583,14 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
     # ── HALO hooks ─────────────────────────────────────────────────────────
 
     def _halo_resolve(self, item):
-        """Resolve a hit child to its selectable parent: a bubble/label decoration
-        resolves to its parent gridline/datum; everything else is identity."""
-        parent = item.parentItem()
-        if isinstance(parent, (ElevGridlineItem, ElevDatumItem)):
-            return parent
+        """Resolve a hit decoration to its selectable owner: walk the FULL parent
+        chain so a bubble's label text (a grandchild) resolves to the gridline/
+        datum too; everything else is identity."""
+        p = item.parentItem()
+        while p is not None:
+            if isinstance(p, (ElevGridlineItem, ElevDatumItem)):
+                return p
+            p = p.parentItem()
         return item
 
     def _emit_halo_readout(self):

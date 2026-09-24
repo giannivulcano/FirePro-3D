@@ -212,13 +212,14 @@ def paint_halo_highlight(painter, view, item, theme, *,
 def paint_rubber_band(painter, view, rb_start, rb_end, theme):
     """Draw the direction-dependent scene-drawn band in viewport coords.
 
-    L->R = window (theme 'selection', solid); R->L = crossing (theme 'ok', dashed).
-    Caller guards rb_active/rb_end and passes viewport-px points.
+    L->R = window (theme 'band_window', blue, solid); R->L = crossing
+    (theme 'band_crossing', green, dashed). Caller guards rb_active/rb_end
+    and passes viewport-px points.
     """
     painter.save()
     painter.resetTransform()
     crossing = rb_end.x() < rb_start.x()
-    base = theme.color("ok" if crossing else "selection")
+    base = theme.color("band_crossing" if crossing else "band_window")
     pen = QPen(base, 1)
     pen.setStyle(Qt.PenStyle.DashLine if crossing else Qt.PenStyle.SolidLine)
     painter.setPen(pen)
