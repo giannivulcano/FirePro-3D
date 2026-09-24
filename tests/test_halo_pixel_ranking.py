@@ -6,10 +6,12 @@ bounding-box CENTRE — the circle's centre is near, the arc's is far).
 """
 import pytest
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QTransform
-from PyQt6.QtWidgets import QGraphicsView
+from PyQt6.QtGui import QPainterPath, QTransform
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsView
 
 from firepro3d import halo_selection as hs
+from firepro3d.design_area import DesignArea
+from firepro3d.elevation_scene import _ElevProxyRect
 from firepro3d.geometry_2d import LineItem, CircleItem
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
@@ -81,3 +83,33 @@ def test_gridline_bubble_hover_resolves_to_gridline(qapp):
     cursor = gl.bubble1.scenePos()
     got = sc.halo_candidates_at(cursor, hs.HALO_APERTURE_PX / 1.0, dt)
     assert got and got[0] is gl
+
+
+def test_elev_proxy_rect_interior_is_a_direct_hit(qapp, elevation_scene_for):
+    """A solid elevation projection (wall/void/slab/roof, or a sprinkler via
+    _ElevProxyEllipse) is a HALO_AREA — the cursor deep in its interior, far
+    from any edge, must still be a direct (0 px) hit. Regression guard for
+    the controller-flagged issue: these are real solid objects users hover
+    INSIDE, not thin outlines judged by edge distance."""
+    _ms, elev = elevation_scene_for("north")
+    r = _ElevProxyRect(1000, 1000, 500, 500)
+    r.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+    elev.addItem(r)
+    # Centre of the 500x500 rect: 250 px from every edge at identity dt.
+    got = elev.halo_candidates_at(QPointF(1250, 1250), 5.0, QTransform())
+    assert got == [r]
+
+
+def test_design_area_interior_is_a_direct_hit(qapp):
+    """DesignArea's default QGraphicsPathItem shape() already covered the
+    interior (so it was hoverable from inside before this task) — HALO_AREA
+    keeps that true under the new px-distance-to-trace rule, independent of
+    the aperture/shape() hit-band machinery."""
+    sc = Model_Space()
+    da = DesignArea()
+    path = QPainterPath()
+    path.addRect(1000, 1000, 500, 500)
+    da.setPath(path)
+    sc.addItem(da)
+    got = sc.halo_candidates_at(QPointF(1250, 1250), 5.0, QTransform())
+    assert got == [da]

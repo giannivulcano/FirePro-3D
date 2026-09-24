@@ -102,6 +102,8 @@ class _ElevReadOnlyProxyMixin:
 class _ElevProxyRect(_ElevReadOnlyProxyMixin, QGraphicsRectItem):
     """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
 
+    HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
+
 
 class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
     """Read-only line proxy (pipes)."""
@@ -109,6 +111,8 @@ class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
 
 class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
     """Read-only ellipse proxy (sprinklers)."""
+
+    HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
 
 
 # ─────────────────────────────────────────────────────────────────────────────
