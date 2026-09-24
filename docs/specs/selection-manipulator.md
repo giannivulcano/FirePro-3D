@@ -75,7 +75,14 @@ manipulator is **capability-gated**, not one-size.
   `PaperScene`), added to the scene, tracks `scene.selectionChanged`, wraps the
   selection's union `manip_bounds()`, `z = 1e6`. Screen-constant children
   (`ItemIgnoresTransformations`): 8 resize handles plus pooled hosts for the
-  items' own grips (no rotate knob — removed 2026-09-23). Handle sizing:
+  items' own grips (no rotate knob — removed 2026-09-23). **Grip-object limit
+  (2026-09-24, AutoCAD `GRIPOBJLIMIT`):** when more than
+  `selection_manipulator.GRIP_OBJECT_LIMIT` items are selected (default
+  `constants.GRIP_OBJECT_LIMIT`; app-wide, Preferences → UX → SNAP, persisted
+  `select/grip_object_limit`) `_active_handles()` returns no per-item grips —
+  frame + interior move only (the box-native single-item branch precedes the
+  check). Grip hosts per item made a 20k selection paint 63k hosts. `wraps()`
+  is O(1) via a membership set kept in sync with `_items`. Handle sizing:
   px in the model scene, paper-mm in the paper scene (theming.md split).
 - The prototype's **pure transform math** is ported verbatim and unit-tested:
   `resize_factors` (keep-aspect, from-center, negative-factor mirroring),
