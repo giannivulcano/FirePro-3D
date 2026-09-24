@@ -1193,7 +1193,7 @@ class GeometryDrawingController:
                 snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
             self._commit_draw_arc_ep_chord_at(snapped)
         else:
-            self._commit_draw_arc_ep_at(snapped)
+            self._commit_draw_arc_ep_at(snapped, snap90=True)
 
     def _commit_draw_arc_ep_chord_at(self, point) -> bool:
         """Step-1 applier: fix end point B (mouse 2nd click + ``line`` HUD).
@@ -1224,14 +1224,33 @@ class GeometryDrawingController:
         s.instructionChanged.emit("Pick center point (Space: minor/major)")
         return True
 
-    def _arc_ep_solve(self, cursor):
+    def _arc_ep_90_tolerance(self) -> float:
+        """Scene-unit window for the End Points 90° snap.
+
+        The shared OSNAP aperture (``SNAP_TOLERANCE_PX``) converted by the
+        active view zoom. With no view attached (headless) the scale falls
+        back to 1.0, i.e. ``SNAP_TOLERANCE_PX`` scene mm.
+        """
+        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene, _safe_scale
+        return px_to_scene(float(SNAP_TOLERANCE_PX),
+                           _safe_scale(self._scene._active_view_scale()))
+
+    def _arc_ep_solve(self, cursor, snap90: bool = False):
         """``(centre, r, start°, span°)`` of the End-Points arc for *cursor*, or None.
 
         The cursor is projected onto the chord bisector; the arc bulges away
         from the centre's side (minor) unless Space toggled major. Updates the
         remembered side whenever the centre is off the chord.
+
+        Args:
+            cursor: Scene point projected onto the chord bisector.
+            snap90: When True (mouse preview / click), a centre whose signed
+                bisector distance ``|t|`` is within the OSNAP aperture of the
+                half-chord ``h`` is pinned to ``|t| == h`` (sign kept) so the
+                arc is exactly 90° (minor) / 270° (major). Typed radii pass
+                False — they are exact.
         """
-        from .arc_math import project_to_bisector, arc_through_chord
+        from .arc_math import project_to_bisector, arc_through_chord, chord_frame
         s = self._scene
         a, b = s._draw_arc_ep_a, s._draw_arc_ep_b
         if a is None or b is None:
@@ -1240,6 +1259,11 @@ class GeometryDrawingController:
         if proj is None:
             return None
         c, t = proj
+        if snap90 and abs(t) > 1e-9:
+            m, (nx, ny), h = chord_frame(a, b)
+            if abs(abs(t) - h) <= self._arc_ep_90_tolerance():
+                t = math.copysign(h, t)
+                c = QPointF(m.x() + t * nx, m.y() + t * ny)
         if abs(t) > 1e-9:
             s._draw_arc_ep_side = 1 if t > 0 else -1
         side = s._draw_arc_ep_side
@@ -1261,7 +1285,7 @@ class GeometryDrawingController:
             return
         if s._draw_arc_step != 2 or s._draw_arc_preview is None:
             return
-        sol = self._arc_ep_solve(cursor)
+        sol = self._arc_ep_solve(cursor, snap90=True)
         if sol is None:
             return
         from .arc_math import point_at
@@ -1322,10 +1346,14 @@ class GeometryDrawingController:
             return self._commit_draw_arc_ep_at(c)
         return False
 
-    def _commit_draw_arc_ep_at(self, cursor) -> bool:
-        """Commit the End Points arc for the centre *cursor* projects to."""
+    def _commit_draw_arc_ep_at(self, cursor, snap90: bool = False) -> bool:
+        """Commit the End Points arc for the centre *cursor* projects to.
+
+        *snap90* is True for the mouse click (90° snap, see
+        :meth:`_arc_ep_solve`) and False for a typed radius.
+        """
         s = self._scene
-        sol = self._arc_ep_solve(cursor)
+        sol = self._arc_ep_solve(cursor, snap90=snap90)
         if sol is None:
             return False
         c, r, st, sp = sol

@@ -112,3 +112,51 @@ def test_typed_radius_preview_point_on_bisector(scene):
     c = scene._transform_preview_point({"radius": 60.0}, anchor)
     assert c.x() == pytest.approx(50.0)
     assert math.hypot(c.x(), c.y()) == pytest.approx(60.0)
+
+
+# ── 90° snap (smoke-test tweak 2026-09-24) ────────────────────────────────
+# Chord (0,0)→(100,0): half-chord h = 50, so a centre at t = ±50 from the
+# midpoint makes C→A ⟂ C→B (a 90° minor arc).  With no view attached the
+# tolerance falls back to SNAP_TOLERANCE_PX at scale 1.0 (15 scene mm).
+
+def test_near_90_centre_snaps_to_exact_quarter(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0); _press(scene, 50, 53)
+    arc = _placed(scene)
+    assert arc._span_deg == pytest.approx(90.0, abs=1e-9)
+    assert arc._radius == pytest.approx(50.0 * math.sqrt(2.0), abs=1e-9)
+
+
+def test_near_90_major_snaps_to_exact_270(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    assert scene.cycle_placement_ambiguity() is True
+    _press(scene, 50, 47)
+    assert _placed(scene)._span_deg == pytest.approx(270.0, abs=1e-9)
+
+
+def test_far_from_90_not_snapped(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0); _press(scene, 50, 80)
+    assert _placed(scene)._span_deg != pytest.approx(90.0, abs=1.0)
+
+
+def test_90_snap_applies_to_preview(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    scene._geom_ctl._preview_from_arc_ep(QPointF(50, 53))
+    c = scene._draw_arc_ref_start.line().p1()           # centre end of radial
+    assert (c.x(), c.y()) == (pytest.approx(50.0), pytest.approx(50.0, abs=1e-9))
+
+
+def test_90_snap_tolerance_scales_with_zoom(scene):
+    from PyQt6.QtWidgets import QGraphicsView
+    v = QGraphicsView(scene)
+    v.scale(10.0, 10.0)            # 15 px → 1.5 mm: 3 mm off is outside
+    try:
+        _press(scene, 0, 0); _press(scene, 100, 0); _press(scene, 50, 53)
+        assert _placed(scene)._span_deg != pytest.approx(90.0, abs=0.5)
+    finally:
+        v.setScene(None)
+
+
+def test_typed_radius_not_snapped_to_90(scene):
+    _press(scene, 0, 0); _press(scene, 100, 0)
+    assert scene._apply_arc_dynamic_input({"radius": 72.0}) is True
+    assert _placed(scene)._radius == pytest.approx(72.0)
