@@ -243,6 +243,11 @@ class HaloSelectionMixin:
             return True
         if not self._halo_mode_ok():
             return True
+        # An open selection-readout edit makes the canvas inert
+        # (selection-mode §15). getattr: elevation_scene has no readouts.
+        readouts = getattr(self, "readouts", None)
+        if readouts is not None and readouts.is_editing():
+            return True
         live_manip = getattr(self, "_live_manip", None)
         if callable(live_manip):
             manip = live_manip()

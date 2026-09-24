@@ -344,3 +344,27 @@ def test_transient_not_in_bounding_rect_or_serialization(be, monkeypatch):
     assert all(type(i).__module__ not in ("firepro3d.selection_readouts",
                                           "firepro3d.readout_paint")
                for i in sc.items())
+
+
+# ── Contract fix: the canvas is inert while a readout edit is open (§15) ──
+def test_halo_suppressed_while_editing(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    body = v.mapFromScene(QPointF(-120, 0))           # line body, away from the HUD
+    _move(v, body)
+    assert sc.halo_item() is ln                       # precondition: HALO live
+    _move(v, v.mapFromScene(QPointF(400, 300)))       # off the line
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    _move(v, body)
+    assert sc.halo_item() is None
+
+
+def test_begin_edit_clears_existing_halo(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    _move(v, v.mapFromScene(QPointF(-120, 0)))
+    assert sc.halo_item() is ln                       # precondition
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    assert sc.halo_item() is None

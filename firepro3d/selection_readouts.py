@@ -310,6 +310,11 @@ class SelectionReadoutController:
         view.place_dynamic_input(hud, anchor)
         hud.show()
         hud.engage()
+        # The canvas goes inert (selection-mode §15): drop any geometry HALO
+        # left from before the edit; _halo_suppressed() keeps it off after.
+        clear = getattr(self._scene, "halo_clear", None)
+        if callable(clear):
+            clear()
         self.refresh()
 
     def _on_committed(self, values: dict) -> None:
