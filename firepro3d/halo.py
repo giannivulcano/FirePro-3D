@@ -180,7 +180,29 @@ def paint_halo_highlight(painter, view, item, theme, *,
         path = halo_scene_path(item, scene_scale)
     except Exception:
         return
-    if path.isEmpty():
+    paint_halo_path(painter, path, theme, token=token, width=width,
+                    alpha=alpha, glow_px=glow_px)
+
+
+def paint_halo_path(painter, path, theme, *, token=HALO_TRACE_COLOR,
+                    width=HALO_TRACE_WIDTH_PX, alpha=HALO_TRACE_ALPHA,
+                    glow_px=HALO_GLOW_PX):
+    """Draw the HALO trace (core line + soft glow) along *path*.
+
+    Strokes in the painter's current coordinates, so one glow implementation
+    serves both scene items (``paint_halo_highlight``) and painted overlays
+    such as selection dimension readouts (selection-mode.md §4.2, §15).
+
+    Args:
+        painter: Active QPainter.
+        path: QPainterPath to trace; ``None`` / empty paths draw nothing.
+        theme: Theme providing ``color(token)``.
+        token: Theme color token for the trace.
+        width: Core stroke width in device px (cosmetic).
+        alpha: Core stroke alpha (0-255).
+        glow_px: Outer glow extent in device px; 0 disables the glow.
+    """
+    if path is None or path.isEmpty():
         return
     base = theme.color(token)
     painter.save()

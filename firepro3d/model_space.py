@@ -193,6 +193,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
+        # Selection dimension readouts (selection-mode §15). Composed before
+        # anything can emit selectionChanged/modeChanged/changed.
+        from .selection_readouts import SelectionReadoutController
+        self.readouts = SelectionReadoutController(self)
         self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
@@ -2410,6 +2414,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pipe.update_label()
         for dim in self.annotations.dimensions:
             dim.update_label()
+        # Selection dimension readouts format at paint time; a units/precision
+        # change touches no item, so force the repaint (selection-mode §15).
+        self.readouts.refresh()
 
     def set_display_unit(self, unit):
         """Change the display unit and refresh all labels."""
