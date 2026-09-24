@@ -1739,8 +1739,8 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         if key == "Radius":
             r = self._parse_dim(value)
             if r is not None and r > 0:
-                self._radius_mm = r
-                self._regenerate()
+                self.set_radius(r)
+                self._push_undo()
             return
         if key == "Rotation":
             try:
@@ -1785,6 +1785,28 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._rotation_deg = ang - circ_offset - vi * step
         self._radius_mm = rv if self._inscribed else rv * math.cos(math.pi / self._sides)
         self._regenerate()
+
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def set_radius(self, mm: float) -> None:
+        """Set the stored defining radius (circumradius if inscribed, apothem if
+        circumscribed); keeps centre / sides / rotation. No-op if <= 0."""
+        if mm <= 0:
+            return
+        self._radius_mm = float(mm)
+        self._regenerate()
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        a = math.radians(self._rotation_deg)
+        c = QPointF(self._center)
+        b = QPointF(c.x() + self._radius_mm * math.cos(a),
+                    c.y() - self._radius_mm * math.sin(a))
+        away = QPointF(c.x() - self._radius_mm * math.sin(a),
+                       c.y() - self._radius_mm * math.cos(a))   # +90° side
+        return [DimSpec(kind="linear", key="radius", field="Radius", prefix="R",
+                        value=self._radius_mm, field_kind="dimension",
+                        apply=self.set_radius, a=c, b=b, away=away)]
 
     def manip_handles(self):
         """U3: expose the centre + each vertex as a live-apply GripHandle.
@@ -1965,6 +1987,32 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._ry = dist
         self._regenerate()
 
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def set_rx(self, mm: float) -> None:
+        """R1 (rx semi-axis); keeps centre + rotation. Floor _AXIS_MIN."""
+        self._rx = max(float(mm), _AXIS_MIN)
+        self._regenerate()
+
+    def set_ry(self, mm: float) -> None:
+        """R2 (ry semi-axis); keeps centre + rotation. Floor _AXIS_MIN."""
+        self._ry = max(float(mm), _AXIS_MIN)
+        self._regenerate()
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        c = QPointF(self._center)
+        return [
+            DimSpec(kind="linear", key="r1", field="R1", prefix="R1",
+                    value=self._rx, field_kind="dimension", apply=self.set_rx,
+                    a=c, b=self._axis_endpoint(self._rx, 0.0),
+                    away=self._axis_endpoint(self._ry, 90.0)),
+            DimSpec(kind="linear", key="r2", field="R2", prefix="R2",
+                    value=self._ry, field_kind="dimension", apply=self.set_ry,
+                    a=c, b=self._axis_endpoint(self._ry, 90.0),
+                    away=self._axis_endpoint(self._rx, 0.0)),
+        ]
+
     def manip_handles(self):
         """U3: expose parametric grips as live-apply GripHandles (centre + 4
         axis endpoints). Mirrors CircleItem (an ellipse is a generalized
@@ -2000,10 +2048,10 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "Type":     {"type": "label", "value": "Ellipse"},
             "Centre":   {"type": "label",
                          "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
-            "Major (rx)": {"type": "dimension",
-                           "value": self._fmt(self._rx), "value_mm": self._rx},
-            "Minor (ry)": {"type": "dimension",
-                           "value": self._fmt(self._ry), "value_mm": self._ry},
+            "R1": {"type": "dimension",
+                   "value": self._fmt(self._rx), "value_mm": self._rx},
+            "R2": {"type": "dimension",
+                   "value": self._fmt(self._ry), "value_mm": self._ry},
             "Rotation": {"type": "string",
                          "value": f"{self._rotation_deg:.2f}", "suffix": "°"},
             "Colour":   {"type": "label", "value": self.pen().color().name()},
@@ -2013,17 +2061,17 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         return props
 
     def set_property(self, key: str, value):
-        if key == "Major (rx)":
+        if key == "R1":
             r = self._parse_dim(value)
             if r is not None and r >= _AXIS_MIN:
-                self._rx = r
-                self._regenerate()
+                self.set_rx(r)
+                self._push_undo()
             return
-        if key == "Minor (ry)":
+        if key == "R2":
             r = self._parse_dim(value)
             if r is not None and r >= _AXIS_MIN:
-                self._ry = r
-                self._regenerate()
+                self.set_ry(r)
+                self._push_undo()
             return
         if key == "Rotation":
             try:

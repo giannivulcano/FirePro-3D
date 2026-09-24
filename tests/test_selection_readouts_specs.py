@@ -137,3 +137,29 @@ def test_arc_set_radius_keeps_centre_and_angles(qapp):
     _by_key(a)["radius"].apply(250.0)
     assert a._radius == pytest.approx(250.0) and a._center == QPointF(5, 5)
     assert (a._start_deg, a._span_deg) == pytest.approx((30.0, 120.0))
+
+
+from firepro3d.geometry_2d import EllipseItem, RegularPolygonItem
+
+
+def test_ellipse_r1_r2(qapp):
+    e = EllipseItem(QPointF(0, 0), 300.0, 100.0, 0.0)
+    d = _by_key(e)
+    assert (d["r1"].field, d["r1"].prefix, d["r1"].value) == ("R1", "R1", pytest.approx(300.0))
+    assert (d["r2"].field, d["r2"].prefix, d["r2"].value) == ("R2", "R2", pytest.approx(100.0))
+    assert d["r1"].b == QPointF(300, 0)
+    assert (d["r2"].b.x(), d["r2"].b.y()) == pytest.approx((0.0, -100.0))
+    d["r2"].apply(500.0)            # no swap / renaming — R2 stays the ry axis
+    assert e._ry == pytest.approx(500.0) and _by_key(e)["r2"].value == pytest.approx(500.0)
+
+
+@pytest.mark.parametrize("inscribed", [True, False])
+def test_polygon_defining_radius_radial(qapp, inscribed):
+    p = RegularPolygonItem(QPointF(0, 0), 6, 100.0, 0.0, inscribed)
+    s = _by_key(p)["radius"]
+    assert s.prefix == "R" and s.value == pytest.approx(100.0)
+    assert (s.b.x(), s.b.y()) == pytest.approx((100.0, 0.0))
+    if inscribed:   # radial ends on a vertex
+        assert any(math.hypot(v.x() - 100, v.y()) < 1e-6 for v in p.vertices())
+    s.apply(50.0)
+    assert p._radius_mm == pytest.approx(50.0) and p._sides == 6
