@@ -1461,11 +1461,43 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawPath(self.path())
+        if self.isSelected():
+            if not _manip_wraps(self):
+                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+                highlight.setCosmetic(True)
+                painter.setPen(highlight)
+                painter.drawPath(self.path())
+            # Centre→start / centre→end reference radials — shown whenever
+            # selected (a content aid, NOT the selection highlight). Canonical
+            # width-1 dashed style, matching EllipseItem's axis guides.
+            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref.setCosmetic(True)
+            painter.setPen(ref)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for a, b in self._selection_ref_segments():
+                painter.drawLine(a, b)
+
+    def _selection_ref_segments(self):
+        """Reference radials centre→start and centre→end (scene coords)."""
+        c, s, e = self.grip_points()
+        return [(c, s), (c, e)]
+
+    def itemChange(self, change, value):
+        # The selected bounds grow to cover the radials (the centre can lie
+        # outside the arc's path bounds) — tell the scene before they change.
+        if change == self.GraphicsItemChange.ItemSelectedChange:
+            self.prepareGeometryChange()
+        return super().itemChange(change, value)
+
+    def boundingRect(self) -> QRectF:
+        """Path bounds; when selected, also the centre so the reference
+        radials repaint/cull correctly. Hit-testing uses :meth:`shape`, which
+        stays the stroked arc."""
+        base = super().boundingRect()
+        if not self.isSelected():
+            return base
+        c = self._center
+        return base.united(QRectF(c.x() - 1.0, c.y() - 1.0, 2.0, 2.0))
 
     def shape(self) -> QPainterPath:
         """Return a stroked arc path; when the arc is a closed circle and is
