@@ -69,6 +69,7 @@ Angles are **unit-invariant** — decimal degrees in both imperial and metric pr
 | Display range | `(-180, 180]` — `270` displays as `-90°` | `ScaleManager.normalize_angle` |
 | Display | decimal degrees, `°` glyph **inside** the string (`45°`, `-16.4°`); trailing zeros trimmed, capped at 2 decimals, rounded half-away-from-zero | `ScaleManager.format_angle` |
 | Input | bare number = degrees; optional trailing `°` / `deg` / `degrees` (case-insensitive); negatives accepted; number grammar per **§3.1** (shared with `parse_dimension`) | `ScaleManager.parse_angle` |
+| Unsigned sweep (arc span, included angle) **[PROPOSAL 2026-09-24]** | `[0, 360]`, **not** normalised — `270` displays as `270°`; same glyph / trim / non-finite rules as `format_angle` | `ScaleManager.format_span` (promoted from `dynamic_input._format_span`, which delegates) |
 
 **Scene Y is down.** Converting a length + angle to a scene point therefore *subtracts* the sine:
 
