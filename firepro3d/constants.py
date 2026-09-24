@@ -289,3 +289,16 @@ HALO_TRACE_COLOR = "accent"   # theme token the trace is drawn in
 HALO_TRACE_ALPHA = 128        # trace opacity, 0-255 (128 ~ 50%)
 HALO_TRACE_WIDTH_PX = 4.0     # cosmetic px of the core traced line
 HALO_GLOW_PX = 8.0            # soft outer-glow blur radius (px); 0 disables
+
+# ── Selection dimension readouts (2d-geometry.md §8, selection-mode.md §15) ──
+# Signed-off mockup 2026-09-24 (FPD Design/dim-readouts) + grill Q12.
+SELDIM_FONT_PX = 10              # label text px (theme.FONT_VALUE / Consolas)
+SELDIM_LABEL_OFFSET_PX = 14      # every linear label sits this far off its line
+SELDIM_ARC_LABEL_GAP_PX = 4      # angular label clears its reference arc by this
+SELDIM_ARC_REF_FRAC = 0.19       # reference-arc radius as a fraction of the leg
+SELDIM_ARC_REF_MIN_PX = 25       # ...but never smaller than this on screen
+SELDIM_ARROW_PX = 7              # reference-arc arrowhead length
+SELDIM_ARROW_HALF_W_PX = 2.5     # reference-arc arrowhead half-width
+SELDIM_DASH = (4, 3)             # dash pattern (px) — matches selection guides
+SELDIM_FIT_MARGIN_PX = 4         # a linear label must fit its segment + this
+SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side
