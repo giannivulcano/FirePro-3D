@@ -103,6 +103,19 @@ class Geometry2DMixin:
         sm = self._g2d_sm()
         return sm.format_length(mm) if sm else f"{mm:.1f}"
 
+    def dimension_specs(self) -> list:
+        """Selection dimension readouts this primitive reports (2d-geometry §8).
+
+        Default: none (Text, Spline). Pure — never owns or paints anything.
+        """
+        return []
+
+    def _push_undo(self) -> None:
+        """One scene undo step after a typed dimension edit (mutate-then-push)."""
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "push_undo_state"):
+            sc.push_undo_state()
+
     def _geom2d_properties(self) -> dict:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
@@ -507,6 +520,31 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         elif index == 2:
             self._pt2 = pos
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def set_length(self, length_mm: float) -> None:
+        """Set the length, keeping ``pt1`` and the direction. No-op if <= 0
+        or the line is degenerate."""
+        dx = self._pt2.x() - self._pt1.x()
+        dy = self._pt2.y() - self._pt1.y()
+        cur = math.hypot(dx, dy)
+        if length_mm <= 0 or cur < 1e-9:
+            return
+        k = length_mm / cur
+        self._pt2 = QPointF(self._pt1.x() + dx * k, self._pt1.y() + dy * k)
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        length = math.hypot(self._pt2.x() - self._pt1.x(),
+                            self._pt2.y() - self._pt1.y())
+        if length < 1e-9:
+            return []
+        return [DimSpec(kind="linear", key="length", field="Length", prefix="",
+                        value=length, field_kind="dimension",
+                        apply=self.set_length, minimum=0.0,
+                        a=QPointF(self._pt1), b=QPointF(self._pt2))]
 
     def manip_handles(self):
         """U3: [pt1, midpoint, pt2] as live-apply grips. Endpoints (0, 2) render
