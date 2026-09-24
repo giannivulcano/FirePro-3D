@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from PyQt6 import sip
 from PyQt6.QtCore import QPointF
 
 
@@ -216,20 +217,38 @@ class SelectionReadoutController:
         Labels sit outside item dirty regions, so ``MinimalViewportUpdate``
         would otherwise leave them stale.
         """
+        if not self._scene_alive():
+            return
         for v in self._scene.views():
-            v.viewport().update()
+            if not sip.isdeleted(v):
+                v.viewport().update()
+
+    def _scene_alive(self) -> bool:
+        """False once the scene's C++ object is gone.
+
+        A dying QGraphicsScene still emits ``selectionChanged`` (items are
+        cleared in its destructor) after sip has marked the wrapper deleted;
+        touching it then raises inside a Qt slot, which PyQt6 turns into a
+        silent process abort (exit 0xC0000409 at interpreter shutdown). Every
+        slot below bails out first.
+        """
+        return not sip.isdeleted(self._scene)
 
     def _on_scene_changed(self, _regions) -> None:
-        if self.readouts_active():
+        if self._scene_alive() and self.readouts_active():
             self.refresh()
 
     def _on_selection_changed(self) -> None:
+        if not self._scene_alive():
+            return
         self._hover = None
         if self.is_editing():
             self.cancel_edit()
         self.refresh()
 
     def _on_mode_changed(self, _mode) -> None:
+        if not self._scene_alive():
+            return
         if self.is_editing():
             self.cancel_edit()
         self.refresh()

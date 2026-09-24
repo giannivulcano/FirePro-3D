@@ -73,3 +73,31 @@ def test_layouts_fit_and_hit(be):
     assert len(lays) == 1 and lays[0].layout.fits
     assert sc.readouts.entry_at(v, lays[0].layout.center) is not None
     assert sc.readouts.entry_at(v, QPointF(5, 5)) is None
+
+
+_TEARDOWN_SCRIPT = r'''
+import sys
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QPointF
+app = QApplication(sys.argv)
+from firepro3d.model_space import Model_Space
+from firepro3d.model_view import Model_View
+from firepro3d.geometry_2d import LineItem
+sc = Model_Space(scene_role="block_editor")
+v = Model_View(sc); v.resize(400, 300); v.show(); app.processEvents()
+ln = LineItem(QPointF(-100, 0), QPointF(100, 0)); sc.addItem(ln); ln.setSelected(True)
+app.processEvents()
+sc.cleanup(); v.close(); v.deleteLater(); app.processEvents()
+'''
+
+
+def test_scene_teardown_with_selection_exits_cleanly():
+    """The dying scene emits selectionChanged after sip has marked it deleted;
+    a controller slot touching it raised inside a Qt slot -> PyQt6 abort
+    (silent exit 127 at interpreter shutdown). Must exit 0."""
+    import os, subprocess, sys
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=root)
+    r = subprocess.run([sys.executable, "-c", _TEARDOWN_SCRIPT], cwd=root, env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, (r.returncode, r.stderr[-2000:])
