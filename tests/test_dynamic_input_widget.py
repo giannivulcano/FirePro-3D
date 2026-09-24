@@ -239,12 +239,12 @@ class TestHudValues:
         assert hud.has_invalid_field() is False
 
     def test_negative_dimension_allowed_where_no_minimum(self, sm_uncal):
-        """Rectangle X/Y are signed by design — a negative must not flag."""
-        hud = DynamicInputHud(SCHEMAS["rectangle"], sm_uncal)
-        hud.set_values({"X": 100.0, "Y": 100.0})
-        hud.editor("X").setText("-250")
+        """Displacement dX/dY are signed by design — a negative must not flag."""
+        hud = DynamicInputHud(SCHEMAS["displacement"], sm_uncal)
+        hud.set_values({"dX": 100.0, "dY": 100.0})
+        hud.editor("dX").setText("-250")
         got = hud.values()
-        assert got["X"] == pytest.approx(-250.0)
+        assert got["dX"] == pytest.approx(-250.0)
         assert hud.has_invalid_field() is False
 
     def test_valid_entry_that_merely_reformats_is_not_flagged(self, sm_uncal):
@@ -329,12 +329,12 @@ class TestHudValues:
 
     def test_untouched_field_is_never_flagged(self, sm_uncal):
         """A seeded, untouched field commits as untouched — not as invalid."""
-        hud = DynamicInputHud(SCHEMAS["rectangle"], sm_uncal)
+        hud = DynamicInputHud(SCHEMAS["displacement"], sm_uncal)
         # Imperial display quantizes, so the seed guard matters here.
-        hud.set_values({"X": 1234.567, "Y": -890.1})
+        hud.set_values({"dX": 1234.567, "dY": -890.1})
         got = hud.values()
-        assert got["X"] == pytest.approx(1234.567)
-        assert got["Y"] == pytest.approx(-890.1)
+        assert got["dX"] == pytest.approx(1234.567)
+        assert got["dY"] == pytest.approx(-890.1)
         assert hud.has_invalid_field() is False
 
 

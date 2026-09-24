@@ -152,61 +152,6 @@ def is_valid_relative_angle(deg: float) -> bool:
     return abs(deg - round(deg / 45.0) * 45.0) < _REL_ANGLE_TOL_DEG
 
 
-# ── Rectangle ─────────────────────────────────────────────────────────────
-
-def resolve_rectangle(anchor: QPointF, values: dict) -> QPointF:
-    """Return the opposite-corner point *X*/*Y* away from *anchor*.
-
-    Resolving to a corner rather than a size keeps this a point source, and
-    signed extents let one point serve both rectangle modes: corner-to-corner
-    builds ``QRectF(anchor, point).normalized()`` — where the sign chooses
-    which quadrant the rectangle occupies — while from-centre re-applies
-    ``abs()`` to derive half-extents and so ignores the sign.  Feeding this an
-    unsigned *X*/*Y* would silently rebuild every corner-mode rectangle in the
-    up-right quadrant.
-    """
-    return QPointF(anchor.x() + values["X"], anchor.y() - values["Y"])
-
-
-def seed_rectangle(anchor: QPointF, point: QPointF) -> dict:
-    """Return the signed X/Y extents from *anchor* to *point*, Y-up.
-
-    The sign is kept so ``resolve_rectangle`` round-trips *point* exactly:
-    in corner mode the drag direction is the geometry, not just a visual cue.
-    Folding to a magnitude is left to the from-centre commit path, which
-    ``abs()``es anyway.
-    """
-    return {"X": point.x() - anchor.x(),
-            "Y": -(point.y() - anchor.y())}
-
-
-def resolve_rectangle_center(anchor: QPointF, values: dict) -> QPointF:
-    """Return a corner *W*/*H* apart for a centre-anchored rectangle.
-
-    Unlike the corner-mode ``rectangle`` schema (whose X/Y are the signed
-    extents corner-to-corner), the centre variant's fields are the **full**
-    width and height of the rectangle centred on *anchor*.  The corner returned
-    lands half a width right and half a height up so that
-    ``rect_sizing_points(anchor, corner, from_center=True)`` — which takes
-    ``abs(corner - anchor)`` as the half-extents — rebuilds a W×H rectangle.
-    Centre mode is symmetric, so the up-right quadrant is arbitrary.
-    """
-    return QPointF(anchor.x() + values["W"] / 2.0,
-                   anchor.y() - values["H"] / 2.0)
-
-
-def seed_rectangle_center(anchor: QPointF, point: QPointF) -> dict:
-    """Return the FULL width/height of a centre-anchored rectangle to *point*.
-
-    The cursor gives one corner; the centre is *anchor*, so the full extent is
-    twice the anchor→corner half-extent.  Magnitudes only — centre mode ignores
-    the drag quadrant (``resolve``/``rect_sizing_points`` both ``abs()`` it).
-    """
-    return {"W": 2.0 * abs(point.x() - anchor.x()),
-            "H": 2.0 * abs(point.y() - anchor.y())}
-
-
-
 # ── 3-click rectangle (base → side → depth; 2d-geometry.md §4) ─────────────
 # The corner-variant side step reuses ``resolve_line``/``seed_line`` (the
 # click point IS the side end).  The depth resolvers read the side's unit left
@@ -367,29 +312,6 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_line,
         seed=seed_line,
     ),
-    "rectangle": Schema(
-        name="rectangle",
-        fields=(
-            # Signed, like displacement dX/dY: a left/down drag seeds a
-            # negative extent, and in corner mode that sign is the geometry.
-            # A 0.0 minimum would reject the seed the schema just produced.
-            FieldSpec("X", "X", FieldKind.DIMENSION),
-            FieldSpec("Y", "Y", FieldKind.DIMENSION),
-        ),
-        resolve=resolve_rectangle,
-        seed=seed_rectangle,
-    ),
-    "rectangle_center": Schema(
-        name="rectangle_center",
-        fields=(
-            # Full width/height (magnitudes) — centre mode is symmetric, so the
-            # drag direction carries no geometry and zero is a degenerate rect.
-            FieldSpec("W", "W", FieldKind.DIMENSION, minimum=0.0),
-            FieldSpec("H", "H", FieldKind.DIMENSION, minimum=0.0),
-        ),
-        resolve=resolve_rectangle_center,
-        seed=seed_rectangle_center,
-    ),
     # 3-click rectangle: side step (W + angle) then depth step (H).
     "rect_side": Schema(
         name="rect_side",
@@ -496,9 +418,9 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_rotation,
         returns_point=False,
-        # Anchored transform: the sized rectangle + its pivot are armed in the
-        # scene before the rotate step, so the HUD stays shut until they exist —
-        # like ``move`` and ``arc_span``.
+        # Anchored transform: the pivot (polygon centre / block insertion
+        # point) is armed before the rotate step, so the HUD stays shut until
+        # it exists — like ``move`` and ``arc_span``.
         needs_anchor=True,
     ),
     # ── Selection-manipulator transforms ─────────────────────────────────
@@ -540,7 +462,7 @@ SCHEMAS: dict[str, Schema] = {
         name="track",
         fields=(
             # Signed distance along the path (negative = behind the origin), so
-            # no 0.0 minimum — like rectangle's signed extents.  Labelled "L"
+            # no 0.0 minimum — like the signed rect depth.  Labelled "L"
             # (not "Dist") so the on-path readout matches the line/wall/gridline
             # placement HUD — the field the user sees before snapping onto a path.
             FieldSpec("Distance", "L", FieldKind.DIMENSION),
@@ -1481,14 +1403,14 @@ class DynamicInputHud(QWidget):
         too-short floor, a rectangle under the too-small one (decision D2).
 
         The threshold itself deliberately stays in the commit path.  Mirroring
-        it into ``FieldSpec.minimum`` cannot express rectangle's *signed*
-        extents and would drift from the real rule the first time it changed,
+        it into ``FieldSpec.minimum`` cannot express the rect depth's *signed*
+        extent and would drift from the real rule the first time it changed,
         so the applier reports a verdict instead and this turns it into the
         same red border a parse failure gets.
 
         Every ``DIMENSION`` field is flagged rather than a nominated one: the
-        appliers reject on a magnitude, and for a two-field schema like
-        rectangle either extent may be the culprit.  Angles and counts are
+        appliers reject on a magnitude, and for a multi-dimension schema any
+        extent may be the culprit.  Angles and counts are
         never the reason a commit is refused, so they are left clean.
         """
         names = [f.name for f in self._schema.fields

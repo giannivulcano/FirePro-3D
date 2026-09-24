@@ -2226,33 +2226,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pure geometry helpers — shared by 2D-geo and wall rectangle placement
+# Pure geometry helpers — shared by 2D-geo / wall / floor rectangle placement
 # ─────────────────────────────────────────────────────────────────────────────
-
-def rect_sizing_points(anchor, corner, from_center):
-    """Return axis-aligned (pt1_topleft, pt2_bottomright) from two placement points.
-
-    Args:
-        anchor: First placement click (QPointF).  Corner mode: one corner of
-            the rectangle.  Centre mode: the rectangle centre.
-        corner: Second placement click (QPointF).  Corner mode: the diagonally
-            opposite corner.  Centre mode: any corner — half-extents are taken
-            as ``abs(corner - anchor)``.
-        from_center: True for centre mode, False for corner mode.
-
-    Returns:
-        ``(pt1, pt2)`` where pt1 is the top-left and pt2 the bottom-right of
-        the normalised axis-aligned bounding box.
-    """
-    if from_center:
-        hw = abs(corner.x() - anchor.x())
-        hh = abs(corner.y() - anchor.y())
-        return (QPointF(anchor.x() - hw, anchor.y() - hh),
-                QPointF(anchor.x() + hw, anchor.y() + hh))
-    r = QRectF(anchor, corner).normalized()
-    return (QPointF(r.x(), r.y()),
-            QPointF(r.x() + r.width(), r.y() + r.height()))
-
 
 def rect_side_frame(base, side_pt):
     """Return the frame of the first rect side ``base → side_pt``.

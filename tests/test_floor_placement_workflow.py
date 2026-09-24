@@ -3,7 +3,7 @@
 Task 5 (floor-workflow branch): one ``"floor"`` scene-mode carries
 ``_floor_primitive ∈ {"rect","polygon"}``; ←/→ cycles the primitive via
 ``_PLACEMENT_VARIANTS`` (Corner Rect → Center Rect → Polygon); the rect
-primitive runs the 3-step anchor→size→ROTATE flow (mirroring the wall rect);
+primitive runs the 3-click base→side→depth flow (mirroring the wall rect);
 the polygon primitive keeps the click-vertex-closing FloorSlab flow.
 
 ``F`` enters floor mode; the ribbon button is one checkable button (no dropdown).
@@ -103,15 +103,15 @@ def test_cycle_primitives(scene):
 # ── Test 3: rect corner 3-step commits a 4-point FloorSlab ─────────────────────
 
 def test_rect_corner_three_step_commits_floorslab(qapp, shown_model_view):
-    """Corner Rect: 3 clicks (anchor, size, rotate) → one 4-point FloorSlab."""
+    """Corner Rect: 3 clicks (base, side, depth) → one 4-point FloorSlab."""
     view, scene = shown_model_view
     scene.set_mode("floor")
     assert scene._floor_primitive == "rect"
     assert scene._floor_rect_from_center is False
-    _click(view, QPointF(0, 0))         # step 1: anchor
-    _click(view, QPointF(1000, 800))    # step 2: size → rotate step
-    assert scene._floor_rect_rotating is True
-    _click(view, QPointF(1200, 0))      # step 3: rotate ~0° commit
+    _click(view, QPointF(0, 0))         # step 1: base
+    _click(view, QPointF(1000, 0))      # step 2: first side → depth step
+    assert scene._floor_rect_side_pt is not None
+    _click(view, QPointF(500, 800))     # step 3: depth commit
     assert len(scene._floor_slabs) == 1
     slab = scene._floor_slabs[0]
     assert len(slab._points) == 4
@@ -144,9 +144,9 @@ def test_single_placement_returns_to_select(qapp, shown_model_view):
     Select with the slab selected (was continuous re-arm)."""
     view, scene = shown_model_view
     scene.set_mode("floor")
-    _click(view, QPointF(0, 0))
-    _click(view, QPointF(1000, 800))
-    _click(view, QPointF(1200, 0))          # commit
+    _click(view, QPointF(0, 0))             # base
+    _click(view, QPointF(1000, 0))          # first side
+    _click(view, QPointF(500, 800))         # depth → commit
     assert len(scene._floor_slabs) == 1
     assert scene.mode == "select"           # single-placement → Select
     assert scene._floor_slabs[-1].isSelected()
@@ -259,56 +259,60 @@ def test_polygon_hud_length_live_updates(qapp, shown_model_view):
     assert abs(seed_a["Angle"] - seed_b["Angle"]) > 1.0     # 0° vs +90° differ
 
 
-def test_rect_hud_size_live_updates(qapp, shown_model_view):
-    """Corner Rect sizing: seeded W/H must track the cursor and differ per move."""
+def test_rect_hud_side_live_updates(qapp, shown_model_view):
+    """Corner Rect side step: seeded W/Angle must track the cursor per move."""
     view, scene = shown_model_view
     scene.set_mode("floor")
     assert scene._floor_primitive == "rect"
     assert scene._floor_rect_from_center is False
 
-    _click(view, QPointF(0, 0))         # first corner -> sizing step
+    _click(view, QPointF(0, 0))         # base -> side step
     assert scene._floor_rect_anchor is not None
-    assert scene._floor_rect_rotating is False
+    assert scene._floor_rect_side_pt is None
+    assert scene.active_schema().name == "rect_side"
+    base = scene._floor_rect_anchor
 
-    _drive_move(scene, QPointF(1000, 800))
+    _drive_move(scene, QPointF(base.x() + 1000, base.y()))
     pt_a = scene.get_resolved_point()
     seed_a = _seeded(scene)
-    assert pt_a is not None, "sizing move must publish the far corner"
+    assert pt_a is not None, "side move must publish the side point"
 
-    _drive_move(scene, QPointF(500, 300))
+    _drive_move(scene, QPointF(base.x(), base.y() - 500))
     pt_b = scene.get_resolved_point()
     seed_b = _seeded(scene)
     assert pt_b is not None
 
-    # rectangle schema seeds the signed X/Y extents of the far corner.
-    assert abs(seed_a["X"] - 1000) < 1 and abs(seed_a["Y"]) > 0
-    assert abs(seed_b["X"] - 500) < 1
-    assert abs(seed_a["X"] - seed_b["X"]) > 1.0
-    assert abs(seed_a["Y"] - seed_b["Y"]) > 1.0
+    # rect_side seeds the side length (W) + heading of the live side.
+    assert abs(seed_a["Length"] - 1000) < 1 and abs(seed_a["Angle"]) < 0.5
+    assert abs(seed_b["Length"] - 500) < 1 and abs(seed_b["Angle"] - 90) < 0.5
 
 
-def test_rect_hud_rotate_angle_live_updates(qapp, shown_model_view):
-    """Corner Rect rotate step: seeded Angle must track the cursor and differ."""
+def test_rect_hud_depth_live_updates(qapp, shown_model_view):
+    """Corner Rect depth step: seeded signed H must track the cursor."""
     view, scene = shown_model_view
     scene.set_mode("floor")
     assert scene._floor_primitive == "rect"
 
-    _click(view, QPointF(0, 0))         # anchor
-    _click(view, QPointF(1000, 800))    # size -> rotate step
-    assert scene._floor_rect_rotating is True
-    assert scene.active_schema().name == "rotation"
+    # Press handler directly: a posted click can leave an ALIGN track live,
+    # which swaps the HUD to ``track`` and would mask the depth seed.
+    base = QPointF(0, 0)
+    scene._press_floor_rect(None, None, base, None, None, None)
+    scene._press_floor_rect(None, None, QPointF(1000, 0), None, None, None)
+    assert scene._floor_rect_side_pt is not None
+    assert scene.active_schema().name == "rect_depth"
 
-    _drive_move(scene, QPointF(1200, 0))
+    _drive_move(scene, QPointF(base.x() + 500, base.y() - 700))   # above: +H
     pt_a = scene.get_resolved_point()
     seed_a = _seeded(scene)
-    assert pt_a is not None, "rotate move must publish the orientation point"
+    assert pt_a is not None, "depth move must publish the depth point"
 
-    _drive_move(scene, QPointF(0, 1200))
+    _drive_move(scene, QPointF(base.x() + 500, base.y() + 300))   # below: -H
     pt_b = scene.get_resolved_point()
     seed_b = _seeded(scene)
     assert pt_b is not None
 
-    assert abs(seed_a["Angle"] - seed_b["Angle"]) > 1.0
+    assert abs(seed_a["H"] - 700) < 1
+    assert abs(seed_b["H"] + 300) < 1
 
 
 # ── Template name seeds placed floors (uniquified on collision) ────────────────

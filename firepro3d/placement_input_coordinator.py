@@ -106,8 +106,7 @@ class PlacementInputCoordinator:
                     and s._wall_rect_anchor is None)
         if s.mode == "floor":
             return (s._floor_active is None
-                    and s._floor_rect_anchor is None
-                    and not s._floor_rect_rotating)
+                    and s._floor_rect_anchor is None)
         return False
 
     def _apply_current_variant(self) -> None:
@@ -629,10 +628,7 @@ class PlacementInputCoordinator:
             return QPointF(a) if a is not None else None
         if self._scene.mode == "floor":
             if self._scene._floor_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._scene._floor_rect_rotating:
-                    p = self._scene._floor_rect_pivot
-                    return QPointF(p) if p is not None else None
+                # 3-click rect: the base anchors both the side and depth steps.
                 a = self._scene._floor_rect_anchor
                 return QPointF(a) if a is not None else None
             # Polygon: anchor is the last placed vertex (rubber-band from it).
@@ -751,8 +747,6 @@ class PlacementInputCoordinator:
 
         Covers the 2D rect, the wall rect and the floor rect; None for any
         other mode.  ``side_pt`` is None while the first side is being picked.
-        The wall/floor ``*_rect_side_pt`` attributes land with their own
-        3-click migration, so they are read defensively until then.
         """
         s = self._scene
         if s.mode == "draw_rectangle":
@@ -760,8 +754,7 @@ class PlacementInputCoordinator:
         if s.mode == "wall" and s._wall_primitive == "rect":
             return s._wall_rect_anchor, s._wall_rect_side_pt, s._wall_rect_from_center
         if s.mode == "floor" and s._floor_primitive == "rect":
-            return (s._floor_rect_anchor, getattr(s, "_floor_rect_side_pt", None),
-                    s._floor_rect_from_center)
+            return s._floor_rect_anchor, s._floor_rect_side_pt, s._floor_rect_from_center
         return None
 
     def _rect_depth_normal(self):
@@ -860,17 +853,14 @@ class PlacementInputCoordinator:
     def _floor_schema_for_primitive(self):
         """HUD schema for the active floor primitive.
 
-        Rect → step-aware: sizing step uses ``rectangle`` schema, rotate step
-        uses ``rotation`` schema.  Polygon → ``line`` schema (per-segment
-        length/angle readout, same as the wall line/polyline).  Mirrors
-        ``_wall_schema_for_primitive``.
+        Rect → the 3-click rect's side- or depth-step schema
+        (``_rect3_schema``), picked by ``_floor_rect_side_pt``.  Polygon →
+        ``line`` schema (per-segment length/angle readout, same as the wall
+        line/polyline).  Mirrors ``_wall_schema_for_primitive``.
         """
         if self._scene._floor_primitive == "rect":
-            if self._scene._floor_rect_rotating:
-                return SCHEMAS.get("rotation")
-            if self._scene._floor_rect_from_center:
-                return SCHEMAS.get("rectangle_center")
-            return SCHEMAS.get("rectangle")
+            return self._rect3_schema(self._scene._floor_rect_side_pt is not None,
+                                      self._scene._floor_rect_from_center)
         return SCHEMAS.get("line")
 
     # -------------------------------------------------------------------------
@@ -1047,16 +1037,14 @@ class PlacementInputCoordinator:
             # Seed the live orientation: the pivot→resolved-point heading, the
             # same absolute angle the mouse and ``resolve_rotation`` use.  0°
             # (axis-aligned) before anything is published.  The pivot differs by
-            # mode — the polygon rotate step pivots about its centre, the
-            # wall/floor rectangle about its own stored pivot — so dispatch to
-            # the matching angle helper (all share the same Y-up formula).
+            # mode — the polygon rotate step pivots about its centre, the block
+            # about its insertion point — so dispatch to the matching angle
+            # helper (all share the same Y-up formula).
             point = self.get_resolved_point()
             if point is None:
                 return {"Angle": 0.0}
             if self._scene.mode == "polygon":
                 return {"Angle": self._scene._polygon_rotation_angle_to(point)}
-            if self._scene.mode == "floor":
-                return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": 0.0}

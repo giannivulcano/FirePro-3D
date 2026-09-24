@@ -490,13 +490,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._floor_rect_from_center: bool = False          # corner vs centre rect
         self._floor_rect_anchor: "QPointF | None" = None   # first click for rect floor
         self._floor_rect_preview: "QGraphicsRectItem | None" = None
-        # Rect-floor rotate step (mirrors the wall rect rotate step)
+        # 3-click rect floor (mirrors the wall / 2D rect): base (anchor) → side
+        # (angle + W) → depth (H).  ``_floor_rect_side_pt`` is None while
+        # picking the side, set while picking the depth.  sized_pt1/_pt2/pivot
+        # are filled right before the unchanged ``_commit_floor_rect_rotated``.
+        self._floor_rect_side_pt: "QPointF | None" = None
         self._floor_rect_sized_pt1: "QPointF | None" = None
         self._floor_rect_sized_pt2: "QPointF | None" = None
-        self._floor_rect_rotating: bool = False
         self._floor_rect_pivot: "QPointF | None" = None
-        self._floor_rect_ref_line0: "QGraphicsLineItem | None" = None
-        self._floor_rect_ref_lineA: "QGraphicsLineItem | None" = None
+        self._floor_rect_ref_line0: "QGraphicsLineItem | None" = None   # side guide
         self._geometry_template = None                      # pre-placement template for geometry tools
         # Opening placement (§7.6): unified door/window/blank mode carrying a
         # Feature id + pre-commit cycle state (alignment / hinge / facing).
@@ -1274,9 +1276,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     if self._floor_active in self._floor_slabs:
                         self._floor_slabs.remove(self._floor_active)
                 self._floor_active = None
-            # Rect-floor state (anchor / rotate step / previews / ref guides).
+            # Rect-floor state (anchor / side / previews / side guide).
             self._floor_rect_anchor = None
-            self._floor_rect_rotating = False
+            self._floor_rect_side_pt = None
             self._floor_rect_sized_pt1 = None
             self._floor_rect_sized_pt2 = None
             self._floor_rect_pivot = None
@@ -3935,46 +3937,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._wall_ctl._move_wall_rect(*args, **kwargs)
 
     def _move_floor_rect(self, event, snapped):
-        """Mouse-move preview for the floor rectangle primitive.
+        """Mouse-move preview for the 3-click floor rectangle.
 
-        Rotate step: spins the sized preview rect about the pivot + updates ref
-        guides + publishes the orientation.  Sizing step: updates the
-        axis-aligned preview rect (corner or centre) and publishes the far
-        corner.  Mirrors ``_move_wall_rect`` (minus the wall thickness overlay).
+        Side step: the side guide runs ``base → cursor`` (Ctrl angle-constrains
+        from the base).  Depth step: the dashed ghost is fitted to the rotated
+        rect via ``apply_rect_ghost``.  Mirrors ``_move_wall_rect`` (minus the
+        wall-thickness overlay).
         """
-        sm = self.scale_manager
-        if self._floor_rect_rotating:
-            # Rotate step: spin the sized preview rect about the pivot.
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._floor_rect_pivot is not None):
-                snapped = self._constrain_angle(self._floor_rect_pivot, snapped)
-            angle = self._floor_rect_rotation_angle_to(snapped)
-            if (self._floor_rect_preview is not None
-                    and self._floor_rect_pivot is not None):
-                self._floor_rect_preview.setTransformOriginPoint(self._floor_rect_pivot)
-                self._floor_rect_preview.setRotation(-angle)   # Y-up CCW → Qt CW negate
-            self._update_floor_rect_ref_lines(angle)
-            self.publish_placement_state(self._floor_rect_pivot, snapped)
-            return
-        if self._floor_rect_anchor is None:
-            self.update_preview_node(snapped)
-        else:
-            self.preview_node.hide()
+        from .geometry_2d import rect_side_ghost, apply_rect_ghost
         self.preview_pipe.hide()
-        if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
-            from .geometry_2d import rect_sizing_points
-            anc = self._floor_rect_anchor
-            pt1, pt2 = rect_sizing_points(anc, snapped, self._floor_rect_from_center)
-            rect = QRectF(pt1, pt2).normalized()
-            self._floor_rect_preview.setRect(rect)
-            self._draw_dim_hint = (
-                f"W: {sm.scene_to_display(rect.width())}  "
-                f"H: {sm.scene_to_display(rect.height())}"
-            )
-            self.publish_placement_state(anc, snapped)
+        base = self._floor_rect_anchor
+        if base is None:
+            self.update_preview_node(snapped)
+            return
+        self.preview_node.hide()
+        side = self._floor_rect_side_pt
+        if side is None:
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(base, snapped)
+            if self._floor_rect_ref_line0 is not None:
+                a, b = rect_side_ghost(base, snapped, self._floor_rect_from_center)
+                self._floor_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
+        else:
+            apply_rect_ghost(self._floor_rect_preview, base, side, snapped,
+                             self._floor_rect_from_center)
+        self.publish_placement_state(base, snapped)
 
     def _move_roof(self, event, snapped):
         sm = self.scale_manager
@@ -5919,14 +5907,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _apply_floor_dynamic_input(self, geometry) -> bool:
         """Commit a typed floor placement via the same builders the mouse uses.
 
-        Rect: sizing step advances to the rotate step; rotate step commits the
-        4 rotated corners.  Polygon: routes the resolved point through the
-        vertex press handler.  Mirrors ``_apply_wall_dynamic_input``.
+        Rect: both 3-click steps' schemas resolve to a ``QPointF`` — the side
+        step fixes the first side, the depth step commits.  Polygon: routes the
+        resolved point through the vertex press handler.  Mirrors
+        ``_apply_wall_dynamic_input``.
         """
         if self._floor_primitive == "rect":
-            if self._floor_rect_rotating:
-                return self._commit_floor_rect_rotated(geometry["angle_deg"])
-            return self._advance_floor_rect_to_rotate_step(geometry)
+            if self._floor_rect_side_pt is None:
+                return self._advance_floor_rect_to_depth_step(geometry)
+            return self._commit_floor_rect_depth_at(geometry)
         else:
             self._press_floor(None, geometry, geometry, None, None, None)
         return True
@@ -6020,29 +6009,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     return
             self._floor_active.add_point(snapped)
 
-    # ── Floor rectangle (3-step: anchor → size → rotate) ──────────────────────
+    # ── Floor rectangle (3-click: base → side (angle + W) → depth (H)) ───────
     def _press_floor_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
-        """3-step floor-rectangle placement, mirroring ``_press_wall_rect``.
+        """3-click floor-rectangle placement, mirroring ``_press_wall_rect``.
 
-        Step 1 (no anchor): store anchor, create dashed preview.
-        Step 2 (anchor set, not rotating): advance to rotate step.
-        Step 3 (rotating): commit ONE 4-corner FloorSlab at the rotation angle.
+        1st click: base (anchor) + dashed ghost + side guide.
+        2nd click: fix the first side (``_advance_floor_rect_to_depth_step``).
+        3rd click: fix the depth and commit ONE FloorSlab
+            (``_commit_floor_rect_depth_at``).
         """
-        if self._floor_rect_rotating:
-            # Third click: commit at the pivot→cursor heading.
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._floor_rect_pivot is not None):
-                snapped = self._constrain_angle(self._floor_rect_pivot, snapped)
-            self._commit_floor_rect_rotated(
-                self._floor_rect_rotation_angle_to(snapped))
-        elif self._floor_rect_anchor is None:
-            # First click: store anchor, show dashed preview rect.
-            self._floor_rect_anchor = snapped
+        if self._floor_rect_anchor is None:
+            self._floor_rect_anchor = QPointF(snapped)
             self.update_preview_node(snapped)
-            _instr = ("Pick corner (from centre)" if self._floor_rect_from_center
-                      else "Pick opposite corner for rectangular floor")
-            self.instructionChanged.emit(_instr)
+            self.instructionChanged.emit(
+                "Pick edge midpoint (width + angle)" if self._floor_rect_from_center
+                else "Pick first side (direction + width)")
             _ftmpl = self._get_floor_template()
             _fc = QColor(_ftmpl._color)
             pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
@@ -6054,46 +6035,67 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             preview.setZValue(200)
             self.addItem(preview)
             self._floor_rect_preview = preview
+            self._clear_floor_rect_ref_lines()
+            self._floor_rect_ref_line0 = self._make_ref_line()   # side guide
+            self._floor_rect_ref_line0.setLine(snapped.x(), snapped.y(),
+                                               snapped.x(), snapped.y())
+        elif self._floor_rect_side_pt is None:
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(self._floor_rect_anchor, snapped)
+            self._advance_floor_rect_to_depth_step(snapped)
         else:
-            # Second click: size the axis-aligned rect and enter rotate step.
-            self._advance_floor_rect_to_rotate_step(snapped)
+            self._commit_floor_rect_depth_at(snapped)
 
-    def _floor_rect_rotation_angle_to(self, cursor) -> float:
-        """Return Y-up degrees from +x (pivot → cursor).  Falls back to 0°."""
-        piv = self._floor_rect_pivot
-        if piv is None:
-            return 0.0
-        return math.degrees(math.atan2(-(cursor.y() - piv.y()),
-                                       cursor.x() - piv.x()))
+    def _advance_floor_rect_to_depth_step(self, side_pt) -> bool:
+        """Fix the first side and enter the depth step.
 
-    def _advance_floor_rect_to_rotate_step(self, corner) -> bool:
-        """Advance the armed floor rect from sizing to rotate step.
+        Shared by the mouse second click and the ``rect_side*`` HUD applier.
 
-        Mirrors ``_advance_wall_rect_to_rotate_step``.  Computes the axis-aligned
-        pt1/pt2 via ``rect_sizing_points``, rejects extents <0.5, stores state,
-        snaps the preview rect, creates ref guides, emits instruction.
+        Returns:
+            True when the side was fixed, False when refused (no base, or a
+            FULL side under 0.5 mm — the placement stays at the side step).
         """
-        from .geometry_2d import rect_sizing_points
-        anc = self._floor_rect_anchor
-        if anc is None:
+        from .geometry_2d import rect_side_ghost
+        base = self._floor_rect_anchor
+        if base is None:
             return False
-        pt1, pt2 = rect_sizing_points(anc, corner, self._floor_rect_from_center)
-        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
-            self._show_status("Floor rectangle too small — skipped", timeout=2000)
+        length = math.hypot(side_pt.x() - base.x(), side_pt.y() - base.y())
+        if (2 * length if self._floor_rect_from_center else length) < 0.5:
+            self._show_status("Floor rectangle side too small — pick again",
+                              timeout=2000)
             return False
-        self._floor_rect_sized_pt1 = pt1
-        self._floor_rect_sized_pt2 = pt2
-        self._floor_rect_pivot = QPointF(anc)
-        self._floor_rect_rotating = True
-        if self._floor_rect_preview is not None:
-            self._floor_rect_preview.setRect(QRectF(pt1, pt2).normalized())
-        self._clear_floor_rect_ref_lines()
-        self._floor_rect_ref_line0 = self._make_ref_line()
-        self._floor_rect_ref_lineA = self._make_ref_line()
-        self._update_floor_rect_ref_lines(0.0)
+        self._floor_rect_side_pt = QPointF(side_pt)
+        if self._floor_rect_ref_line0 is not None:
+            a, b = rect_side_ghost(base, side_pt, self._floor_rect_from_center)
+            self._floor_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
         self.clear_placement_state()
-        self.instructionChanged.emit("Pick rotation / type angle")
+        self.instructionChanged.emit("Pick depth (second side)")
         return True
+
+    def _commit_floor_rect_depth_at(self, cursor) -> bool:
+        """Fix the depth from *cursor* and commit the floor slab.
+
+        Shared by the mouse third click and the ``rect_depth*`` HUD applier.
+
+        Returns:
+            True when committed, False when refused (unarmed, or a FULL extent
+            under 0.5 mm — the placement stays at the depth step).
+        """
+        from .geometry_2d import rect_signed_depth, rect_from_side_and_depth
+        base, side = self._floor_rect_anchor, self._floor_rect_side_pt
+        if base is None or side is None:
+            return False
+        sol = rect_from_side_and_depth(base, side,
+                                       rect_signed_depth(base, side, cursor),
+                                       self._floor_rect_from_center)
+        if sol is None:
+            self._show_status("Floor rectangle too small — pick again", timeout=2000)
+            return False
+        pt1, pt2, ang, piv = sol
+        self._floor_rect_sized_pt1, self._floor_rect_sized_pt2 = pt1, pt2
+        self._floor_rect_pivot = piv
+        return self._commit_floor_rect_rotated(ang)
 
     def _commit_floor_rect_rotated(self, angle_deg) -> bool:
         """Commit the sized floor rectangle rotated to ``angle_deg`` about its pivot.
@@ -6130,7 +6132,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Reset all rect state (re-arm continuous placement).
         _from_centre = self._floor_rect_from_center
         self._floor_rect_anchor = None
-        self._floor_rect_rotating = False
+        self._floor_rect_side_pt = None
         self._floor_rect_sized_pt1 = None
         self._floor_rect_sized_pt2 = None
         self._floor_rect_pivot = None
@@ -6142,36 +6144,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return True
 
     def _clear_floor_rect_ref_lines(self) -> None:
-        """Remove floor-rect rotate-step reference guides from the scene."""
-        for attr in ("_floor_rect_ref_line0", "_floor_rect_ref_lineA"):
-            line = getattr(self, attr, None)
-            if line is not None:
-                if line.scene() is self:
-                    self.removeItem(line)
-                setattr(self, attr, None)
-
-    def _update_floor_rect_ref_lines(self, angle_deg) -> None:
-        """Point the two floor-rect rotate-step guides from the pivot.
-
-        Mirrors ``_update_wall_rect_ref_lines``: a 0° datum + the live sweep line
-        at ``angle_deg``, both diagonal-length so they frame the sized rectangle.
-        A no-op until both guides and the sized rect exist.
-        """
-        piv = self._floor_rect_pivot
-        if (piv is None or self._floor_rect_ref_line0 is None
-                or self._floor_rect_ref_lineA is None
-                or self._floor_rect_sized_pt1 is None
-                or self._floor_rect_sized_pt2 is None):
-            return
-        p1, p2 = self._floor_rect_sized_pt1, self._floor_rect_sized_pt2
-        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
-        rad = math.radians(angle_deg)
-        self._floor_rect_ref_line0.setLine(piv.x(), piv.y(),
-                                           piv.x() + length, piv.y())
-        self._floor_rect_ref_lineA.setLine(
-            piv.x(), piv.y(),
-            piv.x() + length * math.cos(rad),
-            piv.y() - length * math.sin(rad))   # Y-up: subtract sin
+        """Remove the floor-rect side guide from the scene."""
+        line = self._floor_rect_ref_line0
+        if line is not None:
+            if line.scene() is self:
+                self.removeItem(line)
+            self._floor_rect_ref_line0 = None
 
     # ── Detail view placement ──────────────────────────────────────────
 
