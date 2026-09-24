@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-23
-verified-commit: d31bfda
+last-verified: 2026-09-24
+verified-commit: 62683b9
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py

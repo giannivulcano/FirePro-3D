@@ -1,7 +1,7 @@
 ---
 status: partial            # current: as-built composition §2/§3 ; proposal: target decomposition §5/§6
-last-verified: 2026-09-23
-verified-commit: d31bfda   # 2026-09-23 touch: wall-rect rotate-step historical note only (arc/rect grip polish). Prior 5cd5941: + Containment contract LANDED (C1/C5/C7/C8 prior + C3 this session): plan Model_Space is placement-only via scene_role+authoring_allowed; file path clean-drops loose content; 2D primitives are definition-local/level-less. Prior decomposition: Feature-placement (slice 11), Wall-placement (slice 10), Arc+Polygon (slice 9), slice 8 (Line/Rect/Circle/Polyline), Placement-input (slice 7), Sprinkler/DA/hydraulic (slice 6), Pipe/Node (slice 5), slices 1 (A+C), 2 (B), 4a+4b (codec), Underlay
+last-verified: 2026-09-24
+verified-commit: 62683b9   # 2026-09-23 touch: wall-rect rotate-step historical note only (arc/rect grip polish). Prior 5cd5941: + Containment contract LANDED (C1/C5/C7/C8 prior + C3 this session): plan Model_Space is placement-only via scene_role+authoring_allowed; file path clean-drops loose content; 2D primitives are definition-local/level-less. Prior decomposition: Feature-placement (slice 11), Wall-placement (slice 10), Arc+Polygon (slice 9), slice 8 (Line/Rect/Circle/Polyline), Placement-input (slice 7), Sprinkler/DA/hydraulic (slice 6), Pipe/Node (slice 5), slices 1 (A+C), 2 (B), 4a+4b (codec), Underlay
 related-contract: model-space-containment-contract.md   # AUGMENTS this spec — governs the C1 containment invariant + C8 loose-path deletion (LANDED; not superseded)
 applies-to:
   - firepro3d/model_space.py

@@ -7,7 +7,7 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
 last-verified: 2026-09-24
-verified-commit: 4e48885
+verified-commit: 62683b9
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -57,7 +57,7 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 | `LineItem` | `QGraphicsLineItem` | finite 2-point line |
 | `ReferenceLineItem` | `LineItem` | **non-printing** finite reference/construction line (per-item `printed` flag) |
 | `PolylineItem` | `QGraphicsPathItem` | multi-segment polyline, **open or closed** |
-| `RectangleItem` | `QGraphicsRectItem` | axis-aligned rect + optional rotation |
+| `RectangleItem` | `QGraphicsRectItem` | axis-aligned local rect + rotation as data (`_angle`/`_pivot`); every consumer must honour it — `mapToScene`/`mapFromScene`/`mapToParent`/`mapRectToScene` are overridden, and block compile, mirror/scale/explode/offset go through the rotated corners |
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
 | `ArcItem` | `QGraphicsPathItem` | centre + radius + start/span (stored CCW, span > 0) |
 | `RegularPolygonItem` | `QGraphicsPathItem` | **parametric** regular N-gon |

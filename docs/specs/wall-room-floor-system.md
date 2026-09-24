@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-09-23
-verified-commit: d31bfda
+last-verified: 2026-09-24
+verified-commit: 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
