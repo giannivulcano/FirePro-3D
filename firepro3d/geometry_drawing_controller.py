@@ -821,20 +821,18 @@ class GeometryDrawingController:
     #    ref-line factory _make_ref_line stays scene-side) ─────────────────────
 
     def _set_arc_ref_lines(self) -> None:
-        """Place the span-step arc guides: a 0° datum + the start-angle radial.
+        """Place the span-step start-angle radial (centre → start point).
 
-        Both are static through the span step (radius and start angle are fixed;
-        only the sweep changes), so this runs once at the step-1→2 transition.
-        The arc sweep runs from the start radial, so together they read as a
-        protractor.  A no-op until the centre and both guides exist.
+        Static through the span step (radius and start angle are fixed; only
+        the sweep changes), so this runs once at the step-1→2 transition. With
+        the live sweep radial it traces the two centre→endpoint radials — no 0°
+        datum (user 2026-09-24).  A no-op until the centre and guide exist.
         """
         s = self._scene
         c = s._draw_arc_center
-        if (c is None or s._draw_arc_ref_line0 is None
-                or s._draw_arc_ref_start is None):
+        if c is None or s._draw_arc_ref_start is None:
             return
         cx, cy, r = c.x(), c.y(), s._draw_arc_radius
-        s._draw_arc_ref_line0.setLine(cx, cy, cx + r, cy)   # 0° datum
         sr = math.radians(s._draw_arc_start_deg)            # Y-up
         s._draw_arc_ref_start.setLine(
             cx, cy, cx + r * math.cos(sr), cy - r * math.sin(sr))
@@ -989,10 +987,9 @@ class GeometryDrawingController:
             s.removeItem(s._draw_arc_radius_line)
             s._draw_arc_radius_line = None
         self._make_arc_preview_path()
-        # Span-step angle guides: 0° datum + start radial (static) + a live sweep
-        # radial that tracks the cursor.
+        # Span-step guides: the start radial (static) + a live sweep radial that
+        # tracks the cursor — the two centre→endpoint radials, no 0° datum.
         self._clear_arc_ref_lines()
-        s._draw_arc_ref_line0 = s._make_ref_line()
         s._draw_arc_ref_start = s._make_ref_line()
         s._draw_arc_ref_sweep = s._make_ref_line()
         self._set_arc_ref_lines()

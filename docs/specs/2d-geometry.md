@@ -263,7 +263,7 @@ Guards: `tests/test_block_curve_import.py`.
 ## 3.6 Reference lines (placement + selection guides) — invariant
 
 A **reference line** is the canonical dashed guide the 2D-geometry tools use to
-show *defining geometry* — axes, radii, control polygons, the 0° datum / sweep
+show *defining geometry* — axes, radii, control polygons, the centre→endpoint / sweep
 radials. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
 in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 `setCosmetic(True)`). The scene-side factory `Model_Space._make_ref_line()` /
