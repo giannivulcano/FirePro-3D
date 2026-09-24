@@ -103,8 +103,7 @@ class PlacementInputCoordinator:
             return s._draw_rect_anchor is None
         if s.mode == "wall":
             return (s._wall_anchor is None
-                    and s._wall_rect_anchor is None
-                    and not s._wall_rect_rotating)
+                    and s._wall_rect_anchor is None)
         if s.mode == "floor":
             return (s._floor_active is None
                     and s._floor_rect_anchor is None
@@ -623,10 +622,7 @@ class PlacementInputCoordinator:
                                   and a is not None) else None
         if self._scene.mode == "wall":
             if self._scene._wall_primitive == "rect":
-                # Rotate step: pivot is the anchor.
-                if self._scene._wall_rect_rotating:
-                    p = self._scene._wall_rect_pivot
-                    return QPointF(p) if p is not None else None
+                # 3-click rect: the base anchors both the side and depth steps.
                 a = self._scene._wall_rect_anchor
                 return QPointF(a) if a is not None else None
             a = self._scene._wall_anchor
@@ -762,8 +758,7 @@ class PlacementInputCoordinator:
         if s.mode == "draw_rectangle":
             return s._draw_rect_anchor, s._draw_rect_side_pt, s._draw_rect_from_center
         if s.mode == "wall" and s._wall_primitive == "rect":
-            return (s._wall_rect_anchor, getattr(s, "_wall_rect_side_pt", None),
-                    s._wall_rect_from_center)
+            return s._wall_rect_anchor, s._wall_rect_side_pt, s._wall_rect_from_center
         if s.mode == "floor" and s._floor_primitive == "rect":
             return (s._floor_rect_anchor, getattr(s, "_floor_rect_side_pt", None),
                     s._floor_rect_from_center)
@@ -853,16 +848,13 @@ class PlacementInputCoordinator:
     def _wall_schema_for_primitive(self):
         """HUD schema for the active wall primitive.
 
-        Line/polyline → ``line`` schema.  Rect → step-aware: sizing step uses
-        ``rectangle`` schema; rotate step uses ``rotation`` schema (mirrors
-        ``_rectangle_schema_for_step``).
+        Line/polyline → ``line`` schema.  Rect → the 3-click rect's side- or
+        depth-step schema (``_rect3_schema``; mirrors
+        ``_rectangle_schema_for_step``), picked by ``_wall_rect_side_pt``.
         """
         if self._scene._wall_primitive == "rect":
-            if self._scene._wall_rect_rotating:
-                return SCHEMAS.get("rotation")
-            if self._scene._wall_rect_from_center:
-                return SCHEMAS.get("rectangle_center")
-            return SCHEMAS.get("rectangle")
+            return self._rect3_schema(self._scene._wall_rect_side_pt is not None,
+                                      self._scene._wall_rect_from_center)
         return SCHEMAS.get("line")
 
     def _floor_schema_for_primitive(self):
@@ -1063,8 +1055,6 @@ class PlacementInputCoordinator:
                 return {"Angle": 0.0}
             if self._scene.mode == "polygon":
                 return {"Angle": self._scene._polygon_rotation_angle_to(point)}
-            if self._scene.mode == "wall":
-                return {"Angle": self._scene._wall_rect_rotation_angle_to(point)}
             if self._scene.mode == "floor":
                 return {"Angle": self._scene._floor_rect_rotation_angle_to(point)}
             if self._scene.mode == "place_block":

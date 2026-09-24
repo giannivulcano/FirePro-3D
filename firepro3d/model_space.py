@@ -475,14 +475,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._wall_rect_anchor: "QPointF | None" = None   # first click for rect wall
         self._wall_rect_preview: "QGraphicsRectItem | None" = None
         self._wall_rect_thickness_preview: "QGraphicsPathItem | None" = None
-        # Rect-wall rotate step (mirrors 2D-geo draw_rectangle rotate step)
+        # 3-click rect wall (mirrors the 2D draw_rectangle): base (anchor) →
+        # side (angle + W) → depth (H).  ``_wall_rect_side_pt`` is None while
+        # picking the side, set while picking the depth.  sized_pt1/_pt2/pivot
+        # are filled right before the unchanged ``_commit_wall_rect_rotated``.
         self._wall_rect_from_center: bool = False
-        self._wall_rect_rotating: bool = False
+        self._wall_rect_side_pt: "QPointF | None" = None
         self._wall_rect_sized_pt1: "QPointF | None" = None
         self._wall_rect_sized_pt2: "QPointF | None" = None
         self._wall_rect_pivot: "QPointF | None" = None
-        self._wall_rect_ref_line0: "QGraphicsLineItem | None" = None
-        self._wall_rect_ref_lineA: "QGraphicsLineItem | None" = None
+        self._wall_rect_ref_line0: "QGraphicsLineItem | None" = None   # side guide
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
         self._floor_primitive: str = "rect"                 # variant for floor mode: "rect"|"polygon"
         self._floor_rect_from_center: bool = False          # corner vs centre rect
@@ -2804,12 +2806,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # exactly like polyline (the applier appends a control point).
         "draw_spline": "line",
         # wall is intentionally absent — active_schema special-cases it per
-        # primitive (line/polyline → ``line``, rect → ``rectangle``), mirroring
-        # the draw_rectangle / draw_arc pattern.
+        # primitive (line/polyline → ``line``, rect → the 3-click
+        # ``rect_side*`` / ``rect_depth*`` pair), mirroring draw_rectangle.
         "pipe": "line",
         # draw_rectangle is intentionally absent — active_schema special-cases
-        # it per step (sizing → ``rectangle``, rotate → ``rotation``), the same
-        # way draw_arc is.
+        # it per step (side → ``rect_side*``, depth → ``rect_depth*``), the
+        # same way draw_arc is.
         # polygon is also intentionally absent — active_schema special-cases it
         # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
@@ -5762,11 +5764,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_wall_rect(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
         return self._wall_ctl._press_wall_rect(*args, **kwargs)
 
-    def _wall_rect_rotation_angle_to(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
-        return self._wall_ctl._wall_rect_rotation_angle_to(*args, **kwargs)
-
-    def _advance_wall_rect_to_rotate_step(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
-        return self._wall_ctl._advance_wall_rect_to_rotate_step(*args, **kwargs)
 
     # ── Block placement (Block S2 T3) ────────────────────────────────────────
     # A 2-step position→rotate machine mirroring wall_rect.  Step 0 locks the
@@ -5840,8 +5837,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Point the two rotate-step guides from the locked anchor.
 
         A 0° datum (horizontal from the anchor) plus a live sweep line to the
-        cursor, so the angle between them reads like a protractor — mirrors
-        ``_update_wall_rect_ref_lines``. No-op until both guides exist.
+        cursor, so the angle between them reads like a protractor. No-op until
+        both guides exist.
         """
         piv = self._place_block_anchor
         if (piv is None or self._place_block_ref_line0 is None
