@@ -6,8 +6,9 @@ Three goals (no production code modified):
      that edits on every on_drag() call and never uses the held-preview _apply.
   2. An item exposing manip_handles() -> [Handle] makes _active_handles() return
      that handle and a pooled _HandleItem host renders+hit-tests it.
-  3. A single box-native RectangleItem is manipulator-owned via
-     _is_box_native_single (rigid resize set, not its parametric grips).
+  3. A single box-native (scale-capable) item is manipulator-owned via
+     _is_box_native_single (rigid resize set, not its parametric grips);
+     a RectangleItem is not box-native (it always shows its own grips).
 """
 import pytest
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -128,7 +129,7 @@ def test_lifecycle_admits_live_apply(qapp, scene_and_view):
 
     scene, view = scene_and_view
 
-    # A selectable rect with manip_scale (box-native) so rebake keeps it.
+    # A selectable rect so rebake keeps it in the selection.
     r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
     scene.addItem(r)
     r.setSelected(True)
@@ -249,30 +250,62 @@ def test_manip_handles_sourced_and_hosted(qapp, scene_and_view):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: box-native ownership for a single RectangleItem
+# Test 3: box-native ownership for a single scale-capable item
 # ---------------------------------------------------------------------------
+# Migrated (arc-rect-grip-polish Task 9): RectangleItem is no longer box-native
+# (it dropped manip_scale and always shows its own 9 grips), so the ownership
+# contract is exercised with a minimal scale-capable fake, and the rect's
+# non-ownership is asserted alongside.
+
+class _BoxNativeFake(QGraphicsRectItem):
+    """Selectable, scale-capable item that ALSO provides a parametric handle —
+    box-native ownership must return the rigid set, not this handle."""
+
+    def __init__(self, rect):
+        super().__init__(rect)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.provided = object()
+
+    def translate(self, dx, dy):
+        self.setRect(self.rect().translated(dx, dy))
+
+    def manip_scale(self, fx, fy, anchor):
+        pass
+
+    def manip_handles(self):
+        return [self.provided]
+
 
 def test_box_native_ownership(qapp, scene_and_view):
-    """A single RectangleItem (which has manip_scale) is manipulator-owned:
-    _is_box_native_single(r) is True, so _active_handles returns the rigid
-    resize set rather than the item's parametric grips.
-    """
+    """A single scale-capable (box-native) item is manipulator-owned:
+    _is_box_native_single is True, so _active_handles returns the rigid resize
+    set rather than the item's parametric grips. A RectangleItem is NOT."""
     from firepro3d.geometry_2d import RectangleItem
     from firepro3d.selection_manipulator import SelectionManipulator
 
     scene, view = scene_and_view
 
-    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
-    scene.addItem(r)
-    r.setSelected(True)
+    f = _BoxNativeFake(QRectF(100, 100, 100, 50))
+    scene.addItem(f)
+    f.setSelected(True)
     qapp.processEvents()
 
     manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
     manip.rebake()
     qapp.processEvents()
 
-    # The manipulator must claim ownership of r's handles.
-    assert manip._is_box_native_single(r), (
-        "_is_box_native_single(r) returned False — manipulator should own "
-        "a single box-native (manip_scale) RectangleItem's handles"
+    assert manip._is_box_native_single(f), (
+        "_is_box_native_single(f) returned False — manipulator should own "
+        "a single box-native (manip_scale) item's handles"
     )
+    active = manip._active_handles()
+    assert f.provided not in active
+    assert set(map(id, active)) == set(map(id, manip._rigid.values()))
+
+    scene.clearSelection()
+    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip.rebake()
+    assert not manip._is_box_native_single(r)

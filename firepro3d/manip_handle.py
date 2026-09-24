@@ -355,7 +355,7 @@ class GripHandle(Handle):
         pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
         pt = self._transform_point(m, pt, mods)         # hook: Ctrl-constrain
         self._last_pt = QPointF(pt)                     # AC6: track for on_release dedup
-        self.item.apply_grip(self.index, pt)
+        self._apply(pt, mods)                           # hook: press-time/modifier apply
         applied = self.item.grip_points()[self.index]
         self._after_apply(m, applied)                   # hook: sibling / propagation
         tools = getattr(sc, "_tools", None)
@@ -379,7 +379,7 @@ class GripHandle(Handle):
             # release position, so pt == last -> skip (avoids a double
             # _after_apply for future sibling-propagation overrides). AC6.
             if pt != getattr(self, "_last_pt", None):
-                self.item.apply_grip(self.index, pt)
+                self._apply(pt, mods)
                 self._after_apply(m, self.item.grip_points()[self.index])
         self._clear_grip_state(sc)
         m._end_drag()
@@ -407,6 +407,12 @@ class GripHandle(Handle):
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
         return pt
 
+    def _apply(self, pt: QPointF, mods) -> None:
+        """Apply the (snapped, transformed) drag point. Subclasses override to
+        use press-time state / modifiers (e.g. RectGripHandle). NOT used by
+        on_cancel, which restores the snapshot via ``apply_grip`` directly."""
+        self.item.apply_grip(self.index, pt)
+
     def _after_apply(self, m, applied_pt: QPointF) -> None:
         pass
 
@@ -420,6 +426,34 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+
+
+class RectGripHandle(GripHandle):
+    """A ``RectangleItem`` grip: local-frame resize from the PRESS-time rect,
+    Ctrl = symmetric about the centre, Shift = keep aspect (corners). Angle and
+    pivot are untouched. Esc restores the whole rect (both sides may move).
+
+    The scene→local mapping uses the PRESS-time inverse rotation, so a
+    centre-following pivot (``_pivot is None``) that shifts as the rect resizes
+    cannot skew the local frame mid-drag."""
+
+    def _extra_snapshots(self, m) -> None:
+        self._r0 = QRectF(self.item.rect())
+        inv, ok = self.item._rotation_transform().inverted()
+        self._inv0 = inv if ok else QTransform()
+
+    def _apply(self, pt: QPointF, mods) -> None:
+        from .geometry_2d import rect_grip_resize
+        it = self.item
+        it.prepareGeometryChange()
+        it.setRect(rect_grip_resize(
+            self._r0, self.index, self._inv0.map(QPointF(pt)),
+            bool(mods & Qt.KeyboardModifier.ControlModifier),
+            bool(mods & Qt.KeyboardModifier.ShiftModifier)))
+
+    def _restore_extra(self, m) -> None:
+        self.item.prepareGeometryChange()
+        self.item.setRect(QRectF(self._r0))
 
 
 class EndpointGripHandle(GripHandle):

@@ -511,7 +511,7 @@ class SelectionManipulator(QGraphicsObject):
 
     def _is_box_native_single(self, item: QGraphicsItem) -> bool:
         """True when *item* is the sole selection AND scale-capable (box-native,
-        like RectangleItem): the manipulator shows its own rigid RESIZE handles
+        like a text annotation or paper viewport): the manipulator shows its own rigid RESIZE handles
         instead of the item's parametric grips, and draws no redundant frame
         (the item's own outline IS the box).  Parametric items (no
         ``manip_scale``) surface their grips inside the frame.
@@ -654,7 +654,7 @@ class SelectionManipulator(QGraphicsObject):
         return hits
 
     def _frame_is_redundant(self) -> bool:
-        """A single box-native item (rect/text/viewport) whose own outline IS
+        """A single box-native item (text/viewport) whose own outline IS
         the bounding box — drawing the frame just traces the shape.  Show the
         handles alone (PowerPoint/Figma style); keep the frame for multi-select
         and non-box shapes, where the bounding box adds information."""
@@ -765,17 +765,15 @@ class SelectionManipulator(QGraphicsObject):
         box-native single item (``_is_box_native_single``), else the item-provided
         grips (U3), else the rigid set (fallback).
 
-        The box-native branch is what keeps a RectangleItem showing its 8 resize
-        handles + rotate knob (not its 9 parametric grips) while UNROTATED — a
-        rect provides ``manip_handles`` for the unified coexistence gate, but its
-        grips must not double up with the resize handles. A ROTATED rect drops
-        ``scale`` → not box-native → its parametric grips surface (live-apply,
-        local-frame resize)."""
+        The box-native branch keeps a scale-capable item (e.g. a text
+        annotation) showing its rigid resize handles instead of any parametric
+        grips it provides, so the two sets never double up. A RectangleItem is
+        NOT box-native (no ``scale``): it always shows its own 9 local-frame
+        grips (``RectGripHandle``) at every angle."""
         if len(self._items) == 1 and self._is_box_native_single(self._items[0]):
             handles = list(self._rigid.values())
-            # A box-native item may add handles the rigid resize set lacks — e.g.
-            # RectangleItem's centre MOVE grip — so the centre handle is present
-            # for the unrotated rect too (not only the rotated parametric path).
+            # A box-native item may add handles the rigid resize set lacks (e.g.
+            # a text annotation's extra grips via manip_box_extra_handles).
             extra = getattr(self._items[0], "manip_box_extra_handles", None)
             if extra is not None:
                 handles.extend(extra())
