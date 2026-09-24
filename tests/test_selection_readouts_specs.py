@@ -452,3 +452,32 @@ def test_pure_setters_push_no_undo(qapp, make, setter, val, check):
     getattr(it, setter)(val)
     assert check(it) == pytest.approx(val)
     assert s._undo_pos == pos0
+
+
+@pytest.mark.parametrize("make,key,val,check", [
+    (lambda: LineItem(QPointF(0, 0), QPointF(100, 0)), "Length", 250.0,
+     lambda it: it.line().length()),
+    (lambda: RectangleItem(QPointF(0, 0), QPointF(100, 50)), "Width", 80.0,
+     lambda it: it.rect().width()),
+    (lambda: RectangleItem(QPointF(0, 0), QPointF(100, 50)), "Height", 30.0,
+     lambda it: it.rect().height()),
+    (lambda: CircleItem(QPointF(0, 0), 100.0), "Radius", 60.0, lambda it: it._radius),
+    (lambda: ArcItem(QPointF(0, 0), 100.0, 0.0, 90.0), "Radius", 70.0, lambda it: it._radius),
+    (lambda: ArcItem(QPointF(0, 0), 100.0, 0.0, 90.0), "Span", 200.0, lambda it: it._span_deg),
+])
+def test_panel_rows_editable_and_undoable(qapp, make, key, val, check):
+    s = Model_Space(scene_role="block_editor")
+    it = make()
+    s.addItem(it)
+    s.push_undo_state()                       # baseline
+    row = it.get_properties()[key]
+    assert row["type"] == "dimension"
+    pos0 = s._undo_pos
+    it.set_property(key, val)
+    assert check(it) == pytest.approx(val)
+    assert s._undo_pos == pos0 + 1            # exactly one undo step
+
+
+def test_span_row_formats_unsigned(qapp):
+    a = ArcItem(QPointF(0, 0), 100.0, 0.0, 270.0)
+    assert a.get_properties()["Span"]["value"] == "270°"

@@ -20,6 +20,7 @@ from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker
                          QPolygonF, QTransform)
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import PATTERN_NAMES
+from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
@@ -584,12 +585,19 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
             "Type": {"type": "label", "value": "Line"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
-            "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
+            "Length": {"type": "dimension", "value": self._fmt(self.line().length()),
+                       "value_mm": self.line().length(), "minimum": 0.0},
         }
         props.update(self._geom2d_properties())
         return props
 
     def set_property(self, key: str, value):
+        if key == "Length":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_length(v)
+                self._push_undo()
+            return
         if self._geom2d_set(key, value):
             return
 
@@ -769,7 +777,8 @@ class ReferenceLineItem(LineItem):
         props = {
             "Type": {"type": "label", "value": "Reference Line"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
+            "Length": {"type": "dimension", "value": self._fmt(self.line().length()),
+                       "value_mm": self.line().length(), "minimum": 0.0},
             "Printed": {"type": "toggle", "value": bool(self.printed)},
         }
         props.update(self._geom2d_properties())
@@ -779,6 +788,12 @@ class ReferenceLineItem(LineItem):
         if key == "Printed":
             self.printed = bool(value)
             self.update()
+            return
+        if key == "Length":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_length(v)
+                self._push_undo()
             return
         if self._geom2d_set(key, value):
             return
@@ -953,8 +968,10 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         r = self.rect()
         props = {
             "Type": {"type": "label", "value": "Rectangle"},
-            "Width": {"type": "label", "value": f"{r.width():.1f}"},
-            "Height": {"type": "label", "value": f"{r.height():.1f}"},
+            "Width": {"type": "dimension", "value": self._fmt(r.width()),
+                      "value_mm": r.width(), "minimum": 0.0},
+            "Height": {"type": "dimension", "value": self._fmt(r.height()),
+                       "value_mm": r.height(), "minimum": 0.0},
             "Angle": {"type": "label", "value": f"{self._angle:.1f}"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
@@ -963,6 +980,18 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         return props
 
     def set_property(self, key: str, value):
+        if key == "Width":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_width(v)
+                self._push_undo()
+            return
+        if key == "Height":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_height(v)
+                self._push_undo()
+            return
         if self._geom2d_set(key, value):
             return
 
@@ -1287,7 +1316,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         props = {
             "Type": {"type": "label", "value": "Circle"},
             "Centre": {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
-            "Radius": {"type": "label", "value": f"{self._radius:.1f}"},
+            "Radius": {"type": "dimension", "value": self._fmt(self._radius),
+                       "value_mm": self._radius, "minimum": 0.0},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
@@ -1295,6 +1325,12 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         return props
 
     def set_property(self, key: str, value):
+        if key == "Radius":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_radius(v)
+                self._push_undo()
+            return
         if self._geom2d_set(key, value):
             return
 
@@ -1514,9 +1550,14 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         props = {
             "Type":        {"type": "label", "value": "Arc"},
             "Centre":      {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
-            "Radius":      {"type": "label", "value": f"{self._radius:.1f}"},
+            "Radius":      {"type": "dimension", "value": self._fmt(self._radius),
+                            "value_mm": self._radius, "minimum": 0.0},
             "Start Angle": {"type": "label", "value": f"{self._start_deg:.1f}°"},
-            "Span":        {"type": "label", "value": f"{self._span_deg:.1f}°"},
+            "Span":        {"type": "dimension",
+                            "value": ScaleManager.format_span(self._span_deg),
+                            "value_mm": self._span_deg,
+                            "parser": ScaleManager.parse_span,
+                            "formatter": ScaleManager.format_span, "minimum": 0.0},
             "Colour":      {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
@@ -1524,6 +1565,21 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         return props
 
     def set_property(self, key: str, value):
+        if key == "Radius":
+            v = self._parse_dim(value)
+            if v is not None and v > 0:
+                self.set_radius(v)
+                self._push_undo()
+            return
+        if key == "Span":
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                return
+            if math.isfinite(v) and 0 < v < 360:
+                self.set_span(v)
+                self._push_undo()
+            return
         if self._geom2d_set(key, value):
             return
 
