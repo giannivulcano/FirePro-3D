@@ -112,3 +112,92 @@ def test_arrowheads_point_outward_at_0_and_90():
                         tip.y() - ty * constants.SELDIM_ARROW_PX)
         # base is off the reference arc, at a larger radius than the tip
         assert math.hypot(base.x() - C.x(), base.y() - C.y()) > r
+
+
+# ── Task 14: pixel-sampled render in both themes (real Block Editor scene) ──
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication
+from firepro3d import theme as th_mod
+from firepro3d.model_space import Model_Space
+from firepro3d.model_view import Model_View
+from firepro3d.scale_manager import ScaleManager
+from firepro3d.geometry_2d import LineItem, ArcItem
+
+
+def _near(c, t, tol=60):
+    return (abs(c.red() - t.red()) <= tol and abs(c.green() - t.green()) <= tol
+            and abs(c.blue() - t.blue()) <= tol)
+
+
+def _count(img, rect, target):
+    n = 0
+    for x in range(max(0, int(rect.left())), min(img.width(), int(rect.right()))):
+        for y in range(max(0, int(rect.top())), min(img.height(), int(rect.bottom()))):
+            if _near(img.pixelColor(x, y), target):
+                n += 1
+    return n
+
+
+@pytest.fixture(params=["DARK", "LIGHT"])
+def themed_be(request, qapp, monkeypatch):
+    t = getattr(th_mod, request.param)
+    monkeypatch.setattr(th_mod, "detect", lambda: t)
+    sc = Model_Space(scene_role="block_editor")
+    sc.scale_manager = ScaleManager()
+    # Without the app's stylesheet the bare view paints the platform palette
+    # (#1e1e1e in BOTH themes), which is within tolerance of LIGHT ink
+    # (#1c2024): every background pixel would count as "ink". Paint the
+    # theme's canvas ground instead, as the app canvas does.
+    sc.setBackgroundBrush(QBrush(QColor(t.canvas_bg)))
+    v = Model_View(sc)
+    v.resize(700, 500)
+    v.show()
+    QTest.qWaitForWindowExposed(v)
+    v.resetTransform()
+    v.centerOn(0, 0)
+    sc.set_mode("select")
+    # Non-vacuity: the canvas background must not itself read as ink/muted.
+    bg = v.viewport().grab().toImage().pixelColor(3, 3)
+    assert not _near(bg, t.color("ink")) and not _near(bg, t.color("muted")), bg.name()
+    yield v, sc, t
+    sc.cleanup()
+    v.close()
+    v.deleteLater()
+    QApplication.processEvents()
+
+
+def test_label_ink_pixels_only_when_selected(themed_be):
+    v, sc, t = themed_be
+    ln = LineItem(QPointF(-200, 100), QPointF(200, 100), color="#808080")
+    sc.addItem(ln)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    lay = sc.readouts.layouts(v)[0].layout
+    assert lay.fits
+    box = QRectF(lay.center.x() - lay.width / 2, lay.center.y() - lay.height / 2,
+                 lay.width, lay.height)
+    on = _count(v.viewport().grab().toImage(), box, t.color("ink"))
+    ln.setSelected(False)
+    QApplication.processEvents()
+    off = _count(v.viewport().grab().toImage(), box, t.color("ink"))
+    assert on > 0 and off == 0
+
+
+def test_reference_arc_muted_pixels(themed_be):
+    v, sc, t = themed_be
+    a = ArcItem(QPointF(0, 0), 250.0, 0.0, 90.0, color="#808080")
+    sc.addItem(a)
+    a.setSelected(True)
+    QApplication.processEvents()
+    lay = next(e.layout for e in sc.readouts.layouts(v) if e.spec.key == "angle")
+    C, r = lay.arc_center, lay.arc_radius_px
+    # sample a small box on the arc at 45° (Y-up) — the dashed arc passes there
+    px = QPointF(C.x() + r * math.cos(math.radians(45)), C.y() - r * math.sin(math.radians(45)))
+    box = QRectF(px.x() - 8, px.y() - 8, 16, 16)     # spans >= one dash period
+    on = _count(v.viewport().grab().toImage(), box, t.color("muted"))
+    a.setSelected(False)
+    QApplication.processEvents()
+    off = _count(v.viewport().grab().toImage(), box, t.color("muted"))
+    assert on > off
