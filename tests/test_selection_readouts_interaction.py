@@ -166,3 +166,78 @@ def test_selection_change_cancels(be):
     sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
     sc.clearSelection()
     assert not sc.readouts.is_editing()
+
+
+# ── Task 12: view routing — hover, press, paint ───────────────────────────
+def _move(v, vp):
+    QApplication.sendEvent(v.viewport(), QMouseEvent(
+        QEvent.Type.MouseMove, QPointF(vp), Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+
+
+def _click(v, vp):
+    for t in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        QApplication.sendEvent(v.viewport(), QMouseEvent(
+            t, QPointF(vp), Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier))
+
+
+def test_hover_label_beats_parent_halo(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    c = _label_center(v, sc)
+    _move(v, c)
+    assert sc.readouts._hover is not None
+    assert sc.halo_item() is None                     # label won, not the line
+
+
+def test_click_label_opens_editor_without_selection_change(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    c = _label_center(v, sc)
+    _move(v, c)
+    _click(v, c)
+    assert sc.readouts.is_editing()
+    assert sc.selectedItems() == [ln]
+    assert not getattr(v, "_rb_active", False)
+
+
+def test_click_label_works_with_halo_disabled(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    sc.halo_enabled = False
+    _click(v, _label_center(v, sc))
+    assert sc.readouts.is_editing()
+
+
+def test_click_away_cancels_and_is_consumed(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    _click(v, _label_center(v, sc))
+    _click(v, v.mapFromScene(QPointF(400, 300)))       # empty canvas
+    assert not sc.readouts.is_editing()
+    assert sc.selectedItems() == [ln]                  # press consumed, no deselect
+
+
+def test_hidden_label_not_pickable(be):
+    v, sc = be
+    ln = _add_line(sc, -2, 2)                          # 4 px long: label can't fit
+    ln.setSelected(True)
+    lay = sc.readouts.layouts(v)[0].layout
+    assert not lay.fits
+    _click(v, lay.center)
+    assert not sc.readouts.is_editing()
+
+
+def test_grip_beats_label(be, monkeypatch):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    c = _label_center(v, sc)
+    m = sc._live_manip()
+    monkeypatch.setattr(m, "hit_handle", lambda _p: True)
+    assert sc.readouts.entry_at(v, c) is None

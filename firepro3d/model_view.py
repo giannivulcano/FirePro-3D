@@ -282,6 +282,12 @@ class Model_View(QGraphicsView):
                 from .halo import paint_halo_highlight
                 paint_halo_highlight(painter, self, halo, th.detect())
 
+        # ── Selection dimension readouts (selection-mode §15) ─────────────
+        # Painted overlay records in viewport px, after HALO so a hovered
+        # label's glow sits over the geometry highlight, before the band.
+        if not self._clip_rect and hasattr(scene, "readouts"):
+            scene.readouts.paint(painter, self, th.detect())
+
         # ── Scene-drawn rubber-band (viewport coords) ─────────────────────
         # Direction-dependent: L->R = window (blue/solid), R->L = crossing
         # (green/dashed). Drawn after HALO so the band sits on top.
@@ -713,6 +719,13 @@ class Model_View(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
+            # A visible readout label under the press opens its editor and
+            # consumes the press: no deselect, band or manipulator gesture
+            # (selection-mode §15; grips still win inside press_at).
+            ro = getattr(sc, "readouts", None) if sc is not None else None
+            if ro is not None and ro.press_at(self, QPointF(event.pos())):
+                event.accept()
+                return
             # Track rubber-band start (viewport px). Used by both the legacy
             # stretch-mode crossing path and the scene-drawn select band.
             self._rb_start = event.pos()
@@ -768,7 +781,22 @@ class Model_View(QGraphicsView):
         else:
             super().mouseMoveEvent(event)
             sc = self.scene()
-            if sc is not None and hasattr(sc, "halo_update") and not self._panning:
+            # Selection-readout labels pick ahead of HALO geometry
+            # (selection-mode §15): a label hit clears the geometry HALO and
+            # holds the label as the hover target; otherwise HALO runs as before.
+            on_label = False
+            ro = getattr(sc, "readouts", None) if sc is not None else None
+            if ro is not None and not self._panning:
+                changed, on_label = ro.hover_at(self, QPointF(event.pos()))
+                if on_label:
+                    cleared = (sc.halo_clear() if hasattr(sc, "halo_clear")
+                               else False)
+                    if cleared or changed:
+                        self.viewport().update()
+                elif changed:
+                    self.viewport().update()
+            if (not on_label and sc is not None and hasattr(sc, "halo_update")
+                    and not self._panning):
                 from . import halo_selection
                 dt = self.viewportTransform()
                 a_scene = halo_selection.HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
