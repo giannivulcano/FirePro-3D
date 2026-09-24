@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-09-23
-verified-commit: 434066c
+last-verified: 2026-09-24
+verified-commit: f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)

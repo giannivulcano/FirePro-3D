@@ -2,6 +2,24 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## HALO pixel ranking + drag-select perf (+ Block Editor undo baseline) — 2026-09-24
+
+- [x] [type:feature] #1 post-MVP: selection-mode hub (hover pre-highlight + crossing rubber-band + Tab disambiguation + label-only click) [P2] [subject:Architecture] [done:2026-09-24]
+  - Details: spec done (`docs/specs/selection-mode.md`). ref: selection-mode-spec.
+  - Closed as stale 2026-09-24: delivered by U5 Leg A (HALO hover, crossing band, Spacebar disambiguation, room label-only click) — see selection-mode.md.
+- [x] [type:bug] HALO picks the wrong item when zoomed in (ranks Z-first by bbox-centre distance; world-unit hit width) [P2] [subject:UX] [done:2026-09-24]
+  - Details: user, 2026-09-24 (Block Editor, Sample.pdf screenshot: a tiny circle at an arc's end wins while the cursor is on the arc). `halo_rank` sorts runtime-Z desc → scene-mm distance to the item's *bounding-box centre*, so small items beat large ones regardless of where the cursor is. Rework to SNAP-style ranking: px distance from cursor to the drawn trace (`halo_scene_path`), px aperture (15 px default), Z/priority only inside a 12 px priority band; both App-wide + adjustable in Preferences (like `SNAP_TOLERANCE_PX`). Also `_scene_hit_width` reads the vestigial `views()[0]` (plan → fixed 10 mm) and floors at 2 mm → use `_active_view_scale()`, drop the floor. Spec change: selection-mode §3/§4.1. `halo_selection.py`, `halo.py`, `geometry_2d.py`, `settings/panes.py`, `main.py`, `constants.py`.
+  - Built 2026-09-24 (`feat/halo-pixel-ranking`): SNAP-style px ranking to the drawn trace (`halo.halo_pick_distance_px`, `HALO_AREA`), 15 px aperture / 12 px band, app-wide + Preferences; `view_scale.scene_hit_width` replaces six `views()[0]` hit widths. selection-mode.md Rev 4.
+- [x] [type:bug] Drag-select is extremely slow on large drawings (Ctrl+A is not) [P2] [subject:UX] [done:2026-09-24]
+  - Details: user, 2026-09-24. Bench (Block Editor, Sample.pdf = 85,639 primitives): `commit_rubber_band` per-item `setSelected` >10 min (O(n²) — Ctrl+A's `select_items` batch = 12 s); live band preview = 2.4 s `rubber_band_hits` per mouse move + 25.4 s per repaint (5-pass glow per item). Fix: commit via `select_items`; REMOVE the live band preview entirely (plan + elevation; user decision). Spec change: selection-mode §6.3. `halo_selection.py`, `model_view.py`, `elevation_view.py`.
+  - Built 2026-09-24: batched band commit via mixin `select_items` (>10 min -> ~9.7 s @ 85k); live band preview removed; grip-object limit (frame-only above 100, Preferences) + O(1) `wraps()` (post-select repaint 18.5 s -> 0.75 s @ 20k).
+- [x] [type:bug] Elevation HALO hover misses the label text inside a gridline/datum bubble [P3] [subject:UX] [done:2026-09-24]
+  - Details: cosmetic, from U5 Leg B seam review (2026-09-14). Elevation `_halo_resolve` walks ONE parent level (bubble/label child → parent gridline/datum), so hovering the tiny `QGraphicsSimpleTextItem` INSIDE an `_ElevBubble` (a grandchild of the gridline) doesn't light the HALO hover outline. Selection still works (bubbles are small; `_ElevBubble.mousePressEvent` selects the parent). Make `_halo_resolve` walk the full parent chain if it bothers. `elevation_scene.py`.
+- [x] [type:maint] Dedicated rubber-band / HALO band colour tokens [P3] [subject:UX] [done:2026-09-24]
+  - Details: U5 Leg A's scene-drawn band reuses `selection` (window) + `ok` (crossing) theme tokens; in the dark theme both are green-ish, so the window-vs-crossing colour contrast is weak (solid-vs-dashed style still distinguishes them). Add dedicated `band_window`/`band_crossing` tokens if a distinct blue is wanted. `theme.py`, `model_view.py`.
+- [x] [type:bug] Block Editor: Ctrl+Z after the first edit deletes the whole seeded block [P1] [subject:UX] [done:2026-09-24]
+  - Details: user smoke 2026-09-24. `seed_from_dicts` never reset the editor's undo stack (still the empty construction snapshot), so the first undo restored empty. Pre-existing on main. Fixed: seeding resets the stack (seed = baseline), mirroring the default-grid seed. Guard `tests/test_block_editor_undo_baseline.py`.
+
 ## Arc / rect / grip polish (End Points arc, arc grips, knob removal, 3-click rects, unified rect grips) — 2026-09-24
 
 - [x] [type:feature] Ctrl/from-centre + Shift-constrained resize for ROTATED rectangles [P3] [subject:CAD] [done:2026-09-24]

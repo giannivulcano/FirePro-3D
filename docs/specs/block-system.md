@@ -1,7 +1,7 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) built; thumbnails + attribute authoring deferred
-last-verified: 2026-09-23
-verified-commit: 434066c
+last-verified: 2026-09-24
+verified-commit: f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -433,6 +433,9 @@ project registry — **disconnected from all model views**.
   (mirrors `ElevationManager`). It runs **headless of the level/plan-view managers** (block geometry
   is definition-local/2D) and inherits the full 2D toolchain (drawing controllers, snap, HUD, grips,
   selection-manipulator, `push_undo_state`) for free. Undo is per-instance-isolated by construction.
+  **Seeding** (edit / clone / make-from-selection via `seed_from_dicts`) resets the editor's undo
+  history so the seeded geometry is the baseline and cannot be undone away (2026-09-24 — before this
+  the first Ctrl+Z after an edit restored the empty construction snapshot and wiped the block).
 - **The editor never mutates the project scene** except through two calls:
   `Model_Space.commit_block_definition(...)` (Save) and S3 `save_to_library` (opt-in). It is a
   scratchpad; the definition lands in the **project** `Model_Space`.
