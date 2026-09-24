@@ -50,3 +50,44 @@ def test_readout_text_prefix_and_units(qapp):
                   value=270.0, field_kind="span", apply=lambda v: None,
                   center=QPointF(), ref_radius=10.0, start_deg=0.0, span_deg=270.0)
     assert readout_text(ang, sm) == "270°"
+
+
+from firepro3d.geometry_2d import RectangleItem
+
+
+def test_rect_specs_width_height(qapp):
+    r = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+    d = _by_key(r)
+    assert d["width"].value == pytest.approx(200.0)
+    assert d["height"].value == pytest.approx(100.0)
+    # width measured along the visual bottom edge (BL -> BR), height BR -> TR
+    assert d["width"].a == QPointF(0, 100) and d["width"].b == QPointF(200, 100)
+    assert d["height"].a == QPointF(200, 100) and d["height"].b == QPointF(200, 0)
+
+
+@pytest.mark.parametrize("angle", [0.0, 30.0])
+def test_rect_set_width_keeps_left_edge(qapp, angle):
+    r = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+    r.set_angle(angle)
+    bl0 = r.mapToScene(QPointF(r.rect().left(), r.rect().bottom()))
+    tl0 = r.mapToScene(r.rect().topLeft())
+    _by_key(r)["width"].apply(350.0)
+    assert r.rect().width() == pytest.approx(350.0)
+    bl1 = r.mapToScene(QPointF(r.rect().left(), r.rect().bottom()))
+    tl1 = r.mapToScene(r.rect().topLeft())
+    assert (bl1.x(), bl1.y()) == pytest.approx((bl0.x(), bl0.y()))
+    assert (tl1.x(), tl1.y()) == pytest.approx((tl0.x(), tl0.y()))
+
+
+@pytest.mark.parametrize("angle", [0.0, 30.0])
+def test_rect_set_height_keeps_bottom_edge(qapp, angle):
+    r = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+    r.set_angle(angle)
+    bl0 = r.mapToScene(QPointF(r.rect().left(), r.rect().bottom()))
+    br0 = r.mapToScene(QPointF(r.rect().right(), r.rect().bottom()))
+    _by_key(r)["height"].apply(40.0)
+    assert r.rect().height() == pytest.approx(40.0)
+    bl1 = r.mapToScene(QPointF(r.rect().left(), r.rect().bottom()))
+    br1 = r.mapToScene(QPointF(r.rect().right(), r.rect().bottom()))
+    assert (bl1.x(), bl1.y()) == pytest.approx((bl0.x(), bl0.y()))
+    assert (br1.x(), br1.y()) == pytest.approx((br0.x(), br0.y()))

@@ -932,6 +932,53 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         # A centre-following pivot (``_pivot is None``) re-derives from the new
         # rect centre automatically (see ``_rotation_origin``).
 
+    # ── Typed dimensions (2d-geometry.md §8) ─────────────────────────────
+
+    def _resize_keeping(self, new_rect: QRectF, anchor_local: QPointF,
+                        anchor_local_new: QPointF) -> None:
+        """Apply *new_rect*, then translate so the anchor corner stays put in
+        scene (a centre-following pivot would otherwise slide it)."""
+        before = self.mapToScene(anchor_local)
+        self.prepareGeometryChange()
+        self.setRect(new_rect)
+        after = self.mapToScene(anchor_local_new)
+        self.translate(before.x() - after.x(), before.y() - after.y())
+
+    def set_width(self, width_mm: float) -> None:
+        """Set the local-x extent, keeping the left edge. No-op if <= 0."""
+        if width_mm <= 0:
+            return
+        r = self.rect()
+        bl = QPointF(r.left(), r.bottom())
+        self._resize_keeping(QRectF(r.left(), r.top(), width_mm, r.height()),
+                             bl, bl)
+
+    def set_height(self, height_mm: float) -> None:
+        """Set the local-y extent, keeping the bottom edge. No-op if <= 0."""
+        if height_mm <= 0:
+            return
+        r = self.rect()
+        bl = QPointF(r.left(), r.bottom())
+        self._resize_keeping(
+            QRectF(r.left(), r.bottom() - height_mm, r.width(), height_mm),
+            bl, bl)
+
+    def dimension_specs(self) -> list:
+        from .selection_readouts import DimSpec
+        r = self.rect()
+        bl = self.mapToScene(QPointF(r.left(), r.bottom()))
+        br = self.mapToScene(QPointF(r.right(), r.bottom()))
+        tr = self.mapToScene(QPointF(r.right(), r.top()))
+        c = self.mapToScene(r.center())
+        return [
+            DimSpec(kind="linear", key="width", field="Width", prefix="",
+                    value=r.width(), field_kind="dimension",
+                    apply=self.set_width, a=bl, b=br, away=c),
+            DimSpec(kind="linear", key="height", field="Height", prefix="",
+                    value=r.height(), field_kind="dimension",
+                    apply=self.set_height, a=br, b=tr, away=c),
+        ]
+
     def translate(self, dx: float, dy: float):
         self.prepareGeometryChange()
         self.setRect(self.rect().translated(dx, dy))
