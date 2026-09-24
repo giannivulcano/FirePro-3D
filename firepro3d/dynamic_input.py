@@ -206,6 +206,48 @@ def seed_rectangle_center(anchor: QPointF, point: QPointF) -> dict:
             "H": 2.0 * abs(point.y() - anchor.y())}
 
 
+
+# ── 3-click rectangle (base → side → depth; 2d-geometry.md §4) ─────────────
+# The corner-variant side step reuses ``resolve_line``/``seed_line`` (the
+# click point IS the side end).  The depth resolvers read the side's unit left
+# normal under ``"__dir__"``, injected by the HUD exactly like ``track``.
+
+def resolve_rect_side_center(anchor: QPointF, values: dict) -> QPointF:
+    """Centre-variant first side: full width *Length* at *Angle*.
+
+    The click point is the side midpoint, half a width from the centre
+    *anchor*.
+    """
+    rad = math.radians(values["Angle"])
+    half = values["Length"] / 2.0
+    return QPointF(anchor.x() + half * math.cos(rad),
+                   anchor.y() - half * math.sin(rad))
+
+
+def seed_rect_side_center(anchor: QPointF, point: QPointF) -> dict:
+    """Return the FULL width/angle that ``resolve_rect_side_center`` maps to *point*."""
+    dx, dy = point.x() - anchor.x(), point.y() - anchor.y()
+    return {"Length": 2.0 * math.hypot(dx, dy),
+            "Angle": math.degrees(math.atan2(-dy, dx))}
+
+
+def resolve_rect_depth(anchor: QPointF, values: dict) -> QPointF:
+    """Corner-variant depth: signed *H* along the side's injected left normal.
+
+    *anchor* is the base corner; negative *H* lands on the other side of the
+    first side.  Falls back to screen-up when no direction is armed.
+    """
+    nx, ny = values.get("__dir__", (0.0, -1.0))
+    d = values["H"]
+    return QPointF(anchor.x() + d * nx, anchor.y() + d * ny)
+
+
+def resolve_rect_depth_center(anchor: QPointF, values: dict) -> QPointF:
+    """Centre-variant depth: full height *H*; the point is H/2 off the centre."""
+    nx, ny = values.get("__dir__", (0.0, -1.0))
+    d = values["H"] / 2.0
+    return QPointF(anchor.x() + d * nx, anchor.y() + d * ny)
+
 # ── Circle ────────────────────────────────────────────────────────────────
 
 def resolve_circle(anchor: QPointF, values: dict) -> QPointF:
@@ -348,6 +390,34 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_rectangle_center,
         seed=seed_rectangle_center,
     ),
+    # 3-click rectangle: side step (W + angle) then depth step (H).
+    "rect_side": Schema(
+        name="rect_side",
+        fields=(FieldSpec("Length", "W", FieldKind.DIMENSION, minimum=0.0),
+                FieldSpec("Angle", "A", FieldKind.ANGLE)),
+        resolve=resolve_line, seed=seed_line,
+    ),
+    "rect_side_center": Schema(
+        name="rect_side_center",
+        # Length is the FULL width; the click point is the side midpoint.
+        fields=(FieldSpec("Length", "W", FieldKind.DIMENSION, minimum=0.0),
+                FieldSpec("Angle", "A", FieldKind.ANGLE)),
+        resolve=resolve_rect_side_center, seed=seed_rect_side_center,
+    ),
+    "rect_depth": Schema(
+        name="rect_depth",
+        # Signed: negative H puts the rect on the other side of the first side.
+        fields=(FieldSpec("H", "H", FieldKind.DIMENSION),),
+        resolve=resolve_rect_depth,
+        seed=None,      # seeded from scene state (needs the side normal)
+    ),
+    "rect_depth_center": Schema(
+        name="rect_depth_center",
+        # Full height (magnitude) — the centre variant is symmetric.
+        fields=(FieldSpec("H", "H", FieldKind.DIMENSION, minimum=0.0),),
+        resolve=resolve_rect_depth_center,
+        seed=None,
+    ),
     "circle": Schema(
         name="circle",
         fields=(
@@ -479,6 +549,12 @@ SCHEMAS: dict[str, Schema] = {
         seed=None,          # seeded from the on-path projection by the seam
     ),
 }
+
+
+# Schemas whose resolver reads a unit direction under ``"__dir__"`` (the
+# armed ``set_track_direction`` value): ``track``'s path direction and the
+# rect depth step's side normal.
+_DIRECTIONAL_SCHEMAS = frozenset({"track", "rect_depth", "rect_depth_center"})
 
 
 # ── HUD widget ────────────────────────────────────────────────────────────
@@ -974,11 +1050,13 @@ class DynamicInputHud(QWidget):
             self._coupling_writing = False
 
     def set_track_direction(self, direction: tuple[float, float] | None) -> None:
-        """Arm the ``track`` schema's path direction (unit vector, scene coords).
+        """Arm a directional schema's unit vector (scene coords).
 
-        Consulted only by the seam when reading values for a ``track`` HUD; other
-        schemas ignore it. Injected into the values dict under ``"__dir__"`` so
-        ``resolve_track`` stays a pure function of (anchor, values).
+        ``track`` takes its path direction; ``rect_depth*`` the first side's
+        left normal.  Consulted only when reading values for a schema in
+        ``_DIRECTIONAL_SCHEMAS``; other schemas ignore it.  Injected into the
+        values dict under ``"__dir__"`` so the resolvers stay pure functions of
+        (anchor, values).
         """
         self._track_dir = direction
 
@@ -1036,7 +1114,7 @@ class DynamicInputHud(QWidget):
             if not editor.try_commit():
                 self._mark_invalid(name)
             out[name] = self._value_of(name)
-        if self._schema.name == "track" and self._track_dir is not None:
+        if self._schema.name in _DIRECTIONAL_SCHEMAS and self._track_dir is not None:
             out["__dir__"] = self._track_dir
         return out
 
@@ -1070,7 +1148,7 @@ class DynamicInputHud(QWidget):
             ``{field_name: value}`` in schema units, same shape as ``values()``.
         """
         out = {name: self._value_of(name) for name in self._editors}
-        if self._schema.name == "track" and self._track_dir is not None:
+        if self._schema.name in _DIRECTIONAL_SCHEMAS and self._track_dir is not None:
             out["__dir__"] = self._track_dir
         return out
 

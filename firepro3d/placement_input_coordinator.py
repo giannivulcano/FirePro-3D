@@ -758,6 +758,57 @@ class PlacementInputCoordinator:
             return SCHEMAS.get("rectangle_center")
         return SCHEMAS.get("rectangle")
 
+    # ── 3-click rect family (2D rect / wall rect / floor rect) ─────────────
+
+    def _rect_family_state(self):
+        """``(base, side_pt, from_center)`` of the live 3-click rect placement.
+
+        Covers the 2D rect, the wall rect and the floor rect; None for any
+        other mode.  ``side_pt`` is None while the first side is being picked.
+        The wall/floor ``*_rect_side_pt`` attributes land with their own
+        3-click migration, so they are read defensively until then.
+        """
+        s = self._scene
+        if s.mode == "draw_rectangle":
+            return s._draw_rect_anchor, s._draw_rect_side_pt, s._draw_rect_from_center
+        if s.mode == "wall" and s._wall_primitive == "rect":
+            return (s._wall_rect_anchor, getattr(s, "_wall_rect_side_pt", None),
+                    s._wall_rect_from_center)
+        if s.mode == "floor" and s._floor_primitive == "rect":
+            return (s._floor_rect_anchor, getattr(s, "_floor_rect_side_pt", None),
+                    s._floor_rect_from_center)
+        return None
+
+    def _rect_depth_normal(self):
+        """Unit left normal (Qt coords) of the fixed first side, or None."""
+        from .geometry_2d import rect_side_frame
+        st = self._rect_family_state()
+        if st is None or st[0] is None or st[1] is None:
+            return None
+        f = rect_side_frame(st[0], st[1])
+        return None if f is None else f[2]
+
+    def _seed_rect_depth(self, schema) -> dict:
+        """Seed a ``rect_depth*`` HUD from the resolved point's signed depth.
+
+        The corner variant reads the signed depth (+ = left of the first
+        side); the centre variant reads the FULL height (twice the half-depth).
+        """
+        from .geometry_2d import rect_signed_depth
+        st = self._rect_family_state()
+        point = self.get_resolved_point()
+        if st is None or st[0] is None or st[1] is None or point is None:
+            return {"H": 0.0}
+        d = rect_signed_depth(st[0], st[1], point)
+        return {"H": 2.0 * abs(d)} if schema.name == "rect_depth_center" else {"H": d}
+
+    @staticmethod
+    def _rect3_schema(depth_step: bool, from_center: bool):
+        """The side- or depth-step schema of a 3-click rect placement."""
+        if depth_step:
+            return SCHEMAS.get("rect_depth_center" if from_center else "rect_depth")
+        return SCHEMAS.get("rect_side_center" if from_center else "rect_side")
+
     def _polygon_schema_for_step(self):
         """Return the polygon schema for the current step.
 
@@ -969,6 +1020,10 @@ class PlacementInputCoordinator:
             # already measured when it recovered the winning ray.  Seeding it
             # keeps the readout showing how far along the path the cursor sits.
             return {"Distance": self._scene._align_track_dist}
+        if schema.name in ("rect_depth", "rect_depth_center"):
+            # No cursor-derived inverse (``seed`` is None): the depth is
+            # measured against the fixed first side held in scene state.
+            return self._seed_rect_depth(schema)
         if self._scene.mode == "pipe" and schema.name == "line":
             # Pipe's Angle is relative (connected) or absolute (free); the frame
             # must match _commit_pipe_typed's, so seed via the dedicated helper.
@@ -1096,6 +1151,9 @@ class PlacementInputCoordinator:
     def _arm_track_direction(self, hud, schema) -> None:
         """Inject the winning path's unit direction into a ``track`` HUD.
 
+        Also arms a ``rect_depth*`` HUD with the first side's left normal
+        (``_rect_depth_normal``) — the same ``"__dir__"`` injection.
+
         ``resolve_track`` reads the direction from the values dict under the
         reserved ``"__dir__"`` key, injected by ``DynamicInputHud.values`` from
         whatever ``set_track_direction`` last armed.  The direction is fixed for
@@ -1103,6 +1161,10 @@ class PlacementInputCoordinator:
         sync and at engage) keeps it current as the swap turns on and off.  A
         no-op for every other schema; other HUDs ignore the armed direction.
         """
+        if schema is not None and schema.name in ("rect_depth", "rect_depth_center"):
+            # The rect depth step measures along the first side's left normal.
+            hud.set_track_direction(self._rect_depth_normal())
+            return
         if schema is None or schema.name != "track":
             return
         direction = (self._scene._align_track_ray.direction

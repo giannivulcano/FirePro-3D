@@ -2254,6 +2254,114 @@ def rect_sizing_points(anchor, corner, from_center):
             QPointF(r.x() + r.width(), r.y() + r.height()))
 
 
+def rect_side_frame(base, side_pt):
+    """Return the frame of the first rect side ``base → side_pt``.
+
+    Args:
+        base: The first placement click (QPointF).
+        side_pt: The second placement click (QPointF).
+
+    Returns:
+        ``(length, angle_deg, (nx, ny))`` — ``angle_deg`` is Y-up degrees CCW
+        from +x and ``(nx, ny)`` the unit left normal (Qt coords), the
+        direction a POSITIVE depth extends.  None when the side is degenerate.
+    """
+    dx, dy = side_pt.x() - base.x(), side_pt.y() - base.y()
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return None
+    ux, uy = dx / length, dy / length
+    return length, math.degrees(math.atan2(-dy, dx)), (uy, -ux)
+
+
+def rect_signed_depth(base, side_pt, cursor) -> float:
+    """Signed perpendicular distance of *cursor* from the side line (+ = left).
+
+    Returns 0.0 for a degenerate side.
+    """
+    f = rect_side_frame(base, side_pt)
+    if f is None:
+        return 0.0
+    nx, ny = f[2]
+    return (cursor.x() - base.x()) * nx + (cursor.y() - base.y()) * ny
+
+
+def rect_side_ghost(base, cursor, from_center):
+    """Return the segment drawn while picking the first side.
+
+    ``base → cursor`` in the corner variant; the full side centred on *base*
+    (mirrored through it) in the centre variant.
+    """
+    if from_center:
+        return (QPointF(2 * base.x() - cursor.x(), 2 * base.y() - cursor.y()),
+                QPointF(cursor))
+    return QPointF(base), QPointF(cursor)
+
+
+def rect_from_side_and_depth(base, side_pt, depth, from_center):
+    """Solve the 3-click rectangle (base → side → depth; 2d-geometry.md §4).
+
+    Corner variant: *base* is a corner, ``base → side_pt`` is the first side
+    (W, angle) and *depth* the signed second side (H, + = left of the side).
+    Centre variant: *base* is the centre, ``|base → side_pt|`` is HALF of W
+    along the angle and ``|depth|`` is half of H.
+
+    Args:
+        base: First click (corner or centre), QPointF.
+        side_pt: Second click (side end or side midpoint), QPointF.
+        depth: Signed perpendicular depth (see ``rect_signed_depth``).
+        from_center: True for the centre variant.
+
+    Returns:
+        ``(pt1, pt2, angle_deg, pivot)`` such that
+        ``RectangleItem(pt1, pt2).set_angle(angle_deg, pivot)`` and
+        ``rotated_rect_corners(pt1, pt2, angle_deg, pivot)`` give the
+        rectangle — the unrotated local rect about ``pivot = base``.  None
+        when a FULL extent is under 0.5 mm.
+    """
+    f = rect_side_frame(base, side_pt)
+    if f is None:
+        return None
+    length, angle, _n = f
+    bx, by = base.x(), base.y()
+    if from_center:
+        h = abs(depth)
+        if 2 * length < 0.5 or 2 * h < 0.5:
+            return None
+        return (QPointF(bx - length, by - h), QPointF(bx + length, by + h),
+                angle, QPointF(base))
+    if length < 0.5 or abs(depth) < 0.5:
+        return None
+    # Unrotated local frame: the side runs +x from base, positive depth is
+    # Y-up (screen -y); set_angle then turns it about base onto the real side.
+    r = QRectF(QPointF(bx, by), QPointF(bx + length, by - depth)).normalized()
+    return r.topLeft(), r.bottomRight(), angle, QPointF(base)
+
+
+def apply_rect_ghost(preview, base, side_pt, cursor, from_center):
+    """Fit a ``QGraphicsRectItem`` ghost to the 3-click rect at *cursor*.
+
+    One home for the 2D / wall / floor depth-step ghost.  Uses the same Qt
+    transform ``RectangleItem.set_angle`` does, so the ghost matches the
+    committed item.
+
+    Returns:
+        The ``rect_from_side_and_depth`` solution, or None (the ghost is left
+        at its last valid shape).
+    """
+    sol = rect_from_side_and_depth(base, side_pt,
+                                   rect_signed_depth(base, side_pt, cursor),
+                                   from_center)
+    if preview is None or sol is None:
+        return sol
+    pt1, pt2, ang, piv = sol
+    preview.setRotation(0.0)
+    preview.setRect(QRectF(pt1, pt2).normalized())
+    preview.setTransformOriginPoint(piv)
+    preview.setRotation(-ang)            # Y-up CCW → Qt CW negate
+    return sol
+
+
 def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     """Return the four scene-space corners (TL, TR, BR, BL) of an axis-aligned
     rect after applying a Y-up CCW rotation of ``angle_deg`` about ``pivot``.
@@ -2275,27 +2383,16 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     Returns:
         List of four QPointF in order TL, TR, BR, BL.
     """
-    import math as _math
+    from .cad_math import CAD_Math
     local = [
         QPointF(pt1.x(), pt1.y()),   # TL
         QPointF(pt2.x(), pt1.y()),   # TR
         QPointF(pt2.x(), pt2.y()),   # BR
         QPointF(pt1.x(), pt2.y()),   # BL
     ]
-    rad = _math.radians(angle_deg)
-    ca, sa = _math.cos(rad), _math.sin(rad)
-    out = []
-    for p in local:
-        dx = p.x() - pivot.x()
-        dy = p.y() - pivot.y()
-        # Qt rotation with angle -angle_deg (CW negate of Y-up angle):
-        # cos(-a) = ca, sin(-a) = -sa
-        # x' = ca*dx + sa*dy   (= cos(-a)*dx - sin(-a)*dy)
-        # y' = -sa*dx + ca*dy  (= sin(-a)*dx + cos(-a)*dy)
-        rx = ca * dx + sa * dy
-        ry = -sa * dx + ca * dy
-        out.append(QPointF(pivot.x() + rx, pivot.y() + ry))
-    return out
+    # Y-up CCW angle → CAD_Math's screen-space rotate takes the negation
+    # (the same CW negate ``set_angle`` applies via ``setRotation``).
+    return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
 
 
 class GeometryTemplate:

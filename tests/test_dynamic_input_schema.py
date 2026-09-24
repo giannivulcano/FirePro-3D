@@ -37,6 +37,7 @@ class TestRegistry:
             "displacement", "distance", "spacing_count",
             "arc_span", "arc_radius", "rotation", "track",
             "manip_move", "manip_resize", "manip_rotate",
+            "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
 
     def test_line_fields(self):
@@ -104,7 +105,9 @@ class TestRegistry:
         assert need == {"line", "rectangle", "rectangle_center", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
                         "rotation",
-                        "track", "manip_move", "manip_resize", "manip_rotate"}
+                        "track", "manip_move", "manip_resize", "manip_rotate",
+                        "rect_side", "rect_side_center", "rect_depth",
+                        "rect_depth_center"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
