@@ -8,7 +8,7 @@ applies-to:
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
 last-verified: 2026-09-24
-verified-commit: 762d083
+verified-commit: 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -382,7 +382,15 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   distinct blue close-ring cues it near the first vertex); double-click / Enter
   finish *open*; **Delete** pops the last vertex (routed via a `Model_View`
   `ShortcutOverride` accept so it beats the window Delete shortcut; cancels at one
-  vertex). All stay in polyline mode.
+  vertex). Mid-chain clicks and Delete stay in polyline mode; a completed chain
+  (close, Enter or double-click) returns to **Select** with the placed item
+  selected (single-placement, above). **2-vertex finish → `LineItem`
+  (2026-09-24):** an Enter / double-click finish with exactly 2 vertices commits a
+  `LineItem` instead of a 2-point polyline, because a single segment is a line.
+  Colour, lineweight and per-instance display overrides (`_display_overrides`)
+  carry over; a fill is dropped. It is one undo step (`Model_Space._finish_polyline`,
+  shared by Enter and double-click). This applies only to **placement**: loaded
+  files, paste and blocks keep their 2-point polylines.
 - **Polygon (3-step):** centre → radius (axis-aligned) →
   rotate. `↑/↓` change #sides and `←/→` toggle inscribed/circumscribed **live at
   every step**; a dashed **reference circle** shows during placement and while the
@@ -420,12 +428,15 @@ dispatch site (emitter, `_phase4_items`, `_geometric_snaps`).
 **EllipseItem** emits **centre + 4 rotated axis-endpoint quadrants** via its own
 `_collect` branch placed **before** the generic `QGraphicsEllipseItem`/path branch
 (mandatory: `CircleItem` rides the generic `QGraphicsEllipseItem` branch, which
-reads an axis-aligned `boundingRect` and would emit *wrong* quadrants for a
+reads an axis-aligned rect and would emit *wrong* quadrants for a
 rotated ellipse). **SplineItem** emits its **endpoints + control points** (as
 endpoint-class snaps) via its own branch before the generic path branch.
-**Deferred** (logged here, not silently capped): ellipse/spline
-perpendicular / nearest / tangent / phase-4 intersection snapping — disproportionate
-numerical effort (ellipse-segment = quartic; NURBS projection) for rare use.
+
+The per-item snap contribution of every primitive — including ellipse/spline
+perpendicular/nearest (projected onto the flattened curve, 2026-09-24), the
+approximate curve intersections, and **Text** (frame-box points) — is owned by
+[`snapping-engine.md §5`](snapping-engine.md#5-item-type-snap-type-matrix) (Rule A:
+not restated here).
 
 ## 6. Persistence (dual path — invariant)
 

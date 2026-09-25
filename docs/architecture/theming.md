@@ -240,13 +240,10 @@ deliberately theme-independent (CAD selection blue reads on both themes):
 - **Model-space grab handles** are screen-pixel sized rather than paper-mm (they
   use `ItemIgnoresTransformations`; `SELECTION_GRIP_SIZE_MM` is paper-only). The
   gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) uses the
-  `SELECTION_OUTLINE_COLOR` constant. The central grip renderer in
-  `model_view.drawForeground` (which paints handles for all `grip_points()`
-  items) reads the **theme** `selection` / `selection_active` tokens instead — so
-  model-space grips follow the accent (green), while paper-space grips and the
-  dashed selection boundary still use the blue `SELECTION_*` constants. This
-  split is **interim**: the `SelectionBox` manipulator task (8 handles + rotation,
-  accent-styled) unifies both onto the selection tokens.
+  `SELECTION_OUTLINE_COLOR` constant. Model-space grips are the selection
+  manipulator's handle items (the old `model_view.drawForeground` grip loop was
+  retired); how they render and which tokens they read is owned by
+  [`selection-manipulator.md`](../specs/selection-manipulator.md).
 
 ### ALIGN alignment guide
 

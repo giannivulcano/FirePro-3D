@@ -1,7 +1,7 @@
 ---
 status: partial
 last-verified: 2026-09-24
-verified-commit: 62683b9
+verified-commit: 892cf76   # snap-polish: one find() at the seam, weak-foot rule (§3.1), no ALIGN point glyph (§4); prior 62683b9
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -51,8 +51,8 @@ inferred placement as next-priority subsystems; both now **delivered here**).
 - One-picker integration (`snap_engine.py`) — `find(align_paths=…,
   align_aperture_px=…)` feeds ALIGN candidates (`align_intersection` prio 20,
   `align_path` prio 30) into the **existing** priority-band picker below real
-  snaps, judged at their own ALIGN aperture.
-- Model_Space seam — dwell feed on move, ALIGN tier in `get_effective_position`,
+  snaps (weak-foot exception, §3.1), judged at their own ALIGN aperture.
+- Model_Space seam — dwell feed on move, the single `find()` call in `get_effective_position`,
   universal placement-mode scope (`_ALIGN_PLACEMENT_MODES`), on-path `track`
   schema swap, lifecycle clears.
 - Rendering (`model_view.drawForeground`) — `+` acquired markers + dashed
@@ -108,7 +108,7 @@ no intent — the "grabby during Move" behavior that motivated the rewrite. See 
 |---|---|---|
 | `align_engine.py` | **Pure geometry.** `Ray`, `AcquiredRef`, ray builders, path×path / path×segment, projection, distance-along-ray. Imports no Qt, no firepro3d. | No |
 | `align_controller.py` | **Stateful acquire machine.** Acquired set, dwell decision (told, not polled), cap-evict, re-hover-release, active-anchor auto-acquire, per-direction gating, per-frame ray build. | Minimal |
-| `model_space.py` (seam) | Holds one `AlignController`; feeds the dwell on move, builds `[Ray]` and calls `find(align_paths=…)` in the ALIGN tier of `get_effective_position`, arms the `track` schema, renders via `drawForeground`, clears on lifecycle. | Yes |
+| `model_space.py` (seam) | Holds one `AlignController`; feeds the dwell on move, builds `[Ray]` and passes them to the one `find(align_paths=…)` call in `get_effective_position` (real SNAP and ALIGN ranked together — no ALIGN tier), arms the `track` schema, renders via `drawForeground`, clears on lifecycle. | Yes |
 
 **Constraint — dwell is told, not polled.** The controller decides "acquired" from
 elapsed-since-cursor-stopped **passed in** on each move (`AlignController.on_move(...,
@@ -174,7 +174,7 @@ snap-type sets are `_POINT_SNAPS` / `_DIRECTION_SNAPS` in `align_controller.py`.
 point-acquire (`source_id = -1`, `snap_type = "anchor"`) for the current placement
 anchor, so its H/V (and its own extension when the anchor sits on a directional
 object) track without an explicit dwell. Cleared with `point=None`. The seam calls
-it each frame from the ALIGN tier before building rays.
+it each frame from `get_effective_position` before building rays.
 
 ### 2.4 Cap, release, clear
 
@@ -196,9 +196,19 @@ auto-anchor + any parallel direction re-anchored at the active point) and passes
 **into** the existing picker:
 
 ```
+held = self._snap_result if self._snap_result is not None else self._align_result
 SnapEngine.find(cursor, scene, view_transform, ...,
-                align_paths=rays, align_aperture_px=..., held=self._align_result)
+                align_paths=rays, align_aperture_px=..., held=held,
+                from_point=self._snap_from_point())
 ```
+
+This is the **only** `find()` call on the placement path: real SNAP and ALIGN
+candidates are ranked together in it (with `only_types` restricted to the ALIGN types
+when only ALIGN is live). The seam then routes the winner — an ALIGN type to
+`_align_result` (an `align_path` also arms the `track` schema, §5.7), a real snap to
+`_snap_result` — and clears the other. A handle-snap marker result
+(`HandleSnapResult`, `selection-manipulator.md`) is never fed back as `held`.
+`from_point` is the perpendicular-from start point (`snapping-engine.md §4`).
 
 ### 3.1 Candidate families & priority
 
@@ -212,8 +222,26 @@ same `_SnapCtx` picker that ranks real snaps:
 | single-path projection | cursor foot on a `Ray` (`project_to_ray`) | `align_path` = 30 |
 
 Real SNAP candidates keep priorities **0–7** (lower is stronger; owned by
-`snap_engine.py` `_SNAP_PRIORITY`). Final ranking: **real SNAP > align_intersection
-> align_path > free**. The winning `OsnapResult` carries the participating ray(s) as
+`snap_engine.py` `SNAP_PRIORITY`). Final ranking: **real SNAP > align_intersection
+> align_path > free**, with one exception — the **weak-foot rule**:
+
+- **Weak types** are the cursor-foot snaps: `nearest` always, and `perpendicular`
+  only when there is no placement start point (with one it is a perpendicular-*from*
+  foot — `snapping-engine.md §4` — and counts as a real, strong snap).
+- An in-aperture `align_intersection` **beats a weak foot outright**. Without
+  this the crossing could never win: the foot on the very segment a ray crosses is
+  by construction at least as close to the cursor as the crossing, so the band
+  arithmetic always kept the foot. The rule also spans hysteresis: a held weak foot
+  yields to a crossing, and a held crossing is kept against a weak foot.
+- A **strong** real candidate (anything neither weak nor ALIGN — endpoint,
+  midpoint, center, quadrant, intersection, tangent, perpendicular-from) that would
+  beat the crossing pairwise under the band rules is **restored** over it. So a
+  real endpoint/midpoint/center/quadrant/intersection still wins, even one a weak
+  foot had first displaced by distance.
+- `align_path` gets no such override; it competes under the ordinary band rules
+  (`snapping-engine.md §6.1`).
+
+The winning `OsnapResult` carries the participating ray(s) as
 `source_lines`, so `drawForeground` lights the tracking vector(s) (§4). This extends
 the SNAP picker's priority-band model (`snapping-engine.md §6.1`) — same hysteresis,
 same `_active_view_scale()` px judgment, no second merge pass.
@@ -250,8 +278,11 @@ prevents orphaned `+` markers:
   in `ALIGN_ACQUIRE_COLOR` (green, distinct from snap glyphs), sized `ALIGN_GLYPH_PX`.
 - **Tracking vectors** — the held result's `source_lines` drawn as dashed
   viewport-spanning cosmetic lines (`ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`).
-- The path-snap point itself renders via the normal snap marker (it is an
-  `OsnapResult` in the picker).
+- **No glyph marks the ALIGN point itself today.** The seam routes an ALIGN winner to
+  `_align_result` and clears `_snap_result`, and the snap marker
+  (`paint_snap_indicator`) draws only `_snap_result` — so an `align_path` /
+  `align_intersection` point is shown by its dashed tracking vector(s) alone. (The
+  green `+` marks *acquired* points, not the live ALIGN point.)
 
 Constants (`ALIGN_*`) live in `constants.py` (Rule A — values not restated).
 
@@ -390,7 +421,7 @@ engage/seed time via `DynamicInputHud.set_track_direction` (stored under the res
 click-commit path (structural commit parity, §5.2). Distance is signed from the
 tracking **origin** and **replaces** the primitive Length/Angle readout while on-path.
 
-Seam plumbing: the ALIGN tier recovers the winning single-path `Ray` from the built
+Seam plumbing: when the one `find()` call returns an `align_path` winner, the seam recovers the winning single-path `Ray` from the built
 ray set (the picker returns the foot point but not the ray) by lowest perpendicular
 error — `Model_Space._arm_align_track` — and stores it as `_align_track_ray`;
 `_align_track_active` / `_align_track_schema` gate the swap; `_arm_track_direction`
@@ -609,7 +640,9 @@ See the governing design doc for the decision rationale behind each of these.
   ray kinds.
 - **Real-entry-point seam** — posted `QMouseEvent` dwell (elapsed-fed) on a shown +
   activated view acquires/releases/evicts/clears; ALIGN candidates enter `find()` and
-  real SNAP always outranks them; the `track` schema swaps in on-path and back off.
+  real SNAP outranks them except under the §3.1 weak-foot rule (crossing seam guards:
+  `tests/test_snap_align_crossing_seam.py`); the `track` schema swaps in on-path and
+  back off.
 - **Zoom-invariance** — aperture + path-tol judged in true px at multiple `m11`
   (identical accept/miss).
 - **Per-knob settings round-trip** — each ALIGN knob live-applies + `align/*`
