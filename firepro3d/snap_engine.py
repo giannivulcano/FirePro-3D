@@ -133,7 +133,7 @@ _FACE_COLLAPSE_SCENE_EPS: float = 3.0
 #   quadrant        orange     diamond                  QUA  (priority 5)
 #   perpendicular   magenta    right-angle symbol       PER  (priority 4)
 #   tangent         lime       tangent circle           TAN  (priority 6)
-#   nearest         grey       cross                    NEA  (priority 7)
+#   nearest         white      cross                    NEA  (priority 7)
 #
 # Two *filled* named-target variants (added 2026-04 per snap engine
 # spec §8.2, amended). These are triggered by the ``name`` field on
@@ -151,7 +151,7 @@ SNAP_COLORS: dict[str, str] = {
     "intersection":  "#ffff00",   # yellow  – X marker (gridline crossings)
     "center":        "#00eeee",   # cyan    – circle marker
     "quadrant":      "#ff8800",   # orange  – diamond marker
-    "nearest":       "#aaaaaa",   # grey    – cross marker
+    "nearest":       "#ffffff",   # white   – cross marker
     "perpendicular": "#ff00ff",   # magenta – right-angle marker
     "tangent":       "#88ff00",   # lime    – tangent marker
 }
@@ -355,6 +355,9 @@ SNAP_PRIORITY: dict[str, int] = {
 # ALIGN candidate types (transient tracking; see align-placement.md).
 ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
 
+# Cursor-foot snap types an in-aperture ALIGN crossing beats outright (S5).
+_WEAK_SNAP_TYPES: frozenset[str] = frozenset({"nearest"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OsnapResult
@@ -430,15 +433,13 @@ class _SnapCtx:
         self.underlay_geoms: dict[int, list[dict]] = {}
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
-        # Placement start point for perpendicular-from (S1); None = the
-        # legacy cursor-foot perpendicular.
+        # Placement start point for perpendicular-from (S1); None = no ⊥
+        # candidates at all (the cursor foot is ``nearest``).
         self.from_point: "QPointF | None" = from_point
         # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
-        # outright (S5, align-placement §3.1). With a start point the
-        # perpendicular is a real PER-from foot, so only nearest stays weak.
-        self.weak_types: frozenset[str] = (
-            frozenset({"nearest"}) if from_point is not None
-            else frozenset({"nearest", "perpendicular"}))
+        # outright (S5, align-placement §3.1). ``perpendicular`` is only ever
+        # a real PER-from foot, so ``nearest`` is the sole weak type.
+        self.weak_types: frozenset[str] = _WEAK_SNAP_TYPES
         # Scene-unit search radius (find()'s search rect half-size). Cursor-
         # dependent snaps on long flattened paths cull segments beyond it.
         self.search_tol: float = search_tol
@@ -1939,9 +1940,9 @@ class SnapEngine:
         """Append segment foot snaps to *pts*.
 
         ``nearest`` is the cursor foot (clamped onto the segment).
-        ``perpendicular`` is the foot FROM *from_point* when a placement
-        start exists (AutoCAD PER, S1; omitted when that foot falls off the
-        segment), else the legacy cursor foot.
+        ``perpendicular`` is ONLY the foot FROM *from_point* (AutoCAD PER,
+        S1; omitted when that foot falls off the segment). With no placement
+        start there is no ⊥ at all — the cursor foot is ``nearest``.
 
         Args:
             cursor: Cursor position in scene coordinates.
@@ -1951,14 +1952,10 @@ class SnapEngine:
             pts: Candidate list to append ``(snap_type, point)`` tuples to.
         """
         foot = self._project_to_segment(cursor, p1, p2)
-        if self.snap_perpendicular:
-            if from_point is None:
-                if foot is not None:
-                    pts.append(("perpendicular", foot))
-            else:
-                per = self._perp_foot_on_segment(from_point, p1, p2)
-                if per is not None:
-                    pts.append(("perpendicular", per))
+        if self.snap_perpendicular and from_point is not None:
+            per = self._perp_foot_on_segment(from_point, p1, p2)
+            if per is not None:
+                pts.append(("perpendicular", per))
         if self.snap_nearest and foot is not None:
             pts.append(("nearest", foot))
 
@@ -1969,9 +1966,8 @@ class SnapEngine:
         """Append circle/arc foot snaps to *pts*.
 
         ``nearest`` is the radial projection of the cursor. ``perpendicular``
-        is that same cursor foot without a start point; with one it is the two
-        points where the line centre→start meets the circle (PER to a circle
-        is radial, S1).
+        exists only with a start point: the two points where the line
+        centre→start meets the circle (PER to a circle is radial, S1).
 
         Args:
             cursor: Cursor position in scene coordinates.
@@ -1988,18 +1984,14 @@ class SnapEngine:
         if d > _EPS_COINCIDENT:
             foot = QPointF(center.x() + r * (cursor.x() - center.x()) / d,
                            center.y() + r * (cursor.y() - center.y()) / d)
-        if self.snap_perpendicular:
-            if from_point is None:
-                if foot is not None and ok(foot):
-                    pts.append(("perpendicular", foot))
-            else:
-                df = math.hypot(from_point.x() - center.x(), from_point.y() - center.y())
-                if df > _EPS_COINCIDENT:
-                    ux = (from_point.x() - center.x()) / df
-                    uy = (from_point.y() - center.y()) / df
-                    for s in (1.0, -1.0):
-                        q = QPointF(center.x() + s * r * ux, center.y() + s * r * uy)
-                        if ok(q):
-                            pts.append(("perpendicular", q))
+        if self.snap_perpendicular and from_point is not None:
+            df = math.hypot(from_point.x() - center.x(), from_point.y() - center.y())
+            if df > _EPS_COINCIDENT:
+                ux = (from_point.x() - center.x()) / df
+                uy = (from_point.y() - center.y()) / df
+                for s in (1.0, -1.0):
+                    q = QPointF(center.x() + s * r * ux, center.y() + s * r * uy)
+                    if ok(q):
+                        pts.append(("perpendicular", q))
         if self.snap_nearest and foot is not None and ok(foot):
             pts.append(("nearest", foot))

@@ -47,15 +47,15 @@ def test_draw_line_end_snaps_perpendicular_from_start(qapp):
         close_view(view, scene)
 
 
-def test_no_start_point_perpendicular_is_cursor_foot(qapp):
+def test_no_start_point_cursor_foot_is_nearest(qapp):
     view, scene = make_view(mode="draw_line")
     try:
         scene.addItem(LineItem(QPointF(0, 0), QPointF(1000, 0)))
-        # Away from the midpoint (500,0) and endpoints, so ⊥ is the only
-        # in-aperture high-priority candidate: the cursor foot (300,0).
+        # Away from the midpoint (500,0) and endpoints. No start point → no
+        # ⊥ at all (smoke item 1): the cursor foot (300,0) is ``nearest``.
         move(view, QPointF(300, 12))
         r = scene._snap_result
-        assert r is not None and r.snap_type == "perpendicular"
+        assert r is not None and r.snap_type == "nearest"
         assert math.hypot(r.point.x() - 300, r.point.y()) < 0.01
     finally:
         close_view(view, scene)
