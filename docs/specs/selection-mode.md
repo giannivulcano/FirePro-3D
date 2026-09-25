@@ -409,3 +409,48 @@ gridline/datum (drops the pinned axis) and (b) a **no-op `manip_translate`** for
 changes a pinned axis (behavioral §3.1 guard) and never moves a proxy. **No undo** in elevation
 (parity with prior behavior; filed follow-up). Cross-view selection sync stays out of scope
 (`view-relationships.md §1.3`).
+
+## 15. Selection dimension readouts — pick precedence & input mode (as-built 2026-09-24, verified `762d083`)
+
+> Design record: `docs/superpowers/specs/2026-09-24-selection-dimension-readouts-design.md`.
+> What each primitive reports + setter anchors → `2d-geometry.md §8` (Rule A).
+
+**Scope.** Block Editor scene only (`scene_role == "block_editor"`). Readouts are painted overlay
+records owned by `SelectionReadoutController` (`Model_Space.readouts`). They are not scene items,
+so they never become HALO *candidates*. They sit in front of the HALO pipeline as a separate pick
+layer.
+
+**Pick precedence** (hover and press):
+1. manipulator grips / handles (`hit_handle`);
+2. **visible readout labels**;
+3. HALO geometry ranking (§4.1).
+
+A label is visible only while `readouts_active()` holds:
+- the mode is select;
+- the placement HUD is not engaged;
+- no inline text edit is active;
+- 1 ≤ selected primitives ≤ `GRIP_OBJECT_LIMIT`.
+
+It must also fit its segment or arc (layout fit rule). A label that is not painted is not pickable.
+
+**Hover** (`Model_View.mouseMoveEvent`, ahead of `halo_update`): a label hit clears the geometry
+HALO and holds the label as the hover target. The glow uses the HALO trace style via
+`halo.paint_halo_path` (only when HALO is enabled, §4.5). The §4.4 status readout shows
+`<field> · click to edit`.
+
+**Press** (`Model_View.mousePressEvent`, left, ahead of rubber-band arming): a label hit opens
+the edit session and consumes the press. There is no selection change (§5.2), no band (§6) and no
+manipulator gesture. It works with HALO disabled.
+
+**Input mode.** While a readout edit is open, `Model_Space.is_input_mode()` is true. It is defined
+as "the placement HUD is engaged **or** a readout edit is active", so the canvas is inert and
+Ctrl+Z belongs to the field. The view's HUD handling reads `Model_Space.active_hud()`. A press
+outside the HUD cancels the edit and is consumed. A selection change or mode change also cancels.
+
+**As-built (2026-09-24):**
+- The controller wires `selectionChanged` / `changed` / `modeChanged` **only** on `scene_role == "block_editor"` scenes — connecting `scene.changed` at all reroutes Qt's item→view updates, so plan scenes must stay unwired. Every slot bails out via `_scene_alive()` (a dying scene emits `selectionChanged` after sip marks it deleted; an exception in a slot aborts PyQt6) and is wrapped in try/except.
+- Repaint: scene changes and selection changes repaint only `old ∪ new` readout regions per view (`_painted` + `_dirty_rect`, padded by `SELDIM_DIRTY_PAD_PX` for glow/arrowheads); units/mode/edit begin-end do a full-viewport refresh. `Model_Space._refresh_all_labels` calls `readouts.refresh()`; `main.py` copies the project's `display_unit` + `precision` into every open Block Editor's own ScaleManager (never shared) and refreshes it.
+- Layout maps scene→viewport through `viewportTransform()` **floats** — `mapFromScene` returns integer points and a 1-unit probe rounded to 0 px when zoomed out.
+- HALO is suppressed while a readout edit is open (`_halo_suppressed`) and cleared when one begins. Leaving a label restores the previous footer instruction.
+- A commit applies the value, pushes one undo step, calls `Model_Space.notify_geometry_edited()` (re-fits the SelectionManipulator frame — also called after every `PropertyManager._apply_property`), and emits `requestPropertyUpdate` so the panel shows the new value. An unchanged value ends the session with no step. A canvas tab switch cancels an open edit.
+- Shipped visual constants live in `constants.py` `SELDIM_*` (label offset settled at 6 px in smoke).

@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging, time
+import sys, json, math, shutil, logging, time, contextlib
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -193,6 +193,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
+        # Selection dimension readouts (selection-mode §15). Composed before
+        # anything can emit selectionChanged/modeChanged/changed.
+        from .selection_readouts import SelectionReadoutController
+        self.readouts = SelectionReadoutController(self)
         self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
@@ -2318,6 +2322,50 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = True   # a committed mutation diverges from the last save
         self.sceneModified.emit()
 
+    def notify_geometry_edited(self) -> None:
+        """Re-fit the selection manipulator after a typed / panel geometry edit.
+
+        Such edits change geometry outside the manipulator, which only rebakes
+        on selection changes and its own gestures — so the frame would stay at
+        the old bounds (``SelectionManipulator.rebake`` contract: call after
+        numeric edits). One home for both entry paths: the readout HUD commit
+        and ``PropertyManager._apply_property``.
+        """
+        m = self._live_manip()
+        if m is not None:
+            m.rebake()
+
+    def request_undo_push(self) -> None:
+        """An item setter asks for one undo step after its mutation.
+
+        Pushes immediately, unless inside :meth:`deferred_undo_push`, which
+        coalesces every request made in its block into ONE step at exit.
+        """
+        if getattr(self, "_undo_defer_depth", 0) > 0:
+            self._undo_push_pending = True
+            return
+        self.push_undo_state()
+
+    @contextlib.contextmanager
+    def deferred_undo_push(self):
+        """Coalesce item-setter undo requests into one step (re-entrant).
+
+        Used by a multi-target property-panel commit: N targets' setters each
+        call :meth:`request_undo_push`; one step is pushed when the outermost
+        block exits, and only if any target asked (a no-op commit is no step).
+        """
+        depth = getattr(self, "_undo_defer_depth", 0)
+        if depth == 0:
+            self._undo_push_pending = False
+        self._undo_defer_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._undo_defer_depth = depth
+            if depth == 0 and self._undo_push_pending:
+                self._undo_push_pending = False
+                self.push_undo_state()
+
     def can_undo(self) -> bool:
         """True when there is a prior state to restore (past the seed)."""
         return self._undo_pos > 0
@@ -2410,6 +2458,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pipe.update_label()
         for dim in self.annotations.dimensions:
             dim.update_label()
+        # Selection dimension readouts format at paint time; a units/precision
+        # change touches no item, so force the repaint (selection-mode §15).
+        self.readouts.refresh()
 
     def set_display_unit(self, unit):
         """Change the display unit and refresh all labels."""
@@ -2908,8 +2959,26 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     ENGAGE_CHARS = "0123456789.-"
 
     def is_input_mode(self) -> bool:
-        """Shell → PlacementInputCoordinator.is_input_mode."""
-        return self._plc.is_input_mode()
+        """Placement HUD engaged OR a selection-readout edit is open.
+
+        selection-mode §15: while either holds the canvas is inert and Ctrl+Z
+        belongs to the field.  The placement half is
+        ``PlacementInputCoordinator.is_input_mode``.
+        """
+        if self._plc.is_input_mode():
+            return True
+        ro = getattr(self, "readouts", None)     # absent mid-__init__
+        return ro is not None and ro.is_editing()
+
+    def active_hud(self):
+        """The HUD that currently owns input.
+
+        The readout editor if one is open, else the placement HUD (either may
+        be None).
+        """
+        ro = getattr(self, "readouts", None)
+        hud = ro.hud if ro is not None else None
+        return hud if hud is not None else self.dynamic_input
 
     def _hud_available(self) -> bool:
         """Shell → PlacementInputCoordinator._hud_available."""

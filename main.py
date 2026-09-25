@@ -1017,6 +1017,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _on_tab_changed(self, index: int):
         """Auto-switch active level when switching to a Plan or Detail tab."""
         self._commit_text_edits()
+        # A selection-readout edit (selection-mode §15) latches its HUD to the
+        # tab's viewport; leaving the tab ends it without applying (= Escape).
+        for sc in self._text_edit_scenes():
+            ro = getattr(sc, "readouts", None)
+            if ro is not None and ro.is_editing():
+                ro.cancel_edit()
         # A placement belongs to the view it was started in.  Every plan tab
         # shares one Model_Space, so the preview items render in all of them
         # while the committed geometry is level-filtered into one — and the
@@ -2133,8 +2139,33 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Refresh labels and mark the project modified after units/info change."""
         if getattr(self, "scene", None) is not None:
             self.scene._refresh_all_labels()
+            self._sync_editor_units()
         self._modified = True
         self._update_title()
+
+    def _seed_editor_units(self, editor_scene) -> None:
+        """Copy the project's display unit + precision into one editor scene.
+
+        Only those two display values are copied — never the ScaleManager
+        object itself: ``scene_io`` reassigns ``self.scene.scale_manager`` on
+        load, and plan-scene calibration must not change the editor's
+        mm<->scene seed (selection-mode §15 readouts format through it).
+        """
+        src = self.scene.scale_manager
+        dst = getattr(editor_scene, "scale_manager", None)
+        if dst is None or dst is src:
+            return
+        dst.display_unit = src.display_unit
+        dst.precision = src.precision
+        editor_scene._refresh_all_labels()
+
+    def _sync_editor_units(self) -> None:
+        """Push the project display unit + precision to every open Block Editor."""
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is None:
+            return
+        for w in mgr.open_editors():
+            self._seed_editor_units(w.editor_scene)
 
     def _open_project_settings(self) -> None:
         """Open the Project (per-.fpd) Settings dialog — Project Info/Units."""
@@ -2210,6 +2241,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _set_display_unit(self, unit):
         self.scene.set_display_unit(unit)
+        self._sync_editor_units()
         self._modified = True
         self._update_title()
 
@@ -3721,6 +3753,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _paper_was_current = isinstance(
             self.central_tabs.currentWidget(), PaperSpaceWidget)
         self.scene.load_from_file(file)
+        # load_from_file replaced scene.scale_manager — re-seed open editors.
+        self._sync_editor_units()
         self.level_widget.populate()
         # Apply display settings: prefer project-embedded settings, fall back to QSettings
         project_ds = getattr(self.scene, '_loaded_display_settings', None)
@@ -3936,6 +3970,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         apply_default_display_settings(self.scene)
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
+        # _clear_scene + template replaced/set the units — re-seed open editors.
+        self._sync_editor_units()
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -4176,6 +4212,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _set_precision(self, places: int):
         self.scene.scale_manager.precision = places
         self.scene._refresh_all_labels()
+        self._sync_editor_units()
         self._modified = True
         self._update_title()
 
@@ -4509,6 +4546,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         wiring (model browser, contextual ribbon) is intentionally NOT adopted.
         """
         sc = widget.editor_scene
+        # The editor builds its own default ScaleManager; seed the project's
+        # display unit + precision so its readouts/panel rows match the plan.
+        self._seed_editor_units(sc)
         # Crosshair parity with plan views: the accent crosshair (placement-mode
         # gated in Model_View) should show while inserting geometry in the editor
         # too, not only in plan views.

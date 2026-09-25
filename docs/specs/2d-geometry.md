@@ -6,8 +6,9 @@ applies-to:
   - firepro3d/arc_math.py      # pure arc construction (End Points placement + arc grips)
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
+  - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
 last-verified: 2026-09-24
-verified-commit: 62683b9
+verified-commit: 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -446,6 +447,42 @@ still threads the collect helpers that enumerate the sibling lists: `_items_on_l
 The **"2D Geometry"** Display-Manager category owns colour / visibility / opacity
 for all six item types (mirrors Design Area; no per-category line-weight yet).
 Fill is a per-item property, independent of the category.
+
+## 8. Selection dimension readouts (as-built 2026-09-24, `feat/selection-dim-readouts`)
+
+> Design record: `docs/superpowers/specs/2026-09-24-selection-dimension-readouts-design.md`.
+> Pick precedence, hover/press routing and input mode are owned by `selection-mode.md §15`.
+> This section owns the **primitive side**: what each primitive reports and how its typed setters
+> anchor.
+
+**Contract.** Every primitive exposes a pure `dimension_specs() -> list[DimSpec]`
+(`selection_readouts.py`). `Geometry2DMixin` defaults it to `[]`. A spec is data only. The
+primitive never owns, parents or paints a readout. So readouts are outside `shape()`, bounding
+rects, snap, serialization and copy/paste by construction. `DimSpec.apply(v)` calls one of the
+named setters below. The setters are pure mutation, with no undo; undo is owned by the caller.
+They are the **single** mutation path shared by the readout HUD and the property-panel rows.
+
+| Primitive | Readouts (`field` / prefix) | Typed setter + anchor | Floor / range |
+|---|---|---|---|
+| `LineItem` (incl. `ReferenceLineItem`) | Length | `set_length` — keeps `pt1`, moves `pt2` along the direction | > 0 |
+| `RectangleItem` | Width (local x), Height (local y); labels outside the local bottom / right edges | `set_width` / `set_height` — keep the left / bottom edge (local frame) | > 0 |
+| `CircleItem` | R (single radial, centre → local +x) | `set_radius` — keeps the centre | ≥ 1 mm |
+| `ArcItem` | Angle (included span, on a dashed reference arc between the radials) + R (start radial) | `set_span` — keeps centre / radius / start, end moves CCW; `set_radius` — keeps centre + angles | 0 < span < 360; r ≥ 0.01 mm |
+| `EllipseItem` | R1 (= rx axis), R2 (= ry axis); no major/minor naming | existing rx / ry setters — keep centre + rotation | ≥ 0.5 mm |
+| `PolylineItem` | Seg *i* length; Angle *i* at interior vertices on the ≤180° side. Closed: the closing segment + every vertex, with wraparound. Zero-length segments give no length and no angle at their vertices | `set_segment_length(i)` / `set_vertex_angle(i)` — move only the segment's end vertex (angle: rotate vertex *i+1* about *i*) | length > 0; 0 < angle ≤ 180 |
+| `RegularPolygonItem` | R = the stored **defining** radius, along the matching radial (vertex if inscribed, edge-mid if circumscribed) | existing radius setter — keeps centre / sides / rotation | existing |
+| `TextItem`, `SplineItem` | none | — | — |
+
+**As-built invariants (2026-09-24):**
+- Every typed setter ignores non-finite input (`math.isfinite` guard) and polyline setters ignore out-of-range indices — they run under paint-driven code and must never raise or corrupt geometry. `dimension_specs()` drops non-finite and degenerate specs (zero-length segments, zero rect sides, doubled-back polyline vertices).
+- `DimSpec.minimum` sits just below each setter's floor, so the readout editor and the panel **reject** below-floor input rather than silently clamping (floors stay as a backstop).
+- Y-up helpers reuse `arc_math.point_at` / `arc_math.yup_angle` (no per-class copies).
+
+No rotation-angle readouts (rect / ellipse / polygon). **Panel fold-in:**
+- Line Length, Rect Width/Height, Circle Radius and Arc Radius/Span become editable
+  unit-formatted dimension rows (Span is angle-typed), routed to the same setters.
+- The ellipse rows are relabelled `R1` / `R2`.
+- Panel dimension edits go through `Geometry2DMixin._dim_edit`: no undo step when nothing changed; otherwise `_push_undo` → `Model_Space.request_undo_push`, so a multi-target panel commit (inside `deferred_undo_push()`) is **one** undo step. Circle/Arc radius rows carry the setter floor as `minimum`.
 
 ## Cross-references (Rule A — these own the linked facts)
 - **Level / elevation / Z-order model** (now on the placed Block instance, not the primitive) →

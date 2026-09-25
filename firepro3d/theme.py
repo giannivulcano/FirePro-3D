@@ -43,6 +43,18 @@ FONT_UI = "Arial"
 FONT_VALUE = "Consolas"
 
 
+def value_font(px: int) -> "QFont":
+    """Return the Value-role font (``FONT_VALUE``) at a pixel size.
+
+    One home for painted numeric readouts (selection dimension readouts);
+    theming.md §Typography — Value role.
+    """
+    from PyQt6.QtGui import QFont
+    f = QFont(FONT_VALUE)
+    f.setPixelSize(int(px))
+    return f
+
+
 def apply_app_font(app: QApplication) -> None:
     """Set the app-wide UI font family to FONT_UI, preserving the point size."""
     f = app.font()

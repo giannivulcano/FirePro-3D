@@ -2708,8 +2708,8 @@ class TestArcProperties:
         arc = ArcItem(QPointF(10, 20), 1000.0, 0.0, 90.0)
         props = arc.get_properties()
         assert props["Type"]["value"] == "Arc"
-        assert props["Radius"]["value"] == "1000.0"
-        assert props["Span"]["value"] == "90.0°"
+        assert props["Radius"]["value_mm"] == pytest.approx(1000.0)
+        assert props["Span"]["value"] == "90°"
         assert "Start Angle" in props and "Centre" in props
         # Level-less primitive (C3): no "Level" row.
         assert "Colour" in props and "Line Weight" in props

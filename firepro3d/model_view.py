@@ -282,6 +282,17 @@ class Model_View(QGraphicsView):
                 from .halo import paint_halo_highlight
                 paint_halo_highlight(painter, self, halo, th.detect())
 
+        # ── Selection dimension readouts (selection-mode §15) ─────────────
+        # Painted overlay records in viewport px, after HALO so a hovered
+        # label's glow sits over the geometry highlight, before the band.
+        # A virtual override: an escaping exception aborts PyQt6 — guard.
+        if not self._clip_rect and hasattr(scene, "readouts"):
+            try:
+                scene.readouts.paint(painter, self, th.detect())
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("readout paint failed")
+
         # ── Scene-drawn rubber-band (viewport coords) ─────────────────────
         # Direction-dependent: L->R = window (blue/solid), R->L = crossing
         # (green/dashed). Drawn after HALO so the band sits on top.
@@ -671,6 +682,22 @@ class Model_View(QGraphicsView):
     # -----------------------------
     def mousePressEvent(self, event):
         sc = self.scene()
+        # Selection-readout edit open (selection-mode §15): the canvas is inert.
+        # A middle press still pans (navigating while typing); any other press
+        # outside the HUD cancels the edit and is consumed — no deselect, no
+        # band, no manipulator gesture.
+        ro = getattr(sc, "readouts", None) if sc is not None else None
+        if ro is not None and ro.is_editing():
+            if event.button() == Qt.MouseButton.MiddleButton:
+                self._panning = True
+                self._pan_start = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                if ro.hud is not None:
+                    ro.hud.restore_focus()
+            else:
+                ro.cancel_edit()
+            event.accept()
+            return
         hud = getattr(sc, "dynamic_input", None) if sc is not None else None
         if hud is not None and sc.is_input_mode():
             # Gated on input mode, not on the HUD existing: under decision S1 a
@@ -697,6 +724,13 @@ class Model_View(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
+            # A visible readout label under the press opens its editor and
+            # consumes the press: no deselect, band or manipulator gesture
+            # (selection-mode §15; grips still win inside press_at).
+            ro = getattr(sc, "readouts", None) if sc is not None else None
+            if ro is not None and ro.press_at(self, QPointF(event.pos())):
+                event.accept()
+                return
             # Track rubber-band start (viewport px). Used by both the legacy
             # stretch-mode crossing path and the scene-drawn select band.
             self._rb_start = event.pos()
@@ -752,7 +786,29 @@ class Model_View(QGraphicsView):
         else:
             super().mouseMoveEvent(event)
             sc = self.scene()
-            if sc is not None and hasattr(sc, "halo_update") and not self._panning:
+            # Selection-readout labels pick ahead of HALO geometry
+            # (selection-mode §15): a label hit clears the geometry HALO and
+            # holds the label as the hover target; otherwise HALO runs as before.
+            on_label = False
+            ro = getattr(sc, "readouts", None) if sc is not None else None
+            if ro is not None and not self._panning:
+                # A virtual override: an escaping exception aborts PyQt6.
+                try:
+                    changed, on_label = ro.hover_at(self, QPointF(event.pos()))
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        "readout hover failed")
+                    changed, on_label = False, False
+                if on_label:
+                    cleared = (sc.halo_clear() if hasattr(sc, "halo_clear")
+                               else False)
+                    if cleared or changed:
+                        self.viewport().update()
+                elif changed:
+                    self.viewport().update()
+            if (not on_label and sc is not None and hasattr(sc, "halo_update")
+                    and not self._panning):
                 from . import halo_selection
                 dt = self.viewportTransform()
                 a_scene = halo_selection.HALO_APERTURE_PX / max(self.transform().m11(), 1e-9)
@@ -1012,7 +1068,9 @@ class Model_View(QGraphicsView):
     def _reposition_dynamic_input(self) -> None:
         """Re-place the open HUD, if there is one parented here."""
         sc = self.scene()
-        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        hud = (sc.active_hud() if sc is not None and hasattr(sc, "active_hud")
+               else getattr(sc, "dynamic_input", None) if sc is not None
+               else None)
         if hud is None or hud.parentWidget() is not self.viewport():
             return
         self.place_dynamic_input(hud)

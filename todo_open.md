@@ -285,6 +285,27 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 - [ ] [type:maint] Single-placement: cover the remaining floor/roof close gestures [P3] [subject:UX]
   - Details: 2026-09-16 single-placement wired the common commit endpoints (2D geo all; wall line/rect; opening; floor rect + polygon close-near-first; roof polygon-close + rect). The floor/roof polygon **Enter** and **double-click** finish gestures do NOT yet call `_end_placement_switch`, so those specific finishes stay in the tool (minor inconsistency; Esc still exits). Wire `_end_placement_switch` into the floor/roof Enter + double-click close paths (`model_space.py` keyPress/doubleClick handlers) for full parity. `model_space.py`.
 
+## 2D-geometry selection dimension readouts
+
+- [ ] [type:maint] Shared dimension-overlay painter for gridline spacing + constraint dims (fixes stale-during-drag) [P3] [subject:Architecture]
+  - Details: user-agreed follow-up of the 2D selection-readouts task, 2026-09-24. `Model_View.drawForeground` §3b (constraint dims: `QFont("Consolas", 9)`, raw `:.1f`, ignores units) and §3c (gridline spacing: hard-coded `#0066cc`, 9pt bold) each hand-roll their paint; gridline spacing is recomputed only on selection change so it goes stale during a drag; its editor is a raw 100px `QLineEdit` (`_start_spacing_edit`). Move both onto the readout painter + HUD editor built for 2D primitives. `model_view.py`, `model_space.py`. ref: grid-system §5.4/§5.5, parametric-constraint-system.
+- [ ] [type:feature] ALIGN §8 Selection Dimensions for nodes/sprinklers on the shared readout component [P3] [subject:CAD]
+  - Details: user-agreed follow-up, 2026-09-24 — `align-placement.md §8` [PROPOSAL] (node spacing dims to pipe-connected neighbours, typed edit slides the node along the pipe). Build on the 2D selection-readout component (label paint, overlay pick ahead of HALO, latched one-field HUD, undo). `model_space.py`, `node.py`, `sprinkler.py`. ref: align-placement §8.
+- [ ] [type:bug] Manipulator typed move/resize HUD is unreachable (nothing calls `engage()`) [P3] [subject:UX]
+  - Details: 2026-09-24 reuse sweep — `SelectionManipulator._open_hud/_feed_hud/_on_hud_committed` + `Handle.commit_typed` implement the spec'd typed path (selection-manipulator.md §HUD) but only `placement_input_coordinator.py` ever calls `.engage(`; Tab routes to `scene.begin_dynamic_input`, which refuses in select mode. Wire an engage gesture. `selection_manipulator.py`, `model_space.py`. ref: selection-manipulator.
+- [ ] [type:feature] Overlap avoidance between selection dimension readouts [P3] [subject:UX]
+  - Details: user-agreed follow-up, 2026-09-24 — v1 only hides labels that don't fit their segment/arc; labels from adjacent features can still collide. Add a simple de-overlap pass if it bites in use. ref: 2d-geometry (readouts section).
+- [ ] [type:bug] Selection readouts: labels paint over manipulator grips [P3] [subject:UX]
+  - Details: 2026-09-24 seam review M7 — readouts are drawn in `Model_View.drawForeground`, after the manipulator's `_HandleItem` grips, so an overlapping label hides a grip that still wins the pick. No overlap at the shipped offsets; revisit if it shows. `model_view.py`, `selection_readouts.py`. ref: selection-mode §15.
+- [ ] [type:bug] Right-click while a readout edit is open still opens the context menu [P3] [subject:UX]
+  - Details: 2026-09-24 seam review M8 — the press cancels the edit and is consumed, but Qt still delivers `contextMenuEvent`. Suppress it while `readouts.is_editing()` if unwanted. `model_view.py`, `model_space.py`. ref: selection-mode §15.
+- [ ] [type:bug] Arc Span panel row rejects >= 360 silently [P3] [subject:UX]
+  - Details: 2026-09-24 seam review M9 — `ArcItem.set_property("Span")` ignores values outside (0, 360) but no `maximum` reaches the panel's `DimensionEdit`, so there is no red-border feedback. Pass a maximum through the dimension row meta. `geometry_2d.py`, `property_manager.py`, `dimension_edit.py`.
+- [ ] [type:maint] `Model_Space._on_selection_changed` full-repaints every view on each selection change [P3] [subject:Architecture]
+  - Details: 2026-09-24 readouts fix round — pre-existing (gridline spacing / underlay record path) `for v in self.views(): v.viewport().update()` on every selection change, plan + editor scenes. Bench on a large plan drawing; repaint only the gridline-spacing overlay region if it costs. `model_space.py`. Memory: prioritize performance in scene iteration.
+- [ ] [type:maint] Extend panel undo coalescing beyond 2D-geometry setters [P3] [subject:Architecture]
+  - Details: 2026-09-24 — `Model_Space.deferred_undo_push()` / `request_undo_push()` coalesce a multi-target panel commit into one undo step, but only for setters that route through `Geometry2DMixin._push_undo`; other families' `set_property` that call `push_undo_state()` directly (e.g. gridline) still push one step per target. `property_manager.py`, `gridline.py`, others. ref: property-panel §3.3.
+
 ## Ribbon overhaul
 
 - [ ] [type:feature] Author the ~46 missing ribbon icons per the new style guide (mockup-gated) [P2] [subject:UX]

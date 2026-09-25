@@ -358,6 +358,40 @@ class ScaleManager:
             return None
 
     @staticmethod
+    def format_span(deg: float) -> str:
+        """Format an unsigned sweep (arc span / included angle) in degrees.
+
+        Unlike :meth:`format_angle` (a heading, wrapped to (-180, 180]), a span
+        is an unsigned sweep up to 360°, so 270° renders ``"270°"``. Two
+        decimals, trailing zeros trimmed; non-finite input renders ``"0°"``
+        (this reaches Qt paint paths). units-and-formatting.md 'Unsigned sweep'.
+        """
+        if not math.isfinite(deg):
+            return "0°"
+        s = f"{deg:.2f}".rstrip("0").rstrip(".")
+        return f"{s}°"
+
+    @staticmethod
+    def parse_span(text: str) -> float | None:
+        """Parse an unsigned sweep in degrees without normalisation.
+
+        Same grammar as :meth:`parse_angle` (bare number or trailing
+        ``°``/``deg``/``degrees``) but the value is returned unwrapped.
+
+        Returns:
+            Degrees, or None when unparseable.
+        """
+        if not text:
+            return None
+        m = ScaleManager._ANGLE_RE.match(str(text))
+        if not m:
+            return None
+        try:
+            return float(m.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def parse_dimension(text: str, fallback_unit: str = "mm") -> float | None:
         """Parse a dimension string in any format and return value in mm.
 
