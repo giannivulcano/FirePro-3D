@@ -270,13 +270,13 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         """U3: boundary vertices as live-apply grips (PolylineItem twin).
 
         Every vertex is a round grip (house rule); ``apply_grip`` carries the
-        edit math unchanged. Zero special semantics — polygons are excluded from
-        the legacy Ctrl-constrain block, and a floor's neighbours are not
-        grip-coupled — so no ``EndpointGripHandle``/propagation. Keeps
-        ``manip_rotate`` (future Rotate transform); not box-native (no
-        ``manip_scale``)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular=set(range(len(self._points))))
+        edit math unchanged. S3a: under Ctrl a vertex grip angle-constrains
+        against the PREVIOUS boundary vertex (closed chain — vertex 0 wraps to
+        n−1) via ``vertex_chain_grip_handles``. A floor's neighbours are not
+        grip-coupled, so no propagation. Keeps ``manip_rotate`` (future Rotate
+        transform); not box-native (no ``manip_scale``)."""
+        from .manip_handle import vertex_chain_grip_handles
+        return vertex_chain_grip_handles(self, closed=True)
 
     def insert_point(self, idx: int, pt: QPointF):
         """Insert a vertex at position *idx* (shifts subsequent points)."""

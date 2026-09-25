@@ -444,14 +444,17 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         return specs
 
     def manip_handles(self):
-        """U3: expose each vertex as a live-apply GripHandle. All grips are
+        """U3: expose each vertex as a live-apply grip. All grips are
         vertices (no midpoint/convenience grips), so all render round per the
         house rule (vertex/endpoint grips = round disc; midpoints = square).
-        Move is the manipulator's interior-drag (no centre grip). The
-        manipulator renders/hit-tests/commits them; the legacy grip paths skip
-        this item (coexistence gate)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular=set(range(len(self._points))))
+        S3a: under Ctrl a vertex grip angle-constrains against the PREVIOUS
+        vertex; an open polyline's start vertex constrains against the next
+        one, and a closed polyline wraps (vertex 0 against n−1)
+        (``vertex_chain_grip_handles``). Move is the manipulator's
+        interior-drag (no centre grip). The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import vertex_chain_grip_handles
+        return vertex_chain_grip_handles(self, closed=self.is_closed())
 
     def translate(self, dx: float, dy: float):
         """Move all vertices by (dx, dy)."""

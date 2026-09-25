@@ -383,7 +383,9 @@ class RectGripHandle(GripHandle):
 class EndpointGripHandle(GripHandle):
     """A ``GripHandle`` that Ctrl-angle-constrains its drag against a fixed
     opposite endpoint — the per-item semantics for 2-endpoint items (LineItem
-    endpoints, and later WallSegment / GridlineItem endpoints).
+    endpoints, and later WallSegment / GridlineItem endpoints), and for vertex
+    chains (PolylineItem / FloorSlab / RoofItem vertices, anchored on the
+    previous vertex — see ``vertex_chain_grip_handles``).
 
     Under Ctrl the dragged point is projected onto the nearest angle increment
     ray from the opposite endpoint via the scene's ``_constrain_angle`` (the same
@@ -547,4 +549,42 @@ def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset
         if fn is not None and not fn(i):
             continue
         out.append(GripHandle(item, i, circular=(i in circular)))
+    return out
+
+
+def vertex_chain_grip_handles(item, closed: bool,
+                              circular: "frozenset[int] | set[int] | None" = None):
+    """Vertex grips that Ctrl-angle-constrain against the PREVIOUS vertex (S3a).
+
+    For polyline / polygon vertex chains (PolylineItem, FloorSlab, RoofItem).
+    An open chain's first vertex constrains against the next one (it has no
+    previous); a closed chain wraps (vertex 0 constrains against n−1). Reuses
+    ``EndpointGripHandle`` — the anchor is re-read live from ``grip_points()``
+    each frame. ``grip_hittable``-filtered like ``default_grip_handles``;
+    *circular* defaults to every vertex (house rule: vertex grips are round).
+
+    Args:
+        item: The vertex-chain item (``grip_points()`` = its vertices in order).
+        closed: True if the chain wraps (closed polyline / polygon boundary).
+        circular: Indices rendered round; ``None`` means all vertices.
+
+    Returns:
+        One handle per hittable vertex (``EndpointGripHandle`` when n >= 2).
+    """
+    n = len(item.grip_points())
+    fn = getattr(item, "grip_hittable", None)
+    circ = set(range(n)) if circular is None else set(circular)
+    out = []
+    for i in range(n):
+        if fn is not None and not fn(i):
+            continue
+        if n < 2:
+            out.append(GripHandle(item, i, circular=(i in circ)))
+            continue
+        if i > 0:
+            opp = i - 1
+        else:
+            opp = n - 1 if closed else 1
+        out.append(EndpointGripHandle(item, i, opposite_index=opp,
+                                      circular=(i in circ)))
     return out
