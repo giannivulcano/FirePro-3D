@@ -2529,80 +2529,64 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._align_result = None
             return QPointF(scene_pos)
 
-        # SNAP takes highest priority (disabled when no mode or select mode,
-        # but enabled during grip-drag even in select mode)
-        if (self._snap_enabled
-                and self.mode is not None
-                and (self.mode != "select" or self._grip_dragging)):
-            exclude = self._grip_item if self._grip_dragging else None
-            _view = self._snap_view()
-            if _view is not None:
-                result = self._snap_engine.find(
-                    scene_pos, self, _view.transform(), exclude=exclude,
-                    held=self._snap_result)
-                self._snap_result = result
-                if result is not None:
-                    self._align_result = None
-                    return result.point
-            else:
-                self._snap_result = None
-        else:
+        # ONE picker (align-placement §1.1/§3): real SNAP and ALIGN candidates
+        # are ranked in a single find() call. Real SNAP is gated by mode (select
+        # only while grip-dragging); ALIGN by an armed placement. When only
+        # ALIGN is live, the whitelist restricts the call to ALIGN types.
+        from .snap_engine import ALIGN_SNAP_TYPES
+        real_ok = (self._snap_enabled
+                   and self.mode is not None
+                   and (self.mode != "select" or self._grip_dragging))
+        align_ok = self._align_enabled and self._align_active_item is not None
+        _view = self._snap_view()
+        rays = None
+        if _view is not None and align_ok:
+            self._align_controller.set_active_anchor(
+                self._align_anchor_point(), self._align_anchor_direction())
+            # Parallel guide anchoring: once a placement FROM-point exists it
+            # anchors THERE (fixed, so the cursor can snap onto it); before
+            # the first point there is none, so it falls back to the cursor —
+            # a moving preview that confirms the direction was acquired. Use
+            # the raw per-mode anchor (not get_placement_anchor, which the
+            # track schema masks with the ray origin).
+            _anchor = self._mode_placement_anchor()
+            parallel_origin = ((_anchor.x(), _anchor.y()) if _anchor is not None
+                               else (scene_pos.x(), scene_pos.y()))
+            rays = self._align_controller.build_rays(parallel_origin) or None
+        if _view is None or not (real_ok or rays):
             self._snap_result = None
-
-        # ── ALIGN acquire-and-track (weak snap, below real SNAP) ─────────
-        # The controller holds the acquired set (fed on move by the dwell
-        # machine); each frame it emits the transient tracking [Ray]s (acquired
-        # H/V + extension + parallel, plus the auto-acquired active anchor).
-        # Those rays enter the ONE picker via find(align_paths=…) at ALIGN
-        # priority (below every real snap); a hit projects the cursor onto the
-        # path / crossing.
-        if self._align_enabled and self._align_active_item is not None:
-            _view = self._snap_view()
-            if _view is not None:
-                self._align_controller.set_active_anchor(
-                    self._align_anchor_point(), self._align_anchor_direction())
-                # Parallel guide anchoring: once a placement FROM-point exists it
-                # anchors THERE (fixed, so the cursor can snap onto it); before
-                # the first point there is none, so it falls back to the cursor —
-                # a moving preview that confirms the direction was acquired. Use
-                # the raw per-mode anchor (not get_placement_anchor, which the
-                # track schema masks with the ray origin).
-                _anchor = self._mode_placement_anchor()
-                parallel_origin = ((_anchor.x(), _anchor.y())
-                                   if _anchor is not None
-                                   else (scene_pos.x(), scene_pos.y()))
-                rays = self._align_controller.build_rays(parallel_origin)
-                if rays:
-                    res = self._snap_engine.find(
-                        scene_pos, self, _view.transform(),
-                        align_paths=rays, held=self._align_result,
-                        align_aperture_px=self._align_path_tol_px)
-                    self._align_result = res
-                    if (res is not None
-                            and res.snap_type in ("align_intersection",
-                                                  "align_path")):
-                        # Navigate (D4): a single-path soft-snap arms the
-                        # ``track`` schema so typing a Distance places along the
-                        # path.  The picker returns the foot point but not the
-                        # winning Ray, so recover it from ``rays`` (still held
-                        # here) — the ray whose projection of the foot has ~0
-                        # perpendicular error.  An ``align_intersection`` is a
-                        # fixed crossing with no single direction, so it gets no
-                        # distance field: clear the arm and leave the primitive
-                        # schema live.
-                        if res.snap_type == "align_path":
-                            self._arm_align_track(rays, res.point)
-                        else:
-                            self._align_track_ray = None
-                        return res.point
-                    self._align_track_ray = None
-                else:
-                    self._align_result = None
-                    self._align_track_ray = None
-        else:
             self._align_result = None
             self._align_track_ray = None
-        return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+            return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        held = self._snap_result if self._snap_result is not None else self._align_result
+        res = self._snap_engine.find(
+            scene_pos, self, _view.transform(),
+            exclude=self._grip_item if self._grip_dragging else None,
+            only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
+            held=held, align_paths=rays,
+            align_aperture_px=self._align_path_tol_px)
+        if res is None:
+            self._snap_result = None
+            self._align_result = None
+            self._align_track_ray = None
+            return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        if res.snap_type in ALIGN_SNAP_TYPES:
+            self._snap_result = None
+            self._align_result = res
+            # Navigate (D4): a single-path soft-snap arms the ``track`` schema
+            # so typing a Distance places along the path. The picker returns
+            # the foot point but not the winning Ray, so recover it from
+            # ``rays``. An ``align_intersection`` is a fixed crossing with no
+            # single direction, so it gets no distance field.
+            if res.snap_type == "align_path":
+                self._arm_align_track(rays, res.point)
+            else:
+                self._align_track_ray = None
+            return res.point
+        self._snap_result = res
+        self._align_result = None
+        self._align_track_ray = None
+        return res.point
 
     def _align_anchor_point(self):
         """The current placement FROM-point as an (x, y) tuple, or None.

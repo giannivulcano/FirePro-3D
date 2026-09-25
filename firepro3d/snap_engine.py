@@ -346,6 +346,9 @@ SNAP_PRIORITY: dict[str, int] = {
     "align_path":         30,
 }
 
+# ALIGN candidate types (transient tracking; see align-placement.md).
+ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OsnapResult
@@ -376,11 +379,13 @@ class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
-                 "endpoint_candidates", "underlay_geoms", "only_types")
+                 "endpoint_candidates", "underlay_geoms", "only_types",
+                 "weak_types")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
-                 only_types: "set[str] | None" = None):
+                 only_types: "set[str] | None" = None,
+                 weak_types: frozenset = frozenset({"nearest", "perpendicular"})):
         self.cursor = cursor
         self.scale = _safe_scale(scale)
         self.aperture_px = aperture_px
@@ -398,6 +403,9 @@ class _SnapCtx:
         self.underlay_geoms: dict[int, list[dict]] = {}
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
+        # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
+        # outright (S5, align-placement §3.1).
+        self.weak_types: frozenset = weak_types
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -423,6 +431,20 @@ class _SnapCtx:
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
         band = self.priority_band_px
+        # S5 (align-placement §3.1): an in-aperture ALIGN crossing beats a
+        # cursor-foot ("weak") snap outright. The foot on the very segment a
+        # ray crosses is by construction at least as close as the crossing, so
+        # the band arithmetic below could never let the crossing win.
+        inc = self.best_result.snap_type if self.best_result is not None else None
+        if snap_type == "align_intersection" and inc in self.weak_types:
+            self.best_dist_px = d_px
+            self.best_prio = prio
+            self.best_result = OsnapResult(
+                point=pt, snap_type=snap_type, source_item=src_item,
+                source_item2=src_item2, source_lines=source_lines, name=name)
+            return
+        if snap_type in self.weak_types and inc == "align_intersection":
+            return
         # Acceptance rules (all judged in px):
         #  1. strictly closer beyond the band  → always win;
         #  2. within the band + higher priority → win (priority-override,
@@ -618,6 +640,11 @@ class SnapEngine:
         if held_d_px > held_aperture:
             return best  # cursor left the held aperture → release the hold
         if best is None:
+            return held
+        # S5: the weak-foot dominance applies across the hold too.
+        if best.snap_type == "align_intersection" and held.snap_type in ctx.weak_types:
+            return best
+        if held.snap_type == "align_intersection" and best.snap_type in ctx.weak_types:
             return held
         best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
         held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
