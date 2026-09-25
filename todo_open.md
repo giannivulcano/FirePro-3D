@@ -395,6 +395,26 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec.
 - [ ] [type:design] Spec session: pipe-with-fitting named targets [P2] [subject:CAD]
   - Details: ref: snap-spec §8.3.
+- [ ] [type:feature] S1 — Perpendicular-from-start snap while placing a line [P2] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — while drawing a line, when the in-progress segment's free end touches another line and the segment is at 90° to it, snap there (AutoCAD PER from the last point). Existing `perpendicular` snap is the foot from the CURSOR (≈ nearest). Use the drawn ref line as the cue. `snap_engine.py`, `model_space.py`. ref: snapping-engine.md §4.
+- [ ] [type:feature] S2 — Whole-item move: handle positions snap to geometry [P2] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — when moving an entire item, its handle points (endpoints/corners/centre) should snap to geometry, not just the cursor. `selection_manipulator.py`, `model_space.py`, `snap_engine.py`. ref: selection-manipulator.md, snapping-engine.md.
+- [ ] [type:bug] S3 — Polyline endpoint drag ignores Ctrl angle-snap; 1-segment polyline stays a polyline [P2] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — Ctrl angle constraint doesn't apply when dragging a polyline's endpoint grips; a polyline with a single segment is still a PolylineItem rather than a line. `geometry_2d.py`, `selection_manipulator.py`, `model_space.py`.
+- [ ] [type:bug] S4 — Grip-drag snap to circles/curves lands with an offset [P2] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — dragging a line/polyline endpoint onto a circle or curve snaps with a constant offset between the handle and the target primitive. `selection_manipulator.py`, `snap_engine.py`, `model_space.py`.
+- [ ] [type:bug] S5 — ALIGN reference paths invisible to SNAP (path×path, path×geometry) [P2] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — overlapping ALIGN references (e.g. at an intersection) aren't snappable; ALIGN ref × primitive/feature (wall, rect) crossings aren't recognised; SNAP tends to override. Note `758b8e5` already added `find(align_paths=…)` path×path/×geometry candidates — likely an arbitration/plumbing bug, not a missing feature. `snap_engine.py`, `align_controller.py`, `model_space.py`. ref: snapping-engine §14.5, align-placement.
+- [ ] [type:feature] S6 — Text primitive emits no snap points [P3] [subject:CAD]
+  - Details: user, 2026-09-24 snap-polish batch — `TextItem` contributes no snap candidates (e.g. frame corners/midpoints/centre/insertion point). `snap_engine.py`, `text_item.py`. ref: snapping-engine §5, text-annotation-system.
+- [ ] [type:bug] Phase-4 intersections on curves use the Bézier control polygon [P3] [subject:CAD]
+  - Details: found 2026-09-24 (snap-polish 1b, S4). `snap_engine.py` phase-4 (`_check_geometry_intersections` path-element extraction) intersects raw path elements incl. Bézier control points, so a line crossing an arc/ellipse/spline gets no intersection snap at the true crossing. Same flattening fix as S4 (`toSubpathPolygons`). Also: DXF curve control points emitted as endpoint snaps. ref: snapping-engine §6.1.
+- [ ] [type:bug] Block-compiled text drops its border frame + fill [P3] [subject:CAD]
+  - Details: found 2026-09-24 (snap-polish 1b, S6) — unconfirmed: a TextItem's frame border/fill never reach the compiled block render_ops (only glyph outlines). Reproduce first. `block_definition.py`, `text_item.py`. ref: block-system.
+- [ ] [type:feature] ALIGN crossings dwell-acquirable [P3] [subject:CAD]
+  - Details: found 2026-09-24 (snap-polish 1b, S5) — the dwell machine is fed only the real snap result, so an ALIGN crossing (align_intersection) can't itself be acquired. `align_controller.py`, `model_space.py`. ref: align-placement.
+- [ ] [type:bug] `_align_snap_dict` id collision for source-less points [P3] [subject:CAD]
+  - Details: found 2026-09-24 (snap-polish 1b, S5) — points with no source item get `hash(snap_type)` as id, so two of the same type collide (acquire/hysteresis identity). `model_space.py`.
 - [ ] [type:bug] Underlay intersection snapping bails in very dense regions [P3] [subject:CAD]
   - Details: phase-4 returns early once segment extraction exceeds `_PHASE4_MAX_SEGMENTS` (256) to bound O(n²) pairing, so a cursor over a dense DXF area gets no intersection snap at all. Consider: spatial pre-pairing / only pairing segments whose bbox is near the cursor, or raising the cap with a smarter pairing structure. `snap_engine.py:_check_geometry_intersections`. ref: snap-spec §6.1.
 
