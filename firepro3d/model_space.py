@@ -2810,7 +2810,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._plc._mode_placement_anchor()
 
     # S1: modes whose ⊥ snap measures from the placement start point.
-    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "roof")
+    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "roof",
+                       "draw_rectangle", "draw_circle", "draw_ellipse",
+                       "draw_arc", "draw_spline")
 
     def _snap_from_point(self) -> "QPointF | None":
         """Start point for perpendicular-from (AutoCAD PER), or None."""
@@ -2829,6 +2831,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ``_APPLIER_FOR_MODE``.)
             ra = self._roof_active
             return ra.last_point() if ra is not None and ra._points else None
+        # Smoke item 2a — 2D primitives: PER-from applies only while the
+        # reference line runs from the FIRST click (the 1st→2nd-click step);
+        # later steps (rect depth, ellipse minor, arc sweep) measure other
+        # things, so they get no ⊥-from.
+        if self.mode == "draw_rectangle" and self._draw_rect_side_pt is not None:
+            return None
+        if self.mode == "draw_ellipse" and self._ellipse_step != 1:
+            return None
+        if self.mode == "draw_arc" and self._draw_arc_step != 1:
+            return None
+        if self.mode == "draw_spline":
+            # Spline reads its own anchor (PLC ``_mode_placement_anchor`` has
+            # no spline branch; adding one would also arm ALIGN / the HUD
+            # anchor — see the roof note above). The rubber-band ref line runs
+            # from the last control point, as for polyline.
+            pts = self._spline_points
+            return QPointF(pts[-1]) if pts else None
         return self._mode_placement_anchor()
 
     # ─────────────────────────────────────────────────────────────────────────

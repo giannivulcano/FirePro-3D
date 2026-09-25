@@ -144,3 +144,82 @@ def test_draw_line_perpendicular_from_start_onto_circle(qapp):
         assert abs(cross) / (math.hypot(start.x(), start.y()) * r) < 1e-6
     finally:
         close_view(view, scene)
+
+
+# ── Smoke item 2a: PER-from on the first→second-click reference line ────────
+
+def _first_click_then_hover(mode):
+    view, scene = make_view(mode=mode)
+    scene.addItem(LineItem(T1, T2))
+    click(view, START)
+    move(view, CURSOR)
+    return view, scene
+
+
+def test_draw_rectangle_side_step_perpendicular_from_base(qapp):
+    view, scene = _first_click_then_hover("draw_rectangle")
+    try:
+        _assert_per_from_start(scene)
+        click(view, CURSOR)                          # commits the side point
+        assert _near(scene._draw_rect_side_pt, FOOT), scene._draw_rect_side_pt
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_circle_radius_step_perpendicular_from_centre(qapp):
+    view, scene = _first_click_then_hover("draw_circle")
+    try:
+        _assert_per_from_start(scene)
+        click(view, CURSOR)                          # commits the circle
+        circ = scene._draw_circles[-1]
+        assert _near(circ._center, START)
+        # Ground truth: the rim passes through the foot (radius = |START-FOOT|).
+        assert abs(circ._radius - math.hypot(FOOT.x() - START.x(),
+                                             FOOT.y() - START.y())) < 0.01
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_ellipse_major_step_perpendicular_from_centre(qapp):
+    view, scene = _first_click_then_hover("draw_ellipse")
+    try:
+        _assert_per_from_start(scene)
+        click(view, CURSOR)                          # commits the major axis
+        assert abs(scene._ellipse_rx - math.hypot(FOOT.x() - START.x(),
+                                                  FOOT.y() - START.y())) < 0.01
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_arc_first_step_perpendicular_from_first_click(qapp):
+    view, scene = _first_click_then_hover("draw_arc")
+    try:
+        _assert_per_from_start(scene)
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_spline_perpendicular_from_last_control_point(qapp):
+    view, scene = _first_click_then_hover("draw_spline")
+    try:
+        _assert_per_from_start(scene)
+        click(view, CURSOR)
+        assert _near(scene._spline_points[-1], FOOT), scene._spline_points
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_rectangle_depth_step_has_no_perpendicular_from(qapp):
+    """PER-from is limited to the 1st→2nd-click step: at the depth step the
+    cursor foot on the target is plain ``nearest``."""
+    view, scene = make_view(mode="draw_rectangle")
+    try:
+        scene.addItem(LineItem(T1, T2))
+        click(view, START)
+        click(view, QPointF(-800, 800))              # side point → depth step
+        assert scene._draw_rect_side_pt is not None
+        move(view, CURSOR)
+        r = scene._snap_result
+        assert r is not None and r.snap_type == "nearest", r
+    finally:
+        close_view(view, scene)
