@@ -133,6 +133,14 @@ FLOOR_BOTTOM_MODES = ("level", "absolute", "thickness")
 # (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
+# ── Snap-engine per-item perf caps (snap_engine.py) ─────────────────────────
+# Cursor-dependent snaps on a generic QGraphicsPathItem walk its flattened
+# polyline with a spatial cull (full coverage). Above this many path elements
+# or flattened points the path is pathological and falls back to a bounded
+# raw-element walk. Native items (ellipses, splines, slabs) stay far below.
+SNAP_MAX_FLAT_POINTS = 10000
+SNAP_MAX_SEGMENTS_PER_ITEM = 511   # bound on the raw-element fallback walk
+
 # ── ALIGN tracking paths (align_engine.py) ───────────────────────────────────
 ALIGN_PATH_TOL_PX = 20.0       # screen-px cursor→path soft-snap aperture; wider than the
                                # 15px real-snap aperture but its OWN band (align-placement D7)

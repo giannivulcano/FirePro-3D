@@ -380,12 +380,13 @@ class _SnapCtx:
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
                  "endpoint_candidates", "underlay_geoms", "only_types",
-                 "weak_types", "from_point")
+                 "weak_types", "from_point", "search_tol")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
                  only_types: "set[str] | None" = None,
-                 weak_types: frozenset = frozenset({"nearest", "perpendicular"})):
+                 weak_types: frozenset = frozenset({"nearest", "perpendicular"}),
+                 search_tol: float = math.inf):
         self.cursor = cursor
         self.scale = _safe_scale(scale)
         self.aperture_px = aperture_px
@@ -409,6 +410,9 @@ class _SnapCtx:
         # Placement start point for perpendicular-from (S1); None = the
         # legacy cursor-foot perpendicular.
         self.from_point: "QPointF | None" = None
+        # Scene-unit search radius (find()'s search rect half-size). Cursor-
+        # dependent snaps on long flattened paths cull segments beyond it.
+        self.search_tol: float = search_tol
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -582,7 +586,8 @@ class SnapEngine:
                        aperture_px=aperture_px, priority_band_px=priority_band_px,
                        only_types=only_types,
                        weak_types=(frozenset({"nearest"}) if from_point is not None
-                                   else frozenset({"nearest", "perpendicular"})))
+                                   else frozenset({"nearest", "perpendicular"})),
+                       search_tol=search_tol)
         ctx.from_point = from_point
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
@@ -709,7 +714,8 @@ class SnapEngine:
                                 item):
                             ctx.check(snap_type, scene_pt, item, name)
                         for snap_type, pt in self._geometric_snaps(
-                                ctx.cursor, item, ctx.from_point):
+                                ctx.cursor, item, ctx.from_point,
+                                ctx.search_tol):
                             ctx.check(snap_type, pt, item)
                 continue
 
@@ -737,7 +743,8 @@ class SnapEngine:
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, item,
-                                                       ctx.from_point):
+                                                       ctx.from_point,
+                                                       ctx.search_tol):
                 ctx.check(snap_type, pt, item)
 
     def _check_gridline_intersections(self, ctx: "_SnapCtx",
@@ -762,7 +769,8 @@ class SnapEngine:
             for snap_type, pt, name in self._collect(gl):
                 ctx.check(snap_type, pt, gl, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, gl,
-                                                       ctx.from_point):
+                                                       ctx.from_point,
+                                                       ctx.search_tol):
                 ctx.check(snap_type, pt, gl)
 
     def _check_geometry_intersections(self, ctx: "_SnapCtx",
@@ -1610,11 +1618,14 @@ class SnapEngine:
     def _geometric_snaps(
         self, cursor: QPointF, item: QGraphicsItem,
         from_point: "QPointF | None" = None,
+        search_tol: float = math.inf,
     ) -> list[tuple[str, QPointF]]:
         """Perpendicular, nearest, and tangent snap points (cursor-dependent).
 
         With *from_point* (a placement start point) ``perpendicular`` is the
         foot FROM that point (S1); otherwise it is the legacy cursor foot.
+        *search_tol* (scene units) lets long flattened paths skip segments
+        farther than that from the cursor; ``inf`` (default) culls nothing.
         """
 
         pts: list[tuple[str, QPointF]] = []
@@ -1728,18 +1739,82 @@ class SnapEngine:
         #    project onto the FLATTENED path. Raw elements include Bézier
         #    control points that sit off the curve, which snapped to empty
         #    space outside arcs/ellipses/splines (S4).
-        elif isinstance(item, QGraphicsPathItem) and not isinstance(
-                item, (WallSegment, PolylineItem)):
-            n_seg = 0
-            for poly in item.path().toSubpathPolygons():
-                for i in range(poly.count() - 1):
-                    if n_seg >= 511:
-                        break
-                    _seg_snap(item.mapToScene(poly.at(i)),
-                              item.mapToScene(poly.at(i + 1)))
-                    n_seg += 1
+        #    (WallSegment / PolylineItem are caught earlier in this chain.)
+        elif isinstance(item, QGraphicsPathItem):
+            self._path_foot_snaps(item, cursor, search_tol, _seg_snap)
 
         return pts
+
+    def _path_foot_snaps(self, item: QGraphicsPathItem, cursor: QPointF,
+                         search_tol: float,
+                         seg_snap: "Callable[[QPointF, QPointF], None]") -> None:
+        """Feed a generic path's segments near *cursor* to *seg_snap* (S4/I1).
+
+        The path is flattened ONCE in scene coordinates (Bézier control
+        points sit off the curve, so raw elements would snap to empty space).
+        Coverage is complete: instead of a segment-count cap, subpaths and
+        segments whose bbox lies farther than *search_tol* from the cursor are
+        culled — any foot on them would fall outside the aperture anyway.
+        Pathological paths (more than ``SNAP_MAX_FLAT_POINTS`` elements or
+        flattened points) fall back to the legacy bounded raw-element walk.
+
+        Args:
+            item: The path item (scene transform applied here).
+            cursor: Cursor position in scene coordinates.
+            search_tol: Scene-unit cull radius around *cursor*.
+            seg_snap: Callback receiving each kept segment's scene endpoints.
+        """
+        from .constants import SNAP_MAX_FLAT_POINTS
+        path = item.path()
+        polys = None
+        if path.elementCount() <= SNAP_MAX_FLAT_POINTS:
+            polys = path.toSubpathPolygons(item.sceneTransform())
+            if sum(poly.count() for poly in polys) > SNAP_MAX_FLAT_POINTS:
+                polys = None
+        if polys is None:
+            self._path_element_foot_snaps(item, seg_snap)
+            return
+        cx, cy = cursor.x(), cursor.y()
+        tol = search_tol
+        for poly in polys:
+            br = poly.boundingRect()
+            if (cx < br.left() - tol or cx > br.right() + tol
+                    or cy < br.top() - tol or cy > br.bottom() + tol):
+                continue
+            prev = poly.at(0)
+            px, py = prev.x(), prev.y()
+            for i in range(1, poly.count()):
+                q = poly.at(i)
+                qx, qy = q.x(), q.y()
+                if not (min(px, qx) - tol > cx or max(px, qx) + tol < cx
+                        or min(py, qy) - tol > cy or max(py, qy) + tol < cy):
+                    seg_snap(prev, q)
+                prev, px, py = q, qx, qy
+
+    @staticmethod
+    def _path_element_foot_snaps(
+            item: QGraphicsPathItem,
+            seg_snap: "Callable[[QPointF, QPointF], None]") -> None:
+        """Legacy bounded raw-element walk for pathological paths.
+
+        Projects onto the path's raw element polyline (Bézier control points
+        included), capped at ``SNAP_MAX_SEGMENTS_PER_ITEM`` elements — the
+        pre-S4 behaviour, kept only above the ``SNAP_MAX_FLAT_POINTS`` ceiling.
+
+        Args:
+            item: The path item.
+            seg_snap: Callback receiving each segment's scene endpoints.
+        """
+        from .constants import SNAP_MAX_SEGMENTS_PER_ITEM
+        path = item.path()
+        n = path.elementCount()
+        for i in range(min(n - 1, SNAP_MAX_SEGMENTS_PER_ITEM)):
+            e2 = path.elementAt(i + 1)
+            if e2.type == QPainterPath.ElementType.MoveToElement:
+                continue  # sub-path boundary, no segment
+            e1 = path.elementAt(i)
+            seg_snap(item.mapToScene(QPointF(e1.x, e1.y)),
+                     item.mapToScene(QPointF(e2.x, e2.y)))
 
     @staticmethod
     def _project_to_segment(
