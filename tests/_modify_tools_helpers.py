@@ -7,6 +7,7 @@ from firepro3d.geometry_2d import (
     ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
     ReferenceLineItem, RegularPolygonItem, SplineItem,
 )
+from firepro3d.text_item import TextAnnotationData, TextItem
 
 # name -> (factory, scene list attribute)
 def _line():      return LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -23,6 +24,9 @@ def _arc():       return ArcItem(QPointF(0, 0), 50.0, 0.0, 90.0)
 def _polygon():   return RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=50.0)
 def _ellipse():   return EllipseItem(QPointF(0, 0), 80.0, 40.0)
 def _spline():    return SplineItem([QPointF(0, 0), QPointF(50, -60), QPointF(100, 0), QPointF(150, -40)])
+def _text():      return TextItem(TextAnnotationData(text="T", x=0.0, y=0.0, height_mm=20.0))
+def _text_rot():
+    t = _text(); t.set_angle(30.0); return t
 
 PRIMITIVES = {
     "line": (_line, "_draw_lines"),
@@ -36,6 +40,8 @@ PRIMITIVES = {
     "polygon": (_polygon, "_draw_polygons"),
     "ellipse": (_ellipse, "_draw_ellipses"),
     "spline": (_spline, "_draw_splines"),
+    "text": (_text, "_texts"),
+    "text_rotated": (_text_rot, "_texts"),
 }
 
 

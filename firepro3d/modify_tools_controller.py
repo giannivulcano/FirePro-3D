@@ -87,7 +87,11 @@ class ModifyToolsController:
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
             from .transform_ghost import dim_items
-            s._ghost_dimmed = dim_items(self._transformable(sel))
+            # Dim exactly what the tool acts on: Rotate turns only the
+            # rotatable subset, so nothing it leaves alone looks "in flight".
+            acted = (self._rotatable(sel) if tool == "rotate"
+                     else self._transformable(sel))
+            s._ghost_dimmed = dim_items(acted)
         return True
 
     @staticmethod
@@ -525,9 +529,15 @@ class ModifyToolsController:
         return 180.0 if d == -180.0 else d
 
     def _rotatable(self, items) -> list:
-        """The transformable *items* that can rotate (have ``manip_rotate``)."""
+        """The transformable *items* that can rotate right now.
+
+        Uses the manipulator's ``item_capabilities`` (``manip_rotate`` plus
+        any dynamic ``manip_capabilities()`` narrowing) — one source of truth
+        for "can this item rotate".
+        """
+        from .selection_manipulator import item_capabilities
         return [it for it in self._transformable(items)
-                if hasattr(it, "manip_rotate")]
+                if "rotate" in item_capabilities(it)]
 
     def rotate_delta_to(self, point) -> float:
         """Live relative sweep for *point* (0 until the start ray is picked).
@@ -610,7 +620,8 @@ class ModifyToolsController:
             delta_deg: The relative sweep.
 
         Returns:
-            True — a rotation always commits once the pivot is armed.
+            True when something rotated; False with no pivot or when nothing
+            selected can rotate ("Nothing to rotate", no undo step).
         """
         s = self._scene
         pivot = s._rotate_pivot
@@ -619,6 +630,18 @@ class ModifyToolsController:
         items = [it for it in (s._selected_items or [])
                  if it.scene() is s]
         targets = self._rotatable(items)
+        if not targets:
+            # Mirror Duplicate's "nothing created" path: no undo step.
+            s._move_ghost = []
+            s._move_ghost_base = []
+            s.clear_placement_state()
+            s._selected_items = []
+            s.set_mode(None)
+            for it in items:
+                if it.scene() is s:
+                    it.setSelected(True)
+            s._show_status("Nothing to rotate", 3000)
+            return False
         for it in targets:
             it.manip_rotate(float(delta_deg), QPointF(pivot))
         for it in targets:
@@ -626,10 +649,9 @@ class ModifyToolsController:
             if fitting is not None:
                 fitting.update()
         tools = getattr(s, "_tools", None)
-        if tools is not None and targets:
+        if tools is not None:
             tools._solve_constraints()
-        if targets:
-            s.push_undo_state()
+        s.push_undo_state()
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
@@ -638,7 +660,9 @@ class ModifyToolsController:
         for it in items:
             if it.scene() is s:
                 it.setSelected(True)
-        s._show_status(f"Rotated {len(targets)} item(s) {delta_deg:.1f}°")
+        skipped = len(items) - len(targets)
+        msg = f"Rotated {len(targets)} item(s) {delta_deg:.1f}°"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return True
 
     def apply_rotate_by(self, params: dict) -> bool:

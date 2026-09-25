@@ -242,3 +242,150 @@ def test_pivot_to_cursor_ray_is_painted(qapp):
         assert on != off, (on, off)                                      # [RED]
     finally:
         close_view(view, scene)
+
+
+# ── Review round (C1, M1–M4) ────────────────────────────────────────────────
+
+def _text_corners(t):
+    r = t._box_rect_local()
+    return [(round(p.x(), 3), round(p.y(), 3)) for p in
+            (t.mapToScene(q) for q in (r.topLeft(), r.topRight(),
+                                       r.bottomRight(), r.bottomLeft()))]
+
+
+@pytest.mark.parametrize("name", ["text", "text_rotated"])
+def test_rotated_text_about_far_pivot_is_rigid_and_persists(qapp, name):
+    """C1: text (unrotated, or already at 30°) turned 45° about a far pivot
+    lands at the rigid rotation, and a save round-trip and undo->redo keep it
+    there (the text's rotation pivot is transient, so it must not be needed to
+    reproduce it)."""
+    import json
+    from firepro3d.text_item import TextItem
+    view, scene = make_view(scale=0.25)
+    try:
+        item, attr = add_primitive(scene, name)
+        before = _text_corners(item)
+        scene._modify_ctl.start("rotate")
+        click(view, QPointF(1000, 0))                     # far pivot
+        pivot = QPointF(scene._rotate_pivot)
+        _type_angle(scene, "45")
+        exp = _flat(_visual_ccw(before, pivot, 45))
+        live = scene._texts[0]
+        assert _flat(_text_corners(live)) == pytest.approx(exp, abs=0.05)   # [RED]
+        clone = TextItem.from_dict(json.loads(json.dumps(live.to_dict())))
+        scene.addItem(clone)
+        assert _flat(_text_corners(clone)) == pytest.approx(exp, abs=0.05)  # [RED]
+        scene.removeItem(clone)
+        scene.undo()
+        scene.redo()
+        assert _flat(_text_corners(scene._texts[0])) == pytest.approx(exp, abs=0.05)
+    finally:
+        close_view(view, scene)
+
+
+def _block_instance(scene):
+    from firepro3d.block_instance import BlockInstance
+    inst = BlockInstance(block_id="deadbeef", resolver={}.get)
+    scene.addItem(inst)
+    scene._block_instances.append(inst)
+    return inst
+
+
+def test_rotate_dims_only_what_it_rotates(qapp):
+    """M1: a selected item Rotate cannot turn (no manip_rotate) is not dimmed."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        inst = _block_instance(scene)
+        inst.setSelected(True)
+        scene._modify_ctl.start("rotate")
+        assert item.opacity() == pytest.approx(0.35)      # the rotatable one is
+        assert inst.opacity() == pytest.approx(1.0)                      # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_nothing_to_rotate_pushes_no_undo(qapp):
+    """M3: only non-rotatable items selected -> no undo step, status says so."""
+    view, scene = make_view(scale=1.0)
+    try:
+        inst = _block_instance(scene)
+        scene.push_undo_state()
+        scene.clearSelection()
+        inst.setSelected(True)
+        p0 = scene._undo_pos
+        msgs = []
+        real = scene._show_status
+        scene._show_status = lambda m, *a, **k: (msgs.append(m), real(m, *a, **k))
+        scene._modify_ctl.start("rotate")
+        click(view, QPointF(0, 0))
+        _type_angle(scene, "45")
+        assert scene._undo_pos == p0
+        assert scene.mode in (None, "select")
+        assert "Nothing to rotate" in msgs                               # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_pivot_and_end_ray_snap(qapp):
+    """M4 / D8: the pivot click and the end-ray click both SNAP.
+
+    Targets are off-grid endpoints of unselected lines, so a raw or a
+    grid-snapped click cannot land on them by accident.
+    """
+    from firepro3d.geometry_2d import LineItem
+    view, scene = make_view(scale=1.0)
+    try:
+        for a, b in (((37.3, 58.1), (37.3, 158.1)),       # pivot P / end C
+                     ((137.3, 58.1), (237.3, 58.1))):     # start S
+            ln = LineItem(QPointF(*a), QPointF(*b))
+            scene.addItem(ln)
+            scene._draw_lines.append(ln)
+        item, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
+        scene._modify_ctl.start("rotate")
+        move(view, QPointF(39, 60))
+        click(view, QPointF(39, 60))                      # near P
+        pivot = QPointF(scene._rotate_pivot)
+        assert (round(pivot.x(), 3), round(pivot.y(), 3)) == (37.3, 58.1)   # [RED]
+        move(view, QPointF(139, 60))
+        click(view, QPointF(139, 60))                     # near S: 0°
+        move(view, QPointF(39, 156))
+        click(view, QPointF(39, 156))                     # near C: -90°
+        exp = _visual_ccw([(100.0, 0.0)], pivot, -90.0)[0]
+        p2 = item.grip_points()[-1]
+        assert (p2.x(), p2.y()) == pytest.approx(exp, abs=0.01)             # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_rotate_honours_capability_narrowing(qapp):
+    """M2: an item whose ``manip_capabilities()`` drops "rotate" is left alone
+    even though it carries ``manip_rotate`` (one source of truth:
+    ``selection_manipulator.item_capabilities``).
+
+    No shipped class narrows "rotate" away today, so this uses a real LineItem
+    subclass that does.
+    """
+    from firepro3d.geometry_2d import LineItem
+
+    class _NoRotateLine(LineItem):
+        def manip_capabilities(self):
+            return {"translate"}
+
+    view, scene = make_view(scale=1.0)
+    try:
+        ln = _NoRotateLine(QPointF(0, 0), QPointF(100, 0))
+        scene.addItem(ln)
+        scene._draw_lines.append(ln)
+        scene.push_undo_state()
+        scene.clearSelection()
+        ln.setSelected(True)
+        p0 = scene._undo_pos
+        scene._modify_ctl.start("rotate")
+        assert ln.opacity() == pytest.approx(1.0)                        # [RED]
+        click(view, QPointF(0, 0))
+        _type_angle(scene, "90")
+        assert grips(ln)[-1] == (100.0, 0.0)
+        assert scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
