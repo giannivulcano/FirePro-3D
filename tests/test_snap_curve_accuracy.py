@@ -45,3 +45,28 @@ def test_circle_after_zoom_change_lands_on_circle(qapp):
         assert abs(math.hypot(ep.x(), ep.y()) - R) < 0.01
     finally:
         close_view(view, scene)
+
+
+def test_arc_outside_cursor_lands_on_arc(qapp):
+    view, scene = make_view(scale=0.25)
+    try:
+        scene.addItem(ArcItem(QPointF(0, 0), R, 0.0, 180.0))
+        off = 10.0 / 0.25
+        ep = _drag_line_end_to(view, scene, QPointF((R + off) * math.cos(A45),
+                                                   (R + off) * math.sin(A45)))
+        assert abs(math.hypot(ep.x(), ep.y()) - R) < 0.01
+    finally:
+        close_view(view, scene)
+
+
+def test_ellipse_outside_cursor_lands_on_curve(qapp):
+    view, scene = make_view(scale=0.25)
+    try:
+        el = EllipseItem(QPointF(0, 0), R, R)    # rx == ry: distance from centre == R
+        scene.addItem(el)
+        off = 10.0 / 0.25
+        ep = _drag_line_end_to(view, scene, QPointF((R + off) * math.cos(A45),
+                                                   (R + off) * math.sin(A45)))
+        assert abs(math.hypot(ep.x(), ep.y()) - R) < 1.0   # flatten tolerance
+    finally:
+        close_view(view, scene)

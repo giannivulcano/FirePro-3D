@@ -1645,7 +1645,7 @@ class SnapEngine:
                           item.mapToScene(vertices[i + 1]))
 
         # ── ArcItem — closest point on arc circumference + tangent ───────
-        if isinstance(item, ArcItem):
+        elif isinstance(item, ArcItem):
             cx, cy = item._center.x(), item._center.y()
             r = item._radius
             dx = cursor.x() - cx
@@ -1678,7 +1678,7 @@ class SnapEngine:
                             pts.append(("tangent", tp))
 
         # ── Full circle (QGraphicsEllipseItem) — closest point on circle ─
-        if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
+        elif isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
             # Geometric rect, not the padded / zoom-cached boundingRect() (S4).
             br = item.rect()
             if abs(br.width() - br.height()) < 0.1:
@@ -1719,22 +1719,20 @@ class SnapEngine:
             for i in range(len(verts)):
                 _seg_snap(verts[i], verts[(i + 1) % len(verts)])
 
-        # ── Generic QGraphicsPathItem (DXF imports) — project onto segments
-        elif isinstance(item, QGraphicsPathItem):
-            # Skip if already handled as WallSegment or PolylineItem
-            if not (isinstance(item, WallSegment)):
-                if not (isinstance(item, PolylineItem)):
-                    path = item.path()
-                    n = path.elementCount()
-                    for i in range(min(n - 1, 511)):
-                        e2 = path.elementAt(i + 1)
-                        if e2.type == QPainterPath.ElementType.MoveToElement:
-                            continue  # sub-path boundary, no segment
-                        e1 = path.elementAt(i)
-                        _seg_snap(
-                            item.mapToScene(QPointF(e1.x, e1.y)),
-                            item.mapToScene(QPointF(e2.x, e2.y)),
-                        )
+        # ── Generic QGraphicsPathItem (EllipseItem, SplineItem, DXF curves) —
+        #    project onto the FLATTENED path. Raw elements include Bézier
+        #    control points that sit off the curve, which snapped to empty
+        #    space outside arcs/ellipses/splines (S4).
+        elif isinstance(item, QGraphicsPathItem) and not isinstance(
+                item, (WallSegment, PolylineItem)):
+            n_seg = 0
+            for poly in item.path().toSubpathPolygons():
+                for i in range(poly.count() - 1):
+                    if n_seg >= 511:
+                        break
+                    _seg_snap(item.mapToScene(poly.at(i)),
+                              item.mapToScene(poly.at(i + 1)))
+                    n_seg += 1
 
         return pts
 
