@@ -73,3 +73,40 @@ def test_clipboard_data_ignores_a_bare_list(qapp, dead_clip):
         assert len(scene._draw_lines) == n0
     finally:
         close_view(view, scene)
+
+
+def test_cut_with_a_dead_clipboard_deletes_nothing(qapp, dead_clip):
+    """Q2 / D4: a Cut whose clipboard write did not land must not delete."""
+    from tests._modify_tools_helpers import add_primitive
+    from tests._snap_polish_helpers import click
+    view, scene = make_view(scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        item, attr = add_primitive(scene, "rect")
+        p0 = scene._undo_pos
+        scene._modify_ctl.start("cut")
+        click(view, QPointF(400, 300))
+        assert getattr(scene, attr) == [item]                           # [RED]
+        assert item.scene() is scene
+        assert scene._undo_pos == p0
+        assert msgs[-1] == "Clipboard unavailable — nothing copied"
+        assert scene.mode in (None, "select")
+        assert item.isSelected()
+    finally:
+        close_view(view, scene)
+
+
+def test_copy_with_a_dead_clipboard_reports_it(qapp, dead_clip):
+    from tests._modify_tools_helpers import add_primitive
+    from tests._snap_polish_helpers import click
+    view, scene = make_view(scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        add_primitive(scene, "line")
+        scene._modify_ctl.start("copy")
+        click(view, QPointF(400, 300))
+        assert msgs[-1] == "Clipboard unavailable — nothing copied"
+    finally:
+        close_view(view, scene)

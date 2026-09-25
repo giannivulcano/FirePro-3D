@@ -63,15 +63,21 @@ class ModifyToolsController:
 
     # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
 
-    def write_clipboard(self, items, base: QPointF) -> int:
+    CLIPBOARD_UNAVAILABLE = "Clipboard unavailable — nothing copied"
+
+    def write_clipboard(self, items, base: QPointF):
         """Write *items* + *base* to the system clipboard (I1 payload).
+
+        The write is read back: the OS clipboard can refuse it (another
+        process holding it, a locked session), and Cut must never delete
+        what it failed to copy.
 
         Args:
             items: Scene items to serialise.
             base: The copy base point (scene coordinates).
 
         Returns:
-            The number of records written.
+            The number of records written, or None if the write did not land.
         """
         import json
         from PyQt6.QtWidgets import QApplication
@@ -81,7 +87,11 @@ class ModifyToolsController:
         payload = {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION,
                    "base": [base.x(), base.y()],
                    "scene_role": s.scene_role, "items": data}
-        QApplication.clipboard().setText(json.dumps(payload))
+        text = json.dumps(payload)
+        clip = QApplication.clipboard()
+        clip.setText(text)
+        if clip.text() != text:
+            return None
         return len(data)
 
     def press_copy_base(self, event, pos, snapped, *_):
@@ -93,8 +103,10 @@ class ModifyToolsController:
         s = self._scene
         items = list(s._selected_items or s.selectedItems())
         n = self.write_clipboard(items, snapped)
-        was_cut = s._copy_is_cut
-        if was_cut:
+        was_cut = s._copy_is_cut and n is not None
+        if n is None:
+            s._show_status(self.CLIPBOARD_UNAVAILABLE, 5000)
+        elif was_cut:
             sel = list(items)
             s.blockSignals(True)
             try:

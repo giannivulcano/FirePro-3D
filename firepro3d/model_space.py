@@ -7344,7 +7344,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for it in items:
             rect = rect.united(it.sceneBoundingRect())
         n = self._modify_ctl.write_clipboard(items, rect.center())
-        self._show_status(f"Copied {n} item(s)")
+        self._show_status(f"Copied {n} item(s)" if n is not None
+                          else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
 
     def paste_items(self, offset, data=None):
         """Add clipboard records translated by *offset*.
