@@ -181,3 +181,30 @@ def test_undo_mid_tool_cancels_it(qapp, tool):
         assert scene._undo_pos == p0
     finally:
         close_view(view, scene)
+
+
+def test_duplicate_node_at_zero_offset_creates_nothing(qapp):
+    """N1: Duplicate at zero offset reuses the node (find_nearby_node) — no
+    undo step and the 'Nothing duplicated' status, not 'Duplicated 1'."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        node = scene.add_node(0.0, 200.0)
+        scene.push_undo_state()
+        scene.clearSelection(); node.setSelected(True)
+        n_nodes = len(scene.sprinkler_system.nodes)
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("duplicate") is True
+        click(view, QPointF(500, -300))
+        assert scene.begin_dynamic_input() is True
+        scene.dynamic_input.editor("dX").setText("0")
+        scene.dynamic_input.editor("dY").setText("0")
+        scene.dynamic_input._accept()
+        assert scene.mode in (None, "select")
+        assert len(scene.sprinkler_system.nodes) == n_nodes
+        assert scene._undo_pos == p0                              # [RED]
+        assert msgs[-1] == "Nothing duplicated"
+        assert not node.isSelected()
+    finally:
+        close_view(view, scene)

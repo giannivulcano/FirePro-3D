@@ -190,3 +190,30 @@ def test_paste_ghost_is_on_the_cursor_at_entry(qapp):
         assert br.center().y() == pytest.approx(300.0, abs=2.0)
     finally:
         close_view(view, scene)
+
+
+def test_paste_node_onto_existing_node_creates_nothing(qapp):
+    """N1: a node record landing on an existing node (find_nearby_node reuse)
+    creates nothing — no undo step, no 'Pasted 1', the old node not selected."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        node = scene.add_node(0.0, 200.0)
+        scene.push_undo_state()
+        scene.clearSelection(); node.setSelected(True)
+        _copy_at(view, scene, QPointF(0, 0))
+        n_nodes = len(scene.sprinkler_system.nodes)
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("paste") is True
+        assert scene.begin_dynamic_input() is True
+        scene.dynamic_input.editor("dX").setText("0")
+        scene.dynamic_input.editor("dY").setText("0")
+        scene.dynamic_input._accept()
+        assert scene.mode in (None, "select")
+        assert len(scene.sprinkler_system.nodes) == n_nodes
+        assert scene._undo_pos == p0                              # [RED]
+        assert msgs[-1] == "Nothing pasted"
+        assert not node.isSelected()
+    finally:
+        close_view(view, scene)

@@ -199,13 +199,17 @@ class ModifyToolsController:
         s.clearSelection()
         new_items = s.paste_items(offset, data=records)
         skipped = len(records) - len(new_items)
-        s.push_undo_state()
+        if new_items:
+            s.push_undo_state()
         s._paste_payload = None
         s.node_start_pos = None
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
         s.set_mode(None)
+        if not new_items:
+            s._show_status("Nothing pasted", 3000)
+            return
         for it in new_items:
             it.setSelected(True)
         msg = f"Pasted {len(new_items)} item(s)"

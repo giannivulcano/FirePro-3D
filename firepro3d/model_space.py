@@ -7368,7 +7368,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             Every pasted top-level item — 2D geometry / text, each record's
             Node (pipe end nodes are not listed), block instances and
             gridlines. A skipped record (unknown type, missing block
-            definition) contributes nothing.
+            definition) contributes nothing, and so does a node record that
+            landed on an existing node (``find_nearby_node``) and created no
+            sprinkler, pipe or pipe end node.
         """
         if data is None:
             data = self.clipboard_data() or []
@@ -7399,6 +7401,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
                 node1 = existing if existing else self.add_node(
                     new_x, new_y, z_hint=paste_z)
+                # A node reused via find_nearby_node is not new: the record
+                # only counts as pasted if it created something (the node,
+                # a sprinkler, a pipe or a pipe end node).
+                created = existing is None
 
                 # Restore ceiling and layer from copied data
                 if "ceiling_level" in obj:
@@ -7426,6 +7432,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     for key, meta in obj["sprinkler"].items():
                         template.set_property(key, meta["value"])
                     self.add_sprinkler(node1, template)
+                    created = True
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -7434,14 +7441,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         px, py, z_hint=paste_z)
                     node2 = existing_p if existing_p else self.add_node(
                         px, py, z_hint=paste_z)
+                    if existing_p is None:
+                        created = True
                     if not any(
                         (pipe.node1 == node1 and pipe.node2 == node2) or
                         (pipe.node1 == node2 and pipe.node2 == node1)
                         for pipe in self.sprinkler_system.pipes
                     ):
                         self.add_pipe(node1, node2)
+                        created = True
                 node1.fitting.update()
-                new_items.append(node1)
+                if created:
+                    new_items.append(node1)
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
