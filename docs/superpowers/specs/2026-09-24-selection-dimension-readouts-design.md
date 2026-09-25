@@ -72,7 +72,7 @@ once so that the gridline-spacing / constraint dims and ALIGN §8 node dims can 
 | constants | `constants.py` | `SELDIM_*` (below) |
 
 ### Constants (signed-off mockup, grill Q12 applied)
-`SELDIM_FONT_PX = 10`, `SELDIM_LABEL_OFFSET_PX = 10` (was 14; smoke 2026-09-24) (applied to **every** linear label, away side),
+`SELDIM_FONT_PX = 10`, `SELDIM_LABEL_OFFSET_PX = 6` (was 14 -> 10; smoke 2026-09-24) (applied to **every** linear label, away side),
 `SELDIM_ARC_REF_FRAC = 0.19`, `SELDIM_ARC_REF_MIN_PX = 25`, `SELDIM_ARROW_PX = 7`,
 `SELDIM_DASH = (4, 3)`, `SELDIM_FIT_MARGIN_PX = 4`, `SELDIM_ARC_LABEL_GAP_PX = 4`, `SELDIM_PICK_PAD_PX = 3`. **Angular labels sit just outside their reference arc on the bisector** (gap 4 px) — with text-only labels an on-arc label would be struck through by the dashed arc (same reason as grill Q12; decided at plan time). Text-only (no box), aligned + readable
 rotation, symbol prefixes on, arrows on angular ends. Colours: text `ink`, arc + arrows `muted`,
@@ -142,7 +142,7 @@ hover glow = HALO accent (`HALO_TRACE_*`).
       line/reference line length; rect W/H; circle R; arc angle + R; ellipse R1/R2; polyline segment lengths +
       vertex angles (≤180° side; closed = closing segment + all vertices; zero-length skipped); polygon defining
       radius. Text/Spline none. None above the limit.
-- [ ] Visuals match the signed-off constants (Consolas 10 px text-only, aligned/readable, 10 px away-side offset on
+- [ ] Visuals match the signed-off constants (Consolas 10 px text-only, aligned/readable, 6 px away-side offset on
       every linear label, dashed `muted` reference arc 0.19×r min 25 px with arrows, `ink` text) in dark and light themes.
 - [ ] Labels refresh live on grip drag, manipulator move/resize, panel edit, undo/redo, units/precision change
       (immediately, no mouse move), zoom/pan.

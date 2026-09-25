@@ -227,7 +227,10 @@ def test_moved_label_leaves_no_stale_ghost(themed_be):
     region come from a fresh grab, all others keep the pre-move frame.
     """
     v, sc, t = themed_be
-    ln = LineItem(QPointF(-200, 0), QPointF(200, 0), color="#808080")
+    # Keep the line off the scene origin: the Block Editor draws a light origin
+    # marker at (0,0) that a close-offset label box would overlap and count as
+    # "ink" (a false ghost once SELDIM_LABEL_OFFSET_PX dropped to 6).
+    ln = LineItem(QPointF(-200, -100), QPointF(200, -100), color="#808080")
     sc.addItem(ln)
     ln.setSelected(True)
     QApplication.processEvents()
@@ -242,7 +245,7 @@ def test_moved_label_leaves_no_stale_ghost(themed_be):
     spy = _PaintRegionSpy()
     v.viewport().installEventFilter(spy)
     try:
-        ln.apply_grip(1, QPointF(0, 150))             # translate the line down
+        ln.apply_grip(1, QPointF(0, 100))             # translate the line down
         for _ in range(3):
             QApplication.processEvents()
     finally:
