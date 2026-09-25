@@ -238,8 +238,7 @@ class SceneTools:
         if not data:
             return
 
-        old_clip = QApplication.clipboard().text()
-
+        # Records are pasted directly (never via the OS clipboard, I1).
         mode = params.get("mode", "linear")
 
         if mode == "linear":
@@ -248,12 +247,11 @@ class SceneTools:
             xs   = float(params.get("x_spacing", 100))
             ys   = float(params.get("y_spacing", 100))
 
-            QApplication.clipboard().setText(json.dumps(data))
             for r in range(rows):
                 for c in range(cols):
                     if r == 0 and c == 0:
                         continue  # skip the original position
-                    self._scene.paste_items(QPointF(c * xs, -r * ys))
+                    self._scene.paste_items(QPointF(c * xs, -r * ys), data=data)
 
         elif mode == "polar":
             cx    = float(params.get("cx", 0))
@@ -301,10 +299,8 @@ class SceneTools:
                                             cy + ox * sin_a + oy * cos_a])
                         rot["points"] = new_pts
                     rotated.append(rot)
-                QApplication.clipboard().setText(json.dumps(rotated))
-                self._scene.paste_items(QPointF(0, 0))
+                self._scene.paste_items(QPointF(0, 0), data=rotated)
 
-        QApplication.clipboard().setText(old_clip)
         self._scene.push_undo_state()
 
     # -------------------------------------------------------------------------

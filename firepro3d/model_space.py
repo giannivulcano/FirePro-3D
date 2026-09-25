@@ -6919,20 +6919,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.push_undo_state()
 
-        # Serialize selected items via copy mechanism
+        # Serialise + paste directly (never via the OS clipboard, I1).
         old_selection = list(self.selectedItems())
-        self.select_items(items)
-
-        old_clip = QApplication.clipboard().text()
-        self.copy_selected_items()
+        data = self._clipboard_item_dicts(items)
 
         # Temporarily set active level so paste assigns the target level
         saved_level = self.active_level
         self.active_level = target_level
-        self.paste_items(QPointF(0, 0))
+        self.paste_items(QPointF(0, 0), data=data)
         self.active_level = saved_level
-
-        QApplication.clipboard().setText(old_clip)
 
         # Restore original selection
         self.select_items(old_selection)
@@ -7526,23 +7521,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return payload
 
     def clipboard_data(self):
-        """The clipboard's item records (``payload["items"]``), or None.
+        """The clipboard payload's item records, or None.
 
-        A bare JSON list is still accepted here for the internal
-        ``paste_items`` round-trips (array / rotate-copy / copy-to-level) —
-        the user-facing Paste tool gates on :meth:`clipboard_payload`.
+        Only the versioned payload is ever read from the OS clipboard (I1);
+        internal copy paths pass records to ``paste_items(data=...)``.
         """
         payload = self.clipboard_payload()
-        if payload is not None:
-            return payload["items"]
-        text = QApplication.clipboard().text()
-        if not text:
-            return None
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        return data if isinstance(data, list) else None
+        return payload["items"] if payload is not None else None
 
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)

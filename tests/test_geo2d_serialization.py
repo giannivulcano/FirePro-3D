@@ -263,10 +263,9 @@ def test_polygon_paste(qapp):
     p = RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=50.0)
     d = p.to_dict()
 
-    QApplication.clipboard().setText(json.dumps([d]))
-
+    # Records go straight to paste_items (I1: no bare-list clipboard reads).
     before = len(scene._draw_polygons)
-    scene.paste_items(QPointF(0, 0))
+    scene.paste_items(QPointF(0, 0), data=[d])
     assert len(scene._draw_polygons) == before + 1
     assert scene._draw_polygons[-1]._sides == 6
 
