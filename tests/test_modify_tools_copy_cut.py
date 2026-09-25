@@ -8,6 +8,13 @@ from tests._modify_tools_helpers import PRIMITIVES, add_primitive
 from tests._snap_polish_helpers import click, close_view, make_view
 
 
+def _esc(view):
+    """The real Escape path: a key event to the view -> scene keyPressEvent."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
+
+
 @pytest.mark.parametrize("name", list(PRIMITIVES))
 def test_copy_writes_payload_with_base(qapp, name):
     view, scene = make_view(scale=1.0)
@@ -54,7 +61,8 @@ def test_copy_esc_copies_nothing(qapp):
         add_primitive(scene, "line")
         QApplication.clipboard().setText("sentinel")
         scene._modify_ctl.start("copy")
-        scene.set_mode(None)                              # Esc path
+        _esc(view)                                        # real Esc path
+        assert scene.mode in (None, "select")
         assert QApplication.clipboard().text() == "sentinel"
     finally:
         close_view(view, scene)

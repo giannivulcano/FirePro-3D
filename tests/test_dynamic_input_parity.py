@@ -2073,7 +2073,7 @@ class TestGhostUpdatesOnFieldCommit:
         scene.set_mode("move")
         scene._selected_items = [node]
         scene.node_start_pos = QPointF(base)
-        scene._move_ghost_base = scene._build_move_ghost_base(is_paste=False)
+        scene._move_ghost_base = scene._build_move_ghost_base()
         scene._preview_from_move(QPointF(base.x() + 800.0, base.y()))  # decoy
         assert scene.begin_dynamic_input() is True
         return scene.dynamic_input, node

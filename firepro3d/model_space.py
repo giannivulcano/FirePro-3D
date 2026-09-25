@@ -2397,6 +2397,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         self._dirty = False
 
+    def _cancel_modify_tool_for_undo(self) -> None:
+        """End a running modify tool before an undo/redo restore: the restore
+        detaches every item, so the tool's captured selection / base point
+        would otherwise commit onto dead items (scene-tools.md I2)."""
+        if self.mode in self._modify_ctl.CANCEL_ON_UNDO_MODES:
+            self.set_mode(None)
+
     def undo(self):
         """Restore the previous network state.
 
@@ -2408,6 +2415,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self._text_edit_ctl.commit() == "discarded":
             return
+        self._cancel_modify_tool_for_undo()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1
@@ -2429,6 +2437,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self._text_edit_ctl.commit() == "discarded":
             return
+        self._cancel_modify_tool_for_undo()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1

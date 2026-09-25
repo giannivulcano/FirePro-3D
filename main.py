@@ -3113,14 +3113,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d import theme as _th
         return themed_icon(name, DARK if _th.detect().name == DARK else LIGHT)
 
-    # Modal Edit/Modify tools -> the scene mode(s) that light their button
-    # (scene-tools.md I1). Cut and Delete are plain buttons.
-    _MODAL_TOOL_MODES = {
-        "copy": ("copy_base",), "paste": ("paste",), "duplicate": ("duplicate",),
-        "move": ("move",), "rotate": ("rotate",),
-        "offset": ("offset", "offset_side"), "array": ("array",),
-    }
-
     def _add_modify_tool_button(self, g, label, icon, tool, tip,
                                 scene_getter, mode_registry):
         """One Edit/Modify tool button routed through ``_modify_ctl.start``.
@@ -3131,7 +3123,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         clears it on exit. Clicking the lit button cancels the tool; a
         refused ``start()`` (e.g. no selection) leaves it unchecked.
         """
-        modes = self._MODAL_TOOL_MODES.get(tool)
+        from firepro3d.modify_tools_controller import ModifyToolsController
+        modes = ModifyToolsController.tool_modes(tool)
         if mode_registry is None or modes is None:
             b = g.add_small_button(label, self._modify_icon(icon),
                                    lambda *_, t=tool: scene_getter()._modify_ctl.start(t))

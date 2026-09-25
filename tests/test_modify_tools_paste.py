@@ -8,6 +8,13 @@ from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 
+def _esc(view):
+    """The real Escape path: a key event to the view -> scene keyPressEvent."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
+
+
 def _copy_at(view, scene, base=QPointF(0, 0)):
     scene._modify_ctl.start("copy")
     click(view, base)
@@ -67,7 +74,8 @@ def test_paste_esc_cancels(qapp):
         _copy_at(view, scene)
         p0 = scene._undo_pos
         assert scene._modify_ctl.start("paste") is True
-        scene.set_mode(None)
+        _esc(view)                                          # real Esc path
+        assert scene.mode in (None, "select")
         assert len(getattr(scene, attr)) == 1
         assert scene._undo_pos == p0
         assert scene._move_ghost == [] and scene._move_ghost_base == []
@@ -163,5 +171,22 @@ def test_paste_real_plan_record_into_block_editor_is_refused(qapp, kind):
         assert scene.mode in (None, "select")
         assert scene._undo_pos == p0
         assert msgs[-1] == "Plan elements can't be pasted into the Block Editor"
+    finally:
+        close_view(view, scene)
+
+
+def test_paste_ghost_is_on_the_cursor_at_entry(qapp):
+    """D5 'immediately': entering Paste after the cursor has moved shows the
+    ghost at the cursor — no extra mouse move needed."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")                 # (0,0)-(100,0)
+        scene._modify_ctl.write_clipboard([item], QPointF(0, 0))
+        move(view, QPointF(400, 300))                             # cursor parked
+        assert scene._modify_ctl.start("paste") is True
+        assert scene._move_ghost                                  # [RED]
+        br = scene._move_ghost[0].boundingRect()
+        assert br.center().x() == pytest.approx(450.0, abs=2.0)
+        assert br.center().y() == pytest.approx(300.0, abs=2.0)
     finally:
         close_view(view, scene)

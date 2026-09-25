@@ -34,6 +34,27 @@ class ModifyToolsController:
                   "duplicate": "duplicate", "move": "move", "rotate": "rotate",
                   "offset": "offset", "array": "array"}
     _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array"}
+    # Tools whose ribbon button is a plain (non-modal) button.
+    _PLAIN_TOOLS = frozenset({"cut"})
+    # Extra modes a tool passes through after its entry mode.
+    _TOOL_EXTRA_MODES = {"offset": ("offset_side",)}
+    # Modes an Undo / Redo must cancel first: their transient state (base
+    # point, captured selection, armed payload) would outlive the restore.
+    CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move"})
+
+    @classmethod
+    def tool_modes(cls, tool: str):
+        """Scene mode(s) that mean *tool* is running (lights its button).
+
+        Args:
+            tool: A ``_TOOL_MODE`` key.
+
+        Returns:
+            A tuple of mode names, or None for a plain (non-modal) tool.
+        """
+        if tool in cls._PLAIN_TOOLS or tool not in cls._TOOL_MODE:
+            return None
+        return (cls._TOOL_MODE[tool],) + cls._TOOL_EXTRA_MODES.get(tool, ())
 
     def __init__(self, scene):
         self._scene = scene
@@ -53,7 +74,7 @@ class ModifyToolsController:
             s._show_status("Select items first", 3000)
             return False
         if tool == "paste":
-            return self.begin_paste()          # Task 7 (returns False until then)
+            return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
         s._copy_is_cut = (tool == "cut")
@@ -101,7 +122,8 @@ class ModifyToolsController:
         selection in the same (single) undo step.
         """
         s = self._scene
-        items = list(s._selected_items or s.selectedItems())
+        items = [it for it in (s._selected_items or s.selectedItems())
+                 if it.scene() is s]
         n = self.write_clipboard(items, snapped)
         was_cut = s._copy_is_cut and n is not None
         if n is None:
@@ -158,6 +180,9 @@ class ModifyToolsController:
         s.node_start_pos = QPointF(*payload["base"])
         s._move_ghost_base = self._clipboard_ghost_paths(payload["items"])
         s._move_ghost = []
+        # D5: the ghost rides the cursor from the moment Paste is entered.
+        if s._last_scene_pos is not None:
+            self._preview_from_move(QPointF(s._last_scene_pos))
         return True
 
     def commit_paste(self, offset: QPointF) -> None:
@@ -203,6 +228,9 @@ class ModifyToolsController:
             s._move_ghost_base = []
         if new_mode != "paste":
             s._paste_payload = None
+        if new_mode in (None, "select"):
+            s._copy_is_cut = False
+            s._selected_items = None
 
     # ── Move / Paste gesture ────────────────────────────────────────────────
 
@@ -217,7 +245,7 @@ class ModifyToolsController:
             return
         if s.node_start_pos is None:
             s.node_start_pos = snapped
-            s._move_ghost_base = s._build_move_ghost_base(is_paste=False)
+            s._move_ghost_base = s._build_move_ghost_base()
             s._begin_move_handle_snap(snapped)
         else:
             snapped = s._move_handle_snap(event, snapped)
@@ -291,7 +319,7 @@ class ModifyToolsController:
         s = self._scene
         s.set_mode("move")
         s.node_start_pos = QPointF(base)
-        s._move_ghost_base = s._build_move_ghost_base(is_paste=False)
+        s._move_ghost_base = s._build_move_ghost_base()
         s._begin_move_handle_snap(s.node_start_pos)
 
     def _begin_move_handle_snap(self, base: QPointF) -> None:
@@ -480,7 +508,8 @@ class ModifyToolsController:
                       in self._scene._GEOM_TYPE_REGISTRY.items()}
         for obj in data:
             t = obj.get("type", "")
-            if t == "gridline":
+            if not t and "origin" in obj and "angle" in obj:
+                # Gridline record: GridlineItem.to_dict() carries no "type".
                 ox, oy = obj.get("origin", [0.0, 0.0])
                 length = float(obj.get("length", 0.0))
                 th = math.radians(float(obj.get("angle", 0.0)))
@@ -504,9 +533,8 @@ class ModifyToolsController:
                     pass
         return paths
 
-    def _build_move_ghost_base(self, is_paste: bool):
-        """Base silhouettes (offset 0). Paste → clipboard; move → live selection."""
+    def _build_move_ghost_base(self):
+        """Base silhouettes (offset 0) of the live selection (Move/Duplicate).
+        Paste builds its own from the payload (``begin_paste``)."""
         s = self._scene
-        if is_paste:
-            return s._clipboard_ghost_paths(s.clipboard_data())
         return s._shape_paths_for_move(s._selected_items or s.selectedItems())

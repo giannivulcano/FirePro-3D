@@ -6,6 +6,13 @@ from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 
+def _esc(view):
+    """The real Escape path: a key event to the view -> scene keyPressEvent."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
+
+
 @pytest.mark.parametrize("name", list(PRIMITIVES))
 def test_duplicate_keeps_original_and_places_copy(qapp, name):
     view, scene = make_view(scale=1.0)
@@ -83,7 +90,8 @@ def test_duplicate_esc_cancels(qapp):
         p0 = scene._undo_pos
         scene._modify_ctl.start("duplicate")
         click(view, QPointF(0, 0)); move(view, QPointF(300, 0))
-        scene.set_mode(None)
+        _esc(view)                                           # real Esc path
+        assert scene.mode in (None, "select")
         assert len(getattr(scene, attr)) == 1
         assert scene._undo_pos == p0
         assert scene._move_ghost == [] and scene._move_ghost_base == []
@@ -146,5 +154,30 @@ def test_duplicate_that_creates_nothing_pushes_no_undo(qapp, monkeypatch):
         click(view, QPointF(0, 0)); move(view, QPointF(300, 0)); click(view, QPointF(300, 0))
         assert scene._undo_pos == p0
         assert scene.mode in (None, "select")
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("tool", ["duplicate", "move", "copy"])
+def test_undo_mid_tool_cancels_it(qapp, tool):
+    """Ctrl+Z during a modify tool first ends the tool, so no later click
+    commits against the (now detached) captured selection."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")
+        scene._modify_ctl.start(tool)
+        if tool != "copy":
+            click(view, QPointF(0, 0))                           # base picked
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Z,
+                       Qt.KeyboardModifier.ControlModifier)
+        assert scene.mode in (None, "select")                    # [RED]
+        assert scene._selected_items is None and scene.node_start_pos is None
+        n = len(getattr(scene, attr))
+        p0 = scene._undo_pos
+        click(view, QPointF(300, 0))
+        assert len(getattr(scene, attr)) == n
+        assert scene._undo_pos == p0
     finally:
         close_view(view, scene)
