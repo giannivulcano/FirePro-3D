@@ -3107,43 +3107,111 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         color_btn.clicked.connect(_on_colour)
         opacity_edit.editingFinished.connect(_on_opacity)
 
-    def _build_contextual_edit_group(self, page) -> None:
-        """Add a shared "Edit" group to *page* with 5 action buttons.
+    def _modify_icon(self, name):
+        """Theme-matched ribbon icon for the Edit/Modify groups."""
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        return themed_icon(name, DARK if _th.detect().name == DARK else LIGHT)
 
-        Every contextual tab calls this method to get the standard clipboard
-        and delete actions.  The callbacks are identical to the shortcuts
-        wired in ``__init__`` (Delete, Copy, Cut, Paste, Duplicate).
+    def build_edit_group(self, page, scene_getter) -> dict:
+        """Edit group (scene-tools.md D1): Copy · Cut · Paste · Duplicate · Delete.
+
+        Args:
+            page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+            scene_getter: Zero-arg callable returning the scene to act on
+                (resolved at click time, so it follows the active tab).
+
+        Returns:
+            ``{label: button}`` for the five buttons.
+        """
+        g = page.add_group("Edit")
+        spec = (
+            ("Copy", "copy_icon.svg", "copy", "Copy — pick a base point (Shift+C / Ctrl+C)"),
+            ("Cut", "cut_icon.svg", "cut", "Cut — pick a base point, then remove (Shift+X / Ctrl+X)"),
+            ("Paste", "paste_icon.svg", "paste", "Paste — ghost on the cursor, click to place (Shift+V / Ctrl+V)"),
+            ("Duplicate", "duplicate_icon.svg", "duplicate", "Duplicate — like Move, keeps the original (Shift+D / Ctrl+D)"),
+        )
+        buttons = {}
+        for label, icon, tool, tip in spec:
+            b = g.add_small_button(label, self._modify_icon(icon),
+                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
+            b.setToolTip(tip)
+            buttons[label] = b
+        b = g.add_small_button("Delete", self._modify_icon("delete_icon.svg"),
+                               lambda: scene_getter().delete_selected_items())
+        b.setToolTip("Delete selected items (Del)")
+        buttons["Delete"] = b
+        return buttons
+
+    def build_modify_group(self, page, scene_getter) -> dict:
+        """Modify group (scene-tools.md D1): Move · Rotate · Offset · Array.
+
+        Args:
+            page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+            scene_getter: Zero-arg callable returning the scene to act on.
+
+        Returns:
+            ``{label: button}`` for the four buttons.
+        """
+        g = page.add_group("Modify")
+        spec = (
+            ("Move", "move_icon.svg", "move", "Move — base point, then destination (Shift+M)"),
+            ("Rotate", "rotate_icon.svg", "rotate", "Rotate — pivot, start ray, end ray; type an angle (Shift+R)"),
+            ("Offset", "offset_icon.svg", "offset", "Offset — pick an object, cursor sets side + distance (Shift+O)"),
+            ("Array", "array_icon.svg", "array", "Array — base point, cursor sets direction + spacing (Shift+A)"),
+        )
+        buttons = {}
+        for label, icon, tool, tip in spec:
+            b = g.add_small_button(label, self._modify_icon(icon),
+                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
+            b.setToolTip(tip)
+            buttons[label] = b
+        return buttons
+
+    # Buttons that need a selection (scene-tools.md D1/D3 select-first).
+    _MODIFY_NEEDS_SELECTION = ("Copy", "Cut", "Duplicate", "Delete",
+                               "Move", "Rotate", "Array")
+
+    def _refresh_modify_buttons(self) -> None:
+        """Enable/disable the Block Editor Edit/Modify buttons (D1).
+
+        Selection-needing tools are disabled with an empty selection. Paste
+        stays enabled until ``clipboard_payload()`` lands (Task 6).
+        """
+        from PyQt6 import sip
+        buttons = getattr(self, "_be_modify_buttons", None) or {}
+        scene = self._active_scene()
+        try:
+            has_sel = bool(scene.selectedItems())
+        except RuntimeError:
+            return
+        for label, b in buttons.items():
+            if sip.isdeleted(b):
+                continue
+            if label in self._MODIFY_NEEDS_SELECTION:
+                b.setEnabled(has_sel)
+            elif label == "Paste":
+                payload = getattr(scene, "clipboard_payload", None)
+                b.setEnabled(True if payload is None else payload() is not None)
+
+    def _connect_modify_refresh(self, scene) -> None:
+        """Connect *scene*'s selectionChanged to the refresh exactly once."""
+        import weakref
+        seen = getattr(self, "_modify_refresh_scenes", None)
+        if seen is None:
+            seen = self._modify_refresh_scenes = weakref.WeakSet()
+        if scene in seen:
+            return
+        seen.add(scene)
+        scene.selectionChanged.connect(self._refresh_modify_buttons)
+
+    def _build_contextual_edit_group(self, page) -> None:
+        """Shared Edit group for every contextual tab (routes to the active scene).
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
         """
-        from firepro3d.icons import themed_icon, LIGHT, DARK
-        from firepro3d import theme as _th
-        _theme = DARK if _th.detect().name == DARK else LIGHT
-        _I = lambda name: themed_icon(name, _theme)
-
-        g = page.add_group("Edit")
-        _btn = g.add_small_button(
-            "Delete", _I("delete_icon.svg"),
-            lambda: self.scene.delete_selected_items())
-        _btn.setToolTip("Delete selected items [Del]")
-        _btn = g.add_small_button(
-            "Copy", _I("copy_icon.svg"),
-            lambda: self.scene.copy_selected_items())
-        _btn.setToolTip("Copy selected items [Ctrl+C]")
-        _btn = g.add_small_button(
-            "Cut", _I("cut_icon.svg"),
-            lambda: (self.scene.copy_selected_items(),
-                     self.scene.delete_selected_items()))
-        _btn.setToolTip("Cut selected items [Ctrl+X]")
-        _btn = g.add_small_button(
-            "Paste", _I("paste_icon.svg"),
-            lambda: self.scene.paste_items())
-        _btn.setToolTip("Paste items [Ctrl+V]")
-        _btn = g.add_small_button(
-            "Duplicate", _I("duplicate_icon.svg"),
-            lambda: self.scene.duplicate_selected())
-        _btn.setToolTip("Duplicate selected items [Ctrl+D]")
+        self.build_edit_group(page, self._active_scene)
 
     # ── Reusable Graphic Override group ────────────────────────────────────────
 
@@ -4619,6 +4687,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Insert + activate the contextual 'Block Editor' ribbon page."""
         if getattr(self, "_block_ribbon_active", False):
             self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+            # Switching between editor tabs keeps the page: follow the new
+            # editor scene's selection (scene-tools.md D1 enable state).
+            self._connect_modify_refresh(self._active_scene())
+            self._refresh_modify_buttons()
             return
         # Clear any selection-driven contextual page first (shared slot).
         if self._active_contextual_key is not None:
@@ -4713,6 +4785,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Text — the 9th primitive (contract C5). Authored here (and in Paper)
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
+
+        # Edit + Modify (scene-tools.md D1) — always visible after 2D Geometry.
+        self._be_modify_buttons = {
+            **self.build_edit_group(page, self._active_scene),
+            **self.build_modify_group(page, self._active_scene),
+        }
+        self._connect_modify_refresh(self._active_scene())
+        self._refresh_modify_buttons()
 
     def _be_save(self):
         w = self._active_editor_widget()
