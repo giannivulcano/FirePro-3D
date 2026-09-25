@@ -7,6 +7,7 @@ the live selection into painted, pickable, editable labels.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable
 
@@ -402,6 +403,9 @@ class SelectionReadoutController:
                     or (s.spec.maximum is not None and v > s.spec.maximum)):
                 s.hud.reject_commit()          # stays open, red border
                 return
+            if math.isclose(v, s.spec.value, rel_tol=1e-9, abs_tol=1e-9):
+                self._end_session()            # no-op commit: no apply, no step
+                return
         except Exception:
             import logging
             logging.getLogger(__name__).exception("readout commit read failed")
@@ -420,6 +424,14 @@ class SelectionReadoutController:
             import logging
             logging.getLogger(__name__).exception("readout undo push failed")
         self._end_session()
+        try:
+            # The property panel shows the same dimensions: re-read them.
+            # Same payload MainWindow.update_property_manager passes.
+            sel = list(self._scene.selectedItems())
+            self._scene.requestPropertyUpdate.emit(sel if sel else [s.item])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout panel refresh failed")
 
     def _on_cancelled(self) -> None:
         """HUD ``cancelled`` slot (Escape). Never raises."""

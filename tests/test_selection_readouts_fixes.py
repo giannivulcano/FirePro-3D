@@ -139,6 +139,21 @@ def test_single_select_panel_edit_is_one_undo_step(be):
     pm.deleteLater()
 
 
+# ── I4: readout commit refreshes the property panel ───────────────────────
+def test_commit_requests_property_update(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    got = []
+    sc.requestPropertyUpdate.connect(got.append)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    sc.readouts.hud.committed.emit({"Length": 500.0})
+    assert got, "panel must be told to re-read after a readout commit"
+    payload = got[-1]
+    targets = payload if isinstance(payload, list) else [payload]
+    assert ln in targets
+
+
 # ── M3: selection / mode slots never raise ────────────────────────────────
 def test_selection_and_mode_slots_never_raise(be, monkeypatch):
     v, sc = be
