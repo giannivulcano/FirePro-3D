@@ -1,7 +1,7 @@
 ---
 status: partial
 last-verified: 2026-09-25
-verified-commit: e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+verified-commit: 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -224,6 +224,9 @@ when only ALIGN is live). The seam then routes the winner — an ALIGN type to
 `_snap_result` — and clears the other. A handle-snap marker result
 (`HandleSnapResult`, `selection-manipulator.md`) is never fed back as `held`.
 `from_point` is the perpendicular-from start point (`snapping-engine.md §4`).
+Exception: in the Move tool's destination step (base point set) the seam returns the
+raw cursor with no `find()` — move snapping is handles only, so ALIGN does not apply
+there (owned by `selection-manipulator.md` "Move — handle snap").
 
 ### 3.1 Candidate families & priority
 

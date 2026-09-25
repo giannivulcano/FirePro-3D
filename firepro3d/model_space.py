@@ -2501,6 +2501,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
         together in a single ``find()``, underlay geometry included), else the
         grid fallback."""
+        # S2, handles only (user decision 2026-09-25): once the Move base point
+        # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
+        # cursor. Only the selection's own handles (the base point included)
+        # snap, via _move_handle_snap. The base click itself (node_start_pos
+        # still None) snaps normally below: it is user-chosen geometry.
+        if self.mode == "move" and self.node_start_pos is not None:
+            self._snap_result = None
+            self._align_result = None
+            self._align_track_ray = None
+            return QPointF(scene_pos)
         # Design-area picking snaps to sprinkler centres ONLY: general
         # OSNAP/underlay/grid snapping would drag clicks onto gridlines and
         # walls, but sprinkler node centres still snap (with a marker) so
@@ -5316,7 +5326,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Move only (a paste has no scene items yet). The moving set is what
         ``move_items`` will move (``_selected_items``, else the live
-        selection) plus each Sprinkler's Node, so none of it is a target.
+        selection) plus each Sprinkler's Node, so none of it is a target. The
+        picked base point is itself a handle (rest = the base): the
+        destination has no cursor snap, so this is how "base onto a point"
+        still lands.
 
         Args:
             base: The Move base point — the handle offsets' anchor.
@@ -5332,11 +5345,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                    if isinstance(it, Sprinkler) and it.node is not None]
         if moving:
             self._move_handle_session = HandleSnapSession(
-                self._snap_engine, self, view, moving, QPointF(base))
+                self._snap_engine, self, view, moving, QPointF(base),
+                extra_handles=[QPointF(base)])
 
     def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
         """S2: after the Move base point, the selection's own snap points
-        snap to geometry; the closest handle hit beats the cursor snap.
+        (and the base point) snap to geometry — handles only: the destination
+        has no cursor snap (``get_effective_position`` returns the raw cursor
+        in this step), so without a hit the destination is the raw cursor.
 
         *event* is the scene's ``QGraphicsSceneMouseEvent`` (dispatched from
         ``mousePressEvent`` / ``mouseMoveEvent``), so the raw cursor is
@@ -5345,7 +5361,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             The corrected destination (winning handle exactly on its target;
-            marker published to ``_snap_result``), else *snapped* unchanged.
+            marker published to ``_snap_result``), else *snapped* unchanged
+            (the raw cursor from a real mouse event).
         """
         hs = self._move_handle_session
         if (hs is None or self.mode != "move" or self.node_start_pos is None
@@ -5362,8 +5379,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return snapped
         corrected, res = hit
         self._snap_result = res          # marker only (never a hysteresis held)
-        # The handle hit beats the cursor/ALIGN pick: drop its guide so no
-        # dashed ALIGN ray is drawn for a point the move does not use.
+        # No ALIGN in the destination step (handles only); kept defensive for
+        # direct callers that computed *snapped* through the picker.
         self._align_result = None
         self._align_track_ray = None
         return corrected

@@ -836,10 +836,11 @@ class SelectionManipulator(QGraphicsObject):
     # --------------------------------------------------------------- snapping --
 
     def _snap(self, scene_pos: QPointF) -> QPointF:
-        """Snap the dragged grab point through the scene's snap engine.
+        """Snap a dragged rigid-handle point through the scene's snap engine.
 
-        Snap-then-transform (spec lifecycle step 2): the grab point is
-        snapped BEFORE the move delta is computed. The dragged items (and
+        Snap-then-transform (spec lifecycle step 2) for the rigid resize
+        handles (``ResizeHandle``); the interior-drag move does NOT use it
+        (handles only — see ``_update``). The dragged items (and
         their children) are excluded as snap sources so the selection never
         snaps to itself; the winning result is held via ``held=`` for
         hysteresis. Returns ``scene_pos`` unchanged when no engine/view is
@@ -1044,18 +1045,20 @@ class SelectionManipulator(QGraphicsObject):
             self._active_handle.on_drag(self, scene_pos, mods)
         else:
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-            snapped = self._snap(scene_pos)
-            # S2: the moving items' own snap points snap to other geometry;
-            # the closest handle hit beats the grab-point snap. Not used under
-            # Shift (ortho wins — a handle hit would be projected off-target)
-            # or while snapping is off (checked per frame).
+            # S2, handles only (user decision 2026-09-25): the grab point is
+            # NOT cursor-snapped (nor grid-snapped) — an arbitrary grab point
+            # landing on geometry is meaningless for a whole-item move. Only a
+            # moving item's own snap point landing on a target corrects the
+            # move; otherwise the delta is the raw cursor delta. Not used
+            # under Shift (ortho wins — a handle hit would be projected
+            # off-target) or while snapping is off (checked per frame).
+            snapped = QPointF(scene_pos)
             hs = self._handle_snap
             hit = (hs.best(scene_pos)
                    if hs is not None and not shift and self._snap_live()
                    else None)
             if hit is not None:
-                snapped, res = hit
-                self._held_snap = None
+                snapped, _res = hit
             self._set_handle_marker(hit[1] if hit is not None else None)
             d = move_delta(self._start_scene, snapped, ortho=shift)
             self._apply(d)

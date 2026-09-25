@@ -62,8 +62,12 @@ All decisions below were ratified by the user via FP1 questions on 2026-09-24.
   2026-09-25, seam review I1), Move tool.
 - Handles = the moving items' own snap points (endpoints/midpoints/centres/corners), capped
   (~64) for perf. Targets collected ONCE at press (moving items excluded); per-move work is a
-  cheap handle×target test. The closest handle-to-target pair within aperture wins over the plain
-  cursor snap; the offset is applied to the whole move.
+  cheap handle×target test. The closest handle-to-target pair within aperture sets the move; the
+  offset is applied to the whole move.
+- Handles only (user decision 2026-09-25, smoke item 8): no cursor / grab-point snap on any move
+  path (no cursor, ALIGN or grid snap) — without a handle hit the move is the raw cursor delta.
+  The Move-tool base point is a handle; the base click itself snaps normally; the destination
+  cursor snap (and ALIGN) is dropped. Typed dX/dY still override.
 - AC: drag a line so its endpoint comes within aperture of another line's endpoint while the
   cursor is far away → endpoints coincide exactly. Per-move cost at 2k items stays interactive
   (bench: < ~16 ms/move added).

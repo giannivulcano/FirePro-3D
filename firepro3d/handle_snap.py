@@ -72,14 +72,18 @@ class HandleSnapSession:
             Must be at rest (no preview transform) when the session is built.
         anchor: Scene point the handle offsets are measured from (the grab
             point / Move base point / dragged grip's rest position).
+        extra_handles: Extra scene points (at rest) to use as handles ahead
+            of the items' own — the Move tool's picked base point.
     """
 
-    def __init__(self, engine, scene, view, moving, anchor: QPointF):
+    def __init__(self, engine, scene, view, moving, anchor: QPointF,
+                 extra_handles=()):
         self._engine = engine
         self._scene = scene
         self._moving = set(moving)
         self._anchor0 = QPointF(anchor)
-        self._handles = self._build_handles(engine, moving, anchor)
+        self._handles = self._build_handles(engine, moving, anchor,
+                                            extra_handles)
         self._grid: dict[tuple[int, int], list[tuple[str, QPointF, object, object]]] = {}
         self._underlays: list[QGraphicsItemGroup] = []
         self._scale = 1.0
@@ -95,16 +99,24 @@ class HandleSnapSession:
     # ── build ──────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _build_handles(engine, moving, anchor: QPointF) -> list[QPointF]:
+    def _build_handles(engine, moving, anchor: QPointF,
+                       extra_handles=()) -> list[QPointF]:
         """The moving items' own snap points as offsets from *anchor*.
 
-        Deduped and capped at ``HANDLE_SNAP_MAX_HANDLES``. Centre points (a
-        block's insertion point, a circle's centre) are kept first so a large
-        block's many vertices never crowd its insertion point out; the rest
-        follow by snap priority (endpoints before midpoints …).
+        Deduped and capped at ``HANDLE_SNAP_MAX_HANDLES``. *extra_handles*
+        (the Move base point) come first and are never capped out; then
+        centre points (a block's insertion point, a circle's centre) so a
+        large block's many vertices never crowd its insertion point out; the
+        rest follow by snap priority (endpoints before midpoints …).
         """
         seen: set[tuple[float, float]] = set()
         raw: list[tuple[tuple[int, int], QPointF]] = []
+        for p in extra_handles:
+            key = (round(p.x(), 6), round(p.y(), 6))
+            if key not in seen:
+                seen.add(key)
+                raw.append(((-1, 0), QPointF(p.x() - anchor.x(),
+                                             p.y() - anchor.y())))
         for it in moving:
             for kind, p, _n in engine._collect(it):
                 key = (round(p.x(), 6), round(p.y(), 6))

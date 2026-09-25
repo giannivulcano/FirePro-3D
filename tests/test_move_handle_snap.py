@@ -418,3 +418,93 @@ def test_grip_click_without_drag_builds_no_session(qapp, monkeypatch):
         assert _p2_off_target(a) < 0.01
     finally:
         close_view(view, scene)
+
+
+# ── Smoke round B (item 8): move snapping is HANDLES ONLY ───────────────────
+# User decision 2026-09-25: a whole-item move never snaps the cursor / grab
+# point — only a moving item's own snap point landing on a target moves the
+# selection onto it; otherwise the displacement is the raw cursor delta. The
+# Move tool's picked base point is itself a handle.
+
+def test_interior_drag_ignores_cursor_snap_without_handle_hit(qapp):
+    """The drop cursor is 3 px from E.p1, but no handle of A is within the
+    aperture of any target: A moves by the raw (97,57) delta."""
+    view, scene = make_view(scale=1.0)
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0))
+        e = LineItem(QPointF(122, 60), QPointF(122, 200))
+        scene.addItem(a)
+        scene.addItem(e)
+        scene.clearSelection()
+        a.setSelected(True)
+        drag(view, QPointF(25, 0), QPointF(122, 57))
+        p1 = a.grip_points()[0]
+        assert math.hypot(p1.x() - 97, p1.y() - 57) < 0.01, (p1.x(), p1.y())
+    finally:
+        close_view(view, scene)
+
+
+def test_circle_centre_grip_ignores_cursor_snap_without_handle_hit(qapp):
+    """The centre grip is dropped 5 px above line E's interior (a nearest /
+    perpendicular cursor snap); no handle is near a target point: the centre
+    lands at the raw cursor."""
+    from firepro3d.geometry_2d import CircleItem
+
+    view, scene = make_view(scale=1.0)
+    try:
+        c = CircleItem(QPointF(0, 0), 50.0)
+        e = LineItem(QPointF(0, 62), QPointF(300, 62))
+        scene.addItem(c)
+        scene.addItem(e)
+        scene.clearSelection()
+        c.setSelected(True)
+        QApplication.processEvents()
+        drag(view, QPointF(0, 0), QPointF(122, 57))
+        ctr = c._center
+        assert math.hypot(ctr.x() - 122, ctr.y() - 57) < 0.01, (ctr.x(), ctr.y())
+    finally:
+        close_view(view, scene)
+
+
+def test_move_tool_destination_ignores_cursor_snap_without_handle_hit(qapp):
+    """Base on A.p1; the destination cursor is 5 px above line E's interior
+    and no handle (base included) is near a target point: raw placement."""
+    view, scene = make_view(scale=1.0)
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0))
+        e = LineItem(QPointF(0, 62), QPointF(300, 62))
+        scene.addItem(a)
+        scene.addItem(e)
+        scene.clearSelection()
+        a.setSelected(True)
+        scene.set_mode("move")
+        click(view, QPointF(0, 0))                 # base = A.p1 (snapped)
+        move(view, QPointF(122, 57))
+        click(view, QPointF(122, 57))
+        p1 = a.grip_points()[0]
+        assert math.hypot(p1.x() - 122, p1.y() - 57) < 0.01, (p1.x(), p1.y())
+    finally:
+        close_view(view, scene)
+
+
+def test_move_tool_base_point_is_a_handle(qapp):
+    """Base picked on A's interior (not one of A's own snap points); the
+    destination is 3.6 px from T.p1: the BASE lands exactly on T.p1.
+    Parity guard: before the change the destination cursor snap produced the
+    same landing; after it, only the base-as-handle can."""
+    view, scene = make_view(scale=1.0)
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0))
+        t = LineItem(QPointF(-200, 150), QPointF(-200, 250))
+        scene.addItem(a)
+        scene.addItem(t)
+        scene.clearSelection()
+        a.setSelected(True)
+        scene.set_mode("move")
+        click(view, QPointF(30, 0))                # base on A's interior
+        move(view, QPointF(-197, 148))
+        click(view, QPointF(-197, 148))
+        p1 = a.grip_points()[0]                    # base was 30 right of p1
+        assert math.hypot(p1.x() - (-230), p1.y() - 150) < 0.01, (p1.x(), p1.y())
+    finally:
+        close_view(view, scene)

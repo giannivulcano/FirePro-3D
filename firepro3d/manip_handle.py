@@ -257,11 +257,10 @@ class GripHandle(Handle):
         self._raw_pt = QPointF(scene_pos)   # raw cursor, for _transform_point hooks (S2)
         # Snap parity: drive the scene's own grip-snap authority (one picker:
         # SNAP + ALIGN ranked together, excluding this item; else grid) via
-        # the flags borrowed in on_press. Real
-        # Model_Space always has it; a plain scene (headless test) falls back
-        # to the raw point.
-        eff = getattr(sc, "get_effective_position", None)
-        pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+        # the flags borrowed in on_press (``_cursor_point`` hook; a whole-item
+        # move grip returns the raw cursor instead). Real Model_Space always
+        # has it; a plain scene (headless test) falls back to the raw point.
+        pt = self._cursor_point(sc, scene_pos)          # hook: cursor snap
         pt = self._transform_point(m, pt, mods)         # hook: Ctrl-constrain
         self._last_pt = QPointF(pt)                     # AC6: track for on_release dedup
         self._apply(pt, mods)                           # hook: press-time/modifier apply
@@ -281,8 +280,7 @@ class GripHandle(Handle):
         # geometry matches where the user let go.
         if moved:
             self._raw_pt = QPointF(scene_pos)
-            eff = getattr(sc, "get_effective_position", None)
-            pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
+            pt = self._cursor_point(sc, scene_pos)
             pt = self._transform_point(m, pt, mods)
             # Re-apply only if the release point genuinely differs from the last
             # on_drag point. In normal use Qt delivers a final move at the
@@ -314,6 +312,12 @@ class GripHandle(Handle):
         m._reflow_live()
 
     # -- extension points (no-ops here; wall/gridline PRs override) -----------
+    def _cursor_point(self, sc, scene_pos: QPointF) -> QPointF:
+        """The drag point before ``_transform_point``: the scene's grip-snap
+        authority (``get_effective_position``) when present, else raw."""
+        eff = getattr(sc, "get_effective_position", None)
+        return eff(scene_pos) if eff is not None else QPointF(scene_pos)
+
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
         return pt
 
@@ -348,12 +352,12 @@ class TranslateGripHandle(GripHandle):
 
     S2: the item's own snap points snap to geometry via a
     ``HandleSnapSession`` (anchor = this grip's press-time point); the closest
-    handle hit beats the grip's own cursor snap. The session is built lazily on
-    the first ``_transform_point`` — ``on_drag`` calls it before ``_apply``, so
-    the item is still at rest — so a click without a drag pays no target
-    collection. The marker it publishes on the scene is cleared on release /
-    cancel (on a no-hit frame the grip's own cursor pick has already replaced
-    it). Cooperative: ``_transform_point`` runs the next class's hook first, so
+    handle hit is the ONLY snap: the grip gets no cursor / ALIGN / grid snap
+    (``_cursor_point`` returns the raw cursor — handles only, user decision
+    2026-09-25). The session is built lazily on the first ``_transform_point``
+    — ``on_drag`` calls it before ``_apply``, so the item is still at rest — so
+    a click without a drag pays no target collection. The marker it publishes
+    on the scene is cleared on a no-hit frame, release or cancel. Cooperative: ``_transform_point`` runs the next class's hook first, so
     it composes with a subclass's own drag semantics.
     """
 
@@ -362,6 +366,12 @@ class TranslateGripHandle(GripHandle):
         self._hs = None
         self._hs_built = False
         self._marker = None
+
+    def _cursor_point(self, sc, scene_pos: QPointF) -> QPointF:
+        """Handles only (user decision 2026-09-25): a whole-item move grip
+        gets NO cursor / ALIGN / grid snap — the raw cursor — so only a
+        handle hit (``_transform_point``) moves the item onto geometry."""
+        return QPointF(scene_pos)
 
     def _handle_snap(self, m):
         """The gesture's HandleSnapSession, built on first use (item at rest).
@@ -395,6 +405,7 @@ class TranslateGripHandle(GripHandle):
             return pt
         hit = hs.best(raw)
         if hit is None:
+            self._clear_own_marker(sc)   # no cursor pick replaces it any more
             return pt
         corrected, res = hit
         if hasattr(sc, "_snap_result"):
@@ -416,6 +427,10 @@ class TranslateGripHandle(GripHandle):
         self._hs = None
         self._hs_built = False
         self._raw_pt = None
+        self._clear_own_marker(sc)
+
+    def _clear_own_marker(self, sc) -> None:
+        """Clear the scene marker if it is still the one this grip published."""
         mine = getattr(self, "_marker", None)
         self._marker = None
         if (sc is not None and mine is not None
