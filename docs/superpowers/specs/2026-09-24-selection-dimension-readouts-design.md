@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: current
 last-verified: 2026-09-24
-verified-commit: ca61b8c
+verified-commit: 762d083
 applies-to:
   - firepro3d/selection_readouts.py   # new — DimSpec + SelectionReadoutController
   - firepro3d/readout_paint.py        # new — layout + paint free functions

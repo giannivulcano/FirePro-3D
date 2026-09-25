@@ -410,7 +410,7 @@ changes a pinned axis (behavioral §3.1 guard) and never moves a proxy. **No und
 (parity with prior behavior; filed follow-up). Cross-view selection sync stays out of scope
 (`view-relationships.md §1.3`).
 
-## 15. Selection dimension readouts — pick precedence & input mode **[PROPOSAL — 2026-09-24]**
+## 15. Selection dimension readouts — pick precedence & input mode (as-built 2026-09-24, verified `762d083`)
 
 > Design record: `docs/superpowers/specs/2026-09-24-selection-dimension-readouts-design.md`.
 > What each primitive reports + setter anchors → `2d-geometry.md §8` (Rule A).
@@ -446,3 +446,11 @@ manipulator gesture. It works with HALO disabled.
 as "the placement HUD is engaged **or** a readout edit is active", so the canvas is inert and
 Ctrl+Z belongs to the field. The view's HUD handling reads `Model_Space.active_hud()`. A press
 outside the HUD cancels the edit and is consumed. A selection change or mode change also cancels.
+
+**As-built (2026-09-24):**
+- The controller wires `selectionChanged` / `changed` / `modeChanged` **only** on `scene_role == "block_editor"` scenes — connecting `scene.changed` at all reroutes Qt's item→view updates, so plan scenes must stay unwired. Every slot bails out via `_scene_alive()` (a dying scene emits `selectionChanged` after sip marks it deleted; an exception in a slot aborts PyQt6) and is wrapped in try/except.
+- Repaint: scene changes and selection changes repaint only `old ∪ new` readout regions per view (`_painted` + `_dirty_rect`, padded by `SELDIM_DIRTY_PAD_PX` for glow/arrowheads); units/mode/edit begin-end do a full-viewport refresh. `Model_Space._refresh_all_labels` calls `readouts.refresh()`; `main.py` copies the project's `display_unit` + `precision` into every open Block Editor's own ScaleManager (never shared) and refreshes it.
+- Layout maps scene→viewport through `viewportTransform()` **floats** — `mapFromScene` returns integer points and a 1-unit probe rounded to 0 px when zoomed out.
+- HALO is suppressed while a readout edit is open (`_halo_suppressed`) and cleared when one begins. Leaving a label restores the previous footer instruction.
+- A commit applies the value, pushes one undo step, calls `Model_Space.notify_geometry_edited()` (re-fits the SelectionManipulator frame — also called after every `PropertyManager._apply_property`), and emits `requestPropertyUpdate` so the panel shows the new value. An unchanged value ends the session with no step. A canvas tab switch cancels an open edit.
+- Shipped visual constants live in `constants.py` `SELDIM_*` (label offset settled at 6 px in smoke).
