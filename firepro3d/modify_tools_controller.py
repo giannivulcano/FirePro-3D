@@ -24,6 +24,8 @@ from .sprinkler import Sprinkler
 
 # Modes whose ghost + selection-capture behave like Move.
 TRANSFORM_MODES = frozenset({"move", "paste", "duplicate", "rotate", "array"})
+# Tools whose originals are dimmed while they run (D11; paste has no originals).
+DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array"})
 
 
 class ModifyToolsController:
@@ -80,6 +82,11 @@ class ModifyToolsController:
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
+        # D11: dim the originals. After set_mode — its clear() restores any
+        # previous dim first, so entering a mode never undoes its own dim.
+        if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
+            from .transform_ghost import dim_items
+            s._ghost_dimmed = dim_items(sel)
         return True
 
     # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
@@ -223,6 +230,12 @@ class ModifyToolsController:
     def clear(self, new_mode) -> None:
         """Idempotent teardown on every mode change (called from set_mode)."""
         s = self._scene
+        # D11: every mode change (commit, Esc, tool switch) ends in set_mode,
+        # so this is the one place the dimmed originals get their exact
+        # prior opacity back.
+        from .transform_ghost import restore_items
+        restore_items(getattr(s, "_ghost_dimmed", None))
+        s._ghost_dimmed = []
         if new_mode not in ("paste", "move", "duplicate"):
             s._move_ghost = []
             s._move_ghost_base = []
@@ -464,6 +477,7 @@ class ModifyToolsController:
         from .model_space import _GHOST_NODE_MARKER_MM
         from .node import Node
         from .sprinkler import Sprinkler
+        from .transform_ghost import ghost_base_paths
         paths = []
         for item in items:
             if isinstance(item, Sprinkler) and item.node is not None:
@@ -484,12 +498,12 @@ class ModifyToolsController:
                 p.moveTo(pts[0]); p.lineTo(pts[1])
                 paths.append(p)
                 continue
-            if hasattr(item, "shape"):
-                try:
-                    paths.append(item.mapToScene(item.shape()))
-                    continue
-                except Exception:
-                    pass
+            # D11: trace the drawn geometry (halo_scene_path), not the fat
+            # shape() hit region (double-rotated for rotated rects).
+            traced = ghost_base_paths([item])
+            if traced:
+                paths.extend(traced)
+                continue
             if hasattr(item, "sceneBoundingRect"):
                 p = QPainterPath(); p.addRect(item.sceneBoundingRect())
                 paths.append(p)
@@ -499,6 +513,7 @@ class ModifyToolsController:
         """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
         without adding anything to the scene. Covers the copyable types."""
         from .model_space import _GHOST_NODE_MARKER_MM
+        from .transform_ghost import ghost_base_paths
         paths = []
         if not data:
             return paths
@@ -528,9 +543,9 @@ class ModifyToolsController:
             elif t in geom_ctors:
                 try:
                     item = geom_ctors[t].from_dict(obj)
-                    paths.append(item.mapToScene(item.shape()))
                 except Exception:
-                    pass
+                    continue
+                paths.extend(ghost_base_paths([item]))
         return paths
 
     def _build_move_ghost_base(self):

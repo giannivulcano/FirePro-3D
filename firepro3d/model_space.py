@@ -348,6 +348,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
+        self._ghost_dimmed: list = []         # [(item, prior opacity)] dimmed originals (D11)
         self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
