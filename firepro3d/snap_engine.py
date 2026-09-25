@@ -405,7 +405,7 @@ class _SnapCtx:
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
                  only_types: "set[str] | None" = None,
-                 weak_types: frozenset = frozenset({"nearest", "perpendicular"}),
+                 from_point: "QPointF | None" = None,
                  search_tol: float = math.inf):
         self.cursor = cursor
         self.scale = _safe_scale(scale)
@@ -424,12 +424,15 @@ class _SnapCtx:
         self.underlay_geoms: dict[int, list[dict]] = {}
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
-        # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
-        # outright (S5, align-placement §3.1).
-        self.weak_types: frozenset = weak_types
         # Placement start point for perpendicular-from (S1); None = the
         # legacy cursor-foot perpendicular.
-        self.from_point: "QPointF | None" = None
+        self.from_point: "QPointF | None" = from_point
+        # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
+        # outright (S5, align-placement §3.1). With a start point the
+        # perpendicular is a real PER-from foot, so only nearest stays weak.
+        self.weak_types: frozenset[str] = (
+            frozenset({"nearest"}) if from_point is not None
+            else frozenset({"nearest", "perpendicular"}))
         # Scene-unit search radius (find()'s search rect half-size). Cursor-
         # dependent snaps on long flattened paths cull segments beyond it.
         self.search_tol: float = search_tol
@@ -624,11 +627,8 @@ class SnapEngine:
         # Mutable snap-tracking state shared across phases
         ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
                        aperture_px=aperture_px, priority_band_px=priority_band_px,
-                       only_types=only_types,
-                       weak_types=(frozenset({"nearest"}) if from_point is not None
-                                   else frozenset({"nearest", "perpendicular"})),
+                       only_types=only_types, from_point=from_point,
                        search_tol=search_tol)
-        ctx.from_point = from_point
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
@@ -691,7 +691,7 @@ class SnapEngine:
         # A held ALIGN result is released at the ALIGN aperture, not the tighter
         # real-snap aperture, so an on-path hold isn't dropped prematurely.
         held_aperture = (align_aperture
-                         if held.snap_type in ("align_intersection", "align_path")
+                         if held.snap_type in ALIGN_SNAP_TYPES
                          else aperture_px)
         if held_d_px > held_aperture:
             return best  # cursor left the held aperture → release the hold
@@ -1722,31 +1722,25 @@ class SnapEngine:
         elif isinstance(item, ArcItem):
             cx, cy = item._center.x(), item._center.y()
             r = item._radius
-            dx = cursor.x() - cx
-            dy = cursor.y() - cy
-            d = math.hypot(dx, dy)
-            self._circle_foot_snaps(
-                cursor, QPointF(cx, cy), r, from_point, pts,
-                accept=lambda q: _angle_in_arc(
+
+            def _on_arc(q: QPointF) -> bool:
+                # Scene Y is down; arc angles are math (Y-up) degrees.
+                return _angle_in_arc(
                     math.degrees(math.atan2(-(q.y() - cy), q.x() - cx)),
-                    item._start_deg, item._span_deg))
-            if d > _EPS_COINCIDENT:
-                # Tangent — cursor must be outside the arc's radius
-                if self.snap_tangent and d > r + _EPS_COINCIDENT:
-                    angle_to_cursor = math.atan2(
-                        cursor.y() - cy, cursor.x() - cx,
-                    )
-                    half_angle = math.acos(r / d)
-                    for sign in (+1, -1):
-                        a = angle_to_cursor + sign * half_angle
-                        tp = QPointF(cx + r * math.cos(a),
-                                     cy + r * math.sin(a))
-                        # Only emit if tangent point falls on the visible arc
-                        tp_deg = math.degrees(math.atan2(-(tp.y() - cy),
-                                                          tp.x() - cx))
-                        if _angle_in_arc(tp_deg, item._start_deg,
-                                         item._span_deg):
-                            pts.append(("tangent", tp))
+                    item._start_deg, item._span_deg)
+
+            self._circle_foot_snaps(cursor, QPointF(cx, cy), r, from_point,
+                                    pts, accept=_on_arc)
+            # Tangent — cursor must be outside the arc's radius
+            d = math.hypot(cursor.x() - cx, cursor.y() - cy)
+            if self.snap_tangent and d > r + _EPS_COINCIDENT:
+                angle_to_cursor = math.atan2(cursor.y() - cy, cursor.x() - cx)
+                half_angle = math.acos(r / d)
+                for sign in (+1, -1):
+                    a = angle_to_cursor + sign * half_angle
+                    tp = QPointF(cx + r * math.cos(a), cy + r * math.sin(a))
+                    if _on_arc(tp):  # only tangent points on the visible arc
+                        pts.append(("tangent", tp))
 
         # ── Full circle (QGraphicsEllipseItem) — closest point on circle ─
         elif isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
@@ -1902,10 +1896,22 @@ class SnapEngine:
         return foot
 
     def _foot_snaps(self, cursor: QPointF, p1: QPointF, p2: QPointF,
-                    from_point: QPointF | None, pts: list) -> None:
-        """Segment foot snaps: ``nearest`` = cursor foot; ``perpendicular`` =
-        foot FROM *from_point* when a placement start exists (S1), else the
-        legacy cursor foot."""
+                    from_point: QPointF | None,
+                    pts: list[tuple[str, QPointF]]) -> None:
+        """Append segment foot snaps to *pts*.
+
+        ``nearest`` is the cursor foot (clamped onto the segment).
+        ``perpendicular`` is the foot FROM *from_point* when a placement
+        start exists (AutoCAD PER, S1; omitted when that foot falls off the
+        segment), else the legacy cursor foot.
+
+        Args:
+            cursor: Cursor position in scene coordinates.
+            p1: Segment start (scene).
+            p2: Segment end (scene).
+            from_point: Placement start point, or None.
+            pts: Candidate list to append ``(snap_type, point)`` tuples to.
+        """
         foot = self._project_to_segment(cursor, p1, p2)
         if self.snap_perpendicular:
             if from_point is None:
@@ -1919,10 +1925,25 @@ class SnapEngine:
             pts.append(("nearest", foot))
 
     def _circle_foot_snaps(self, cursor: QPointF, center: QPointF, r: float,
-                           from_point: QPointF | None, pts: list,
+                           from_point: QPointF | None,
+                           pts: list[tuple[str, QPointF]],
                            accept: "Callable[[QPointF], bool] | None" = None) -> None:
-        """Circle/arc foot snaps. ⊥ from a start point = the two points where
-        the line centre→start meets the circle (PER to a circle is radial)."""
+        """Append circle/arc foot snaps to *pts*.
+
+        ``nearest`` is the radial projection of the cursor. ``perpendicular``
+        is that same cursor foot without a start point; with one it is the two
+        points where the line centre→start meets the circle (PER to a circle
+        is radial, S1).
+
+        Args:
+            cursor: Cursor position in scene coordinates.
+            center: Circle centre (scene).
+            r: Radius (scene units).
+            from_point: Placement start point, or None.
+            pts: Candidate list to append ``(snap_type, point)`` tuples to.
+            accept: Optional predicate a point must pass (an arc's angular
+                range); None accepts every point on the full circle.
+        """
         ok = accept or (lambda _q: True)
         d = math.hypot(cursor.x() - center.x(), cursor.y() - center.y())
         foot = None

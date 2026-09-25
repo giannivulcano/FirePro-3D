@@ -32,7 +32,7 @@ from .geometry_2d import (
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import SnapEngine, OsnapResult
+from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -2533,7 +2533,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # are ranked in a single find() call. Real SNAP is gated by mode (select
         # only while grip-dragging); ALIGN by an armed placement. When only
         # ALIGN is live, the whitelist restricts the call to ALIGN types.
-        from .snap_engine import ALIGN_SNAP_TYPES
         real_ok = (self._snap_enabled
                    and self.mode is not None
                    and (self.mode != "select" or self._grip_dragging))
