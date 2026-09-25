@@ -724,10 +724,10 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         legacy path, which only constrained endpoint grips). The manipulator
         renders/hit-tests/commits them; the legacy grip paths skip this item
         (coexistence gate)."""
-        from .manip_handle import GripHandle, EndpointGripHandle
+        from .manip_handle import EndpointGripHandle, TranslateGripHandle
         return [
             EndpointGripHandle(self, 0, opposite_index=2, circular=True),
-            GripHandle(self, 1, circular=True),
+            TranslateGripHandle(self, 1, circular=True),   # S2 handle snap
             EndpointGripHandle(self, 2, opposite_index=0, circular=True),
         ]
 

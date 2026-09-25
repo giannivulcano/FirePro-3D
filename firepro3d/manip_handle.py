@@ -253,6 +253,7 @@ class GripHandle(Handle):
 
     def on_drag(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
+        self._raw_pt = QPointF(scene_pos)   # raw cursor, for _transform_point hooks (S2)
         # Snap parity: drive the scene's own grip-snap authority (OSNAP excl.
         # this item > ALIGN > grid) via the flags borrowed in on_press. Real
         # Model_Space always has it; a plain scene (headless test) falls back
@@ -277,6 +278,7 @@ class GripHandle(Handle):
         # constrain the release point exactly as on_drag does so the committed
         # geometry matches where the user let go.
         if moved:
+            self._raw_pt = QPointF(scene_pos)
             eff = getattr(sc, "get_effective_position", None)
             pt = eff(scene_pos) if eff is not None else QPointF(scene_pos)
             pt = self._transform_point(m, pt, mods)
@@ -332,6 +334,65 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+
+
+class TranslateGripHandle(GripHandle):
+    """A grip whose drag translates the whole item (LineItem midpoint).
+
+    S2: the item's own snap points snap to geometry via a
+    ``HandleSnapSession`` built at press (anchor = this grip's rest point);
+    the closest handle hit beats the grip's own cursor snap. The marker it
+    publishes on the scene is cleared on release / cancel.
+    """
+
+    def on_press(self, m) -> None:
+        super().on_press(m)
+        self._hs = None
+        self._marker = None
+        sc = m.scene()
+        engine = getattr(sc, "_snap_engine", None)
+        view = m._view() if hasattr(m, "_view") else None
+        if (engine is not None and view is not None
+                and getattr(sc, "_snap_enabled", True) and engine.enabled):
+            from .handle_snap import HandleSnapSession
+            self._hs = HandleSnapSession(engine, sc, view, [self.item],
+                                         self.item.grip_points()[self.index])
+
+    def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
+        hs = getattr(self, "_hs", None)
+        raw = getattr(self, "_raw_pt", None)
+        if hs is None or raw is None:
+            return pt
+        hit = hs.best(raw)
+        if hit is None:
+            return pt
+        corrected, res = hit
+        sc = m.scene()
+        if hasattr(sc, "_snap_result"):
+            sc._snap_result = res
+            self._marker = res
+        return corrected
+
+    def on_release(self, m, scene_pos: QPointF, mods) -> None:
+        sc = m.scene()
+        super().on_release(m, scene_pos, mods)
+        self._end_handle_snap(sc)
+
+    def on_cancel(self, m) -> None:
+        super().on_cancel(m)
+        self._end_handle_snap(m.scene())
+
+    def _end_handle_snap(self, sc) -> None:
+        """Drop the session and clear the marker if it is still ours."""
+        self._hs = None
+        self._raw_pt = None
+        mine = getattr(self, "_marker", None)
+        self._marker = None
+        if (sc is not None and mine is not None
+                and getattr(sc, "_snap_result", None) is mine):
+            sc._snap_result = None
+            for v in sc.views():
+                v.viewport().update()
 
 
 class RectGripHandle(GripHandle):

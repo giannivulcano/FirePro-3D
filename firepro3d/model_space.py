@@ -33,6 +33,7 @@ from .geometry_2d import (
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
+from .handle_snap import HandleSnapSession
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -343,6 +344,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
+        self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -1131,6 +1133,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._align_active_item = None
             self._align_result = None
+        # S2: any mode change ends a Move gesture's handle-snap session.
+        self._move_handle_session = None
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -3873,6 +3877,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
             return
+        snapped = self._move_handle_snap(event, snapped)
         self.preview_node.hide()
         self.preview_pipe.hide()
         offset = QPointF(snapped.x() - self.node_start_pos.x(),
@@ -5221,7 +5226,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos is None:
             self.node_start_pos = snapped
             self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
+            self._begin_move_handle_snap(snapped)
         else:
+            snapped = self._move_handle_snap(event, snapped)
             offset = CAD_Math.get_vector(self.node_start_pos, snapped)
             if self.mode == "paste":
                 self.paste_items(offset)
@@ -5247,6 +5254,54 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.set_mode("move")
         self.node_start_pos = QPointF(base)
         self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
+        self._begin_move_handle_snap(self.node_start_pos)
+
+    def _begin_move_handle_snap(self, base: QPointF) -> None:
+        """S2: build the Move tool's HandleSnapSession once the base is set.
+
+        Move only (a paste has no scene items yet). The moving set is what
+        ``move_items`` will move (``_selected_items``, else the live
+        selection) plus each Sprinkler's Node, so none of it is a target.
+
+        Args:
+            base: The Move base point — the handle offsets' anchor.
+        """
+        self._move_handle_session = None
+        view = self._snap_view()
+        if (self.mode != "move" or view is None or not self._snap_enabled
+                or not self._snap_engine.enabled):
+            return
+        moving = list(self._selected_items or self.selectedItems())
+        moving += [it.node for it in moving
+                   if isinstance(it, Sprinkler) and it.node is not None]
+        if moving:
+            self._move_handle_session = HandleSnapSession(
+                self._snap_engine, self, view, moving, QPointF(base))
+
+    def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
+        """S2: after the Move base point, the selection's own snap points
+        snap to geometry; the closest handle hit beats the cursor snap.
+
+        *event* is the scene's ``QGraphicsSceneMouseEvent`` (dispatched from
+        ``mousePressEvent`` / ``mouseMoveEvent``), so the raw cursor is
+        ``event.scenePos()``; direct callers without one fall back to
+        *snapped*.
+
+        Returns:
+            The corrected destination (winning handle exactly on its target;
+            marker published to ``_snap_result``), else *snapped* unchanged.
+        """
+        hs = self._move_handle_session
+        if hs is None or self.mode != "move" or self.node_start_pos is None:
+            return snapped
+        scene_pos = getattr(event, "scenePos", None)
+        raw = scene_pos() if scene_pos is not None else snapped
+        hit = hs.best(raw)
+        if hit is None:
+            return snapped
+        corrected, res = hit
+        self._snap_result = res
+        return corrected
 
     def _apply_move_displacement(self, params: dict) -> bool:
         """Apply a typed dX/dY displacement (transform schema — dict, not point).

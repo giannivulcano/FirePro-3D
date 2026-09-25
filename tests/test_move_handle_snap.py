@@ -11,9 +11,10 @@ import math
 import time
 
 from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.geometry_2d import LineItem
-from tests._snap_polish_helpers import close_view, drag, make_view
+from tests._snap_polish_helpers import click, close_view, drag, make_view, move
 
 
 def _ab(scene):
@@ -44,6 +45,33 @@ def test_interior_drag_endpoint_snaps_while_cursor_far(qapp):
             text="T", x=-300.0, y=-200.0, height_mm=20.0)))
         # grab at (25,0) (interior, not a grip); raw drop puts a.p2 at (198,8)
         drag(view, QPointF(25, 0), QPointF(123, 8))
+        assert _p2_off_target(a) < 0.01
+        assert scene._snap_result is None          # no stale marker after release
+    finally:
+        close_view(view, scene)
+
+
+def test_move_tool_endpoint_snaps_while_cursor_far(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        a, _b = _ab(scene)
+        scene.set_mode("move")                     # ribbon entry: captures selection
+        click(view, QPointF(25, 0))                # base point
+        move(view, QPointF(123, 8))
+        click(view, QPointF(123, 8))               # destination
+        assert _p2_off_target(a) < 0.01
+        assert scene._move_handle_session is None  # gesture over
+        assert scene._snap_result is None
+    finally:
+        close_view(view, scene)
+
+
+def test_midpoint_grip_endpoint_snaps_while_cursor_far(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        a, _b = _ab(scene)
+        QApplication.processEvents()               # manipulator grips build
+        drag(view, a.grip_points()[1], QPointF(148, 8))
         assert _p2_off_target(a) < 0.01
         assert scene._snap_result is None          # no stale marker after release
     finally:

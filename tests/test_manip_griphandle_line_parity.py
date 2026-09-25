@@ -10,7 +10,8 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from firepro3d.geometry_2d import LineItem
-from firepro3d.manip_handle import GripHandle, EndpointGripHandle
+from firepro3d.manip_handle import (EndpointGripHandle,
+                                     TranslateGripHandle)
 from firepro3d.manip_math import HandleRole
 
 
@@ -43,12 +44,13 @@ def test_line_manip_handles_shape():
     assert len(hs) == 3
     assert [h.index for h in hs] == [0, 1, 2]
     assert all(h.role is HandleRole.GRIP for h in hs)
-    # endpoints (0, 2) are Ctrl-constrained + round; midpoint (1) plain + round
-    # (a move grip — translates the whole line — so round per the house rule)
+    # endpoints (0, 2) are Ctrl-constrained + round; midpoint (1) round, no
+    # Ctrl-constrain (a move grip — translates the whole line — so round per
+    # the house rule); S2: a TranslateGripHandle (handle snap while moving)
     assert isinstance(hs[0], EndpointGripHandle) and hs[0].circular is True
     assert isinstance(hs[2], EndpointGripHandle) and hs[2].circular is True
     assert hs[0].opposite_index == 2 and hs[2].opposite_index == 0
-    assert type(hs[1]) is GripHandle and hs[1].circular is True
+    assert type(hs[1]) is TranslateGripHandle and hs[1].circular is True
     for i, h in enumerate(hs):
         assert h.scene_position(None) == ln.grip_points()[i]
 
