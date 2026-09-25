@@ -165,24 +165,13 @@ class SceneTools:
         """Delegates to :func:`tool_geometry.offset_polyline_pts`."""
         return tool_geometry.offset_polyline_pts(pts, signed_dist)
 
-    def _perpendicular_distance(self, source, pt: QPointF) -> float:
-        """Delegates to :func:`tool_geometry.perpendicular_distance`."""
-        return tool_geometry.perpendicular_distance(source, pt)
-
     def _offset_signed_dist(self, source, dist: float, side_pt: QPointF) -> float:
         """Delegates to :func:`tool_geometry.offset_signed_dist`."""
         return tool_geometry.offset_signed_dist(source, dist, side_pt)
 
-    def _make_offset_item(self, source, signed_dist: float):
-        """Delegates to :func:`tool_geometry.make_offset_item`."""
-        return tool_geometry.make_offset_item(source, signed_dist)
-
-    def _clear_offset_preview(self):
-        if self._scene._offset_preview is not None:
-            if self._scene._offset_preview.scene() is self._scene:
-                self._scene.removeItem(self._scene._offset_preview)
-            self._scene._offset_preview = None
-
+    # Offset item creation, the cursor distance and the preview live in
+    # tool_geometry.offset_item / distance_to_item and ModifyToolsController
+    # (scene-tools.md D9).
 
     # ======================================================================
     # ARRAY / ROTATE / SCALE / MIRROR / JOIN / EXPLODE / BREAK

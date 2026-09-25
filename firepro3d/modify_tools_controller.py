@@ -43,7 +43,7 @@ class ModifyToolsController:
     # Modes an Undo / Redo must cancel first: their transient state (base
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
-                                      "rotate"})
+                                      "rotate", "offset", "offset_side"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -260,9 +260,141 @@ class ModifyToolsController:
         self.commit_paste(params["offset"])
         return True
 
-    def begin_offset(self, sel) -> bool:   # replaced in Task 12
-        self._scene.set_mode("offset")
+    # ── Offset (D9) ─────────────────────────────────────────────────────────
+    # Scene transients: _offset_source (armed item), _offset_dist (magnitude),
+    # _offset_side (+1 outward / left normal, -1 otherwise), _offset_typed
+    # (distance locked by the HUD), _offset_sticky (last committed distance),
+    # _offset_sticky_locked (that distance was typed, so it stays locked for
+    # the next pick). The ghost is the candidate item's trace in _move_ghost.
+
+    OFFSET_TOO_LARGE = "Offset too large"
+
+    @staticmethod
+    def _offsettable(it) -> bool:
+        """True for loose 2D geometry Offset can act on (D9: not Text)."""
+        from .geometry_2d import Geometry2DMixin
+        from .text_item import TextItem
+        return (isinstance(it, Geometry2DMixin) and not isinstance(it, TextItem)
+                and it.parentItem() is None)
+
+    def begin_offset(self, sel) -> bool:
+        """Enter Offset: arm the single selected offsettable item, else pick.
+
+        Args:
+            sel: The current selection.
+
+        Returns:
+            True — Offset never requires a selection (D3 exemption).
+        """
+        s = self._scene
+        cands = [it for it in sel if self._offsettable(it)]
+        s.set_mode("offset")
+        if len(cands) == 1:
+            self._arm_offset_source(cands[0])
         return True
+
+    def _arm_offset_source(self, item) -> None:
+        s = self._scene
+        s.set_mode("offset_side")
+        s._offset_source = item
+        s._offset_side = 1.0
+        locked = bool(s._offset_sticky_locked and s._offset_sticky)
+        s._offset_typed = locked
+        s._offset_dist = (s._offset_sticky or 0.0) if locked else 0.0
+        s._move_ghost = []
+        s.instructionChanged.emit(
+            "Pick side to offset towards (or type a distance)")
+
+    def press_offset(self, event, pos, snapped, *_):
+        """``offset`` click: pick the offsettable item nearest the cursor."""
+        from . import tool_geometry as tg
+        s = self._scene
+        hit = [i for i in s.items(pos) if self._offsettable(i)]
+        if hit:
+            self._arm_offset_source(
+                min(hit, key=lambda i: tg.distance_to_item(i, pos)))
+
+    def move_offset_side(self, event, snapped):
+        """``offset_side`` cursor: side (+ distance unless locked); ghost follows."""
+        from . import tool_geometry as tg
+        s = self._scene
+        s.preview_node.hide()
+        s.preview_pipe.hide()
+        src = s._offset_source
+        if src is None or src.scene() is not s:
+            return
+        if not s._offset_typed:
+            s._offset_dist = tg.distance_to_item(src, snapped)
+        s._offset_side = tg.offset_side_sign(src, snapped)
+        self._refresh_offset_ghost()
+        # Feed the Distance HUD its live seed (_transform_seed_values).
+        s.publish_placement_state(snapped, snapped)
+
+    def _offset_candidate(self):
+        """The item a commit would create now, or None (degenerate / unarmed)."""
+        from . import tool_geometry as tg
+        s = self._scene
+        if s._offset_source is None or s._offset_dist <= 0:
+            return None
+        return tg.offset_item(s._offset_source, s._offset_side * s._offset_dist)
+
+    def _refresh_offset_ghost(self) -> None:
+        from .transform_ghost import ghost_base_paths
+        s = self._scene
+        cand = self._offset_candidate()
+        s._move_ghost = ghost_base_paths([cand]) if cand is not None else []
+        if cand is None and s._offset_dist > 0:
+            s._show_status(self.OFFSET_TOO_LARGE, 0)
+        elif cand is not None:
+            s._show_status(f"Offset: {s._offset_dist:.1f} mm", 0)
+        for v in s.views():
+            v.viewport().update()
+
+    def commit_offset(self) -> bool:
+        """Create the offset item (source kept), one undo step, re-arm ``offset``.
+
+        Returns:
+            True when an item was created; False when unarmed, at zero
+            distance, or too large inward ("Offset too large", nothing made).
+        """
+        s = self._scene
+        if s._offset_source is None or s._offset_dist <= 0:
+            return False
+        new = self._offset_candidate()
+        if new is None:
+            s._show_status(self.OFFSET_TOO_LARGE, 3000)
+            return False
+        # Register through the one deserialise-and-register helper (I1),
+        # keyed by the item's own to_dict()["type"] (RefLine -> _reference_lines).
+        if s._add_from_dict(new.to_dict()) is None:
+            return False
+        s.push_undo_state()
+        s._offset_sticky = s._offset_dist
+        s._offset_sticky_locked = bool(s._offset_typed)
+        s._offset_source = None
+        s._move_ghost = []
+        s.clear_placement_state()
+        s.set_mode("offset")                    # re-arm (D9 step 5)
+        s._show_status(f"Offset {s._offset_sticky:.1f} mm", 3000)
+        return True
+
+    def press_offset_side(self, event, pos, snapped, *_):
+        """``offset_side`` click: commit on the cursor's side."""
+        self.commit_offset()
+
+    def apply_offset_distance(self, params: dict) -> bool:
+        """Typed Distance (``distance`` schema): commit at that distance on the
+        side the cursor last picked; a refusal keeps the HUD open."""
+        s = self._scene
+        prev = (s._offset_dist, s._offset_typed)
+        s._offset_dist = abs(float(params["distance"]))
+        s._offset_typed = True
+        if self.commit_offset():
+            return True
+        # Refused (commit_offset posted the reason): back to the cursor state,
+        # whose ghost is still the one on screen.
+        s._offset_dist, s._offset_typed = prev
+        return False
 
     def clear(self, new_mode) -> None:
         """Idempotent teardown on every mode change (called from set_mode)."""
@@ -282,6 +414,12 @@ class ModifyToolsController:
             s._rotate_pivot = None
             s._rotate_start_deg = None
             s._rotate_ray = None
+        if new_mode not in ("offset", "offset_side"):
+            s._offset_source = None
+            s._offset_dist = 0.0
+            s._offset_typed = False
+            s._offset_sticky = None
+            s._offset_sticky_locked = False
         if new_mode in (None, "select"):
             s._copy_is_cut = False
             s._selected_items = None

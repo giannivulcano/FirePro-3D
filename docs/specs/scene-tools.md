@@ -703,8 +703,9 @@ double-rotated ghost (moot — `halo_scene_path`).
   stretch, trim/extend/merge/constraint click handlers, align, pick helpers,
   `_PadlockItem`.
 - `firepro3d/tool_geometry.py` — pure math: `extract_edges`, offset
-  (`offset_polyline_pts`, `perpendicular_distance`, `offset_signed_dist`,
-  `make_offset_item`), `compute_fillet/chamfer`, segments / intersections.
+  (`offset_polyline_pts`, `offset_signed_dist`, `inset_polygon`,
+  `distance_to_item`, `offset_side_sign`, `offset_item` — D9),
+  `compute_fillet/chamfer`, segments / intersections.
 - `firepro3d/model_space.py` — mode state machines: `set_mode` teardown,
   `_PRESS_DISPATCH` / `_MOVE_DISPATCH` / `_PREVIEW_DISPATCH`,
   `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE`, the tools' `_press_*` / `_move_*`,

@@ -171,7 +171,7 @@ def _expected_offset_corners(r: RectangleItem, d: float) -> list[QPointF]:
 @pytest.mark.parametrize("pivot", [None, QPointF(0, 0)])
 def test_offset_rotated_rect_grow(qapp, pivot):
     r = _rect30(pivot)
-    new = tg.make_offset_item(r, 10.0)
+    new = tg.offset_item(r, 10.0)          # D9 (make_offset_item retired)
     assert new is not None
     assert _same_point_set(_corners(new), _expected_offset_corners(r, 10.0))
 
@@ -187,7 +187,10 @@ def test_offset_rotated_rect_side_and_distance(qapp):
     probe = QPointF(mid.x() + 5 * n.x(), mid.y() + 5 * n.y())
     assert r.mapRectToScene(r.rect()).contains(probe)
     assert tg.offset_signed_dist(r, 7.0, probe) == 7.0
-    assert abs(tg.perpendicular_distance(r, probe) - 5.0) < 1e-6
+    assert tg.offset_side_sign(r, probe) == 1.0            # D9: outward
+    # D9: distance_to_item (true distance to the drawn outline) replaces the
+    # retired perpendicular_distance.
+    assert abs(tg.distance_to_item(r, probe) - 5.0) < 1e-6
 
 
 def test_highlight_rotated_rect_follows_footprint(scene):

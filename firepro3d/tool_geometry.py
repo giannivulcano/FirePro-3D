@@ -195,63 +195,6 @@ def offset_polyline_pts(pts: list, signed_dist: float) -> list:
     return result
 
 
-def perpendicular_distance(source, pt: QPointF) -> float:
-    """Return the perpendicular distance from *pt* to *source* entity."""
-    if isinstance(source, LineItem):
-        line = source.line()
-        p1 = source.mapToScene(line.p1())
-        p2 = source.mapToScene(line.p2())
-        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
-        seg_len = math.hypot(dx, dy)
-        if seg_len < 1e-10:
-            return math.hypot(pt.x() - p1.x(), pt.y() - p1.y())
-        # Point-to-line distance (not segment — infinite line)
-        return abs(dx * (p1.y() - pt.y()) - dy * (p1.x() - pt.x())) / seg_len
-
-    if isinstance(source, PolylineItem):
-        pts = source._points
-        if len(pts) < 2:
-            return 0.0
-        # Minimum distance to any segment
-        min_d = float("inf")
-        for i in range(len(pts) - 1):
-            a, b = pts[i], pts[i + 1]
-            dx, dy = b.x() - a.x(), b.y() - a.y()
-            seg_len = math.hypot(dx, dy)
-            if seg_len < 1e-10:
-                continue
-            d = abs(dx * (a.y() - pt.y()) - dy * (a.x() - pt.x())) / seg_len
-            min_d = min(min_d, d)
-        return min_d if min_d < float("inf") else 0.0
-
-    if isinstance(source, CircleItem):
-        cx = source.x() + source.boundingRect().center().x()
-        cy = source.y() + source.boundingRect().center().y()
-        r = source.boundingRect().width() / 2
-        return abs(math.hypot(pt.x() - cx, pt.y() - cy) - r)
-
-    if isinstance(source, RectangleItem):
-        # Measure in the rect's LOCAL (axis-aligned) frame so a data-rotated
-        # rect is measured against its real edges, not its AABB (rotation is
-        # rigid, so local distances equal scene distances).
-        r = source.rect()
-        pt = source.mapFromScene(pt)
-        # Distance to nearest edge
-        cx = max(r.left(), min(pt.x(), r.right()))
-        cy = max(r.top(), min(pt.y(), r.bottom()))
-        if r.contains(pt):
-            # Inside: distance to nearest edge
-            return min(pt.x() - r.left(), r.right() - pt.x(),
-                       pt.y() - r.top(), r.bottom() - pt.y())
-        return math.hypot(pt.x() - cx, pt.y() - cy)
-
-    if isinstance(source, ArcItem):
-        cx, cy = source._center.x(), source._center.y()
-        return abs(math.hypot(pt.x() - cx, pt.y() - cy) - source._radius)
-
-    return 0.0
-
-
 def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
     """Return +dist or -dist depending on which side of source the cursor is on."""
     if isinstance(source, LineItem):
@@ -296,73 +239,6 @@ def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
         d = math.hypot(side_pt.x() - cx, side_pt.y() - cy)
         return dist if d >= source._radius else -dist
     return dist
-
-
-def make_offset_item(source, signed_dist: float):
-    """Create and return a new item that is the offset of source, or None."""
-    color = source.pen().color()
-    lw = source.pen().widthF()
-
-    if isinstance(source, LineItem):
-        line = source.line()
-        p1 = source.mapToScene(line.p1())
-        p2 = source.mapToScene(line.p2())
-        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
-        seg_len = math.hypot(dx, dy)
-        if seg_len < 1e-10:
-            return None
-        nx, ny = -dy / seg_len, dx / seg_len
-        new_p1 = QPointF(p1.x() + signed_dist * nx, p1.y() + signed_dist * ny)
-        new_p2 = QPointF(p2.x() + signed_dist * nx, p2.y() + signed_dist * ny)
-        item = LineItem(new_p1, new_p2, color, lw)
-        return item
-
-    if isinstance(source, PolylineItem):
-        pts = source._points
-        new_pts = offset_polyline_pts(pts, signed_dist)
-        if len(new_pts) < 2:
-            return None
-        item = PolylineItem(new_pts[0], color, lw)
-        for p in new_pts[1:]:
-            item.append_point(p)
-        if source.is_closed():
-            item.close()
-        return item
-
-    if isinstance(source, CircleItem):
-        r = source.boundingRect().width() / 2
-        new_r = r + signed_dist
-        if new_r <= 0:
-            return None
-        # CircleItem stores center as scene position of its bounding rect centre
-        scene_rect = source.mapRectToScene(source.rect())
-        cx = scene_rect.center().x()
-        cy = scene_rect.center().y()
-        item = CircleItem(QPointF(cx, cy), new_r, color, lw)
-        return item
-
-    if isinstance(source, RectangleItem):
-        # Offset the LOCAL rect, then carry the source's data rotation so a
-        # rotated rect offsets to a concentric rotated rect (not its AABB).
-        # Pivot: a centre-following pivot stays centred on the (unchanged)
-        # centre; an explicit pivot is kept verbatim, same footprint maths.
-        r = source.rect()
-        new_r = r.adjusted(-signed_dist, -signed_dist, signed_dist, signed_dist)
-        if new_r.width() <= 0 or new_r.height() <= 0:
-            return None
-        item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
-        if source._angle != 0.0:
-            item.set_angle(source._angle, source._pivot)
-        return item
-
-    if isinstance(source, ArcItem):
-        new_r = source._radius + signed_dist
-        if new_r <= 0:
-            return None
-        item = ArcItem(source._center, new_r,
-                       source._start_deg, source._span_deg, color, lw)
-        return item
-    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -398,12 +398,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._gridline_drag_original_pos = None # perpendicular position at drag start
         # Gridline spacing dimensions (on-selection)
         self._gridline_spacing_dims: list[dict] = []
-        # Offset command (Sprint L)
-        self._offset_source = None              # entity selected for offset
-        self._offset_dist: float = 0.0          # distance entered by user
-        self._offset_preview = None             # preview item shown during side-pick
-        self._offset_manual: bool = False       # True when user typed distance via Tab
-        self._offset_highlight = None           # highlight overlay for selected offset entity
+        # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
+        # ghost is the candidate item's trace in _move_ghost.
+        self._offset_source = None              # armed source item
+        self._offset_dist: float = 0.0          # offset magnitude (mm)
+        self._offset_side: float = 1.0          # +1 outward / left normal, -1 otherwise
+        self._offset_typed: bool = False        # distance locked by the HUD
+        self._offset_sticky = None              # last committed distance (D9 step 5)
+        self._offset_sticky_locked: bool = False  # sticky distance was typed
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay
@@ -1202,16 +1204,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.current_template = None
 
-        # Clean up offset preview whenever leaving offset modes
-        if mode not in ("offset", "offset_side"):
-            self._tools._clear_offset_preview()
-            self._offset_source = None
-            self._offset_manual = False
-            if self._offset_highlight is not None:
-                if self._offset_highlight.scene() is self:
-                    self.removeItem(self._offset_highlight)
-                self._offset_highlight = None
-
         # Clean up gridline replicate modes
         if mode not in ("gridline_array", "gridline_offset"):
             self._replicate_source = None
@@ -1405,7 +1397,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
             "duplicate":      "Pick base point",
-            "offset":         "Click geometry to offset",
+            "offset":         "Pick object to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
@@ -2926,6 +2918,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
+        "offset_side": "distance",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -2961,6 +2954,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "_apply_paste_displacement",
         "duplicate": "_apply_move_displacement",
         "rotate": "_apply_rotate_by",
+        "offset_side": "_apply_offset_distance",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -3913,29 +3907,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
 
-    def _move_offset_side(self, event, snapped):
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._offset_source is not None:
-            # Compute distance from cursor to source entity
-            if not getattr(self, '_offset_manual', False):
-                self._offset_dist = self._tools._perpendicular_distance(
-                    self._offset_source, snapped)
-            if self._offset_dist > 0:
-                sd = self._tools._offset_signed_dist(
-                    self._offset_source, self._offset_dist, snapped)
-                self._tools._clear_offset_preview()
-                preview = self._tools._make_offset_item(self._offset_source, sd)
-                if preview is not None:
-                    pen = preview.pen()
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                    preview.setPen(pen)
-                    preview.setZValue(200)
-                    self.addItem(preview)
-                    self._offset_preview = preview
-                self._show_status(
-                    f"Offset: {self._offset_dist:.1f} mm  "
-                    f"(Tab = type distance, click to commit)", timeout=0)
+    def _move_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.move_offset_side(*args, **kwargs)
 
     def _move_preview_node(self, event, snapped):
         self.update_preview_node(snapped)
@@ -4407,13 +4380,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Handle result from a numeric input dialog shown by main.py."""
         if not accepted:
             return
-        if mode == "offset_side":
-            self._offset_dist = value
-            self._offset_manual = True
-            self._show_status(
-                f"Offset: {value:.1f} mm (fixed)  "
-                f"Click to pick side and commit.", timeout=0)
-        elif mode == "scale":
+        if mode == "scale":
             if self._scale_base is not None:
                 self._tools._apply_scale(self._scale_base, value)
                 self.push_undo_state()
@@ -5229,57 +5196,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)
 
-    def _press_offset(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Select entity to offset — go straight to live preview (no dialog)
-        hit = [i for i in self.items(pos)
-               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, EllipseItem, SplineItem))]
-        if not hit:
-            return
-        self._offset_source = hit[0]
-        self._offset_highlight = self._tools._highlight_item(hit[0])
-        self._offset_dist = 0  # will be computed from cursor distance
-        self._offset_manual = False  # cursor-driven distance
-        self.set_mode("offset_side")
-        self._show_status(
-            "Move cursor to set offset distance and side, "
-            "click to commit. Tab = type distance.")
+    # ── Offset (D9) ───────────────────────────────────────────────────
+    def _press_offset(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.press_offset(*args, **kwargs)
 
-    def _press_offset_side(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Click determines which side — commit the offset
-        if self._offset_source is not None and self._offset_dist > 0:
-            sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
-            self._tools._clear_offset_preview()
-            new_item = self._tools._make_offset_item(self._offset_source, sd)
-            if new_item is not None:
-                if isinstance(new_item, LineItem):
-                    self.addItem(new_item)
-                    self._draw_lines.append(new_item)
-                elif isinstance(new_item, PolylineItem):
-                    self.addItem(new_item)
-                    self._polylines.append(new_item)
-                elif isinstance(new_item, CircleItem):
-                    self.addItem(new_item)
-                    self._draw_circles.append(new_item)
-                elif isinstance(new_item, RectangleItem):
-                    self.addItem(new_item)
-                    self._draw_rects.append(new_item)
-                elif isinstance(new_item, ArcItem):
-                    self.addItem(new_item)
-                    self._draw_arcs.append(new_item)
-                elif isinstance(new_item, EllipseItem):
-                    self.addItem(new_item)
-                    self._draw_ellipses.append(new_item)
-                elif isinstance(new_item, SplineItem):
-                    self.addItem(new_item)
-                    self._draw_splines.append(new_item)
-                self.push_undo_state()
-        # Stay in offset mode ready for next entity
-        self._offset_source = None
-        if self._offset_highlight is not None:
-            if self._offset_highlight.scene() is self:
-                self.removeItem(self._offset_highlight)
-            self._offset_highlight = None
-        self.set_mode("offset")
+    def _press_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.press_offset_side(*args, **kwargs)
+
+    def _apply_offset_distance(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.apply_offset_distance(*args, **kwargs)
 
     # ── Interactive Rotate (D8) ───────────────────────────────────────
     def _press_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
@@ -7042,42 +6967,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode in ("gridline_array", "gridline_offset"):
                 self._commit_gridline_replicate()
                 return
-            # Commit offset on Enter (same logic as click)
-            if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
-                cursor_pos = self._last_scene_pos
-                if cursor_pos is not None:
-                    sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, cursor_pos)
-                    self._tools._clear_offset_preview()
-                    new_item = self._tools._make_offset_item(self._offset_source, sd)
-                    if new_item is not None:
-                        if isinstance(new_item, LineItem):
-                            self.addItem(new_item)
-                            self._draw_lines.append(new_item)
-                        elif isinstance(new_item, PolylineItem):
-                            self.addItem(new_item)
-                            self._polylines.append(new_item)
-                        elif isinstance(new_item, CircleItem):
-                            self.addItem(new_item)
-                            self._draw_circles.append(new_item)
-                        elif isinstance(new_item, RectangleItem):
-                            self.addItem(new_item)
-                            self._draw_rects.append(new_item)
-                        elif isinstance(new_item, ArcItem):
-                            self.addItem(new_item)
-                            self._draw_arcs.append(new_item)
-                        elif isinstance(new_item, EllipseItem):
-                            self.addItem(new_item)
-                            self._draw_ellipses.append(new_item)
-                        elif isinstance(new_item, SplineItem):
-                            self.addItem(new_item)
-                            self._draw_splines.append(new_item)
-                        self.push_undo_state()
-                    self._offset_source = None
-                    if self._offset_highlight is not None:
-                        if self._offset_highlight.scene() is self:
-                            self.removeItem(self._offset_highlight)
-                        self._offset_highlight = None
-                    self.set_mode("offset")
+            # Offset: Enter commits at the cursor's side/distance through the
+            # same helper a click uses (D9 step 4; the typed path is the HUD).
+            if self.mode == "offset_side":
+                self._modify_ctl.commit_offset()
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:

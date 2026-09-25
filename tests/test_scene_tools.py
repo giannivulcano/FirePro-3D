@@ -1,7 +1,7 @@
 """Tests for scene_tools.py — geometry editing helpers.
 
 Covers:
-- Offset algorithm (line intersection, polyline offset, perpendicular distance)
+- Offset algorithm (line intersection, polyline offset, distance_to_item)
 - Fillet / chamfer geometry computation
 - Break / break-at-point logic
 - extract_edges helper
@@ -48,7 +48,6 @@ class _StubScene(QGraphicsScene):
         self._draw_arcs: list = []
         self._polylines: list = []
         self._constraints: list = []
-        self._offset_preview = None
         self._trim_edge = None
         self._trim_edge_highlight = None
         self._extend_boundary = None
@@ -184,62 +183,70 @@ class TestOffsetPolylinePts:
 
 
 class TestPerpendicularDistance:
-    """SceneTools._perpendicular_distance — distance from point to entity."""
+    """tool_geometry.distance_to_item — true distance from point to entity.
+
+    scene-tools.md D9: replaces the retired SceneTools._perpendicular_distance
+    (infinite-line distance; its circle cases pinned the pen-inflated
+    boundingRect()/2 radius, defect DV8). Distances are now to the drawn
+    geometry, circles to the geometric radius.
+    """
 
     def test_line_distance(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._tools._perpendicular_distance(line, QPointF(50, 30))
+        d = tg.distance_to_item(line, QPointF(50, 30))
         assert abs(d - 30.0) < 1e-3
 
     def test_line_distance_zero(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._tools._perpendicular_distance(line, QPointF(50, 0))
+        d = tg.distance_to_item(line, QPointF(50, 0))
         assert abs(d) < 1e-3
+
+    def test_line_distance_beyond_end_is_to_the_segment(self, scene):
+        line = LineItem(QPointF(0, 0), QPointF(100, 0))
+        scene.addItem(line)
+        d = tg.distance_to_item(line, QPointF(130, 40))
+        assert abs(d - 50.0) < 1e-3
 
     def test_circle_distance_outside(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        # _perpendicular_distance uses boundingRect().width()/2 as radius,
-        # which includes cosmetic pen padding (~55 for a 50-radius circle).
-        r_effective = circle.boundingRect().width() / 2
-        d = scene._tools._perpendicular_distance(circle, QPointF(100, 0))
-        assert abs(d - (100.0 - r_effective)) < 1e-3
+        d = tg.distance_to_item(circle, QPointF(100, 0))
+        assert abs(d - 50.0) < 1e-3
 
     def test_circle_distance_inside(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        r_effective = circle.boundingRect().width() / 2
-        d = scene._tools._perpendicular_distance(circle, QPointF(20, 0))
-        assert abs(d - (r_effective - 20.0)) < 1e-3
+        d = tg.distance_to_item(circle, QPointF(20, 0))
+        assert abs(d - 30.0) < 1e-3
 
     def test_polyline_distance(self, scene):
         pl = PolylineItem(QPointF(0, 0))
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
-        d = scene._tools._perpendicular_distance(pl, QPointF(50, 20))
+        d = tg.distance_to_item(pl, QPointF(50, 20))
         assert abs(d - 20.0) < 1e-3
 
     def test_arc_distance(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        # Point at (80, 0) => distance = |80 - 50| = 30
-        d = scene._tools._perpendicular_distance(arc, QPointF(80, 0))
+        # Point at (80, 0) => distance = |80 - 50| = 30 (arc start point)
+        d = tg.distance_to_item(arc, QPointF(80, 0))
         assert abs(d - 30.0) < 1e-3
 
     def test_rectangle_distance_outside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (150, 50) => nearest edge at x=100 => distance = 50
-        d = scene._tools._perpendicular_distance(rect, QPointF(150, 50))
+        d = tg.distance_to_item(rect, QPointF(150, 50))
         assert abs(d - 50.0) < 1e-3
 
     def test_rectangle_distance_inside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (10, 50) => nearest edge is left (x=0) => distance = 10
-        d = scene._tools._perpendicular_distance(rect, QPointF(10, 50))
+        d = tg.distance_to_item(rect, QPointF(10, 50))
         assert abs(d - 10.0) < 1e-3
 
 
