@@ -3959,6 +3959,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.preview_node.hide()
             # Rubber-band line from last vertex to cursor
             last_pt = self._floor_active._points[-1]
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(last_pt, snapped)
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
@@ -4013,6 +4016,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.preview_node.hide()
             last_pt = self._roof_active._points[-1]
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(last_pt, snapped)
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
@@ -6031,6 +6037,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 "Pick next boundary point (click near first / Enter / double-click to close, Del pops)")
         else:
             pts = self._floor_active._points
+            # Ctrl angle-constrains the committed vertex against the last one
+            # (Fold D); the close-near-first test stays on the raw ``snapped``
+            # (polyline precedent).
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                tip = self._constrain_angle(pts[-1], snapped)
             # Close-near-first: ≥3 points and click within snap tolerance of first vertex.
             if len(pts) >= 3:
                 scale = self._active_view_scale()
@@ -6048,7 +6061,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.instructionChanged.emit("Pick first boundary point (←/→ to change)")
                     self._end_placement_switch(slab)   # single-placement → Select
                     return
-            self._floor_active.add_point(snapped)
+            self._floor_active.add_point(tip)
 
     # ── Floor rectangle (3-click: base → side (angle + W) → depth (H)) ───────
     def _press_floor_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -6269,6 +6282,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick next point (click near first or Enter to close)")
         else:
             pts = self._roof_active._points
+            # Ctrl angle-constrains the committed vertex against the last one
+            # (Fold D); close-near-first / vertex-pop tests stay on the raw
+            # ``snapped`` (polyline precedent).
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                tip = self._constrain_angle(pts[-1], snapped)
             if len(pts) >= 3:
                 scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
@@ -6332,7 +6352,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         self._roof_active._rebuild_path()
                         for v in self.views(): v.viewport().update()
                         return
-            self._roof_active.add_point(snapped)
+            self._roof_active.add_point(tip)
 
     def _press_roof_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._roof_rect_anchor is None:

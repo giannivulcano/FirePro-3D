@@ -115,3 +115,54 @@ def test_floor_vertex_grip_ctrl_constrains_against_previous(qapp):
 
 def test_roof_vertex_grip_ctrl_constrains_against_previous(qapp):
     _polygon_vertex0_ctrl(RoofItem, "_roofs")
+
+
+# ── Fold D: floor / roof polygon placement ───────────────────────────────────
+
+_ORIGIN = QPointF(0, 0)
+_RAW = QPointF(600, 400)          # 33.69° off the first vertex
+
+
+def _preview_tip(scene):
+    ln = scene.preview_pipe.line()
+    assert scene.preview_pipe.isVisible()
+    assert ln.p1() == _ORIGIN, ln
+    return ln.p2()
+
+
+def test_floor_polygon_placement_ctrl_constrains_preview_and_commit(qapp):
+    view, scene = make_view(role="plan", mode="floor")
+    try:
+        scene._set_floor_primitive("polygon")
+        click(view, _ORIGIN)
+        assert scene._floor_active is not None
+        move(view, _RAW, mods=CTRL)
+        r = scene.get_resolved_point()
+        assert r is not None and r != _RAW
+        assert _on_increment(_angle(_ORIGIN, r)), _angle(_ORIGIN, r)
+        tip = _preview_tip(scene)
+        assert _on_increment(_angle(_ORIGIN, tip)), _angle(_ORIGIN, tip)
+        click(view, _RAW, mods=CTRL)
+        pts = scene._floor_active._points
+        assert len(pts) == 2 and pts[0] == _ORIGIN, pts
+        assert _on_increment(_angle(pts[0], pts[1])), _angle(pts[0], pts[1])
+    finally:
+        close_view(view, scene)
+
+
+def test_roof_polygon_placement_ctrl_constrains_preview_and_commit(qapp):
+    """Real clicks; never closes the polygon (closing opens the modal RoofDialog)."""
+    view, scene = make_view(role="plan", mode="roof")
+    try:
+        click(view, _ORIGIN)
+        assert scene._roof_active is not None
+        move(view, _RAW, mods=CTRL)
+        tip = _preview_tip(scene)
+        assert tip != _RAW
+        assert _on_increment(_angle(_ORIGIN, tip)), _angle(_ORIGIN, tip)
+        click(view, _RAW, mods=CTRL)
+        pts = scene._roof_active._points
+        assert len(pts) == 2 and pts[0] == _ORIGIN, pts
+        assert _on_increment(_angle(pts[0], pts[1])), _angle(pts[0], pts[1])
+    finally:
+        close_view(view, scene)
