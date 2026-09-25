@@ -140,3 +140,28 @@ def test_paste_hud_dx_dy(qapp):
         assert scene.mode in (None, "select")
     finally:
         close_view(view, scene)
+
+
+@pytest.mark.parametrize("kind", ["door", "wall"])
+def test_paste_real_plan_record_into_block_editor_is_refused(qapp, kind):
+    """D13 allow-list: a real plan record (not in the 2D registry) is refused
+    in the Block Editor — no mode, no undo, the refusal message."""
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import DoorOpening
+    rec = (DoorOpening().to_dict() if kind == "door"
+           else WallSegment(QPointF(0, 0), QPointF(1000, 0)).to_dict())
+    view, scene = make_view(role="block_editor", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        QApplication.clipboard().setText(json.dumps(
+            {"fp3d_clipboard": 1, "base": [0, 0], "scene_role": "plan",
+             "items": [LineItem(QPointF(0, 0), QPointF(1, 0)).to_dict(), rec]}))
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("paste") is False          # [RED]
+        assert scene.mode in (None, "select")
+        assert scene._undo_pos == p0
+        assert msgs[-1] == "Plan elements can't be pasted into the Block Editor"
+    finally:
+        close_view(view, scene)

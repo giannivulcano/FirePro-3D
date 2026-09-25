@@ -116,10 +116,6 @@ class ModifyToolsController:
 
     # ── Paste (D5, D13) ─────────────────────────────────────────────────────
 
-    # Clipboard record types that only a plan scene may receive (D13).
-    _PLAN_ONLY = frozenset({"node", "block_instance", "wall", "floor_slab",
-                            "roof", "room"})
-
     def begin_paste(self) -> bool:
         """Validate the clipboard and arm ``paste`` with the ghost on the cursor.
 
@@ -138,10 +134,10 @@ class ModifyToolsController:
         if s.scene_role != "block_editor" and types & set(s._GEOM_TYPE_REGISTRY):
             s._show_status("2D geometry can only be pasted in the Block Editor", 4000)
             return False
-        if s.scene_role == "block_editor" and (
-                types & self._PLAN_ONLY
-                or any("origin" in d and "angle" in d and not d.get("type")
-                       for d in payload["items"])):          # gridline records
+        # D13 allow-list: the Block Editor accepts only what _add_from_dict
+        # registers; anything else (plan entities, gridline records with no
+        # type key, openings, view markers, …) refuses the whole paste.
+        if s.scene_role == "block_editor" and not types <= set(s._GEOM_TYPE_REGISTRY):
             s._show_status("Plan elements can't be pasted into the Block Editor", 4000)
             return False
         s.set_mode("paste")
