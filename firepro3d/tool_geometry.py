@@ -28,7 +28,9 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    ReferenceLineItem, RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .geometry_2d import _AXIS_MIN as _ELLIPSE_AXIS_MIN
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 
@@ -260,11 +262,20 @@ def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
         # Cross product with cursor vector: positive → left of line
         cross = dx * (side_pt.y() - p1.y()) - dy * (side_pt.x() - p1.x())
         return dist if cross >= 0 else -dist
-    if isinstance(source, PolylineItem):
-        pts = source._points
-        if len(pts) < 2:
+    if isinstance(source, (PolylineItem, SplineItem)):
+        # Open chains: the side of the segment NEAREST the cursor decides
+        # (scene-tools.md D9 "cursor sets side"), not the first segment. A
+        # spline measures against its drawn curve, a polyline its vertices.
+        if isinstance(source, PolylineItem):
+            pts = list(source._points)
+            segs = list(zip(pts, pts[1:]))
+        else:
+            segs = _path_segments(source)
+        segs = [(a, b) for a, b in segs
+                if math.hypot(b.x() - a.x(), b.y() - a.y()) > 1e-10]
+        if not segs:
             return dist
-        p1, p2 = pts[0], pts[1]
+        p1, p2 = min(segs, key=lambda s: point_to_segment_dist(side_pt, *s))
         dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
         cross = dx * (side_pt.y() - p1.y()) - dy * (side_pt.x() - p1.x())
         return dist if cross >= 0 else -dist
@@ -352,6 +363,255 @@ def make_offset_item(source, signed_dist: float):
                        source._start_deg, source._span_deg, color, lw)
         return item
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OFFSET (scene-tools.md D9) — offset_item + its cursor measures
+# ─────────────────────────────────────────────────────────────────────────────
+
+def inset_polygon(pts: list, dist: float) -> "list[QPointF] | None":
+    """Offset a closed polygon inward by *dist* (negative = outward).
+
+    Mitered at every vertex, including the seam (vertex 0 against n-1), and
+    winding-aware. Promoted from ``Model_Space._inset_polygon`` so room
+    detection and the Offset tool share one implementation.
+
+    Args:
+        pts: The polygon vertices (implicitly closed; no duplicate last point).
+        dist: Inward distance; negative grows the polygon.
+
+    Returns:
+        The offset vertices, or None for fewer than 3 vertices.
+    """
+    import math as _m
+    n = len(pts)
+    if n < 3:
+        return None
+
+    # Compute inward normals for each edge
+    normals = []
+    for i in range(n):
+        j = (i + 1) % n
+        dx = pts[j].x() - pts[i].x()
+        dy = pts[j].y() - pts[i].y()
+        length = _m.hypot(dx, dy)
+        if length < 1e-12:
+            normals.append((0.0, 0.0))
+            continue
+        # Inward normal (assuming CW winding for scene Y-down)
+        nx = dy / length
+        ny = -dx / length
+        normals.append((nx, ny))
+
+    # Check winding: if polygon area is positive (CCW), flip normals
+    area = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        area += pts[i].x() * pts[j].y() - pts[j].x() * pts[i].y()
+    if area > 0:  # CCW winding
+        normals = [(-nx, -ny) for nx, ny in normals]
+
+    # Offset each edge inward and intersect consecutive offset edges
+    result = []
+    for i in range(n):
+        prev = (i - 1) % n
+        # Previous edge offset line
+        p1 = QPointF(pts[prev].x() + normals[prev][0] * dist,
+                     pts[prev].y() + normals[prev][1] * dist)
+        p2 = QPointF(pts[i].x() + normals[prev][0] * dist,
+                     pts[i].y() + normals[prev][1] * dist)
+        # Current edge offset line
+        p3 = QPointF(pts[i].x() + normals[i][0] * dist,
+                     pts[i].y() + normals[i][1] * dist)
+        p4 = QPointF(pts[(i + 1) % n].x() + normals[i][0] * dist,
+                     pts[(i + 1) % n].y() + normals[i][1] * dist)
+        # Intersect
+        dx1 = p2.x() - p1.x()
+        dy1 = p2.y() - p1.y()
+        dx2 = p4.x() - p3.x()
+        dy2 = p4.y() - p3.y()
+        denom = dx1 * dy2 - dy1 * dx2
+        if abs(denom) < 1e-10:
+            result.append(QPointF(pts[i].x() + normals[i][0] * dist,
+                                  pts[i].y() + normals[i][1] * dist))
+        else:
+            t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
+            result.append(QPointF(p1.x() + t * dx1, p1.y() + t * dy1))
+
+    return result
+
+
+def _path_segments(item) -> list:
+    """Scene-coord segments approximating *item*'s drawn geometry (HALO trace)."""
+    from .halo import halo_scene_path
+    segs = []
+    for poly in halo_scene_path(item).toSubpathPolygons():
+        pts = [poly.at(i) for i in range(poly.count())]
+        segs += list(zip(pts, pts[1:]))
+    return segs
+
+
+def distance_to_item(item, pt: QPointF) -> float:
+    """True distance from *pt* to *item*'s drawn geometry.
+
+    Measured to finite segments (never infinite lines); a circle is measured
+    analytically to its geometric radius.
+
+    Args:
+        item: A 2D geometry item.
+        pt: Scene point.
+
+    Returns:
+        The distance in scene units (mm); 0.0 for an item with no geometry.
+    """
+    if isinstance(item, CircleItem):
+        c = item._center
+        return abs(math.hypot(pt.x() - c.x(), pt.y() - c.y()) - item._radius)
+    segs = _path_segments(item)
+    return min((point_to_segment_dist(pt, a, b) for a, b in segs), default=0.0)
+
+
+def _is_closed_shape(item) -> bool:
+    """True for shapes whose offset side is inside/outside (D9)."""
+    return (isinstance(item, (RectangleItem, CircleItem, RegularPolygonItem,
+                              EllipseItem))
+            or (isinstance(item, PolylineItem) and item.is_closed()))
+
+
+def offset_side_sign(item, pt: QPointF) -> float:
+    """Which side of *item* the cursor *pt* picks.
+
+    Returns:
+        +1.0 = outward (closed shapes) / the left-normal side (open lines,
+        polylines, splines) / away from the centre (arcs); -1.0 otherwise.
+    """
+    if _is_closed_shape(item):
+        return -1.0 if item.get_closed_path().contains(item.mapFromScene(pt)) else 1.0
+    return 1.0 if offset_signed_dist(item, 1.0, pt) > 0 else -1.0
+
+
+def _clone(item):
+    """Style-preserving copy (colour, lineweight, fill, layer, flags) via the
+    item's own serialisation — the same round-trip Paste / Duplicate use."""
+    return type(item).from_dict(item.to_dict())
+
+
+def offset_item(src, signed_d: float):
+    """Offset copy of *src* (scene-tools.md D9); the source is untouched.
+
+    Args:
+        src: A 2D geometry item.
+        signed_d: Offset distance; + = outward (closed shapes, arcs) or the
+            left-normal side (lines, open polylines, splines).
+
+    Returns:
+        A new, scene-less item of the source's type inheriting its style, or
+        None when the offset is degenerate (too large inward) or *src* is not
+        offsettable (Text, non-geometry).
+    """
+    d = float(signed_d)
+    if not math.isfinite(d):
+        return None
+    # ReferenceLineItem subclasses LineItem: one branch, and _clone keeps the
+    # exact type (a RefLine offsets to a RefLine).
+    if isinstance(src, LineItem):
+        a, b = src._pt1, src._pt2
+        dx, dy = b.x() - a.x(), b.y() - a.y()
+        L = math.hypot(dx, dy)
+        if L < 1e-10:
+            return None
+        new = _clone(src)
+        new.translate(-dy / L * d, dx / L * d)
+        return new
+    if isinstance(src, PolylineItem):
+        pts = list(src._points)
+        if src.is_closed():
+            new_pts = inset_polygon(pts, -d)
+            if new_pts is not None and not _inset_ok(pts, new_pts):
+                return None
+        else:
+            new_pts = offset_polyline_pts(pts, d)
+        if not new_pts or len(new_pts) < 2:
+            return None
+        new = _clone(src)
+        new._points = [QPointF(p) for p in new_pts]
+        new._rebuild_path()
+        return new
+    if isinstance(src, RectangleItem):
+        r = src.rect().adjusted(-d, -d, d, d)
+        if r.width() <= 0 or r.height() <= 0:
+            return None
+        new = _clone(src)
+        new.prepareGeometryChange()
+        new.setRect(r)
+        # _clone restored angle + pivot; a centre-following pivot (None)
+        # re-derives from the unchanged centre, an explicit one stays put —
+        # the same footprint maths as the retired make_offset_item branch.
+        return new
+    if isinstance(src, CircleItem):
+        if src._radius + d < 1.0:          # CircleItem's own 1 mm floor
+            return None
+        new = _clone(src)
+        new.set_radius(src._radius + d)
+        return new
+    if isinstance(src, ArcItem):
+        if src._radius + d <= 0.01:        # ArcItem's own floor
+            return None
+        new = _clone(src)
+        new.set_radius(src._radius + d)
+        return new
+    if isinstance(src, RegularPolygonItem):
+        # Stored radius is the circumradius (inscribed) or the apothem
+        # (circumscribed); the apothem moves by exactly d either way.
+        n = src._sides
+        step = d / math.cos(math.pi / n) if src._inscribed else d
+        if src._radius_mm + step <= 0:
+            return None
+        new = _clone(src)
+        new.set_radius(src._radius_mm + step)
+        return new
+    if isinstance(src, EllipseItem):
+        if min(src._rx, src._ry) + d <= _ELLIPSE_AXIS_MIN:
+            return None
+        new = _clone(src)
+        new.set_rx(src._rx + d)
+        new.set_ry(src._ry + d)
+        return new
+    if isinstance(src, SplineItem):
+        # Tiller-Hanson approximation: offset the control polygon (mitered).
+        cps = list(src._control_points)
+        if len(cps) < 2:
+            return None
+        new_cps = offset_polyline_pts(cps, d)
+        new = _clone(src)
+        new._control_points = [QPointF(p) for p in new_cps]
+        new._regenerate()
+        return new
+    return None
+
+
+def _inset_ok(src_pts, new_pts) -> bool:
+    """False when a polygon offset collapsed or turned inside out.
+
+    A too-large miter offset reverses (or zeroes) edges — a square inset past
+    its half-width comes back point-reflected, which keeps the winding, so the
+    test is per edge: every offset edge must run the same way as its source
+    edge.
+    """
+    n = len(src_pts)
+    if len(new_pts) != n:
+        return False
+    for i in range(n):
+        j = (i + 1) % n
+        sx = src_pts[j].x() - src_pts[i].x()
+        sy = src_pts[j].y() - src_pts[i].y()
+        nx = new_pts[j].x() - new_pts[i].x()
+        ny = new_pts[j].y() - new_pts[i].y()
+        if sx * sx + sy * sy < 1e-18:
+            continue                      # degenerate source edge: no verdict
+        if sx * nx + sy * ny <= 1e-9:
+            return False
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ from firepro3d.geometry_2d import (
 from firepro3d.scene_tools import SceneTools, extract_edges
 from firepro3d.cad_math import CAD_Math
 from firepro3d import geometry_intersect as gi
+from firepro3d import tool_geometry as tg
 
 
 def _flush():
@@ -899,18 +900,20 @@ class TestConstructionGeometryGrips:
 
 
 # =========================================================================
-# 11. _make_offset_item
+# 11. offset_item (scene-tools.md D9 — replaces make_offset_item; the
+#     retired circle cases pinned the pen-inflated boundingRect()/2 radius,
+#     defect DV8. D9: circle offset is the GEOMETRIC radius r±d.)
 # =========================================================================
 
 
 class TestMakeOffsetItem:
-    """SceneTools._make_offset_item — produces offset copies."""
+    """tool_geometry.offset_item — produces offset copies (D9)."""
 
     def test_line_offset(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
 
-        result = scene._tools._make_offset_item(line, 10.0)
+        result = tg.offset_item(line, 10.0)
         assert result is not None
         assert isinstance(result, LineItem)
 
@@ -919,7 +922,7 @@ class TestMakeOffsetItem:
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
 
-        result = scene._tools._make_offset_item(pl, 10.0)
+        result = tg.offset_item(pl, 10.0)
         assert result is not None
         assert isinstance(result, PolylineItem)
 
@@ -927,36 +930,33 @@ class TestMakeOffsetItem:
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        # _make_offset_item uses boundingRect().width()/2 as radius (includes pen)
-        r_eff = circle.boundingRect().width() / 2
-        result = scene._tools._make_offset_item(circle, 10.0)
+        # D9: geometric radius (50 + 10), not the pen-inflated boundingRect.
+        result = tg.offset_item(circle, 10.0)
         assert result is not None
         assert isinstance(result, CircleItem)
-        assert abs(result._radius - (r_eff + 10.0)) < 1e-3
+        assert abs(result._radius - 60.0) < 1e-3
 
     def test_circle_offset_shrink(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        r_eff = circle.boundingRect().width() / 2
-        result = scene._tools._make_offset_item(circle, -20.0)
+        result = tg.offset_item(circle, -20.0)
         assert result is not None
-        assert abs(result._radius - (r_eff - 20.0)) < 1e-3
+        assert abs(result._radius - 30.0) < 1e-3
 
     def test_circle_offset_shrink_to_nothing(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        r_eff = circle.boundingRect().width() / 2
-        # Offset inward by more than the effective radius => None
-        result = scene._tools._make_offset_item(circle, -(r_eff + 10.0))
+        # Offset inward by more than the geometric radius => None
+        result = tg.offset_item(circle, -60.0)
         assert result is None  # negative radius not allowed
 
     def test_rectangle_offset(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 50))
         scene.addItem(rect)
 
-        result = scene._tools._make_offset_item(rect, 10.0)
+        result = tg.offset_item(rect, 10.0)
         assert result is not None
         assert isinstance(result, RectangleItem)
         r = result.rect()
@@ -967,7 +967,7 @@ class TestMakeOffsetItem:
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
 
-        result = scene._tools._make_offset_item(arc, 10.0)
+        result = tg.offset_item(arc, 10.0)
         assert result is not None
         assert isinstance(result, ArcItem)
         assert abs(result._radius - 60.0) < 1e-3

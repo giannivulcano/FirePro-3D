@@ -5083,63 +5083,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     @staticmethod
     def _inset_polygon(pts: list[QPointF], dist: float) -> list[QPointF] | None:
-        """Offset a polygon inward by *dist* using edge normals."""
-        import math as _m
-        n = len(pts)
-        if n < 3:
-            return None
-
-        # Compute inward normals for each edge
-        normals = []
-        for i in range(n):
-            j = (i + 1) % n
-            dx = pts[j].x() - pts[i].x()
-            dy = pts[j].y() - pts[i].y()
-            length = _m.hypot(dx, dy)
-            if length < 1e-12:
-                normals.append((0.0, 0.0))
-                continue
-            # Inward normal (assuming CW winding for scene Y-down)
-            nx = dy / length
-            ny = -dx / length
-            normals.append((nx, ny))
-
-        # Check winding: if polygon area is positive (CCW), flip normals
-        area = 0.0
-        for i in range(n):
-            j = (i + 1) % n
-            area += pts[i].x() * pts[j].y() - pts[j].x() * pts[i].y()
-        if area > 0:  # CCW winding
-            normals = [(-nx, -ny) for nx, ny in normals]
-
-        # Offset each edge inward and intersect consecutive offset edges
-        result = []
-        for i in range(n):
-            prev = (i - 1) % n
-            # Previous edge offset line
-            p1 = QPointF(pts[prev].x() + normals[prev][0] * dist,
-                         pts[prev].y() + normals[prev][1] * dist)
-            p2 = QPointF(pts[i].x() + normals[prev][0] * dist,
-                         pts[i].y() + normals[prev][1] * dist)
-            # Current edge offset line
-            p3 = QPointF(pts[i].x() + normals[i][0] * dist,
-                         pts[i].y() + normals[i][1] * dist)
-            p4 = QPointF(pts[(i + 1) % n].x() + normals[i][0] * dist,
-                         pts[(i + 1) % n].y() + normals[i][1] * dist)
-            # Intersect
-            dx1 = p2.x() - p1.x()
-            dy1 = p2.y() - p1.y()
-            dx2 = p4.x() - p3.x()
-            dy2 = p4.y() - p3.y()
-            denom = dx1 * dy2 - dy1 * dx2
-            if abs(denom) < 1e-10:
-                result.append(QPointF(pts[i].x() + normals[i][0] * dist,
-                                      pts[i].y() + normals[i][1] * dist))
-            else:
-                t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
-                result.append(QPointF(p1.x() + t * dx1, p1.y() + t * dy1))
-
-        return result
+        """Offset a polygon inward by *dist* — delegates to
+        :func:`tool_geometry.inset_polygon` (one implementation shared with the
+        Offset tool, scene-tools.md D9)."""
+        from . import tool_geometry
+        return tool_geometry.inset_polygon(pts, dist)
 
     def _press_room(self, event, pos, snapped, item_under, node_under, pipe_under):
         """Room mode: click inside a closed wall region to create a room."""
