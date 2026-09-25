@@ -61,6 +61,59 @@ class ModifyToolsController:
         s.set_mode(self._TOOL_MODE[tool])
         return True
 
+    # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
+
+    def write_clipboard(self, items, base: QPointF) -> int:
+        """Write *items* + *base* to the system clipboard (I1 payload).
+
+        Args:
+            items: Scene items to serialise.
+            base: The copy base point (scene coordinates).
+
+        Returns:
+            The number of records written.
+        """
+        import json
+        from PyQt6.QtWidgets import QApplication
+        from .constants import CLIPBOARD_FORMAT_VERSION
+        s = self._scene
+        data = s._clipboard_item_dicts(items)
+        payload = {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION,
+                   "base": [base.x(), base.y()],
+                   "scene_role": s.scene_role, "items": data}
+        QApplication.clipboard().setText(json.dumps(payload))
+        return len(data)
+
+    def press_copy_base(self, event, pos, snapped, *_):
+        """``copy_base`` click: the snapped base point commits Copy / Cut.
+
+        Copy returns to Select with the selection intact; Cut deletes the
+        selection in the same (single) undo step.
+        """
+        s = self._scene
+        items = list(s._selected_items or s.selectedItems())
+        n = self.write_clipboard(items, snapped)
+        was_cut = s._copy_is_cut
+        if was_cut:
+            sel = list(items)
+            s.blockSignals(True)
+            try:
+                s._bulk_delete(sel, set(sel))
+            finally:
+                s.blockSignals(False)
+            s.selectionChanged.emit()
+            s.push_undo_state()
+            s._show_status(f"Cut {n} item(s)")
+        else:
+            s._show_status(f"Copied {n} item(s)")
+        s._copy_is_cut = False
+        s._selected_items = []
+        s.set_mode(None)
+        if not was_cut:
+            for it in items:
+                if it.scene() is s:
+                    it.setSelected(True)
+
     def begin_paste(self) -> bool:     # replaced in Task 7
         return False
 

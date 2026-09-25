@@ -316,3 +316,6 @@ SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side
 # traced width + the blur radius) and the arc arrowheads, + 2 px antialias.
 SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,
                               SELDIM_ARROW_PX) + 2)
+
+# ── Modify tools (scene-tools.md) ──────────────────────────────────────────
+CLIPBOARD_FORMAT_VERSION = 1  # scene-tools.md I1 clipboard payload version

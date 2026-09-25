@@ -4,6 +4,7 @@ Governing spec: docs/specs/scene-tools.md D1 (surface) / D3 (select-first).
 """
 from __future__ import annotations
 
+import json
 import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtTest import QTest
@@ -126,7 +127,16 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         qapp.processEvents()
         for label in ("Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"):
             assert not btns[label].isEnabled(), label
-        assert btns["Paste"].isEnabled()           # until clipboard_payload (Task 6)
+        # Paste follows the clipboard payload (D5 / I1), refreshed on change.
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText("")
+        qapp.processEvents()
+        assert not btns["Paste"].isEnabled()
+        QApplication.clipboard().setText(json.dumps(
+            {"fp3d_clipboard": 1, "base": [0, 0], "scene_role": "block_editor",
+             "items": [LineItem(QPointF(0, 0), QPointF(1, 0)).to_dict()]}))
+        qapp.processEvents()
+        assert btns["Paste"].isEnabled()
         assert btns["Offset"].isEnabled()
 
         line = LineItem(QPointF(0, 0), QPointF(100, 0))

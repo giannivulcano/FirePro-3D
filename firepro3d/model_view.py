@@ -117,7 +117,7 @@ class Model_View(QGraphicsView):
         insertion) → excluded. Falls back to the CrossCursor map for scenes
         without the set.
         """
-        if mode in (None, "select", "move", "paste"):
+        if mode in (None, "select", "move", "paste", "copy_base", "duplicate"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:

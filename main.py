@@ -3175,8 +3175,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _refresh_modify_buttons(self) -> None:
         """Enable/disable the Block Editor Edit/Modify buttons (D1).
 
-        Selection-needing tools are disabled with an empty selection. Paste
-        stays enabled until ``clipboard_payload()`` lands (Task 6).
+        Selection-needing tools are disabled with an empty selection; Paste
+        is enabled only while the clipboard holds a FirePro3D payload
+        (``clipboard_payload()``, scene-tools.md D5).
         """
         from PyQt6 import sip
         buttons = getattr(self, "_be_modify_buttons", None) or {}
@@ -3191,8 +3192,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if label in self._MODIFY_NEEDS_SELECTION:
                 b.setEnabled(has_sel)
             elif label == "Paste":
-                payload = getattr(scene, "clipboard_payload", None)
-                b.setEnabled(True if payload is None else payload() is not None)
+                b.setEnabled(scene.clipboard_payload() is not None)
 
     def _connect_modify_refresh(self, scene) -> None:
         """Connect *scene*'s selectionChanged to the refresh exactly once."""
@@ -3200,6 +3200,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         seen = getattr(self, "_modify_refresh_scenes", None)
         if seen is None:
             seen = self._modify_refresh_scenes = weakref.WeakSet()
+            # Paste's enable state follows the clipboard (spec I1); once.
+            QApplication.clipboard().dataChanged.connect(
+                self._refresh_modify_buttons)
         if scene in seen:
             return
         seen.add(scene)

@@ -1147,6 +1147,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
+                        "copy_base",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -1399,6 +1400,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "set_scale":      "Pick first calibration point",
             "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
+            "copy_base":      "Pick base point",
             "offset":         "Click geometry to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
@@ -3719,6 +3721,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
         "paste":                    "_move_paste_move",
+        "copy_base":                "_move_preview_node",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "mirror":                   "_move_mirror",
@@ -4330,7 +4333,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste",
+        "move", "paste", "copy_base",
     })
 
     _PRESS_DISPATCH = {
@@ -4348,6 +4351,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "room":                     "_press_room",
         "room_manual":              "_press_room_manual",
         "paste":                    "_press_paste_move",
+        "copy_base":                "_press_copy_base",
         "move":                     "_press_paste_move",
         "place_import":             "_press_place_import",
         "offset":                   "_press_offset",
@@ -5251,6 +5255,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Add new point
             pts.append(snapped)
             self._room_manual_active._rebuild()
+
+    def _press_copy_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D4)
+        return self._modify_ctl.press_copy_base(*args, **kwargs)
 
     def _press_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
         return self._modify_ctl._press_paste_move(*args, **kwargs)
@@ -7253,9 +7260,53 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # COPY / PASTE / MOVE
 
-    def copy_selected_items(self):
+    # type key (to_dict()["type"]) -> (class, tracking-list attribute).
+    # Keys are the REAL to_dict() discriminators (ArcItem writes "arc",
+    # TextItem "text") — scene-tools.md I1.
+    _GEOM_TYPE_REGISTRY = {
+        "draw_line":      (LineItem, "_draw_lines"),
+        "reference_line": (ReferenceLineItem, "_reference_lines"),
+        "polyline":       (PolylineItem, "_polylines"),
+        "draw_rectangle": (RectangleItem, "_draw_rects"),
+        "draw_circle":    (CircleItem, "_draw_circles"),
+        "arc":            (ArcItem, "_draw_arcs"),
+        "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
+        "draw_spline":    (SplineItem, "_draw_splines"),
+        "polygon":        (RegularPolygonItem, "_draw_polygons"),
+        "text":           (TextItem, "_texts"),
+    }
+
+    def _add_from_dict(self, d: dict):
+        """Deserialise one 2D-geometry/text dict, add it and register it.
+
+        The one per-type deserialise-and-register helper (scene-tools.md I1)
+        used by Paste and Duplicate.
+
+        Args:
+            d: A ``to_dict()`` record.
+
+        Returns:
+            The new scene item, or None for an unknown type or a record that
+            fails ``from_dict``.
+        """
+        entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
+        if entry is None:
+            return None
+        cls, attr = entry
+        try:
+            item = cls.from_dict(d)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "clipboard item failed from_dict: %r", d.get("type"))
+            return None
+        self.addItem(item)
+        getattr(self, attr).append(item)
+        return item
+
+    def _clipboard_item_dicts(self, items) -> list:
+        """Serialise *items* to clipboard records (nodes carry their pipes)."""
         data = []
-        for item in self.selectedItems():
+        for item in items:
             if isinstance(item, Node):
                 sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
                 pipes = []
@@ -7274,13 +7325,43 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 })
             elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
-        QApplication.clipboard().setText(json.dumps(data))
-        self._show_status(f"Copied {len(data)} item(s)")
+        return data
 
-    def paste_items(self, offset):
-        data = self.clipboard_data()
+    def copy_selected_items(self):
+        """Immediate copy (context menu / copy-to-level): versioned payload
+        with base = the selection's bounding-box centre (scene-tools.md D4)."""
+        items = list(self.selectedItems())
+        rect = QRectF()
+        for it in items:
+            rect = rect.united(it.sceneBoundingRect())
+        n = self._modify_ctl.write_clipboard(items, rect.center())
+        self._show_status(f"Copied {n} item(s)")
+
+    def paste_items(self, offset, data=None):
+        """Add clipboard records translated by *offset*.
+
+        Args:
+            offset: Scene displacement applied to every record.
+            data: Records to paste; defaults to :meth:`clipboard_data`.
+
+        Returns:
+            The new 2D-geometry/text items (nodes, gridlines and block
+            instances are created but not listed).
+        """
+        if data is None:
+            data = self.clipboard_data() or []
+        new_items = []
         for obj in data:
             obj_type = obj.get("type", "")
+            if obj_type in self._GEOM_TYPE_REGISTRY:
+                item = self._add_from_dict(obj)
+                if item is not None:
+                    if hasattr(item, "translate"):
+                        item.translate(offset.x(), offset.y())
+                    else:
+                        item.manip_translate(offset.x(), offset.y())
+                    new_items.append(item)
+                continue
             if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
@@ -7339,60 +7420,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         self.add_pipe(node1, node2)
                 node1.fitting.update()
 
-            elif obj_type == "draw_line":
-                item = LineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_lines.append(item)
-
-            elif obj_type == "reference_line":
-                item = ReferenceLineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._reference_lines.append(item)
-
-            elif obj_type == "draw_rectangle":
-                item = RectangleItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_rects.append(item)
-
-            elif obj_type == "draw_circle":
-                item = CircleItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_circles.append(item)
-
-            elif obj_type == "arc":
-                item = ArcItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_arcs.append(item)
-
-            elif obj_type == "draw_ellipse":
-                item = EllipseItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_ellipses.append(item)
-
-            elif obj_type == "draw_spline":
-                item = SplineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_splines.append(item)
-
-            elif obj_type == "polyline":
-                item = PolylineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._polylines.append(item)
-
-            elif obj_type == "polygon":
-                item = RegularPolygonItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_polygons.append(item)
-
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 if obj.get("block_id") in self._block_definitions:
@@ -7420,6 +7447,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 apply_duplicate_warnings(self._gridlines)
 
         self._show_status(f"Pasted {len(data)} item(s)")
+        return new_items
 
     def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
         return self._modify_ctl._shape_paths_for_move(*args, **kwargs)
@@ -7453,14 +7481,46 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._tools._solve_constraints()  # enforce constraints after move
         self._selected_items = None   # clear after use
 
-    def clipboard_data(self):
+    def clipboard_payload(self):
+        """The versioned FirePro3D clipboard payload (scene-tools.md I1).
+
+        Returns:
+            ``{"fp3d_clipboard", "base", "scene_role", "items"}``, or None when
+            the clipboard is empty, not JSON, or lacks the current
+            ``CLIPBOARD_FORMAT_VERSION`` key (foreign).
+        """
+        from .constants import CLIPBOARD_FORMAT_VERSION
         text = QApplication.clipboard().text()
         if not text:
             return None
         try:
-            return json.loads(text)
+            payload = json.loads(text)
         except json.JSONDecodeError:
             return None
+        if (not isinstance(payload, dict)
+                or payload.get("fp3d_clipboard") != CLIPBOARD_FORMAT_VERSION
+                or not isinstance(payload.get("items"), list)):
+            return None
+        return payload
+
+    def clipboard_data(self):
+        """The clipboard's item records (``payload["items"]``), or None.
+
+        A bare JSON list is still accepted here for the internal
+        ``paste_items`` round-trips (array / rotate-copy / copy-to-level) —
+        the user-facing Paste tool gates on :meth:`clipboard_payload`.
+        """
+        payload = self.clipboard_payload()
+        if payload is not None:
+            return payload["items"]
+        text = QApplication.clipboard().text()
+        if not text:
+            return None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, list) else None
 
     # -------------------------------------------------------------------------
     # DUPLICATE (Sprint I)
