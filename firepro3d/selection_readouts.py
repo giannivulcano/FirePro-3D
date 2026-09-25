@@ -114,6 +114,10 @@ class SelectionReadoutController:
         self._scene = scene
         self._hover = None            # (id(item), key) or None
         self._edit = None             # edit session (Task 11) or None
+        # Last instruction-line text emitted by anyone else on this scene —
+        # restored when the cursor leaves a label (hover replaces it).
+        self._last_instruction = ""
+        self._emitting = False
         # id(view) -> viewport-px rect of everything painted there last frame
         # (the "old" half of the scene-change dirty region).
         self._painted: dict[int, QRect] = {}
@@ -127,6 +131,7 @@ class SelectionReadoutController:
             scene.selectionChanged.connect(self._on_selection_changed)
             scene.changed.connect(self._on_scene_changed)
             scene.modeChanged.connect(self._on_mode_changed)
+            scene.instructionChanged.connect(self._on_instruction)
 
     # ── gate ─────────────────────────────────────────────────────────────
     def readouts_active(self) -> bool:
@@ -180,6 +185,8 @@ class SelectionReadoutController:
         Returns None when a manipulator handle is under the point: grips win
         (pick precedence, selection-mode §15).
         """
+        if not self.readouts_active():
+            return None                        # plan scene: every mouse move
         vp_pt = QPointF(vp_pt)
         live = getattr(self._scene, "_live_manip", None)
         manip = live() if callable(live) else None
@@ -208,9 +215,21 @@ class SelectionReadoutController:
         changed = new != self._hover
         self._hover = new
         if changed:
-            self._scene.instructionChanged.emit(
-                f"{e.spec.field} · click to edit" if e is not None else "")
+            # On a label: its hint. Leaving: restore whatever the line showed
+            # before (the select-mode instruction, a HALO readout, ...).
+            text = (f"{e.spec.field} · click to edit" if e is not None
+                    else self._last_instruction)
+            self._emitting = True
+            try:
+                self._scene.instructionChanged.emit(text)
+            finally:
+                self._emitting = False
         return changed, e is not None
+
+    def _on_instruction(self, text) -> None:
+        """``instructionChanged`` slot: remember others' text. Never raises."""
+        if not self._emitting:
+            self._last_instruction = text if isinstance(text, str) else ""
 
     def is_hovered(self, e: ReadoutEntry) -> bool:
         """Whether *e* is the current hover target."""

@@ -154,6 +154,26 @@ def test_commit_requests_property_update(be):
     assert ln in targets
 
 
+# ── M1: entry_at gates before touching the manipulator ────────────────────
+def test_entry_at_gates_before_manipulator(be, monkeypatch):
+    v, sc = be
+
+    class _Manip:
+        calls = 0
+
+        def isVisible(self):
+            return True
+
+        def hit_handle(self, _p):
+            _Manip.calls += 1
+            return False
+    m = _Manip()
+    monkeypatch.setattr(sc, "_live_manip", lambda: m)
+    assert not sc.readouts.readouts_active()          # nothing selected
+    assert sc.readouts.entry_at(v, QPointF(10, 10)) is None
+    assert _Manip.calls == 0
+
+
 # ── M3: selection / mode slots never raise ────────────────────────────────
 def test_selection_and_mode_slots_never_raise(be, monkeypatch):
     v, sc = be
@@ -191,3 +211,34 @@ def test_noop_panel_set_property_pushes_no_undo(be):
     assert sc._undo_pos == pos0
     r.set_property("Width", 120.0)                    # changed
     assert sc._undo_pos == pos0 + 1
+
+
+# ── M6: leaving a label restores the prior instruction ────────────────────
+def test_leaving_label_restores_prior_instruction(be):
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    sc.instructionChanged.emit("Select items to edit")
+    got = []
+    sc.instructionChanged.connect(got.append)
+    c = next(e.layout.center for e in sc.readouts.layouts(v))
+    sc.readouts.hover_at(v, c)
+    assert got[-1].endswith("click to edit")
+    sc.readouts.hover_at(v, QPointF(5, 5))
+    assert got[-1] == "Select items to edit"
+
+
+# ── M10: a mode change cancels an open edit ───────────────────────────────
+def test_mode_change_cancels_edit_and_hides_hud(be):
+    from PyQt6 import sip
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    hud = sc.readouts.hud
+    assert hud is not None and sc.readouts.is_editing()
+    sc.set_mode("draw_line")
+    assert not sc.readouts.is_editing()
+    QApplication.processEvents()
+    assert sip.isdeleted(hud) or not hud.isVisible()
+    sc.set_mode("select")
