@@ -81,6 +81,10 @@ def _committed_end(scene, mode):
         pts = scene._floor_slabs[-1]._points
         assert len(pts) == 2 and _near(pts[0], START), pts
         return pts[1]
+    if mode == "roof":
+        pts = scene._roof_active._points
+        assert len(pts) == 2 and _near(pts[0], START), pts
+        return pts[1]
     if mode == "polyline":
         pts = scene._polyline_active._points
         assert len(pts) >= 2 and _near(pts[0], START), pts
@@ -88,15 +92,10 @@ def _committed_end(scene, mode):
     raise AssertionError(mode)
 
 
-_ROOF_PRESS_BUG = ("pre-existing (proven at bda538a): the roof polygon first click "
-                   "qFatal-aborts — placement_input_coordinator._get_roof_template "
-                   "imports the non-existent firepro3d.roof_item")
-
-
 @pytest.mark.parametrize("role,mode", [
     ("plan", "wall"), ("plan", "pipe"), ("plan", "floor"),
     ("block_editor", "polyline"),          # polyline is Block-Editor-only
-    pytest.param("plan", "roof", marks=pytest.mark.skip(reason=_ROOF_PRESS_BUG)),
+    ("plan", "roof"),                       # roof first-click crash fixed (G3)
 ])
 def test_mode_perpendicular_from_start(qapp, role, mode):
     view, scene = make_view(role=role, mode=mode)
@@ -114,28 +113,6 @@ def test_mode_perpendicular_from_start(qapp, role, mode):
         end = _committed_end(scene, mode)
         assert _near(end, FOOT), end
         assert _perp_dot(START, end, T1, T2) < 1e-4
-    finally:
-        close_view(view, scene)
-
-
-def test_roof_perpendicular_from_last_vertex(qapp):
-    """Roof twin of the plan-mode guard. The real first press crashes
-    (_ROOF_PRESS_BUG), so the in-progress roof is seeded exactly as
-    ``_press_roof`` builds it (real RoofItem, first vertex at START); the
-    cursor move then drives the real seam end to end."""
-    from firepro3d.roof import RoofItem
-    view, scene = make_view(role="plan", mode="roof")
-    try:
-        scene.addItem(LineItem(T1, T2))
-        roof = RoofItem()
-        roof.add_point(QPointF(START))
-        scene.addItem(roof)
-        scene._roofs.append(roof)
-        scene._roof_active = roof
-        move(view, CURSOR)
-        _assert_per_from_start(scene)
-        click(view, CURSOR)                  # second vertex (existing roof)
-        assert len(roof._points) == 2 and _near(roof._points[1], FOOT), roof._points
     finally:
         close_view(view, scene)
 

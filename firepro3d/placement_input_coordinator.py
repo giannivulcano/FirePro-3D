@@ -1174,7 +1174,7 @@ class PlacementInputCoordinator:
 
     def _get_roof_template(self) -> "RoofItem":
         """Return (lazily-created) roof template for pre-placement editing."""
-        from .roof_item import RoofItem
+        from .roof import RoofItem
         if self._scene._roof_template is None:
             self._scene._roof_template = RoofItem(color="#D2B48C")
             self._scene._roof_template.name = "(Template)"
