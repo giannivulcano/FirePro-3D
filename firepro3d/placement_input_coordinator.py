@@ -634,12 +634,12 @@ class PlacementInputCoordinator:
             # Polygon: anchor is the last placed vertex (rubber-band from it).
             fa = self._scene._floor_active
             if fa is not None and fa._points:
-                return QPointF(fa._points[-1])
+                return fa.last_point()
             return None
         if self._scene.mode == "polyline":
             pl = self._scene._polyline_active
             if pl is not None and pl._points:
-                return QPointF(pl._points[-1])
+                return pl.last_point()
             return None
         if self._scene.mode in ("pipe", "move"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in

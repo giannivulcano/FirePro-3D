@@ -296,6 +296,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._points.append(pt)
         self._rebuild_path()
 
+    def last_point(self) -> QPointF:
+        """The most recently placed vertex (placement rubber-band anchor).
+
+        Returns:
+            A copy of the last vertex. Callers guard the empty case.
+        """
+        return QPointF(self._points[-1])
+
     def update_preview(self, pt: QPointF):
         """Temporarily extend path to *pt* for the cursor-follow preview."""
         # Rebuild with the tentative last point

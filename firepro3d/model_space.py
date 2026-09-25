@@ -2814,7 +2814,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         if self.mode == "roof":
             ra = self._roof_active
-            return QPointF(ra._points[-1]) if ra is not None and ra._points else None
+            return ra.last_point() if ra is not None and ra._points else None
         return self._mode_placement_anchor()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -3958,7 +3958,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.preview_node.hide()
             # Rubber-band line from last vertex to cursor
-            last_pt = self._floor_active._points[-1]
+            last_pt = self._floor_active.last_point()
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = self._constrain_angle(last_pt, snapped)
@@ -4015,7 +4015,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.preview_pipe.hide()
         else:
             self.preview_node.hide()
-            last_pt = self._roof_active._points[-1]
+            last_pt = self._roof_active.last_point()
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = self._constrain_angle(last_pt, snapped)
@@ -6078,7 +6078,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                tip = self._constrain_angle(pts[-1], snapped)
+                tip = self._constrain_angle(self._floor_active.last_point(), snapped)
             # Close-near-first: ≥3 points and click within snap tolerance of first vertex.
             if len(pts) >= 3:
                 scale = self._active_view_scale()
@@ -6323,7 +6323,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                tip = self._constrain_angle(pts[-1], snapped)
+                tip = self._constrain_angle(self._roof_active.last_point(), snapped)
             if len(pts) >= 3:
                 scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)

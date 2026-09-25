@@ -158,6 +158,14 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._points.append(QPointF(pt))
         self._rebuild_path()
 
+    def last_point(self) -> QPointF:
+        """The most recently placed vertex (placement rubber-band anchor).
+
+        Returns:
+            A copy of the last vertex. Callers guard the empty case.
+        """
+        return QPointF(self._points[-1])
+
     def close_polygon(self):
         """Call after the last point is added to finalise the polygon."""
         if len(self._points) >= 3:

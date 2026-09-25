@@ -553,13 +553,13 @@ class GeometryDrawingController:
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and len(self._scene._polyline_active._points) >= 1):
                 tip = self._scene._constrain_angle(
-                    self._scene._polyline_active._points[-1], snapped
+                    self._scene._polyline_active.last_point(), snapped
                 )
             self._preview_from_polyline(tip)
             # Publishing here — after the Ctrl constraint — is what keeps the
             # readout and the HUD's seed from disagreeing with the preview.
             self._scene.publish_placement_state(
-                self._scene._polyline_active._points[-1], tip)
+                self._scene._polyline_active.last_point(), tip)
 
     def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._scene._polyline_active is None:
@@ -604,7 +604,7 @@ class GeometryDrawingController:
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and len(self._scene._polyline_active._points) >= 1):
                 tip = self._scene._constrain_angle(
-                    self._scene._polyline_active._points[-1], snapped
+                    self._scene._polyline_active.last_point(), snapped
                 )
             self._commit_polyline_at(tip)
         # don't let super() deselect items mid-draw
