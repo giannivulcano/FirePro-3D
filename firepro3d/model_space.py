@@ -194,6 +194,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
+        self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         # Selection dimension readouts (selection-mode §15). Composed before
@@ -7080,17 +7081,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
               and event.modifiers() == (Qt.KeyboardModifier.ControlModifier
                                         | Qt.KeyboardModifier.ShiftModifier)):
             self.redo()
-        elif event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self.copy_selected_items()
-        elif event.key() == Qt.Key.Key_M and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            if self.selectedItems():
-                self._selected_items = self.selectedItems()
-                self.set_mode("move")
-        elif event.key() == Qt.Key.Key_D and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self.duplicate_selected()
-        elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            if self.clipboard_data():
-                self.set_mode("paste")
+        # Ctrl+C/X/V/D are window QShortcuts (main.py, scene-tools.md D2);
+        # Ctrl+M is retired (Move is Shift+M).
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if self.mode == "draw_spline":
                 self._finish_draw_spline()

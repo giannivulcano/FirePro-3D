@@ -635,18 +635,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         QShortcut(QKeySequence("Delete"), self).activated.connect(
             self._delete_if_not_editing)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._on_escape)
-        QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(
-            lambda: self._active_scene().copy_selected_items())
-        QShortcut(QKeySequence("Ctrl+V"), self).activated.connect(
-            lambda: self._active_scene().set_mode("paste"))
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
             lambda: self._active_view()._select_all_items())
-        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
-            lambda: self._active_scene().set_mode("duplicate"))
-        # Align on Shift+A (its old "A, L" chord was retired so bare A is the Arc
-        # tool shortcut; Ctrl+A is Select All, so Shift+A keeps the A mnemonic).
-        QShortcut(QKeySequence("Shift+A"), self,
-                  lambda: self._active_scene().set_mode("align"))
+        # Modify/Edit tools (scene-tools.md D2): window-level so they fire from any
+        # ribbon tab; routed through the ACTIVE scene; refused while typing.
+        _TOOL_KEYS = {
+            "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste",
+            "Shift+D": "duplicate", "Shift+M": "move", "Shift+R": "rotate",
+            "Shift+O": "offset", "Shift+A": "array",
+            "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
+        }
+        for _seq, _tool in _TOOL_KEYS.items():
+            QShortcut(QKeySequence(_seq), self).activated.connect(
+                lambda t=_tool: self._start_modify_tool(t))
+        # Align moved off Shift+A (now Array) to Shift+L (D2).
+        QShortcut(QKeySequence("Shift+L"), self).activated.connect(
+            lambda: self._active_scene().set_mode("align"))
 
         # Restore settings
         self._splash_progress(95, "Restoring settings...")
@@ -4504,6 +4508,23 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if isinstance(w, BlockEditorWidget):
             return w.editor_scene
         return self.scene
+
+    def _start_modify_tool(self, tool: str) -> None:
+        """Route a Modify/Edit tool to the active scene (scene-tools.md D2/D3).
+
+        Refused while a text field / the HUD has focus, and on a Paper tab (the
+        active scene there would be the hidden plan).
+
+        Args:
+            tool: Tool name understood by ``ModifyToolsController.start``.
+        """
+        from PyQt6.QtWidgets import QApplication, QLineEdit, QTextEdit, QPlainTextEdit
+        fw = QApplication.focusWidget()
+        if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
+            return
+        if self.central_tabs.currentWidget() is self.paper_space_widget:
+            return
+        self._active_scene()._modify_ctl.start(tool)
 
     def _text_edit_scenes(self) -> list:
         """The plan scene + every open Block Editor's editor_scene.

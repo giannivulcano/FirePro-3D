@@ -99,7 +99,7 @@ def test_ctrl_s_still_fires_while_editing(be):
 
 # Mutation-killing guards for the ShortcutOverride block in Model_View.event(),
 # modelled on main.py's REAL window shortcuts: QShortcut("Escape") ->
-# self._on_escape, QShortcut("Ctrl+D") -> set_mode("duplicate") (main.py
+# self._on_escape, QShortcut("Ctrl+D") -> _start_modify_tool("duplicate") (main.py
 # lines ~624, ~631-632) — plus Ctrl+L, the ad-hoc probe that first proved the
 # block matters for modifier combos (bare printable keys are separately
 # self-protected by Qt's text control; see the "B" test above, which does not

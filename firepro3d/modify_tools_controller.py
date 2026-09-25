@@ -29,8 +29,44 @@ TRANSFORM_MODES = frozenset({"move", "paste", "duplicate", "rotate", "array"})
 class ModifyToolsController:
     """Behaviour for the 2D modify tools. See docs/specs/scene-tools.md."""
 
+    # tool name -> scene mode entered by start()
+    _TOOL_MODE = {"copy": "copy_base", "cut": "copy_base", "paste": "paste",
+                  "duplicate": "duplicate", "move": "move", "rotate": "rotate",
+                  "offset": "offset", "array": "array"}
+    _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array"}
+
     def __init__(self, scene):
         self._scene = scene
+
+    def start(self, tool: str) -> bool:
+        """Enter *tool* (scene-tools.md D3 select-first).
+
+        Args:
+            tool: One of the ``_TOOL_MODE`` keys.
+
+        Returns:
+            True if a mode was entered.
+        """
+        s = self._scene
+        sel = list(s.selectedItems())
+        if tool in self._SELECT_FIRST and not sel:
+            s._show_status("Select items first", 3000)
+            return False
+        if tool == "paste":
+            return self.begin_paste()          # Task 7 (returns False until then)
+        if tool == "offset":
+            return self.begin_offset(sel)      # Task 12
+        s._copy_is_cut = (tool == "cut")
+        s._selected_items = sel
+        s.set_mode(self._TOOL_MODE[tool])
+        return True
+
+    def begin_paste(self) -> bool:     # replaced in Task 7
+        return False
+
+    def begin_offset(self, sel) -> bool:   # replaced in Task 12
+        self._scene.set_mode("offset")
+        return True
 
     def clear(self, new_mode) -> None:
         """Idempotent teardown on every mode change (called from set_mode)."""
