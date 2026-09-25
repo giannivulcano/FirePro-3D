@@ -61,6 +61,33 @@ def test_no_start_point_perpendicular_is_cursor_foot(qapp):
         close_view(view, scene)
 
 
+def _near(a, b, tol=0.01):
+    return math.hypot(a.x() - b.x(), a.y() - b.y()) < tol
+
+
+def _committed_end(scene, mode):
+    """The committed segment's END point for *mode*, read from the real model
+    item the second click built (not from the snap result)."""
+    if mode == "wall":
+        walls = [w for w in scene._walls if _near(w.pt1, START)]
+        assert len(walls) == 1, [(w.pt1, w.pt2) for w in scene._walls]
+        return walls[0].pt2
+    if mode == "pipe":
+        pipes = [p for p in scene.sprinkler_system.pipes
+                 if _near(p.node1.scenePos(), START)]
+        assert len(pipes) == 1
+        return pipes[0].node2.scenePos()
+    if mode == "floor":
+        pts = scene._floor_slabs[-1]._points
+        assert len(pts) == 2 and _near(pts[0], START), pts
+        return pts[1]
+    if mode == "polyline":
+        pts = scene._polyline_active._points
+        assert len(pts) >= 2 and _near(pts[0], START), pts
+        return pts[1]
+    raise AssertionError(mode)
+
+
 _ROOF_PRESS_BUG = ("pre-existing (proven at bda538a): the roof polygon first click "
                    "qFatal-aborts — placement_input_coordinator._get_roof_template "
                    "imports the non-existent firepro3d.roof_item")
@@ -83,6 +110,10 @@ def test_mode_perpendicular_from_start(qapp, role, mode):
         click(view, START)
         move(view, CURSOR)
         _assert_per_from_start(scene)
+        click(view, CURSOR)                  # commit the segment
+        end = _committed_end(scene, mode)
+        assert _near(end, FOOT), end
+        assert _perp_dot(START, end, T1, T2) < 1e-4
     finally:
         close_view(view, scene)
 
@@ -103,5 +134,36 @@ def test_roof_perpendicular_from_last_vertex(qapp):
         scene._roof_active = roof
         move(view, CURSOR)
         _assert_per_from_start(scene)
+        click(view, CURSOR)                  # second vertex (existing roof)
+        assert len(roof._points) == 2 and _near(roof._points[1], FOOT), roof._points
+    finally:
+        close_view(view, scene)
+
+
+def test_draw_line_perpendicular_from_start_onto_circle(qapp):
+    """m7(a): ⊥-from onto a circle is radial — the committed end is where the
+    line centre→start meets the circle (near side), so the line points at
+    the centre."""
+    from firepro3d.geometry_2d import CircleItem
+    view, scene = make_view(mode="draw_line")
+    try:
+        r = 500.0
+        scene.addItem(CircleItem(QPointF(0, 0), r))
+        start = QPointF(1000, 800)
+        k = r / math.hypot(start.x(), start.y())
+        radial = QPointF(start.x() * k, start.y() * k)          # near-side PER point
+        th = math.atan2(radial.y(), radial.x()) + math.radians(4)
+        cursor = QPointF(r * math.cos(th), r * math.sin(th))    # on the circle, ~35 mm off
+        click(view, start)
+        move(view, cursor)
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "perpendicular", res
+        click(view, cursor)
+        ln = [i for i in scene._draw_lines if _near(i.grip_points()[0], start)][0]
+        end = ln.grip_points()[2]
+        assert _near(end, radial), end
+        # Ground truth: the committed line is radial (collinear with the centre).
+        cross = start.x() * end.y() - start.y() * end.x()
+        assert abs(cross) / (math.hypot(start.x(), start.y()) * r) < 1e-6
     finally:
         close_view(view, scene)
