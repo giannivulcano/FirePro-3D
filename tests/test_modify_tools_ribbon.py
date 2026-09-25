@@ -45,6 +45,14 @@ def main_window(_main_window_singleton):
     yield _main_window_singleton
 
 
+def _wait_until(pred, timeout_s: float = 2.0) -> None:
+    """Bounded event-pumping poll (PyQt6 6.9 has no QTest.qWaitFor)."""
+    import time
+    t0 = time.monotonic()
+    while not pred() and time.monotonic() - t0 < timeout_s:
+        QTest.qWait(10)
+
+
 def _buttons(page):
     return {b.text().replace("\n", " "): b for b in page.findChildren(QToolButton)}
 
@@ -131,12 +139,12 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         from PyQt6.QtWidgets import QApplication
         # Windows delivers the clipboard's dataChanged asynchronously: poll.
         QApplication.clipboard().setText("")
-        QTest.qWaitFor(lambda: not btns["Paste"].isEnabled(), 2000)
+        _wait_until(lambda: not btns["Paste"].isEnabled())
         assert not btns["Paste"].isEnabled()
         QApplication.clipboard().setText(json.dumps(
             {"fp3d_clipboard": 1, "base": [0, 0], "scene_role": "block_editor",
              "items": [LineItem(QPointF(0, 0), QPointF(1, 0)).to_dict()]}))
-        QTest.qWaitFor(lambda: btns["Paste"].isEnabled(), 2000)
+        _wait_until(lambda: btns["Paste"].isEnabled())
         assert btns["Paste"].isEnabled()
         assert btns["Offset"].isEnabled()
 
