@@ -92,6 +92,7 @@ class Model_View(QGraphicsView):
             "place_block":            _C.CrossCursor,
             "move":                   _C.SizeAllCursor,
             "paste":                  _C.SizeAllCursor,
+            "duplicate":              _C.SizeAllCursor,
             "offset":                 _C.PointingHandCursor,
             "offset_side":            _C.PointingHandCursor,
         }
@@ -1384,7 +1385,7 @@ class Model_View(QGraphicsView):
             copy_act = menu.addAction("Copy")
             copy_act.triggered.connect(scene.copy_selected_items)
             dup_act = menu.addAction("Duplicate")
-            dup_act.triggered.connect(lambda: scene.set_mode("duplicate"))
+            dup_act.triggered.connect(lambda: scene._modify_ctl.start("duplicate"))
             menu.addSeparator()
             desel_act = menu.addAction("Deselect All")
             desel_act.triggered.connect(scene.clearSelection)

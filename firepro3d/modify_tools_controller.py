@@ -191,7 +191,7 @@ class ModifyToolsController:
     def clear(self, new_mode) -> None:
         """Idempotent teardown on every mode change (called from set_mode)."""
         s = self._scene
-        if new_mode not in ("paste", "move"):
+        if new_mode not in ("paste", "move", "duplicate"):
             s._move_ghost = []
             s._move_ghost_base = []
         if new_mode != "paste":
@@ -215,6 +215,9 @@ class ModifyToolsController:
         else:
             snapped = s._move_handle_snap(event, snapped)
             offset = CAD_Math.get_vector(s.node_start_pos, snapped)
+            if s.mode == "duplicate":
+                self.commit_duplicate(offset)
+                return
             if s.mode == "move":
                 s.move_items(offset)
             s.push_undo_state()
@@ -287,9 +290,10 @@ class ModifyToolsController:
     def _begin_move_handle_snap(self, base: QPointF) -> None:
         """S2: build the Move tool's HandleSnapSession once the base is set.
 
-        Move only (a paste has no scene items yet). The moving set is what
-        ``move_items`` will move (``_selected_items``, else the live
-        selection) plus each Sprinkler's Node, so none of it is a target. The
+        Move and Duplicate only (a paste has no scene items yet). The moving
+        set is what ``move_items`` will move (``_selected_items``, else the
+        live selection) plus each Sprinkler's Node; for Move none of it is a
+        target, for Duplicate the originals stay targets (D6). The
         picked base point is itself a handle (rest = the base): the
         destination has no cursor snap, so this is how "base onto a point"
         still lands.
@@ -302,15 +306,17 @@ class ModifyToolsController:
         view = s._snap_view()
         # Built regardless of the snap toggles (items are at rest until the
         # commit); _move_handle_snap gates its use per frame.
-        if s.mode != "move" or view is None:
+        if s.mode not in ("move", "duplicate") or view is None:
             return
         moving = list(s._selected_items or s.selectedItems())
         moving += [it.node for it in moving
                    if isinstance(it, Sprinkler) and it.node is not None]
         if moving:
+            # Duplicate's originals stay put, so they remain targets (D6).
             s._move_handle_session = HandleSnapSession(
                 s._snap_engine, s, view, moving, QPointF(base),
-                extra_handles=[QPointF(base)])
+                extra_handles=[QPointF(base)],
+                exclude_moving=(s.mode == "move"))
 
     def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
         """S2: after the Move base point, the selection's own snap points
@@ -330,7 +336,8 @@ class ModifyToolsController:
         """
         s = self._scene
         hs = s._move_handle_session
-        if (hs is None or s.mode != "move" or s.node_start_pos is None
+        if (hs is None or s.mode not in ("move", "duplicate")
+                or s.node_start_pos is None
                 or not s._snap_enabled or not s._snap_engine.enabled):
             return snapped
         # Zoom/pan between the base click and here: re-collect the targets
@@ -370,6 +377,9 @@ class ModifyToolsController:
             True — the move is unconditional.
         """
         s = self._scene
+        if s.mode == "duplicate":
+            self.commit_duplicate(params["offset"])
+            return True
         s.move_items(params["offset"])
         s.push_undo_state()
         s.node_start_pos = None
@@ -378,6 +388,41 @@ class ModifyToolsController:
         s.clear_placement_state()
         s.set_mode(None)
         return True
+
+    # ── Duplicate (D6) ──────────────────────────────────────────────────────
+
+    def commit_duplicate(self, offset: QPointF) -> None:
+        """Place one copy of the selection at *offset*; originals untouched.
+
+        One undo step; returns to Select with the copies selected (D3).
+        """
+        s = self._scene
+        src = list(s._selected_items or s.selectedItems())
+        s.clearSelection()
+        new_items = []
+        for it in src:
+            if not hasattr(it, "to_dict"):
+                continue
+            new = s._add_from_dict(it.to_dict())
+            if new is None:
+                continue
+            if hasattr(new, "translate"):
+                new.translate(offset.x(), offset.y())
+            else:
+                new.manip_translate(offset.x(), offset.y())
+            new_items.append(new)
+        s.push_undo_state()
+        s._selected_items = []
+        s.node_start_pos = None
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s.set_mode(None)
+        for new in new_items:
+            new.setSelected(True)
+        skipped = len(src) - len(new_items)
+        msg = f"Duplicated {len(new_items)} item(s)"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
 
     # ── Ghost silhouettes ───────────────────────────────────────────────────
 

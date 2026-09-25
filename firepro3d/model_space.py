@@ -1148,7 +1148,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
-                        "copy_base",
+                        "copy_base", "duplicate",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -1377,7 +1377,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._detail_rect_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
-        if mode in ("move", "rotate", "scale") and not self._selected_items:
+        if mode in ("move", "duplicate", "rotate", "scale") and not self._selected_items:
             self._selected_items = list(self.selectedItems())
 
         # Clear OSNAP snap trace whenever mode changes
@@ -1402,6 +1402,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
+            "duplicate":      "Pick base point",
             "offset":         "Click geometry to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
@@ -2510,7 +2511,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # cursor. Only the selection's own handles (the base point included)
         # snap, via _move_handle_snap. The base click itself (node_start_pos
         # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode == "move" and self.node_start_pos is not None:
+        if self.mode in ("move", "duplicate") and self.node_start_pos is not None:
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -2912,6 +2913,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_circle": "circle",
         "move": "displacement",
         "paste": "displacement",
+        "duplicate": "displacement",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -2945,6 +2947,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
         "paste": "_apply_paste_displacement",
+        "duplicate": "_apply_move_displacement",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -3726,6 +3729,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "sprinkler":                "_move_preview_node",
         "paste":                    "_move_paste_move",
         "copy_base":                "_move_preview_node",
+        "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "mirror":                   "_move_mirror",
@@ -3759,6 +3763,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
         "paste":           "_preview_from_move",
+        "duplicate":       "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
@@ -4338,7 +4343,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste", "copy_base",
+        "move", "paste", "copy_base", "duplicate",
     })
 
     _PRESS_DISPATCH = {
@@ -4357,6 +4362,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "room_manual":              "_press_room_manual",
         "paste":                    "_press_paste_move",
         "copy_base":                "_press_copy_base",
+        "duplicate":                "_press_paste_move",
         "move":                     "_press_paste_move",
         "place_import":             "_press_place_import",
         "offset":                   "_press_offset",
@@ -7486,6 +7492,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif hasattr(item, "translate"):
                 item.translate(offset.x(), offset.y())
                 item.setSelected(True)
+            elif hasattr(item, "manip_translate"):   # Text (D7)
+                item.manip_translate(offset.x(), offset.y())
+                item.setSelected(True)
         self._tools._solve_constraints()  # enforce constraints after move
         self._selected_items = None   # clear after use
 
@@ -7529,43 +7538,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         except json.JSONDecodeError:
             return None
         return data if isinstance(data, list) else None
-
-    # -------------------------------------------------------------------------
-    # DUPLICATE (Sprint I)
-
-    def duplicate_selected(self):
-        """Copy selected items and immediately paste them at +10,+10 offset."""
-        items = self.selectedItems()
-        if not items:
-            return
-
-        data = []
-        for item in items:
-            if isinstance(item, Node):
-                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
-                pipes_d = []
-                for p in item.pipes:
-                    other = p.node1 if p.node2 == item else p.node2
-                    pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
-                data.append({
-                    "type": "node",
-                    "x": item.pos().x(), "y": item.pos().y(),
-                    "sprinkler": sprinkler, "pipes": pipes_d,
-                })
-            elif hasattr(item, "to_dict"):
-                data.append(item.to_dict())
-
-        if not data:
-            return
-
-        # Temporarily swap clipboard → paste → restore
-        old = QApplication.clipboard().text()
-        QApplication.clipboard().setText(json.dumps(data))
-        self.paste_items(QPointF(10, 10))
-        QApplication.clipboard().setText(old)
-        self._show_status(f"Duplicated {len(data)} item(s)")
-        self.push_undo_state()
-
 
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)

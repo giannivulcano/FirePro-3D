@@ -74,12 +74,16 @@ class HandleSnapSession:
             point / Move base point / dragged grip's rest position).
         extra_handles: Extra scene points (at rest) to use as handles ahead
             of the items' own — the Move tool's picked base point.
+        exclude_moving: When True (default) the moving items are not snap
+            targets. Duplicate passes False: its originals stay put and
+            remain targets (scene-tools.md D6).
     """
 
     def __init__(self, engine, scene, view, moving, anchor: QPointF,
-                 extra_handles=()):
+                 extra_handles=(), exclude_moving: bool = True):
         self._engine = engine
         self._scene = scene
+        self._exclude_moving = exclude_moving
         self._moving = set(moving)
         self._anchor0 = QPointF(anchor)
         self._handles = self._build_handles(engine, moving, anchor,
@@ -199,11 +203,13 @@ class HandleSnapSession:
                 skip.add(item)
         # Nodes in the moving set drag their pipes (which stretch): those
         # pipes' points are wrong by construction, so they are not targets.
-        moving_nodes = {it for it in self._moving if hasattr(it, "pipes")}
+        moving_nodes = ({it for it in self._moving if hasattr(it, "pipes")}
+                        if self._exclude_moving else set())
         for item in items:
             if item in skip:
                 continue
-            if not item.isVisible() or self._is_moving(item):
+            if not item.isVisible() or (self._exclude_moving
+                                        and self._is_moving(item)):
                 continue
             if item.zValue() > 150 or _tag(item) == "origin":
                 continue
