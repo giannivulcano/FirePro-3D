@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging, time
+import sys, json, math, shutil, logging, time, contextlib
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -2321,6 +2321,37 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._align_anchor_dir = None
         self._dirty = True   # a committed mutation diverges from the last save
         self.sceneModified.emit()
+
+    def request_undo_push(self) -> None:
+        """An item setter asks for one undo step after its mutation.
+
+        Pushes immediately, unless inside :meth:`deferred_undo_push`, which
+        coalesces every request made in its block into ONE step at exit.
+        """
+        if getattr(self, "_undo_defer_depth", 0) > 0:
+            self._undo_push_pending = True
+            return
+        self.push_undo_state()
+
+    @contextlib.contextmanager
+    def deferred_undo_push(self):
+        """Coalesce item-setter undo requests into one step (re-entrant).
+
+        Used by a multi-target property-panel commit: N targets' setters each
+        call :meth:`request_undo_push`; one step is pushed when the outermost
+        block exits, and only if any target asked (a no-op commit is no step).
+        """
+        depth = getattr(self, "_undo_defer_depth", 0)
+        if depth == 0:
+            self._undo_push_pending = False
+        self._undo_defer_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._undo_defer_depth = depth
+            if depth == 0 and self._undo_push_pending:
+                self._undo_push_pending = False
+                self.push_undo_state()
 
     def can_undo(self) -> bool:
         """True when there is a prior state to restore (past the seed)."""

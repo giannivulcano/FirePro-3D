@@ -696,13 +696,26 @@ class PropertyManager(QWidget):
                     break
         if stack is not None and hasattr(stack, "beginMacro"):
             stack.beginMacro(f"Edit {key}")
+        # Snapshot-undo scenes (Model_Space): coalesce every target setter's
+        # undo request into ONE step per panel commit (spec property-panel
+        # §3.3) — the snapshot counterpart of the QUndoStack macro above.
+        import contextlib
+        defer = contextlib.ExitStack()
+        seen = set()
+        for t in self._targets:
+            sc = t.scene() if callable(getattr(t, "scene", None)) else None
+            cm = getattr(sc, "deferred_undo_push", None) if sc is not None else None
+            if callable(cm) and id(sc) not in seen:
+                seen.add(id(sc))
+                defer.enter_context(cm())
         try:
-            for t in self._targets:
-                if hasattr(t, "set_property"):
-                    t.set_property(key, value)
-                # Cascade sprinkler property updates from database
-                if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
-                    self._cascade_sprinkler_props(t)
+            with defer:
+                for t in self._targets:
+                    if hasattr(t, "set_property"):
+                        t.set_property(key, value)
+                    # Cascade sprinkler property updates from database
+                    if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
+                        self._cascade_sprinkler_props(t)
         finally:
             if stack is not None and hasattr(stack, "endMacro"):
                 stack.endMacro()

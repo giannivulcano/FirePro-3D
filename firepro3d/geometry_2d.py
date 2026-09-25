@@ -52,6 +52,22 @@ def _manip_wraps(item) -> bool:
 # Geometry2DMixin
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _dicts_close(a, b, tol: float = 1e-9) -> bool:
+    """Structural equality with float tolerance (rel/abs *tol*)."""
+    if isinstance(a, float) or isinstance(b, float):
+        try:
+            return math.isclose(float(a), float(b), rel_tol=tol, abs_tol=tol)
+        except (TypeError, ValueError):
+            return False
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(
+            _dicts_close(a[k], b[k], tol) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(
+            _dicts_close(x, y, tol) for x, y in zip(a, b))
+    return a == b
+
+
 class Geometry2DMixin:
     """Shared level-plane placement + fill for 2D draw geometry.
 
@@ -116,10 +132,28 @@ class Geometry2DMixin:
         return []
 
     def _push_undo(self) -> None:
-        """One scene undo step after a typed dimension edit (mutate-then-push)."""
+        """One scene undo step after a typed dimension edit (mutate-then-push).
+
+        Routed through ``Model_Space.request_undo_push`` so a multi-target
+        panel commit (``PropertyManager._apply_property`` inside
+        ``scene.deferred_undo_push()``) coalesces into ONE step.
+        """
         sc = self.scene()
-        if sc is not None and hasattr(sc, "push_undo_state"):
+        if sc is None:
+            return
+        req = getattr(sc, "request_undo_push", None)
+        if callable(req):
+            req()
+        elif hasattr(sc, "push_undo_state"):
             sc.push_undo_state()
+
+    def _dim_edit(self, setter, value) -> None:
+        """Panel dimension edit: ``setter(value)``, then one undo step —
+        skipped when the edit changed nothing (a no-op commit is no step)."""
+        before = self.to_dict()
+        setter(value)
+        if not _dicts_close(before, self.to_dict()):
+            self._push_undo()
 
     def _geom2d_properties(self) -> dict:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
@@ -595,8 +629,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         if key == "Length":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_length(v)
-                self._push_undo()
+                self._dim_edit(self.set_length, v)
             return
         if self._geom2d_set(key, value):
             return
@@ -792,8 +825,7 @@ class ReferenceLineItem(LineItem):
         if key == "Length":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_length(v)
-                self._push_undo()
+                self._dim_edit(self.set_length, v)
             return
         if self._geom2d_set(key, value):
             return
@@ -983,14 +1015,12 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         if key == "Width":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_width(v)
-                self._push_undo()
+                self._dim_edit(self.set_width, v)
             return
         if key == "Height":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_height(v)
-                self._push_undo()
+                self._dim_edit(self.set_height, v)
             return
         if self._geom2d_set(key, value):
             return
@@ -1329,8 +1359,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         if key == "Radius":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_radius(v)
-                self._push_undo()
+                self._dim_edit(self.set_radius, v)
             return
         if self._geom2d_set(key, value):
             return
@@ -1570,8 +1599,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         if key == "Radius":
             v = self._parse_dim(value)
             if v is not None and v > 0:
-                self.set_radius(v)
-                self._push_undo()
+                self._dim_edit(self.set_radius, v)
             return
         if key == "Span":
             try:
@@ -1579,8 +1607,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             except (TypeError, ValueError):
                 return
             if math.isfinite(v) and 0 < v < 360:
-                self.set_span(v)
-                self._push_undo()
+                self._dim_edit(self.set_span, v)
             return
         if self._geom2d_set(key, value):
             return
@@ -1937,8 +1964,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         if key == "Radius":
             r = self._parse_dim(value)
             if r is not None and r > 0:
-                self.set_radius(r)
-                self._push_undo()
+                self._dim_edit(self.set_radius, r)
             return
         if key == "Rotation":
             try:
@@ -2275,14 +2301,12 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         if key == "R1":
             r = self._parse_dim(value)
             if r is not None and r >= _AXIS_MIN:
-                self.set_rx(r)
-                self._push_undo()
+                self._dim_edit(self.set_rx, r)
             return
         if key == "R2":
             r = self._parse_dim(value)
             if r is not None and r >= _AXIS_MIN:
-                self.set_ry(r)
-                self._push_undo()
+                self._dim_edit(self.set_ry, r)
             return
         if key == "Rotation":
             try:

@@ -104,6 +104,41 @@ def test_selection_change_repaints_region_not_full_viewport(be, monkeypatch):
     assert any(r.contains(c.toPoint()) for r in rects), rects
 
 
+# ── I3: multi-select panel edit = one undo step ───────────────────────────
+def test_multi_select_panel_edit_is_one_undo_step(be):
+    from firepro3d.property_manager import PropertyManager
+    v, sc = be
+    rects = [_add_rect(sc, x) for x in (0.0, 300.0, 600.0)]
+    sc.push_undo_state()
+    for r in rects:
+        r.setSelected(True)
+    pm = PropertyManager()
+    pm.show_properties(list(rects))
+    pos0 = sc._undo_pos
+    pm._apply_property("Width", 80.0)
+    assert [r.rect().width() for r in rects] == pytest.approx([80.0] * 3)
+    assert sc._undo_pos == pos0 + 1
+    sc.undo()
+    assert sorted(r.rect().width() for r in sc._draw_rects) == \
+        pytest.approx([100.0] * 3)
+    pm.deleteLater()
+
+
+def test_single_select_panel_edit_is_one_undo_step(be):
+    from firepro3d.property_manager import PropertyManager
+    v, sc = be
+    r = _add_rect(sc, 0.0)
+    sc.push_undo_state()
+    r.setSelected(True)
+    pm = PropertyManager()
+    pm.show_properties([r])
+    pos0 = sc._undo_pos
+    pm._apply_property("Width", 80.0)
+    assert r.rect().width() == pytest.approx(80.0)
+    assert sc._undo_pos == pos0 + 1
+    pm.deleteLater()
+
+
 # ── M3: selection / mode slots never raise ────────────────────────────────
 def test_selection_and_mode_slots_never_raise(be, monkeypatch):
     v, sc = be
@@ -113,3 +148,31 @@ def test_selection_and_mode_slots_never_raise(be, monkeypatch):
     monkeypatch.setattr(sc.readouts, "is_editing", boom)
     sc.readouts._on_selection_changed()
     sc.readouts._on_mode_changed("select")
+
+
+# ── M5: no-op edits push no undo ──────────────────────────────────────────
+def test_noop_readout_commit_pushes_no_undo(be):
+    v, sc = be
+    ln = _add_line(sc)
+    sc.push_undo_state()
+    ln.setSelected(True)
+    sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
+    pos0 = sc._undo_pos
+    got = []
+    sc.requestPropertyUpdate.connect(got.append)
+    sc.readouts.hud.committed.emit({"Length": 300.0})
+    assert sc._undo_pos == pos0
+    assert not sc.readouts.is_editing()
+    assert got == []                                  # nothing applied
+    assert ln.line().length() == pytest.approx(300.0)
+
+
+def test_noop_panel_set_property_pushes_no_undo(be):
+    v, sc = be
+    r = _add_rect(sc, 0.0)
+    sc.push_undo_state()
+    pos0 = sc._undo_pos
+    r.set_property("Width", 100.0)                    # unchanged
+    assert sc._undo_pos == pos0
+    r.set_property("Width", 120.0)                    # changed
+    assert sc._undo_pos == pos0 + 1
