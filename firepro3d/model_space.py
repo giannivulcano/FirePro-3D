@@ -7406,33 +7406,38 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # a sprinkler, a pipe or a pipe end node).
                 created = existing is None
 
-                # Restore ceiling and layer from copied data
-                if "ceiling_level" in obj:
-                    node1.ceiling_level = obj["ceiling_level"]
-                    node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
-                if "ceiling_offset_mm" in obj:
-                    node1.ceiling_offset = obj["ceiling_offset_mm"]
-                    node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
-                elif "z_offset" in obj:
-                    # Old clipboard data: z_offset was raw elevation offset
-                    node1.ceiling_offset = obj["z_offset"]
-                    node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
-                if "level" in obj:
-                    node1.level = obj["level"]
-                # Recompute z_pos from ceiling level + offset
-                if self._level_manager:
-                    lvl = self._level_manager.get(node1.ceiling_level)
-                    if lvl:
-                        node1.z_pos = lvl.elevation + node1.ceiling_offset
-                    elif "elevation" in obj:
-                        node1.z_pos = obj["elevation"]
+                # A node reused via find_nearby_node belongs to the network:
+                # never mutate it. Only a node created here takes the
+                # copied ceiling / level / elevation.
+                if existing is None:
+                    # Restore ceiling and layer from copied data
+                    if "ceiling_level" in obj:
+                        node1.ceiling_level = obj["ceiling_level"]
+                        node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
+                    if "ceiling_offset_mm" in obj:
+                        node1.ceiling_offset = obj["ceiling_offset_mm"]
+                        node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
+                    elif "z_offset" in obj:
+                        # Old clipboard data: z_offset was raw elevation offset
+                        node1.ceiling_offset = obj["z_offset"]
+                        node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
+                    if "level" in obj:
+                        node1.level = obj["level"]
+                    # Recompute z_pos from ceiling level + offset
+                    if self._level_manager:
+                        lvl = self._level_manager.get(node1.ceiling_level)
+                        if lvl:
+                            node1.z_pos = lvl.elevation + node1.ceiling_offset
+                        elif "elevation" in obj:
+                            node1.z_pos = obj["elevation"]
 
                 if obj.get("sprinkler"):
                     template = Sprinkler(None)
                     for key, meta in obj["sprinkler"].items():
                         template.set_property(key, meta["value"])
-                    self.add_sprinkler(node1, template)
-                    created = True
+                    # None when the node already carries a sprinkler.
+                    if self.add_sprinkler(node1, template) is not None:
+                        created = True
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()

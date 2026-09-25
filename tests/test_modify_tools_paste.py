@@ -217,3 +217,56 @@ def test_paste_node_onto_existing_node_creates_nothing(qapp):
         assert not node.isSelected()
     finally:
         close_view(view, scene)
+
+
+def _paste_zero(scene):
+    assert scene._modify_ctl.start("paste") is True
+    assert scene.begin_dynamic_input() is True
+    scene.dynamic_input.editor("dX").setText("0")
+    scene.dynamic_input.editor("dY").setText("0")
+    scene.dynamic_input._accept()
+
+
+def test_paste_sprinkler_node_onto_itself_creates_nothing(qapp):
+    """N1 (sprinkler variant): the reused node already has a sprinkler, so
+    add_sprinkler adds nothing — no undo step, 'Nothing pasted'."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        node = scene.add_node(0.0, 200.0)
+        scene.add_sprinkler(node)
+        scene.push_undo_state()
+        scene.clearSelection(); node.setSelected(True)
+        _copy_at(view, scene, QPointF(0, 0))
+        n_nodes = len(scene.sprinkler_system.nodes)
+        n_spr = len(scene.sprinkler_system.sprinklers)
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        p0 = scene._undo_pos
+        _paste_zero(scene)
+        assert len(scene.sprinkler_system.nodes) == n_nodes
+        assert len(scene.sprinkler_system.sprinklers) == n_spr
+        assert scene._undo_pos == p0                              # [RED]
+        assert msgs[-1] == "Nothing pasted"
+        assert not node.isSelected()
+    finally:
+        close_view(view, scene)
+
+
+def test_paste_onto_existing_node_leaves_it_untouched(qapp):
+    """A node reused via find_nearby_node is never mutated by the paste
+    (its ceiling offset belongs to the network, not the clipboard)."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        node = scene.add_node(0.0, 200.0)
+        scene.push_undo_state()
+        scene.clearSelection(); node.setSelected(True)
+        _copy_at(view, scene, QPointF(0, 0))                   # record: default offset
+        node.ceiling_offset = -300.0
+        z0 = node.z_pos
+        p0 = scene._undo_pos
+        _paste_zero(scene)
+        assert node.ceiling_offset == pytest.approx(-300.0)      # [RED]
+        assert node.z_pos == pytest.approx(z0)
+        assert scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
