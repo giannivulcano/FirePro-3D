@@ -174,6 +174,33 @@ def test_entry_at_gates_before_manipulator(be, monkeypatch):
     assert _Manip.calls == 0
 
 
+# ── M2: virtual overrides never let a readout exception escape ────────────
+def test_draw_foreground_survives_paint_error(be, monkeypatch):
+    v, sc = be
+
+    def boom(*a):
+        raise RuntimeError("paint boom")
+    monkeypatch.setattr(sc.readouts, "paint", boom)
+    img = QImage(50, 50, QImage.Format.Format_ARGB32)
+    p = QPainter(img)
+    try:
+        v.drawForeground(p, QRectF(0, 0, 50, 50))     # must not raise
+    finally:
+        p.end()
+
+
+def test_mouse_move_survives_hover_error(be, monkeypatch):
+    v, sc = be
+
+    def boom(*a):
+        raise RuntimeError("hover boom")
+    monkeypatch.setattr(sc.readouts, "hover_at", boom)
+    ev = QMouseEvent(QEvent.Type.MouseMove, QPointF(20, 20),
+                     Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                     Qt.KeyboardModifier.NoModifier)
+    v.mouseMoveEvent(ev)                              # must not raise
+
+
 # ── M3: selection / mode slots never raise ────────────────────────────────
 def test_selection_and_mode_slots_never_raise(be, monkeypatch):
     v, sc = be

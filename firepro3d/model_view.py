@@ -285,8 +285,13 @@ class Model_View(QGraphicsView):
         # ── Selection dimension readouts (selection-mode §15) ─────────────
         # Painted overlay records in viewport px, after HALO so a hovered
         # label's glow sits over the geometry highlight, before the band.
+        # A virtual override: an escaping exception aborts PyQt6 — guard.
         if not self._clip_rect and hasattr(scene, "readouts"):
-            scene.readouts.paint(painter, self, th.detect())
+            try:
+                scene.readouts.paint(painter, self, th.detect())
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("readout paint failed")
 
         # ── Scene-drawn rubber-band (viewport coords) ─────────────────────
         # Direction-dependent: L->R = window (blue/solid), R->L = crossing
@@ -787,7 +792,14 @@ class Model_View(QGraphicsView):
             on_label = False
             ro = getattr(sc, "readouts", None) if sc is not None else None
             if ro is not None and not self._panning:
-                changed, on_label = ro.hover_at(self, QPointF(event.pos()))
+                # A virtual override: an escaping exception aborts PyQt6.
+                try:
+                    changed, on_label = ro.hover_at(self, QPointF(event.pos()))
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        "readout hover failed")
+                    changed, on_label = False, False
                 if on_label:
                     cleared = (sc.halo_clear() if hasattr(sc, "halo_clear")
                                else False)
