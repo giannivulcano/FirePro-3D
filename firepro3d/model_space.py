@@ -2564,7 +2564,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             exclude=self._grip_item if self._grip_dragging else None,
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
-            align_aperture_px=self._align_path_tol_px)
+            align_aperture_px=self._align_path_tol_px,
+            from_point=self._snap_from_point())
         if res is None:
             self._snap_result = None
             self._align_result = None
@@ -2800,6 +2801,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _mode_placement_anchor(self) -> "QPointF | None":
         """Shell → PlacementInputCoordinator._mode_placement_anchor."""
         return self._plc._mode_placement_anchor()
+
+    # S1: modes whose ⊥ snap measures from the placement start point.
+    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "roof")
+
+    def _snap_from_point(self) -> "QPointF | None":
+        """Start point for perpendicular-from (AutoCAD PER), or None."""
+        if self.mode not in self._PER_FROM_MODES:
+            return None
+        if self.mode == "wall" and self._wall_primitive == "rect":
+            return None
+        if self.mode == "floor" and self._floor_primitive == "rect":
+            return None
+        if self.mode == "roof":
+            ra = self._roof_active
+            return QPointF(ra._points[-1]) if ra is not None and ra._points else None
+        return self._mode_placement_anchor()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Published placement state (dynamic input)

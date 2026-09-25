@@ -380,7 +380,7 @@ class _SnapCtx:
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
                  "endpoint_candidates", "underlay_geoms", "only_types",
-                 "weak_types")
+                 "weak_types", "from_point")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
@@ -406,6 +406,9 @@ class _SnapCtx:
         # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
         # outright (S5, align-placement §3.1).
         self.weak_types: frozenset = weak_types
+        # Placement start point for perpendicular-from (S1); None = the
+        # legacy cursor-foot perpendicular.
+        self.from_point: "QPointF | None" = None
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -510,6 +513,7 @@ class SnapEngine:
         held:           "OsnapResult | None" = None,
         align_paths:    "list | None" = None,
         align_aperture_px: float | None = None,
+        from_point:     "QPointF | None" = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -545,6 +549,10 @@ class SnapEngine:
                 aperture, so a cursor can reach a tracking path from farther away
                 without loosening real snaps. ``None`` (default) falls back to
                 ``ALIGN_PATH_TOL_PX``. Real-snap acceptance is never affected.
+            from_point: Placement start point: turns ``perpendicular`` into the
+                foot from this point (AutoCAD PER, S1); ``None`` (default) keeps
+                the cursor foot. With a start point only ``nearest`` remains a
+                "weak" cursor-foot type that an ALIGN crossing beats outright.
         """
         if not self.enabled:
             return None
@@ -572,7 +580,10 @@ class SnapEngine:
         # Mutable snap-tracking state shared across phases
         ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
                        aperture_px=aperture_px, priority_band_px=priority_band_px,
-                       only_types=only_types)
+                       only_types=only_types,
+                       weak_types=(frozenset({"nearest"}) if from_point is not None
+                                   else frozenset({"nearest", "perpendicular"})))
+        ctx.from_point = from_point
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
@@ -698,7 +709,7 @@ class SnapEngine:
                                 item):
                             ctx.check(snap_type, scene_pt, item, name)
                         for snap_type, pt in self._geometric_snaps(
-                                ctx.cursor, item):
+                                ctx.cursor, item, ctx.from_point):
                             ctx.check(snap_type, pt, item)
                 continue
 
@@ -725,7 +736,8 @@ class SnapEngine:
 
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
-            for snap_type, pt in self._geometric_snaps(ctx.cursor, item):
+            for snap_type, pt in self._geometric_snaps(ctx.cursor, item,
+                                                       ctx.from_point):
                 ctx.check(snap_type, pt, item)
 
     def _check_gridline_intersections(self, ctx: "_SnapCtx",
@@ -749,7 +761,8 @@ class SnapEngine:
         for gl in gl_items:
             for snap_type, pt, name in self._collect(gl):
                 ctx.check(snap_type, pt, gl, name)
-            for snap_type, pt in self._geometric_snaps(ctx.cursor, gl):
+            for snap_type, pt in self._geometric_snaps(ctx.cursor, gl,
+                                                       ctx.from_point):
                 ctx.check(snap_type, pt, gl)
 
     def _check_geometry_intersections(self, ctx: "_SnapCtx",
@@ -1505,6 +1518,7 @@ class SnapEngine:
     def _geometric_snaps_from_geom(
         self, cursor: QPointF, g: dict, xf: QTransform,
         local_bounds: tuple[float, float, float, float] | None = None,
+        from_point: "QPointF | None" = None,
     ) -> list[tuple[str, QPointF]]:
         """Perpendicular and nearest snap points from a geometry dict.
 
@@ -1519,12 +1533,7 @@ class SnapEngine:
         kind = g.get("kind")
 
         def _seg_snap(p1: QPointF, p2: QPointF):
-            foot = self._project_to_segment(cursor, p1, p2)
-            if foot is not None:
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._foot_snaps(cursor, p1, p2, from_point, pts)
 
         if kind == "line":
             _seg_snap(xf.map(QPointF(g["x1"], g["y1"])),
@@ -1537,17 +1546,7 @@ class SnapEngine:
             r = abs(xf.map(QPointF(cx + g["w"] / 2, cy)).x() - center.x())
             if r < _EPS_DEGENERATE:
                 return pts
-            d = math.hypot(cursor.x() - center.x(),
-                           cursor.y() - center.y())
-            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                foot = QPointF(
-                    center.x() + r * (cursor.x() - center.x()) / d,
-                    center.y() + r * (cursor.y() - center.y()) / d,
-                )
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
         elif kind == "path_points":
             points = g.get("points", [])
@@ -1569,17 +1568,7 @@ class SnapEngine:
             r = abs(xf.map(QPointF(cx + g["rw"] / 2, cy)).x() - center.x())
             if r < _EPS_DEGENERATE:
                 return pts
-            d = math.hypot(cursor.x() - center.x(),
-                           cursor.y() - center.y())
-            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                foot = QPointF(
-                    center.x() + r * (cursor.x() - center.x()) / d,
-                    center.y() + r * (cursor.y() - center.y()) / d,
-                )
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
         return pts
 
@@ -1613,26 +1602,26 @@ class SnapEngine:
                     g, xf, local_bounds):
                 ctx.check(snap_type, scene_pt, group, name)
             for snap_type, pt in self._geometric_snaps_from_geom(
-                    ctx.cursor, g, xf, local_bounds):
+                    ctx.cursor, g, xf, local_bounds, ctx.from_point):
                 ctx.check(snap_type, pt, group)
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
 
     def _geometric_snaps(
         self, cursor: QPointF, item: QGraphicsItem,
+        from_point: "QPointF | None" = None,
     ) -> list[tuple[str, QPointF]]:
-        """Perpendicular, nearest, and tangent snap points (cursor-dependent)."""
+        """Perpendicular, nearest, and tangent snap points (cursor-dependent).
+
+        With *from_point* (a placement start point) ``perpendicular`` is the
+        foot FROM that point (S1); otherwise it is the legacy cursor foot.
+        """
 
         pts: list[tuple[str, QPointF]] = []
 
-        # Helper: project cursor onto a segment for perpendicular + nearest
+        # Helper: segment foot snaps (perpendicular + nearest)
         def _seg_snap(p1: QPointF, p2: QPointF):
-            foot = self._project_to_segment(cursor, p1, p2)
-            if foot is not None:
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._foot_snaps(cursor, p1, p2, from_point, pts)
 
         # ── Line-based items (QGraphicsLineItem: pipes, gridlines, etc.) ──
         if isinstance(item, QGraphicsLineItem):
@@ -1678,15 +1667,12 @@ class SnapEngine:
             dx = cursor.x() - cx
             dy = cursor.y() - cy
             d = math.hypot(dx, dy)
+            self._circle_foot_snaps(
+                cursor, QPointF(cx, cy), r, from_point, pts,
+                accept=lambda q: _angle_in_arc(
+                    math.degrees(math.atan2(-(q.y() - cy), q.x() - cx)),
+                    item._start_deg, item._span_deg))
             if d > _EPS_COINCIDENT:
-                foot_angle_deg = math.degrees(math.atan2(-dy, dx))
-                if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
-                    foot = QPointF(cx + r * dx / d, cy + r * dy / d)
-                    if self.snap_perpendicular:
-                        pts.append(("perpendicular", foot))
-                    if self.snap_nearest:
-                        pts.append(("nearest", foot))
-
                 # Tangent — cursor must be outside the arc's radius
                 if self.snap_tangent and d > r + _EPS_COINCIDENT:
                     angle_to_cursor = math.atan2(
@@ -1714,15 +1700,7 @@ class SnapEngine:
                 d = math.hypot(cursor.x() - center.x(),
                                cursor.y() - center.y())
                 # Perpendicular / nearest to circle circumference
-                if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                    foot = QPointF(
-                        center.x() + r * (cursor.x() - center.x()) / d,
-                        center.y() + r * (cursor.y() - center.y()) / d,
-                    )
-                    if self.snap_perpendicular:
-                        pts.append(("perpendicular", foot))
-                    if self.snap_nearest:
-                        pts.append(("nearest", foot))
+                self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
                 # Tangent
                 if self.snap_tangent and d > r + _EPS_COINCIDENT:
@@ -1779,3 +1757,68 @@ class SnapEngine:
         t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
         t = max(0.0, min(1.0, t))
         return QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy)
+
+    @staticmethod
+    def _perp_foot_on_segment(pt: QPointF, seg_a: QPointF,
+                              seg_b: QPointF) -> QPointF | None:
+        """Foot of the perpendicular from *pt* onto segment a–b (AutoCAD PER).
+
+        Unclamped: returns None when the foot falls outside the segment, when
+        the segment is degenerate, or when *pt* lies on the line (PER undefined).
+        """
+        dx = seg_b.x() - seg_a.x()
+        dy = seg_b.y() - seg_a.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < _EPS_DEGENERATE:
+            return None
+        t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
+        if t < 0.0 or t > 1.0:
+            return None
+        foot = QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy)
+        if math.hypot(pt.x() - foot.x(), pt.y() - foot.y()) < _EPS_COINCIDENT:
+            return None
+        return foot
+
+    def _foot_snaps(self, cursor: QPointF, p1: QPointF, p2: QPointF,
+                    from_point: QPointF | None, pts: list) -> None:
+        """Segment foot snaps: ``nearest`` = cursor foot; ``perpendicular`` =
+        foot FROM *from_point* when a placement start exists (S1), else the
+        legacy cursor foot."""
+        foot = self._project_to_segment(cursor, p1, p2)
+        if self.snap_perpendicular:
+            if from_point is None:
+                if foot is not None:
+                    pts.append(("perpendicular", foot))
+            else:
+                per = self._perp_foot_on_segment(from_point, p1, p2)
+                if per is not None:
+                    pts.append(("perpendicular", per))
+        if self.snap_nearest and foot is not None:
+            pts.append(("nearest", foot))
+
+    def _circle_foot_snaps(self, cursor: QPointF, center: QPointF, r: float,
+                           from_point: QPointF | None, pts: list,
+                           accept: "Callable[[QPointF], bool] | None" = None) -> None:
+        """Circle/arc foot snaps. ⊥ from a start point = the two points where
+        the line centre→start meets the circle (PER to a circle is radial)."""
+        ok = accept or (lambda _q: True)
+        d = math.hypot(cursor.x() - center.x(), cursor.y() - center.y())
+        foot = None
+        if d > _EPS_COINCIDENT:
+            foot = QPointF(center.x() + r * (cursor.x() - center.x()) / d,
+                           center.y() + r * (cursor.y() - center.y()) / d)
+        if self.snap_perpendicular:
+            if from_point is None:
+                if foot is not None and ok(foot):
+                    pts.append(("perpendicular", foot))
+            else:
+                df = math.hypot(from_point.x() - center.x(), from_point.y() - center.y())
+                if df > _EPS_COINCIDENT:
+                    ux = (from_point.x() - center.x()) / df
+                    uy = (from_point.y() - center.y()) / df
+                    for s in (1.0, -1.0):
+                        q = QPointF(center.x() + s * r * ux, center.y() + s * r * uy)
+                        if ok(q):
+                            pts.append(("perpendicular", q))
+        if self.snap_nearest and foot is not None and ok(foot):
+            pts.append(("nearest", foot))
