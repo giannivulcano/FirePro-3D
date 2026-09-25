@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-24
-verified-commit: 892cf76   # snap-polish: one find() at the seam, weak-foot rule (§3.1), no ALIGN point glyph (§4); prior 62683b9
+last-verified: 2026-09-25
+verified-commit: e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -176,6 +176,21 @@ anchor, so its H/V (and its own extension when the anchor sits on a directional
 object) track without an explicit dwell. Cleared with `point=None`. The seam calls
 it each frame from `get_effective_position` before building rays.
 
+**Anchor direction source (2026-09-25).** The anchor's direction is captured when a
+press ARMS the placement's first point (spec D3; `Model_Space._arming_snap_direction`),
+from the snap the arming click landed on:
+
+- **line-likes** (line / wall / pipe / gridline) — the object's end-to-end direction;
+- **any other primitive** — its tangent **at the snapped point**
+  (`SnapEngine.direction_at`): the rect / polyline / polygon edge the point lies on,
+  the circle / arc tangent, or the flattened ellipse / spline / path segment. A
+  polygonal corner (two non-collinear edges) and point-only sources (a circle's
+  centre, nodes) give no direction.
+
+So a placement started on a rect edge gets an Extension ray along the edge and a
+Perpendicular ray ⟂ to it; started on a circle, the Perpendicular ray is radial.
+Dwell point-acquires (§2.2) still take a direction only from line-likes.
+
 ### 2.4 Cap, release, clear
 
 - **Cap** = `max_points` (default `ALIGN_MAX_POINTS`). Acquiring past the cap evicts
@@ -225,9 +240,9 @@ Real SNAP candidates keep priorities **0–7** (lower is stronger; owned by
 `snap_engine.py` `SNAP_PRIORITY`). Final ranking: **real SNAP > align_intersection
 > align_path > free**, with one exception — the **weak-foot rule**:
 
-- **Weak types** are the cursor-foot snaps: `nearest` always, and `perpendicular`
-  only when there is no placement start point (with one it is a perpendicular-*from*
-  foot — `snapping-engine.md §4` — and counts as a real, strong snap).
+- **Weak types** are the cursor-foot snaps — `nearest` only. (`perpendicular` exists
+  only as a perpendicular-*from* foot — `snapping-engine.md §4` — and counts as a
+  real, strong snap; with no placement start point there is no `perpendicular`.)
 - An in-aperture `align_intersection` **beats a weak foot outright**. Without
   this the crossing could never win: the foot on the very segment a ray crosses is
   by construction at least as close to the cursor as the crossing, so the band
@@ -278,11 +293,16 @@ prevents orphaned `+` markers:
   in `ALIGN_ACQUIRE_COLOR` (green, distinct from snap glyphs), sized `ALIGN_GLYPH_PX`.
 - **Tracking vectors** — the held result's `source_lines` drawn as dashed
   viewport-spanning cosmetic lines (`ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`).
-- **No glyph marks the ALIGN point itself today.** The seam routes an ALIGN winner to
-  `_align_result` and clears `_snap_result`, and the snap marker
-  (`paint_snap_indicator`) draws only `_snap_result` — so an `align_path` /
-  `align_intersection` point is shown by its dashed tracking vector(s) alone. (The
-  green `+` marks *acquired* points, not the live ALIGN point.)
+- **ALIGN point glyph (2026-09-25).** The live `_align_result` point is drawn with the
+  regular snap glyphs (`paint_snap_indicator`, on top of the vectors, no trace — the
+  vectors are the trace), mapped by `snap_engine.snap_glyph_type`:
+  - `align_path` on a `perpendicular` ray → the ⊥ glyph; on any other ray kind
+    (`hv` / `extension` / `parallel`) → the nearest glyph. The winning ray's kind is
+    carried on `OsnapResult.name`.
+  - `align_intersection` → the intersection X glyph.
+
+  Colours/shapes are the snap legend's (`SNAP_COLORS` / `SNAP_MARKERS`,
+  snapping-engine §4). The green `+` still marks *acquired* points only.
 
 Constants (`ALIGN_*`) live in `constants.py` (Rule A — values not restated).
 

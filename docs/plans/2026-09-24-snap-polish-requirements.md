@@ -34,14 +34,23 @@ All decisions below were ratified by the user via FP1 questions on 2026-09-24.
 - Guard (VC3): the 1b repro (`s5_repro.py`) turned into a test — real dwell acquires via posted
   mouse moves, real walls/rects. RED before fix.
 - Update spec: align-placement §1.1/§3/§3.1 ranking, snapping-engine §14.5.
+- **Amended 2026-09-25 (smoke round A):** the live ALIGN point gets the regular snap
+  glyph — `align_path` → ⊥ on a perpendicular ray, else the nearest glyph;
+  `align_intersection` → the intersection X (align-placement §4). A placement started ON
+  any primitive (rect/polyline edge, circle/arc, ellipse/spline) inherits the tangent at
+  the clicked point, so the ALIGN ⊥ ray is ⟂ to the edge / radial (align-placement §2.3).
 
 ## S1 — true perpendicular-from-start (feature)
 - `find()` accepts an optional from-point (the tool's placement anchor, from
   `_mode_placement_anchor()`). When present, `perpendicular` = foot of the perpendicular dropped
   from the from-point onto the candidate segment/line (AutoCAD PER); when absent, today's
-  cursor-foot behaviour is kept.
+  cursor-foot behaviour is kept. **Amended 2026-09-25 (smoke round A):** when absent there
+  is NO perpendicular at all — the cursor foot is `nearest` (marker now white).
 - Visual: ⊥ marker + a dashed reference guide along the touched line (2d-geometry §3.6 ref style).
-- Tools: draw_line, polyline segments, wall, pipe, floor/roof polygon edges.
+- Tools: draw_line, polyline segments, wall, pipe, floor/roof polygon edges. **Amended
+  2026-09-25:** also the 1st→2nd-click reference line of draw_rectangle (side), draw_circle
+  (radius), draw_ellipse (major axis), draw_arc (step 1) and draw_spline (from the last
+  control point); later steps of those tools get no ⊥-from.
 - AC: placing a line whose start is off a target line, cursor near where the ⊥ foot lies → the
   committed end point is the foot (segment ⟂ target within 0.01°).
 - Guard (VC3): per-tool real-path placement tests (at least line + wall + pipe + floor), asserting
