@@ -2726,15 +2726,38 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "direction": self._source_item_direction(src),
         }
 
-    @staticmethod
-    def _source_item_direction(src):
-        """Unit direction of a line-like source item, or None.
+    def _source_item_direction(self, src, point: "QPointF | None" = None):
+        """Unit direction of a source item, or None.
 
-        Handles the directional entity types (line / wall / pipe / polyline);
-        anything else (nodes, ellipses, points) has no direction.
+        Line-likes (line / wall / pipe / gridline) give their end-to-end
+        direction. With *point* — the snapped point a placement was ARMED on
+        (smoke item 2b) — any other primitive gives its tangent AT that point
+        (``SnapEngine.direction_at``: rect/polyline/polygon edge, circle/arc
+        tangent, flattened ellipse/spline), so the anchor's ALIGN
+        perpendicular ray is ⟂ to the edge / radial to the circle. Without a
+        point (the dwell-acquire dict) non-line-likes keep no direction.
         """
         if src is None:
             return None
+        d = self._line_like_direction(src)
+        if d is not None or point is None:
+            return d
+        return self._snap_engine.direction_at(self, src, point)
+
+    def _arming_snap_direction(self):
+        """ALIGN anchor direction captured when a press ARMS a first point
+        (spec D3): the direction of the object the arming snap landed on, at
+        the snapped point (``None`` for empty space / a point-only source)."""
+        res = self._snap_result
+        if res is None:
+            return None
+        return self._source_item_direction(
+            getattr(res, "source_item", None), res.point)
+
+    @staticmethod
+    def _line_like_direction(src):
+        """End-to-end unit direction of a line-like item (line / wall / pipe /
+        gridline), or None for anything else."""
         import math as _math
         p1 = p2 = None
         # WallSegment: true centerline endpoints.
@@ -3182,8 +3205,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if ray is not None:
                 self._align_anchor_dir = ray.direction
             else:
-                self._align_anchor_dir = self._source_item_direction(
-                    getattr(self._snap_result, "source_item", None))
+                self._align_anchor_dir = self._arming_snap_direction()
         return True
 
     def apply_dynamic_input(self, geometry):
@@ -4632,8 +4654,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                         selection, node_under, pipe_under)
             anchor_after = self._mode_placement_anchor()
             if anchor_before is None and anchor_after is not None:
-                self._align_anchor_dir = self._source_item_direction(
-                    getattr(self._snap_result, "source_item", None))
+                self._align_anchor_dir = self._arming_snap_direction()
             # A press is what arms an anchor and what commits it, so the HUD's
             # existence is reconciled here as well as on move.  Without this a
             # committed placement would leave its readout hanging on screen

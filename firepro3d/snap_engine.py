@@ -1825,6 +1825,83 @@ class SnapEngine:
 
         return pts
 
+    def direction_at(self, scene: QGraphicsScene, item: QGraphicsItem,
+                     pt: QPointF, tol: float = 0.01) -> "tuple[float, float] | None":
+        """Unit tangent of *item*'s drawn geometry at scene point *pt*, or None.
+
+        Used for the ALIGN anchor direction when a placement starts ON a
+        primitive (smoke item 2b): the extension ray runs along this tangent
+        and the perpendicular ray across it — ⟂ to a rect/polyline/polygon
+        edge, radial to a circle/arc, normal to a flattened ellipse/spline.
+
+        * Circle / arc — analytic tangent (point must lie on the rim; the
+          centre has no direction).
+        * Ellipse / spline / generic path — the scene-flattened curve (the same
+          ``toSubpathPolygons(sceneTransform())`` the snap engine projects on).
+        * Rect / polyline / polygon — the segments ``_iter_geometry_segments``
+          extracts for phase 4 and ALIGN crossings.
+
+        At a vertex shared by two segments a flattened curve averages them (a
+        smooth tangent); a polygonal corner is ambiguous and yields None.
+
+        Args:
+            scene: The scene *item* lives in.
+            item: The primitive the placement point landed on.
+            pt: The snapped point (scene).
+            tol: Max distance (scene units) from *pt* to count as "on" it.
+
+        Returns:
+            A unit ``(dx, dy)`` in scene coordinates, or None.
+        """
+        if isinstance(item, (ArcItem, QGraphicsEllipseItem)):
+            if hasattr(item, "pipes"):           # Node: a point, no direction
+                return None
+            if isinstance(item, ArcItem):
+                c, r = QPointF(item._center), item._radius
+            else:
+                rr = item.rect()
+                c, r = item.mapToScene(rr.center()), rr.width() / 2.0
+            dx, dy = pt.x() - c.x(), pt.y() - c.y()
+            d = math.hypot(dx, dy)
+            if d < _EPS_COINCIDENT or abs(d - r) > tol:
+                return None
+            return (-dy / d, dx / d)
+        curve = (isinstance(item, QGraphicsPathItem) and not isinstance(
+            item, (WallSegment, PolylineItem, RectangleItem, RegularPolygonItem)))
+        segs: list[tuple[QPointF, QPointF]] = []
+        if curve:
+            for poly in item.path().toSubpathPolygons(item.sceneTransform()):
+                for i in range(poly.count() - 1):
+                    segs.append((poly.at(i), poly.at(i + 1)))
+        else:
+            probe = QRectF(pt.x() - tol, pt.y() - tol, 2 * tol, 2 * tol)
+            ctx = _SnapCtx(cursor=pt, scale=1.0, aperture_px=0.0,
+                           priority_band_px=0.0)
+            for kind, rec in self._iter_geometry_segments(
+                    scene, probe, None, [], lambda it: it is item, ctx):
+                if kind == "seg" and rec[2] is item:
+                    segs.append((rec[0], rec[1]))
+        dirs: list[tuple[float, float]] = []
+        for a, b in segs:
+            foot = self._project_to_segment(pt, a, b)
+            if foot is None or math.hypot(foot.x() - pt.x(), foot.y() - pt.y()) > tol:
+                continue
+            n = math.hypot(b.x() - a.x(), b.y() - a.y())
+            u = ((b.x() - a.x()) / n, (b.y() - a.y()) / n)
+            if dirs and u[0] * dirs[0][0] + u[1] * dirs[0][1] < 0:
+                u = (-u[0], -u[1])               # sign-align with the first
+            dirs.append(u)
+        if not dirs:
+            return None
+        ux, uy = dirs[0]
+        for vx, vy in dirs[1:]:
+            if abs(ux * vy - uy * vx) > 1e-6:    # a genuine corner
+                if not curve:
+                    return None
+            ux, uy = ux + vx, uy + vy
+        n = math.hypot(ux, uy)
+        return (ux / n, uy / n) if n > 1e-12 else None
+
     def _path_foot_snaps(self, item: QGraphicsPathItem, cursor: QPointF,
                          search_tol: float,
                          seg_snap: "Callable[[QPointF, QPointF], None]") -> None:
