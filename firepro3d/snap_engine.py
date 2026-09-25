@@ -728,8 +728,6 @@ class SnapEngine:
                            exclude: QGraphicsItem | None,
                            item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
-        _skip_types = (TextItem,)
-
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
         _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
@@ -768,9 +766,9 @@ class SnapEngine:
 
             if item.zValue() > 150:
                 continue
-            if isinstance(item, _skip_types):
-                continue
-            if item.data(0) == "origin":
+            # Unbound call: TextItem shadows QGraphicsItem.data with its
+            # TextAnnotationData property, so item.data(0) would raise (S6).
+            if QGraphicsItem.data(item, 0) == "origin":
                 continue
             if self.skip_pipes and isinstance(item, Pipe):
                 continue
@@ -1194,6 +1192,18 @@ class SnapEngine:
         if isinstance(item, LineItem):
             pts.extend(self._line_snaps(item))
 
+        # ── TextItem — the frame box snaps like a rectangle (S6):
+        #    corners = endpoint, edge mids = midpoint, centre = center.
+        #    grip_points() order: TL,TM,TR,RM,BR,BM,BL,LM,C (rotation-aware).
+        elif isinstance(item, TextItem):
+            g = item.grip_points()
+            if self.snap_endpoint:
+                pts.extend(("endpoint", g[i], None) for i in (0, 2, 4, 6))
+            if self.snap_midpoint:
+                pts.extend(("midpoint", g[i], None) for i in (1, 3, 5, 7))
+            if self.snap_center:
+                pts.append(("center", g[8], None))
+
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
         elif isinstance(item, GridlineItem):
             pts.extend(self._line_snaps(item))
@@ -1218,11 +1228,23 @@ class SnapEngine:
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
                 for _pen, _brush, path in item.render_ops():
+                    if _pen.style() == Qt.PenStyle.NoPen:
+                        continue   # text op = filled glyph outline — never snap targets (S6)
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
                         if el.type in _on_curve:
                             pts.append(("endpoint",
                                         _pose.map(QPointF(el.x, el.y)), None))
+            # Text primitives snap by their frame box (S6), mapped through the pose.
+            _defn = item.definition()
+            for box in (_defn.text_snap_points() if _defn is not None else []):
+                g = [_pose.map(p) for p in box]
+                if self.snap_endpoint:
+                    pts.extend(("endpoint", g[i], None) for i in (0, 2, 4, 6))
+                if self.snap_midpoint:
+                    pts.extend(("midpoint", g[i], None) for i in (1, 3, 5, 7))
+                if self.snap_center:
+                    pts.append(("center", g[8], None))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):
