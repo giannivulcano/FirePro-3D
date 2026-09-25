@@ -442,6 +442,13 @@ class SelectionReadoutController:
         except Exception:
             import logging
             logging.getLogger(__name__).exception("readout undo push failed")
+        try:
+            refit = getattr(self._scene, "notify_geometry_edited", None)
+            if callable(refit):
+                refit()                        # re-fit the manipulator frame
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout frame refit failed")
         self._end_session()
         try:
             # The property panel shows the same dimensions: re-read them.

@@ -2322,6 +2322,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = True   # a committed mutation diverges from the last save
         self.sceneModified.emit()
 
+    def notify_geometry_edited(self) -> None:
+        """Re-fit the selection manipulator after a typed / panel geometry edit.
+
+        Such edits change geometry outside the manipulator, which only rebakes
+        on selection changes and its own gestures — so the frame would stay at
+        the old bounds (``SelectionManipulator.rebake`` contract: call after
+        numeric edits). One home for both entry paths: the readout HUD commit
+        and ``PropertyManager._apply_property``.
+        """
+        m = self._live_manip()
+        if m is not None:
+            m.rebake()
+
     def request_undo_push(self) -> None:
         """An item setter asks for one undo step after its mutation.
 

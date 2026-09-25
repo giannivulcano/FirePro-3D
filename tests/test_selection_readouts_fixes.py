@@ -269,3 +269,36 @@ def test_mode_change_cancels_edit_and_hides_hud(be):
     QApplication.processEvents()
     assert sip.isdeleted(hud) or not hud.isVisible()
     sc.set_mode("select")
+
+
+# ── Smoke bug 2026-09-24: manipulator frame stale after a typed edit ─────────
+
+def test_readout_commit_rebakes_manipulator_frame(be):
+    """A typed readout edit changes geometry outside the manipulator; the
+    frame must follow (SelectionManipulator.rebake contract: 'call after
+    changing item geometry outside the manipulator ... numeric edits')."""
+    v, sc = be
+    ln = _add_line(sc, -150, 150)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    m = sc._live_manip()
+    assert m._rect.right() < 200                        # precondition: old frame
+    e = next(x for x in sc.readouts.layouts(v) if x.spec.key == "length")
+    sc.readouts.begin_edit(v, e)
+    sc.readouts.hud.committed.emit({"Length": 600.0})   # pt2 -> x=450
+    assert m._rect.right() >= 450 - 1e-6
+
+
+def test_panel_edit_rebakes_manipulator_frame(be):
+    from firepro3d.property_manager import PropertyManager
+    v, sc = be
+    r = _add_rect(sc, 0.0)                               # width 100
+    r.setSelected(True)
+    QApplication.processEvents()
+    m = sc._live_manip()
+    assert m._rect.width() < 150                        # precondition
+    pm = PropertyManager()
+    pm.show_properties([r])
+    pm._apply_property("Width", 400.0)
+    assert m._rect.width() >= 400 - 1e-6
+    pm.deleteLater()

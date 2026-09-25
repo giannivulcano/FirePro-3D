@@ -719,6 +719,16 @@ class PropertyManager(QWidget):
         finally:
             if stack is not None and hasattr(stack, "endMacro"):
                 stack.endMacro()
+        # A panel edit may change geometry outside the selection manipulator;
+        # re-fit its frame (one call per distinct scene).
+        refit = {}
+        for t in self._targets:
+            sc = t.scene() if callable(getattr(t, "scene", None)) else None
+            fn = getattr(sc, "notify_geometry_edited", None) if sc is not None else None
+            if callable(fn):
+                refit[id(sc)] = fn
+        for fn in refit.values():
+            fn()
         # Notify the scene so the 3D view rebuilds
         if self._targets:
             scene = None
