@@ -37,6 +37,15 @@ class ReadoutLayout:
     span_deg: float = 0.0
 
 
+def _to_vp(view, p) -> QPointF:
+    """Scene point -> viewport px as FLOATS.
+
+    ``QGraphicsView.mapFromScene`` returns an integer ``QPoint``; zoomed out,
+    a 1-scene-unit probe rounds to 0 px (every angle label then reported
+    fits=False at m11=0.05 — smoke 2026-09-24)."""
+    return view.viewportTransform().map(QPointF(p))
+
+
 def readable_deg(deg: float) -> float:
     """Fold a text angle into (-90, 90] so text never reads upside down."""
     d = (deg + 180.0) % 360.0 - 180.0
@@ -63,8 +72,8 @@ def layout_linear(view, spec, text: str) -> ReadoutLayout:
     """Label for a linear spec: segment midpoint, offset
     ``SELDIM_LABEL_OFFSET_PX`` off the line to the side away from
     ``spec.away`` (else screen-up / screen-left), aligned + readable."""
-    A = QPointF(view.mapFromScene(spec.a))
-    B = QPointF(view.mapFromScene(spec.b))
+    A = _to_vp(view, spec.a)
+    B = _to_vp(view, spec.b)
     dx, dy = B.x() - A.x(), B.y() - A.y()
     seg = math.hypot(dx, dy)
     w, h = _text_size(text)
@@ -74,7 +83,7 @@ def layout_linear(view, spec, text: str) -> ReadoutLayout:
     tx, ty = dx / seg, dy / seg
     nx, ny = ty, -tx
     if spec.away is not None:
-        aw = QPointF(view.mapFromScene(spec.away))
+        aw = _to_vp(view, spec.away)
         if nx * (aw.x() - mid.x()) + ny * (aw.y() - mid.y()) > 0:
             nx, ny = -nx, -ny
     elif ny > 0 or (abs(ny) < 1e-9 and nx > 0):
@@ -90,8 +99,8 @@ def layout_angular(view, spec, text: str) -> ReadoutLayout:
     """Label for an angular spec: dashed reference arc at
     ``max(SELDIM_ARC_REF_MIN_PX, SELDIM_ARC_REF_FRAC * leg)`` px; label on
     the bisector just outside the arc. Hidden when the arc exceeds the leg."""
-    C = QPointF(view.mapFromScene(spec.center))
-    probe = QPointF(view.mapFromScene(spec.center + QPointF(1.0, 0.0)))
+    C = _to_vp(view, spec.center)
+    probe = _to_vp(view, spec.center + QPointF(1.0, 0.0))
     px_per_scene = max(math.hypot(probe.x() - C.x(), probe.y() - C.y()), 1e-9)
     leg_px = spec.ref_radius * px_per_scene
     r_px = max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * leg_px)

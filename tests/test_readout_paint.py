@@ -263,3 +263,18 @@ def test_moved_label_leaves_no_stale_ghost(themed_be):
                     screen.setPixelColor(x, y, img1.pixelColor(x, y))
     assert _count(screen, old_box, t.color("ink")) == 0, "stale label ghost"
     assert _count(screen, new_box, t.color("ink")) > 0
+
+
+def test_angular_fits_when_zoomed_out(qapp):
+    """Smoke 2026-09-24: at m11=0.05 a 1-scene-unit probe through the integer
+    mapFromScene rounded to 0 px, so every angle label reported fits=False.
+    A 4199 mm arc at 0.05 px/mm is ~210 px — its angle must show."""
+    v = _view(scale=0.05)
+    s = DimSpec(kind="angular", key="a", field="Angle", prefix="", value=61.6,
+                field_kind="span", apply=lambda v: None, center=QPointF(-8184, -2855),
+                ref_radius=4199.4, start_deg=16.62, span_deg=61.61)
+    lay = layout_angular(v, s, "61.61°")
+    assert lay.fits
+    assert lay.arc_radius_px == pytest.approx(
+        max(constants.SELDIM_ARC_REF_MIN_PX, constants.SELDIM_ARC_REF_FRAC * 4199.4 * 0.05),
+        rel=1e-3)
