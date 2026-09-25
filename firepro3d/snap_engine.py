@@ -58,6 +58,12 @@ SNAP_MAX_SCENE_TOL = 10000.0  # mm
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
 SNAP_HYSTERESIS_PX = 3       # hold the current snap until another beats it by this many px
 _ENDPOINT_PROTECTION_PX = 6  # intersection candidates within this px of an in-aperture endpoint are suppressed (spec §6.3 Change B)
+
+# 9-point frame-box order shared with ``TextItem.grip_points()`` /
+# ``BlockDefinition.text_snap_points()``: TL,TM,TR,RM,BR,BM,BL,LM,C (S6).
+_BOX_CORNERS = (0, 2, 4, 6)   # emitted as "endpoint"
+_BOX_MIDS = (1, 3, 5, 7)      # emitted as "midpoint"
+_BOX_CENTER = 8               # emitted as "center"
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 
@@ -1176,6 +1182,28 @@ class SnapEngine:
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
+    def _box_snaps(
+        self, g: list[QPointF],
+    ) -> list[tuple[str, QPointF, None]]:
+        """Snap triples for a 9-point frame box in grip order (S6).
+
+        Args:
+            g: Scene points TL,TM,TR,RM,BR,BM,BL,LM,C (``TextItem.grip_points``
+                order).
+
+        Returns:
+            Corners as ``endpoint``, edge mids as ``midpoint`` and the centre as
+            ``center``, each gated by its toggle.
+        """
+        out: list[tuple[str, QPointF, None]] = []
+        if self.snap_endpoint:
+            out.extend(("endpoint", g[i], None) for i in _BOX_CORNERS)
+        if self.snap_midpoint:
+            out.extend(("midpoint", g[i], None) for i in _BOX_MIDS)
+        if self.snap_center:
+            out.append(("center", g[_BOX_CENTER], None))
+        return out
+
     def _collect(
         self, item: QGraphicsItem,
     ) -> list[tuple[str, QPointF, str | None]]:
@@ -1196,13 +1224,7 @@ class SnapEngine:
         #    corners = endpoint, edge mids = midpoint, centre = center.
         #    grip_points() order: TL,TM,TR,RM,BR,BM,BL,LM,C (rotation-aware).
         elif isinstance(item, TextItem):
-            g = item.grip_points()
-            if self.snap_endpoint:
-                pts.extend(("endpoint", g[i], None) for i in (0, 2, 4, 6))
-            if self.snap_midpoint:
-                pts.extend(("midpoint", g[i], None) for i in (1, 3, 5, 7))
-            if self.snap_center:
-                pts.append(("center", g[8], None))
+            pts.extend(self._box_snaps(item.grip_points()))
 
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
         elif isinstance(item, GridlineItem):
@@ -1217,6 +1239,7 @@ class SnapEngine:
             # Pose is baked into geometry (item transform is identity), so map
             # local points through pose_transform() to reach scene coordinates.
             _pose = item.pose_transform()
+            _defn = item.definition()
             if self.snap_center:
                 # definition origin is local (0,0) — the instance's insertion point
                 pts.append(("center", _pose.map(QPointF(0.0, 0.0)), None))
@@ -1227,7 +1250,7 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _pen, _brush, path in item.render_ops():
+                for _pen, _brush, path in (_defn.render_ops() if _defn is not None else []):
                     if _pen.style() == Qt.PenStyle.NoPen:
                         continue   # text op = filled glyph outline — never snap targets (S6)
                     for i in range(path.elementCount()):
@@ -1236,15 +1259,8 @@ class SnapEngine:
                             pts.append(("endpoint",
                                         _pose.map(QPointF(el.x, el.y)), None))
             # Text primitives snap by their frame box (S6), mapped through the pose.
-            _defn = item.definition()
             for box in (_defn.text_snap_points() if _defn is not None else []):
-                g = [_pose.map(p) for p in box]
-                if self.snap_endpoint:
-                    pts.extend(("endpoint", g[i], None) for i in (0, 2, 4, 6))
-                if self.snap_midpoint:
-                    pts.extend(("midpoint", g[i], None) for i in (1, 3, 5, 7))
-                if self.snap_center:
-                    pts.append(("center", g[8], None))
+                pts.extend(self._box_snaps([_pose.map(p) for p in box]))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):

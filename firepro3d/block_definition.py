@@ -172,8 +172,10 @@ class BlockDefinition:
         Point order per box is TL, TM, TR, RM, BR, BM, BL, LM, C (the
         ``TextItem.grip_points`` order, rotation-aware). These are the block's
         text snap targets (S6); glyph outlines are never snap targets. Cached
-        and invalidated with the render ops. A reference-mode definition has
-        no text primitives, so its list is empty.
+        and invalidated with the render ops. A geom-backed (imported)
+        reference definition has empty ``primitives``, so its list is empty;
+        an authored reference definition falls back to ``primitives`` and so
+        still yields its text boxes.
 
         Returns:
             One list of 9 ``QPointF`` per text primitive.
