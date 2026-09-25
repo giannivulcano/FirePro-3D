@@ -398,14 +398,7 @@ class TestFullCircle:
     Uses CircleItem (a QGraphicsEllipseItem subclass) because phase-4
     intersection detection extracts circles from CircleItem._center /
     ._radius — a bare QGraphicsEllipseItem would miss intersection snaps.
-
-    The engine reads quadrant/perpendicular/nearest positions from the
-    item's boundingRect(), which includes pen-width padding.  Assertions
-    use a relaxed tolerance (4 scene units) to accommodate the ≈3-unit
-    BR expansion caused by the default cosmetic pen.
     """
-
-    BR_TOL = 4.0  # allow for bounding-rect pen-width expansion
 
     @pytest.fixture(autouse=True)
     def setup(self, qapp):
@@ -425,7 +418,7 @@ class TestFullCircle:
                     snap_nearest=False),
             self.scene, QPointF(155, 100))
         _assert_snap(result, "quadrant", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_quadrant_top(self):
         result = _find(
@@ -433,7 +426,7 @@ class TestFullCircle:
                     snap_nearest=False),
             self.scene, QPointF(100, 45))
         _assert_snap(result, "quadrant", QPointF(100, 50),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_intersection(self):
         _crossing_line(self.scene, x=100, y_range=200)
@@ -448,15 +441,14 @@ class TestFullCircle:
             _engine(snap_center=False, snap_quadrant=False),
             self.scene, QPointF(100 + 65, 100))
         _assert_snap(result, "perpendicular", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_tangent(self):
         # Cursor must be outside the circle radius but close enough that
         # the tangent point falls within the snap tolerance (20 scene
-        # units).  With BR-derived radius ~53 and tol=20, the cursor
-        # must satisfy sqrt(d^2 - r^2) < 20 → d < ~56.
-        # d=56 → tangent dist = sqrt(56^2 - 53^2) ≈ 18.1, within aperture.
-        cursor = QPointF(156, 100)  # d=56 from center, tangent dist ≈ 18 < 20px
+        # units).  True radius r=50 (engine reads rect(), S4); cursor at
+        # d=53 → tangent dist = sqrt(53^2 - 50^2) ≈ 17.6 < 20, in aperture.
+        cursor = QPointF(153, 100)  # d=53 from center, tangent dist ≈ 17.6 < 20px
         result = _find(
             _engine(snap_center=False, snap_quadrant=False,
                     snap_perpendicular=False, snap_nearest=False),
@@ -464,10 +456,10 @@ class TestFullCircle:
         assert result is not None, "expected tangent snap"
         assert result.snap_type == "tangent"
         # Tangent point must lie on the circumference (distance from
-        # center ≈ radius, within BR tolerance for pen-width expansion)
+        # center == radius).
         tp = result.point
         dist = math.hypot(tp.x() - 100, tp.y() - 100)
-        assert abs(dist - 50) < self.BR_TOL, (
+        assert abs(dist - 50) < ABS_TOL, (
             f"tangent point dist from center={dist:.1f}, expected ≈50"
         )
 
@@ -478,7 +470,7 @@ class TestFullCircle:
                     snap_perpendicular=False),
             self.scene, QPointF(100 + 65, 100))
         _assert_snap(result, "nearest", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
 
 # ── QGraphicsEllipseItem (Node) ──────────────────────────────────────────────

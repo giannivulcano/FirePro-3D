@@ -1155,7 +1155,10 @@ class SnapEngine:
 
         # ── CircleItem / any QGraphicsEllipseItem (Node, sprinkler) ───────
         elif isinstance(item, QGraphicsEllipseItem):
-            br  = item.boundingRect()
+            # Geometric ellipse rect — NOT boundingRect(): a CircleItem's
+            # bounding rect is its ~10 px hit-stroke shape() (radius + 5 px),
+            # frozen by Qt's bbox cache at the zoom it was first computed.
+            br  = item.rect()
             cen = br.center()
             _is_node = hasattr(item, "pipes")  # Node has .pipes; circles don't
             if self.snap_center:
@@ -1676,7 +1679,8 @@ class SnapEngine:
 
         # ── Full circle (QGraphicsEllipseItem) — closest point on circle ─
         if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
-            br = item.boundingRect()
+            # Geometric rect, not the padded / zoom-cached boundingRect() (S4).
+            br = item.rect()
             if abs(br.width() - br.height()) < 0.1:
                 center = item.mapToScene(br.center())
                 r = br.width() / 2.0
