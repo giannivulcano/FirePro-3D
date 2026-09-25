@@ -309,51 +309,8 @@ class SceneTools:
     # -------------------------------------------------------------------------
     # INTERACTIVE TRANSFORMS (Rotate / Scale / Mirror)
 
-    def _apply_rotate(self, pivot: QPointF, angle_deg: float, items: list = None):
-        """Rotate *items* around *pivot* by *angle_deg*."""
-        if items is None:
-            items = self._scene._selected_items or self._scene.selectedItems()
-        rp = CAD_Math.rotate_point
-        for item in items:
-            if isinstance(item, Node):
-                new_pos = rp(item.scenePos(), pivot, angle_deg)
-                item.setPos(new_pos)
-                item.fitting.update()
-            elif isinstance(item, LineItem):
-                item._pt1 = rp(item._pt1, pivot, angle_deg)
-                item._pt2 = rp(item._pt2, pivot, angle_deg)
-                item.setLine(item._pt1.x(), item._pt1.y(),
-                             item._pt2.x(), item._pt2.y())
-            elif isinstance(item, PolylineItem):
-                item._points = [rp(p, pivot, angle_deg) for p in item._points]
-                item._rebuild_path()
-            elif isinstance(item, CircleItem):
-                item._center = rp(item._center, pivot, angle_deg)
-                r = item._radius
-                item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
-            elif isinstance(item, RectangleItem):
-                # Convert to polyline. Use the rect's SCENE corners (its data
-                # rotation ``_angle``/``_pivot`` applied), not the local rect().
-                g = item.grip_points()
-                corners = [g[0], g[2], g[4], g[6], g[0]]
-                rotated = [rp(c, pivot, angle_deg) for c in corners]
-                pl = PolylineItem(rotated[0],
-                                  color=item.pen().color().name(),
-                                  lineweight=item.pen().widthF())
-                for pt in rotated[1:]:
-                    pl.append_point(pt)
-                pl.finalize()
-                self._scene.addItem(pl)
-                self._scene._polylines.append(pl)
-                # Remove original rect
-                if item.scene() is self._scene:
-                    self._scene.removeItem(item)
-                if item in self._scene._draw_rects:
-                    self._scene._draw_rects.remove(item)
-            elif isinstance(item, ArcItem):
-                item._center = rp(item._center, pivot, angle_deg)
-                item._start_deg += angle_deg
-                item._rebuild_path()
+    # Rotate lives in ModifyToolsController.commit_rotate (scene-tools.md D8:
+    # per-item manip_rotate; the legacy rect->polyline _apply_rotate is retired).
 
     def _apply_scale(self, base: QPointF, factor: float, items: list = None):
         """Scale *items* relative to *base* by *factor*."""

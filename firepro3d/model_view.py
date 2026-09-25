@@ -114,11 +114,12 @@ class Model_View(QGraphicsView):
         Sourced from the scene's authoritative placement-mode set
         (`Model_Space._ALIGN_PLACEMENT_MODES`) so Architecture (wall/floor/roof/
         opening/…) and Sprinkler (pipe/sprinkler/…) modes are covered, not just
-        the 2D-geo subset. `move`/`paste` relocate existing geometry (not
-        insertion) → excluded. Falls back to the CrossCursor map for scenes
+        the 2D-geo subset. `move`/`paste`/`rotate` transform existing geometry
+        (not insertion) → excluded. Falls back to the CrossCursor map for scenes
         without the set.
         """
-        if mode in (None, "select", "move", "paste", "copy_base", "duplicate"):
+        if mode in (None, "select", "move", "paste", "copy_base", "duplicate",
+                    "rotate"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:
@@ -563,6 +564,14 @@ class Model_View(QGraphicsView):
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             paint_ghost(painter, mghost, th.detect())
+            painter.restore()
+        # Rotate (D8): the thin pivot->cursor ray, in the ghost trace pen.
+        ray = getattr(scene, "_rotate_ray", None)
+        if ray:
+            from .transform_ghost import paint_ray
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_ray(painter, ray[0], ray[1], th.detect())
             painter.restore()
 
         # ── 9. Crosshair cursor (viewport coords; accent read live) ───────────

@@ -42,7 +42,8 @@ class ModifyToolsController:
     _TOOL_EXTRA_MODES = {"offset": ("offset_side",)}
     # Modes an Undo / Redo must cancel first: their transient state (base
     # point, captured selection, armed payload) would outlive the restore.
-    CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move"})
+    CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
+                                      "rotate"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -273,6 +274,10 @@ class ModifyToolsController:
             s._move_ghost_base = []
         if new_mode != "paste":
             s._paste_payload = None
+        if new_mode != "rotate":
+            s._rotate_pivot = None
+            s._rotate_start_deg = None
+            s._rotate_ray = None
         if new_mode in (None, "select"):
             s._copy_is_cut = False
             s._selected_items = None
@@ -503,6 +508,142 @@ class ModifyToolsController:
         skipped = len(records) - len(new_items)
         msg = f"Duplicated {len(new_items)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+
+    # ── Rotate (D8) ─────────────────────────────────────────────────────────
+    # Angles are Y-up, CCW+ (scene Y is down): a +X point turned +90° about
+    # the origin lands at scene (0, -100), visually up.
+
+    @staticmethod
+    def _heading(pivot: QPointF, p: QPointF) -> float:
+        """Y-up heading (degrees, CCW+ from +X) of the ray *pivot* -> *p*."""
+        return math.degrees(math.atan2(-(p.y() - pivot.y()), p.x() - pivot.x()))
+
+    @staticmethod
+    def _norm(d: float) -> float:
+        """Normalise a sweep to (-180, 180]."""
+        d = (d + 180.0) % 360.0 - 180.0
+        return 180.0 if d == -180.0 else d
+
+    def _rotatable(self, items) -> list:
+        """The transformable *items* that can rotate (have ``manip_rotate``)."""
+        return [it for it in self._transformable(items)
+                if hasattr(it, "manip_rotate")]
+
+    def rotate_delta_to(self, point) -> float:
+        """Live relative sweep for *point* (0 until the start ray is picked).
+
+        The one formula the ghost, the status readout and the HUD seed share.
+
+        Args:
+            point: The cursor (resolved) point, or None.
+
+        Returns:
+            The Y-up CCW+ sweep from the start ray to the pivot->*point* ray.
+        """
+        s = self._scene
+        if (s._rotate_pivot is None or s._rotate_start_deg is None
+                or point is None):
+            return 0.0
+        return self._norm(self._heading(s._rotate_pivot, point)
+                          - s._rotate_start_deg)
+
+    def press_rotate(self, event, pos, snapped, *_):
+        """Rotate click: pivot, then start ray, then the end ray commits."""
+        s = self._scene
+        if s._rotate_pivot is None:
+            s._rotate_pivot = QPointF(snapped)
+            s._move_ghost_base = self._shape_paths_for_move(
+                self._rotatable(s._selected_items))
+            s._move_ghost = list(s._move_ghost_base)
+            s.instructionChanged.emit(
+                "Pick start of rotation (or type an angle)")
+            return
+        if s._rotate_start_deg is None:
+            if (abs(snapped.x() - s._rotate_pivot.x()) < 1e-9
+                    and abs(snapped.y() - s._rotate_pivot.y()) < 1e-9):
+                return                    # a ray needs a direction
+            s._rotate_start_deg = self._heading(s._rotate_pivot, snapped)
+            s.instructionChanged.emit("Pick end of rotation (or type an angle)")
+            return
+        self.commit_rotate(self.rotate_delta_to(snapped))
+
+    def move_rotate(self, event, snapped):
+        """Rotate cursor: the ghost sweeps, the pivot->cursor ray follows."""
+        s = self._scene
+        s.preview_pipe.hide()
+        if s._rotate_pivot is None:
+            s.update_preview_node(snapped)
+            return
+        s.preview_node.hide()
+        delta = self.rotate_delta_to(snapped)
+        s._rotate_ray = (QPointF(s._rotate_pivot), QPointF(snapped))
+        self.preview_rotate(delta)
+        # Feed the HUD its live relative-angle seed (_transform_seed_values).
+        s.publish_placement_state(s._rotate_pivot, snapped)
+        s._show_status(f"Angle: {delta:.1f}°", timeout=0)
+
+    def preview_rotate(self, delta_deg: float) -> None:
+        """Rebuild the ghost as the base silhouette turned by *delta_deg*.
+
+        ``QTransform.rotate`` is visually clockwise in the Y-down scene, so a
+        Y-up CCW+ sweep maps to ``rotate(-delta_deg)``.
+        """
+        from PyQt6.QtGui import QTransform
+        s = self._scene
+        p = s._rotate_pivot
+        if p is None:
+            return
+        t = (QTransform().translate(p.x(), p.y()).rotate(-delta_deg)
+             .translate(-p.x(), -p.y()))
+        s._move_ghost = [t.map(path) for path in s._move_ghost_base]
+        for v in s.views():
+            v.viewport().update()
+
+    def commit_rotate(self, delta_deg: float) -> bool:
+        """Rotate the selection by *delta_deg* (Y-up CCW+) about the pivot.
+
+        Every item turns through its own ``manip_rotate`` (rectangles stay
+        rectangles, D8). One undo step; returns to Select with the rotated
+        items selected.
+
+        Args:
+            delta_deg: The relative sweep.
+
+        Returns:
+            True — a rotation always commits once the pivot is armed.
+        """
+        s = self._scene
+        pivot = s._rotate_pivot
+        if pivot is None:
+            return False
+        items = [it for it in (s._selected_items or [])
+                 if it.scene() is s]
+        targets = self._rotatable(items)
+        for it in targets:
+            it.manip_rotate(float(delta_deg), QPointF(pivot))
+        for it in targets:
+            fitting = getattr(it, "fitting", None)
+            if fitting is not None:
+                fitting.update()
+        tools = getattr(s, "_tools", None)
+        if tools is not None and targets:
+            tools._solve_constraints()
+        if targets:
+            s.push_undo_state()
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s._selected_items = []
+        s.set_mode(None)
+        for it in items:
+            if it.scene() is s:
+                it.setSelected(True)
+        s._show_status(f"Rotated {len(targets)} item(s) {delta_deg:.1f}°")
+        return True
+
+    def apply_rotate_by(self, params: dict) -> bool:
+        """Typed relative angle (``rotate_by``): commit about the pivot."""
+        return self.commit_rotate(float(params["delta_deg"]))
 
     # ── Ghost silhouettes ───────────────────────────────────────────────────
 

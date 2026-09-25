@@ -421,8 +421,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._align_ghost = None
         self._align_padlocks: list = []
         # Interactive transforms (Rotate, Scale, Mirror)
+        # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
+        # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
         self._rotate_pivot: "QPointF | None" = None
-        self._rotate_preview_line = None
+        self._rotate_start_deg: "float | None" = None
+        self._rotate_ray = None
         self._scale_base: "QPointF | None" = None
         self._scale_preview_line = None
         self._scale_factor: float = 1.0
@@ -1337,9 +1340,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
                 setattr(self, attr, None)
 
-        if mode != "rotate":
-            self._rotate_pivot = None
-            _remove_preview("_rotate_preview_line")
+        # Rotate's transients are reset by self._modify_ctl.clear(mode) above.
         if mode != "scale":
             self._scale_base = None
             _remove_preview("_scale_preview_line")
@@ -2924,6 +2925,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "move": "displacement",
         "paste": "displacement",
         "duplicate": "displacement",
+        "rotate": "rotate_by",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -2958,6 +2960,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "move": "_apply_move_displacement",
         "paste": "_apply_paste_displacement",
         "duplicate": "_apply_move_displacement",
+        "rotate": "_apply_rotate_by",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -3944,26 +3947,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _move_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
         return self._modify_ctl._move_paste_move(*args, **kwargs)
 
-    def _move_rotate(self, event, snapped):
-        if self._rotate_pivot is None:
-            return
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._rotate_preview_line is None:
-            self._rotate_preview_line = QGraphicsLineItem()
-            p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
-            p.setStyle(Qt.PenStyle.DashLine)
-            self._rotate_preview_line.setPen(p)
-            self._rotate_preview_line.setZValue(200)
-            self.addItem(self._rotate_preview_line)
-        self._rotate_preview_line.setLine(
-            self._rotate_pivot.x(), self._rotate_pivot.y(),
-            snapped.x(), snapped.y())
-        self._rotate_preview_line.show()
-        dx = snapped.x() - self._rotate_pivot.x()
-        dy = snapped.y() - self._rotate_pivot.y()
-        angle = math.degrees(math.atan2(-dy, dx))
-        self._show_status(f"Rotate: {angle:.1f}°", timeout=0)
+    def _move_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.move_rotate(*args, **kwargs)
 
     def _move_mirror(self, event, snapped):
         if self._mirror_p1 is None:
@@ -4328,13 +4313,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # resolves a cursor point through ``get_effective_position`` and places
     # there.  Deliberately EXCLUDES:
     #   • ``select`` / ``None``            — no point placed
-    #   • object-pick transforms/modifies  — rotate, scale, mirror, break,
+    #   • object-pick transforms/modifies  — scale, mirror, break,
     #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
     #     merge_points, offset(_side), align, the two constraint pickers, room
     #     (click-inside-region), place_import (ghost drag, no snap point)
     # ``move``/``paste`` are placement (destination point) AND self-exclude the
     # moved item; they stay armed here and the press path swaps the sentinel for
-    # the real self-exclude item.
+    # the real self-exclude item. ``rotate`` picks its pivot and rays with
+    # SNAP + ALIGN (scene-tools.md D8), so it is armed too.
     # Single-placement modes (user, 2026-09-16): place ONE item, then return to
     # Select with the item selected (so its manipulator frame shows) — instead of
     # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
@@ -4353,7 +4339,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste", "copy_base", "duplicate",
+        "move", "paste", "copy_base", "duplicate", "rotate",
     })
 
     _PRESS_DISPATCH = {
@@ -4427,12 +4413,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._show_status(
                 f"Offset: {value:.1f} mm (fixed)  "
                 f"Click to pick side and commit.", timeout=0)
-        elif mode == "rotate":
-            if self._rotate_pivot is not None:
-                self._tools._apply_rotate(self._rotate_pivot, value)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
         elif mode == "scale":
             if self._scale_base is not None:
                 self._tools._apply_scale(self._scale_base, value)
@@ -5353,19 +5333,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._offset_highlight = None
         self.set_mode("offset")
 
-    # ── Interactive Rotate ────────────────────────────────────────────
-    def _press_rotate(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._rotate_pivot is None:
-            self._rotate_pivot = snapped
-            self.instructionChanged.emit("Click to set angle, or Tab for exact angle")
-        else:
-            dx = snapped.x() - self._rotate_pivot.x()
-            dy = snapped.y() - self._rotate_pivot.y()
-            angle = math.degrees(math.atan2(-dy, dx))
-            self._tools._apply_rotate(self._rotate_pivot, angle)
-            self.push_undo_state()
-            self._selected_items = []
-            self.set_mode(None)
+    # ── Interactive Rotate (D8) ───────────────────────────────────────
+    def _press_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.press_rotate(*args, **kwargs)
+
+    def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.apply_rotate_by(*args, **kwargs)
 
     # ── Interactive Scale ─────────────────────────────────────────────
     def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):

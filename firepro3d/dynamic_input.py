@@ -249,6 +249,16 @@ def resolve_rotation(anchor, values: dict) -> dict:
     return {"angle_deg": values["Angle"]}
 
 
+def resolve_rotate_by(anchor, values: dict) -> dict:
+    """Return the relative rotation (Y-up, CCW+) about the armed pivot.
+
+    The Rotate tool's typed step (scene-tools.md D8): unlike ``rotation``
+    (an absolute heading) this is a *delta* — ``90`` turns the selection 90°
+    counter-clockwise on screen about the pivot.
+    """
+    return {"delta_deg": values["Angle"]}
+
+
 def resolve_manip_move(anchor, values: dict) -> dict:
     """Return the manipulator move offset for typed *dX*/*dY* (Y-up input).
 
@@ -412,6 +422,19 @@ SCHEMAS: dict[str, Schema] = {
         # Anchored transform: the pivot (polygon centre / block insertion
         # point) is armed before the rotate step, so the HUD stays shut until
         # it exists — like ``move`` and ``arc_span``.
+        needs_anchor=True,
+    ),
+    "rotate_by": Schema(
+        name="rotate_by",
+        fields=(
+            # A relative sweep, CCW+ (Y-up). ANGLE normalises to (-180, 180],
+            # which is the same rotation as any equivalent sweep.
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
+        ),
+        resolve=resolve_rotate_by,
+        returns_point=False,
+        # Anchored transform: the pivot is armed first (D8), so the HUD stays
+        # shut until it exists — like ``move`` and ``rotation``.
         needs_anchor=True,
     ),
     # ── Selection-manipulator transforms ─────────────────────────────────

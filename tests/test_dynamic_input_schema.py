@@ -34,7 +34,7 @@ class TestRegistry:
         assert set(SCHEMAS) == {
             "line", "circle", "polygon",
             "displacement", "distance", "spacing_count",
-            "arc_span", "arc_radius", "rotation", "track",
+            "arc_span", "arc_radius", "rotation", "rotate_by", "track",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
@@ -94,10 +94,20 @@ class TestRegistry:
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
-                        "rotation",
+                        "rotation", "rotate_by",
                         "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
+
+    def test_rotate_by_is_a_relative_anchored_angle(self):
+        """scene-tools.md D8: one ANGLE field ``Angle``, resolved as a delta."""
+        s = SCHEMAS["rotate_by"]
+        assert [f.name for f in s.fields] == ["Angle"]
+        assert s.fields[0].kind is FieldKind.ANGLE
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Angle": 90.0}) == {"delta_deg": 90.0}
+        # The absolute-heading ``rotation`` schema is untouched.
+        assert SCHEMAS["rotation"].resolve(None, {"Angle": 30.0}) == {"angle_deg": 30.0}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False

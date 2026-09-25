@@ -1315,8 +1315,21 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rotate: accumulate ``angle_deg`` onto the current angle about
         ``pivot`` (Y-up CCW+).  One home with ``set_angle`` so the manipulator
-        and the placement rotate-step cannot drift."""
-        self.set_angle(self._angle + angle_deg, pivot)
+        and the placement rotate-step cannot drift.
+
+        Composes with an existing rotation: turning by ``a2`` about ``pivot``
+        after ``a1`` about the rect's own origin ``o`` equals turning by
+        ``a1 + a2`` about ``o`` and then translating ``o`` to its rotated
+        position — so the origin is kept and the rect is translated (a bare
+        ``set_angle(a1 + a2, pivot)`` would re-rotate the whole ``a1`` about
+        the new pivot and shift an already-rotated rect).
+        """
+        from .cad_math import CAD_Math
+        o = self._rotation_origin()
+        new_o = CAD_Math.rotate_point(o, pivot, -angle_deg)
+        self.set_angle(self._angle + angle_deg,
+                       None if self._pivot is None else o)
+        self.translate(new_o.x() - o.x(), new_o.y() - o.y())
 
 
 # ─────────────────────────────────────────────────────────────────────────────

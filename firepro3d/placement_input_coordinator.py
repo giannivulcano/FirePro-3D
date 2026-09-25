@@ -641,6 +641,10 @@ class PlacementInputCoordinator:
             if pl is not None and pl._points:
                 return pl.last_point()
             return None
+        if self._scene.mode == "rotate":
+            # D8: the pivot anchors the ALIGN origin and the rotate_by HUD.
+            a = self._scene._rotate_pivot
+            return QPointF(a) if a is not None else None
         if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
             # move / paste / duplicate mode (set_mode's cleanup relies on the
@@ -1049,6 +1053,11 @@ class PlacementInputCoordinator:
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": 0.0}
+        if schema.name == "rotate_by":
+            # D8: the live relative sweep (0 until the start ray is picked) —
+            # the same value the ghost and the status readout show.
+            return {"Angle": self._scene._modify_ctl.rotate_delta_to(
+                self.get_resolved_point())}
         if schema.name == "arc_radius":
             # End Points step 3: the live radius of the arc the resolved point
             # (projected onto the chord bisector) would commit.

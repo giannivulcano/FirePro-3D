@@ -52,10 +52,7 @@ def paint_ghost(painter, paths, theme) -> None:
     """
     if not paths:
         return
-    c = QColor(theme.color(HALO_TRACE_COLOR))
-    c.setAlpha(TRANSFORM_GHOST_TRACE_ALPHA)
-    pen = QPen(c, TRANSFORM_GHOST_TRACE_WIDTH_PX)
-    pen.setCosmetic(True)
+    pen = _trace_pen(theme)
     for path in paths:
         paint_halo_path(painter, path, theme)
     painter.save()
@@ -63,6 +60,31 @@ def paint_ghost(painter, paths, theme) -> None:
     painter.setPen(pen)
     for path in paths:
         painter.drawPath(path)
+    painter.restore()
+
+
+def _trace_pen(theme) -> QPen:
+    """The 1 px cosmetic accent pen shared by the ghost trace and the ray."""
+    c = QColor(theme.color(HALO_TRACE_COLOR))
+    c.setAlpha(TRANSFORM_GHOST_TRACE_ALPHA)
+    pen = QPen(c, TRANSFORM_GHOST_TRACE_WIDTH_PX)
+    pen.setCosmetic(True)
+    return pen
+
+
+def paint_ray(painter, start, end, theme) -> None:
+    """Paint Rotate's thin pivot->cursor ray (D8) with the ghost trace pen.
+
+    Args:
+        painter: Active QPainter in scene coordinates.
+        start: The pivot (scene coordinates).
+        end: The cursor (scene coordinates).
+        theme: Theme providing ``color(token)``.
+    """
+    painter.save()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(_trace_pen(theme))
+    painter.drawLine(start, end)
     painter.restore()
 
 
