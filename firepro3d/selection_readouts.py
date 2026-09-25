@@ -116,9 +116,16 @@ class SelectionReadoutController:
         # id(view) -> viewport-px rect of everything painted there last frame
         # (the "old" half of the scene-change dirty region).
         self._painted: dict[int, QRect] = {}
-        scene.selectionChanged.connect(self._on_selection_changed)
-        scene.changed.connect(self._on_scene_changed)
-        scene.modeChanged.connect(self._on_mode_changed)
+        # Readouts only ever show in the Block Editor (readouts_active gate).
+        # Connecting ``changed`` at all makes Qt route every item update
+        # through updateScene instead of the direct item->view path, and each
+        # slot costs a Python call — so plan scenes connect nothing.
+        # ``scene_role`` is set before the controller is composed.
+        self._enabled = getattr(scene, "scene_role", None) == "block_editor"
+        if self._enabled:
+            scene.selectionChanged.connect(self._on_selection_changed)
+            scene.changed.connect(self._on_scene_changed)
+            scene.modeChanged.connect(self._on_mode_changed)
 
     # ── gate ─────────────────────────────────────────────────────────────
     def readouts_active(self) -> bool:
@@ -261,7 +268,7 @@ class SelectionReadoutController:
         Labels sit outside item dirty regions, so ``MinimalViewportUpdate``
         would otherwise leave them stale.
         """
-        if not self._scene_alive():
+        if not self._enabled or not self._scene_alive():
             return
         for v in self._scene.views():
             if not sip.isdeleted(v):
@@ -287,33 +294,51 @@ class SelectionReadoutController:
         try:
             if not self._scene_alive():
                 return
-            active = self.readouts_active()
-            for v in self._scene.views():
-                if sip.isdeleted(v):
-                    continue
-                old = self._painted.get(id(v), QRect())
-                new = self._dirty_rect(self.layouts(v)) if active else QRect()
-                dirty = old.united(new)
-                if not dirty.isEmpty():
-                    v.viewport().update(dirty)
+            self._repaint_regions()
         except Exception:
             import logging
             logging.getLogger(__name__).exception("readout region repaint failed")
 
+    def _repaint_regions(self) -> None:
+        """``viewport().update(old ∪ new)`` per view: the readout region
+        painted last frame united with where the labels are now."""
+        active = self.readouts_active()
+        for v in self._scene.views():
+            if sip.isdeleted(v):
+                continue
+            old = self._painted.get(id(v), QRect())
+            new = self._dirty_rect(self.layouts(v)) if active else QRect()
+            dirty = old.united(new)
+            if not dirty.isEmpty():
+                v.viewport().update(dirty)
+
     def _on_selection_changed(self) -> None:
-        if not self._scene_alive():
-            return
-        self._hover = None
-        if self.is_editing():
-            self.cancel_edit()
-        self.refresh()
+        """Selection changed: drop hover, end any edit, repaint old ∪ new
+        readout regions (never the full viewport). A Qt slot: never raises."""
+        try:
+            if not self._scene_alive():
+                return
+            self._hover = None
+            if self.is_editing():
+                self.cancel_edit()
+            self._repaint_regions()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "readout selection-change handling failed")
 
     def _on_mode_changed(self, _mode) -> None:
-        if not self._scene_alive():
-            return
-        if self.is_editing():
-            self.cancel_edit()
-        self.refresh()
+        """Mode changed: end any edit, full repaint. A Qt slot: never raises."""
+        try:
+            if not self._scene_alive():
+                return
+            if self.is_editing():
+                self.cancel_edit()
+            self.refresh()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "readout mode-change handling failed")
 
     # ── edit session ─────────────────────────────────────────────────────
     def is_editing(self) -> bool:
