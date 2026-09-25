@@ -4451,6 +4451,41 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         return m.hit_handle(scene_pos) or not shift
 
+    def _finish_polyline(self) -> None:
+        """Commit the in-progress polyline (Enter / double-click finish).
+
+        A 2-vertex result commits as a ``LineItem`` (S3b) — a single segment
+        IS a line. Built directly (not via ``_make_line_like``, whose draw_line
+        "reference" variant could leak in). Colour + lineweight carry over; a
+        polyline fill on an open 2-point path is meaningless and is dropped.
+        Placement finish only: close-on-start (>= 3 vertices), loaded files,
+        paste and blocks never pass through here. No-op below 2 vertices.
+        """
+        pl = self._polyline_active
+        if pl is None or len(pl._points) < 2:
+            return
+        pl.finalize()
+        self._polyline_active = None
+        self._hide_polyline_close_indicator()
+        self.clearSelection()  # only the just-placed item stays selected
+        placed = pl
+        if len(pl._points) == 2:
+            placed = LineItem(QPointF(pl._points[0]), QPointF(pl._points[1]),
+                              color=QColor(pl.pen().color()),
+                              lineweight=getattr(pl, "_lineweight",
+                                                 pl.pen().widthF()))
+            self.removeItem(pl)
+            if pl in self._polylines:
+                self._polylines.remove(pl)
+            self.addItem(placed)
+            self._draw_lines.append(placed)
+        placed.setSelected(True)
+        for v in self.views():
+            v.viewport().update()
+        self.push_undo_state()
+        self.instructionChanged.emit("Pick first point")
+        self._end_placement_switch(placed)
+
     def _end_placement_switch(self, item=None) -> None:
         """After a committed placement in a single-placement mode, return to
         Select with the just-placed item(s) selected (so the manipulator frame
@@ -6564,17 +6599,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             if len(pts) > 2:
                 pts.pop()
-            if len(pts) >= 2:
-                pl = self._polyline_active
-                pl.finalize()
-                self._polyline_active = None
-                self._hide_polyline_close_indicator()
-                self.clearSelection()  # only the just-placed item stays selected
-                pl.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self.push_undo_state()
-                self.instructionChanged.emit("Pick first point")
-                self._end_placement_switch(pl)
+            self._finish_polyline()
             event.accept()
             return
 
@@ -7129,17 +7154,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
-                if len(self._polyline_active._points) >= 2:
-                    pl = self._polyline_active
-                    pl.finalize()
-                    self._polyline_active = None
-                    self._hide_polyline_close_indicator()
-                    self.clearSelection()  # only the just-placed item stays selected
-                    pl.setSelected(True)
-                    self.push_undo_state()
-                    self.instructionChanged.emit("Pick first point")
-                    self._end_placement_switch(pl)
-                    # (single-placement now returns to select; see _end_placement_switch)
+                self._finish_polyline()
+                # (single-placement now returns to select; see _end_placement_switch)
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:
                 if len(self._floor_active._points) >= 3:
