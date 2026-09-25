@@ -33,7 +33,7 @@ from .geometry_2d import (
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
-from .handle_snap import HandleSnapResult, HandleSnapSession
+from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -70,6 +70,7 @@ from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController
 from .wall_placement_controller import WallPlacementController
+from .modify_tools_controller import ModifyToolsController
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
 from .network_codec import (
@@ -192,6 +193,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
+        self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         # Selection dimension readouts (selection-mode §15). Composed before
@@ -1136,9 +1138,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # S2: any mode change ends a Move gesture's handle-snap session.
         self._move_handle_session = None
         # Clear the move/paste ghost when leaving those modes.
-        if mode not in ("paste", "move"):
-            self._move_ghost = []
-            self._move_ghost_base = []
+        self._modify_ctl.clear(mode)
         # Reset gridline body drag state
         self._dragging_gridline = None
         self._gridline_drag_start = None
@@ -3914,47 +3914,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
 
-    def _preview_from_move(self, target) -> None:
-        """Slide the move/paste ghost silhouette so the base point lands on
-        ``target``.
+    def _preview_from_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._preview_from_move(*args, **kwargs)
 
-        Rebuilds ``_move_ghost`` (read by ``drawForeground`` block 8) as the
-        base silhouette translated by ``target - node_start_pos`` and repaints.
-        A no-op before the base point is set.
-        """
-        if self.node_start_pos is None:
-            return
-        offset = QPointF(target.x() - self.node_start_pos.x(),
-                         target.y() - self.node_start_pos.y())
-        self._move_ghost = [p.translated(offset.x(), offset.y())
-                            for p in self._move_ghost_base]
-        for v in self.views():
-            v.viewport().update()
-
-    def _move_paste_move(self, event, snapped):
-        """Ghost preview for paste/move: silhouette rides the cursor after the
-        base point is set. Before that, show the plain cursor marker."""
-        if self.node_start_pos is None:
-            self.update_preview_node(snapped)
-            self.preview_pipe.hide()
-            return
-        snapped = self._move_handle_snap(event, snapped)
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        offset = QPointF(snapped.x() - self.node_start_pos.x(),
-                         snapped.y() - self.node_start_pos.y())
-        self._preview_from_move(snapped)
-        # Feed the dynamic-input HUD its live dX/dY seed (measured from the
-        # base point in ``_transform_seed_values``).  The status-bar readout
-        # below is a separate surface and stays: S1 retired the painted
-        # on-canvas Dim HUD, which move never used, not the status line — and
-        # it carries ``dist``, which the two-field HUD does not.  A no-op while
-        # a field has focus, so a mid-edit reseed cannot land.  ``paste`` also
-        # reaches here, harmlessly: it has no schema, so nothing seeds from it.
-        self.publish_placement_state(self.node_start_pos, snapped)
-        self._show_status(
-            f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
-            f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
+    def _move_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._move_paste_move(*args, **kwargs)
 
     def _move_rotate(self, event, snapped):
         if self._rotate_pivot is None:
@@ -5287,133 +5251,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts.append(snapped)
             self._room_manual_active._rebuild()
 
-    def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self.node_start_pos is None:
-            self.node_start_pos = snapped
-            self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
-            self._begin_move_handle_snap(snapped)
-        else:
-            snapped = self._move_handle_snap(event, snapped)
-            offset = CAD_Math.get_vector(self.node_start_pos, snapped)
-            if self.mode == "paste":
-                self.paste_items(offset)
-            elif self.mode == "move":
-                self.move_items(offset)
-            self.push_undo_state()
-            self.node_start_pos = None
-            self._move_ghost = []
-            self._move_ghost_base = []
-            self.set_mode(None)
+    def _press_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._press_paste_move(*args, **kwargs)
 
-    def begin_move_from(self, base: QPointF) -> None:
-        """Enter the Move tool on the current selection with *base* preset.
+    def begin_move_from(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl.begin_move_from(*args, **kwargs)
 
-        Skips Move's first (base-point) click: the selection immediately rides
-        the cursor from *base*, and the next click places it (same commit /
-        undo / Esc as an ordinary Move). Used by Block Editor import to place
-        geometry by its picked base point.
+    def _begin_move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._begin_move_handle_snap(*args, **kwargs)
 
-        Args:
-            base: Scene point that tracks the cursor.
-        """
-        self.set_mode("move")
-        self.node_start_pos = QPointF(base)
-        self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
-        self._begin_move_handle_snap(self.node_start_pos)
+    def _move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._move_handle_snap(*args, **kwargs)
 
-    def _begin_move_handle_snap(self, base: QPointF) -> None:
-        """S2: build the Move tool's HandleSnapSession once the base is set.
-
-        Move only (a paste has no scene items yet). The moving set is what
-        ``move_items`` will move (``_selected_items``, else the live
-        selection) plus each Sprinkler's Node, so none of it is a target. The
-        picked base point is itself a handle (rest = the base): the
-        destination has no cursor snap, so this is how "base onto a point"
-        still lands.
-
-        Args:
-            base: The Move base point — the handle offsets' anchor.
-        """
-        self._move_handle_session = None
-        view = self._snap_view()
-        # Built regardless of the snap toggles (items are at rest until the
-        # commit); _move_handle_snap gates its use per frame.
-        if self.mode != "move" or view is None:
-            return
-        moving = list(self._selected_items or self.selectedItems())
-        moving += [it.node for it in moving
-                   if isinstance(it, Sprinkler) and it.node is not None]
-        if moving:
-            self._move_handle_session = HandleSnapSession(
-                self._snap_engine, self, view, moving, QPointF(base),
-                extra_handles=[QPointF(base)])
-
-    def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
-        """S2: after the Move base point, the selection's own snap points
-        (and the base point) snap to geometry — handles only: the destination
-        has no cursor snap (``get_effective_position`` returns the raw cursor
-        in this step), so without a hit the destination is the raw cursor.
-
-        *event* is the scene's ``QGraphicsSceneMouseEvent`` (dispatched from
-        ``mousePressEvent`` / ``mouseMoveEvent``), so the raw cursor is
-        ``event.scenePos()``; direct callers without one fall back to
-        *snapped*.
-
-        Returns:
-            The corrected destination (winning handle exactly on its target;
-            marker published to ``_snap_result``), else *snapped* unchanged
-            (the raw cursor from a real mouse event).
-        """
-        hs = self._move_handle_session
-        if (hs is None or self.mode != "move" or self.node_start_pos is None
-                or not self._snap_enabled or not self._snap_engine.enabled):
-            return snapped
-        # Zoom/pan between the base click and here: re-collect the targets
-        # (visible rect + aperture scale). Safe — the moved items are at rest
-        # until the commit (the preview is a ghost).
-        hs.sync_view(self._snap_view())
-        scene_pos = getattr(event, "scenePos", None)
-        raw = scene_pos() if scene_pos is not None else snapped
-        hit = hs.best(raw)
-        if hit is None:
-            return snapped
-        corrected, res = hit
-        self._snap_result = res          # marker only (never a hysteresis held)
-        # No ALIGN in the destination step (handles only); kept defensive for
-        # direct callers that computed *snapped* through the picker.
-        self._align_result = None
-        self._align_track_ray = None
-        return corrected
-
-    def _apply_move_displacement(self, params: dict) -> bool:
-        """Apply a typed dX/dY displacement (transform schema — dict, not point).
-
-        The commit half of the ``move`` branch of :meth:`_press_paste_move`,
-        so a typed displacement and a dragged one share ``move_items`` and one
-        undo push.  Only ``move`` routes here — ``paste`` is deliberately kept
-        out of the schema and anchor tables (F2), because it commits through
-        ``paste_items`` and would otherwise be applied as a move of the current
-        selection.
-
-        Every displacement commits: unlike the length/radius/spacing schemas
-        there is no magnitude floor, so this always reports success (decision
-        D2's verdict is still returned for the dispatcher's sake).
-
-        Args:
-            params: ``resolve_displacement``'s output — ``{"offset": QPointF}``,
-                already Y-flipped into scene coordinates.
-
-        Returns:
-            True — the move is unconditional.
-        """
-        self.move_items(params["offset"])
-        self.push_undo_state()
-        self.node_start_pos = None
-        self._move_ghost = []
-        self._move_ghost_base = []
-        self.clear_placement_state()
-        self.set_mode(None)
-        return True
+    def _apply_move_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._apply_move_displacement(*args, **kwargs)
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)
@@ -7578,91 +7429,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         self._show_status(f"Pasted {len(data)} item(s)")
 
-    def _shape_paths_for_move(self, items):
-        """Scene-coord QPainterPath silhouettes for live scene *items*.
-        Nodes have no useful shape() — emit a small cross marker."""
-        from .node import Node
-        from .sprinkler import Sprinkler
-        paths = []
-        for item in items:
-            if isinstance(item, Sprinkler) and item.node is not None:
-                item = item.node
-            if isinstance(item, Node):
-                c = item.scenePos()
-                r = _GHOST_NODE_MARKER_MM
-                p = QPainterPath()
-                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
-                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
-                paths.append(p)
-                continue
-            if isinstance(item, GridlineItem):
-                # Ghost the centerline (grip endpoints), not the fat hit-strip
-                # + bubbles that shape() returns.
-                pts = item.grip_points()
-                p = QPainterPath()
-                p.moveTo(pts[0]); p.lineTo(pts[1])
-                paths.append(p)
-                continue
-            if hasattr(item, "shape"):
-                try:
-                    paths.append(item.mapToScene(item.shape()))
-                    continue
-                except Exception:
-                    pass
-            if hasattr(item, "sceneBoundingRect"):
-                p = QPainterPath(); p.addRect(item.sceneBoundingRect())
-                paths.append(p)
-        return paths
+    def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._shape_paths_for_move(*args, **kwargs)
 
-    def _clipboard_ghost_paths(self, data):
-        """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
-        without adding anything to the scene. Covers the copyable types."""
-        from .geometry_2d import (
-            LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
-            SplineItem as _SplineItem,
-        )
-        paths = []
-        if not data:
-            return paths
-        geom_ctors = {
-            "draw_line": LineItem, "reference_line": ReferenceLineItem,
-            "draw_rectangle": RectangleItem,
-            "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
-            "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
-            "draw_spline": _SplineItem,
-        }
-        for obj in data:
-            t = obj.get("type", "")
-            if t == "gridline":
-                ox, oy = obj.get("origin", [0.0, 0.0])
-                length = float(obj.get("length", 0.0))
-                th = math.radians(float(obj.get("angle", 0.0)))
-                p = QPainterPath(); p.moveTo(ox, oy)
-                p.lineTo(ox + length * math.cos(th), oy - length * math.sin(th))
-                paths.append(p)
-            elif t == "node":
-                c = QPointF(obj.get("x", 0.0), obj.get("y", 0.0))
-                r = _GHOST_NODE_MARKER_MM
-                p = QPainterPath()
-                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
-                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
-                for seg in obj.get("pipes", []):
-                    p.moveTo(c.x(), c.y()); p.lineTo(seg.get("x", 0.0), seg.get("y", 0.0))
-                paths.append(p)
-            elif t in geom_ctors:
-                try:
-                    item = geom_ctors[t].from_dict(obj)
-                    paths.append(item.mapToScene(item.shape()))
-                except Exception:
-                    pass
-        return paths
+    def _clipboard_ghost_paths(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._clipboard_ghost_paths(*args, **kwargs)
 
-    def _build_move_ghost_base(self, is_paste: bool):
-        """Base silhouettes (offset 0). Paste → clipboard; move → live selection."""
-        if is_paste:
-            return self._clipboard_ghost_paths(self.clipboard_data())
-        return self._shape_paths_for_move(self._selected_items or self.selectedItems())
+    def _build_move_ghost_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
 
     def move_items(self, offset):
         if not self._selected_items:
