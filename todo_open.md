@@ -395,6 +395,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec.
 - [ ] [type:design] Spec session: pipe-with-fitting named targets [P2] [subject:CAD]
   - Details: ref: snap-spec §8.3.
+- [ ] [type:bug] Roof polygon placement crashes on first click (bad import) [P1] [subject:CAD]
+  - Details: found 2026-09-24 (snap-polish G1, proven pre-existing at `bda538a` in a worktree). `placement_input_coordinator.py` `_get_roof_template` does `from .roof_item import RoofItem`, but the class lives in `firepro3d/roof.py` — ModuleNotFoundError inside a Qt event handler → fatal abort (exit 127). Introduced by `7e09ad5` (C2b decomp, 2026-09-03). The live Roof ribbon tool is likely dead. Fix: `from .roof import RoofItem`; add a real-click guard (unskip `test_snap_perpendicular_from.py` roof real-click case). `placement_input_coordinator.py`.
 - [ ] [type:feature] S1 — Perpendicular-from-start snap while placing a line [P2] [subject:CAD]
   - Details: user, 2026-09-24 snap-polish batch — while drawing a line, when the in-progress segment's free end touches another line and the segment is at 90° to it, snap there (AutoCAD PER from the last point). Existing `perpendicular` snap is the foot from the CURSOR (≈ nearest). Use the drawn ref line as the cue. `snap_engine.py`, `model_space.py`. ref: snapping-engine.md §4.
 - [ ] [type:feature] S2 — Whole-item move: handle positions snap to geometry [P2] [subject:CAD]
