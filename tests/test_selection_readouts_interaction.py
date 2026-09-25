@@ -182,11 +182,22 @@ def _click(v, vp):
             Qt.KeyboardModifier.NoModifier))
 
 
-def test_hover_label_beats_parent_halo(be):
+def test_hover_label_beats_parent_halo(be, monkeypatch):
+    from firepro3d import halo_selection
     v, sc = be
     ln = _add_line(sc)
     ln.setSelected(True)
     c = _label_center(v, sc)
+    # Widen the HALO aperture so the line IS reachable from the label position
+    # (the default 15 px can't reach a label offset ~20 px off its line, which
+    # made this assertion pass vacuously) — only label precedence keeps it clear.
+    monkeypatch.setattr(halo_selection, "HALO_APERTURE_PX", 60.0)
+    sc.readouts.readouts_active = lambda: False       # precondition: HALO would win
+    _move(v, c)
+    assert sc.halo_item() is ln
+    _move(v, c + QPointF(1, 0))                        # re-hover with readouts live
+    del sc.readouts.readouts_active
+    sc.halo_clear()
     _move(v, c)
     assert sc.readouts._hover is not None
     assert sc.halo_item() is None                     # label won, not the line
