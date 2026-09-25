@@ -94,22 +94,61 @@ def test_three_point_finish_still_commits_a_polyline(qapp, how):
         close_view(view, scene)
 
 
-def test_two_point_line_keeps_colour_and_lineweight(qapp):
+def test_two_point_line_keeps_colour_and_lineweight(qapp, monkeypatch):
+    """Non-default colour/lineweight from the real placement source
+    (``_geom_color_lw``, read by ``_press_polyline``) survive the conversion —
+    the defaults would equal LineItem's ctor defaults and prove nothing."""
     view, scene = make_view(role="block_editor")
     try:
+        monkeypatch.setattr(scene, "_geom_color_lw", lambda: ("#ff3366", 2.5))
         scene.set_mode("polyline")
         click(view, QPointF(0, 0))
-        pl = scene._polyline_active
-        # Placement ghost pen carries the template colour; finalize() restores
-        # the committed width from _lineweight.
-        exp_color = QColor(pl.pen().color())
-        exp_lw = pl._lineweight
         click(view, QPointF(1000, 0))
         QTest.keyClick(view, Qt.Key.Key_Return)
         QApplication.processEvents()
         ln = scene._draw_lines[-1]
         assert type(ln) is LineItem
-        assert ln.pen().color() == exp_color
-        assert ln.pen().widthF() == pytest.approx(exp_lw)
+        assert ln.pen().color() == QColor("#ff3366"), ln.pen().color().name()
+        assert ln.pen().widthF() == pytest.approx(2.5), ln.pen().widthF()
+    finally:
+        close_view(view, scene)
+
+
+def test_two_point_line_carries_display_overrides(qapp):
+    view, scene = make_view(role="block_editor")
+    try:
+        scene.set_mode("polyline")
+        click(view, QPointF(0, 0))
+        scene._polyline_active._display_overrides["visible"] = False
+        click(view, QPointF(1000, 0))
+        QTest.keyClick(view, Qt.Key.Key_Return)
+        QApplication.processEvents()
+        ln = scene._draw_lines[-1]
+        assert type(ln) is LineItem
+        assert ln._display_overrides == {"visible": False}
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("how", ["enter", "dblclick"])
+def test_two_point_finish_undo_redo_round_trip(qapp, how):
+    view, scene = make_view(role="block_editor")
+    try:
+        scene.push_undo_state()                    # explicit pre-placement baseline
+        _place(scene, view, [QPointF(0, 0), QPointF(1000, 0)], how)
+        assert len(scene._draw_lines) == 1 and len(scene._polylines) == 0
+        scene.undo()
+        QApplication.processEvents()
+        assert len(scene._draw_lines) == 0 and len(scene._polylines) == 0
+        assert not any(isinstance(i, (LineItem, PolylineItem))
+                       for i in scene.items())
+        scene.redo()
+        QApplication.processEvents()
+        assert len(scene._polylines) == 0
+        lines = [i for i in scene._draw_lines if type(i) is LineItem]
+        assert len(lines) == 1
+        g = lines[0].grip_points()
+        assert [(g[0].x(), g[0].y()), (g[2].x(), g[2].y())] == [
+            (0.0, 0.0), (1000.0, 0.0)]
     finally:
         close_view(view, scene)

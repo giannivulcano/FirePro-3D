@@ -545,7 +545,8 @@ class GeometryDrawingController:
                     self._show_polyline_close_indicator(pts[0])
                     self._preview_from_polyline(pts[0])
                     # Keep the HUD readout live on the closing segment.
-                    self._scene.publish_placement_state(pts[-1], pts[0])
+                    self._scene.publish_placement_state(
+                        self._scene._polyline_active.last_point(), pts[0])
                     return
             self._hide_polyline_close_indicator()
             tip = snapped

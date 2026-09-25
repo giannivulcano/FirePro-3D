@@ -4461,8 +4461,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         A 2-vertex result commits as a ``LineItem`` (S3b) — a single segment
         IS a line. Built directly (not via ``_make_line_like``, whose draw_line
-        "reference" variant could leak in). Colour + lineweight carry over; a
-        polyline fill on an open 2-point path is meaningless and is dropped.
+        "reference" variant could leak in). Colour + lineweight carry over, as
+        do per-instance Display-Manager overrides (``_display_overrides`` —
+        Line and Polyline are both 2D-geometry display items, so the override
+        keys mean the same thing); a polyline fill on an open 2-point path is
+        meaningless and is dropped.
         Placement finish only: close-on-start (>= 3 vertices), loaded files,
         paste and blocks never pass through here. No-op below 2 vertices.
         """
@@ -4479,6 +4482,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               color=QColor(pl.pen().color()),
                               lineweight=getattr(pl, "_lineweight",
                                                  pl.pen().widthF()))
+            if pl._display_overrides:
+                placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)
             if pl in self._polylines:
                 self._polylines.remove(pl)

@@ -18,15 +18,43 @@ CTRL = Qt.KeyboardModifier.ControlModifier
 
 
 def _angle(a, b):
+    """Undirected segment angle a→b in degrees, folded into [0, 180).
+
+    Args:
+        a: Segment start (scene coords, Y-down).
+        b: Segment end.
+
+    Returns:
+        The angle modulo 180°, so the on-increment check is direction-free.
+    """
     return math.degrees(math.atan2(-(b.y() - a.y()), b.x() - a.x())) % 180.0
 
 
 def _on_increment(a_deg, step=45.0):
+    """Whether *a_deg* lies on a multiple of *step* (within 0.01°).
+
+    Args:
+        a_deg: Angle in degrees.
+        step: Angle increment in degrees.
+
+    Returns:
+        True if the angle is on an increment.
+    """
     r = a_deg % step
     return min(r, step - r) < 0.01
 
 
 def _poly(scene, pts, closed=False):
+    """Add a finalized, selected PolylineItem to *scene*.
+
+    Args:
+        scene: The real ``Model_Space``.
+        pts: Vertex ``(x, y)`` tuples in order.
+        closed: Flag the polyline closed (needs >= 3 vertices).
+
+    Returns:
+        The registered ``PolylineItem``.
+    """
     pl = PolylineItem(QPointF(*pts[0]))
     for p in pts[1:]:
         pl.append_point(QPointF(*p))
@@ -92,6 +120,13 @@ def test_closed_polyline_vertex0_ctrl_wraps_to_last(qapp):
 
 
 def _polygon_vertex0_ctrl(cls, bucket):
+    """Ctrl-drag vertex 0 of a closed 4-vertex polygon item; assert the edge
+    from vertex n−1 lands on a 45° increment.
+
+    Args:
+        cls: ``FloorSlab`` or ``RoofItem``.
+        bucket: The scene collection attribute the item registers in.
+    """
     view, scene = make_view(role="plan")
     try:
         item = cls([QPointF(0, 0), QPointF(1000, 0),
@@ -123,7 +158,30 @@ _ORIGIN = QPointF(0, 0)
 _RAW = QPointF(600, 400)          # 33.69° off the first vertex
 
 
+def _near(a, b, tol=0.01):
+    """Whether two points coincide within *tol* mm.
+
+    Args:
+        a: First point.
+        b: Second point.
+        tol: Distance tolerance in mm.
+
+    Returns:
+        True if ``|a − b| <= tol``.
+    """
+    return math.hypot(a.x() - b.x(), a.y() - b.y()) <= tol
+
+
 def _preview_tip(scene):
+    """Return the rubber-band preview's tip (asserting it is anchored at the
+    first vertex and visible).
+
+    Args:
+        scene: The real ``Model_Space`` mid-placement.
+
+    Returns:
+        The preview line's end point.
+    """
     ln = scene.preview_pipe.line()
     assert scene.preview_pipe.isVisible()
     assert ln.p1() == _ORIGIN, ln
@@ -146,6 +204,8 @@ def test_floor_polygon_placement_ctrl_constrains_preview_and_commit(qapp):
         pts = scene._floor_active._points
         assert len(pts) == 2 and pts[0] == _ORIGIN, pts
         assert _on_increment(_angle(pts[0], pts[1])), _angle(pts[0], pts[1])
+        # preview tip == published point == committed vertex (one anchor)
+        assert _near(tip, r) and _near(r, pts[1]), (tip, r, pts[1])
     finally:
         close_view(view, scene)
 
@@ -164,5 +224,6 @@ def test_roof_polygon_placement_ctrl_constrains_preview_and_commit(qapp):
         pts = scene._roof_active._points
         assert len(pts) == 2 and pts[0] == _ORIGIN, pts
         assert _on_increment(_angle(pts[0], pts[1])), _angle(pts[0], pts[1])
+        assert _near(tip, pts[1]), (tip, pts[1])      # preview == committed
     finally:
         close_view(view, scene)
