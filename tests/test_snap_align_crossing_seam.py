@@ -62,3 +62,42 @@ def test_real_endpoint_still_beats_crossing(qapp):
         assert res is not None and res.snap_type == "endpoint"
     finally:
         close_view(view, scene)
+
+
+def test_in_aperture_real_endpoint_beats_crossing_after_weak_foot(qapp):
+    """I2: the cursor-foot beats the endpoint by distance (1 px vs 14 px, past
+    the 12 px band), then an ALIGN crossing (5 px) displaces the foot — but a
+    real endpoint that would beat the crossing pairwise must still win
+    (align-placement §3.1: real SNAP > align_intersection)."""
+    view, scene = make_view(mode="draw_line", scale=1.0)
+    try:
+        scene.addItem(LineItem(QPointF(0, 0), QPointF(100, 0)))
+        # Vertical helper line whose endpoint (91,-200) is dwell-acquired:
+        # its V / extension rays run along x = 91, crossing the line at (91,0).
+        scene.addItem(LineItem(QPointF(91, -200), QPointF(91, -280)))
+        dwell(view, QPointF(91, -200))
+        assert len(scene._align_controller.acquired) >= 1
+        move(view, QPointF(86, 1))
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "endpoint", (
+            res, scene._align_result)
+        assert math.hypot(res.point.x() - 100, res.point.y()) < 0.01
+    finally:
+        close_view(view, scene)
+
+
+def test_hold_on_crossing_releases_to_in_aperture_real_endpoint(qapp):
+    """I2 (hold clause): a HELD align_intersection must not outlive a real
+    endpoint that beats it pairwise, even when this frame's best is a weak
+    cursor-foot."""
+    from PyQt6.QtGui import QTransform
+    from PyQt6.QtWidgets import QGraphicsScene
+
+    from firepro3d.snap_engine import OsnapResult, SnapEngine
+
+    sc = QGraphicsScene()
+    sc.addItem(LineItem(QPointF(0, 0), QPointF(100, 0)))
+    held = OsnapResult(point=QPointF(91, 0), snap_type="align_intersection")
+    res = SnapEngine().find(QPointF(86, 1), sc, QTransform(), held=held)
+    assert res is not None and res.snap_type == "endpoint"
+    assert math.hypot(res.point.x() - 100, res.point.y()) < 0.01

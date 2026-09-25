@@ -375,12 +375,32 @@ class OsnapResult:
     """
 
 
+def _band_beats(d_px: float, prio: int, inc_d_px: float, inc_prio: int,
+                band: float) -> bool:
+    """Whether a candidate displaces an incumbent under the priority-band rules.
+
+    Args:
+        d_px: Candidate cursor distance (px).
+        prio: Candidate priority (lower is stronger).
+        inc_d_px: Incumbent cursor distance (px).
+        inc_prio: Incumbent priority.
+        band: Priority-override window (px).
+
+    Returns:
+        True if the candidate wins: strictly closer beyond the band, or within
+        the band with a higher priority, or equal priority and strictly closer.
+    """
+    return (d_px < inc_d_px - band
+            or (d_px < inc_d_px + band and prio < inc_prio)
+            or (d_px < inc_d_px and prio == inc_prio))
+
+
 class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
                  "endpoint_candidates", "underlay_geoms", "only_types",
-                 "weak_types", "from_point", "search_tol")
+                 "weak_types", "from_point", "search_tol", "strong_best")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
@@ -413,6 +433,12 @@ class _SnapCtx:
         # Scene-unit search radius (find()'s search rect half-size). Cursor-
         # dependent snaps on long flattened paths cull segments beyond it.
         self.search_tol: float = search_tol
+        # Best in-aperture "strong" real candidate seen so far — neither weak
+        # nor ALIGN — as (d_px, prio, OsnapResult), ranked by the same band
+        # rules as best_result. A weak foot can displace it by distance and
+        # an ALIGN crossing can then displace the foot; this keeps the real
+        # snap recoverable so real SNAP > align_intersection holds (I2).
+        self.strong_best: "tuple[float, int, OsnapResult] | None" = None
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -442,13 +468,29 @@ class _SnapCtx:
         # cursor-foot ("weak") snap outright. The foot on the very segment a
         # ray crosses is by construction at least as close as the crossing, so
         # the band arithmetic below could never let the crossing win.
+        # A strong real candidate that would beat the crossing pairwise
+        # (closer, or within the band — its priority is always higher) is
+        # restored instead, so the override never hides a real snap (I2).
+        cand = None
+        if (snap_type not in self.weak_types
+                and snap_type not in ALIGN_SNAP_TYPES):
+            sb = self.strong_best
+            if sb is None or _band_beats(d_px, prio, sb[0], sb[1], band):
+                cand = OsnapResult(
+                    point=pt, snap_type=snap_type, source_item=src_item,
+                    source_item2=src_item2, source_lines=source_lines, name=name)
+                self.strong_best = (d_px, prio, cand)
         inc = self.best_result.snap_type if self.best_result is not None else None
         if snap_type == "align_intersection" and inc in self.weak_types:
-            self.best_dist_px = d_px
-            self.best_prio = prio
-            self.best_result = OsnapResult(
-                point=pt, snap_type=snap_type, source_item=src_item,
-                source_item2=src_item2, source_lines=source_lines, name=name)
+            sb = self.strong_best
+            if sb is not None and _band_beats(sb[0], sb[1], d_px, prio, band):
+                self.best_dist_px, self.best_prio, self.best_result = sb
+            else:
+                self.best_dist_px = d_px
+                self.best_prio = prio
+                self.best_result = OsnapResult(
+                    point=pt, snap_type=snap_type, source_item=src_item,
+                    source_item2=src_item2, source_lines=source_lines, name=name)
             return
         if snap_type in self.weak_types and inc == "align_intersection":
             return
@@ -466,12 +508,10 @@ class _SnapCtx:
         # only because its ray coincides with the extension for axis-aligned
         # geometry.  ``< best_dist_px`` (strict) means a farther equal-priority
         # candidate checked later can never displace a closer incumbent.
-        if (d_px < self.best_dist_px - band or
-                (d_px < self.best_dist_px + band and prio < self.best_prio) or
-                (d_px < self.best_dist_px and prio == self.best_prio)):
+        if _band_beats(d_px, prio, self.best_dist_px, self.best_prio, band):
             self.best_dist_px = d_px
             self.best_prio = prio
-            self.best_result = OsnapResult(
+            self.best_result = cand if cand is not None else OsnapResult(
                 point=pt, snap_type=snap_type,
                 source_item=src_item, source_item2=src_item2,
                 source_lines=source_lines, name=name,
@@ -661,6 +701,13 @@ class SnapEngine:
         if best.snap_type == "align_intersection" and held.snap_type in ctx.weak_types:
             return best
         if held.snap_type == "align_intersection" and best.snap_type in ctx.weak_types:
+            # ...unless a strong real candidate beats the held crossing
+            # pairwise (real SNAP > align_intersection, I2).
+            sb = ctx.strong_best
+            if sb is not None and _band_beats(
+                    sb[0], sb[1], held_d_px,
+                    SNAP_PRIORITY["align_intersection"], ctx.priority_band_px):
+                return sb[2]
             return held
         best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
         held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
