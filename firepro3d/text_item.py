@@ -1017,11 +1017,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def manip_handles(self):
         from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0, 2, 4, 6, 8})
+        # S2: the centre move grip is a TranslateGripHandle (handle snap).
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8},
+                                    translate={self.MOVE_GRIP_INDEX})
 
     def manip_box_extra_handles(self):
-        from .manip_handle import GripHandle
-        return [GripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
+        from .manip_handle import TranslateGripHandle
+        return [TranslateGripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
 
     def grip_render_angle(self, index: int) -> float:
         return self._angle

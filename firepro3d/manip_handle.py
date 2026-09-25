@@ -242,7 +242,8 @@ class GripHandle(Handle):
     def on_press(self, m) -> None:
         sc = m.scene()
         # Borrow the scene's grip-state so get_effective_position snaps exactly
-        # as the legacy grip path does (OSNAP excl. this item > ALIGN > grid).
+        # as the legacy grip path did (one picker: SNAP + ALIGN ranked together,
+        # excluding this item; else grid).
         self._prev_grip_item = getattr(sc, "_grip_item", None)
         self._prev_grip_dragging = getattr(sc, "_grip_dragging", False)
         sc._grip_item = self.item
@@ -254,8 +255,9 @@ class GripHandle(Handle):
     def on_drag(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
         self._raw_pt = QPointF(scene_pos)   # raw cursor, for _transform_point hooks (S2)
-        # Snap parity: drive the scene's own grip-snap authority (OSNAP excl.
-        # this item > ALIGN > grid) via the flags borrowed in on_press. Real
+        # Snap parity: drive the scene's own grip-snap authority (one picker:
+        # SNAP + ALIGN ranked together, excluding this item; else grid) via
+        # the flags borrowed in on_press. Real
         # Model_Space always has it; a plain scene (headless test) falls back
         # to the raw point.
         eff = getattr(sc, "get_effective_position", None)
@@ -337,36 +339,59 @@ class GripHandle(Handle):
 
 
 class TranslateGripHandle(GripHandle):
-    """A grip whose drag translates the whole item (LineItem midpoint).
+    """A grip whose drag translates the whole item (a move grip).
+
+    Every whole-item move grip is one: the LineItem midpoint, the
+    Circle/Ellipse/RegularPolygon centre, the TextItem centre
+    (``MOVE_GRIP_INDEX``), the WallSegment mid grip, and — composed with
+    ``RectGripHandle`` — the RectangleItem centre (``RectTranslateGripHandle``).
 
     S2: the item's own snap points snap to geometry via a
-    ``HandleSnapSession`` built at press (anchor = this grip's rest point);
-    the closest handle hit beats the grip's own cursor snap. The marker it
-    publishes on the scene is cleared on release / cancel.
+    ``HandleSnapSession`` (anchor = this grip's press-time point); the closest
+    handle hit beats the grip's own cursor snap. The session is built lazily on
+    the first ``_transform_point`` — ``on_drag`` calls it before ``_apply``, so
+    the item is still at rest — so a click without a drag pays no target
+    collection. The marker it publishes on the scene is cleared on release /
+    cancel (on a no-hit frame the grip's own cursor pick has already replaced
+    it). Cooperative: ``_transform_point`` runs the next class's hook first, so
+    it composes with a subclass's own drag semantics.
     """
 
     def on_press(self, m) -> None:
         super().on_press(m)
         self._hs = None
+        self._hs_built = False
         self._marker = None
-        sc = m.scene()
-        engine = getattr(sc, "_snap_engine", None)
-        view = m._view() if hasattr(m, "_view") else None
-        # Built at press (item at rest) regardless of the snap toggles; they
-        # gate its per-frame use (a toggle flipped mid-drag then just works).
-        if engine is not None and view is not None:
-            from .handle_snap import HandleSnapSession
-            self._hs = HandleSnapSession(engine, sc, view, [self.item],
-                                         self.item.grip_points()[self.index])
+
+    def _handle_snap(self, m):
+        """The gesture's HandleSnapSession, built on first use (item at rest).
+
+        Built regardless of the snap toggles (they gate each frame's use, so a
+        toggle flipped mid-drag just works); None when no snap engine / view is
+        reachable (paper).
+        """
+        if not getattr(self, "_hs_built", False):
+            self._hs_built = True
+            sc = m.scene()
+            engine = getattr(sc, "_snap_engine", None)
+            view = m._view() if hasattr(m, "_view") else None
+            if engine is not None and view is not None:
+                from .handle_snap import HandleSnapSession
+                self._hs = HandleSnapSession(engine, sc, view, [self.item],
+                                             self._snapshot[self.index])
+        return getattr(self, "_hs", None)
 
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:
-        hs = getattr(self, "_hs", None)
+        pt = super()._transform_point(m, pt, mods)
         raw = getattr(self, "_raw_pt", None)
-        if hs is None or raw is None:
+        if raw is None:
             return pt
         sc = m.scene()
         if not (getattr(sc, "_snap_enabled", True)
                 and getattr(getattr(sc, "_snap_engine", None), "enabled", True)):
+            return pt
+        hs = self._handle_snap(m)
+        if hs is None:
             return pt
         hit = hs.best(raw)
         if hit is None:
@@ -389,6 +414,7 @@ class TranslateGripHandle(GripHandle):
     def _end_handle_snap(self, sc) -> None:
         """Drop the session and clear the marker if it is still ours."""
         self._hs = None
+        self._hs_built = False
         self._raw_pt = None
         mine = getattr(self, "_marker", None)
         self._marker = None
@@ -443,6 +469,12 @@ class RectGripHandle(GripHandle):
         if not m._moved and getattr(self, "_pivot_pinned", False):
             self.item._pivot = self._pivot0
         super().on_release(m, scene_pos, mods)
+
+
+class RectTranslateGripHandle(TranslateGripHandle, RectGripHandle):
+    """The RectangleItem centre grip (index 8): ``RectGripHandle``'s press-time
+    local-frame drag (``rect_grip_resize`` index 8 translates; rotated-rect
+    pivot pinning + exact Esc restore) plus S2 handle snap."""
 
 
 class EndpointGripHandle(GripHandle):
@@ -595,7 +627,8 @@ class GridlineGripHandle(EndpointGripHandle):
             restore(self._gl_snapshot)
 
 
-def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset()):
+def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset(),
+                         translate: "frozenset[int] | set[int]" = frozenset()):
     """Build the default live-apply ``GripHandle`` list for a U3-migrated item.
 
     One handle per ``item.grip_points()`` index, ``grip_hittable``-filtered (an
@@ -606,14 +639,16 @@ def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset
     the round indices (e.g. CircleItem ``{0}`` centre; PolylineItem all vertices;
     a future LineItem ``{0, 2}`` endpoints, leaving the midpoint square). This is
     the shared body of every item's ``manip_handles()``; per-item drag semantics
-    live on ``GripHandle`` subclass hooks, not here.
+    live on ``GripHandle`` subclass hooks, not here. Indices in *translate* are
+    whole-item move grips and get a ``TranslateGripHandle`` (S2 handle snap).
     """
     fn = getattr(item, "grip_hittable", None)
     out = []
     for i in range(len(item.grip_points())):
         if fn is not None and not fn(i):
             continue
-        out.append(GripHandle(item, i, circular=(i in circular)))
+        cls = TranslateGripHandle if i in translate else GripHandle
+        out.append(cls(item, i, circular=(i in circular)))
     return out
 
 

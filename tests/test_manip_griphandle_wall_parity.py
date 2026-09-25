@@ -11,7 +11,8 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.wall import WallSegment
-from firepro3d.manip_handle import GripHandle, WallEndpointGripHandle
+from firepro3d.manip_handle import (GripHandle, TranslateGripHandle,
+                                     WallEndpointGripHandle)
 from firepro3d.manip_math import HandleRole
 
 
@@ -69,8 +70,9 @@ def test_wall_manip_handles_shape():
     assert isinstance(hs[0], WallEndpointGripHandle) and hs[0].circular is True
     assert isinstance(hs[1], WallEndpointGripHandle) and hs[1].circular is True
     assert hs[0].opposite_index == 1 and hs[1].opposite_index == 0
-    # mid (2) = round move grip; width (3) = square thickness grip; both plain
-    assert type(hs[2]) is GripHandle and hs[2].circular is True
+    # mid (2) = round move grip (S2: TranslateGripHandle, handle snap);
+    # width (3) = square thickness grip (plain)
+    assert type(hs[2]) is TranslateGripHandle and hs[2].circular is True
     assert type(hs[3]) is GripHandle and hs[3].circular is False
     for i, h in enumerate(hs):
         assert h.scene_position(None) == w.grip_points()[i]

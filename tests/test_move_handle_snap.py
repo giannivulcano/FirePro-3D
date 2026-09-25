@@ -287,3 +287,134 @@ def test_move_tool_recollects_on_pan_out_or_zoom(qapp):
         assert hs.target_builds == after_pan + 1
     finally:
         close_view(view, scene)
+
+
+# ── Seam I1: every whole-item move grip handle-snaps ────────────────────────
+# Each drags the item's own move grip so one of the item's snap points lands
+# ~3.6 units (px at m11 1.0) from B.p1 = (200,10) while the cursor stays > 50 px
+# from every point of B; the snap point must land exactly on B.p1.
+
+def _grip_drag_case(make_item, grip_index, point_of, delta, role="block_editor",
+                    extra_selected=None):
+    view, scene = make_view(role=role, scale=1.0)
+    try:
+        b = LineItem(QPointF(200, 10), QPointF(300, 10))
+        scene.addItem(b)
+        it = make_item()
+        scene.addItem(it)
+        scene.clearSelection()
+        it.setSelected(True)
+        if extra_selected is not None:
+            other = extra_selected()
+            scene.addItem(other)
+            other.setSelected(True)
+        QApplication.processEvents()
+        g = it.grip_points()[grip_index]
+        if callable(delta):
+            delta = delta(it)                          # measured in-scene
+        drag(view, g, QPointF(g.x() + delta.x(), g.y() + delta.y()))
+        p = point_of(it)
+        return math.hypot(p.x() - 200, p.y() - 10), (p.x(), p.y())
+    finally:
+        close_view(view, scene)
+
+
+def test_circle_centre_grip_snaps_quadrant(qapp):
+    from firepro3d.geometry_2d import CircleItem
+    off, p = _grip_drag_case(
+        lambda: CircleItem(QPointF(0, 0), 50.0), 0,
+        lambda c: QPointF(c._center.x() + c._radius, c._center.y()),
+        QPointF(147, 8))
+    assert off < 0.01, p
+
+
+def test_regular_polygon_centre_grip_snaps_vertex(qapp):
+    from firepro3d.geometry_2d import RegularPolygonItem
+    off, p = _grip_drag_case(
+        lambda: RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=50.0), 0,
+        lambda g: min(g.vertices(), key=lambda v: math.hypot(v.x() - 200, v.y() - 10)),
+        QPointF(147, 8))
+    assert off < 0.01, p
+
+
+def test_ellipse_centre_grip_snaps_axis_end(qapp):
+    from firepro3d.geometry_2d import EllipseItem
+    off, p = _grip_drag_case(
+        lambda: EllipseItem(QPointF(0, 0), 50.0, 30.0), 0,
+        lambda e: QPointF(e._center.x() + e._rx, e._center.y()),
+        QPointF(147, 8))
+    assert off < 0.01, p
+
+
+def test_rectangle_centre_grip_snaps_edge_midpoint(qapp):
+    from firepro3d.geometry_2d import RectangleItem
+    off, p = _grip_drag_case(
+        lambda: RectangleItem(QPointF(-50, -30), QPointF(50, 30)), 8,
+        lambda r: r.grip_points()[3],                 # RM: right edge midpoint
+        QPointF(147, 8))
+    assert off < 0.01, p
+
+
+def test_wall_move_grip_snaps_endpoint(qapp):
+    from firepro3d.wall import WallSegment
+    off, p = _grip_drag_case(
+        lambda: WallSegment(QPointF(0, 0), QPointF(100, 0)), 2,
+        lambda w: QPointF(w._pt2),
+        QPointF(98, 8))
+    assert off < 0.01, p
+
+
+def _text():
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    return TextItem(TextAnnotationData(text="MOVE", x=0.0, y=0.0, height_mm=20.0))
+
+
+def _text_delta(t):
+    """Raw drop puts the text's TR corner at (197,8), 3.6 from (200,10); the
+    grip (box centre) then sits left of B.p1, > 15 px from every point of B."""
+    tr = t.grip_points()[2]
+    return QPointF(197 - tr.x(), 8 - tr.y())
+
+
+def test_text_move_grip_snaps_corner_single_select(qapp):
+    """Single model text (not box-native there — no "scale" cap): the centre
+    move grip from ``manip_handles`` (index ``MOVE_GRIP_INDEX``)."""
+    off, p = _grip_drag_case(_text, 8, lambda t: t.grip_points()[2], _text_delta)
+    assert off < 0.01, p
+
+
+def test_text_move_grip_snaps_corner_multi_select(qapp):
+    """Multi-select: the text's centre move grip among the union of handles."""
+    off, p = _grip_drag_case(
+        _text, 8, lambda t: t.grip_points()[2], _text_delta,
+        extra_selected=lambda: LineItem(QPointF(-300, -200), QPointF(-250, -200)))
+    assert off < 0.01, p
+
+
+def test_grip_click_without_drag_builds_no_session(qapp, monkeypatch):
+    """M4: the O(scene) target collection is lazy — a plain click on a move
+    grip builds no HandleSnapSession; a drag builds exactly one. Counted at
+    the constructor (the cost under test), since timing a small scene would
+    not separate the two."""
+    import firepro3d.handle_snap as hsm
+    from tests._snap_polish_helpers import click
+
+    built = []
+    orig = hsm.HandleSnapSession.__init__
+
+    def counting(self, *a, **k):
+        built.append(1)
+        orig(self, *a, **k)
+
+    monkeypatch.setattr(hsm.HandleSnapSession, "__init__", counting)
+    view, scene = make_view(scale=1.0)
+    try:
+        a, _b = _ab(scene)
+        QApplication.processEvents()
+        click(view, a.grip_points()[1])
+        assert len(built) == 0
+        drag(view, a.grip_points()[1], QPointF(148, 8))
+        assert len(built) == 1
+        assert _p2_off_target(a) < 0.01
+    finally:
+        close_view(view, scene)
