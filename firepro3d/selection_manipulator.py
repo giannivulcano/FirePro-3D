@@ -359,6 +359,8 @@ class SelectionManipulator(QGraphicsObject):
                                  QTransform, QTransform]] = []
         self._D = QTransform()
         self._held_snap = None
+        self._handle_snap = None      # S2 HandleSnapSession (per move gesture)
+        self._handle_marker = None    # S2 snap result this manipulator published
 
         # Dynamic-input HUD (live readout + typed-input surface), owned per
         # gesture.  Distinct from the scene's placement HUD (``dynamic_input``)
@@ -834,10 +836,11 @@ class SelectionManipulator(QGraphicsObject):
     # --------------------------------------------------------------- snapping --
 
     def _snap(self, scene_pos: QPointF) -> QPointF:
-        """Snap the dragged grab point through the scene's snap engine.
+        """Snap a dragged rigid-handle point through the scene's snap engine.
 
-        Snap-then-transform (spec lifecycle step 2): the grab point is
-        snapped BEFORE the move delta is computed. The dragged items (and
+        Snap-then-transform (spec lifecycle step 2) for the rigid resize
+        handles (``ResizeHandle``); the interior-drag move does NOT use it
+        (handles only — see ``_update``). The dragged items (and
         their children) are excluded as snap sources so the selection never
         snaps to itself; the winning result is held via ``held=`` for
         hysteresis. Returns ``scene_pos`` unchanged when no engine/view is
@@ -846,8 +849,7 @@ class SelectionManipulator(QGraphicsObject):
         sc = self.scene()
         view = self._view()
         engine = getattr(sc, "_snap_engine", None)
-        if (engine is None or view is None
-                or not getattr(sc, "_snap_enabled", True)):
+        if not self._snap_live():
             self._held_snap = None
             return scene_pos
 
@@ -996,6 +998,7 @@ class SelectionManipulator(QGraphicsObject):
         self._last_from_center = False
         self._D = QTransform()
         self._held_snap = None
+        self._handle_snap = None
         self._snapshot_items()
         # Paper commit path: let the scene capture per-item pre-drag geometry
         # BEFORE any bake mutates the items, so its commit_hook can build
@@ -1031,12 +1034,32 @@ class SelectionManipulator(QGraphicsObject):
             if dist < QApplication.startDragDistance():
                 return
             self._moved = True
+            if self._active_handle is None:
+                # S2: build the handle-snap session NOW — the first moved
+                # update, before the first _apply, so the items are at rest
+                # and the handle offsets are rest-pose. Built regardless of
+                # Shift / snap toggles; those gate its per-frame USE.
+                self._handle_snap = self._build_handle_snap()
 
         if self._active_handle is not None:
             self._active_handle.on_drag(self, scene_pos, mods)
         else:
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-            snapped = self._snap(scene_pos)
+            # S2, handles only (user decision 2026-09-25): the grab point is
+            # NOT cursor-snapped (nor grid-snapped) — an arbitrary grab point
+            # landing on geometry is meaningless for a whole-item move. Only a
+            # moving item's own snap point landing on a target corrects the
+            # move; otherwise the delta is the raw cursor delta. Not used
+            # under Shift (ortho wins — a handle hit would be projected
+            # off-target) or while snapping is off (checked per frame).
+            snapped = QPointF(scene_pos)
+            hs = self._handle_snap
+            hit = (hs.best(scene_pos)
+                   if hs is not None and not shift and self._snap_live()
+                   else None)
+            if hit is not None:
+                snapped, _res = hit
+            self._set_handle_marker(hit[1] if hit is not None else None)
             d = move_delta(self._start_scene, snapped, ortho=shift)
             self._apply(d)
             # Live readout: dX/dY in schema (scene) units, Y-up (negate scene
@@ -1165,6 +1188,58 @@ class SelectionManipulator(QGraphicsObject):
         self._items0 = []
         self._held_snap = None
         self._active_handle = None
+        self._handle_snap = None
+        self._set_handle_marker(None)
+
+    def _snap_live(self) -> bool:
+        """Whether snapping is live for this gesture right now.
+
+        One gate for the grab-point snap (:meth:`_snap`) and the S2 handle
+        snap: a snap engine and a view are reachable (not paper), the scene's
+        snap toggle is on and the engine is enabled.
+        """
+        sc = self.scene()
+        engine = getattr(sc, "_snap_engine", None)
+        return (engine is not None and self._view() is not None
+                and getattr(sc, "_snap_enabled", True)
+                and bool(getattr(engine, "enabled", True)))
+
+    def _build_handle_snap(self):
+        """Build the S2 HandleSnapSession for this move gesture.
+
+        Called once, on the first moved update and BEFORE the first
+        ``_apply`` — the items are still at rest, so the handle offsets are
+        rest-pose. Returns None only when no snap engine / view is reachable
+        (paper); Shift and the snap toggles gate its per-frame use instead, so
+        a late build over preview-moved items can never happen.
+        """
+        sc = self.scene()
+        view = self._view()
+        engine = getattr(sc, "_snap_engine", None)
+        if engine is None or view is None:
+            return None
+        from .handle_snap import HandleSnapSession
+        return HandleSnapSession(engine, sc, view, list(self._items),
+                                 self._start_scene)
+
+    def _set_handle_marker(self, res) -> None:
+        """Publish (or clear) the S2 handle-snap marker on the scene.
+
+        Only clears a marker this manipulator published, so a hover snap
+        result owned by the scene is never wiped.
+        """
+        sc = self.scene()
+        if sc is None or not hasattr(sc, "_snap_result"):
+            return
+        mine = getattr(self, "_handle_marker", None)
+        if res is None:
+            if mine is None or sc._snap_result is not mine:
+                self._handle_marker = None
+                return
+        sc._snap_result = res
+        self._handle_marker = res
+        for v in sc.views():
+            v.viewport().update()
 
     def _click_through(self, scene_pos: QPointF,
                        mods: Qt.KeyboardModifier) -> None:

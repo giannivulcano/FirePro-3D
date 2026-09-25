@@ -1,10 +1,11 @@
 ---
-status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24)
-last-verified: 2026-09-24
-verified-commit: f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24) + snap polish (2026-09-24): move handle snap (HandleSnapSession — interior drag, Move tool, LineItem TranslateGripHandle midpoint); vertex-chain Ctrl (Polyline/FloorSlab/RoofItem vs previous vertex); seam round (2026-09-25): TranslateGripHandle on every whole-item move grip (Circle/Ellipse/RegularPolygon/Text centre, Wall mid, Rect centre via RectTranslateGripHandle), lazy session build
+last-verified: 2026-09-25
+verified-commit: 17b4371   # smoke round B: move snapping is handles only (no grab/cursor snap; Move base point = a handle); prior d36af0a   # snap-polish seam round: handle snap on every whole-item move grip (lazy build); prior 892cf76   # snap polish: move handle snap + vertex_chain_grip_handles + TranslateGripHandle; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
-  - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles
+  - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles; snap polish: TranslateGripHandle (+ RectTranslateGripHandle) + vertex_chain_grip_handles
+  - firepro3d/handle_snap.py             # S2 move handle snap: HandleSnapSession + HandleSnapResult ("Move — handle snap")
   - firepro3d/manip_math.py
   - firepro3d/arc_math.py                # ArcItem centre-grip bisector math + angle helpers (shared with End Points placement — 2d-geometry.md §4)
   - firepro3d/model_view.py              # drawForeground snap/constraint overlay + manipulator render_overlay (grip-render loop retired U4)
@@ -148,9 +149,11 @@ whose `manip_frame_redundant()` returns True (an unrotated `RectangleItem`).
 
 1. **Press** (handle/interior): snapshot per-item pre-drag state; record
    the grab point.
-2. **Move**: delta from pure math. **Snap-then-transform** — move snaps the
-   dragged grab point via `snap_engine.find(…, held=…)`; resize snaps the
-   dragged handle point.
+2. **Move**: delta from pure math. A move is **handles only** (2026-09-25): the
+   grab point is **not** snapped (no cursor, ALIGN or grid snap) — only the
+   **handle snap** below corrects the delta; otherwise it is the raw cursor
+   delta. **Snap-then-transform** still holds for resize, which snaps the dragged
+   handle point via `snap_engine.find(…, held=…)`.
    Preview = prototype held transform prepended to each item's `transform()`.
    No geometry edits, no constraint solve during the drag.
 3. **Release**: clear preview transforms → **bake once** through each item's
@@ -165,6 +168,68 @@ RectangleItem reconciles by keeping `_angle` as a serialized **data field**
 `setRotation`/`setTransformOriginPoint` — paint/shape/grips/snap read
 angle-aware local geometry. Old saves load unchanged (same fields; only the
 rendering path changes).
+
+### Move — handle snap (S2, 2026-09-24)
+
+While a selection moves, its **own snap points** snap to other geometry —
+**handles only** (user decision 2026-09-25): the cursor / grab point itself gets no
+cursor, ALIGN or grid snap on any move path, since an arbitrary grab point landing
+on geometry is meaningless for a whole-item move. Without a handle hit the move is
+the raw cursor delta. `handle_snap.HandleSnapSession` (`handle_snap.py`) serves three
+move paths: the manipulator **interior drag**, **every whole-item move grip**
+(`TranslateGripHandle`: the LineItem midpoint, the Circle / Ellipse /
+RegularPolygon centre, the TextItem centre `MOVE_GRIP_INDEX`, the WallSegment mid
+grip, and the RectangleItem centre via `RectTranslateGripHandle`), and the **Move
+tool** (`mode == "move"`, including `begin_move_from`). Grips that move only part of
+an item (ArcItem bisector centre, Room label, DesignArea badge, DetailMarker
+bubble, Gridline bubble standoffs) are not move grips. Paste is excluded: it has no
+scene items to take handles from.
+
+- **Handles** are the moving items' `endpoint` / `midpoint` / `center` / `quadrant`
+  points from `SnapEngine._collect` (so text frame boxes and block points count,
+  `snapping-engine.md §5`). In the **Move tool the picked base point is also a
+  handle** (rest = the base), so "base point onto a point" still lands exactly.
+  They are stored as offsets from the gesture anchor (the grab point, the Move base
+  point, or the grip's rest point) and captured **once, at rest**. They are deduped
+  and capped at `HANDLE_SNAP_MAX_HANDLES` (`constants.py`): the Move base point
+  first, then centre points, so a large block's insertion point is never crowded
+  out, then the rest by snap priority.
+- **Targets** are collected **once per gesture**: the same four point types from
+  every other visible item, culled to the view's visible rect plus a margin, in a
+  pixel-cell grid. The margin and the exact re-collect trigger are implementation
+  detail in `handle_snap.py`. Excluded: the moving items and their children,
+  pipes attached to a moving node, items above z 150, and the origin marker. Pipes
+  are also excluded when the engine skips pipes. Underlay geometry is queried per
+  handle through each group's `UnderlaySnapIndex`. The session is built at the
+  manipulator's first moved update (before the first preview transform, so the
+  items are at rest), at a move grip's first drag frame (`TranslateGripHandle`,
+  before its first apply; a click without a drag builds none), or when the Move
+  base point is set. The **Move tool re-collects its targets** when a zoom or pan
+  between its clicks leaves the collected extent stale (`sync_view`). Its preview is
+  a ghost, so the items are still at rest. Handles are never rebuilt.
+- **Per move**, each handle is tested against its neighbouring grid cells within
+  the snap aperture. Hits are ranked by the picker's band rules
+  (`snapping-engine.md §6.1`), and the best handle hit corrects the move: the
+  anchor is set so that handle lands exactly on its target. A target at
+  a handle's **own rest position** is skipped for that handle. It is where the
+  handle already is (a connected line's end), and snapping to it would pin the
+  selection at rest for any move shorter than the aperture.
+- **Gating** is per frame: the SNAP toggle and the engine's enabled flag. The
+  manipulator's interior drag also skips it under **Shift** (ortho would project a
+  hit off its target; Shift ortho itself is unchanged). Typed dX/dY displacements
+  ignore it.
+- **Move tool:** the **base click** snaps normally (user-chosen geometry). Once the
+  base is set, `get_effective_position` returns the raw cursor for the destination
+  (no cursor snap, **no ALIGN**, no grid); only the handle session (base point
+  included) snaps it. Paste keeps its cursor snap (it has no handles).
+- **Move grips** (`TranslateGripHandle`) skip the scene's grip-snap authority
+  (`_cursor_point` returns the raw cursor), so no cursor / ALIGN / grid snap.
+- **Marker:** a hit is published to `Model_Space._snap_result` as a
+  `HandleSnapResult`. The manipulator and a move grip clear only a marker they
+  published themselves (on a no-hit frame, release or Esc). In the Move tool the
+  destination step clears `_snap_result` each frame before a hit republishes it.
+  Never used as the hysteresis `held`: see
+  [`align-placement.md §3`](align-placement.md#3-lock-guide-one-picker-composition).
 
 ### HUD (readout + typed input)
 
@@ -291,7 +356,9 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   (loop `grip_points()` → `GripHandle`, `grip_hittable`-filtered, square except
   `circular` indices, which render as round discs); CircleItem refactored onto it
   (`circular={0}` centre), Polyline passes all vertex indices (round; no
-  move-centre grip — move is interior drag). ✅ **SplineItem DONE (2026-09-09)**
+  move-centre grip — move is interior drag). *(Superseded 2026-09-24: Polyline,
+  FloorSlab and RoofItem vertices now Ctrl-angle-constrain via
+  `vertex_chain_grip_handles` — see the PolylineItem row below.)* ✅ **SplineItem DONE (2026-09-09)**
   — control points are the spline's vertices → all round (`circular=` all
   control-point indices); same shape as Polyline, no special semantics.
   ✅ **LineItem DONE (2026-09-09)** — first item with per-item semantics:
@@ -299,7 +366,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   endpoint via a reusable `EndpointGripHandle(GripHandle)` (`_transform_point`
   → scene `_constrain_angle`; also serves Wall/Gridline endpoints later);
   midpoint (grip 1) round (a move grip — translates the whole line) + plain
-  `GripHandle` (no constrain — matches legacy). ✅ **ArcItem DONE (2026-09-10)** — zero special
+  `GripHandle` (no constrain — matches legacy). *(Superseded 2026-09-24: the
+  midpoint is a `TranslateGripHandle` — handle snap, see "Move — handle snap".)* ✅ **ArcItem DONE (2026-09-10)** — zero special
   semantics (the legacy grip path explicitly excludes arc from Ctrl-constrain):
   `default_grip_handles(self, circular={0,1,2})` (centre + start + end, all round
   — centre = move grip, start/end = the arc's geometric endpoints). Same shape as
@@ -341,7 +409,8 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   `scene._snapshot_wall_endpoints`/`_restore_wall_endpoints`, homed in
   `WallPlacementController`, reached via duck-typed scene bridges); a mid (2) round
   move grip (translates the whole wall) and a width (3) square thickness grip,
-  both plain `GripHandle`s that never propagate. Wall keeps `manip_rotate` (no
+  both plain `GripHandle`s that never propagate. *(Superseded 2026-09-25: the mid
+  grip is a `TranslateGripHandle` — handle snap; still no propagation.)* Wall keeps `manip_rotate` (no
   knob since 2026-09-23); not box-native (no `manip_scale`).
   Remaining, simplest-first:
   Gridline
@@ -405,13 +474,17 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   - ⏳ **Leg C — 3D handle providers:** pending (3D scene; orphan).
 
 **Risks to honor at each step** (why it's staged, not a big-bang): the constraint
-solver, OSNAP-per-handle, the model full-network-snapshot vs paper macro undo
+solver, the model full-network-snapshot vs paper macro undo
 split, gridline parallel-delta, wall-endpoint propagation, and the rotation
 Y-up/pivot convention all currently live in the `model_space` grip lifecycle and
 must move onto the `Handle`/manipulator path without behavior drift. The v1
 `provides_handles_for` seam was retired by U4 (2026-09-12): the box-native
 detection it encoded survives as the internal `_is_box_native_single`, but its
 arbitration-against-the-legacy-path role is gone (there is no legacy path).
+The earlier "OSNAP-per-handle" risk is retired (2026-09-24). Grips snap through the
+scene's snap authority (`GripHandle.on_drag` → `get_effective_position`), and a
+moving selection's own points snap through the handle snap (see "Move — handle
+snap").
 
 ## U2 — Handle model (as-built, 2026-09-08)
 
@@ -554,14 +627,22 @@ shared body of every migrated item's `manip_handles()`: one `GripHandle` per
 migration to keep the ~15 per-item `manip_handles()` from drifting; per-item
 drag semantics live on `GripHandle` subclass hooks, not here.
 
-**CircleItem.manip_handles()** → `default_grip_handles(self, circular={0})`:
-5 handles (center + 4 radius). Center → `apply_grip(0)` (translate); radius →
+**CircleItem.manip_handles()** → `default_grip_handles(self, circular={0},
+translate={0})`: 5 handles (center + 4 radius). Center → `apply_grip(0)`
+(translate; a `TranslateGripHandle` — handle snap); radius →
 `apply_grip(1..4)` (resize). Zero special semantics — the pattern-establisher.
 
-**PolylineItem.manip_handles()** → `default_grip_handles(self, circular=all
-vertex indices)`: one round handle per vertex, each → `apply_grip(index)` (move
-vertex + rebuild). No move-centre grip (move is the manipulator's interior
-drag); no special drag semantics.
+**PolylineItem.manip_handles()** → `vertex_chain_grip_handles(self,
+closed=self.is_closed())`: one round handle per vertex, each → `apply_grip(index)`
+(move vertex + rebuild). No move-centre grip (move is the manipulator's interior
+drag). **Ctrl angle-constrains a vertex against its PREVIOUS vertex** (2026-09-24):
+an open chain's first vertex constrains against the next one (it has no previous);
+a closed chain wraps (vertex 0 constrains against vertex n−1).
+**`vertex_chain_grip_handles(item, closed, circular=None)`** (`manip_handle.py`) is
+the shared vertex-chain body — one `EndpointGripHandle` per `grip_hittable`
+vertex with `opposite_index` chosen as above (a lone vertex gets a plain
+`GripHandle`), all round by default. The anchor is re-read live from
+`grip_points()` each frame. Used by PolylineItem, FloorSlab and RoofItem.
 
 **SplineItem.manip_handles()** → `default_grip_handles(self, circular=all
 control-point indices)`: one round handle per control point, each →
@@ -569,20 +650,29 @@ control-point indices)`: one round handle per control point, each →
 spline's vertices (no midpoints); no move-centre grip; no special drag semantics.
 
 **LineItem.manip_handles()** → `[EndpointGripHandle(0, opp=2),
-GripHandle(1), EndpointGripHandle(2, opp=0)]`. Endpoints round + Ctrl-angle-
-constrained against the opposite endpoint; midpoint round + plain — it translates
-the whole line, so it is a **move grip** (round per the house rule), not a
-geometric midpoint. **`EndpointGripHandle(GripHandle)`** (`manip_handle.py`) is the
+TranslateGripHandle(1), EndpointGripHandle(2, opp=0)]`. Endpoints round + Ctrl-angle-
+constrained against the opposite endpoint; midpoint round, no constrain — it
+translates the whole line, so it is a **move grip** (round per the house rule), not a
+geometric midpoint. **`TranslateGripHandle(GripHandle)`** (`manip_handle.py`,
+2026-09-24) adds the handle snap to that move — and to every other whole-item move
+grip (see "Move — handle snap"): on its first drag frame it builds a
+`HandleSnapSession` anchored on the grip's press-time point, and in
+`_transform_point` (cooperative: the next class's hook runs first) the best handle
+hit (from the raw cursor) corrects the drag point. Handles only: its `_cursor_point`
+returns the raw cursor (no cursor / ALIGN / grid snap). It clears its own marker on
+a no-hit frame, release or cancel. **`EndpointGripHandle(GripHandle)`** (`manip_handle.py`) is the
 reusable per-item Ctrl-constrain handle: `_transform_point` projects the dragged
 point onto the nearest angle increment ray from `grip_points()[opposite_index]`
 via the scene's `_constrain_angle` (the legacy grip authority; getattr-guarded
-for headless). Reused by Wall/Gridline endpoints (opp 1↔0) in their PRs.
+for headless). Reused by Wall/Gridline endpoints (opp 1↔0) in their PRs, and by
+the PolylineItem / FloorSlab / RoofItem vertex chains through
+`vertex_chain_grip_handles` (anchored on the previous vertex, 2026-09-24).
 
 **WallSegment.manip_handles()** → `[WallEndpointGripHandle(0, opp=1),
-WallEndpointGripHandle(1, opp=0), GripHandle(2), GripHandle(3, square)]`.
+WallEndpointGripHandle(1, opp=0), TranslateGripHandle(2), GripHandle(3, square)]`.
 Endpoints (0, 1) round + Ctrl-angle-constrained against the opposite endpoint
 (inherited from `EndpointGripHandle`); mid (2) round move grip (translates the
-whole wall); width (3) square thickness grip, aligned to the wall via
+whole wall; handle snap, "Move — handle snap"); width (3) square thickness grip, aligned to the wall via
 `grip_render_angle(3)` = the centerline's Y-up angle (so the square's edges track
 the wall orientation, like RectangleItem's edge grips / EllipseItem's axis grips;
 the round grips ignore it). The FIRST migrated item whose drag
@@ -649,19 +739,19 @@ zero special semantics. The manipulator frame wraps the badge box (`manip_bounds
 → `badge.sceneBoundingRect()`); caps are `{translate, rotate}` (badge is a
 fixed-layout table — never scalable).
 
-**FloorSlab.manip_handles()** → `default_grip_handles(self, circular=set(range(
-len(self._points))))`: one round grip per boundary vertex — a PolylineItem twin.
+**FloorSlab.manip_handles()** → `vertex_chain_grip_handles(self, closed=True)`:
+one round grip per boundary vertex — a closed PolylineItem twin.
 `grip_points()`/`apply_grip()` (move vertex + `_rebuild_path`) carry the edit math
-unchanged. **Zero special drag semantics**: polygons are explicitly excluded from
-the legacy Ctrl-constrain block (*"rect, arc, polygon, circle … must NOT be
-affected"*), and a floor's boundary is not grip-coupled to neighbours, so no
-`EndpointGripHandle`/`_transform_point`/propagation. Keeps `manip_rotate` (no
-knob); not box-native (no `manip_scale` → caps `{translate, rotate}`).
+unchanged. **Ctrl angle-constrains a vertex against the previous vertex**
+(wrapping — see the PolylineItem row; 2026-09-24, superseding the earlier
+"zero special drag semantics"). A floor's boundary is not grip-coupled to
+neighbours, so there is no propagation. Keeps `manip_rotate` (no knob); not
+box-native (no `manip_scale` → caps `{translate, rotate}`).
 
-**RoofItem.manip_handles()** → identical to FloorSlab (`default_grip_handles(self,
-circular=set(range(len(self._points))))`): one round grip per boundary vertex.
-`apply_grip` → `_rebuild_path` (regenerates overhang + ridge) unchanged. Zero
-special semantics (same polygon-boundary reasoning as FloorSlab); keeps
+**RoofItem.manip_handles()** → identical to FloorSlab
+(`vertex_chain_grip_handles(self, closed=True)`): one round grip per boundary vertex,
+Ctrl-constrained against the previous vertex (wrapping). `apply_grip` →
+`_rebuild_path` (regenerates overhang + ridge) unchanged. No propagation; keeps
 `manip_rotate` (no knob); not box-native.
 
 **DimensionAnnotation.manip_handles()** → `default_grip_handles(self, circular={0})`:
@@ -682,8 +772,9 @@ note migrated from translate-only to **box-native** (as RectangleItem then was:
 frame + resize + move; the rotate knob it also had was removed 2026-09-23). `manip_capabilities()` = `{translate, scale, rotate}`
 unrotated, dropping `scale` when `_angle != 0` so the 9 parametric grips surface
 (the pre-2026-09-23 RectangleItem convention). `manip_handles()` = `default_grip_handles(self,
-circular={0,2,4,6,8})`; `manip_box_extra_handles()` = the centre move grip (index
-8) alongside the rigid resize set when unrotated. **Resize** clones the paper
+circular={0,2,4,6,8}, translate={MOVE_GRIP_INDEX})`; `manip_box_extra_handles()` =
+the centre move grip (index 8) alongside the rigid resize set when unrotated. Both
+centre move grips are `TranslateGripHandle`s (handle snap). **Resize** clones the paper
 `TextAnnotationItem` semantics: horizontal handles set the wrap width
 (`setTextWidth`), vertical handles set `_box_height` (content-min clamped;
 `MIN_TEXT_WRAP_WIDTH_MM` for wrap), corners do both, pinned-edge — **font is never
@@ -789,14 +880,15 @@ shared with the End Points placement — `2d-geometry.md §4`):
   which the span formulas assume.
 
 **RegularPolygonItem.manip_handles()** → `default_grip_handles(self,
-circular=all indices)`: centre + N vertices, all round (centre = move; each
+circular=all indices, translate={0})`: centre + N vertices, all round (centre =
+move, a `TranslateGripHandle` — handle snap; each
 vertex = a defining point — dragging it resizes + rotates). Handle count tracks
 `_sides`. Zero special semantics (legacy grip path excludes polygon from
 Ctrl-constrain); `apply_grip` carries the edit math.
 
-**EllipseItem.manip_handles()** → `default_grip_handles(self, circular={0})`:
-centre + 4 axis endpoints. Mirrors CircleItem (an ellipse is a generalized
-circle): centre = round move grip; the axis-endpoint sizing grips (major rx=1,2,
+**EllipseItem.manip_handles()** → `default_grip_handles(self, circular={0},
+translate={0})`: centre + 4 axis endpoints. Mirrors CircleItem (an ellipse is a
+generalized circle): centre = round move grip (`TranslateGripHandle` — handle snap); the axis-endpoint sizing grips (major rx=1,2,
 which also rotate; minor ry=3,4) render **square** — same rationale as circle
 radius grips (points on a closed curve for sizing, not curve termini). Zero
 special semantics (not Wall/Gridline/Line → no Ctrl-constrain); not box-native
@@ -814,7 +906,9 @@ overrides `_apply` to resize in the rect's LOCAL frame from the **press-time**
 rect (`rect_grip_resize` in `geometry_2d.py`, the one home for the math): the
 drag point is mapped through the press-time inverse rotation; **Ctrl** = resize
 symmetrically about the centre; **Shift** = keep aspect (corners only; no effect
-on edges); the centre grip (8) moves. Angle is untouched. For a rotated rect whose
+on edges); the centre grip (8) moves — it is a `RectTranslateGripHandle`
+(`TranslateGripHandle` composed over `RectGripHandle`: the same press-time drag plus
+handle snap). Angle is untouched. For a rotated rect whose
 pivot follows its centre (`_pivot is None`), the pivot is **pinned** to the
 press-time centre during the drag so the held opposite side does not drift in
 scene; a click without a drag un-pins it (byte-identical), and Esc restores the
@@ -831,7 +925,8 @@ stay **square**. The test is *function, not position*: a grip that translates th
 whole item is a move grip → round, even when it sits at the geometric midpoint
 (LineItem's midpoint grip). Each item passes its round indices to
 `default_grip_handles` (`circular=`): CircleItem `{0}` (centre; radius grips are
-non-vertex → square), PolylineItem all vertices. Legacy `Model_View`
+non-vertex → square), PolylineItem all vertices (since 2026-09-24 via
+`vertex_chain_grip_handles`, whose `circular` defaults to every vertex). Legacy `Model_View`
 `drawForeground` drew every grip square (`model_view.py` `drawRect` 8×8); this
 rule supersedes that look as items migrate.
 

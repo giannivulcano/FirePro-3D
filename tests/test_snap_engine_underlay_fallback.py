@@ -147,14 +147,28 @@ class TestPhase1NoIndex:
         assert abs(result.point.x() - 100) < ABS_TOL
         assert abs(result.point.y() - 0) < ABS_TOL
 
-    def test_perpendicular(self, qapp):
+    def test_cursor_foot_is_nearest_without_start_point(self, qapp):
         scene = _scene()
         _make_underlay_group_with_items(scene)
         engine = _engine()
 
-        # Cursor above the line at x=50 — perpendicular foot is (50, 0).
-        # 12 scene units offset, within 20px aperture at scale=1.
+        # Cursor above the line at x=50 — the cursor foot is (50, 0).
+        # 12 scene units offset, within 20px aperture at scale=1. With no
+        # placement start point there is no ⊥: the foot is ``nearest``.
         result = _find(engine, scene, QPointF(50, 12))
+        assert result is not None
+        assert result.snap_type == "nearest"
+        assert abs(result.point.x() - 50) < ABS_TOL
+        assert abs(result.point.y() - 0) < ABS_TOL
+
+    def test_perpendicular_from_start_point(self, qapp):
+        scene = _scene()
+        _make_underlay_group_with_items(scene)
+        engine = _engine()
+
+        # PER-from: start (50, 300) → foot of the perpendicular (50, 0).
+        result = engine.find(QPointF(50, 12), scene, QTransform(),
+                             from_point=QPointF(50, 300))
         assert result is not None
         assert result.snap_type == "perpendicular"
         assert abs(result.point.x() - 50) < ABS_TOL

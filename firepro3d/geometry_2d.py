@@ -296,6 +296,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._points.append(pt)
         self._rebuild_path()
 
+    def last_point(self) -> QPointF:
+        """The most recently placed vertex (placement rubber-band anchor).
+
+        Returns:
+            A copy of the last vertex. Callers guard the empty case.
+        """
+        return QPointF(self._points[-1])
+
     def update_preview(self, pt: QPointF):
         """Temporarily extend path to *pt* for the cursor-follow preview."""
         # Rebuild with the tentative last point
@@ -444,14 +452,17 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         return specs
 
     def manip_handles(self):
-        """U3: expose each vertex as a live-apply GripHandle. All grips are
+        """U3: expose each vertex as a live-apply grip. All grips are
         vertices (no midpoint/convenience grips), so all render round per the
         house rule (vertex/endpoint grips = round disc; midpoints = square).
-        Move is the manipulator's interior-drag (no centre grip). The
-        manipulator renders/hit-tests/commits them; the legacy grip paths skip
-        this item (coexistence gate)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular=set(range(len(self._points))))
+        S3a: under Ctrl a vertex grip angle-constrains against the PREVIOUS
+        vertex; an open polyline's start vertex constrains against the next
+        one, and a closed polyline wraps (vertex 0 against n−1)
+        (``vertex_chain_grip_handles``). Move is the manipulator's
+        interior-drag (no centre grip). The manipulator renders/hit-tests/
+        commits them; the legacy grip paths skip this item (coexistence gate)."""
+        from .manip_handle import vertex_chain_grip_handles
+        return vertex_chain_grip_handles(self, closed=self.is_closed())
 
     def translate(self, dx: float, dy: float):
         """Move all vertices by (dx, dy)."""
@@ -713,10 +724,10 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         legacy path, which only constrained endpoint grips). The manipulator
         renders/hit-tests/commits them; the legacy grip paths skip this item
         (coexistence gate)."""
-        from .manip_handle import GripHandle, EndpointGripHandle
+        from .manip_handle import EndpointGripHandle, TranslateGripHandle
         return [
             EndpointGripHandle(self, 0, opposite_index=2, circular=True),
-            GripHandle(self, 1, circular=True),
+            TranslateGripHandle(self, 1, circular=True),   # S2 handle snap
             EndpointGripHandle(self, 2, opposite_index=0, circular=True),
         ]
 
@@ -1276,9 +1287,11 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         a ``RectGripHandle``: local-frame resize from the press-time rect,
         Ctrl = symmetric about the centre, Shift (corners) = keep aspect,
         centre grip = move. The rect exposes no ``scale`` capability, so the
-        manipulator's rigid resize handles never surface for it."""
-        from .manip_handle import RectGripHandle
-        return [RectGripHandle(self, i, circular=i in (0, 2, 4, 6, 8))
+        manipulator's rigid resize handles never surface for it. S2: the
+        centre (8) is a ``RectTranslateGripHandle`` (handle snap)."""
+        from .manip_handle import RectGripHandle, RectTranslateGripHandle
+        return [(RectTranslateGripHandle if i == 8 else RectGripHandle)(
+                    self, i, circular=i in (0, 2, 4, 6, 8))
                 for i in range(9)]
 
     def manip_frame_redundant(self) -> bool:
@@ -1453,9 +1466,10 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         """U3: expose parametric grips as live-apply GripHandles (center +
         4 radius). The manipulator renders/hit-tests/commits them; the legacy
         grip paths skip this item (coexistence gate). Grip 0 is the centre/move
-        grip (circular); the 4 radius grips are square parametric points."""
+        grip (circular); the 4 radius grips are square parametric points.
+        S2: the centre is a ``TranslateGripHandle`` (handle snap)."""
         from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0})
+        return default_grip_handles(self, circular={0}, translate={0})
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
@@ -2045,8 +2059,9 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         as ArcItem/Spline. The manipulator renders/hit-tests/commits them; the
         legacy grip paths skip this item (coexistence gate)."""
         from .manip_handle import default_grip_handles
+        # S2: the centre (0) is a whole-item move grip → TranslateGripHandle.
         return default_grip_handles(
-            self, circular=set(range(len(self.grip_points()))))
+            self, circular=set(range(len(self.grip_points()))), translate={0})
 
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
@@ -2258,9 +2273,10 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         major pair also rotates. Zero special drag semantics (the legacy grip
         path only Ctrl-constrains Wall/Gridline/Line); apply_grip carries the
         edit math. The manipulator renders/hit-tests/commits them; the legacy
-        grip paths skip this item (coexistence gate)."""
+        grip paths skip this item (coexistence gate). S2: the centre is a
+        ``TranslateGripHandle`` (handle snap)."""
         from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0})
+        return default_grip_handles(self, circular={0}, translate={0})
 
     def grip_render_angle(self, index: int) -> float:
         """U3 grip-shape hook: rotate the square axis grips to the ellipse's

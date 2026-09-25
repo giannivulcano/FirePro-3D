@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
 
 from .geometry_2d import (
@@ -101,6 +101,8 @@ class BlockDefinition:
         #                 interactive. See docs/specs/reference-graphic-model.md.
         self.render_mode = render_mode or "default"
         self._render_ops: list[tuple[QPen, QBrush, QPainterPath]] | None = None
+        # Cached origin-relative 9-point text frame boxes (S6 snap targets).
+        self._text_snap_pts: list[list[QPointF]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
 
     @classmethod
@@ -146,6 +148,7 @@ class BlockDefinition:
         self.primitives = list(primitives)
         self.version += 1
         self._render_ops = None
+        self._text_snap_pts = None
         for inst in list(self._instances):
             inst.on_definition_changed()
 
@@ -162,6 +165,35 @@ class BlockDefinition:
         if self._render_ops is None:
             self._render_ops = self._compile()
         return self._render_ops
+
+    def text_snap_points(self) -> list[list[QPointF]]:
+        """Origin-relative 9-point frame boxes of every text primitive.
+
+        Point order per box is TL, TM, TR, RM, BR, BM, BL, LM, C (the
+        ``TextItem.grip_points`` order, rotation-aware). These are the block's
+        text snap targets (S6); glyph outlines are never snap targets. Cached
+        and invalidated with the render ops. A geom-backed (imported)
+        reference definition has empty ``primitives``, so its list is empty;
+        an authored reference definition falls back to ``primitives`` and so
+        still yields its text boxes.
+
+        Returns:
+            One list of 9 ``QPointF`` per text primitive.
+        """
+        if self._text_snap_pts is None:
+            ox, oy = self.origin
+            out: list[list[QPointF]] = []
+            for prim in self.primitives:
+                cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
+                if cls is None:
+                    continue
+                item = cls.from_dict(prim)
+                if not hasattr(item, "render_outline_path"):
+                    continue
+                out.append([QPointF(p.x() - ox, p.y() - oy)
+                            for p in item.grip_points()])
+            self._text_snap_pts = out
+        return self._text_snap_pts
 
     def _compile(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
         """Compile captured primitive dicts into origin-relative render ops.

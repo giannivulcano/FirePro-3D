@@ -32,7 +32,8 @@ from .geometry_2d import (
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import SnapEngine, OsnapResult
+from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
+from .handle_snap import HandleSnapResult, HandleSnapSession
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -343,6 +344,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
+        self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -1131,6 +1133,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._align_active_item = None
             self._align_result = None
+        # S2: any mode change ends a Move gesture's handle-snap session.
+        self._move_handle_session = None
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -2494,7 +2498,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
-        """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
+        """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
+        together in a single ``find()``, underlay geometry included), else the
+        grid fallback."""
+        # S2, handles only (user decision 2026-09-25): once the Move base point
+        # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
+        # cursor. Only the selection's own handles (the base point included)
+        # snap, via _move_handle_snap. The base click itself (node_start_pos
+        # still None) snaps normally below: it is user-chosen geometry.
+        if self.mode == "move" and self.node_start_pos is not None:
+            self._snap_result = None
+            self._align_result = None
+            self._align_track_ray = None
+            return QPointF(scene_pos)
         # Design-area picking snaps to sprinkler centres ONLY: general
         # OSNAP/underlay/grid snapping would drag clicks onto gridlines and
         # walls, but sprinkler node centres still snap (with a marker) so
@@ -2529,80 +2545,66 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._align_result = None
             return QPointF(scene_pos)
 
-        # SNAP takes highest priority (disabled when no mode or select mode,
-        # but enabled during grip-drag even in select mode)
-        if (self._snap_enabled
-                and self.mode is not None
-                and (self.mode != "select" or self._grip_dragging)):
-            exclude = self._grip_item if self._grip_dragging else None
-            _view = self._snap_view()
-            if _view is not None:
-                result = self._snap_engine.find(
-                    scene_pos, self, _view.transform(), exclude=exclude,
-                    held=self._snap_result)
-                self._snap_result = result
-                if result is not None:
-                    self._align_result = None
-                    return result.point
-            else:
-                self._snap_result = None
-        else:
+        # ONE picker (align-placement §1.1/§3): real SNAP and ALIGN candidates
+        # are ranked in a single find() call. Real SNAP is gated by mode (select
+        # only while grip-dragging); ALIGN by an armed placement. When only
+        # ALIGN is live, the whitelist restricts the call to ALIGN types.
+        real_ok = (self._snap_enabled
+                   and self.mode is not None
+                   and (self.mode != "select" or self._grip_dragging))
+        align_ok = self._align_enabled and self._align_active_item is not None
+        _view = self._snap_view()
+        rays = None
+        if _view is not None and align_ok:
+            self._align_controller.set_active_anchor(
+                self._align_anchor_point(), self._align_anchor_direction())
+            # Parallel guide anchoring: once a placement FROM-point exists it
+            # anchors THERE (fixed, so the cursor can snap onto it); before
+            # the first point there is none, so it falls back to the cursor —
+            # a moving preview that confirms the direction was acquired. Use
+            # the raw per-mode anchor (not get_placement_anchor, which the
+            # track schema masks with the ray origin).
+            _anchor = self._mode_placement_anchor()
+            parallel_origin = ((_anchor.x(), _anchor.y()) if _anchor is not None
+                               else (scene_pos.x(), scene_pos.y()))
+            rays = self._align_controller.build_rays(parallel_origin) or None
+        if _view is None or not (real_ok or rays):
             self._snap_result = None
-
-        # ── ALIGN acquire-and-track (weak snap, below real SNAP) ─────────
-        # The controller holds the acquired set (fed on move by the dwell
-        # machine); each frame it emits the transient tracking [Ray]s (acquired
-        # H/V + extension + parallel, plus the auto-acquired active anchor).
-        # Those rays enter the ONE picker via find(align_paths=…) at ALIGN
-        # priority (below every real snap); a hit projects the cursor onto the
-        # path / crossing.
-        if self._align_enabled and self._align_active_item is not None:
-            _view = self._snap_view()
-            if _view is not None:
-                self._align_controller.set_active_anchor(
-                    self._align_anchor_point(), self._align_anchor_direction())
-                # Parallel guide anchoring: once a placement FROM-point exists it
-                # anchors THERE (fixed, so the cursor can snap onto it); before
-                # the first point there is none, so it falls back to the cursor —
-                # a moving preview that confirms the direction was acquired. Use
-                # the raw per-mode anchor (not get_placement_anchor, which the
-                # track schema masks with the ray origin).
-                _anchor = self._mode_placement_anchor()
-                parallel_origin = ((_anchor.x(), _anchor.y())
-                                   if _anchor is not None
-                                   else (scene_pos.x(), scene_pos.y()))
-                rays = self._align_controller.build_rays(parallel_origin)
-                if rays:
-                    res = self._snap_engine.find(
-                        scene_pos, self, _view.transform(),
-                        align_paths=rays, held=self._align_result,
-                        align_aperture_px=self._align_path_tol_px)
-                    self._align_result = res
-                    if (res is not None
-                            and res.snap_type in ("align_intersection",
-                                                  "align_path")):
-                        # Navigate (D4): a single-path soft-snap arms the
-                        # ``track`` schema so typing a Distance places along the
-                        # path.  The picker returns the foot point but not the
-                        # winning Ray, so recover it from ``rays`` (still held
-                        # here) — the ray whose projection of the foot has ~0
-                        # perpendicular error.  An ``align_intersection`` is a
-                        # fixed crossing with no single direction, so it gets no
-                        # distance field: clear the arm and leave the primitive
-                        # schema live.
-                        if res.snap_type == "align_path":
-                            self._arm_align_track(rays, res.point)
-                        else:
-                            self._align_track_ray = None
-                        return res.point
-                    self._align_track_ray = None
-                else:
-                    self._align_result = None
-                    self._align_track_ray = None
-        else:
             self._align_result = None
             self._align_track_ray = None
-        return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+            return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        held = self._snap_result if self._snap_result is not None else self._align_result
+        if isinstance(held, HandleSnapResult):
+            held = None     # S2 handle-snap marker: a handle's target, not a cursor snap
+        res = self._snap_engine.find(
+            scene_pos, self, _view.transform(),
+            exclude=self._grip_item if self._grip_dragging else None,
+            only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
+            held=held, align_paths=rays,
+            align_aperture_px=self._align_path_tol_px,
+            from_point=self._snap_from_point())
+        if res is None:
+            self._snap_result = None
+            self._align_result = None
+            self._align_track_ray = None
+            return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        if res.snap_type in ALIGN_SNAP_TYPES:
+            self._snap_result = None
+            self._align_result = res
+            # Navigate (D4): a single-path soft-snap arms the ``track`` schema
+            # so typing a Distance places along the path. The picker returns
+            # the foot point but not the winning Ray, so recover it from
+            # ``rays``. An ``align_intersection`` is a fixed crossing with no
+            # single direction, so it gets no distance field.
+            if res.snap_type == "align_path":
+                self._arm_align_track(rays, res.point)
+            else:
+                self._align_track_ray = None
+            return res.point
+        self._snap_result = res
+        self._align_result = None
+        self._align_track_ray = None
+        return res.point
 
     def _align_anchor_point(self):
         """The current placement FROM-point as an (x, y) tuple, or None.
@@ -2734,15 +2736,38 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "direction": self._source_item_direction(src),
         }
 
-    @staticmethod
-    def _source_item_direction(src):
-        """Unit direction of a line-like source item, or None.
+    def _source_item_direction(self, src, point: "QPointF | None" = None):
+        """Unit direction of a source item, or None.
 
-        Handles the directional entity types (line / wall / pipe / polyline);
-        anything else (nodes, ellipses, points) has no direction.
+        Line-likes (line / wall / pipe / gridline) give their end-to-end
+        direction. With *point* — the snapped point a placement was ARMED on
+        (smoke item 2b) — any other primitive gives its tangent AT that point
+        (``SnapEngine.direction_at``: rect/polyline/polygon edge, circle/arc
+        tangent, flattened ellipse/spline), so the anchor's ALIGN
+        perpendicular ray is ⟂ to the edge / radial to the circle. Without a
+        point (the dwell-acquire dict) non-line-likes keep no direction.
         """
         if src is None:
             return None
+        d = self._line_like_direction(src)
+        if d is not None or point is None:
+            return d
+        return self._snap_engine.direction_at(self, src, point)
+
+    def _arming_snap_direction(self):
+        """ALIGN anchor direction captured when a press ARMS a first point
+        (spec D3): the direction of the object the arming snap landed on, at
+        the snapped point (``None`` for empty space / a point-only source)."""
+        res = self._snap_result
+        if res is None:
+            return None
+        return self._source_item_direction(
+            getattr(res, "source_item", None), res.point)
+
+    @staticmethod
+    def _line_like_direction(src):
+        """End-to-end unit direction of a line-like item (line / wall / pipe /
+        gridline), or None for anything else."""
         import math as _math
         p1 = p2 = None
         # WallSegment: true centerline endpoints.
@@ -2816,6 +2841,47 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _mode_placement_anchor(self) -> "QPointF | None":
         """Shell → PlacementInputCoordinator._mode_placement_anchor."""
         return self._plc._mode_placement_anchor()
+
+    # S1: modes whose ⊥ snap measures from the placement start point.
+    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "roof",
+                       "draw_rectangle", "draw_circle", "draw_ellipse",
+                       "draw_arc", "draw_spline")
+
+    def _snap_from_point(self) -> "QPointF | None":
+        """Start point for perpendicular-from (AutoCAD PER), or None."""
+        if self.mode not in self._PER_FROM_MODES:
+            return None
+        if self.mode == "wall" and self._wall_primitive == "rect":
+            return None
+        if self.mode == "floor" and self._floor_primitive == "rect":
+            return None
+        if self.mode == "roof":
+            # Roof reads its own anchor here: PLC ``_mode_placement_anchor`` has
+            # no roof branch. Adding one would change more than PER-from — every
+            # anchor consumer (ALIGN parallel origin + H/V pair, the D3
+            # direction capture, ``get_placement_anchor``) would start acting
+            # for roof. (No HUD opens either way: roof has no applier in
+            # ``_APPLIER_FOR_MODE``.)
+            ra = self._roof_active
+            return ra.last_point() if ra is not None and ra._points else None
+        # Smoke item 2a — 2D primitives: PER-from applies only while the
+        # reference line runs from the FIRST click (the 1st→2nd-click step);
+        # later steps (rect depth, ellipse minor, arc sweep) measure other
+        # things, so they get no ⊥-from.
+        if self.mode == "draw_rectangle" and self._draw_rect_side_pt is not None:
+            return None
+        if self.mode == "draw_ellipse" and self._ellipse_step != 1:
+            return None
+        if self.mode == "draw_arc" and self._draw_arc_step != 1:
+            return None
+        if self.mode == "draw_spline":
+            # Spline reads its own anchor (PLC ``_mode_placement_anchor`` has
+            # no spline branch; adding one would also arm ALIGN / the HUD
+            # anchor — see the roof note above). The rubber-band ref line runs
+            # from the last control point, as for polyline.
+            pts = self._spline_points
+            return QPointF(pts[-1]) if pts else None
+        return self._mode_placement_anchor()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Published placement state (dynamic input)
@@ -3149,8 +3215,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if ray is not None:
                 self._align_anchor_dir = ray.direction
             else:
-                self._align_anchor_dir = self._source_item_direction(
-                    getattr(self._snap_result, "source_item", None))
+                self._align_anchor_dir = self._arming_snap_direction()
         return True
 
     def apply_dynamic_input(self, geometry):
@@ -3873,6 +3938,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
             return
+        snapped = self._move_handle_snap(event, snapped)
         self.preview_node.hide()
         self.preview_pipe.hide()
         offset = QPointF(snapped.x() - self.node_start_pos.x(),
@@ -3958,7 +4024,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.preview_node.hide()
             # Rubber-band line from last vertex to cursor
-            last_pt = self._floor_active._points[-1]
+            last_pt = self._floor_active.last_point()
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(last_pt, snapped)
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
@@ -4012,7 +4081,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.preview_pipe.hide()
         else:
             self.preview_node.hide()
-            last_pt = self._roof_active._points[-1]
+            last_pt = self._roof_active.last_point()
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                snapped = self._constrain_angle(last_pt, snapped)
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
@@ -4445,6 +4517,46 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         return m.hit_handle(scene_pos) or not shift
 
+    def _finish_polyline(self) -> None:
+        """Commit the in-progress polyline (Enter / double-click finish).
+
+        A 2-vertex result commits as a ``LineItem`` (S3b) — a single segment
+        IS a line. Built directly (not via ``_make_line_like``, whose draw_line
+        "reference" variant could leak in). Colour + lineweight carry over, as
+        do per-instance Display-Manager overrides (``_display_overrides`` —
+        Line and Polyline are both 2D-geometry display items, so the override
+        keys mean the same thing); a polyline fill on an open 2-point path is
+        meaningless and is dropped.
+        Placement finish only: close-on-start (>= 3 vertices), loaded files,
+        paste and blocks never pass through here. No-op below 2 vertices.
+        """
+        pl = self._polyline_active
+        if pl is None or len(pl._points) < 2:
+            return
+        pl.finalize()
+        self._polyline_active = None
+        self._hide_polyline_close_indicator()
+        self.clearSelection()  # only the just-placed item stays selected
+        placed = pl
+        if len(pl._points) == 2:
+            placed = LineItem(QPointF(pl._points[0]), QPointF(pl._points[1]),
+                              color=QColor(pl.pen().color()),
+                              lineweight=getattr(pl, "_lineweight",
+                                                 pl.pen().widthF()))
+            if pl._display_overrides:
+                placed._display_overrides = dict(pl._display_overrides)
+            self.removeItem(pl)
+            if pl in self._polylines:
+                self._polylines.remove(pl)
+            self.addItem(placed)
+            self._draw_lines.append(placed)
+        placed.setSelected(True)
+        for v in self.views():
+            v.viewport().update()
+        self.push_undo_state()
+        self.instructionChanged.emit("Pick first point")
+        self._end_placement_switch(placed)
+
     def _end_placement_switch(self, item=None) -> None:
         """After a committed placement in a single-placement mode, return to
         Select with the just-placed item(s) selected (so the manipulator frame
@@ -4552,8 +4664,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                         selection, node_under, pipe_under)
             anchor_after = self._mode_placement_anchor()
             if anchor_before is None and anchor_after is not None:
-                self._align_anchor_dir = self._source_item_direction(
-                    getattr(self._snap_result, "source_item", None))
+                self._align_anchor_dir = self._arming_snap_direction()
             # A press is what arms an anchor and what commits it, so the HUD's
             # existence is reconciled here as well as on move.  Without this a
             # committed placement would leave its readout hanging on screen
@@ -5180,7 +5291,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos is None:
             self.node_start_pos = snapped
             self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
+            self._begin_move_handle_snap(snapped)
         else:
+            snapped = self._move_handle_snap(event, snapped)
             offset = CAD_Math.get_vector(self.node_start_pos, snapped)
             if self.mode == "paste":
                 self.paste_items(offset)
@@ -5206,6 +5319,71 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.set_mode("move")
         self.node_start_pos = QPointF(base)
         self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
+        self._begin_move_handle_snap(self.node_start_pos)
+
+    def _begin_move_handle_snap(self, base: QPointF) -> None:
+        """S2: build the Move tool's HandleSnapSession once the base is set.
+
+        Move only (a paste has no scene items yet). The moving set is what
+        ``move_items`` will move (``_selected_items``, else the live
+        selection) plus each Sprinkler's Node, so none of it is a target. The
+        picked base point is itself a handle (rest = the base): the
+        destination has no cursor snap, so this is how "base onto a point"
+        still lands.
+
+        Args:
+            base: The Move base point — the handle offsets' anchor.
+        """
+        self._move_handle_session = None
+        view = self._snap_view()
+        # Built regardless of the snap toggles (items are at rest until the
+        # commit); _move_handle_snap gates its use per frame.
+        if self.mode != "move" or view is None:
+            return
+        moving = list(self._selected_items or self.selectedItems())
+        moving += [it.node for it in moving
+                   if isinstance(it, Sprinkler) and it.node is not None]
+        if moving:
+            self._move_handle_session = HandleSnapSession(
+                self._snap_engine, self, view, moving, QPointF(base),
+                extra_handles=[QPointF(base)])
+
+    def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
+        """S2: after the Move base point, the selection's own snap points
+        (and the base point) snap to geometry — handles only: the destination
+        has no cursor snap (``get_effective_position`` returns the raw cursor
+        in this step), so without a hit the destination is the raw cursor.
+
+        *event* is the scene's ``QGraphicsSceneMouseEvent`` (dispatched from
+        ``mousePressEvent`` / ``mouseMoveEvent``), so the raw cursor is
+        ``event.scenePos()``; direct callers without one fall back to
+        *snapped*.
+
+        Returns:
+            The corrected destination (winning handle exactly on its target;
+            marker published to ``_snap_result``), else *snapped* unchanged
+            (the raw cursor from a real mouse event).
+        """
+        hs = self._move_handle_session
+        if (hs is None or self.mode != "move" or self.node_start_pos is None
+                or not self._snap_enabled or not self._snap_engine.enabled):
+            return snapped
+        # Zoom/pan between the base click and here: re-collect the targets
+        # (visible rect + aperture scale). Safe — the moved items are at rest
+        # until the commit (the preview is a ghost).
+        hs.sync_view(self._snap_view())
+        scene_pos = getattr(event, "scenePos", None)
+        raw = scene_pos() if scene_pos is not None else snapped
+        hit = hs.best(raw)
+        if hit is None:
+            return snapped
+        corrected, res = hit
+        self._snap_result = res          # marker only (never a hysteresis held)
+        # No ALIGN in the destination step (handles only); kept defensive for
+        # direct callers that computed *snapped* through the picker.
+        self._align_result = None
+        self._align_track_ray = None
+        return corrected
 
     def _apply_move_displacement(self, params: dict) -> bool:
         """Apply a typed dX/dY displacement (transform schema — dict, not point).
@@ -6031,6 +6209,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 "Pick next boundary point (click near first / Enter / double-click to close, Del pops)")
         else:
             pts = self._floor_active._points
+            # Ctrl angle-constrains the committed vertex against the last one
+            # (Fold D); the close-near-first test stays on the raw ``snapped``
+            # (polyline precedent).
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                tip = self._constrain_angle(self._floor_active.last_point(), snapped)
             # Close-near-first: ≥3 points and click within snap tolerance of first vertex.
             if len(pts) >= 3:
                 scale = self._active_view_scale()
@@ -6048,7 +6233,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.instructionChanged.emit("Pick first boundary point (←/→ to change)")
                     self._end_placement_switch(slab)   # single-placement → Select
                     return
-            self._floor_active.add_point(snapped)
+            self._floor_active.add_point(tip)
 
     # ── Floor rectangle (3-click: base → side (angle + W) → depth (H)) ───────
     def _press_floor_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -6269,6 +6454,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick next point (click near first or Enter to close)")
         else:
             pts = self._roof_active._points
+            # Ctrl angle-constrains the committed vertex against the last one
+            # (Fold D); close-near-first / vertex-pop tests stay on the raw
+            # ``snapped`` (polyline precedent).
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                tip = self._constrain_angle(self._roof_active.last_point(), snapped)
             if len(pts) >= 3:
                 scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
@@ -6332,7 +6524,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         self._roof_active._rebuild_path()
                         for v in self.views(): v.viewport().update()
                         return
-            self._roof_active.add_point(snapped)
+            self._roof_active.add_point(tip)
 
     def _press_roof_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._roof_rect_anchor is None:
@@ -6544,17 +6736,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             if len(pts) > 2:
                 pts.pop()
-            if len(pts) >= 2:
-                pl = self._polyline_active
-                pl.finalize()
-                self._polyline_active = None
-                self._hide_polyline_close_indicator()
-                self.clearSelection()  # only the just-placed item stays selected
-                pl.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self.push_undo_state()
-                self.instructionChanged.emit("Pick first point")
-                self._end_placement_switch(pl)
+            self._finish_polyline()
             event.accept()
             return
 
@@ -7109,17 +7291,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
-                if len(self._polyline_active._points) >= 2:
-                    pl = self._polyline_active
-                    pl.finalize()
-                    self._polyline_active = None
-                    self._hide_polyline_close_indicator()
-                    self.clearSelection()  # only the just-placed item stays selected
-                    pl.setSelected(True)
-                    self.push_undo_state()
-                    self.instructionChanged.emit("Pick first point")
-                    self._end_placement_switch(pl)
-                    # (single-placement now returns to select; see _end_placement_switch)
+                self._finish_polyline()
+                # (single-placement now returns to select; see _end_placement_switch)
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:
                 if len(self._floor_active._points) >= 3:

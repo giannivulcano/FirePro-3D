@@ -1,7 +1,7 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) built; thumbnails + attribute authoring deferred
 last-verified: 2026-09-24
-verified-commit: f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+verified-commit: 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -115,7 +115,9 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - `_block_definitions: dict[str, BlockDefinition]` — project-scoped flyweight registry.
 - `_block_instances: list[BlockInstance]` — placed instances (parallels the existing entity lists).
 - Instances integrate as first-class entities: **selectable, movable, snappable** (`snap_engine`
-  snaps the insertion origin), **level-scoped** (see "BlockInstance level scope" below — active level
+  snaps the insertion origin, the definition's stroked on-curve vertices and each text
+  primitive's frame-box points, but never glyph outlines; the matrix row is owned by
+  [`snapping-engine.md §5`](snapping-engine.md#5-item-type-snap-type-matrix)), **level-scoped** (see "BlockInstance level scope" below — active level
   on place; participates in level visibility), **pre-highlightable**, **display-manager aware**, and
   **Z-ordered** per the elevation z-model (Z-order is owned by `view-relationships.md §7.3` +
   `constants.py` — not restated here).
@@ -267,7 +269,7 @@ level does this block show on?" is an **instance** question, so level scope live
   (working-copy/snapshot — informs v2 Editor), `underlay_manager*.py` + `frameless_shell.py`
   (Manager), `feature_browser.py` (browser tree), `icons.py`/`svg_utils.py` + `tests/test_icon_theming.py`
   (icons), `ribbon_bar.py` (group/button API), `geometry_2d.py` (the captured primitives'
-  `to_dict`/`from_dict` + `DisplayableItemMixin`), `snap_engine.py` (insertion snap).
+  `to_dict`/`from_dict` + `DisplayableItemMixin`), `snap_engine.py` (insertion + geometry + text-box snap).
 - **GENERALIZE:** extract `app_data.py::_app_data_dir()` from the duplicated `%APPDATA% or ~` +
   `FirePro3D` resolution in `sprinkler_db._default_db_path` and `titleblock_template._library_dir`
   (`todo_open.md:232`) → roots `blocks/`.

@@ -1499,12 +1499,25 @@ class TestPolylineDoubleClickFinish:
         assert scene._polyline_active is None
         assert pl.isSelected()
 
-    def test_two_point_polyline_survives_the_finish(self, scene, view):
-        """The minimum viable polyline is not popped out of existence."""
+    def test_two_point_polyline_survives_the_finish(self, scene, view, monkeypatch):
+        """The minimum viable polyline is not popped out of existence — and,
+        since a single segment IS a line, it commits as one ``LineItem``
+        (S3b): no polyline left in ``_polylines``, one line in ``_draw_lines``
+        with both clicked vertices, and exactly one undo push."""
+        from firepro3d.geometry_2d import LineItem
         pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0)])
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
         scene.mouseDoubleClickEvent(_FakeDblEvent())
-        assert len(pl._points) == 2
         assert scene._polyline_active is None
+        assert pl not in scene._polylines and pl.scene() is None
+        lines = [i for i in scene._draw_lines if type(i) is LineItem]
+        assert len(lines) == 1
+        g = lines[0].grip_points()
+        assert [(g[0].x(), g[0].y()), (g[2].x(), g[2].y())] == [
+            (0.0, 0.0), (1000.0, 0.0)]
+        assert calls == [1]
 
     def test_finish_pushes_one_undo_state(self, scene, view, monkeypatch):
         """Undo is pushed at finalize — the counterpart to the per-vertex

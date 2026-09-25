@@ -2,8 +2,9 @@
 outcome; one undo per gesture; Esc restores; snap parity (grid fallback).
 
 U3 migration of PolylineItem onto manip_handles(). Mirrors the CircleItem
-parity file (test_manip_griphandle_parity.py); polyline vertices have no
-special drag semantics (no Ctrl-constrain, no move-centre grip)."""
+parity file (test_manip_griphandle_parity.py); vertex grips Ctrl-constrain
+against the previous vertex (S3a; guarded on a real scene in
+test_polyline_polygon_ctrl.py); no move-centre grip."""
 from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView

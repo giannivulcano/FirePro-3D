@@ -102,7 +102,10 @@ def test_interior_drag_moves_item_baked(qapp, scene_and_view):
     # (12 px tolerance) so the press exercises the manipulator, not grip-drag.
     _press_move_release(view, QPointF(125, 100), QPointF(125, 160))
     assert item.transform().isIdentity()          # baked, no held transform
-    assert abs(item.line().p1().y() - 160.0) < 2.0  # snap may adjust slightly
+    # Handles only (2026-09-25): no grab-point snap and no handle target in
+    # range, so the move is the exact raw cursor delta (0, +60).
+    assert abs(item.line().p1().y() - 160.0) < 1e-6
+    assert abs(item.line().p1().x() - 100.0) < 1e-6
 
 
 def test_noop_press_release_is_byte_identical(qapp, scene_and_view):

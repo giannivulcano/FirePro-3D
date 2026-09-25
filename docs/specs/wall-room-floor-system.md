@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
 last-verified: 2026-09-24
-verified-commit: 62683b9
+verified-commit: 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -210,7 +210,7 @@ Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse place
 
 **Joined-endpoint propagation (`_propagate_wall_endpoint`, model_space.py):** when an endpoint grip (index 0 or 1) is dragged, `Model_Space` finds every **other** `WallSegment` whose `_pt1` or `_pt2` is coincident with the pre-drag position (proximity, ~0.5 scene-unit epsilon) and applies the same move to it. This keeps polyline-drawn or snapped-together walls joined on edit. No stored connectivity; no serialization change. 2+ walls at a vertex all follow (T/X junctions). Openings on all moved walls re-anchor automatically (`_rebuild_path` runs on each).
 
-**Ctrl angle-snap during grip drag:** holding Ctrl during an endpoint-grip drag (indices 0 or 1) angle-snaps the dragged point to 45° increments **from the opposite endpoint** (`_constrain_angle`). Applies to `WallSegment` grips 0/1, `GridlineItem` grips 0/1, and `LineItem` grips 0/2. (Other grip indices and item types are unaffected.)
+**Ctrl angle-snap during grip drag:** holding Ctrl while dragging a wall endpoint grip (index 0 or 1) snaps the dragged point to the angle increment **from the opposite endpoint** (`_constrain_angle`). Which grips of which items Ctrl-constrain, and against which anchor, is owned by [`selection-manipulator.md`](selection-manipulator.md) (`EndpointGripHandle`, `vertex_chain_grip_handles`).
 
 ## 5. Wall Joinery
 
@@ -737,7 +737,7 @@ specific: the solved rect's 4 scene corners (`rotated_rect_corners`) are committ
 as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect's
 4 segments).
 
-**Polygon:** click-vertex boundary; **click near the first vertex (≥3 verts) / Enter / double-click** closes; **Delete** pops the last vertex (routed through `Model_View` for both the polygon and the tool-shortcut path; discards the in-progress slab at one vertex). `close_polygon()` finalizes; minimum 3 points. Vertex insert/remove after placement via `insert_point()` / `remove_point()` (keeps ≥ 3). The old click-near-a-vertex-to-delete-mid-placement gesture was removed (Delete replaces it).
+**Polygon:** click-vertex boundary; **click near the first vertex (≥3 verts) / Enter / double-click** closes; **Delete** pops the last vertex (routed through `Model_View` for both the polygon and the tool-shortcut path; discards the in-progress slab at one vertex). `close_polygon()` finalizes; minimum 3 points. Vertex insert/remove after placement via `insert_point()` / `remove_point()` (keeps ≥ 3). The old click-near-a-vertex-to-delete-mid-placement gesture was removed (Delete replaces it). **Ctrl** angle-constrains each new vertex against the previous one (`_constrain_angle`, 2026-09-24) on both move and press, so the preview tip, the published HUD point and the committed vertex agree. The close-near-first-vertex test still reads the **raw** cursor, not the constrained tip (the polyline precedent), so a constrained tip that lands on vertex 0 does not close the polygon. Whether the close test should also accept the tip is an open design follow-up. Roof polygon placement (`_press_roof` / `_move_roof`) follows the same Ctrl rule, and its close-near-first and vertex-pop tests also read the raw cursor. Roof placement has no section of its own in this spec yet.
 
 **Continuous** placement (each commit re-arms; Esc exits to select). The **passive HUD** shows geometry only (rect side W + Angle, then depth H; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
 
@@ -802,7 +802,7 @@ Type · Name
 
 ### 11.10 Grip Points & Cross-References
 
-Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path. `translate(dx, dy)` shifts all vertices (so `move_items` works on floors).
+Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path. Grip-drag semantics (including Ctrl) are owned by [`selection-manipulator.md`](selection-manipulator.md). `translate(dx, dy)` shifts all vertices (so `move_items` works on floors).
 
 **Elevation / section projection** (`elevation_scene._project_floor_slabs`) resolves each slab's world-Z via `slab._z_range_with_lm(self._lm)` — using the elevation scene's **own** `LevelManager` explicitly (the slab lives in the model scene, so `slab.z_range_mm()` is not guaranteed to reach the right manager). Unresolvable slabs are skipped (degenerate-safe).
 

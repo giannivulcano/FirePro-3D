@@ -140,6 +140,14 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         self._points.append(QPointF(pt))
         self._rebuild_path()
 
+    def last_point(self) -> QPointF:
+        """The most recently placed vertex (placement rubber-band anchor).
+
+        Returns:
+            A copy of the last vertex. Callers guard the empty case.
+        """
+        return QPointF(self._points[-1])
+
     def close_polygon(self):
         """Call after the last point is added to finalise the polygon."""
         if len(self._points) >= 3:
@@ -374,13 +382,14 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         """U3: boundary vertices as live-apply grips (FloorSlab/PolylineItem twin).
 
         Every vertex is a round grip (house rule); ``apply_grip`` carries the edit
-        math unchanged (``_rebuild_path`` regenerates overhang + ridge). Zero
-        special semantics — polygons are excluded from the legacy Ctrl-constrain
-        block, and a roof is not grip-coupled to neighbours — so no
-        ``EndpointGripHandle``/propagation. Keeps ``manip_rotate`` (future
-        Rotate transform); not box-native (no ``manip_scale``)."""
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular=set(range(len(self._points))))
+        math unchanged (``_rebuild_path`` regenerates overhang + ridge). S3a:
+        under Ctrl a vertex grip angle-constrains against the PREVIOUS boundary
+        vertex (closed chain — vertex 0 wraps to n−1) via
+        ``vertex_chain_grip_handles``. A roof is not grip-coupled to
+        neighbours, so no propagation. Keeps ``manip_rotate`` (future Rotate
+        transform); not box-native (no ``manip_scale``)."""
+        from .manip_handle import vertex_chain_grip_handles
+        return vertex_chain_grip_handles(self, closed=True)
 
     def insert_point(self, idx: int, pt: QPointF):
         """Insert a vertex at position *idx*."""

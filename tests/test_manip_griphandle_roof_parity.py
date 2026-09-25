@@ -2,9 +2,9 @@
 outcome; one undo per gesture; Esc restores; snap parity (grid fallback).
 
 U3 migration of RoofItem onto manip_handles(). FloorSlab twin (both are polygon
-boundary items); roof boundary vertices have no special drag semantics (no
-Ctrl-constrain, no move-centre grip, no sibling propagation) — polygons are
-excluded from the legacy Ctrl-constrain block."""
+boundary items); roof boundary vertex grips Ctrl-constrain against the
+previous vertex (S3a; guarded on a real scene in test_polyline_polygon_ctrl.py);
+no move-centre grip, no sibling propagation."""
 from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView

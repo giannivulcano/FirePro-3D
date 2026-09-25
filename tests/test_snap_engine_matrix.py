@@ -75,9 +75,21 @@ def _scene() -> QGraphicsScene:
 
 
 def _find(engine: SnapEngine, scene: QGraphicsScene,
-          cursor: QPointF):
+          cursor: QPointF, from_point: QPointF | None = None):
     """Run find() with identity transform (scale=1, tol=20 scene units)."""
-    return engine.find(cursor, scene, QTransform())
+    return engine.find(cursor, scene, QTransform(), from_point=from_point)
+
+
+def _per_start(cursor: QPointF, foot: QPointF) -> QPointF:
+    """A placement start point whose PER-from foot is *foot*.
+
+    ``perpendicular`` exists only as PER-from-start (no start point → the
+    cursor foot is ``nearest``). The cursor sits on the edge normal through
+    *foot*, so a start 10x farther out along that normal has *foot* as its
+    perpendicular foot (radial for circles/arcs).
+    """
+    return QPointF(foot.x() + 10 * (cursor.x() - foot.x()),
+                   foot.y() + 10 * (cursor.y() - foot.y()))
 
 
 def _crossing_line(scene: QGraphicsScene,
@@ -134,9 +146,13 @@ class TestLineItem:
         _assert_snap(result, "intersection", QPointF(100, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(80, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(80, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(80, 0)))
         _assert_snap(result, "perpendicular", QPointF(80, 0))
 
     def test_nearest(self):
@@ -179,9 +195,13 @@ class TestGridlineItem:
         _assert_snap(result, "intersection", QPointF(100, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(80, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(80, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(80, 0)))
         _assert_snap(result, "perpendicular", QPointF(80, 0))
 
     def test_nearest(self):
@@ -222,9 +242,13 @@ class TestQGraphicsLineItem:
         _assert_snap(result, "intersection", QPointF(100, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(80, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(80, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(80, 0)))
         _assert_snap(result, "perpendicular", QPointF(80, 0))
 
     def test_nearest(self):
@@ -279,10 +303,14 @@ class TestRectangleItem:
         _assert_snap(result, "intersection", QPointF(30, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(20, 0 - PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False,
                     snap_center=False),
-            self.scene, QPointF(20, 0 - PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(20, 0)))
         _assert_snap(result, "perpendicular", QPointF(20, 0))
 
     def test_nearest(self):
@@ -398,14 +426,7 @@ class TestFullCircle:
     Uses CircleItem (a QGraphicsEllipseItem subclass) because phase-4
     intersection detection extracts circles from CircleItem._center /
     ._radius — a bare QGraphicsEllipseItem would miss intersection snaps.
-
-    The engine reads quadrant/perpendicular/nearest positions from the
-    item's boundingRect(), which includes pen-width padding.  Assertions
-    use a relaxed tolerance (4 scene units) to accommodate the ≈3-unit
-    BR expansion caused by the default cosmetic pen.
     """
-
-    BR_TOL = 4.0  # allow for bounding-rect pen-width expansion
 
     @pytest.fixture(autouse=True)
     def setup(self, qapp):
@@ -425,7 +446,7 @@ class TestFullCircle:
                     snap_nearest=False),
             self.scene, QPointF(155, 100))
         _assert_snap(result, "quadrant", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_quadrant_top(self):
         result = _find(
@@ -433,7 +454,7 @@ class TestFullCircle:
                     snap_nearest=False),
             self.scene, QPointF(100, 45))
         _assert_snap(result, "quadrant", QPointF(100, 50),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_intersection(self):
         _crossing_line(self.scene, x=100, y_range=200)
@@ -444,19 +465,22 @@ class TestFullCircle:
     def test_perpendicular(self):
         # Cursor outside circle, closest point on circumference.
         # 65 units from center → 15 units outside radius=50, within 20px aperture.
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(100 + 65, 100)
         result = _find(
             _engine(snap_center=False, snap_quadrant=False),
-            self.scene, QPointF(100 + 65, 100))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(150, 100)))
         _assert_snap(result, "perpendicular", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
     def test_tangent(self):
         # Cursor must be outside the circle radius but close enough that
         # the tangent point falls within the snap tolerance (20 scene
-        # units).  With BR-derived radius ~53 and tol=20, the cursor
-        # must satisfy sqrt(d^2 - r^2) < 20 → d < ~56.
-        # d=56 → tangent dist = sqrt(56^2 - 53^2) ≈ 18.1, within aperture.
-        cursor = QPointF(156, 100)  # d=56 from center, tangent dist ≈ 18 < 20px
+        # units).  True radius r=50 (engine reads rect(), S4); cursor at
+        # d=53 → tangent dist = sqrt(53^2 - 50^2) ≈ 17.6 < 20, in aperture.
+        cursor = QPointF(153, 100)  # d=53 from center, tangent dist ≈ 17.6 < 20px
         result = _find(
             _engine(snap_center=False, snap_quadrant=False,
                     snap_perpendicular=False, snap_nearest=False),
@@ -464,10 +488,10 @@ class TestFullCircle:
         assert result is not None, "expected tangent snap"
         assert result.snap_type == "tangent"
         # Tangent point must lie on the circumference (distance from
-        # center ≈ radius, within BR tolerance for pen-width expansion)
+        # center == radius).
         tp = result.point
         dist = math.hypot(tp.x() - 100, tp.y() - 100)
-        assert abs(dist - 50) < self.BR_TOL, (
+        assert abs(dist - 50) < ABS_TOL, (
             f"tangent point dist from center={dist:.1f}, expected ≈50"
         )
 
@@ -478,7 +502,7 @@ class TestFullCircle:
                     snap_perpendicular=False),
             self.scene, QPointF(100 + 65, 100))
         _assert_snap(result, "nearest", QPointF(150, 100),
-                     tol=self.BR_TOL)
+                     tol=ABS_TOL)
 
 
 # ── QGraphicsEllipseItem (Node) ──────────────────────────────────────────────
@@ -533,9 +557,13 @@ class TestWallSegment:
         _assert_snap(result, "midpoint", QPointF(500, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(300, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(300, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(300, 0)))
         _assert_snap(result, "perpendicular", QPointF(300, 0))
 
     def test_nearest(self):
@@ -579,9 +607,13 @@ class TestPolylineItem:
         _assert_snap(result, "intersection", QPointF(100, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(80, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(80, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(80, 0)))
         _assert_snap(result, "perpendicular", QPointF(80, 0))
 
     def test_nearest(self):
@@ -677,10 +709,14 @@ class TestArcItem:
     def test_perpendicular(self):
         """Cursor outside arc along 0° direction — perp snaps to (30, 0)."""
         # Cursor at (30 + 8, 0) — still within tol=40 of the arc path
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(self.R + 8, 0)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False,
                     snap_center=False, snap_quadrant=False),
-            self.scene, QPointF(self.R + 8, 0))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(self.R, 0)))
         _assert_snap(result, "perpendicular", QPointF(self.R, 0))
 
     def test_tangent(self):
@@ -755,9 +791,13 @@ class TestDXFPathItem:
         _assert_snap(result, "intersection", QPointF(100, 0))
 
     def test_perpendicular(self):
+        # No start point → no ⊥ (nearest only): PER-from a start on
+        # the edge normal through the expected foot.
+        cursor = QPointF(80, PERP_OFFSET)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False),
-            self.scene, QPointF(80, PERP_OFFSET))
+            self.scene, cursor,
+            from_point=_per_start(cursor, QPointF(80, 0)))
         _assert_snap(result, "perpendicular", QPointF(80, 0))
 
     def test_nearest(self):

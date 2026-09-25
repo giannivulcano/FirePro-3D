@@ -192,19 +192,21 @@ class Model_View(QGraphicsView):
         """
         Overlay drawn on top of all scene content.
 
-        Renders (in order):
-        1. Snap trace + OSNAP marker — dashed ghost of the snapped item(s) plus
-           the coloured snap-point glyph, both from the shared paint_snap_indicator
-           (see snap_engine) so this view and the import-dialog preview match.
-        2. Grip handles — small squares on selected geometry items (viewport coords).
-        3. Dim HUD — live dimension text near the cursor (viewport coords).
+        Renders (in order, among other overlays): the detail-view clip mask,
+        the snap trace + SNAP marker (dashed ghost of the snapped item(s) plus
+        the coloured snap-point glyph, both from the shared
+        ``paint_snap_indicator`` so this view and the import-dialog preview
+        match), the HALO highlight, selection readouts, the rubber band, and the
+        remaining overlays (floor vertex dots, constraint / gridline indicators,
+        dim HUD, ALIGN overlay, array / move ghosts, crosshair).
 
-        Note: the snap trace+marker draw BEFORE grip handles (the shared painter
-        emits them together). During a snapped grip-drag (snapping is active when
-        ``mode != "select"`` OR ``_grip_dragging``) the marker and the active grip
-        square co-occur at the snap point; the grip then paints over the marker
-        centre. This overlap is cosmetic (the marker outline still rings the grip)
-        and was accepted when the painter was unified.
+        Grip handles are NOT drawn here: they are the selection manipulator's
+        ``_HandleItem`` scene items, painted in the item pass BEFORE
+        ``drawForeground``. The snap marker therefore paints OVER the grips —
+        during a snapped grip-drag the marker at the snap point sits on top of
+        the active grip (selection-manipulator.md). The one exception is a
+        detail view, whose clip mask would dim the handles, so the manipulator's
+        ``render_overlay`` redraws its frame/handles above the mask here.
         """
         super().drawForeground(painter, rect)
         scene = self.scene()
@@ -516,6 +518,11 @@ class Model_View(QGraphicsView):
                 for ln in src_lines:
                     painter.drawLine(ln)      # scene-coord QLineF, cosmetic pen
                 painter.restore()
+            # The ALIGN snap point gets the regular snap glyph, on top of the
+            # vectors (⊥ / nearest for a single path, X for a crossing —
+            # snap_engine.snap_glyph_type).
+            if align_res is not None:
+                paint_snap_indicator(painter, self, align_res)
             # '+' acquired markers (viewport coords).
             acquired = ctrl.acquired_points()
             if acquired:

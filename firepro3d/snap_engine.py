@@ -58,6 +58,12 @@ SNAP_MAX_SCENE_TOL = 10000.0  # mm
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
 SNAP_HYSTERESIS_PX = 3       # hold the current snap until another beats it by this many px
 _ENDPOINT_PROTECTION_PX = 6  # intersection candidates within this px of an in-aperture endpoint are suppressed (spec §6.3 Change B)
+
+# 9-point frame-box order shared with ``TextItem.grip_points()`` /
+# ``BlockDefinition.text_snap_points()``: TL,TM,TR,RM,BR,BM,BL,LM,C (S6).
+_BOX_CORNERS = (0, 2, 4, 6)   # emitted as "endpoint"
+_BOX_MIDS = (1, 3, 5, 7)      # emitted as "midpoint"
+_BOX_CENTER = 8               # emitted as "center"
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 
@@ -127,7 +133,7 @@ _FACE_COLLAPSE_SCENE_EPS: float = 3.0
 #   quadrant        orange     diamond                  QUA  (priority 5)
 #   perpendicular   magenta    right-angle symbol       PER  (priority 4)
 #   tangent         lime       tangent circle           TAN  (priority 6)
-#   nearest         grey       cross                    NEA  (priority 7)
+#   nearest         white      cross                    NEA  (priority 7)
 #
 # Two *filled* named-target variants (added 2026-04 per snap engine
 # spec §8.2, amended). These are triggered by the ``name`` field on
@@ -145,7 +151,7 @@ SNAP_COLORS: dict[str, str] = {
     "intersection":  "#ffff00",   # yellow  – X marker (gridline crossings)
     "center":        "#00eeee",   # cyan    – circle marker
     "quadrant":      "#ff8800",   # orange  – diamond marker
-    "nearest":       "#aaaaaa",   # grey    – cross marker
+    "nearest":       "#ffffff",   # white   – cross marker
     "perpendicular": "#ff00ff",   # magenta – right-angle marker
     "tangent":       "#88ff00",   # lime    – tangent marker
 }
@@ -165,6 +171,25 @@ SNAP_MARKERS: dict[str, str] = {
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared snap-indicator painter
 # ─────────────────────────────────────────────────────────────────────────────
+
+def snap_glyph_type(snap_result) -> str:
+    """The SNAP_COLORS / SNAP_MARKERS key a result is drawn with.
+
+    Real snaps draw their own type. ALIGN snaps reuse the regular glyphs
+    (smoke item 3): a crossing (``align_intersection``) draws the intersection
+    X; a single-path ``align_path`` draws ⊥ when the winning ray's kind
+    (carried on ``OsnapResult.name``) is ``"perpendicular"``, else the nearest
+    cross.
+    """
+    t = snap_result.snap_type
+    if t == "align_intersection":
+        return "intersection"
+    if t == "align_path":
+        return ("perpendicular"
+                if getattr(snap_result, "name", None) == "perpendicular"
+                else "nearest")
+    return t
+
 
 def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     """Draw the snap trace and marker glyph for one snap result.
@@ -199,13 +224,16 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     if snap_result is None:
         return
 
-    snap_type = snap_result.snap_type
+    snap_type = snap_glyph_type(snap_result)
     point = snap_result.point
+    # ALIGN results skip the trace: their tracking vectors are drawn by the
+    # caller in the ALIGN guide style (Model_View.drawForeground §6).
+    _is_align = snap_result.snap_type in ALIGN_SNAP_TYPES
 
     # ── 1. Source-item trace (scene coordinates — no resetTransform) ──────────
     src_item = getattr(snap_result, "source_item", None)
     src_lines = getattr(snap_result, "source_lines", None)
-    if src_item is not None or src_lines:
+    if not _is_align and (src_item is not None or src_lines):
         color = QColor(SNAP_COLORS.get(snap_type, "#aaaaaa"))
         trace_pen = QPen(color, 1)
         trace_pen.setStyle(Qt.PenStyle.DashLine)
@@ -346,6 +374,12 @@ SNAP_PRIORITY: dict[str, int] = {
     "align_path":         30,
 }
 
+# ALIGN candidate types (transient tracking; see align-placement.md).
+ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
+
+# Cursor-foot snap types an in-aperture ALIGN crossing beats outright (S5).
+_WEAK_SNAP_TYPES: frozenset[str] = frozenset({"nearest"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OsnapResult
@@ -372,15 +406,38 @@ class OsnapResult:
     """
 
 
+def _band_beats(d_px: float, prio: int, inc_d_px: float, inc_prio: int,
+                band: float) -> bool:
+    """Whether a candidate displaces an incumbent under the priority-band rules.
+
+    Args:
+        d_px: Candidate cursor distance (px).
+        prio: Candidate priority (lower is stronger).
+        inc_d_px: Incumbent cursor distance (px).
+        inc_prio: Incumbent priority.
+        band: Priority-override window (px).
+
+    Returns:
+        True if the candidate wins: strictly closer beyond the band, or within
+        the band with a higher priority, or equal priority and strictly closer.
+    """
+    return (d_px < inc_d_px - band
+            or (d_px < inc_d_px + band and prio < inc_prio)
+            or (d_px < inc_d_px and prio == inc_prio))
+
+
 class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
-                 "endpoint_candidates", "underlay_geoms", "only_types")
+                 "endpoint_candidates", "underlay_geoms", "only_types",
+                 "weak_types", "from_point", "search_tol", "strong_best")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
-                 only_types: "set[str] | None" = None):
+                 only_types: "set[str] | None" = None,
+                 from_point: "QPointF | None" = None,
+                 search_tol: float = math.inf):
         self.cursor = cursor
         self.scale = _safe_scale(scale)
         self.aperture_px = aperture_px
@@ -398,6 +455,22 @@ class _SnapCtx:
         self.underlay_geoms: dict[int, list[dict]] = {}
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
+        # Placement start point for perpendicular-from (S1); None = no ⊥
+        # candidates at all (the cursor foot is ``nearest``).
+        self.from_point: "QPointF | None" = from_point
+        # Cursor-foot ("weak") snap types an in-aperture ALIGN crossing beats
+        # outright (S5, align-placement §3.1). ``perpendicular`` is only ever
+        # a real PER-from foot, so ``nearest`` is the sole weak type.
+        self.weak_types: frozenset[str] = _WEAK_SNAP_TYPES
+        # Scene-unit search radius (find()'s search rect half-size). Cursor-
+        # dependent snaps on long flattened paths cull segments beyond it.
+        self.search_tol: float = search_tol
+        # Best in-aperture "strong" real candidate seen so far — neither weak
+        # nor ALIGN — as (d_px, prio, OsnapResult), ranked by the same band
+        # rules as best_result. A weak foot can displace it by distance and
+        # an ALIGN crossing can then displace the foot; this keeps the real
+        # snap recoverable so real SNAP > align_intersection holds (I2).
+        self.strong_best: "tuple[float, int, OsnapResult] | None" = None
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -423,6 +496,36 @@ class _SnapCtx:
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
         band = self.priority_band_px
+        # S5 (align-placement §3.1): an in-aperture ALIGN crossing beats a
+        # cursor-foot ("weak") snap outright. The foot on the very segment a
+        # ray crosses is by construction at least as close as the crossing, so
+        # the band arithmetic below could never let the crossing win.
+        # A strong real candidate that would beat the crossing pairwise
+        # (closer, or within the band — its priority is always higher) is
+        # restored instead, so the override never hides a real snap (I2).
+        cand = None
+        if (snap_type not in self.weak_types
+                and snap_type not in ALIGN_SNAP_TYPES):
+            sb = self.strong_best
+            if sb is None or _band_beats(d_px, prio, sb[0], sb[1], band):
+                cand = OsnapResult(
+                    point=pt, snap_type=snap_type, source_item=src_item,
+                    source_item2=src_item2, source_lines=source_lines, name=name)
+                self.strong_best = (d_px, prio, cand)
+        inc = self.best_result.snap_type if self.best_result is not None else None
+        if snap_type == "align_intersection" and inc in self.weak_types:
+            sb = self.strong_best
+            if sb is not None and _band_beats(sb[0], sb[1], d_px, prio, band):
+                self.best_dist_px, self.best_prio, self.best_result = sb
+            else:
+                self.best_dist_px = d_px
+                self.best_prio = prio
+                self.best_result = OsnapResult(
+                    point=pt, snap_type=snap_type, source_item=src_item,
+                    source_item2=src_item2, source_lines=source_lines, name=name)
+            return
+        if snap_type in self.weak_types and inc == "align_intersection":
+            return
         # Acceptance rules (all judged in px):
         #  1. strictly closer beyond the band  → always win;
         #  2. within the band + higher priority → win (priority-override,
@@ -437,12 +540,10 @@ class _SnapCtx:
         # only because its ray coincides with the extension for axis-aligned
         # geometry.  ``< best_dist_px`` (strict) means a farther equal-priority
         # candidate checked later can never displace a closer incumbent.
-        if (d_px < self.best_dist_px - band or
-                (d_px < self.best_dist_px + band and prio < self.best_prio) or
-                (d_px < self.best_dist_px and prio == self.best_prio)):
+        if _band_beats(d_px, prio, self.best_dist_px, self.best_prio, band):
             self.best_dist_px = d_px
             self.best_prio = prio
-            self.best_result = OsnapResult(
+            self.best_result = cand if cand is not None else OsnapResult(
                 point=pt, snap_type=snap_type,
                 source_item=src_item, source_item2=src_item2,
                 source_lines=source_lines, name=name,
@@ -488,6 +589,7 @@ class SnapEngine:
         held:           "OsnapResult | None" = None,
         align_paths:    "list | None" = None,
         align_aperture_px: float | None = None,
+        from_point:     "QPointF | None" = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -523,6 +625,10 @@ class SnapEngine:
                 aperture, so a cursor can reach a tracking path from farther away
                 without loosening real snaps. ``None`` (default) falls back to
                 ``ALIGN_PATH_TOL_PX``. Real-snap acceptance is never affected.
+            from_point: Placement start point: turns ``perpendicular`` into the
+                foot from this point (AutoCAD PER, S1); ``None`` (default) keeps
+                the cursor foot. With a start point only ``nearest`` remains a
+                "weak" cursor-foot type that an ALIGN crossing beats outright.
         """
         if not self.enabled:
             return None
@@ -550,7 +656,8 @@ class SnapEngine:
         # Mutable snap-tracking state shared across phases
         ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
                        aperture_px=aperture_px, priority_band_px=priority_band_px,
-                       only_types=only_types)
+                       only_types=only_types, from_point=from_point,
+                       search_tol=search_tol)
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
@@ -600,7 +707,9 @@ class SnapEngine:
             # single-path projection (priority align_path = 30)
             for ray in align_paths:
                 foot, _ = project_to_ray(cur, ray)
-                ctx.check("align_path", QPointF(*foot), None,
+                # name = the ray kind, so the painter can pick the glyph
+                # (⊥ for a perpendicular ray, nearest otherwise).
+                ctx.check("align_path", QPointF(*foot), None, ray.kind,
                           source_lines=[_ray_line(ray)],
                           aperture_px=align_aperture)
 
@@ -613,11 +722,23 @@ class SnapEngine:
         # A held ALIGN result is released at the ALIGN aperture, not the tighter
         # real-snap aperture, so an on-path hold isn't dropped prematurely.
         held_aperture = (align_aperture
-                         if held.snap_type in ("align_intersection", "align_path")
+                         if held.snap_type in ALIGN_SNAP_TYPES
                          else aperture_px)
         if held_d_px > held_aperture:
             return best  # cursor left the held aperture → release the hold
         if best is None:
+            return held
+        # S5: the weak-foot dominance applies across the hold too.
+        if best.snap_type == "align_intersection" and held.snap_type in ctx.weak_types:
+            return best
+        if held.snap_type == "align_intersection" and best.snap_type in ctx.weak_types:
+            # ...unless a strong real candidate beats the held crossing
+            # pairwise (real SNAP > align_intersection, I2).
+            sb = ctx.strong_best
+            if sb is not None and _band_beats(
+                    sb[0], sb[1], held_d_px,
+                    SNAP_PRIORITY["align_intersection"], ctx.priority_band_px):
+                return sb[2]
             return held
         best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
         held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
@@ -638,8 +759,6 @@ class SnapEngine:
                            exclude: QGraphicsItem | None,
                            item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
-        _skip_types = (TextItem,)
-
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
         _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
@@ -671,15 +790,16 @@ class SnapEngine:
                                 item):
                             ctx.check(snap_type, scene_pt, item, name)
                         for snap_type, pt in self._geometric_snaps(
-                                ctx.cursor, item):
+                                ctx.cursor, item, ctx.from_point,
+                                ctx.search_tol):
                             ctx.check(snap_type, pt, item)
                 continue
 
             if item.zValue() > 150:
                 continue
-            if isinstance(item, _skip_types):
-                continue
-            if item.data(0) == "origin":
+            # Unbound call: TextItem shadows QGraphicsItem.data with its
+            # TextAnnotationData property, so item.data(0) would raise (S6).
+            if QGraphicsItem.data(item, 0) == "origin":
                 continue
             if self.skip_pipes and isinstance(item, Pipe):
                 continue
@@ -698,7 +818,9 @@ class SnapEngine:
 
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
-            for snap_type, pt in self._geometric_snaps(ctx.cursor, item):
+            for snap_type, pt in self._geometric_snaps(ctx.cursor, item,
+                                                       ctx.from_point,
+                                                       ctx.search_tol):
                 ctx.check(snap_type, pt, item)
 
     def _check_gridline_intersections(self, ctx: "_SnapCtx",
@@ -722,7 +844,9 @@ class SnapEngine:
         for gl in gl_items:
             for snap_type, pt, name in self._collect(gl):
                 ctx.check(snap_type, pt, gl, name)
-            for snap_type, pt in self._geometric_snaps(ctx.cursor, gl):
+            for snap_type, pt in self._geometric_snaps(ctx.cursor, gl,
+                                                       ctx.from_point,
+                                                       ctx.search_tol):
                 ctx.check(snap_type, pt, gl)
 
     def _check_geometry_intersections(self, ctx: "_SnapCtx",
@@ -1083,6 +1207,28 @@ class SnapEngine:
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
+    def _box_snaps(
+        self, g: list[QPointF],
+    ) -> list[tuple[str, QPointF, None]]:
+        """Snap triples for a 9-point frame box in grip order (S6).
+
+        Args:
+            g: Scene points TL,TM,TR,RM,BR,BM,BL,LM,C (``TextItem.grip_points``
+                order).
+
+        Returns:
+            Corners as ``endpoint``, edge mids as ``midpoint`` and the centre as
+            ``center``, each gated by its toggle.
+        """
+        out: list[tuple[str, QPointF, None]] = []
+        if self.snap_endpoint:
+            out.extend(("endpoint", g[i], None) for i in _BOX_CORNERS)
+        if self.snap_midpoint:
+            out.extend(("midpoint", g[i], None) for i in _BOX_MIDS)
+        if self.snap_center:
+            out.append(("center", g[_BOX_CENTER], None))
+        return out
+
     def _collect(
         self, item: QGraphicsItem,
     ) -> list[tuple[str, QPointF, str | None]]:
@@ -1099,6 +1245,12 @@ class SnapEngine:
         if isinstance(item, LineItem):
             pts.extend(self._line_snaps(item))
 
+        # ── TextItem — the frame box snaps like a rectangle (S6):
+        #    corners = endpoint, edge mids = midpoint, centre = center.
+        #    grip_points() order: TL,TM,TR,RM,BR,BM,BL,LM,C (rotation-aware).
+        elif isinstance(item, TextItem):
+            pts.extend(self._box_snaps(item.grip_points()))
+
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
         elif isinstance(item, GridlineItem):
             pts.extend(self._line_snaps(item))
@@ -1112,6 +1264,7 @@ class SnapEngine:
             # Pose is baked into geometry (item transform is identity), so map
             # local points through pose_transform() to reach scene coordinates.
             _pose = item.pose_transform()
+            _defn = item.definition()
             if self.snap_center:
                 # definition origin is local (0,0) — the instance's insertion point
                 pts.append(("center", _pose.map(QPointF(0.0, 0.0)), None))
@@ -1122,12 +1275,17 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _pen, _brush, path in item.render_ops():
+                for _pen, _brush, path in (_defn.render_ops() if _defn is not None else []):
+                    if _pen.style() == Qt.PenStyle.NoPen:
+                        continue   # text op = filled glyph outline — never snap targets (S6)
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
                         if el.type in _on_curve:
                             pts.append(("endpoint",
                                         _pose.map(QPointF(el.x, el.y)), None))
+            # Text primitives snap by their frame box (S6), mapped through the pose.
+            for box in (_defn.text_snap_points() if _defn is not None else []):
+                pts.extend(self._box_snaps([_pose.map(p) for p in box]))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):
@@ -1155,7 +1313,10 @@ class SnapEngine:
 
         # ── CircleItem / any QGraphicsEllipseItem (Node, sprinkler) ───────
         elif isinstance(item, QGraphicsEllipseItem):
-            br  = item.boundingRect()
+            # Geometric ellipse rect — NOT boundingRect(): a CircleItem's
+            # bounding rect is its ~10 px hit-stroke shape() (radius + 5 px),
+            # frozen by Qt's bbox cache at the zoom it was first computed.
+            br  = item.rect()
             cen = br.center()
             _is_node = hasattr(item, "pipes")  # Node has .pipes; circles don't
             if self.snap_center:
@@ -1475,6 +1636,7 @@ class SnapEngine:
     def _geometric_snaps_from_geom(
         self, cursor: QPointF, g: dict, xf: QTransform,
         local_bounds: tuple[float, float, float, float] | None = None,
+        from_point: "QPointF | None" = None,
     ) -> list[tuple[str, QPointF]]:
         """Perpendicular and nearest snap points from a geometry dict.
 
@@ -1489,12 +1651,7 @@ class SnapEngine:
         kind = g.get("kind")
 
         def _seg_snap(p1: QPointF, p2: QPointF):
-            foot = self._project_to_segment(cursor, p1, p2)
-            if foot is not None:
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._foot_snaps(cursor, p1, p2, from_point, pts)
 
         if kind == "line":
             _seg_snap(xf.map(QPointF(g["x1"], g["y1"])),
@@ -1507,17 +1664,7 @@ class SnapEngine:
             r = abs(xf.map(QPointF(cx + g["w"] / 2, cy)).x() - center.x())
             if r < _EPS_DEGENERATE:
                 return pts
-            d = math.hypot(cursor.x() - center.x(),
-                           cursor.y() - center.y())
-            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                foot = QPointF(
-                    center.x() + r * (cursor.x() - center.x()) / d,
-                    center.y() + r * (cursor.y() - center.y()) / d,
-                )
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
         elif kind == "path_points":
             points = g.get("points", [])
@@ -1539,17 +1686,7 @@ class SnapEngine:
             r = abs(xf.map(QPointF(cx + g["rw"] / 2, cy)).x() - center.x())
             if r < _EPS_DEGENERATE:
                 return pts
-            d = math.hypot(cursor.x() - center.x(),
-                           cursor.y() - center.y())
-            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                foot = QPointF(
-                    center.x() + r * (cursor.x() - center.x()) / d,
-                    center.y() + r * (cursor.y() - center.y()) / d,
-                )
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
         return pts
 
@@ -1583,26 +1720,29 @@ class SnapEngine:
                     g, xf, local_bounds):
                 ctx.check(snap_type, scene_pt, group, name)
             for snap_type, pt in self._geometric_snaps_from_geom(
-                    ctx.cursor, g, xf, local_bounds):
+                    ctx.cursor, g, xf, local_bounds, ctx.from_point):
                 ctx.check(snap_type, pt, group)
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
 
     def _geometric_snaps(
         self, cursor: QPointF, item: QGraphicsItem,
+        from_point: "QPointF | None" = None,
+        search_tol: float = math.inf,
     ) -> list[tuple[str, QPointF]]:
-        """Perpendicular, nearest, and tangent snap points (cursor-dependent)."""
+        """Perpendicular, nearest, and tangent snap points (cursor-dependent).
+
+        With *from_point* (a placement start point) ``perpendicular`` is the
+        foot FROM that point (S1); otherwise it is the legacy cursor foot.
+        *search_tol* (scene units) lets long flattened paths skip segments
+        farther than that from the cursor; ``inf`` (default) culls nothing.
+        """
 
         pts: list[tuple[str, QPointF]] = []
 
-        # Helper: project cursor onto a segment for perpendicular + nearest
+        # Helper: segment foot snaps (perpendicular + nearest)
         def _seg_snap(p1: QPointF, p2: QPointF):
-            foot = self._project_to_segment(cursor, p1, p2)
-            if foot is not None:
-                if self.snap_perpendicular:
-                    pts.append(("perpendicular", foot))
-                if self.snap_nearest:
-                    pts.append(("nearest", foot))
+            self._foot_snaps(cursor, p1, p2, from_point, pts)
 
         # ── Line-based items (QGraphicsLineItem: pipes, gridlines, etc.) ──
         if isinstance(item, QGraphicsLineItem):
@@ -1642,56 +1782,40 @@ class SnapEngine:
                           item.mapToScene(vertices[i + 1]))
 
         # ── ArcItem — closest point on arc circumference + tangent ───────
-        if isinstance(item, ArcItem):
+        elif isinstance(item, ArcItem):
             cx, cy = item._center.x(), item._center.y()
             r = item._radius
-            dx = cursor.x() - cx
-            dy = cursor.y() - cy
-            d = math.hypot(dx, dy)
-            if d > _EPS_COINCIDENT:
-                foot_angle_deg = math.degrees(math.atan2(-dy, dx))
-                if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
-                    foot = QPointF(cx + r * dx / d, cy + r * dy / d)
-                    if self.snap_perpendicular:
-                        pts.append(("perpendicular", foot))
-                    if self.snap_nearest:
-                        pts.append(("nearest", foot))
 
-                # Tangent — cursor must be outside the arc's radius
-                if self.snap_tangent and d > r + _EPS_COINCIDENT:
-                    angle_to_cursor = math.atan2(
-                        cursor.y() - cy, cursor.x() - cx,
-                    )
-                    half_angle = math.acos(r / d)
-                    for sign in (+1, -1):
-                        a = angle_to_cursor + sign * half_angle
-                        tp = QPointF(cx + r * math.cos(a),
-                                     cy + r * math.sin(a))
-                        # Only emit if tangent point falls on the visible arc
-                        tp_deg = math.degrees(math.atan2(-(tp.y() - cy),
-                                                          tp.x() - cx))
-                        if _angle_in_arc(tp_deg, item._start_deg,
-                                         item._span_deg):
-                            pts.append(("tangent", tp))
+            def _on_arc(q: QPointF) -> bool:
+                # Scene Y is down; arc angles are math (Y-up) degrees.
+                return _angle_in_arc(
+                    math.degrees(math.atan2(-(q.y() - cy), q.x() - cx)),
+                    item._start_deg, item._span_deg)
+
+            self._circle_foot_snaps(cursor, QPointF(cx, cy), r, from_point,
+                                    pts, accept=_on_arc)
+            # Tangent — cursor must be outside the arc's radius
+            d = math.hypot(cursor.x() - cx, cursor.y() - cy)
+            if self.snap_tangent and d > r + _EPS_COINCIDENT:
+                angle_to_cursor = math.atan2(cursor.y() - cy, cursor.x() - cx)
+                half_angle = math.acos(r / d)
+                for sign in (+1, -1):
+                    a = angle_to_cursor + sign * half_angle
+                    tp = QPointF(cx + r * math.cos(a), cy + r * math.sin(a))
+                    if _on_arc(tp):  # only tangent points on the visible arc
+                        pts.append(("tangent", tp))
 
         # ── Full circle (QGraphicsEllipseItem) — closest point on circle ─
-        if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
-            br = item.boundingRect()
+        elif isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
+            # Geometric rect, not the padded / zoom-cached boundingRect() (S4).
+            br = item.rect()
             if abs(br.width() - br.height()) < 0.1:
                 center = item.mapToScene(br.center())
                 r = br.width() / 2.0
                 d = math.hypot(cursor.x() - center.x(),
                                cursor.y() - center.y())
                 # Perpendicular / nearest to circle circumference
-                if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
-                    foot = QPointF(
-                        center.x() + r * (cursor.x() - center.x()) / d,
-                        center.y() + r * (cursor.y() - center.y()) / d,
-                    )
-                    if self.snap_perpendicular:
-                        pts.append(("perpendicular", foot))
-                    if self.snap_nearest:
-                        pts.append(("nearest", foot))
+                self._circle_foot_snaps(cursor, center, r, from_point, pts)
 
                 # Tangent
                 if self.snap_tangent and d > r + _EPS_COINCIDENT:
@@ -1715,24 +1839,163 @@ class SnapEngine:
             for i in range(len(verts)):
                 _seg_snap(verts[i], verts[(i + 1) % len(verts)])
 
-        # ── Generic QGraphicsPathItem (DXF imports) — project onto segments
+        # ── Generic QGraphicsPathItem (EllipseItem, SplineItem, DXF curves) —
+        #    project onto the FLATTENED path. Raw elements include Bézier
+        #    control points that sit off the curve, which snapped to empty
+        #    space outside arcs/ellipses/splines (S4).
+        #    (WallSegment / PolylineItem are caught earlier in this chain.)
         elif isinstance(item, QGraphicsPathItem):
-            # Skip if already handled as WallSegment or PolylineItem
-            if not (isinstance(item, WallSegment)):
-                if not (isinstance(item, PolylineItem)):
-                    path = item.path()
-                    n = path.elementCount()
-                    for i in range(min(n - 1, 511)):
-                        e2 = path.elementAt(i + 1)
-                        if e2.type == QPainterPath.ElementType.MoveToElement:
-                            continue  # sub-path boundary, no segment
-                        e1 = path.elementAt(i)
-                        _seg_snap(
-                            item.mapToScene(QPointF(e1.x, e1.y)),
-                            item.mapToScene(QPointF(e2.x, e2.y)),
-                        )
+            self._path_foot_snaps(item, cursor, search_tol, _seg_snap)
 
         return pts
+
+    def direction_at(self, scene: QGraphicsScene, item: QGraphicsItem,
+                     pt: QPointF, tol: float = 0.01) -> "tuple[float, float] | None":
+        """Unit tangent of *item*'s drawn geometry at scene point *pt*, or None.
+
+        Used for the ALIGN anchor direction when a placement starts ON a
+        primitive (smoke item 2b): the extension ray runs along this tangent
+        and the perpendicular ray across it — ⟂ to a rect/polyline/polygon
+        edge, radial to a circle/arc, normal to a flattened ellipse/spline.
+
+        * Circle / arc — analytic tangent (point must lie on the rim; the
+          centre has no direction).
+        * Ellipse / spline / generic path — the scene-flattened curve (the same
+          ``toSubpathPolygons(sceneTransform())`` the snap engine projects on).
+        * Rect / polyline / polygon — the segments ``_iter_geometry_segments``
+          extracts for phase 4 and ALIGN crossings.
+
+        At a vertex shared by two segments a flattened curve averages them (a
+        smooth tangent); a polygonal corner is ambiguous and yields None.
+
+        Args:
+            scene: The scene *item* lives in.
+            item: The primitive the placement point landed on.
+            pt: The snapped point (scene).
+            tol: Max distance (scene units) from *pt* to count as "on" it.
+
+        Returns:
+            A unit ``(dx, dy)`` in scene coordinates, or None.
+        """
+        if isinstance(item, (ArcItem, QGraphicsEllipseItem)):
+            if hasattr(item, "pipes"):           # Node: a point, no direction
+                return None
+            if isinstance(item, ArcItem):
+                c, r = QPointF(item._center), item._radius
+            else:
+                rr = item.rect()
+                c, r = item.mapToScene(rr.center()), rr.width() / 2.0
+            dx, dy = pt.x() - c.x(), pt.y() - c.y()
+            d = math.hypot(dx, dy)
+            if d < _EPS_COINCIDENT or abs(d - r) > tol:
+                return None
+            return (-dy / d, dx / d)
+        curve = (isinstance(item, QGraphicsPathItem) and not isinstance(
+            item, (WallSegment, PolylineItem, RectangleItem, RegularPolygonItem)))
+        segs: list[tuple[QPointF, QPointF]] = []
+        if curve:
+            for poly in item.path().toSubpathPolygons(item.sceneTransform()):
+                for i in range(poly.count() - 1):
+                    segs.append((poly.at(i), poly.at(i + 1)))
+        else:
+            probe = QRectF(pt.x() - tol, pt.y() - tol, 2 * tol, 2 * tol)
+            ctx = _SnapCtx(cursor=pt, scale=1.0, aperture_px=0.0,
+                           priority_band_px=0.0)
+            for kind, rec in self._iter_geometry_segments(
+                    scene, probe, None, [], lambda it: it is item, ctx):
+                if kind == "seg" and rec[2] is item:
+                    segs.append((rec[0], rec[1]))
+        dirs: list[tuple[float, float]] = []
+        for a, b in segs:
+            foot = self._project_to_segment(pt, a, b)
+            if foot is None or math.hypot(foot.x() - pt.x(), foot.y() - pt.y()) > tol:
+                continue
+            n = math.hypot(b.x() - a.x(), b.y() - a.y())
+            u = ((b.x() - a.x()) / n, (b.y() - a.y()) / n)
+            if dirs and u[0] * dirs[0][0] + u[1] * dirs[0][1] < 0:
+                u = (-u[0], -u[1])               # sign-align with the first
+            dirs.append(u)
+        if not dirs:
+            return None
+        ux, uy = dirs[0]
+        for vx, vy in dirs[1:]:
+            if abs(ux * vy - uy * vx) > 1e-6:    # a genuine corner
+                if not curve:
+                    return None
+            ux, uy = ux + vx, uy + vy
+        n = math.hypot(ux, uy)
+        return (ux / n, uy / n) if n > 1e-12 else None
+
+    def _path_foot_snaps(self, item: QGraphicsPathItem, cursor: QPointF,
+                         search_tol: float,
+                         seg_snap: "Callable[[QPointF, QPointF], None]") -> None:
+        """Feed a generic path's segments near *cursor* to *seg_snap* (S4/I1).
+
+        The path is flattened ONCE in scene coordinates (Bézier control
+        points sit off the curve, so raw elements would snap to empty space).
+        Coverage is complete: instead of a segment-count cap, subpaths and
+        segments whose bbox lies farther than *search_tol* from the cursor are
+        culled — any foot on them would fall outside the aperture anyway.
+        Pathological paths (more than ``SNAP_MAX_FLAT_POINTS`` elements or
+        flattened points) fall back to the legacy bounded raw-element walk.
+
+        Args:
+            item: The path item (scene transform applied here).
+            cursor: Cursor position in scene coordinates.
+            search_tol: Scene-unit cull radius around *cursor*.
+            seg_snap: Callback receiving each kept segment's scene endpoints.
+        """
+        from .constants import SNAP_MAX_FLAT_POINTS
+        path = item.path()
+        polys = None
+        if path.elementCount() <= SNAP_MAX_FLAT_POINTS:
+            polys = path.toSubpathPolygons(item.sceneTransform())
+            if sum(poly.count() for poly in polys) > SNAP_MAX_FLAT_POINTS:
+                polys = None
+        if polys is None:
+            self._path_element_foot_snaps(item, seg_snap)
+            return
+        cx, cy = cursor.x(), cursor.y()
+        tol = search_tol
+        for poly in polys:
+            br = poly.boundingRect()
+            if (cx < br.left() - tol or cx > br.right() + tol
+                    or cy < br.top() - tol or cy > br.bottom() + tol):
+                continue
+            prev = poly.at(0)
+            px, py = prev.x(), prev.y()
+            for i in range(1, poly.count()):
+                q = poly.at(i)
+                qx, qy = q.x(), q.y()
+                if not (min(px, qx) - tol > cx or max(px, qx) + tol < cx
+                        or min(py, qy) - tol > cy or max(py, qy) + tol < cy):
+                    seg_snap(prev, q)
+                prev, px, py = q, qx, qy
+
+    @staticmethod
+    def _path_element_foot_snaps(
+            item: QGraphicsPathItem,
+            seg_snap: "Callable[[QPointF, QPointF], None]") -> None:
+        """Legacy bounded raw-element walk for pathological paths.
+
+        Projects onto the path's raw element polyline (Bézier control points
+        included), capped at ``SNAP_MAX_SEGMENTS_PER_ITEM`` elements — the
+        pre-S4 behaviour, kept only above the ``SNAP_MAX_FLAT_POINTS`` ceiling.
+
+        Args:
+            item: The path item.
+            seg_snap: Callback receiving each segment's scene endpoints.
+        """
+        from .constants import SNAP_MAX_SEGMENTS_PER_ITEM
+        path = item.path()
+        n = path.elementCount()
+        for i in range(min(n - 1, SNAP_MAX_SEGMENTS_PER_ITEM)):
+            e2 = path.elementAt(i + 1)
+            if e2.type == QPainterPath.ElementType.MoveToElement:
+                continue  # sub-path boundary, no segment
+            e1 = path.elementAt(i)
+            seg_snap(item.mapToScene(QPointF(e1.x, e1.y)),
+                     item.mapToScene(QPointF(e2.x, e2.y)))
 
     @staticmethod
     def _project_to_segment(
@@ -1750,3 +2013,86 @@ class SnapEngine:
         t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
         t = max(0.0, min(1.0, t))
         return QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy)
+
+    @staticmethod
+    def _perp_foot_on_segment(pt: QPointF, seg_a: QPointF,
+                              seg_b: QPointF) -> QPointF | None:
+        """Foot of the perpendicular from *pt* onto segment a–b (AutoCAD PER).
+
+        Unclamped: returns None when the foot falls outside the segment, when
+        the segment is degenerate, or when *pt* lies on the line (PER undefined).
+        """
+        dx = seg_b.x() - seg_a.x()
+        dy = seg_b.y() - seg_a.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < _EPS_DEGENERATE:
+            return None
+        t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
+        if t < 0.0 or t > 1.0:
+            return None
+        foot = QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy)
+        if math.hypot(pt.x() - foot.x(), pt.y() - foot.y()) < _EPS_COINCIDENT:
+            return None
+        return foot
+
+    def _foot_snaps(self, cursor: QPointF, p1: QPointF, p2: QPointF,
+                    from_point: QPointF | None,
+                    pts: list[tuple[str, QPointF]]) -> None:
+        """Append segment foot snaps to *pts*.
+
+        ``nearest`` is the cursor foot (clamped onto the segment).
+        ``perpendicular`` is ONLY the foot FROM *from_point* (AutoCAD PER,
+        S1; omitted when that foot falls off the segment). With no placement
+        start there is no ⊥ at all — the cursor foot is ``nearest``.
+
+        Args:
+            cursor: Cursor position in scene coordinates.
+            p1: Segment start (scene).
+            p2: Segment end (scene).
+            from_point: Placement start point, or None.
+            pts: Candidate list to append ``(snap_type, point)`` tuples to.
+        """
+        foot = self._project_to_segment(cursor, p1, p2)
+        if self.snap_perpendicular and from_point is not None:
+            per = self._perp_foot_on_segment(from_point, p1, p2)
+            if per is not None:
+                pts.append(("perpendicular", per))
+        if self.snap_nearest and foot is not None:
+            pts.append(("nearest", foot))
+
+    def _circle_foot_snaps(self, cursor: QPointF, center: QPointF, r: float,
+                           from_point: QPointF | None,
+                           pts: list[tuple[str, QPointF]],
+                           accept: "Callable[[QPointF], bool] | None" = None) -> None:
+        """Append circle/arc foot snaps to *pts*.
+
+        ``nearest`` is the radial projection of the cursor. ``perpendicular``
+        exists only with a start point: the two points where the line
+        centre→start meets the circle (PER to a circle is radial, S1).
+
+        Args:
+            cursor: Cursor position in scene coordinates.
+            center: Circle centre (scene).
+            r: Radius (scene units).
+            from_point: Placement start point, or None.
+            pts: Candidate list to append ``(snap_type, point)`` tuples to.
+            accept: Optional predicate a point must pass (an arc's angular
+                range); None accepts every point on the full circle.
+        """
+        ok = accept or (lambda _q: True)
+        d = math.hypot(cursor.x() - center.x(), cursor.y() - center.y())
+        foot = None
+        if d > _EPS_COINCIDENT:
+            foot = QPointF(center.x() + r * (cursor.x() - center.x()) / d,
+                           center.y() + r * (cursor.y() - center.y()) / d)
+        if self.snap_perpendicular and from_point is not None:
+            df = math.hypot(from_point.x() - center.x(), from_point.y() - center.y())
+            if df > _EPS_COINCIDENT:
+                ux = (from_point.x() - center.x()) / df
+                uy = (from_point.y() - center.y()) / df
+                for s in (1.0, -1.0):
+                    q = QPointF(center.x() + s * r * ux, center.y() + s * r * uy)
+                    if ok(q):
+                        pts.append(("perpendicular", q))
+        if self.snap_nearest and foot is not None and ok(foot):
+            pts.append(("nearest", foot))

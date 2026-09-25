@@ -490,11 +490,12 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         grip (3) is a square thickness grip. The manipulator renders/hit-tests/
         commits them; the legacy grip paths skip this item (coexistence gate).
         """
-        from .manip_handle import GripHandle, WallEndpointGripHandle
+        from .manip_handle import (GripHandle, TranslateGripHandle,
+                                   WallEndpointGripHandle)
         return [
             WallEndpointGripHandle(self, 0, opposite_index=1),
             WallEndpointGripHandle(self, 1, opposite_index=0),
-            GripHandle(self, 2, circular=True),
+            TranslateGripHandle(self, 2, circular=True),   # S2 handle snap
             GripHandle(self, 3, circular=False),
         ]
 

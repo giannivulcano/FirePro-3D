@@ -133,6 +133,14 @@ FLOOR_BOTTOM_MODES = ("level", "absolute", "thickness")
 # (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
+# ── Snap-engine per-item perf caps (snap_engine.py) ─────────────────────────
+# Cursor-dependent snaps on a generic QGraphicsPathItem walk its flattened
+# polyline with a spatial cull (full coverage). Above this many path elements
+# or flattened points the path is pathological and falls back to a bounded
+# raw-element walk. Native items (ellipses, splines, slabs) stay far below.
+SNAP_MAX_FLAT_POINTS = 10000
+SNAP_MAX_SEGMENTS_PER_ITEM = 511   # bound on the raw-element fallback walk
+
 # ── ALIGN tracking paths (align_engine.py) ───────────────────────────────────
 ALIGN_PATH_TOL_PX = 20.0       # screen-px cursor→path soft-snap aperture; wider than the
                                # 15px real-snap aperture but its OWN band (align-placement D7)
@@ -246,6 +254,8 @@ MANIP_HANDLE_BORDER_PX = 1.2               # handle outline width (device px)
 MANIP_HANDLE_FILL_DARK = "#101613"          # fill on a dark canvas (prototype value)
 MANIP_HANDLE_FILL_LIGHT = "#ffffff"         # fill on a light canvas
 GRIP_OBJECT_LIMIT = 100  # frame-only above this many selected items (AutoCAD GRIPOBJLIMIT); selection-manipulator.md
+HANDLE_SNAP_MAX_HANDLES = 64  # S2: handle-snap probes per move (selection-manipulator.md)
+HANDLE_SNAP_COLLECT_PAD_FRAC = 0.5  # S2: targets collected over the visible rect grown by this fraction of its size per side; the Move tool re-collects only on zoom or on panning out of it
 
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
