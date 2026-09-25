@@ -129,13 +129,14 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
             assert not btns[label].isEnabled(), label
         # Paste follows the clipboard payload (D5 / I1), refreshed on change.
         from PyQt6.QtWidgets import QApplication
+        # Windows delivers the clipboard's dataChanged asynchronously: poll.
         QApplication.clipboard().setText("")
-        qapp.processEvents()
+        QTest.qWaitFor(lambda: not btns["Paste"].isEnabled(), 2000)
         assert not btns["Paste"].isEnabled()
         QApplication.clipboard().setText(json.dumps(
             {"fp3d_clipboard": 1, "base": [0, 0], "scene_role": "block_editor",
              "items": [LineItem(QPointF(0, 0), QPointF(1, 0)).to_dict()]}))
-        qapp.processEvents()
+        QTest.qWaitFor(lambda: btns["Paste"].isEnabled(), 2000)
         assert btns["Paste"].isEnabled()
         assert btns["Offset"].isEnabled()
 
@@ -153,3 +154,104 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
             ed._modified = False
             main_window.block_editor_manager.close(ed)
             qapp.processEvents()
+
+
+def _open_editor_with_line(main_window, qapp):
+    from firepro3d.geometry_2d import LineItem
+    main_window.scene.clearSelection()
+    main_window._open_block_editor()
+    qapp.processEvents()
+    ed = main_window._active_editor_widget()
+    assert ed is not None
+    editor = ed.editor_scene
+    line = LineItem(QPointF(0, 0), QPointF(100, 0))
+    editor.addItem(line); editor._draw_lines.append(line)
+    line.setSelected(True)
+    qapp.processEvents()
+    return ed, editor, line
+
+
+def _close_editor(main_window, ed, qapp):
+    if ed is not None:
+        ed._modified = False
+        main_window.block_editor_manager.close(ed)
+        qapp.processEvents()
+
+
+def test_copy_click_enters_copy_base_on_the_editor_scene(main_window, qapp):
+    """I-4(c): real editor scene — Copy click enters copy_base THERE."""
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        btns = main_window._be_modify_buttons
+        btns["Copy"].click()
+        assert editor.mode == "copy_base"
+        assert main_window.scene.mode != "copy_base"
+        assert line.isSelected()
+        editor.set_mode(None)
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_modal_buttons_light_with_their_mode_and_clear_on_exit(main_window, qapp):
+    """I-3 (spec I1): modal Edit/Modify buttons are in _block_mode_buttons —
+    lit while their tool runs, cleared on exit; Cut/Delete stay plain."""
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        btns = main_window._be_modify_buttons
+        reg = main_window._block_mode_buttons
+        for label, modes in (("Copy", ("copy_base",)), ("Paste", ("paste",)),
+                             ("Duplicate", ("duplicate",)), ("Move", ("move",)),
+                             ("Rotate", ("rotate",)),
+                             ("Offset", ("offset", "offset_side")),
+                             ("Array", ("array",))):
+            assert btns[label].isCheckable(), label
+            for m in modes:
+                assert reg[m] is btns[label], (label, m)
+        assert not btns["Cut"].isCheckable() and not btns["Delete"].isCheckable()
+
+        btns["Move"].click()
+        assert editor.mode == "move"
+        assert btns["Move"].isChecked()                         # [RED]
+        editor.set_mode(None)                                   # Esc / commit path
+        assert not btns["Move"].isChecked()
+
+        # Offset lights for both of its modes.
+        editor._modify_ctl.start("offset")
+        assert btns["Offset"].isChecked()
+        editor.set_mode("offset_side")
+        assert btns["Offset"].isChecked()
+        editor.set_mode(None)
+        assert not btns["Offset"].isChecked()
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_clicking_the_lit_tool_button_cancels_it(main_window, qapp):
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        b = main_window._be_modify_buttons["Duplicate"]
+        b.click()
+        assert editor.mode == "duplicate" and b.isChecked()
+        b.click()                                               # un-toggle
+        assert editor.mode in (None, "select")
+        assert not b.isChecked()
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_refused_start_leaves_the_button_unchecked(main_window, qapp):
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        b = main_window._be_modify_buttons["Move"]
+        editor.clearSelection()
+        qapp.processEvents()
+        b.setEnabled(True)                  # stale enable state: start() refuses
+        b.click()
+        assert editor.mode in (None, "select")
+        assert not b.isChecked()
+    finally:
+        _close_editor(main_window, ed, qapp)

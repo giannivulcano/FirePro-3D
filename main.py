@@ -3113,13 +3113,57 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d import theme as _th
         return themed_icon(name, DARK if _th.detect().name == DARK else LIGHT)
 
-    def build_edit_group(self, page, scene_getter) -> dict:
+    # Modal Edit/Modify tools -> the scene mode(s) that light their button
+    # (scene-tools.md I1). Cut and Delete are plain buttons.
+    _MODAL_TOOL_MODES = {
+        "copy": ("copy_base",), "paste": ("paste",), "duplicate": ("duplicate",),
+        "move": ("move",), "rotate": ("rotate",),
+        "offset": ("offset", "offset_side"), "array": ("array",),
+    }
+
+    def _add_modify_tool_button(self, g, label, icon, tool, tip,
+                                scene_getter, mode_registry):
+        """One Edit/Modify tool button routed through ``_modify_ctl.start``.
+
+        With *mode_registry* (the Block Editor page's ``_block_mode_buttons``)
+        a modal tool's button is checkable and registered under its mode
+        key(s), so ``_sync_mode_buttons`` lights it while the tool runs and
+        clears it on exit. Clicking the lit button cancels the tool; a
+        refused ``start()`` (e.g. no selection) leaves it unchecked.
+        """
+        modes = self._MODAL_TOOL_MODES.get(tool)
+        if mode_registry is None or modes is None:
+            b = g.add_small_button(label, self._modify_icon(icon),
+                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
+            b.setToolTip(tip)
+            return b
+
+        def _toggled(checked, t=tool):
+            sc = scene_getter()
+            if not checked:                 # user un-toggled the lit button
+                sc.set_mode(None)
+                return
+            if not sc._modify_ctl.start(t):
+                b.blockSignals(True)
+                b.setChecked(False)
+                b.blockSignals(False)
+
+        b = g.add_small_button(label, self._modify_icon(icon), _toggled,
+                               checkable=True)
+        b.setToolTip(tip)
+        for m in modes:
+            mode_registry[m] = b
+        return b
+
+    def build_edit_group(self, page, scene_getter, mode_registry=None) -> dict:
         """Edit group (scene-tools.md D1): Copy · Cut · Paste · Duplicate · Delete.
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
             scene_getter: Zero-arg callable returning the scene to act on
                 (resolved at click time, so it follows the active tab).
+            mode_registry: Optional ``{mode: button}`` dict; when given, the
+                modal buttons are checkable and registered there (I1).
 
         Returns:
             ``{label: button}`` for the five buttons.
@@ -3133,22 +3177,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         )
         buttons = {}
         for label, icon, tool, tip in spec:
-            b = g.add_small_button(label, self._modify_icon(icon),
-                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
-            b.setToolTip(tip)
-            buttons[label] = b
+            buttons[label] = self._add_modify_tool_button(
+                g, label, icon, tool, tip, scene_getter, mode_registry)
         b = g.add_small_button("Delete", self._modify_icon("delete_icon.svg"),
                                lambda: scene_getter().delete_selected_items())
         b.setToolTip("Delete selected items (Del)")
         buttons["Delete"] = b
         return buttons
 
-    def build_modify_group(self, page, scene_getter) -> dict:
+    def build_modify_group(self, page, scene_getter, mode_registry=None) -> dict:
         """Modify group (scene-tools.md D1): Move · Rotate · Offset · Array.
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
             scene_getter: Zero-arg callable returning the scene to act on.
+            mode_registry: Optional ``{mode: button}`` dict (see
+                :meth:`build_edit_group`).
 
         Returns:
             ``{label: button}`` for the four buttons.
@@ -3162,10 +3206,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         )
         buttons = {}
         for label, icon, tool, tip in spec:
-            b = g.add_small_button(label, self._modify_icon(icon),
-                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
-            b.setToolTip(tip)
-            buttons[label] = b
+            buttons[label] = self._add_modify_tool_button(
+                g, label, icon, tool, tip, scene_getter, mode_registry)
         return buttons
 
     # Buttons that need a selection (scene-tools.md D1/D3 select-first).
@@ -4593,7 +4635,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         fw = QApplication.focusWidget()
         if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
             return
-        if self.central_tabs.currentWidget() is self.paper_space_widget:
+        if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
             return
         self._active_scene()._modify_ctl.start(tool)
 
@@ -4791,8 +4833,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Edit + Modify (scene-tools.md D1) — always visible after 2D Geometry.
         self._be_modify_buttons = {
-            **self.build_edit_group(page, self._active_scene),
-            **self.build_modify_group(page, self._active_scene),
+            **self.build_edit_group(page, self._active_scene,
+                                    self._block_mode_buttons),
+            **self.build_modify_group(page, self._active_scene,
+                                      self._block_mode_buttons),
         }
         self._connect_modify_refresh(self._active_scene())
         self._refresh_modify_buttons()
