@@ -3,13 +3,15 @@ midpoints, centres, quadrants, text-box points) snap to other geometry.
 
 The handles (the moving items' own snap points, as offsets from the gesture
 anchor) are captured ONCE, at rest. The targets — every other item's snap
-points, culled to the view's visible rect — are collected once per gesture into
-a px-cell grid (the Move tool re-collects them after a zoom/pan between its
-clicks, see :meth:`HandleSnapSession.sync_view`); each mouse move then tests
-every handle against its neighbouring cells (O(handles)). Underlay geometry is
-queried per handle through each group's spatial index. The model scene is
-NoIndex, so a per-handle ``SnapEngine.find()`` (≈40–140 ms at 2k–8k items) is
-not viable. Governing spec: selection-manipulator.md §Move.
+points — are collected once per gesture into a px-cell grid, over the visible
+rect PADDED by ``HANDLE_SNAP_COLLECT_PAD_FRAC`` of its size, so the Move tool
+(free zoom/pan between its clicks) re-collects only on a zoom or once a pan
+leaves that rect (:meth:`HandleSnapSession.sync_view`), not on every pan step.
+Each mouse move then tests every handle against its neighbouring cells
+(O(handles)). Underlay geometry is queried per handle through each group's
+spatial index. The model scene is NoIndex, so a per-handle
+``SnapEngine.find()`` (≈40–140 ms at 2k–8k items) is not viable.
+Governing spec: selection-manipulator.md §Move.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsItemGroup
 
 from . import snap_engine as _se
-from .constants import HANDLE_SNAP_MAX_HANDLES
+from .constants import HANDLE_SNAP_COLLECT_PAD_FRAC, HANDLE_SNAP_MAX_HANDLES
 from .pipe import Pipe
 from .snap_engine import OsnapResult, SNAP_PRIORITY
 from .underlay_snap_index import UnderlaySnapIndex
@@ -82,7 +84,12 @@ class HandleSnapSession:
         self._underlays: list[QGraphicsItemGroup] = []
         self._scale = 1.0
         self._cell = 1.0
-        self._view_key = None
+        self._xform_key = None
+        self._collect_rect = QRectF()
+        # Number of target collections (O(scene items) each) this session has
+        # done: 1 at build, +1 per sync_view re-collect. Public for the
+        # rebuild-frequency guard and for profiling.
+        self.target_builds = 0
         self._build_targets(view)
 
     # ── build ──────────────────────────────────────────────────────────────
@@ -111,45 +118,58 @@ class HandleSnapSession:
         return [h for _r, h in raw[:HANDLE_SNAP_MAX_HANDLES]]
 
     @staticmethod
-    def _view_state(view) -> tuple:
-        """Hashable (transform, visible rect) key of *view*."""
+    def _xform_state(view) -> tuple:
+        """Hashable key of *view*'s zoom/rotation (translation excluded)."""
         t = view.transform()
-        r = view.mapToScene(view.viewport().rect()).boundingRect()
-        return (t.m11(), t.m12(), t.m21(), t.m22(),
-                round(r.x(), 6), round(r.y(), 6),
-                round(r.width(), 6), round(r.height(), 6))
+        return (t.m11(), t.m12(), t.m21(), t.m22())
+
+    @staticmethod
+    def _visible_rect(view) -> QRectF:
+        """*view*'s visible scene rect."""
+        return view.mapToScene(view.viewport().rect()).boundingRect()
 
     def sync_view(self, view) -> None:
-        """Re-collect the targets if *view*'s zoom/pan changed since the build.
+        """Re-collect the targets after a zoom, or a pan out of the collect rect.
 
-        Only valid while the moving items are at rest (the Move tool, whose
-        preview is a ghost); the handles are never rebuilt.
+        A pan inside the padded collect rect costs nothing (the targets there
+        are already collected); a zoom changes the aperture scale, so it always
+        re-collects. Only valid while the moving items are at rest (the Move
+        tool, whose preview is a ghost); the handles are never rebuilt.
         """
-        if view is not None and self._view_state(view) != self._view_key:
+        if view is None:
+            return
+        if (self._xform_state(view) != self._xform_key
+                or not self._collect_rect.contains(self._visible_rect(view))):
             self._build_targets(view)
 
     def _build_targets(self, view) -> None:
-        """Collect every non-moving item's snap points in *view*'s visible rect.
+        """Collect every non-moving item's snap points in the padded collect rect.
 
         Walks ``scene.items()`` WITHOUT a rect: the scene is NoIndex, and a
         rect query calls every item's (Python) boundingRect/shape — ~110 ms
         at 8k items vs <1 ms unfiltered. Points are culled to the visible
-        rect (padded by one aperture) instead. Underlay groups are kept for
-        per-move index queries; their children are skipped through one
-        identity set (no per-child method calls — DXF underlays reach 100k+
-        children).
+        rect grown by ``HANDLE_SNAP_COLLECT_PAD_FRAC`` (plus one aperture)
+        instead. Underlay groups are kept for per-move index queries; their
+        children are skipped through one identity set (no per-child method
+        calls — DXF underlays reach 100k+ children).
         """
         engine = self._engine
-        self._view_key = self._view_state(view)
+        self.target_builds += 1
+        self._xform_key = self._xform_state(view)
         self._scale = _se._safe_scale(view.transform().m11())
         self._cell = _se.px_to_scene(float(_se.SNAP_TOLERANCE_PX), self._scale) or 1.0
         self._grid = {}
         self._underlays = []
+        c = self._cell
+        vis = self._visible_rect(view)
+        px_ = vis.width() * HANDLE_SNAP_COLLECT_PAD_FRAC
+        py_ = vis.height() * HANDLE_SNAP_COLLECT_PAD_FRAC
+        self._collect_rect = vis.adjusted(-px_, -py_, px_, py_)
         if not self._handles:
             return
-        c = self._cell
-        vis = view.mapToScene(view.viewport().rect()).boundingRect().adjusted(
-            -c, -c, c, c)
+        # + one aperture so a handle at the collect rect's edge still sees
+        # targets just outside it.
+        vis = self._collect_rect.adjusted(-c, -c, c, c)
         x0, y0, x1, y1 = vis.left(), vis.top(), vis.right(), vis.bottom()
         grid = self._grid
         floor = math.floor

@@ -213,3 +213,77 @@ def test_move_tool_retargets_after_zoom_between_clicks(qapp):
         assert math.hypot(p2.x() - 700, p2.y() - 10) < 0.01, (p2.x(), p2.y())
     finally:
         close_view(view, scene)
+
+
+# ── G4 re-review RR-I1: pan/zoom re-collect frequency (Move tool) ───────────
+# Asserted through the session's public ``target_builds`` counter: the defect
+# is "an O(scene) target collection on every pan step", and the counter counts
+# exactly those collections. A timing bound would be noisy (a collection is
+# ~20–140 ms depending on load) and could pass by luck on a small scene.
+
+def _middle_pan(view, steps: int, step_px: float) -> None:
+    """Real middle-button pan: press, *steps* moves of *step_px*, release."""
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QMouseEvent
+
+    def send(etype, vp, btn, btns):
+        ev = QMouseEvent(etype, vp, view.viewport().mapToGlobal(vp), btn, btns,
+                         Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(view.viewport(), ev)
+        QApplication.processEvents()
+
+    mid, none = Qt.MouseButton.MiddleButton, Qt.MouseButton.NoButton
+    start = QPointF(400, 300)
+    send(QEvent.Type.MouseButtonPress, start, mid, mid)
+    for k in range(1, steps + 1):
+        send(QEvent.Type.MouseMove, QPointF(400 + step_px * k, 300), none, mid)
+    send(QEvent.Type.MouseButtonRelease,
+         QPointF(400 + step_px * steps, 300), mid, none)
+
+
+def _move_armed(view, scene):
+    """A + B, 200 bystander lines, Move tool armed with its base at (25,0)."""
+    a, _b = _ab(scene)
+    for i in range(200):
+        x = -380 + (i % 50) * 15.0
+        y = -280 + (i // 50) * 14.0
+        scene.addItem(LineItem(QPointF(x, y), QPointF(x + 5, y + 4)))
+    scene.set_mode("move")
+    click(view, QPointF(25, 0))
+    hs = scene._move_handle_session
+    assert hs is not None and hs.target_builds == 1
+    return a, hs
+
+
+def _visible_center(view):
+    return view.mapToScene(view.viewport().rect()).boundingRect().center()
+
+
+def test_move_tool_pan_inside_pad_does_not_recollect(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _a, hs = _move_armed(view, scene)
+        c0 = _visible_center(view)
+        _middle_pan(view, steps=20, step_px=5.0)        # 100 px, pad is 400 px
+        c1 = _visible_center(view)
+        assert abs(c1.x() - c0.x()) > 90                 # the view really panned
+        assert scene._move_handle_session is hs
+        assert hs.target_builds == 1
+    finally:
+        close_view(view, scene)
+
+
+def test_move_tool_recollects_on_pan_out_or_zoom(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        a, hs = _move_armed(view, scene)
+        _middle_pan(view, steps=25, step_px=20.0)       # 500 px > 400 px pad
+        after_pan = hs.target_builds
+        assert after_pan >= 2
+        assert after_pan <= 3                            # not once per step
+        view.scale(0.5, 0.5)                             # zoom: aperture changes
+        QApplication.processEvents()
+        move(view, _visible_center(view))
+        assert hs.target_builds == after_pan + 1
+    finally:
+        close_view(view, scene)
