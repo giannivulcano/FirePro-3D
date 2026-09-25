@@ -48,7 +48,9 @@ All decisions below were ratified by the user via FP1 questions on 2026-09-24.
   the dot product of committed segment and target direction ≈ 0.
 
 ## S2 — move snaps the moving items' handles (feature)
-- All move paths: manipulator interior-drag, line midpoint grip (whole-line move), Move tool.
+- All move paths: manipulator interior-drag, all whole-item move grips (line midpoint,
+  circle/ellipse/regular-polygon/text/rect centres, wall mid grip — user-approved extension
+  2026-09-25, seam review I1), Move tool.
 - Handles = the moving items' own snap points (endpoints/midpoints/centres/corners), capped
   (~64) for perf. Targets collected ONCE at press (moving items excluded); per-move work is a
   cheap handle×target test. The closest handle-to-target pair within aperture wins over the plain
@@ -56,7 +58,8 @@ All decisions below were ratified by the user via FP1 questions on 2026-09-24.
 - AC: drag a line so its endpoint comes within aperture of another line's endpoint while the
   cursor is far away → endpoints coincide exactly. Per-move cost at 2k items stays interactive
   (bench: < ~16 ms/move added).
-- Guard (VC3): real-path interior drag + Move tool + midpoint-grip tests; perf bench recorded.
+- Guard (VC3): real-path interior drag + Move tool + a move-grip drag test per item type;
+  perf bench recorded.
 
 ## S3a / Fold D — Ctrl angle constraint on polyline/polygon vertices (bug + feature)
 - Open-polyline endpoints constrain against their neighbour (`EndpointGripHandle`); interior

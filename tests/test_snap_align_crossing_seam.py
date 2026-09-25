@@ -5,7 +5,22 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.wall import WallSegment
-from tests._snap_polish_helpers import close_view, dwell, make_view, move
+from tests._snap_polish_helpers import click, close_view, dwell, make_view, move
+
+
+def _commit_line_end(view, scene, start: QPointF, cursor: QPointF) -> QPointF:
+    """Draw a real line: click *start*, move to *cursor*, click there; return
+    the committed LineItem's end point (seam M6 — observable end effect). The
+    start is chosen clear of all geometry so its own H/V rays do not cross
+    near *cursor*."""
+    before = {id(i) for i in scene.items()}
+    click(view, start)
+    move(view, cursor)
+    click(view, cursor)
+    new = [i for i in scene.items()
+           if id(i) not in before and type(i) is LineItem]
+    assert len(new) == 1, new
+    return new[0].mapToScene(new[0].line().p2())
 
 
 def _setup_b(qapp):
@@ -24,6 +39,8 @@ def test_ray_x_wall_face_wins_over_perpendicular(qapp):
         move(view, QPointF(1412, 16))
         pt = scene.get_effective_position(QPointF(1412, 16))
         assert math.hypot(pt.x() - 1400, pt.y()) < 0.01
+        end = _commit_line_end(view, scene, QPointF(700, 900), QPointF(1412, 16))
+        assert math.hypot(end.x() - 1400, end.y()) < 0.01, end
     finally:
         close_view(view, scene)
 
@@ -34,6 +51,8 @@ def test_ray_x_rect_edge_wins_over_perpendicular(qapp):
         move(view, QPointF(3012, 12))
         pt = scene.get_effective_position(QPointF(3012, 12))
         assert math.hypot(pt.x() - 3000, pt.y()) < 0.01
+        end = _commit_line_end(view, scene, QPointF(2300, 900), QPointF(3012, 12))
+        assert math.hypot(end.x() - 3000, end.y()) < 0.01, end
     finally:
         close_view(view, scene)
 
@@ -49,6 +68,8 @@ def test_path_x_path_on_geometry_wins(qapp):
         move(view, QPointF(1012, 4))
         pt = scene.get_effective_position(QPointF(1012, 4))
         assert math.hypot(pt.x() - 1000, pt.y()) < 0.01
+        end = _commit_line_end(view, scene, QPointF(-500, 1500), QPointF(1012, 4))
+        assert math.hypot(end.x() - 1000, end.y()) < 0.01, end
     finally:
         close_view(view, scene)
 
@@ -60,6 +81,8 @@ def test_real_endpoint_still_beats_crossing(qapp):
         move(view, QPointF(1398, 4))
         res = scene._snap_result
         assert res is not None and res.snap_type == "endpoint"
+        end = _commit_line_end(view, scene, QPointF(700, 900), QPointF(1398, 4))
+        assert math.hypot(end.x() - 1395, end.y() - 5) < 0.01, end
     finally:
         close_view(view, scene)
 
@@ -82,6 +105,8 @@ def test_in_aperture_real_endpoint_beats_crossing_after_weak_foot(qapp):
         assert res is not None and res.snap_type == "endpoint", (
             res, scene._align_result)
         assert math.hypot(res.point.x() - 100, res.point.y()) < 0.01
+        end = _commit_line_end(view, scene, QPointF(-200, 200), QPointF(86, 1))
+        assert math.hypot(end.x() - 100, end.y()) < 0.01, end
     finally:
         close_view(view, scene)
 

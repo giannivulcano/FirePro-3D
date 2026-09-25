@@ -2498,7 +2498,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
-        """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
+        """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
+        together in a single ``find()``, underlay geometry included), else the
+        grid fallback."""
         # Design-area picking snaps to sprinkler centres ONLY: general
         # OSNAP/underlay/grid snapping would drag clicks onto gridlines and
         # walls, but sprinkler node centres still snap (with a marker) so
@@ -2819,6 +2821,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "floor" and self._floor_primitive == "rect":
             return None
         if self.mode == "roof":
+            # Roof reads its own anchor here: PLC ``_mode_placement_anchor`` has
+            # no roof branch. Adding one would change more than PER-from — every
+            # anchor consumer (ALIGN parallel origin + H/V pair, the D3
+            # direction capture, ``get_placement_anchor``) would start acting
+            # for roof. (No HUD opens either way: roof has no applier in
+            # ``_APPLIER_FOR_MODE``.)
             ra = self._roof_active
             return ra.last_point() if ra is not None and ra._points else None
         return self._mode_placement_anchor()
