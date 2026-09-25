@@ -274,3 +274,28 @@ def test_titleblock_icon_renders_both_themes_no_fallback(qapp, caplog):
                 ic = icons.themed_icon(name, theme)
             assert isinstance(ic, QIcon) and not ic.isNull()
             assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
+# Regression guard (fix round for scene-tools G2, commit 5a53d93): the D12
+# cut_icon.svg re-author carries #1a1a1a ink (was hard-white in the legacy
+# Inkscape file). UnderlayImportDialog's "Draw crop" pill loaded it via a raw
+# QIcon(asset_path(...)) that bypassed themed_icon's sentinel recolour — under
+# the dark theme that rendered near-black ink instead of the dark-theme ink
+# token. Drives the real dialog end to end and compares actual rendered pixels
+# (observable ground truth per VC3), not source text.
+def test_underlay_import_crop_button_icon_is_theme_recoloured(qapp, monkeypatch):
+    from firepro3d import theme as _theme
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+
+    monkeypatch.setattr(
+        "firepro3d.underlay_import_dialog.detect", lambda: _theme.DARK)
+    icons._cache.clear()
+    dlg = UnderlayImportDialog(None)
+    try:
+        expected = icons.themed_icon("cut_icon.svg", icons.DARK).pixmap(64, 64).toImage()
+        got = dlg._rb_btn.icon().pixmap(64, 64).toImage()
+        assert got == expected, (
+            "'Draw crop' button icon does not match the dark-themed cut_icon.svg "
+            "render — it is loading the raw, unrecoloured asset")
+    finally:
+        dlg.deleteLater()

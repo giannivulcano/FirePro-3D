@@ -1383,7 +1383,8 @@ class UnderlayImportDialog(HouseDialog):
         crop_row = QHBoxLayout()
         self._rb_btn = _pill(
             "Draw crop", lambda: self._set_view_mode("rubber_band"),
-            icon=QIcon(asset_path("Ribbon", "cut_icon.svg")), checkable=True)
+            icon=themed_icon("cut_icon.svg", "light" if t.name == "light" else "dark"),
+            checkable=True)
         self._clear_sel_btn = _pill("Clear", self._clear_selection)
         crop_row.addWidget(self._rb_btn)
         crop_row.addWidget(self._clear_sel_btn)
