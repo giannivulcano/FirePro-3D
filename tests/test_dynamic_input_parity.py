@@ -1916,27 +1916,39 @@ class TestMoveParity:
         assert mouse_pos.x() == pytest.approx(1300.0)      # non-vacuous
 
 
-class TestPasteStaysOutOfTheHud:
-    """F2: paste shares node_start_pos and the handler but must not open a HUD.
+class TestPasteHudOnceArmed:
+    """D5 (scene-tools.md) retires F2: an armed paste owns a dX/dY HUD.
 
-    ``paste`` commits via ``paste_items``, ``move`` via ``move_items``.  Adding
-    paste to the HUD without its own applier would engage on a paste and commit
-    it as a move of the current selection, so paste is deliberately absent from
-    both the schema and applier tables and from ``get_placement_anchor``.
+    ``begin_paste`` anchors the paste on the copied base point and ``paste``
+    has its own applier (``_apply_paste_displacement``), so the HUD engages
+    and commits a paste — never a move of the current selection.
     """
 
-    def test_paste_has_no_anchor_even_with_a_base_point(self, scene, view):
-        scene.set_mode("paste")
-        scene.node_start_pos = QPointF(0, 0)
-        assert scene.get_placement_anchor() is None
+    @staticmethod
+    def _arm(scene):
+        import json
+        from PyQt6.QtWidgets import QApplication
+        from firepro3d.geometry_2d import LineItem
+        QApplication.clipboard().setText(json.dumps(
+            {"fp3d_clipboard": 1, "base": [0.0, 0.0], "scene_role": "block_editor",
+             "items": [LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict()]}))
+        assert scene._modify_ctl.start("paste") is True
 
-    def test_paste_mode_opens_no_hud(self, scene, view):
-        scene.set_mode("paste")
-        scene.node_start_pos = QPointF(0, 0)
-        assert scene.active_schema() is None
-        assert scene._hud_available() is False
-        assert scene.begin_dynamic_input(seed="1") is False
-        assert scene.dynamic_input is None
+    def test_armed_paste_is_anchored_on_the_base(self, scene, view):
+        self._arm(scene)
+        assert scene.get_placement_anchor() == QPointF(0, 0)
+
+    def test_armed_paste_opens_the_displacement_hud(self, scene, view):
+        self._arm(scene)
+        assert scene.active_schema() is not None
+        assert scene.active_schema().name == "displacement"
+        assert scene._hud_available() is True
+        assert scene.begin_dynamic_input() is True
+        scene.dynamic_input.editor("dX").setText("300")
+        scene.dynamic_input.editor("dY").setText("0")
+        scene.dynamic_input._accept()
+        assert len(scene._draw_lines) == 1
+        assert scene._draw_lines[0].line().p1() == QPointF(300, 0)
 
 
 # ── Task 3: ghost updates on each field commit ────────────────────────────

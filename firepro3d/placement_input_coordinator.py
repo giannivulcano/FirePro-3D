@@ -641,9 +641,10 @@ class PlacementInputCoordinator:
             if pl is not None and pl._points:
                 return pl.last_point()
             return None
-        if self._scene.mode in ("pipe", "move"):
+        if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
-            # move mode (set_mode's cleanup relies on the same distinction).
+            # move / paste / duplicate mode (set_mode's cleanup relies on the
+            # same distinction).
             nsp = self._scene.node_start_pos
             if nsp is None:
                 return None

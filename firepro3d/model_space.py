@@ -195,6 +195,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
         self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
         self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
+        self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         # Selection dimension readouts (selection-mode §15). Composed before
@@ -2910,6 +2911,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
         "move": "displacement",
+        "paste": "displacement",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -2942,6 +2944,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
+        "paste": "_apply_paste_displacement",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -3069,7 +3072,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         transform re-derives the point its own preview helper consumes from the
         resolved dict and the scene's armed state:
 
-        * ``move`` lands its base anchor at ``anchor + offset``;
+        * ``move`` / ``paste`` / ``duplicate`` land the base anchor at
+          ``anchor + offset``;
         * ``draw_arc`` at step 2 sweeps to the endpoint the typed span implies on
           the stored radius circle (``_arc_end_point_for_span``).
 
@@ -3081,7 +3085,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if (self.mode == "draw_arc" and self._draw_arc_step == 2
                 and self._arc_variant == _ARC_VARIANT_ENDPOINTS):
             return self._geom_ctl._arc_ep_center_for_radius(resolved["radius"])
-        if self.mode == "move":
+        if self.mode in ("move", "paste", "duplicate"):
             offset = resolved["offset"]
             return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
         if self.mode == "draw_arc" and self._draw_arc_step == 2:
@@ -3754,6 +3758,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
+        "paste":           "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
@@ -5273,6 +5278,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _apply_move_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
         return self._modify_ctl._apply_move_displacement(*args, **kwargs)
+
+    def _apply_paste_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D5)
+        return self._modify_ctl._apply_paste_displacement(*args, **kwargs)
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)

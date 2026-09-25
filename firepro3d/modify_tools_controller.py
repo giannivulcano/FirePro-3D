@@ -114,8 +114,75 @@ class ModifyToolsController:
                 if it.scene() is s:
                     it.setSelected(True)
 
-    def begin_paste(self) -> bool:     # replaced in Task 7
-        return False
+    # ── Paste (D5, D13) ─────────────────────────────────────────────────────
+
+    # Clipboard record types that only a plan scene may receive (D13).
+    _PLAN_ONLY = frozenset({"node", "block_instance", "wall", "floor_slab",
+                            "roof", "room"})
+
+    def begin_paste(self) -> bool:
+        """Validate the clipboard and arm ``paste`` with the ghost on the cursor.
+
+        Refusals (empty / foreign clipboard, containment D13) leave the mode
+        untouched and only post a status message.
+
+        Returns:
+            True if ``paste`` was entered.
+        """
+        s = self._scene
+        payload = s.clipboard_payload()
+        if not payload or not payload.get("items"):
+            s._show_status("Nothing to paste", 3000)
+            return False
+        types = {d.get("type", "") for d in payload["items"]}
+        if s.scene_role != "block_editor" and types & set(s._GEOM_TYPE_REGISTRY):
+            s._show_status("2D geometry can only be pasted in the Block Editor", 4000)
+            return False
+        if s.scene_role == "block_editor" and (
+                types & self._PLAN_ONLY
+                or any("origin" in d and "angle" in d and not d.get("type")
+                       for d in payload["items"])):          # gridline records
+            s._show_status("Plan elements can't be pasted into the Block Editor", 4000)
+            return False
+        s.set_mode("paste")
+        s._paste_payload = payload
+        # The copied base point is the anchor of the ghost and the dX/dY HUD.
+        s.node_start_pos = QPointF(*payload["base"])
+        s._move_ghost_base = self._clipboard_ghost_paths(payload["items"])
+        s._move_ghost = []
+        return True
+
+    def commit_paste(self, offset: QPointF) -> None:
+        """Paste the armed payload once, translated by *offset*; one undo step."""
+        s = self._scene
+        records = s._paste_payload["items"]
+        s.clearSelection()
+        new_items = s.paste_items(offset, data=records)
+        skipped = sum(1 for d in records
+                      if d.get("type", "") in s._GEOM_TYPE_REGISTRY) - len(new_items)
+        s.push_undo_state()
+        s._paste_payload = None
+        s.node_start_pos = None
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s.set_mode(None)
+        for it in new_items:
+            it.setSelected(True)
+        msg = f"Pasted {len(records) - skipped} item(s)"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+
+    def _apply_paste_displacement(self, params: dict) -> bool:
+        """Typed dX/dY for ``paste`` (D5): commit one paste at base + offset.
+
+        Args:
+            params: ``resolve_displacement``'s output — ``{"offset": QPointF}``.
+
+        Returns:
+            True — the paste is unconditional.
+        """
+        self.commit_paste(params["offset"])
+        return True
 
     def begin_offset(self, sel) -> bool:   # replaced in Task 12
         self._scene.set_mode("offset")
@@ -127,21 +194,28 @@ class ModifyToolsController:
         if new_mode not in ("paste", "move"):
             s._move_ghost = []
             s._move_ghost_base = []
+        if new_mode != "paste":
+            s._paste_payload = None
 
     # ── Move / Paste gesture ────────────────────────────────────────────────
 
     def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
         s = self._scene
+        if s.mode == "paste":
+            # D5: the base is armed by begin_paste — one click commits.
+            if s._paste_payload is None or s.node_start_pos is None:
+                s.set_mode(None)          # entered without begin_paste
+                return
+            self.commit_paste(CAD_Math.get_vector(s.node_start_pos, snapped))
+            return
         if s.node_start_pos is None:
             s.node_start_pos = snapped
-            s._move_ghost_base = s._build_move_ghost_base(is_paste=(s.mode == "paste"))
+            s._move_ghost_base = s._build_move_ghost_base(is_paste=False)
             s._begin_move_handle_snap(snapped)
         else:
             snapped = s._move_handle_snap(event, snapped)
             offset = CAD_Math.get_vector(s.node_start_pos, snapped)
-            if s.mode == "paste":
-                s.paste_items(offset)
-            elif s.mode == "move":
+            if s.mode == "move":
                 s.move_items(offset)
             s.push_undo_state()
             s.node_start_pos = None
@@ -186,8 +260,8 @@ class ModifyToolsController:
         # below is a separate surface and stays: S1 retired the painted
         # on-canvas Dim HUD, which move never used, not the status line — and
         # it carries ``dist``, which the two-field HUD does not.  A no-op while
-        # a field has focus, so a mid-edit reseed cannot land.  ``paste`` also
-        # reaches here, harmlessly: it has no schema, so nothing seeds from it.
+        # a field has focus, so a mid-edit reseed cannot land.  ``paste``
+        # seeds its dX/dY from the copied base point the same way (D5).
         s.publish_placement_state(s.node_start_pos, snapped)
         s._show_status(
             f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
@@ -281,10 +355,8 @@ class ModifyToolsController:
 
         The commit half of the ``move`` branch of :meth:`_press_paste_move`,
         so a typed displacement and a dragged one share ``move_items`` and one
-        undo push.  Only ``move`` routes here — ``paste`` is deliberately kept
-        out of the schema and anchor tables (F2), because it commits through
-        ``paste_items`` and would otherwise be applied as a move of the current
-        selection.
+        undo push.  ``paste`` has its own applier
+        (:meth:`_apply_paste_displacement`, D5).
 
         Every displacement commits: unlike the length/radius/spacing schemas
         there is no magnitude floor, so this always reports success (decision
@@ -350,21 +422,13 @@ class ModifyToolsController:
         """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
         without adding anything to the scene. Covers the copyable types."""
         from .model_space import _GHOST_NODE_MARKER_MM
-        from .geometry_2d import (
-            LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
-            SplineItem as _SplineItem,
-        )
         paths = []
         if not data:
             return paths
-        geom_ctors = {
-            "draw_line": LineItem, "reference_line": ReferenceLineItem,
-            "draw_rectangle": RectangleItem,
-            "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
-            "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
-            "draw_spline": _SplineItem,
-        }
+        # One home for the type → class table (the scene's _add_from_dict
+        # registry): the ghost can never disagree with what a paste creates.
+        geom_ctors = {t: cls for t, (cls, _attr)
+                      in self._scene._GEOM_TYPE_REGISTRY.items()}
         for obj in data:
             t = obj.get("type", "")
             if t == "gridline":

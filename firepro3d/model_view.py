@@ -1417,9 +1417,9 @@ class Model_View(QGraphicsView):
             sel_all.triggered.connect(self._select_all_items)
 
         # Paste (if clipboard has data)
-        if hasattr(scene, "clipboard_data") and scene.clipboard_data():
+        if hasattr(scene, "clipboard_payload") and scene.clipboard_payload():
             paste_act = menu.addAction("Paste")
-            paste_act.triggered.connect(lambda: scene.set_mode("paste"))
+            paste_act.triggered.connect(lambda: scene._modify_ctl.start("paste"))
 
         return menu
 
