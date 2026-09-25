@@ -352,8 +352,9 @@ class TranslateGripHandle(GripHandle):
         sc = m.scene()
         engine = getattr(sc, "_snap_engine", None)
         view = m._view() if hasattr(m, "_view") else None
-        if (engine is not None and view is not None
-                and getattr(sc, "_snap_enabled", True) and engine.enabled):
+        # Built at press (item at rest) regardless of the snap toggles; they
+        # gate its per-frame use (a toggle flipped mid-drag then just works).
+        if engine is not None and view is not None:
             from .handle_snap import HandleSnapSession
             self._hs = HandleSnapSession(engine, sc, view, [self.item],
                                          self.item.grip_points()[self.index])
@@ -363,11 +364,14 @@ class TranslateGripHandle(GripHandle):
         raw = getattr(self, "_raw_pt", None)
         if hs is None or raw is None:
             return pt
+        sc = m.scene()
+        if not (getattr(sc, "_snap_enabled", True)
+                and getattr(getattr(sc, "_snap_engine", None), "enabled", True)):
+            return pt
         hit = hs.best(raw)
         if hit is None:
             return pt
         corrected, res = hit
-        sc = m.scene()
         if hasattr(sc, "_snap_result"):
             sc._snap_result = res
             self._marker = res

@@ -33,7 +33,7 @@ from .geometry_2d import (
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
-from .handle_snap import HandleSnapSession
+from .handle_snap import HandleSnapResult, HandleSnapSession
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -2562,6 +2562,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._align_track_ray = None
             return self.get_snapped_position(scene_pos.x(), scene_pos.y())
         held = self._snap_result if self._snap_result is not None else self._align_result
+        if isinstance(held, HandleSnapResult):
+            held = None     # S2 handle-snap marker: a handle's target, not a cursor snap
         res = self._snap_engine.find(
             scene_pos, self, _view.transform(),
             exclude=self._grip_item if self._grip_dragging else None,
@@ -5273,8 +5275,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         self._move_handle_session = None
         view = self._snap_view()
-        if (self.mode != "move" or view is None or not self._snap_enabled
-                or not self._snap_engine.enabled):
+        # Built regardless of the snap toggles (items are at rest until the
+        # commit); _move_handle_snap gates its use per frame.
+        if self.mode != "move" or view is None:
             return
         moving = list(self._selected_items or self.selectedItems())
         moving += [it.node for it in moving
@@ -5297,15 +5300,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             marker published to ``_snap_result``), else *snapped* unchanged.
         """
         hs = self._move_handle_session
-        if hs is None or self.mode != "move" or self.node_start_pos is None:
+        if (hs is None or self.mode != "move" or self.node_start_pos is None
+                or not self._snap_enabled or not self._snap_engine.enabled):
             return snapped
+        # Zoom/pan between the base click and here: re-collect the targets
+        # (visible rect + aperture scale). Safe — the moved items are at rest
+        # until the commit (the preview is a ghost).
+        hs.sync_view(self._snap_view())
         scene_pos = getattr(event, "scenePos", None)
         raw = scene_pos() if scene_pos is not None else snapped
         hit = hs.best(raw)
         if hit is None:
             return snapped
         corrected, res = hit
-        self._snap_result = res
+        self._snap_result = res          # marker only (never a hysteresis held)
+        # The handle hit beats the cursor/ALIGN pick: drop its guide so no
+        # dashed ALIGN ray is drawn for a point the move does not use.
+        self._align_result = None
+        self._align_track_ray = None
         return corrected
 
     def _apply_move_displacement(self, params: dict) -> bool:

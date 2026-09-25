@@ -848,8 +848,7 @@ class SelectionManipulator(QGraphicsObject):
         sc = self.scene()
         view = self._view()
         engine = getattr(sc, "_snap_engine", None)
-        if (engine is None or view is None
-                or not getattr(sc, "_snap_enabled", True)):
+        if not self._snap_live():
             self._held_snap = None
             return scene_pos
 
@@ -1034,6 +1033,12 @@ class SelectionManipulator(QGraphicsObject):
             if dist < QApplication.startDragDistance():
                 return
             self._moved = True
+            if self._active_handle is None:
+                # S2: build the handle-snap session NOW — the first moved
+                # update, before the first _apply, so the items are at rest
+                # and the handle offsets are rest-pose. Built regardless of
+                # Shift / snap toggles; those gate its per-frame USE.
+                self._handle_snap = self._build_handle_snap()
 
         if self._active_handle is not None:
             self._active_handle.on_drag(self, scene_pos, mods)
@@ -1041,10 +1046,13 @@ class SelectionManipulator(QGraphicsObject):
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             snapped = self._snap(scene_pos)
             # S2: the moving items' own snap points snap to other geometry;
-            # the closest handle hit beats the grab-point snap. Skipped under
-            # Shift (ortho wins — a handle hit would be projected off-target).
-            hs = None if shift else self._handle_snap_session()
-            hit = hs.best(scene_pos) if hs is not None else None
+            # the closest handle hit beats the grab-point snap. Not used under
+            # Shift (ortho wins — a handle hit would be projected off-target)
+            # or while snapping is off (checked per frame).
+            hs = self._handle_snap
+            hit = (hs.best(scene_pos)
+                   if hs is not None and not shift and self._snap_live()
+                   else None)
             if hit is not None:
                 snapped, res = hit
                 self._held_snap = None
@@ -1180,25 +1188,36 @@ class SelectionManipulator(QGraphicsObject):
         self._handle_snap = None
         self._set_handle_marker(None)
 
-    def _handle_snap_session(self):
-        """Lazily build the S2 HandleSnapSession for this move gesture.
+    def _snap_live(self) -> bool:
+        """Whether snapping is live for this gesture right now.
 
-        Built on the first moved update, BEFORE the first ``_apply`` — the
-        items are still at rest, so the handle offsets are rest-pose. Returns
-        None when no snap engine / view is reachable (paper) or snap is off.
+        One gate for the grab-point snap (:meth:`_snap`) and the S2 handle
+        snap: a snap engine and a view are reachable (not paper), the scene's
+        snap toggle is on and the engine is enabled.
         """
-        if getattr(self, "_handle_snap", None) is None:
-            sc = self.scene()
-            view = self._view()
-            engine = getattr(sc, "_snap_engine", None)
-            if (engine is None or view is None
-                    or not getattr(sc, "_snap_enabled", True)
-                    or not engine.enabled):
-                return None
-            from .handle_snap import HandleSnapSession
-            self._handle_snap = HandleSnapSession(
-                engine, sc, view, list(self._items), self._start_scene)
-        return self._handle_snap
+        sc = self.scene()
+        engine = getattr(sc, "_snap_engine", None)
+        return (engine is not None and self._view() is not None
+                and getattr(sc, "_snap_enabled", True)
+                and bool(getattr(engine, "enabled", True)))
+
+    def _build_handle_snap(self):
+        """Build the S2 HandleSnapSession for this move gesture.
+
+        Called once, on the first moved update and BEFORE the first
+        ``_apply`` — the items are still at rest, so the handle offsets are
+        rest-pose. Returns None only when no snap engine / view is reachable
+        (paper); Shift and the snap toggles gate its per-frame use instead, so
+        a late build over preview-moved items can never happen.
+        """
+        sc = self.scene()
+        view = self._view()
+        engine = getattr(sc, "_snap_engine", None)
+        if engine is None or view is None:
+            return None
+        from .handle_snap import HandleSnapSession
+        return HandleSnapSession(engine, sc, view, list(self._items),
+                                 self._start_scene)
 
     def _set_handle_marker(self, res) -> None:
         """Publish (or clear) the S2 handle-snap marker on the scene.
