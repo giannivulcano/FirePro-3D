@@ -254,6 +254,7 @@ MANIP_HANDLE_BORDER_PX = 1.2               # handle outline width (device px)
 MANIP_HANDLE_FILL_DARK = "#101613"          # fill on a dark canvas (prototype value)
 MANIP_HANDLE_FILL_LIGHT = "#ffffff"         # fill on a light canvas
 GRIP_OBJECT_LIMIT = 100  # frame-only above this many selected items (AutoCAD GRIPOBJLIMIT); selection-manipulator.md
+HANDLE_SNAP_MAX_HANDLES = 64  # S2: handle-snap probes per move (selection-manipulator.md)
 
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
