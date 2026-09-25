@@ -172,6 +172,25 @@ SNAP_MARKERS: dict[str, str] = {
 # Shared snap-indicator painter
 # ─────────────────────────────────────────────────────────────────────────────
 
+def snap_glyph_type(snap_result) -> str:
+    """The SNAP_COLORS / SNAP_MARKERS key a result is drawn with.
+
+    Real snaps draw their own type. ALIGN snaps reuse the regular glyphs
+    (smoke item 3): a crossing (``align_intersection``) draws the intersection
+    X; a single-path ``align_path`` draws ⊥ when the winning ray's kind
+    (carried on ``OsnapResult.name``) is ``"perpendicular"``, else the nearest
+    cross.
+    """
+    t = snap_result.snap_type
+    if t == "align_intersection":
+        return "intersection"
+    if t == "align_path":
+        return ("perpendicular"
+                if getattr(snap_result, "name", None) == "perpendicular"
+                else "nearest")
+    return t
+
+
 def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     """Draw the snap trace and marker glyph for one snap result.
 
@@ -205,13 +224,16 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     if snap_result is None:
         return
 
-    snap_type = snap_result.snap_type
+    snap_type = snap_glyph_type(snap_result)
     point = snap_result.point
+    # ALIGN results skip the trace: their tracking vectors are drawn by the
+    # caller in the ALIGN guide style (Model_View.drawForeground §6).
+    _is_align = snap_result.snap_type in ALIGN_SNAP_TYPES
 
     # ── 1. Source-item trace (scene coordinates — no resetTransform) ──────────
     src_item = getattr(snap_result, "source_item", None)
     src_lines = getattr(snap_result, "source_lines", None)
-    if src_item is not None or src_lines:
+    if not _is_align and (src_item is not None or src_lines):
         color = QColor(SNAP_COLORS.get(snap_type, "#aaaaaa"))
         trace_pen = QPen(color, 1)
         trace_pen.setStyle(Qt.PenStyle.DashLine)
@@ -685,7 +707,9 @@ class SnapEngine:
             # single-path projection (priority align_path = 30)
             for ray in align_paths:
                 foot, _ = project_to_ray(cur, ray)
-                ctx.check("align_path", QPointF(*foot), None,
+                # name = the ray kind, so the painter can pick the glyph
+                # (⊥ for a perpendicular ray, nearest otherwise).
+                ctx.check("align_path", QPointF(*foot), None, ray.kind,
                           source_lines=[_ray_line(ray)],
                           aperture_px=align_aperture)
 

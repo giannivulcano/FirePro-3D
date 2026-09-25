@@ -518,6 +518,11 @@ class Model_View(QGraphicsView):
                 for ln in src_lines:
                     painter.drawLine(ln)      # scene-coord QLineF, cosmetic pen
                 painter.restore()
+            # The ALIGN snap point gets the regular snap glyph, on top of the
+            # vectors (⊥ / nearest for a single path, X for a crossing —
+            # snap_engine.snap_glyph_type).
+            if align_res is not None:
+                paint_snap_indicator(painter, self, align_res)
             # '+' acquired markers (viewport coords).
             acquired = ctrl.acquired_points()
             if acquired:
