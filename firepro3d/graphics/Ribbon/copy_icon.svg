@@ -1,53 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!-- Created with Inkscape (http://www.inkscape.org/) -->
-
-<svg
-   width="40.000225mm"
-   height="40.000225mm"
-   viewBox="0 0 40.000225 40.000227"
-   version="1.1"
-   id="svg1"
-   xml:space="preserve"
-   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
-   sodipodi:docname="copy_icon.svg"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg"><sodipodi:namedview
-     id="namedview1"
-     pagecolor="#505050"
-     bordercolor="#eeeeee"
-     borderopacity="1"
-     inkscape:showpageshadow="0"
-     inkscape:pageopacity="0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#505050"
-     inkscape:document-units="mm"
-     inkscape:zoom="1"
-     inkscape:cx="265.99999"
-     inkscape:cy="215.49999"
-     inkscape:window-width="1920"
-     inkscape:window-height="1009"
-     inkscape:window-x="1912"
-     inkscape:window-y="-8"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="layer1"
-     showgrid="false" /><defs
-     id="defs1"><linearGradient
-       id="swatch2"
-       inkscape:swatch="solid"><stop
-         style="stop-color:#000000;stop-opacity:1;"
-         offset="0"
-         id="stop2" /></linearGradient><linearGradient
-       id="swatch6"
-       inkscape:swatch="solid"><stop
-         style="stop-color:#000000;stop-opacity:0;"
-         offset="0"
-         id="stop6" /></linearGradient></defs><g
-     inkscape:label="Layer 1"
-     inkscape:groupmode="layer"
-     id="layer1"
-     transform="translate(-2.0073062,-14.328322)"><path
-       d="m 3.6018931,37.911587 c 0,-18.988004 -0.468561,-17.176861 4.433412,-17.136648 l 3.5311929,0.02885 0.104066,-2.960983 c 0.132706,-3.776211 -0.71579,-3.50275 10.888172,-3.509084 l 9.930296,-0.0054 3.967878,3.938661 3.967878,3.93866 -0.09282,12.787009 -0.09282,12.787012 -3.893794,0.176984 -3.893836,0.176983 -0.102436,3.097348 -0.102435,3.097343 H 17.924137 3.6016341 Z M 30.858519,41.420889 V 29.575296 L 27.407191,29.47399 23.95586,29.372683 23.779002,25.83286 23.602144,22.293033 H 14.398609 5.1950661 l -0.09223,15.486733 -0.09223,15.486732 H 17.93469 30.858731 Z M 39.000145,34.84709 V 23.203613 L 35.548818,23.102306 32.097486,23.001 31.920628,19.461177 31.74377,15.921349 l -9.262772,-0.09432 -9.262751,-0.09432 -0.11778,2.484495 -0.11778,2.484495 5.496462,-7.98e-4 c 6.436251,-9.33e-4 5.801381,-0.274026 10.521236,4.525482 l 3.274352,3.329558 v 8.933444 c 0,4.913396 0.06564,8.999814 0.145918,9.080935 0.08028,0.08111 1.593508,0.09637 3.362823,0.03387 l 3.216947,-0.113599 z m -9.203573,-6.812081 c 0,-0.05431 -1.035397,-1.124921 -2.300872,-2.379162 l -2.300872,-2.280431 v 2.379158 2.379154 H 27.4957 c 1.265475,0 2.300872,-0.04444 2.300872,-0.09872 z m 7.78763,-6.549532 c 0,-0.492229 -4.102587,-4.352392 -4.3562,-4.098782 -0.302708,0.302498 -0.324449,3.049563 -0.02927,3.815425 0.226613,0.590333 4.38689,0.859061 4.38689,0.283349 z"
-       style="fill:#ffffff;fill-opacity:1;stroke-width:0.999996"
-       id="path1-2" /></g></svg>
+<svg width="40mm" height="40mm" viewBox="0 0 40 40" version="1.1"
+     xmlns="http://www.w3.org/2000/svg">
+  <!-- Two-token (icon-style-guide §5.1): #1a1a1a -> ink (source), #004cff -> accent (result/motion). -->
+  <path d="M 8,28 V 8 H 24" style="fill:none;stroke:#1a1a1a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+  <rect x="14" y="14" width="19" height="20" rx="1.5" style="fill:none;stroke:#004cff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+</svg>
