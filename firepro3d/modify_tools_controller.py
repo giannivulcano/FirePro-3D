@@ -86,8 +86,36 @@ class ModifyToolsController:
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
             from .transform_ghost import dim_items
-            s._ghost_dimmed = dim_items(sel)
+            s._ghost_dimmed = dim_items(self._transformable(sel))
         return True
+
+    @staticmethod
+    def _transformable(items) -> list:
+        """The items a transform acts on — ``move_items``' filter (D11 dim).
+
+        A Sprinkler resolves to its Node; otherwise an item qualifies if it
+        is a Node or has ``translate`` / ``manip_translate``. Selectable items
+        a Move cannot move (underlays) are left out, so they are never dimmed
+        (their opacity is persisted by save).
+
+        Args:
+            items: Candidate items (usually the captured selection).
+
+        Returns:
+            The de-duplicated transformable items, in order.
+        """
+        from .node import Node
+        out, seen = [], set()
+        for it in items or ():
+            if isinstance(it, Sprinkler) and it.node is not None:
+                it = it.node
+            if id(it) in seen:
+                continue
+            if (isinstance(it, Node) or hasattr(it, "translate")
+                    or hasattr(it, "manip_translate")):
+                seen.add(id(it))
+                out.append(it)
+        return out
 
     # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
 
@@ -335,6 +363,9 @@ class ModifyToolsController:
         """
         s = self._scene
         s.set_mode("move")
+        # D11: the imported geometry rides the cursor like any Move — dim it.
+        from .transform_ghost import dim_items
+        s._ghost_dimmed = dim_items(self._transformable(s._selected_items or []))
         s.node_start_pos = QPointF(base)
         s._move_ghost_base = s._build_move_ghost_base()
         s._begin_move_handle_snap(s.node_start_pos)

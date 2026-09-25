@@ -98,13 +98,65 @@ def test_move_ghost_paints_accent_trace(qapp):
         img = view.viewport().grab().toImage()
         accent = QColor(th.detect().color(HALO_TRACE_COLOR))
         vp = view.viewportTransform().map(br.center())
-        cx, cy = int(round(vp.x())), int(round(vp.y()))
+        dpr = img.devicePixelRatio()           # grab() is in device pixels
+        cx, cy = int(round(vp.x() * dpr)), int(round(vp.y() * dpr))
         # The line sits on a pixel edge, so AA blends the 1 px trace over two
         # rows: judge the most saturated pixel across the line by its hue.
-        col = [QColor(img.pixel(cx, cy + dy)) for dy in range(-4, 5)]
+        span = max(4, int(round(4 * dpr)))
+        col = [QColor(img.pixel(cx, cy + dy)) for dy in range(-span, span + 1)]
         best = max(col, key=lambda c: c.hsvSaturationF())
         assert best.hsvSaturationF() > 0.3
         dh = abs(_hue_deg(best) - _hue_deg(accent)) % 360.0
         assert min(dh, 360.0 - dh) < 10.0                   # [RED] was cyan
+    finally:
+        close_view(view, scene)
+
+
+def test_only_transformable_items_are_dimmed(qapp):
+    """A selectable item Move cannot move (an underlay-style group: no
+    translate / manip_translate) keeps its opacity — nothing leaks into what
+    save persists (scene_io writes underlay opacity)."""
+    from PyQt6.QtWidgets import QGraphicsItem, QGraphicsItemGroup
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        grp = QGraphicsItemGroup()
+        grp.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        grp.setOpacity(0.7)
+        scene.addItem(grp); grp.setSelected(True)
+        assert grp in scene.selectedItems()
+        scene._modify_ctl.start("move")
+        assert item.opacity() == pytest.approx(0.35)
+        assert grp.opacity() == pytest.approx(0.7)             # [RED]
+        scene.set_mode(None)
+        assert grp.opacity() == pytest.approx(0.7)
+    finally:
+        close_view(view, scene)
+
+
+def test_begin_move_from_dims_and_restores(qapp):
+    """Q-B: the Block Editor import Move (begin_move_from) dims too."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "circle")
+        scene.begin_move_from(QPointF(0, 0))
+        assert scene.mode == "move"
+        assert item.opacity() == pytest.approx(0.35)            # [RED]
+        scene.set_mode(None)
+        assert item.opacity() == pytest.approx(1.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_restore_keeps_an_opacity_set_mid_transform(qapp):
+    """Q-C: an opacity someone else set while dimmed is not overwritten."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        scene._modify_ctl.start("move")
+        assert item.opacity() == pytest.approx(0.35)
+        item.setOpacity(0.6)                                    # e.g. display manager
+        scene.set_mode(None)
+        assert item.opacity() == pytest.approx(0.6)              # [RED]
     finally:
         close_view(view, scene)

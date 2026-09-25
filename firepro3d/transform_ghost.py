@@ -17,6 +17,9 @@ from .constants import (HALO_TRACE_COLOR, TRANSFORM_GHOST_DIM_OPACITY,
                         TRANSFORM_GHOST_TRACE_ALPHA, TRANSFORM_GHOST_TRACE_WIDTH_PX)
 from .halo import halo_scene_path, paint_halo_path
 
+# Opacity match tolerance for restore (qreal round-trip noise only).
+_OPACITY_TOL = 1e-4
+
 
 def ghost_base_paths(items) -> list:
     """Scene-coord traced geometry for *items* (drawn geometry, not shape()).
@@ -83,10 +86,16 @@ def dim_items(items) -> list:
 def restore_items(saved) -> None:
     """Restore the exact prior opacities recorded by :func:`dim_items`.
 
+    An item whose opacity no longer equals the dimmed value (someone else —
+    e.g. the display manager or a level switch — set it mid-transform) keeps
+    that newer value.
+
     Args:
         saved: The list :func:`dim_items` returned; deleted items are skipped.
     """
     from PyQt6 import sip as _sip
     for it, prior in saved or ():
-        if not _sip.isdeleted(it):
+        if _sip.isdeleted(it):
+            continue
+        if abs(it.opacity() - prior * TRANSFORM_GHOST_DIM_OPACITY) <= _OPACITY_TOL:
             it.setOpacity(prior)
