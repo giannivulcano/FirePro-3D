@@ -7359,8 +7359,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             data: Records to paste; defaults to :meth:`clipboard_data`.
 
         Returns:
-            The new 2D-geometry/text items (nodes, gridlines and block
-            instances are created but not listed).
+            Every pasted top-level item — 2D geometry / text, each record's
+            Node (pipe end nodes are not listed), block instances and
+            gridlines. A skipped record (unknown type, missing block
+            definition) contributes nothing.
         """
         if data is None:
             data = self.clipboard_data() or []
@@ -7433,6 +7435,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     ):
                         self.add_pipe(node1, node2)
                 node1.fitting.update()
+                new_items.append(node1)
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
@@ -7445,6 +7448,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     )
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)
+                    new_items.append(inst)
                 # else: definition absent (cross-project paste) — skip silently
 
             elif "origin" in obj and "angle" in obj and not obj_type:
@@ -7459,6 +7463,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 gl.grid_label = auto_label(gl.grip_points()[0], gl.grip_points()[1])
                 self._register_gridline(gl)
                 apply_duplicate_warnings(self._gridlines)
+                new_items.append(gl)
 
         self._show_status(f"Pasted {len(data)} item(s)")
         return new_items

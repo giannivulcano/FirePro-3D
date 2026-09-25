@@ -158,8 +158,7 @@ class ModifyToolsController:
         records = s._paste_payload["items"]
         s.clearSelection()
         new_items = s.paste_items(offset, data=records)
-        skipped = sum(1 for d in records
-                      if d.get("type", "") in s._GEOM_TYPE_REGISTRY) - len(new_items)
+        skipped = len(records) - len(new_items)
         s.push_undo_state()
         s._paste_payload = None
         s.node_start_pos = None
@@ -169,7 +168,7 @@ class ModifyToolsController:
         s.set_mode(None)
         for it in new_items:
             it.setSelected(True)
-        msg = f"Pasted {len(records) - skipped} item(s)"
+        msg = f"Pasted {len(new_items)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
 
     def _apply_paste_displacement(self, params: dict) -> bool:
@@ -397,30 +396,27 @@ class ModifyToolsController:
         One undo step; returns to Select with the copies selected (D3).
         """
         s = self._scene
-        src = list(s._selected_items or s.selectedItems())
+        src = [it for it in (s._selected_items or s.selectedItems())
+               if it.scene() is s]
+        # The same per-item serialiser + paste path as Copy/Paste, so every
+        # selectable kind (2D geometry, text, nodes, gridlines, blocks) copies.
+        records = s._clipboard_item_dicts(src)
         s.clearSelection()
-        new_items = []
-        for it in src:
-            if not hasattr(it, "to_dict"):
-                continue
-            new = s._add_from_dict(it.to_dict())
-            if new is None:
-                continue
-            if hasattr(new, "translate"):
-                new.translate(offset.x(), offset.y())
-            else:
-                new.manip_translate(offset.x(), offset.y())
-            new_items.append(new)
-        s.push_undo_state()
+        new_items = s.paste_items(offset, data=records)
+        if new_items:
+            s.push_undo_state()
         s._selected_items = []
         s.node_start_pos = None
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
         s.set_mode(None)
+        if not new_items:
+            s._show_status("Nothing duplicated", 3000)
+            return
         for new in new_items:
             new.setSelected(True)
-        skipped = len(src) - len(new_items)
+        skipped = len(records) - len(new_items)
         msg = f"Duplicated {len(new_items)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
 
