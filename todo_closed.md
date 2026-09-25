@@ -2,6 +2,39 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Snap polish batch (curve accuracy, ALIGN×SNAP one picker, PER-from, move handle-snap, polyline/polygon Ctrl, text snaps) — 2026-09-25
+
+- [x] [type:bug] Snap marker z-order over grip during snapped grip-drag [P3] [subject:UX] [done:2026-09-25]
+  - Details: cosmetic; documented in `drawForeground`. The unified painter draws the marker with the trace (before grips), so a grip fill paints over the marker centre during a snapped grip-drag. Restore marker-after-grips only if it visibly bothers. `model_view.py`, `snap_engine.py`.
+  - Done: closed STALE: grips are `_HandleItem` scene items painted before drawForeground, marker paints over them (pixel-verified); docstring fixed (Fold A). Branch `feat/snap-polish`.
+- [x] [type:feature] Floor polygon Ctrl angle-constraint [P3] [subject:CAD] [done:2026-09-25]
+  - Details: `_move_floor` (polygon) publishes the raw snapped point; `_move_wall` applies `_constrain_angle` under Ctrl before publishing. Add Ctrl angle-snap parity to floor polygon segments. `model_space.py`.
+  - Done: floor + roof polygon placement press+move constrain under Ctrl (Fold D). Branch `feat/snap-polish`.
+- [x] [type:maint] Add `PolylineItem.last_point()` [P3] [subject:Architecture] [done:2026-09-25]
+  - Details: `model_space` reaches into `_points[-1]` directly at several sites. `geometry_2d.py`, `model_space.py`.
+  - Done: last_point() on PolylineItem/FloorSlab/RoofItem, all [-1] reach-ins replaced (Fold E). Branch `feat/snap-polish`.
+- [x] [type:bug] Roof polygon placement crashes on first click (bad import) [P1] [subject:CAD] [done:2026-09-25]
+  - Details: found 2026-09-24 (snap-polish G1, proven pre-existing at `bda538a` in a worktree). `placement_input_coordinator.py` `_get_roof_template` does `from .roof_item import RoofItem`, but the class lives in `firepro3d/roof.py` — ModuleNotFoundError inside a Qt event handler → fatal abort (exit 127). Introduced by `7e09ad5` (C2b decomp, 2026-09-03). The live Roof ribbon tool is likely dead. Fix: `from .roof import RoofItem`; add a real-click guard (unskip `test_snap_perpendicular_from.py` roof real-click case). `placement_input_coordinator.py`.
+  - Done: import fixed; real-click guard test_roof_placement_click.py. Branch `feat/snap-polish`.
+- [x] [type:feature] S1 — Perpendicular-from-start snap while placing a line [P2] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — while drawing a line, when the in-progress segment's free end touches another line and the segment is at 90° to it, snap there (AutoCAD PER from the last point). Existing `perpendicular` snap is the foot from the CURSOR (≈ nearest). Use the drawn ref line as the cue. `snap_engine.py`, `model_space.py`. ref: snapping-engine.md §4.
+  - Done: find(from_point=) true PER from the placement start (line/polyline/wall/pipe/floor/roof + rect/circle/ellipse/arc/spline first step); no start point → nearest only (white glyph); ALIGN ⊥/extension ray from any primitive (direction_at). Branch `feat/snap-polish`.
+- [x] [type:feature] S2 — Whole-item move: handle positions snap to geometry [P2] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — when moving an entire item, its handle points (endpoints/corners/centre) should snap to geometry, not just the cursor. `selection_manipulator.py`, `model_space.py`, `snap_engine.py`. ref: selection-manipulator.md, snapping-engine.md.
+  - Done: handle_snap.HandleSnapSession: handles-only move snap on interior drag, all whole-item move grips (TranslateGripHandle), Move tool (base = a handle); targets once per gesture over a padded rect. Branch `feat/snap-polish`.
+- [x] [type:bug] S3 — Polyline endpoint drag ignores Ctrl angle-snap; 1-segment polyline stays a polyline [P2] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — Ctrl angle constraint doesn't apply when dragging a polyline's endpoint grips; a polyline with a single segment is still a PolylineItem rather than a line. `geometry_2d.py`, `selection_manipulator.py`, `model_space.py`.
+  - Done: vertex_chain_grip_handles (Ctrl vs previous vertex, open start vs next, closed wraps) for polyline/floor/roof; 2-pt finish commits a LineItem via _finish_polyline. Branch `feat/snap-polish`.
+- [x] [type:bug] S4 — Grip-drag snap to circles/curves lands with an offset [P2] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — dragging a line/polyline endpoint onto a circle or curve snaps with a constant offset between the handle and the target primitive. `selection_manipulator.py`, `snap_engine.py`, `model_space.py`.
+  - Done: circle snaps read rect() not the padded/zoom-cached boundingRect; curves project onto the flattened true curve with spatial cull + named caps. Branch `feat/snap-polish`.
+- [x] [type:bug] S5 — ALIGN reference paths invisible to SNAP (path×path, path×geometry) [P2] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — overlapping ALIGN references (e.g. at an intersection) aren't snappable; ALIGN ref × primitive/feature (wall, rect) crossings aren't recognised; SNAP tends to override. Note `758b8e5` already added `find(align_paths=…)` path×path/×geometry candidates — likely an arbitration/plumbing bug, not a missing feature. `snap_engine.py`, `align_controller.py`, `model_space.py`. ref: snapping-engine §14.5, align-placement.
+  - Done: one find() at the seam; ALIGN crossing beats cursor-foot nearest, strong real snaps restored; ALIGN snaps paint the regular glyphs (⊥ / nearest / X). Branch `feat/snap-polish`.
+- [x] [type:feature] S6 — Text primitive emits no snap points [P3] [subject:CAD] [done:2026-09-25]
+  - Details: user, 2026-09-24 snap-polish batch — `TextItem` contributes no snap candidates (e.g. frame corners/midpoints/centre/insertion point). `snap_engine.py`, `text_item.py`. ref: snapping-engine §5, text-annotation-system.
+  - Done: TextItem emits 9 box points; blocks skip glyph vertices and snap text boxes; TextItem.data shadowing handled. Branch `feat/snap-polish`.
+
 ## Selection dimension readouts (2D primitives, Block Editor) — 2026-09-24
 
 - [x] [type:feature] On-selection dimension readouts for 2D primitives (linear + angular, live, HALO-pickable, click-to-type) [P2] [subject:CAD] [done:2026-09-24]
