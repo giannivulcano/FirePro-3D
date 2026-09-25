@@ -201,3 +201,65 @@ def test_reference_arc_muted_pixels(themed_be):
     QApplication.processEvents()
     off = _count(v.viewport().grab().toImage(), box, t.color("muted"))
     assert on > off
+
+
+from PyQt6.QtCore import QEvent, QObject
+
+
+class _PaintRegionSpy(QObject):
+    """Records the region of every paint event the viewport receives."""
+
+    def __init__(self):
+        super().__init__()
+        self.regions = []
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Type.Paint:
+            self.regions.append(ev.region())
+        return False
+
+
+def test_moved_label_leaves_no_stale_ghost(themed_be):
+    """Stale-ghost guard for the region repaint.
+
+    ``grab()`` always renders the whole widget, so it can't see staleness on
+    its own. Emulate the backing store instead: pixels inside a received paint
+    region come from a fresh grab, all others keep the pre-move frame.
+    """
+    v, sc, t = themed_be
+    ln = LineItem(QPointF(-200, 0), QPointF(200, 0), color="#808080")
+    sc.addItem(ln)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    img0 = v.viewport().grab().toImage()
+
+    def box_of():
+        lay = sc.readouts.layouts(v)[0].layout
+        return QRectF(lay.center.x() - lay.width / 2, lay.center.y() - lay.height / 2,
+                      lay.width, lay.height)
+    old_box = box_of()
+    assert _count(img0, old_box, t.color("ink")) > 0  # precondition: label drawn
+    spy = _PaintRegionSpy()
+    v.viewport().installEventFilter(spy)
+    try:
+        ln.apply_grip(1, QPointF(0, 150))             # translate the line down
+        for _ in range(3):
+            QApplication.processEvents()
+    finally:
+        v.viewport().removeEventFilter(spy)
+    new_box = box_of()
+    assert not new_box.intersects(old_box)            # precondition: label moved
+    img1 = v.viewport().grab().toImage()
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QRegion
+    painted = QRegion()
+    for reg in spy.regions:
+        painted = painted.united(reg)
+    screen = img0.copy()
+    for box in (old_box, new_box):
+        for x in range(max(0, int(box.left())), min(img1.width(), int(box.right()) + 1)):
+            for y in range(max(0, int(box.top())), min(img1.height(), int(box.bottom()) + 1)):
+                if painted.contains(QPoint(x, y)):
+                    screen.setPixelColor(x, y, img1.pixelColor(x, y))
+    assert _count(screen, old_box, t.color("ink")) == 0, "stale label ghost"
+    assert _count(screen, new_box, t.color("ink")) > 0

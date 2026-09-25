@@ -368,3 +368,33 @@ def test_begin_edit_clears_existing_halo(be):
     assert sc.halo_item() is ln                       # precondition
     sc.readouts.begin_edit(v, sc.readouts.layouts(v)[0])
     assert sc.halo_item() is None
+
+
+# ── Perf: scene changes repaint only the readout region ───────────────────
+def test_scene_change_repaints_readout_region_not_full_viewport(be, monkeypatch):
+    """A geometry change dirties old ∪ new readout rects, never the whole
+    viewport (the full repaint cost ~2.7x per grip step on a dense scene)."""
+    from PyQt6.QtCore import QRect
+    v, sc = be
+    ln = _add_line(sc)
+    ln.setSelected(True)
+    QApplication.processEvents()
+    v.viewport().grab()                               # a paint pass records rects
+    old_c = _label_center(v, sc)
+    vp = v.viewport()
+    calls = []
+    real = vp.update
+
+    def spy(*a):
+        calls.append(a)
+        return real(*a)
+    monkeypatch.setattr(vp, "update", spy)
+    ln.apply_grip(1, QPointF(0, 200))                 # translate: label moves 200 px
+    QApplication.processEvents()
+    new_c = _label_center(v, sc)
+    assert (new_c - old_c).manhattanLength() > 100    # precondition: label moved
+    assert calls, "scene change must repaint the readouts"
+    assert all(a for a in calls), f"full-viewport update used: {calls}"
+    rects = [a[0] for a in calls if isinstance(a[0], QRect)]
+    assert any(r.contains(old_c.toPoint()) and r.contains(new_c.toPoint())
+               for r in rects), rects

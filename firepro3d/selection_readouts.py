@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from PyQt6 import sip
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QRect, QRectF
 
 
 @dataclass(frozen=True)
@@ -113,6 +113,9 @@ class SelectionReadoutController:
         self._scene = scene
         self._hover = None            # (id(item), key) or None
         self._edit = None             # edit session (Task 11) or None
+        # id(view) -> viewport-px rect of everything painted there last frame
+        # (the "old" half of the scene-change dirty region).
+        self._painted: dict[int, QRect] = {}
         scene.selectionChanged.connect(self._on_selection_changed)
         scene.changed.connect(self._on_scene_changed)
         scene.modeChanged.connect(self._on_mode_changed)
@@ -220,7 +223,9 @@ class SelectionReadoutController:
         from .halo import paint_halo_path
         halo_on = bool(getattr(self._scene, "halo_enabled", True))
         editing_key = getattr(self._edit, "key", None)
-        for e in self.layouts(view):
+        entries = self.layouts(view)
+        self._painted[id(view)] = self._dirty_rect(entries)
+        for e in entries:
             if not e.layout.fits or self._key(e) == editing_key:
                 continue
             if halo_on and self.is_hovered(e):
@@ -231,6 +236,25 @@ class SelectionReadoutController:
             paint_readout(painter, e.layout, th)
 
     # ── repaint wiring ───────────────────────────────────────────────────
+    @staticmethod
+    def _dirty_rect(entries) -> QRect:
+        """Viewport-px bounds of every fitting label (+ reference arc), padded
+        for the hover glow, arrowheads and antialiasing. Empty if none."""
+        from .constants import SELDIM_DIRTY_PAD_PX as pad
+        from .readout_paint import label_path
+        out = QRectF()
+        for e in entries:
+            lay = e.layout
+            if not lay.fits:
+                continue
+            out = out.united(label_path(lay).boundingRect())
+            if lay.arc_center is not None:
+                C, r = lay.arc_center, lay.arc_radius_px
+                out = out.united(QRectF(C.x() - r, C.y() - r, 2 * r, 2 * r))
+        if out.isEmpty():
+            return QRect()
+        return out.adjusted(-pad, -pad, pad, pad).toAlignedRect()
+
     def refresh(self) -> None:
         """Full-viewport repaint on every view.
 
@@ -255,8 +279,26 @@ class SelectionReadoutController:
         return not sip.isdeleted(self._scene)
 
     def _on_scene_changed(self, _regions) -> None:
-        if self._scene_alive() and self.readouts_active():
-            self.refresh()
+        """Dirty old ∪ new readout rects per view — never the full viewport.
+
+        Scene changes arrive on every grip step; a full-viewport repaint there
+        re-renders the whole scene. A Qt slot: never raises.
+        """
+        try:
+            if not self._scene_alive():
+                return
+            active = self.readouts_active()
+            for v in self._scene.views():
+                if sip.isdeleted(v):
+                    continue
+                old = self._painted.get(id(v), QRect())
+                new = self._dirty_rect(self.layouts(v)) if active else QRect()
+                dirty = old.united(new)
+                if not dirty.isEmpty():
+                    v.viewport().update(dirty)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("readout region repaint failed")
 
     def _on_selection_changed(self) -> None:
         if not self._scene_alive():

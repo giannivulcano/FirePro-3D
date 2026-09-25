@@ -302,3 +302,7 @@ SELDIM_ARROW_HALF_W_PX = 2.5     # reference-arc arrowhead half-width
 SELDIM_DASH = (4, 3)             # dash pattern (px) — matches selection guides
 SELDIM_FIT_MARGIN_PX = 4         # a linear label must fit its segment + this
 SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side
+# Dirty-region pad around painted readouts: covers the hover glow (half the
+# traced width + the blur radius) and the arc arrowheads, + 2 px antialias.
+SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,
+                              SELDIM_ARROW_PX) + 2)
