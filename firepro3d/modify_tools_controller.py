@@ -22,8 +22,6 @@ from .gridline import GridlineItem
 from .handle_snap import HandleSnapSession
 from .sprinkler import Sprinkler
 
-# Modes whose ghost + selection-capture behave like Move.
-TRANSFORM_MODES = frozenset({"move", "paste", "duplicate", "rotate", "array"})
 # Tools whose originals are dimmed while they run (D11; paste has no originals).
 DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array"})
 
