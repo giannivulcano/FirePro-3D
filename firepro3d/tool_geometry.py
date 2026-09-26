@@ -484,10 +484,12 @@ def offset_item(src, signed_d: float, cache: "dict | None" = None):
         cps = list(src._control_points)
         if len(cps) < 2:
             return None
-        # Fit against the TRUE offset curve (review G7 I-3).
-        if src.is_closed() and _offset_closed_loop(cps[:-1], d) is None:
+        # Fit against the TRUE offset curve first (review G7 I-3 / R2-2);
+        # the fit has its own collapse test for closed splines.
+        try:
+            fit = fit_offset_spline(src, d, cache)
+        except _OffsetCollapsed:
             return None                     # inward past the loop's extent
-        fit = fit_offset_spline(src, d, cache)
         if fit is not None:
             return _spline_from_fit(src, *fit)
         # Unresolvable seam / degenerate fit: Tiller-Hanson — offset the
@@ -510,38 +512,60 @@ def offset_item(src, signed_d: float, cache: "dict | None" = None):
 
 # ── Spline offset fit (review G7 I-3 / R-1 / R-2) ───────────────────────────
 
+
+class _OffsetCollapsed(Exception):
+    """A closed spline's inward offset collapsed or turned inside out."""
+
 SPLINE_OFFSET_FIT_TOL = 0.01          # max deviation, as a fraction of |d|
 SPLINE_OFFSET_MAX_CP_FACTOR = 4       # cap: control points <= 4x the source's
-_SPLINE_FIT_SAMPLES = 1200            # offset targets (split across the runs)
+_SPLINE_FIT_SAMPLES = 600             # offset targets (split across the runs)
 _JOIN_LEG_SAMPLES = 20                # targets along each miter leg
 _MITER_LIMIT = 4.0                    # a miter leg longer than 4|d| -> no fit
 _JOIN_SEARCH_MAX = 400                # samples searched for an inner crossing
-_GHOST_SAMPLES_PER_SPAN = 12          # dense evaluation of the result path
+_GHOST_COARSE_PER_SPAN = 4           # probe intervals per span (sag estimate)
+_WARM_GROWTH = 1.3                    # warm knots may grow to 1.3x a fresh fit
+_GHOST_MAX_SUBDIV = 64                # finest subdivision of a probe step
+DEFAULT_CHORD_TOL_MM = 0.5            # result-path chord error with no view
+                                      # (= the committed path's flattening)
 
 
 def _bspline_basis(knots, p: int, n: int, ts):
-    """Cox-de Boor basis matrix ``B[j, i] = N_{i,p}(ts[j])`` (numpy, m x n).
+    """B-spline basis matrix ``B[j, i] = N_{i,p}(ts[j])`` (numpy, m x n).
 
-    Fully vectorised over samples and basis functions. The right end of the
-    domain belongs to the last non-empty span, so a clamped curve evaluates
-    to its last control point at ``t1``; an interior knot value belongs to
-    the span on its right.
+    Span-local Cox-de Boor (The NURBS Book A2.2), vectorised over the
+    samples: each row has only p + 1 non-zeros, computed in O(p^2) per
+    sample and scattered into the dense matrix. Samples are clamped to the
+    domain ``[k_p, k_n]``; the right end belongs to the last non-empty span,
+    so a clamped curve evaluates to its last control point there, and an
+    interior knot value belongs to the span on its right.
     """
     import numpy as np
     k = np.asarray(knots, float)
-    u = np.asarray(ts, float)[:, None]
-    nk = len(k) - 1
-    B = ((u >= k[None, :-1]) & (u < k[None, 1:])).astype(float)
-    last = max(i for i in range(nk) if k[i] < k[i + 1])
-    B[u[:, 0] >= k[last + 1], last] = 1.0
-    for q in range(1, p + 1):
-        kl, kr = k[:nk - q], k[q:nk]                  # k[i], k[i+q]
-        k1, k2 = k[1:nk - q + 1], k[q + 1:nk + 1]     # k[i+1], k[i+q+1]
-        den1, den2 = kr - kl, k2 - k1
-        a = np.where(den1 > 0, (u - kl) / np.where(den1 > 0, den1, 1.0), 0.0)
-        b = np.where(den2 > 0, (k2 - u) / np.where(den2 > 0, den2, 1.0), 0.0)
-        B = a * B[:, :nk - q] + b * B[:, 1:nk - q + 1]
-    return B[:, :n]
+    u = np.clip(np.asarray(ts, float), k[p], k[n])
+    m = len(u)
+    last = max(i for i in range(p, n) if k[i] < k[i + 1])
+    span = np.searchsorted(k, u, side="right") - 1
+    span = np.clip(span, p, last)
+    span[u >= k[last + 1]] = last
+    N = np.zeros((m, p + 1))
+    N[:, 0] = 1.0
+    left = np.zeros((m, p + 1))
+    right = np.zeros((m, p + 1))
+    for j in range(1, p + 1):
+        left[:, j] = u - k[span + 1 - j]
+        right[:, j] = k[span + j] - u
+        saved = np.zeros(m)
+        for r in range(j):
+            den = right[:, r + 1] + left[:, j - r]
+            tmp = np.divide(N[:, r], den, out=np.zeros(m), where=den != 0)
+            N[:, r] = saved + right[:, r + 1] * tmp
+            saved = left[:, j - r] * tmp
+        N[:, j] = saved
+    B = np.zeros((m, n))
+    rows = np.repeat(np.arange(m), p + 1)
+    cols = (span[:, None] - p + np.arange(p + 1)[None, :]).ravel()
+    B[rows, cols] = N.ravel()
+    return B
 
 
 def _split_widest_span(inner: list) -> list:
@@ -639,7 +663,8 @@ def _spline_runs(src):
     smooth = sorted((x - t0) / (t1 - t0) for x, m in mult.items()
                     for _ in range(min(m + 1, p)) if m < p)
     return {"p": p, "n0": n0, "runs": runs, "closed": src.is_closed(),
-            "wind": 1.0 if area <= 0 else -1.0, "inner": smooth,
+            "wind": 1.0 if area <= 0 else -1.0, "area": area / 2.0,
+            "inner": smooth,
             "corners": [(x - t0) / (t1 - t0) for x in corners]}
 
 
@@ -675,9 +700,22 @@ def _join_runs(Qa, Ta, Qb, Tb, d):
         leg_a = np.linspace(a, M, L + 2)[1:-1]
         leg_b = np.linspace(M, b, L + 2)[1:-1]
         return len(Qa) - 1, leg_a, M, leg_b, 0
-    # inner: the runs cross near the corner — find the crossing closest to it
-    na = min(len(Qa) - 1, _JOIN_SEARCH_MAX)
-    nb = min(len(Qb) - 1, _JOIN_SEARCH_MAX)
+    # inner: the runs cross near the corner — find the crossing closest to
+    # it, searching a growing window (most crossings sit right at the corner)
+    w = 32
+    while True:
+        hit = _inner_crossing(Qa, Qb, min(w, len(Qa) - 1, _JOIN_SEARCH_MAX),
+                              min(w, len(Qb) - 1, _JOIN_SEARCH_MAX))
+        if hit is not None or w >= _JOIN_SEARCH_MAX or (
+                w >= len(Qa) - 1 and w >= len(Qb) - 1):
+            return hit
+        w *= 4
+
+
+def _inner_crossing(Qa, Qb, na: int, nb: int):
+    """Crossing of Qa's last *na* segments with Qb's first *nb* segments
+    nearest the corner, as a ``_join_runs`` result, or None."""
+    import numpy as np
     A0, A1 = Qa[-na - 1:-1], Qa[-na:]
     B0, B1 = Qb[:nb], Qb[1:nb + 1]
     r, s2 = A1 - A0, B1 - B0
@@ -698,15 +736,30 @@ def _join_runs(Qa, Ta, Qb, Tb, d):
     return ia, np.zeros((0, 2)), M, np.zeros((0, 2)), ib
 
 
+_TANGENTIAL_WEIGHT = 0.25    # a tangential slide counts 1/4 (bounded, not free)
+
+
+def _deviation(res, nrm):
+    """Per-sample deviation of residual vectors *res* (m x 2).
+
+    The component along the target's normal is the geometric error; a slide
+    along the offset changes nothing geometrically when small, but a large
+    one means the curve folds (e.g. doubles back near a seam), so it counts
+    at ``_TANGENTIAL_WEIGHT``.
+    """
+    import numpy as np
+    normal = np.abs((res * nrm).sum(1))
+    return np.maximum(normal, _TANGENTIAL_WEIGHT * np.linalg.norm(res, axis=1))
+
+
 def _refine_lsq_fit(tgt, nrm, u, p: int, inner: list, pins, tol: float,
                     n_max: int):
     """Least-squares clamped B-spline through targets *tgt* at params *u*.
 
     *pins* is a list of ``(u, point)``: the control point whose basis
     function is 1 at that parameter (the clamped ends, a C0 corner knot) is
-    fixed there. The residual is measured along each target's normal *nrm*
-    (the geometric deviation; a tangential slide along the offset is not an
-    error). While it exceeds *tol*, every span holding an out-of-tolerance
+    fixed there. The residual is :func:`_deviation` against each target's
+    normal *nrm*. While it exceeds *tol*, every span holding an out-of-tolerance
     sample is split, up to *n_max* control points.
 
     Returns:
@@ -731,7 +784,7 @@ def _refine_lsq_fit(tgt, nrm, u, p: int, inner: list, pins, tol: float,
         C[free] = X
         for i, pt in fixed.items():
             C[i] = pt
-        r = np.abs(((A @ C) - tgt) * nrm).sum(1)
+        r = _deviation((A @ C) - tgt, nrm)
         err = float(r.max())
         if err <= tol:
             return True, err, C, kn, inner
@@ -741,16 +794,81 @@ def _refine_lsq_fit(tgt, nrm, u, p: int, inner: list, pins, tol: float,
         inner = _split_spans_at(inner, u[bad], n_max - n)
 
 
-def _dense_path_pts(kn, p, C, ghost_basis=None):
-    """Dense evaluation of the fitted curve (knot values included, so a C0
-    corner is drawn exactly)."""
+def _dense_path_pts(kn, p, C, cache: "dict | None" = None):
+    """Points of the fitted curve for its path, chord error ~ ``chord_tol``.
+
+    ``cache["chord_tol"]`` (scene units — the caller sets ~1 device pixel at
+    the current zoom, see ``ModifyToolsController._offset_candidate``)
+    decides the density; without it ``DEFAULT_CHORD_TOL_MM``. Each knot span
+    is probed at ``_GHOST_COARSE_PER_SPAN`` intervals; an interval's sag
+    ``|second difference| / 8`` falls with the square of the subdivision, so
+    each interval is subdivided ``ceil(sqrt(sag / tol))`` times. Knot values are
+    always sampled, so a C0 corner is drawn exactly. The (d-independent)
+    basis matrices are cached per knot vector and subdivision pattern.
+    """
     import numpy as np
-    if ghost_basis is None:
-        n = len(C)
-        m = max(200, _GHOST_SAMPLES_PER_SPAN * (n - p))
-        uu = np.union1d(np.linspace(0.0, 1.0, m), np.asarray(kn, float))
-        ghost_basis = _bspline_basis(kn, p, n, uu)
-    return ghost_basis @ C
+    cache = {} if cache is None else cache
+    tol = float(cache.get("chord_tol") or DEFAULT_CHORD_TOL_MM)
+    n = len(C)
+    kk = np.asarray(kn, float)
+    key = ("ghost_probe", tuple(kn))
+    probe = cache.get(key)
+    if probe is None:
+        edges = np.unique(kk)
+        spans = [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
+        m = _GHOST_COARSE_PER_SPAN
+        uu = np.concatenate([np.linspace(a, b, m + 1) for a, b in spans])
+        probe = {"spans": spans, "B": _bspline_basis(kn, p, n, uu)}
+        cache[key] = probe
+    m = _GHOST_COARSE_PER_SPAN
+    P = (probe["B"] @ C).reshape(len(probe["spans"]), m + 1, 2)
+    # sag of each probe interval: the larger second difference at its ends
+    sd = np.linalg.norm(P[:, :-2] - 2 * P[:, 1:-1] + P[:, 2:], axis=2) / 8
+    sd = np.pad(sd, ((0, 0), (1, 1)), mode="edge")        # (spans, m + 1)
+    sag = np.maximum(sd[:, :-1], sd[:, 1:])               # (spans, m)
+    # the probe under-reads the sag between its points: aim at half the
+    # tolerance (the decimation below then spends the other half)
+    ks = np.clip(np.ceil(np.sqrt(2.0 * sag / max(tol, 1e-9))), 1, _GHOST_MAX_SUBDIV)
+    ks = tuple(int(x) for x in ks.ravel())
+    key2 = ("ghost_basis", tuple(kn))
+    dense = cache.get(key2)
+    if dense is None or dense[0] != ks:
+        parts, it = [], iter(ks)
+        for a, b in probe["spans"]:
+            e = np.linspace(a, b, m + 1)
+            for i in range(m):
+                parts.append(np.linspace(e[i], e[i + 1], next(it) + 1)[:-1])
+        uu = np.concatenate(parts + [np.array([float(kk[-1])])])
+        dense = (ks, _bspline_basis(kn, p, n, uu))
+        cache[key2] = dense
+    return _decimate(dense[1] @ C, tol / 2)
+
+
+def _decimate(P, tol: float, passes: int = 3):
+    """Drop every other point whose removal moves the polyline < tol/passes.
+
+    A vectorised thinning pass (repeated *passes* times): an odd-indexed
+    point is removed when it lies within ``tol / passes`` of the chord
+    joining its neighbours, so the total error stays below *tol* while
+    near-straight stretches shed the probe floor's extra points. End points
+    and every even-indexed point of a pass are kept.
+    """
+    import numpy as np
+    for _ in range(passes):
+        if len(P) < 3:
+            break
+        a, m, b = P[:-2:2], P[1:-1:2], P[2::2]
+        k = min(len(a), len(m), len(b))
+        a, m, b = a[:k], m[:k], b[:k]
+        ab = b - a
+        L = np.maximum(np.linalg.norm(ab, axis=1), 1e-12)
+        dev = np.abs(ab[:, 0] * (m[:, 1] - a[:, 1]) - ab[:, 1] * (m[:, 0] - a[:, 0])) / L
+        drop = np.zeros(len(P), bool)
+        drop[1:1 + 2 * k:2] = dev < tol / passes
+        if not drop.any():
+            break
+        P = P[~drop]
+    return P
 
 
 def _fit_open_linear(plan, n_max, d, inner=None):
@@ -760,7 +878,7 @@ def _fit_open_linear(plan, n_max, d, inner=None):
 
     The knots are refined against the targets at *d* (starting from *inner*
     or the source's own knots); the entry then serves every d whose
-    residual ``|R0 + d*R1|`` (along the normals) stays in tolerance.
+    residual ``F0 + d*F1`` (:func:`_deviation`) stays in tolerance.
 
     Returns:
         A cache entry dict (``ok`` False when the cap was hit).
@@ -785,25 +903,20 @@ def _fit_open_linear(plan, n_max, d, inner=None):
         rcond=None)
     C0 = np.vstack([P[0], X[:, :2], P[-1]])
     C1 = np.vstack([N[0], X[:, 2:], N[-1]])
-    m = max(200, _GHOST_SAMPLES_PER_SPAN * (n - p))
-    uu = np.union1d(np.linspace(0.0, 1.0, m), np.asarray(kn, float))
     return {"ok": ok, "inner": inner, "kn": kn, "C0": C0, "C1": C1,
-            "R0": (A @ C0 - P) * N, "R1": (A @ C1 - N) * N,
-            "ghost": _bspline_basis(kn, p, n, uu),
+            "F0": A @ C0 - P, "F1": A @ C1 - N, "N": N,
             "fail_small": 0.0, "fail_rel": False}
 
 
 def _linear_err(lin, d) -> float:
-    """Normal deviation of the cached linear fit at offset *d*."""
-    import numpy as np
-    return float(np.abs((lin["R0"] + d * lin["R1"]).sum(1)).max())
+    """Deviation (:func:`_deviation`) of the cached linear fit at *d*."""
+    return float(_deviation(lin["F0"] + d * lin["F1"], lin["N"]).max())
 
 
 def _r0_dominated(lin, tol) -> bool:
     """The d-free part (source not exactly representable, e.g. rational)
     uses at least half the tolerance — failures then hit SMALL |d|."""
-    import numpy as np
-    return float(np.abs(lin["R0"].sum(1)).max()) > 0.5 * tol
+    return float(_deviation(lin["F0"], lin["N"]).max()) > 0.5 * tol
 
 
 def _linear_hopeless(lin, d, tol) -> bool:
@@ -869,6 +982,24 @@ def _offset_targets(plan, d):
     return tgt, nrm, u, tv, pins_at
 
 
+def _check_closed_collapse(plan, dense, d) -> None:
+    """Raise :class:`_OffsetCollapsed` when a closed offset collapsed.
+
+    The fitted loop must keep the source's winding and grow (outward, d > 0)
+    or shrink (inward) — an inward offset past the loop's extent comes back
+    inverted or with (almost) no area.
+    """
+    import numpy as np
+    a0 = plan["area"]
+    a1 = 0.5 * float(np.sum(dense[:-1, 0] * dense[1:, 1]
+                            - dense[1:, 0] * dense[:-1, 1]))
+    floor = (2 * OFFSET_MIN_EXTENT_MM) ** 2
+    if a0 * a1 <= 0 or abs(a1) <= floor:
+        raise _OffsetCollapsed()
+    if (d > 0) != (abs(a1) > abs(a0)):
+        raise _OffsetCollapsed()
+
+
 def fit_offset_spline(src, d: float, cache: "dict | None" = None):
     """Clamped B-spline approximating the TRUE offset of a spline (D9).
 
@@ -893,17 +1024,26 @@ def fit_offset_spline(src, d: float, cache: "dict | None" = None):
       tolerance.
 
     Known limit: where |d| exceeds the source's local radius of curvature on
-    the concave side the true offset self-intersects (a swallowtail); that
-    is not trimmed, so such offsets usually fail the tolerance and fall back.
+    the concave side the true offset self-intersects (a swallowtail). The
+    loop is NOT trimmed and is not detected: the fit follows the untrimmed
+    offset targets (on the linear path it matches them within tolerance), so
+    the result loops back towards the source there. Self-intersection
+    trimming is a filed follow-up.
 
     Args:
         src: A ``SplineItem``.
         d: Signed offset (open: + = left normal; closed: + = outward).
         cache: Optional dict owned by the caller (the scene's offset state)
-            that keeps the d-independent work between calls.
+            that keeps the d-independent work between calls. Its optional
+            ``"chord_tol"`` (scene units) sets the returned points' chord
+            error (the live ghost: ~1 device px, see _dense_path_pts).
 
     Returns:
         ``(control_points, knots, dense_points)`` or None.
+
+    Raises:
+        _OffsetCollapsed: A closed spline's fitted offset lost or inverted
+            its area (inward past the loop's extent) — "Offset too large".
     """
     import numpy as np
     if not math.isfinite(d) or abs(d) < 1e-12:
@@ -912,7 +1052,10 @@ def fit_offset_spline(src, d: float, cache: "dict | None" = None):
         cache = {}
     sig = _spline_signature(src)
     if cache.get("sig") != sig:
+        chord_tol = cache.get("chord_tol")      # caller's view setting
         cache.clear()
+        if chord_tol:
+            cache["chord_tol"] = chord_tol
         cache["sig"] = sig
         cache["plan"] = _spline_runs(src)
     plan = cache["plan"]
@@ -942,7 +1085,7 @@ def fit_offset_spline(src, d: float, cache: "dict | None" = None):
             return None                     # never an out-of-tolerance fit
         C = lin["C0"] + d * lin["C1"]
         kn = lin["kn"]
-        dense = lin["ghost"] @ C
+        dense = _dense_path_pts(kn, p, C, cache)
     else:
         built = _offset_targets(plan, d)
         if built is None:
@@ -951,31 +1094,48 @@ def fit_offset_spline(src, d: float, cache: "dict | None" = None):
         pins = [(0.0, tgt[0]), (1.0, tgt[-1])] + [
             (float(u[i]), tgt[i]) for i in pins_at if 0 < i < len(tgt) - 1]
         corner_u = sorted(float(u[i]) for i in pins_at if 0 < i < len(tgt) - 1)
+        tol = SPLINE_OFFSET_FIT_TOL * abs(d)
         key = ("inner", d > 0)
-        inner = cache.get(key)
-        if inner is None or len(inner) < len(corner_u) * p:
+        warm = cache.get(key)
+        ok = False
+        if warm is not None:
+            # Re-use the last refined interior knots (corner knots moved to
+            # where the corners are for this d) and allow a little further
+            # refinement; past ``_WARM_GROWTH`` x the fresh count the warm
+            # knots are dropped, so they cannot creep towards the cap.
+            old_c = cache.get(("corners", d > 0), [])
+            inner = sorted([x for x in warm
+                            if not any(abs(x - c) < 1e-12 for c in old_c)]
+                           + [c for c in corner_u for _ in range(p)])
+            n_w = len(inner) + p + 1
+            limit = min(max(n_max, n_w),
+                        int(_WARM_GROWTH * cache.get(("fresh_n", d > 0), n_w)))
+            if n_w <= limit:
+                ok, err, C, kn, inner = _refine_lsq_fit(
+                    tgt, nrm, u, p, inner, pins, tol, limit)
+                if ok:
+                    cache[key] = inner
+                    cache[("corners", d > 0)] = corner_u
+        if not ok:
             ok_t = ~np.isnan(tv)
-            src_inner = [float(np.interp(x, tv[ok_t], u[ok_t])) for x in plan["inner"]
-                         if tv[ok_t][0] < x < tv[ok_t][-1]]
+            src_inner = [float(np.interp(x, tv[ok_t], u[ok_t]))
+                         for x in plan["inner"] if tv[ok_t][0] < x < tv[ok_t][-1]]
             inner = sorted(src_inner + [c for c in corner_u for _ in range(p)])
             while len(inner) + p + 1 < max(plan["n0"], p + 1):
                 inner = _split_widest_span(inner)
-        else:
-            # keep the refined interior knots, move the corner knots to
-            # where the corners are for this d
-            old_c = cache.get(("corners", d > 0), [])
-            inner = sorted([x for x in inner if not any(abs(x - c) < 1e-12 for c in old_c)]
-                           + [c for c in corner_u for _ in range(p)])
-        tol = SPLINE_OFFSET_FIT_TOL * abs(d)
-        ok, err, C, kn, inner = _refine_lsq_fit(
-            tgt, nrm, u, p, inner, pins, tol, max(n_max, len(inner) + p + 1))
-        cache[key] = inner
-        cache[("corners", d > 0)] = corner_u
+            ok, err, C, kn, inner = _refine_lsq_fit(
+                tgt, nrm, u, p, inner, pins, tol, max(n_max, len(inner) + p + 1))
+            if ok:
+                cache[key] = inner
+                cache[("corners", d > 0)] = corner_u
+                cache[("fresh_n", d > 0)] = len(kn) - p - 1
         if not ok:
             return None
         if plan["closed"]:
             C[-1] = C[0]                                   # exactly closed
-        dense = _dense_path_pts(kn, p, C)
+        dense = _dense_path_pts(kn, p, C, cache)
+        if plan["closed"]:
+            _check_closed_collapse(plan, dense, d)
     return ([QPointF(float(x), float(y)) for x, y in C], list(kn), dense)
 
 

@@ -440,3 +440,56 @@ def test_fit_never_returns_an_out_of_tolerance_curve(qapp):
         err = _open_spline_error(src, new, d)
         assert err <= 0.02, f"{err:.2%}"                                 # [RED]
     assert tg.offset_item(_make("spline"), 200.0) is not None
+
+
+# ── R2-2: a closed spline's legitimate inward offset is not refused ─────────
+
+def _closed39():
+    import math
+    import random
+    from firepro3d.geometry_2d import SplineItem
+    rnd = random.Random(1)
+    [rnd.uniform(-80, 80) for _ in range(40)]
+    c = [QPointF(400 * math.cos(2 * math.pi * i / 39) + rnd.uniform(-30, 30),
+                 -400 * math.sin(2 * math.pi * i / 39) + rnd.uniform(-30, 30))
+         for i in range(39)]
+    c.append(QPointF(c[0]))
+    return SplineItem(c)
+
+
+@pytest.mark.parametrize("d", [-100.0, -200.0])
+def test_closed_noisy_spline_inward_offset_is_fitted(qapp, d):
+    """The control-loop collapse check would refuse these (its 64 mm legs
+    invert), but the true offset exists: the fit decides, not the loop."""
+    import numpy as np
+    src = _closed39()
+    assert tg._offset_closed_loop(list(src._control_points)[:-1], d) is None
+    new = tg.offset_item(src, d)
+    assert new is not None and new.is_closed()                        # [RED]
+    area = lambda P: 0.5 * float(np.sum(P[:-1, 0] * P[1:, 1] - P[1:, 0] * P[:-1, 1]))
+    a0, a1 = area(_exact_pts(src, 8000)), area(_exact_pts(new, 8000))
+    assert a0 * a1 > 0 and abs(a1) < abs(a0)          # same winding, shrunk
+
+
+def test_closed_spline_inward_past_its_extent_is_refused(qapp):
+    """The fit's own collapse test: inward past the loop's extent -> None."""
+    assert tg.offset_item(_closed39(), -420.0) is None
+    assert tg.offset_item(_closed_spline(), -60.0) is None
+
+
+@pytest.mark.parametrize("chord_tol", [1.0, 0.25])
+def test_result_path_chord_error_follows_chord_tol(qapp, chord_tol):
+    """R2-1: the result path (the live ghost) is sampled to the caller's
+    chord tolerance (the tool passes ~1 device px at the current zoom): the
+    exact curve never strays more than that from the drawn polyline."""
+    import numpy as np
+    from tests.test_modify_tools_offset import _spline40
+    src = _spline40()
+    new = tg.offset_item(src, 5.0, cache={"chord_tol": chord_tol})
+    poly = np.array([(q.x(), q.y()) for q in new.path().toSubpathPolygons()[0]])
+    exact = _exact_pts(new, 20000)
+    err = float(_seg_dists(exact[::7], poly).max())
+    assert err <= chord_tol * 1.05, f"chord error {err:.3f} > {chord_tol}"
+    if chord_tol == 1.0:
+        fine = tg.offset_item(src, 5.0, cache={"chord_tol": 0.25})
+        assert fine.path().elementCount() > new.path().elementCount()   # zoom-driven
