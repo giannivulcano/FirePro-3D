@@ -504,6 +504,7 @@ class ModifyToolsController:
             if s.mode == "duplicate":
                 self.commit_duplicate(offset)
                 return
+            moved = list(s._selected_items or [])
             if s.mode == "move":
                 s.move_items(offset)
             s.push_undo_state()
@@ -511,6 +512,7 @@ class ModifyToolsController:
             s._move_ghost = []
             s._move_ghost_base = []
             s.set_mode(None)
+            self._reselect(moved)         # D3: Select with the originals
 
     def _preview_from_move(self, target) -> None:
         """Slide the move/paste ghost silhouette so the base point lands on
@@ -669,6 +671,7 @@ class ModifyToolsController:
         if s.mode == "duplicate":
             self.commit_duplicate(params["offset"])
             return True
+        moved = list(s._selected_items or [])
         s.move_items(params["offset"])
         s.push_undo_state()
         s.node_start_pos = None
@@ -676,7 +679,19 @@ class ModifyToolsController:
         s._move_ghost_base = []
         s.clear_placement_state()
         s.set_mode(None)
+        self._reselect(moved)             # D3: Select with the originals
         return True
+
+    def _reselect(self, items) -> None:
+        """Re-select *items* after ``set_mode(None)`` auto-deselected them (D3).
+
+        Skips items that were deleted (sip) or are no longer in this scene.
+        """
+        from PyQt6 import sip
+        s = self._scene
+        for it in items:
+            if not sip.isdeleted(it) and it.scene() is s:
+                it.setSelected(True)
 
     # ── Duplicate (D6) ──────────────────────────────────────────────────────
 

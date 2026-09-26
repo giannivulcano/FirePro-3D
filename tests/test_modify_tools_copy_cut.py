@@ -68,6 +68,21 @@ def test_copy_esc_copies_nothing(qapp):
         close_view(view, scene)
 
 
+def test_cut_esc_deletes_nothing(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")
+        p0 = scene._undo_pos
+        scene._modify_ctl.start("cut")
+        assert scene.mode == "copy_base"
+        _esc(view)                                        # real Esc path
+        assert scene.mode in (None, "select")
+        assert getattr(scene, attr) == [item] and item.scene() is scene
+        assert scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
 def test_add_from_dict_registers_each_type(qapp):
     from firepro3d.text_item import TextAnnotationData, TextItem
     view, scene = make_view(scale=1.0)
