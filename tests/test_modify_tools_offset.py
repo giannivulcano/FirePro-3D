@@ -463,10 +463,11 @@ _PERF_CASES = {
 
 _KNOWN_SLOW = pytest.mark.xfail(
     strict=False,
-    reason="KNOWN LIMIT (measured 31-35 ms): at d~145 the 40-point spline's "
-           "untrimmed offset is a mass of swallowtail loops (d >> its bend "
-           "radius); repainting that self-overlapping HALO ghost alone costs "
-           "~25-28 ms at a 1 px chord. Self-intersection trimming (filed "
+    reason="KNOWN LIMIT, user-accepted (measured 31-35 ms): the HALO glow's "
+           "repaint cost tracks the ghost's drawn LENGTH. At d~145 the "
+           "40-point spline's untrimmed offset loops (d >> its bend radius) "
+           "more than double that length (5609 mm vs 2517 mm at d=5), so the "
+           "ghost repaint alone is ~24 ms. Self-intersection trimming (filed "
            "follow-up) removes the loops. The threshold is NOT loosened.")
 
 

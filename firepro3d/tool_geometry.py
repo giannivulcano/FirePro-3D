@@ -982,12 +982,17 @@ def _offset_targets(plan, d):
     return tgt, nrm, u, tv, pins_at
 
 
-def _check_closed_collapse(plan, dense, d) -> None:
+def _check_closed_collapse(plan, dense, d, src=None) -> None:
     """Raise :class:`_OffsetCollapsed` when a closed offset collapsed.
 
     The fitted loop must keep the source's winding and grow (outward, d > 0)
     or shrink (inward) — an inward offset past the loop's extent comes back
-    inverted or with (almost) no area.
+    inverted or with (almost) no area. An inward offset that passes THROUGH
+    collapse comes back point-reflected, which keeps the winding and can be
+    source-sized (review G7 R3-1), so an inward result must also lie wholly
+    inside the source: every drawn point is tested against *src*'s closed
+    path (all points — the check costs well under 1 ms, so the ghost and
+    the commit run the same test).
     """
     import numpy as np
     a0 = plan["area"]
@@ -998,6 +1003,12 @@ def _check_closed_collapse(plan, dense, d) -> None:
         raise _OffsetCollapsed()
     if (d > 0) != (abs(a1) > abs(a0)):
         raise _OffsetCollapsed()
+    if d < 0 and src is not None:
+        path = src.get_closed_path()
+        if path is None or not all(
+                path.contains(src.mapFromScene(QPointF(float(x), float(y))))
+                for x, y in dense):
+            raise _OffsetCollapsed()
 
 
 def fit_offset_spline(src, d: float, cache: "dict | None" = None):
@@ -1135,7 +1146,7 @@ def fit_offset_spline(src, d: float, cache: "dict | None" = None):
             C[-1] = C[0]                                   # exactly closed
         dense = _dense_path_pts(kn, p, C, cache)
         if plan["closed"]:
-            _check_closed_collapse(plan, dense, d)
+            _check_closed_collapse(plan, dense, d, src)
     return ([QPointF(float(x), float(y)) for x, y in C], list(kn), dense)
 
 

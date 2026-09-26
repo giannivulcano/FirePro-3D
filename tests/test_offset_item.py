@@ -493,3 +493,28 @@ def test_result_path_chord_error_follows_chord_tol(qapp, chord_tol):
     if chord_tol == 1.0:
         fine = tg.offset_item(src, 5.0, cache={"chord_tol": 0.25})
         assert fine.path().elementCount() > new.path().elementCount()   # zoom-driven
+
+
+# ── R3-1: an inward closed offset past collapse is refused, not mirrored ────
+
+def _rounded_square():
+    from firepro3d.geometry_2d import SplineItem
+    P = lambda *xy: [QPointF(x, y) for x, y in xy]
+    return SplineItem(P((50, 0), (100, 0), (100, -50), (100, -100), (50, -100),
+                        (0, -100), (0, -50), (0, 0), (50, 0)))
+
+
+@pytest.mark.parametrize("d", [-100.0, -1e4])
+def test_inward_closed_offset_past_collapse_is_refused(qapp, d):
+    """Past the curvature radius the inward targets come back point-reflected
+    (winding kept, source-sized); that must be "Offset too large", not a
+    committed mirrored loop."""
+    assert tg.offset_item(_rounded_square(), d) is None                 # [RED]
+
+
+def test_inward_closed_offset_within_reach_still_works(qapp):
+    src = _rounded_square()
+    new = tg.offset_item(src, -20.0)
+    assert new is not None and new.is_closed()
+    path = src.get_closed_path()
+    assert all(path.contains(q) for q in new.path().toSubpathPolygons()[0])
