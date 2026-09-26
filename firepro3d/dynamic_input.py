@@ -249,6 +249,16 @@ def resolve_rotation(anchor, values: dict) -> dict:
     return {"angle_deg": values["Angle"]}
 
 
+def resolve_rotate_by(anchor, values: dict) -> dict:
+    """Return the relative rotation (Y-up, CCW+) about the armed pivot.
+
+    The Rotate tool's typed step (scene-tools.md D8): unlike ``rotation``
+    (an absolute heading) this is a *delta* — ``90`` turns the selection 90°
+    counter-clockwise on screen about the pivot.
+    """
+    return {"delta_deg": values["Angle"]}
+
+
 def resolve_manip_move(anchor, values: dict) -> dict:
     """Return the manipulator move offset for typed *dX*/*dY* (Y-up input).
 
@@ -276,6 +286,17 @@ def resolve_spacing_count(anchor, values: dict) -> dict:
     """
     return {"spacing": values["Spacing"],
             "count": max(1, int(round(values["Count"])))}
+
+
+def resolve_array_linear(anchor, values: dict) -> dict:
+    """Return a linear array's spacing (mm) and TOTAL count (scene-tools D10).
+
+    Count includes the original, so ``4`` means three copies.  Coerced the
+    same way as :func:`resolve_spacing_count` (rounded, floored at one); the
+    field's ``minimum`` already refuses a total below two, and the commit
+    path re-checks it.
+    """
+    return resolve_spacing_count(anchor, values)
 
 
 # ── Track (ALIGN distance-along-path) ───────────────────────────────────────
@@ -368,6 +389,17 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_distance,
         returns_point=False,
     ),
+    # Offset tool (scene-tools.md D9): like ``distance`` but 0 is accepted —
+    # typing 0 releases a typed (locked) distance so the cursor drives it
+    # again; negatives parse and are refused by the applier (red border).
+    "offset_distance": Schema(
+        name="offset_distance",
+        fields=(
+            FieldSpec("Distance", "Dist", FieldKind.DIMENSION, minimum=None),
+        ),
+        resolve=resolve_distance,
+        returns_point=False,
+    ),
     "spacing_count": Schema(
         name="spacing_count",
         fields=(
@@ -376,6 +408,19 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_spacing_count,
         returns_point=False,
+    ),
+    "array_linear": Schema(
+        name="array_linear",
+        fields=(
+            FieldSpec("Spacing", "Sp", FieldKind.DIMENSION, minimum=0.0),
+            # TOTAL incl. the original; minimum is strict (> 1) -> total >= 2.
+            FieldSpec("Count", "N", FieldKind.COUNT, minimum=1.0),
+        ),
+        resolve=resolve_array_linear,
+        returns_point=False,
+        # Anchored transform: the base point is armed first (D10), so the HUD
+        # stays shut until it exists — like ``move`` and ``rotate_by``.
+        needs_anchor=True,
     ),
     "arc_span": Schema(
         name="arc_span",
@@ -412,6 +457,19 @@ SCHEMAS: dict[str, Schema] = {
         # Anchored transform: the pivot (polygon centre / block insertion
         # point) is armed before the rotate step, so the HUD stays shut until
         # it exists — like ``move`` and ``arc_span``.
+        needs_anchor=True,
+    ),
+    "rotate_by": Schema(
+        name="rotate_by",
+        fields=(
+            # A relative sweep, CCW+ (Y-up). ANGLE normalises to (-180, 180],
+            # which is the same rotation as any equivalent sweep.
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
+        ),
+        resolve=resolve_rotate_by,
+        returns_point=False,
+        # Anchored transform: the pivot is armed first (D8), so the HUD stays
+        # shut until it exists — like ``move`` and ``rotation``.
         needs_anchor=True,
     ),
     # ── Selection-manipulator transforms ─────────────────────────────────

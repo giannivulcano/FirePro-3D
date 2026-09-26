@@ -136,8 +136,8 @@ vertex (the FloorSlab model):
   polylines (no `closed` key, first≈last within 1e-3) → flagged closed with the
   duplicate dropped. The `scene_io` legacy-`HatchItem` migration builds a filled
   closed polyline via `close()`. Both preserve fill.
-- Consumers that copy a polyline (offset `_make_offset_item`, `update_preview`)
-  forward the flag.
+- Consumers that copy a polyline (offset `tool_geometry.offset_item`,
+  `update_preview`) forward the flag.
 
 ## 3. RegularPolygonItem (parametric)
 

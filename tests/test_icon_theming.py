@@ -26,6 +26,38 @@ _GEOM2D_ICONS = [
     "ellipse_icon.svg",   # authored on-contract 2026-09-07 (ellipse primitive)
     "spline_icon.svg",    # authored on-contract 2026-09-07 (spline primitive)
 ]
+# Modify/Edit tool icons (scene-tools.md D12) — 40-unit 2D-geo family (§5.1),
+# approved mockup 2026-09-25. White-centred accent rings permitted.
+_MODIFY_ICONS = [
+    "copy_icon.svg", "cut_icon.svg", "paste_icon.svg", "duplicate_icon.svg",
+    "delete_icon.svg", "move_icon.svg", "rotate_icon.svg", "offset_icon.svg",
+    "array_icon.svg",
+]
+
+
+def test_modify_icons_40unit_two_token():
+    import os
+    for name in _MODIFY_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing"
+        raw = open(path, "r", encoding="utf-8").read()
+        assert 'viewBox="0 0 40 40"' in raw, f"{name}: not the 40-unit 2D-geo canvas (§5.1)"
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval}"
+            assert hexval.lower() in _GEOM2D_ALLOWED_HEX, f"{name}: non-sentinel {hexval}"
+
+
+def test_modify_icons_render_both_themes_no_fallback(qapp, caplog):
+    icons._cache.clear()
+    for name in _MODIFY_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}
 # 2D-geometry icons additionally permit a white "paper" fill on control-point /
@@ -242,3 +274,28 @@ def test_titleblock_icon_renders_both_themes_no_fallback(qapp, caplog):
                 ic = icons.themed_icon(name, theme)
             assert isinstance(ic, QIcon) and not ic.isNull()
             assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
+
+# Regression guard (fix round for scene-tools G2, commit 5a53d93): the D12
+# cut_icon.svg re-author carries #1a1a1a ink (was hard-white in the legacy
+# Inkscape file). UnderlayImportDialog's "Draw crop" pill loaded it via a raw
+# QIcon(asset_path(...)) that bypassed themed_icon's sentinel recolour — under
+# the dark theme that rendered near-black ink instead of the dark-theme ink
+# token. Drives the real dialog end to end and compares actual rendered pixels
+# (observable ground truth per VC3), not source text.
+def test_underlay_import_crop_button_icon_is_theme_recoloured(qapp, monkeypatch):
+    from firepro3d import theme as _theme
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+
+    monkeypatch.setattr(
+        "firepro3d.underlay_import_dialog.detect", lambda: _theme.DARK)
+    icons._cache.clear()
+    dlg = UnderlayImportDialog(None)
+    try:
+        expected = icons.themed_icon("cut_icon.svg", icons.DARK).pixmap(64, 64).toImage()
+        got = dlg._rb_btn.icon().pixmap(64, 64).toImage()
+        assert got == expected, (
+            "'Draw crop' button icon does not match the dark-themed cut_icon.svg "
+            "render — it is loading the raw, unrecoloured asset")
+    finally:
+        dlg.deleteLater()

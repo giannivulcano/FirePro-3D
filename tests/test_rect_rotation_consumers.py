@@ -116,20 +116,32 @@ def test_scale_rotated_rect_centre_pivot(scene):
     assert _same_point_set(_corners(r), expected)
 
 
-def test_rotate_rotated_rect_to_polyline(scene):
-    r = _rect30()
-    scene.addItem(r)
-    scene._draw_rects.append(r)
-    pivot = QPointF(10, 20)
-    expected = [CAD_Math.rotate_point(c, pivot, 45.0) for c in _corners(r)]
-    scene._tools._apply_rotate(pivot, 45.0, items=[r])
-    assert len(scene._polylines) == 1
-    pts = scene._polylines[0]._points
-    uniq = [p for i, p in enumerate(pts)
-            if not any(abs(p.x() - q.x()) < 1e-6 and abs(p.y() - q.y()) < 1e-6
-                       for q in pts[:i])]
-    assert _same_point_set(uniq, expected)
-
+def test_rotate_rotated_rect_stays_rect(qapp):
+    """scene-tools.md D8: Rotate commits through per-item ``manip_rotate`` —
+    the rect STAYS a RectangleItem (the legacy rect->polyline conversion and
+    its ``rotate_point(+a)`` sense are retired). +45 is Y-up CCW+: the scene
+    corners turn by ``rotate_point(-45)`` (visually counter-clockwise)."""
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.model_space import Model_Space
+    from firepro3d.scale_manager import ScaleManager
+    sc = Model_Space(scene_role="block_editor")
+    sc._level_manager = LevelManager()
+    sc.scale_manager = ScaleManager()
+    try:
+        r = _rect30()
+        sc.addItem(r)
+        sc._draw_rects.append(r)
+        pivot = QPointF(10, 20)
+        expected = [CAD_Math.rotate_point(c, pivot, -45.0) for c in _corners(r)]
+        sc._selected_items = [r]
+        sc._rotate_pivot = QPointF(pivot)
+        assert sc._modify_ctl.commit_rotate(45.0) is True
+        assert sc._draw_rects == [r] and isinstance(r, RectangleItem)
+        assert sc._polylines == []
+        assert r._angle == pytest.approx(75.0)
+        assert _same_point_set(_corners(r), expected)
+    finally:
+        sc.cleanup()
 
 def test_explode_rotated_rect(scene):
     r = _rect30()
@@ -159,7 +171,7 @@ def _expected_offset_corners(r: RectangleItem, d: float) -> list[QPointF]:
 @pytest.mark.parametrize("pivot", [None, QPointF(0, 0)])
 def test_offset_rotated_rect_grow(qapp, pivot):
     r = _rect30(pivot)
-    new = tg.make_offset_item(r, 10.0)
+    new = tg.offset_item(r, 10.0)          # D9 (make_offset_item retired)
     assert new is not None
     assert _same_point_set(_corners(new), _expected_offset_corners(r, 10.0))
 
@@ -175,7 +187,10 @@ def test_offset_rotated_rect_side_and_distance(qapp):
     probe = QPointF(mid.x() + 5 * n.x(), mid.y() + 5 * n.y())
     assert r.mapRectToScene(r.rect()).contains(probe)
     assert tg.offset_signed_dist(r, 7.0, probe) == 7.0
-    assert abs(tg.perpendicular_distance(r, probe) - 5.0) < 1e-6
+    assert tg.offset_side_sign(r, probe) == 1.0            # D9: outward
+    # D9: distance_to_item (true distance to the drawn outline) replaces the
+    # retired perpendicular_distance.
+    assert abs(tg.distance_to_item(r, probe) - 5.0) < 1e-6
 
 
 def test_highlight_rotated_rect_follows_footprint(scene):

@@ -59,6 +59,15 @@ def test_offset_of_closed_polyline_stays_closed(qapp):
     pl.close()
     scene.addItem(pl)
     scene._polylines.append(pl)
-    offset = scene._tools._make_offset_item(pl, 10.0)
+    # D9: tool_geometry.offset_item (SceneTools._make_offset_item retired).
+    from firepro3d import tool_geometry as tg
+    offset = tg.offset_item(pl, 10.0)
     assert offset is not None
     assert offset.is_closed() is True
+    # mitered at every vertex incl. the seam: each offset edge lies exactly
+    # 10 from its source edge (outward, so the triangle grows)
+    assert len(offset._points) == 3
+    for i in range(3):
+        a, b = offset._points[i], offset._points[(i + 1) % 3]
+        mid = QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+        assert abs(tg.distance_to_item(pl, mid) - 10.0) < 1e-6

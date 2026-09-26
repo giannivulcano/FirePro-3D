@@ -42,9 +42,8 @@ def test_block_editor_undo_capture_restore_primitive(qapp):
 def test_block_editor_paste_primitive(qapp):
     s = _editor_scene()
     c = CircleItem(QPointF(0, 0), 50.0)
-    payload = json.dumps([c.to_dict()])
-    QApplication.clipboard().setText(payload)
+    # Records go straight to paste_items (I1: no bare-list clipboard reads).
     before = len(s._draw_circles)
-    s.paste_items(QPointF(10, 10))
+    s.paste_items(QPointF(10, 10), data=[c.to_dict()])
     assert len(s._draw_circles) == before + 1
     assert not hasattr(s._draw_circles[-1], "level")

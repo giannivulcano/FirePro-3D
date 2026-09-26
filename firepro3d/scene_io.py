@@ -466,6 +466,10 @@ class SceneIOMixin:
 
     def _clear_scene(self):
         """Remove all user content, keeping preview items and origin markers."""
+        # End any active tool FIRST: its transients (captured selection, offset
+        # source, dimmed originals) reference items clear() is about to delete,
+        # and the tool's own teardown must still see them live to restore them.
+        self.set_mode(None)
         # stop settle timer + drop pixmap before clear() deletes it (spec §18)
         self.abort_underlay_freeze()
         from .sprinkler_system import SprinklerSystem

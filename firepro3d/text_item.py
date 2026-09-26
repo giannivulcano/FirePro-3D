@@ -1029,7 +1029,24 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         return self._angle
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
-        self.set_angle(self._angle + angle_deg, pivot)
+        """Baked rigid rotate about a scene ``pivot`` (Y-up CCW+).
+
+        Composes with the existing rotation: turning by ``a2`` about ``pivot``
+        after ``a1`` about the box's own origin ``o`` equals turning by
+        ``a1 + a2`` about ``o`` and then translating ``o`` to its rotated
+        position.  So the origin mode is kept (a centre-following ``_pivot``
+        of None stays None) and the item moves — no new pivot state, which
+        ``to_dict`` does not persist (``_pivot`` is transient), so a save or an
+        undo snapshot reproduces the rotated text exactly.
+        """
+        from .cad_math import CAD_Math
+        # Scene position of the rotation origin: pos-only map (the origin is a
+        # fixed point of its own rotation, so the data rotation is irrelevant).
+        o = QGraphicsTextItem.mapToScene(self, self._rotation_origin())
+        new_o = CAD_Math.rotate_point(o, pivot, -angle_deg)
+        self.set_angle(self._angle + angle_deg,
+                       None if self._pivot is None else o)
+        self.manip_translate(new_o.x() - o.x(), new_o.y() - o.y())
 
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene *anchor* by (fx, fy) in the box's own

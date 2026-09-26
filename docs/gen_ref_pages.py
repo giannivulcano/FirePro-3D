@@ -30,7 +30,7 @@ TIERS = {
     ],
     "Dialogs": [
         "auto_populate_dialog", "underlay_import_dialog", "roof_dialog",
-        "wall_dialog", "array_dialog", "grid_lines_dialog",
+        "wall_dialog", "grid_lines_dialog",
         "view_range_dialog", "calibrate_dialog", "detail_view",
         "dimension_edit", "fs_visibility_dialog", "underlay_context_menu",
         "entity_context_menu",

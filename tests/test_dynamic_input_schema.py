@@ -33,8 +33,8 @@ class TestRegistry:
     def test_schemas_registered(self):
         assert set(SCHEMAS) == {
             "line", "circle", "polygon",
-            "displacement", "distance", "spacing_count",
-            "arc_span", "arc_radius", "rotation", "track",
+            "displacement", "distance", "offset_distance", "spacing_count",
+            "array_linear", "arc_span", "arc_radius", "rotation", "rotate_by", "track",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
@@ -94,10 +94,32 @@ class TestRegistry:
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
-                        "rotation",
+                        "rotation", "rotate_by", "array_linear",
                         "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
+
+    def test_rotate_by_is_a_relative_anchored_angle(self):
+        """scene-tools.md D8: one ANGLE field ``Angle``, resolved as a delta."""
+        s = SCHEMAS["rotate_by"]
+        assert [f.name for f in s.fields] == ["Angle"]
+        assert s.fields[0].kind is FieldKind.ANGLE
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Angle": 90.0}) == {"delta_deg": 90.0}
+        # The absolute-heading ``rotation`` schema is untouched.
+        assert SCHEMAS["rotation"].resolve(None, {"Angle": 30.0}) == {"angle_deg": 30.0}
+
+    def test_array_linear_is_spacing_plus_total_count(self):
+        """scene-tools.md D10: Spacing (> 0) + Count = TOTAL incl. original."""
+        s = SCHEMAS["array_linear"]
+        assert [f.name for f in s.fields] == ["Spacing", "Count"]
+        assert s.fields[0].kind is FieldKind.DIMENSION
+        assert s.fields[0].minimum == 0.0
+        assert s.fields[1].kind is FieldKind.COUNT
+        assert s.fields[1].minimum == 1.0   # strict > 1 -> total >= 2
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Spacing": 250.0, "Count": 3.6}) == {
+            "spacing": 250.0, "count": 4}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False

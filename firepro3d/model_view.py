@@ -92,6 +92,7 @@ class Model_View(QGraphicsView):
             "place_block":            _C.CrossCursor,
             "move":                   _C.SizeAllCursor,
             "paste":                  _C.SizeAllCursor,
+            "duplicate":              _C.SizeAllCursor,
             "offset":                 _C.PointingHandCursor,
             "offset_side":            _C.PointingHandCursor,
         }
@@ -113,11 +114,12 @@ class Model_View(QGraphicsView):
         Sourced from the scene's authoritative placement-mode set
         (`Model_Space._ALIGN_PLACEMENT_MODES`) so Architecture (wall/floor/roof/
         opening/…) and Sprinkler (pipe/sprinkler/…) modes are covered, not just
-        the 2D-geo subset. `move`/`paste` relocate existing geometry (not
-        insertion) → excluded. Falls back to the CrossCursor map for scenes
+        the 2D-geo subset. `move`/`paste`/`rotate` transform existing geometry
+        (not insertion) → excluded. Falls back to the CrossCursor map for scenes
         without the set.
         """
-        if mode in (None, "select", "move", "paste"):
+        if mode in (None, "select", "move", "paste", "copy_base", "duplicate",
+                    "rotate", "array"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:
@@ -541,33 +543,35 @@ class Model_View(QGraphicsView):
                                      QPointF(vp.x(), vp.y() + r))
                 painter.restore()
 
-        # ── 7. Gridline array/offset ghost preview (scene-coord dashed lines) ──
+        # ── 7. Gridline array/offset ghost preview (D11 transform ghost) ──
         ghost = getattr(scene, "_replicate_ghost", None)
         if ghost:
-            from .constants import ALIGN_GUIDE_COLOR
-            gp = QPen(QColor(ALIGN_GUIDE_COLOR), 1)
-            gp.setCosmetic(True)
-            gp.setDashPattern([3.0, 3.0])
-            painter.save()
-            painter.setPen(gp)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            from PyQt6.QtGui import QPainterPath
+            from .transform_ghost import paint_ghost
+            gpaths = []
             for (o, f) in ghost:
-                painter.drawLine(o, f)
+                gp = QPainterPath(); gp.moveTo(o); gp.lineTo(f)
+                gpaths.append(gp)
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_ghost(painter, gpaths, th.detect())
             painter.restore()
 
-        # ── 8. Move/paste ghost silhouette (scene-coord cosmetic outline) ──
+        # ── 8. Move/paste ghost (D11: HALO glow + 1 px accent trace) ──
         mghost = getattr(scene, "_move_ghost", None)
         if mghost:
-            from .constants import ALIGN_GUIDE_COLOR
-            mp = QPen(QColor(ALIGN_GUIDE_COLOR), 1)
-            mp.setCosmetic(True)
+            from .transform_ghost import paint_ghost
             painter.save()
-            painter.setPen(mp)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            for path in mghost:
-                painter.drawPath(path)
+            paint_ghost(painter, mghost, th.detect())
+            painter.restore()
+        # Rotate (D8): the thin pivot->cursor ray, in the ghost trace pen.
+        ray = getattr(scene, "_rotate_ray", None)
+        if ray:
+            from .transform_ghost import paint_ray
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_ray(painter, ray[0], ray[1], th.detect())
             painter.restore()
 
         # ── 9. Crosshair cursor (viewport coords; accent read live) ───────────
@@ -1384,7 +1388,7 @@ class Model_View(QGraphicsView):
             copy_act = menu.addAction("Copy")
             copy_act.triggered.connect(scene.copy_selected_items)
             dup_act = menu.addAction("Duplicate")
-            dup_act.triggered.connect(lambda: scene.set_mode("duplicate"))
+            dup_act.triggered.connect(lambda: scene._modify_ctl.start("duplicate"))
             menu.addSeparator()
             desel_act = menu.addAction("Deselect All")
             desel_act.triggered.connect(scene.clearSelection)
@@ -1417,9 +1421,9 @@ class Model_View(QGraphicsView):
             sel_all.triggered.connect(self._select_all_items)
 
         # Paste (if clipboard has data)
-        if hasattr(scene, "clipboard_data") and scene.clipboard_data():
+        if hasattr(scene, "clipboard_payload") and scene.clipboard_payload():
             paste_act = menu.addAction("Paste")
-            paste_act.triggered.connect(lambda: scene.set_mode("paste"))
+            paste_act.triggered.connect(lambda: scene._modify_ctl.start("paste"))
 
         return menu
 

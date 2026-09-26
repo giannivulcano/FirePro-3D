@@ -272,6 +272,11 @@ class PlacementInputCoordinator:
             # point schemas.)
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
+        elif schema.name == "array_linear":
+            # D10: a typed Spacing / Count re-ghosts every copy along the aim
+            # (a dict, not a point — like ``rotation`` above).
+            self._scene._modify_ctl.preview_array(resolved["spacing"],
+                                                  resolved["count"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -641,9 +646,18 @@ class PlacementInputCoordinator:
             if pl is not None and pl._points:
                 return pl.last_point()
             return None
-        if self._scene.mode in ("pipe", "move"):
+        if self._scene.mode == "rotate":
+            # D8: the pivot anchors the ALIGN origin and the rotate_by HUD.
+            a = self._scene._rotate_pivot
+            return QPointF(a) if a is not None else None
+        if self._scene.mode == "array":
+            # D10: the base point anchors the ALIGN origin and the HUD.
+            a = self._scene._array_base
+            return QPointF(a) if a is not None else None
+        if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
-            # move mode (set_mode's cleanup relies on the same distinction).
+            # move / paste / duplicate mode (set_mode's cleanup relies on the
+            # same distinction).
             nsp = self._scene.node_start_pos
             if nsp is None:
                 return None
@@ -1048,6 +1062,11 @@ class PlacementInputCoordinator:
             if self._scene.mode == "place_block":
                 return {"Angle": self._scene._place_block_angle_to(point)}
             return {"Angle": 0.0}
+        if schema.name == "rotate_by":
+            # D8: the live relative sweep (0 until the start ray is picked) —
+            # the same value the ghost and the status readout show.
+            return {"Angle": self._scene._modify_ctl.rotate_delta_to(
+                self.get_resolved_point())}
         if schema.name == "arc_radius":
             # End Points step 3: the live radius of the arc the resolved point
             # (projected onto the chord bisector) would commit.
@@ -1071,6 +1090,18 @@ class PlacementInputCoordinator:
                 span += 360.0
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
+        if schema.name == "array_linear":
+            # D10: the live cursor spacing + the click-commit total. Must
+            # precede the gridline replicate fallback below (gridline state).
+            s = self._scene
+            return {"Spacing": s._array_spacing,
+                    "Count": max(2, int(s._array_count_default))}
+        if schema.name == "offset_distance":
+            # D9: the live cursor distance (or the sticky last distance before
+            # the first move). Must precede the gridline replicate fallback
+            # below, which reads gridline state (``_replicate_spacing``).
+            s = self._scene
+            return {"Distance": s._offset_dist or (s._offset_sticky or 0.0)}
         # ``_replicate_spacing`` is a *signed* perpendicular projection, so it
         # passes through 0.0 as the cursor crosses the source gridline — 0.0 is
         # not reliably "never set".  Treating it as unset is still correct

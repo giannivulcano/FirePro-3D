@@ -1,12 +1,12 @@
 """Tests for scene_tools.py — geometry editing helpers.
 
 Covers:
-- Offset algorithm (line intersection, polyline offset, perpendicular distance)
+- Offset algorithm (line intersection, polyline offset, distance_to_item)
 - Fillet / chamfer geometry computation
 - Break / break-at-point logic
 - extract_edges helper
 - _get_item_segments
-- _offset_signed_dist (side detection)
+- offset_signed_dist (side detection)
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from firepro3d.geometry_2d import (
 from firepro3d.scene_tools import SceneTools, extract_edges
 from firepro3d.cad_math import CAD_Math
 from firepro3d import geometry_intersect as gi
+from firepro3d import tool_geometry as tg
 
 
 def _flush():
@@ -47,7 +48,6 @@ class _StubScene(QGraphicsScene):
         self._draw_arcs: list = []
         self._polylines: list = []
         self._constraints: list = []
-        self._offset_preview = None
         self._trim_edge = None
         self._trim_edge_highlight = None
         self._extend_boundary = None
@@ -183,67 +183,76 @@ class TestOffsetPolylinePts:
 
 
 class TestPerpendicularDistance:
-    """SceneTools._perpendicular_distance — distance from point to entity."""
+    """tool_geometry.distance_to_item — true distance from point to entity.
+
+    scene-tools.md D9: replaces the retired SceneTools._perpendicular_distance
+    (infinite-line distance; its circle cases pinned the pen-inflated
+    boundingRect()/2 radius, defect DV8). Distances are now to the drawn
+    geometry, circles to the geometric radius.
+    """
 
     def test_line_distance(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._tools._perpendicular_distance(line, QPointF(50, 30))
+        d = tg.distance_to_item(line, QPointF(50, 30))
         assert abs(d - 30.0) < 1e-3
 
     def test_line_distance_zero(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._tools._perpendicular_distance(line, QPointF(50, 0))
+        d = tg.distance_to_item(line, QPointF(50, 0))
         assert abs(d) < 1e-3
+
+    def test_line_distance_beyond_end_is_to_the_segment(self, scene):
+        line = LineItem(QPointF(0, 0), QPointF(100, 0))
+        scene.addItem(line)
+        d = tg.distance_to_item(line, QPointF(130, 40))
+        assert abs(d - 50.0) < 1e-3
 
     def test_circle_distance_outside(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        # _perpendicular_distance uses boundingRect().width()/2 as radius,
-        # which includes cosmetic pen padding (~55 for a 50-radius circle).
-        r_effective = circle.boundingRect().width() / 2
-        d = scene._tools._perpendicular_distance(circle, QPointF(100, 0))
-        assert abs(d - (100.0 - r_effective)) < 1e-3
+        d = tg.distance_to_item(circle, QPointF(100, 0))
+        assert abs(d - 50.0) < 1e-3
 
     def test_circle_distance_inside(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        r_effective = circle.boundingRect().width() / 2
-        d = scene._tools._perpendicular_distance(circle, QPointF(20, 0))
-        assert abs(d - (r_effective - 20.0)) < 1e-3
+        d = tg.distance_to_item(circle, QPointF(20, 0))
+        assert abs(d - 30.0) < 1e-3
 
     def test_polyline_distance(self, scene):
         pl = PolylineItem(QPointF(0, 0))
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
-        d = scene._tools._perpendicular_distance(pl, QPointF(50, 20))
+        d = tg.distance_to_item(pl, QPointF(50, 20))
         assert abs(d - 20.0) < 1e-3
 
     def test_arc_distance(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        # Point at (80, 0) => distance = |80 - 50| = 30
-        d = scene._tools._perpendicular_distance(arc, QPointF(80, 0))
+        # Point at (80, 0) => distance = |80 - 50| = 30 (arc start point)
+        d = tg.distance_to_item(arc, QPointF(80, 0))
         assert abs(d - 30.0) < 1e-3
 
     def test_rectangle_distance_outside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (150, 50) => nearest edge at x=100 => distance = 50
-        d = scene._tools._perpendicular_distance(rect, QPointF(150, 50))
+        d = tg.distance_to_item(rect, QPointF(150, 50))
         assert abs(d - 50.0) < 1e-3
 
     def test_rectangle_distance_inside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (10, 50) => nearest edge is left (x=0) => distance = 10
-        d = scene._tools._perpendicular_distance(rect, QPointF(10, 50))
+        d = tg.distance_to_item(rect, QPointF(10, 50))
         assert abs(d - 10.0) < 1e-3
 
 
 class TestOffsetSignedDist:
-    """SceneTools._offset_signed_dist — side detection."""
+    """tool_geometry.offset_signed_dist — side detection (the SceneTools
+    wrapper had no production caller left and was retired, review G7 M-4)."""
 
     def test_line_left_side_positive(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -251,49 +260,49 @@ class TestOffsetSignedDist:
         # Point above the line (y > 0) is on the left for rightward segment
         # Cross product: dx*(side_y - p1_y) - dy*(side_x - p1_x)
         # 100*(50-0) - 0*(50-0) = 5000 > 0 => left => positive
-        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, 50))
+        sd = tg.offset_signed_dist(line, 10.0, QPointF(50, 50))
         assert sd == 10.0
 
     def test_line_right_side_negative(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, -50))
+        sd = tg.offset_signed_dist(line, 10.0, QPointF(50, -50))
         assert sd == -10.0
 
     def test_circle_outside_positive(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(100, 0))
+        sd = tg.offset_signed_dist(circle, 10.0, QPointF(100, 0))
         assert sd == 10.0  # outside => grow
 
     def test_circle_inside_negative(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(10, 0))
+        sd = tg.offset_signed_dist(circle, 10.0, QPointF(10, 0))
         assert sd == -10.0  # inside => shrink
 
     def test_rectangle_outside_positive(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(150, 50))
+        sd = tg.offset_signed_dist(rect, 5.0, QPointF(150, 50))
         assert sd == 5.0
 
     def test_rectangle_inside_negative(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(50, 50))
+        sd = tg.offset_signed_dist(rect, 5.0, QPointF(50, 50))
         assert sd == -5.0
 
     def test_arc_outside_positive(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(80, 0))
+        sd = tg.offset_signed_dist(arc, 10.0, QPointF(80, 0))
         assert sd == 10.0
 
     def test_arc_inside_negative(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(10, 0))
+        sd = tg.offset_signed_dist(arc, 10.0, QPointF(10, 0))
         assert sd == -10.0
 
 
@@ -899,18 +908,20 @@ class TestConstructionGeometryGrips:
 
 
 # =========================================================================
-# 11. _make_offset_item
+# 11. offset_item (scene-tools.md D9 — replaces make_offset_item; the
+#     retired circle cases pinned the pen-inflated boundingRect()/2 radius,
+#     defect DV8. D9: circle offset is the GEOMETRIC radius r±d.)
 # =========================================================================
 
 
 class TestMakeOffsetItem:
-    """SceneTools._make_offset_item — produces offset copies."""
+    """tool_geometry.offset_item — produces offset copies (D9)."""
 
     def test_line_offset(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
 
-        result = scene._tools._make_offset_item(line, 10.0)
+        result = tg.offset_item(line, 10.0)
         assert result is not None
         assert isinstance(result, LineItem)
 
@@ -919,7 +930,7 @@ class TestMakeOffsetItem:
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
 
-        result = scene._tools._make_offset_item(pl, 10.0)
+        result = tg.offset_item(pl, 10.0)
         assert result is not None
         assert isinstance(result, PolylineItem)
 
@@ -927,36 +938,33 @@ class TestMakeOffsetItem:
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        # _make_offset_item uses boundingRect().width()/2 as radius (includes pen)
-        r_eff = circle.boundingRect().width() / 2
-        result = scene._tools._make_offset_item(circle, 10.0)
+        # D9: geometric radius (50 + 10), not the pen-inflated boundingRect.
+        result = tg.offset_item(circle, 10.0)
         assert result is not None
         assert isinstance(result, CircleItem)
-        assert abs(result._radius - (r_eff + 10.0)) < 1e-3
+        assert abs(result._radius - 60.0) < 1e-3
 
     def test_circle_offset_shrink(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        r_eff = circle.boundingRect().width() / 2
-        result = scene._tools._make_offset_item(circle, -20.0)
+        result = tg.offset_item(circle, -20.0)
         assert result is not None
-        assert abs(result._radius - (r_eff - 20.0)) < 1e-3
+        assert abs(result._radius - 30.0) < 1e-3
 
     def test_circle_offset_shrink_to_nothing(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
 
-        r_eff = circle.boundingRect().width() / 2
-        # Offset inward by more than the effective radius => None
-        result = scene._tools._make_offset_item(circle, -(r_eff + 10.0))
+        # Offset inward by more than the geometric radius => None
+        result = tg.offset_item(circle, -60.0)
         assert result is None  # negative radius not allowed
 
     def test_rectangle_offset(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 50))
         scene.addItem(rect)
 
-        result = scene._tools._make_offset_item(rect, 10.0)
+        result = tg.offset_item(rect, 10.0)
         assert result is not None
         assert isinstance(result, RectangleItem)
         r = result.rect()
@@ -967,7 +975,7 @@ class TestMakeOffsetItem:
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
 
-        result = scene._tools._make_offset_item(arc, 10.0)
+        result = tg.offset_item(arc, 10.0)
         assert result is not None
         assert isinstance(result, ArcItem)
         assert abs(result._radius - 60.0) < 1e-3

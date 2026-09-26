@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QToolButton, QProgressDialog)
 from firepro3d.themed_message import (
     themed_info, themed_warn, themed_error, themed_confirm, themed_choice,
-    themed_input_number, themed_input_choice,
+    themed_input_choice,
 )
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
@@ -42,7 +42,6 @@ from firepro3d.header_rail import HeaderRail
 from firepro3d.frameless_shell import FramelessShellMixin
 from firepro3d.main_helpers import migrate_fullscreen_pref
 # view_3d deferred — imports pyvista/VTK which is slow
-from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
@@ -595,7 +594,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
         self.scene.instructionChanged.connect(self.footer.set_instruction)
         self.scene.openViewRequested.connect(self._on_open_view_requested)
-        self.scene.numericInputRequested.connect(self._on_numeric_input_requested)
         self.scene.warningIssued.connect(self._on_warning_issued)
         self.scene.confirmRequested.connect(self._on_confirm_requested)
 
@@ -635,18 +633,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         QShortcut(QKeySequence("Delete"), self).activated.connect(
             self._delete_if_not_editing)
         QShortcut(QKeySequence("Escape"), self).activated.connect(self._on_escape)
-        QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(
-            lambda: self._active_scene().copy_selected_items())
-        QShortcut(QKeySequence("Ctrl+V"), self).activated.connect(
-            lambda: self._active_scene().set_mode("paste"))
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
             lambda: self._active_view()._select_all_items())
-        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
-            lambda: self._active_scene().set_mode("duplicate"))
-        # Align on Shift+A (its old "A, L" chord was retired so bare A is the Arc
-        # tool shortcut; Ctrl+A is Select All, so Shift+A keeps the A mnemonic).
-        QShortcut(QKeySequence("Shift+A"), self,
-                  lambda: self._active_scene().set_mode("align"))
+        # Modify/Edit tools (scene-tools.md D2): window-level so they fire from any
+        # ribbon tab; routed through the ACTIVE scene; refused while typing.
+        _TOOL_KEYS = {
+            "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste",
+            "Shift+D": "duplicate", "Shift+M": "move", "Shift+R": "rotate",
+            "Shift+O": "offset", "Shift+A": "array",
+            "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
+        }
+        for _seq, _tool in _TOOL_KEYS.items():
+            QShortcut(QKeySequence(_seq), self).activated.connect(
+                lambda t=_tool: self._start_modify_tool(t))
+        # Align moved off Shift+A (now Array) to Shift+L (D2).
+        QShortcut(QKeySequence("Shift+L"), self).activated.connect(
+            lambda: self._active_scene().set_mode("align"))
 
         # Restore settings
         self._splash_progress(95, "Restoring settings...")
@@ -1320,12 +1322,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
     # Dialog signal handlers (dialogs moved out of Model_Space)
     # ─────────────────────────────────────────────────────────────────────────
-
-    def _on_numeric_input_requested(self, mode: str, title: str, label: str,
-                                     default: float, min_val: float, max_val: float):
-        val, ok = themed_input_number(self, title, label, initial=default, dimension=True,
-                                      minimum=min_val, maximum=max_val)
-        self.scene.complete_numeric_input(mode, val, ok)
 
     def _on_warning_issued(self, title: str, message: str):
         themed_warn(self, title, message)
@@ -2352,8 +2348,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
-        "offset":         "Click geometry to offset (Tab for exact distance)",
-        "offset_side":    "Click the side to offset towards",
+        "offset":         "Pick object to offset",
+        "offset_side":    "Pick side to offset towards (or type a distance)",
         "design_area":    "Click two corners to define design area",
         "room":           "Click inside a closed wall region to define a room",
         "water_supply":   "Click to place water supply",
@@ -3103,43 +3099,149 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         color_btn.clicked.connect(_on_colour)
         opacity_edit.editingFinished.connect(_on_opacity)
 
-    def _build_contextual_edit_group(self, page) -> None:
-        """Add a shared "Edit" group to *page* with 5 action buttons.
+    def _modify_icon(self, name):
+        """Theme-matched ribbon icon for the Edit/Modify groups."""
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        return themed_icon(name, DARK if _th.detect().name == DARK else LIGHT)
 
-        Every contextual tab calls this method to get the standard clipboard
-        and delete actions.  The callbacks are identical to the shortcuts
-        wired in ``__init__`` (Delete, Copy, Cut, Paste, Duplicate).
+    def _add_modify_tool_button(self, g, label, icon, tool, tip,
+                                scene_getter, mode_registry):
+        """One Edit/Modify tool button routed through ``_modify_ctl.start``.
+
+        With *mode_registry* (the Block Editor page's ``_block_mode_buttons``)
+        a modal tool's button is checkable and registered under its mode
+        key(s), so ``_sync_mode_buttons`` lights it while the tool runs and
+        clears it on exit. Clicking the lit button cancels the tool; a
+        refused ``start()`` (e.g. no selection) leaves it unchecked.
+        """
+        from firepro3d.modify_tools_controller import ModifyToolsController
+        modes = ModifyToolsController.tool_modes(tool)
+        if mode_registry is None or modes is None:
+            b = g.add_small_button(label, self._modify_icon(icon),
+                                   lambda *_, t=tool: scene_getter()._modify_ctl.start(t))
+            b.setToolTip(tip)
+            return b
+
+        def _toggled(checked, t=tool):
+            sc = scene_getter()
+            if not checked:                 # user un-toggled the lit button
+                sc.set_mode(None)
+                return
+            if not sc._modify_ctl.start(t):
+                b.blockSignals(True)
+                b.setChecked(False)
+                b.blockSignals(False)
+
+        b = g.add_small_button(label, self._modify_icon(icon), _toggled,
+                               checkable=True)
+        b.setToolTip(tip)
+        for m in modes:
+            mode_registry[m] = b
+        return b
+
+    def build_edit_group(self, page, scene_getter, mode_registry=None) -> dict:
+        """Edit group (scene-tools.md D1): Copy · Cut · Paste · Duplicate · Delete.
+
+        Args:
+            page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+            scene_getter: Zero-arg callable returning the scene to act on
+                (resolved at click time, so it follows the active tab).
+            mode_registry: Optional ``{mode: button}`` dict; when given, the
+                modal buttons are checkable and registered there (I1).
+
+        Returns:
+            ``{label: button}`` for the five buttons.
+        """
+        g = page.add_group("Edit")
+        spec = (
+            ("Copy", "copy_icon.svg", "copy", "Copy — pick a base point (Shift+C / Ctrl+C)"),
+            ("Cut", "cut_icon.svg", "cut", "Cut — pick a base point, then remove (Shift+X / Ctrl+X)"),
+            ("Paste", "paste_icon.svg", "paste", "Paste — ghost on the cursor, click to place (Shift+V / Ctrl+V)"),
+            ("Duplicate", "duplicate_icon.svg", "duplicate", "Duplicate — like Move, keeps the original (Shift+D / Ctrl+D)"),
+        )
+        buttons = {}
+        for label, icon, tool, tip in spec:
+            buttons[label] = self._add_modify_tool_button(
+                g, label, icon, tool, tip, scene_getter, mode_registry)
+        b = g.add_small_button("Delete", self._modify_icon("delete_icon.svg"),
+                               lambda: scene_getter().delete_selected_items())
+        b.setToolTip("Delete selected items (Del)")
+        buttons["Delete"] = b
+        return buttons
+
+    def build_modify_group(self, page, scene_getter, mode_registry=None) -> dict:
+        """Modify group (scene-tools.md D1): Move · Rotate · Offset · Array.
+
+        Args:
+            page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+            scene_getter: Zero-arg callable returning the scene to act on.
+            mode_registry: Optional ``{mode: button}`` dict (see
+                :meth:`build_edit_group`).
+
+        Returns:
+            ``{label: button}`` for the four buttons.
+        """
+        g = page.add_group("Modify")
+        spec = (
+            ("Move", "move_icon.svg", "move", "Move — base point, then destination (Shift+M)"),
+            ("Rotate", "rotate_icon.svg", "rotate", "Rotate — pivot, start ray, end ray; type an angle (Shift+R)"),
+            ("Offset", "offset_icon.svg", "offset", "Offset — pick an object, cursor sets side + distance (Shift+O)"),
+            ("Array", "array_icon.svg", "array", "Array — base point, cursor sets direction + spacing (Shift+A)"),
+        )
+        buttons = {}
+        for label, icon, tool, tip in spec:
+            buttons[label] = self._add_modify_tool_button(
+                g, label, icon, tool, tip, scene_getter, mode_registry)
+        return buttons
+
+    # Buttons that need a selection (scene-tools.md D1/D3 select-first).
+    _MODIFY_NEEDS_SELECTION = ("Copy", "Cut", "Duplicate", "Delete",
+                               "Move", "Rotate", "Array")
+
+    def _refresh_modify_buttons(self) -> None:
+        """Enable/disable the Block Editor Edit/Modify buttons (D1).
+
+        Selection-needing tools are disabled with an empty selection; Paste
+        is enabled only while the clipboard holds a FirePro3D payload
+        (``clipboard_payload()``, scene-tools.md D5).
+        """
+        from PyQt6 import sip
+        buttons = getattr(self, "_be_modify_buttons", None) or {}
+        scene = self._active_scene()
+        try:
+            has_sel = bool(scene.selectedItems())
+        except RuntimeError:
+            return
+        for label, b in buttons.items():
+            if sip.isdeleted(b):
+                continue
+            if label in self._MODIFY_NEEDS_SELECTION:
+                b.setEnabled(has_sel)
+            elif label == "Paste":
+                b.setEnabled(scene.clipboard_payload() is not None)
+
+    def _connect_modify_refresh(self, scene) -> None:
+        """Connect *scene*'s selectionChanged to the refresh exactly once."""
+        import weakref
+        seen = getattr(self, "_modify_refresh_scenes", None)
+        if seen is None:
+            seen = self._modify_refresh_scenes = weakref.WeakSet()
+            # Paste's enable state follows the clipboard (spec I1); once.
+            QApplication.clipboard().dataChanged.connect(
+                self._refresh_modify_buttons)
+        if scene in seen:
+            return
+        seen.add(scene)
+        scene.selectionChanged.connect(self._refresh_modify_buttons)
+
+    def _build_contextual_edit_group(self, page) -> None:
+        """Shared Edit group for every contextual tab (routes to the active scene).
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
         """
-        from firepro3d.icons import themed_icon, LIGHT, DARK
-        from firepro3d import theme as _th
-        _theme = DARK if _th.detect().name == DARK else LIGHT
-        _I = lambda name: themed_icon(name, _theme)
-
-        g = page.add_group("Edit")
-        _btn = g.add_small_button(
-            "Delete", _I("delete_icon.svg"),
-            lambda: self.scene.delete_selected_items())
-        _btn.setToolTip("Delete selected items [Del]")
-        _btn = g.add_small_button(
-            "Copy", _I("copy_icon.svg"),
-            lambda: self.scene.copy_selected_items())
-        _btn.setToolTip("Copy selected items [Ctrl+C]")
-        _btn = g.add_small_button(
-            "Cut", _I("cut_icon.svg"),
-            lambda: (self.scene.copy_selected_items(),
-                     self.scene.delete_selected_items()))
-        _btn.setToolTip("Cut selected items [Ctrl+X]")
-        _btn = g.add_small_button(
-            "Paste", _I("paste_icon.svg"),
-            lambda: self.scene.paste_items())
-        _btn.setToolTip("Paste items [Ctrl+V]")
-        _btn = g.add_small_button(
-            "Duplicate", _I("duplicate_icon.svg"),
-            lambda: self.scene.duplicate_selected())
-        _btn.setToolTip("Duplicate selected items [Ctrl+D]")
+        self.build_edit_group(page, self._active_scene)
 
     # ── Reusable Graphic Override group ────────────────────────────────────────
 
@@ -3531,25 +3633,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._active_contextual_key = key
         self._active_contextual_title = title
         self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
-
-    def _require_selection(self, action):
-        """Run *action* only if something is selected; otherwise show message."""
-        if not self.scene.selectedItems():
-            self.statusBar().showMessage("Select an item first", 3000)
-            return
-        action()
-
-    # ── Array / Multiply (Sprint J) ──────────────────────────────────────────
-
-    def _open_array_dialog(self):
-        """Open the Array dialog and execute the array on the current selection."""
-        if not self.scene.selectedItems():
-            return
-        dlg = ArrayDialog(self, scale_manager=self.scene.scale_manager,
-                          scene=self.scene,
-                          selected_items=self.scene.selectedItems())
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.scene.array_items(dlg.get_params())
 
     # ── Grid Lines ───────────────────────────────────────────────────────────
 
@@ -4505,6 +4588,23 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.editor_scene
         return self.scene
 
+    def _start_modify_tool(self, tool: str) -> None:
+        """Route a Modify/Edit tool to the active scene (scene-tools.md D2/D3).
+
+        Refused while a text field / the HUD has focus, and on a Paper tab (the
+        active scene there would be the hidden plan).
+
+        Args:
+            tool: Tool name understood by ``ModifyToolsController.start``.
+        """
+        from PyQt6.QtWidgets import QApplication, QLineEdit, QTextEdit, QPlainTextEdit
+        fw = QApplication.focusWidget()
+        if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
+            return
+        if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
+            return
+        self._active_scene()._modify_ctl.start(tool)
+
     def _text_edit_scenes(self) -> list:
         """The plan scene + every open Block Editor's editor_scene.
 
@@ -4598,6 +4698,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Insert + activate the contextual 'Block Editor' ribbon page."""
         if getattr(self, "_block_ribbon_active", False):
             self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+            # Switching between editor tabs keeps the page: follow the new
+            # editor scene's selection (scene-tools.md D1 enable state).
+            self._connect_modify_refresh(self._active_scene())
+            self._refresh_modify_buttons()
             return
         # Clear any selection-driven contextual page first (shared slot).
         if self._active_contextual_key is not None:
@@ -4692,6 +4796,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Text — the 9th primitive (contract C5). Authored here (and in Paper)
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
+
+        # Edit + Modify (scene-tools.md D1) — always visible after 2D Geometry.
+        self._be_modify_buttons = {
+            **self.build_edit_group(page, self._active_scene,
+                                    self._block_mode_buttons),
+            **self.build_modify_group(page, self._active_scene,
+                                      self._block_mode_buttons),
+        }
+        self._connect_modify_refresh(self._active_scene())
+        self._refresh_modify_buttons()
 
     def _be_save(self):
         w = self._active_editor_widget()

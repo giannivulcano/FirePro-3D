@@ -7,7 +7,6 @@ focused on interactive mouse/keyboard handling.
 
 Tools included:
 - Offset (line intersection, polyline offset, perpendicular distance)
-- Array (linear + polar)
 - Rotate, Scale, Mirror
 - Join, Explode
 - Break, Break-at-Point
@@ -22,10 +21,12 @@ Tools included:
 from __future__ import annotations
 
 import math
-import json
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QApplication
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
+from PyQt6.QtWidgets import (
+    QDialog, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
+    QGraphicsPathItem, QGraphicsRectItem, QLabel, QVBoxLayout,
+)
 
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
@@ -165,24 +166,9 @@ class SceneTools:
         """Delegates to :func:`tool_geometry.offset_polyline_pts`."""
         return tool_geometry.offset_polyline_pts(pts, signed_dist)
 
-    def _perpendicular_distance(self, source, pt: QPointF) -> float:
-        """Delegates to :func:`tool_geometry.perpendicular_distance`."""
-        return tool_geometry.perpendicular_distance(source, pt)
-
-    def _offset_signed_dist(self, source, dist: float, side_pt: QPointF) -> float:
-        """Delegates to :func:`tool_geometry.offset_signed_dist`."""
-        return tool_geometry.offset_signed_dist(source, dist, side_pt)
-
-    def _make_offset_item(self, source, signed_dist: float):
-        """Delegates to :func:`tool_geometry.make_offset_item`."""
-        return tool_geometry.make_offset_item(source, signed_dist)
-
-    def _clear_offset_preview(self):
-        if self._scene._offset_preview is not None:
-            if self._scene._offset_preview.scene() is self._scene:
-                self._scene.removeItem(self._scene._offset_preview)
-            self._scene._offset_preview = None
-
+    # Offset item creation, the cursor distance and the preview live in
+    # tool_geometry.offset_item / distance_to_item and ModifyToolsController
+    # (scene-tools.md D9).
 
     # ======================================================================
     # ARRAY / ROTATE / SCALE / MIRROR / JOIN / EXPLODE / BREAK
@@ -190,122 +176,8 @@ class SceneTools:
     # CONSTRAINTS / GEOMETRY HELPERS
     # ======================================================================
 
-    # -------------------------------------------------------------------------
-    # ARRAY (Sprint J)
-
-    def array_items(self, params: dict):
-        """
-        Duplicate selected items in a linear or polar array.
-
-        params keys
-        -----------
-        mode : "linear" | "polar"
-
-        Linear:
-          rows, cols        : int
-          x_spacing         : float  (scene units per column)
-          y_spacing         : float  (scene units per row)
-
-        Polar:
-          cx, cy            : float  (centre of rotation in scene coords)
-          count             : int    (total number of copies incl. original)
-          total_angle       : float  (degrees, e.g. 360 for full circle)
-          rotate_items      : bool   (rotate geometry orientation; Nodes only)
-        """
-        items = self._scene.selectedItems()
-        if not items:
-            return
-
-        # Only duplicate pipes whose both endpoints are in the selection
-        selected_nodes = {i for i in items if isinstance(i, Node)}
-
-        # Serialise selected items
-        def _serialise(item):
-            if isinstance(item, Node):
-                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
-                pipes_d = []
-                for p in item.pipes:
-                    other = p.node1 if p.node2 == item else p.node2
-                    if other in selected_nodes:
-                        pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
-                return {"type": "node", "x": item.pos().x(), "y": item.pos().y(),
-                        "sprinkler": sprinkler, "pipes": pipes_d}
-            elif hasattr(item, "to_dict"):
-                return item.to_dict()
-            return None
-
-        data = [d for item in items if (d := _serialise(item)) is not None]
-        if not data:
-            return
-
-        old_clip = QApplication.clipboard().text()
-
-        mode = params.get("mode", "linear")
-
-        if mode == "linear":
-            rows = max(1, int(params.get("rows", 1)))
-            cols = max(1, int(params.get("cols", 1)))
-            xs   = float(params.get("x_spacing", 100))
-            ys   = float(params.get("y_spacing", 100))
-
-            QApplication.clipboard().setText(json.dumps(data))
-            for r in range(rows):
-                for c in range(cols):
-                    if r == 0 and c == 0:
-                        continue  # skip the original position
-                    self._scene.paste_items(QPointF(c * xs, -r * ys))
-
-        elif mode == "polar":
-            cx    = float(params.get("cx", 0))
-            cy    = float(params.get("cy", 0))
-            count = max(2, int(params.get("count", 4)))
-            ta    = float(params.get("total_angle", 360))
-            # angle step
-            if abs(ta - 360) < 0.01:
-                step = math.radians(ta / count)
-            else:
-                step = math.radians(ta / (count - 1))
-
-            for i in range(1, count):
-                angle = step * i
-                cos_a, sin_a = math.cos(angle), math.sin(angle)
-                rotated = []
-                for obj in data:
-                    rot = dict(obj)
-                    if "x" in rot and "y" in rot:
-                        ox, oy = rot["x"] - cx, rot["y"] - cy
-                        rot["x"] = cx + ox * cos_a - oy * sin_a
-                        rot["y"] = cy + ox * sin_a + oy * cos_a
-                    # Rotate geometry point pairs
-                    for key in ("pt1", "pt2"):
-                        if key in rot:
-                            ox = rot[key][0] - cx
-                            oy = rot[key][1] - cy
-                            rot[key] = [
-                                cx + ox * cos_a - oy * sin_a,
-                                cy + ox * sin_a + oy * cos_a,
-                            ]
-                    # Rotate circle centre
-                    for cx_k, cy_k in (("cx", "cy"),):
-                        if cx_k in rot and cy_k in rot:
-                            ox = rot[cx_k] - cx
-                            oy = rot[cy_k] - cy
-                            rot[cx_k] = cx + ox * cos_a - oy * sin_a
-                            rot[cy_k] = cy + ox * sin_a + oy * cos_a
-                    # Rotate polyline vertices
-                    if "points" in rot:
-                        new_pts = []
-                        for px, py in rot["points"]:
-                            ox, oy = px - cx, py - cy
-                            new_pts.append([cx + ox * cos_a - oy * sin_a,
-                                            cy + ox * sin_a + oy * cos_a])
-                        rot["points"] = new_pts
-                    rotated.append(rot)
-                QApplication.clipboard().setText(json.dumps(rotated))
-                self._scene.paste_items(QPointF(0, 0))
-
-        QApplication.clipboard().setText(old_clip)
-        self._scene.push_undo_state()
+    # Array lives in ModifyToolsController (scene-tools.md D10: on-canvas
+    # linear only; the ArrayDialog / array_items path is retired).
 
     # -------------------------------------------------------------------------
     # ROTATE SELECTED (Sprint M recovery)
@@ -313,51 +185,8 @@ class SceneTools:
     # -------------------------------------------------------------------------
     # INTERACTIVE TRANSFORMS (Rotate / Scale / Mirror)
 
-    def _apply_rotate(self, pivot: QPointF, angle_deg: float, items: list = None):
-        """Rotate *items* around *pivot* by *angle_deg*."""
-        if items is None:
-            items = self._scene._selected_items or self._scene.selectedItems()
-        rp = CAD_Math.rotate_point
-        for item in items:
-            if isinstance(item, Node):
-                new_pos = rp(item.scenePos(), pivot, angle_deg)
-                item.setPos(new_pos)
-                item.fitting.update()
-            elif isinstance(item, LineItem):
-                item._pt1 = rp(item._pt1, pivot, angle_deg)
-                item._pt2 = rp(item._pt2, pivot, angle_deg)
-                item.setLine(item._pt1.x(), item._pt1.y(),
-                             item._pt2.x(), item._pt2.y())
-            elif isinstance(item, PolylineItem):
-                item._points = [rp(p, pivot, angle_deg) for p in item._points]
-                item._rebuild_path()
-            elif isinstance(item, CircleItem):
-                item._center = rp(item._center, pivot, angle_deg)
-                r = item._radius
-                item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
-            elif isinstance(item, RectangleItem):
-                # Convert to polyline. Use the rect's SCENE corners (its data
-                # rotation ``_angle``/``_pivot`` applied), not the local rect().
-                g = item.grip_points()
-                corners = [g[0], g[2], g[4], g[6], g[0]]
-                rotated = [rp(c, pivot, angle_deg) for c in corners]
-                pl = PolylineItem(rotated[0],
-                                  color=item.pen().color().name(),
-                                  lineweight=item.pen().widthF())
-                for pt in rotated[1:]:
-                    pl.append_point(pt)
-                pl.finalize()
-                self._scene.addItem(pl)
-                self._scene._polylines.append(pl)
-                # Remove original rect
-                if item.scene() is self._scene:
-                    self._scene.removeItem(item)
-                if item in self._scene._draw_rects:
-                    self._scene._draw_rects.remove(item)
-            elif isinstance(item, ArcItem):
-                item._center = rp(item._center, pivot, angle_deg)
-                item._start_deg += angle_deg
-                item._rebuild_path()
+    # Rotate lives in ModifyToolsController.commit_rotate (scene-tools.md D8:
+    # per-item manip_rotate; the legacy rect->polyline _apply_rotate is retired).
 
     def _apply_scale(self, base: QPointF, factor: float, items: list = None):
         """Scale *items* relative to *base* by *factor*."""

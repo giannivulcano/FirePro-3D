@@ -300,6 +300,11 @@ HALO_TRACE_ALPHA = 128        # trace opacity, 0-255 (128 ~ 50%)
 HALO_TRACE_WIDTH_PX = 4.0     # cosmetic px of the core traced line
 HALO_GLOW_PX = 8.0            # soft outer-glow blur radius (px); 0 disables
 
+# Transform ghost (scene-tools.md D11; mockup gate B 2026-09-25)
+TRANSFORM_GHOST_DIM_OPACITY = 0.35      # originals' opacity multiplier during a transform
+TRANSFORM_GHOST_TRACE_WIDTH_PX = 1.0    # solid accent trace over the HALO glow
+TRANSFORM_GHOST_TRACE_ALPHA = 255
+
 # ── Selection dimension readouts (2d-geometry.md §8, selection-mode.md §15) ──
 # Signed-off mockup 2026-09-24 (FPD Design/dim-readouts) + grill Q12.
 SELDIM_FONT_PX = 10              # label text px (theme.FONT_VALUE / Consolas)
@@ -316,3 +321,6 @@ SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side
 # traced width + the blur radius) and the arc arrowheads, + 2 px antialias.
 SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,
                               SELDIM_ARROW_PX) + 2)
+
+# ── Modify tools (scene-tools.md) ──────────────────────────────────────────
+CLIPBOARD_FORMAT_VERSION = 1  # scene-tools.md I1 clipboard payload version

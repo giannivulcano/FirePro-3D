@@ -33,7 +33,7 @@ from .geometry_2d import (
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
-from .handle_snap import HandleSnapResult, HandleSnapSession
+from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
@@ -70,6 +70,7 @@ from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController
 from .wall_placement_controller import WallPlacementController
+from .modify_tools_controller import ModifyToolsController
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
 from .network_codec import (
@@ -166,7 +167,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     radiationCancel = pyqtSignal()        # Escape pressed during radiation selection
     openViewRequested = pyqtSignal(str, str)  # (view_type, direction) — marker double-click
     # Dialog signals — UI shown by main.py, result fed back via callback
-    numericInputRequested = pyqtSignal(str, str, str, float, float, float)  # mode, title, label, default, min, max
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
@@ -192,6 +192,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
+        self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
+        self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
+        self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         # Selection dimension readouts (selection-mode §15). Composed before
@@ -344,6 +347,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
+        self._ghost_dimmed: list = []         # [(item, prior opacity)] dimmed originals (D11)
         self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
@@ -393,12 +397,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._gridline_drag_original_pos = None # perpendicular position at drag start
         # Gridline spacing dimensions (on-selection)
         self._gridline_spacing_dims: list[dict] = []
-        # Offset command (Sprint L)
-        self._offset_source = None              # entity selected for offset
-        self._offset_dist: float = 0.0          # distance entered by user
-        self._offset_preview = None             # preview item shown during side-pick
-        self._offset_manual: bool = False       # True when user typed distance via Tab
-        self._offset_highlight = None           # highlight overlay for selected offset entity
+        # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
+        # ghost is the candidate item's trace in _move_ghost.
+        self._offset_source = None              # armed source item
+        self._offset_dist: float = 0.0          # offset magnitude (mm)
+        self._offset_side: float = 1.0          # +1 outward / left normal, -1 otherwise
+        self._offset_typed: bool = False        # distance locked by the HUD
+        self._offset_sticky = None              # last committed distance (D9 step 5)
+        self._offset_sticky_locked: bool = False  # sticky distance was typed
+        self._offset_fit_cache: dict = {}         # spline-offset fit cache (tool_geometry)
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay
@@ -416,8 +423,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._align_ghost = None
         self._align_padlocks: list = []
         # Interactive transforms (Rotate, Scale, Mirror)
+        # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
+        # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
         self._rotate_pivot: "QPointF | None" = None
-        self._rotate_preview_line = None
+        self._rotate_start_deg: "float | None" = None
+        self._rotate_ray = None
+        # Array (scene-tools.md D10; behaviour in ModifyToolsController):
+        # base point, unit direction, cursor spacing (mm), click-commit total.
+        self._array_base: "QPointF | None" = None
+        self._array_dir: "QPointF | None" = None
+        self._array_spacing: float = 0.0
+        self._array_count_default: int = 3      # TOTAL incl. the original
         self._scale_base: "QPointF | None" = None
         self._scale_preview_line = None
         self._scale_factor: float = 1.0
@@ -1136,9 +1152,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # S2: any mode change ends a Move gesture's handle-snap session.
         self._move_handle_session = None
         # Clear the move/paste ghost when leaving those modes.
-        if mode not in ("paste", "move"):
-            self._move_ghost = []
-            self._move_ghost_base = []
+        self._modify_ctl.clear(mode)
         # Reset gridline body drag state
         self._dragging_gridline = None
         self._gridline_drag_start = None
@@ -1146,6 +1160,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
+                        "copy_base", "duplicate", "array",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -1194,16 +1209,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.requestPropertyUpdate.emit(template)
         else:
             self.current_template = None
-
-        # Clean up offset preview whenever leaving offset modes
-        if mode not in ("offset", "offset_side"):
-            self._tools._clear_offset_preview()
-            self._offset_source = None
-            self._offset_manual = False
-            if self._offset_highlight is not None:
-                if self._offset_highlight.scene() is self:
-                    self.removeItem(self._offset_highlight)
-                self._offset_highlight = None
 
         # Clean up gridline replicate modes
         if mode not in ("gridline_array", "gridline_offset"):
@@ -1333,9 +1338,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
                 setattr(self, attr, None)
 
-        if mode != "rotate":
-            self._rotate_pivot = None
-            _remove_preview("_rotate_preview_line")
+        # Rotate's transients are reset by self._modify_ctl.clear(mode) above.
         if mode != "scale":
             self._scale_base = None
             _remove_preview("_scale_preview_line")
@@ -1374,7 +1377,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._detail_rect_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
-        if mode in ("move", "rotate", "scale") and not self._selected_items:
+        if (mode in ("move", "duplicate", "rotate", "scale", "array")
+                and not self._selected_items):
             self._selected_items = list(self.selectedItems())
 
         # Clear OSNAP snap trace whenever mode changes
@@ -1398,7 +1402,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "set_scale":      "Pick first calibration point",
             "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
-            "offset":         "Click geometry to offset",
+            "copy_base":      "Pick base point",
+            "duplicate":      "Pick base point",
+            "offset":         "Pick object to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
@@ -1412,7 +1418,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "constraint_dimensional":  "Click first grip point",
             "align": "Click reference edge",
             "rotate":          "Pick pivot point",
-            "scale":           "Pick base point (Tab = enter factor)",
+            "array":           "Pick base point",
+            "scale":           "Pick base point",
             "mirror":          "Pick first axis point",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
@@ -2392,6 +2399,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         self._dirty = False
 
+    def _cancel_modify_tool_for_undo(self) -> None:
+        """End a running modify tool before an undo/redo restore: the restore
+        detaches every item, so the tool's captured selection / base point
+        would otherwise commit onto dead items (scene-tools.md I2)."""
+        if self.mode in self._modify_ctl.CANCEL_ON_UNDO_MODES:
+            self.set_mode(None)
+
     def undo(self):
         """Restore the previous network state.
 
@@ -2403,6 +2417,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self._text_edit_ctl.commit() == "discarded":
             return
+        self._cancel_modify_tool_for_undo()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1
@@ -2424,6 +2439,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self._text_edit_ctl.commit() == "discarded":
             return
+        self._cancel_modify_tool_for_undo()
         self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
@@ -2506,7 +2522,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # cursor. Only the selection's own handles (the base point included)
         # snap, via _move_handle_snap. The base click itself (node_start_pos
         # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode == "move" and self.node_start_pos is not None:
+        if self.mode in ("move", "duplicate") and self.node_start_pos is not None:
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -2578,7 +2594,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             held = None     # S2 handle-snap marker: a handle's target, not a cursor snap
         res = self._snap_engine.find(
             scene_pos, self, _view.transform(),
-            exclude=self._grip_item if self._grip_dragging else None,
+            # Offset (D9): never snap onto the armed source — its own
+            # endpoints/midpoint/nearest would zero the distance; snaps to
+            # other geometry stay live ("through point").
+            exclude=(self._grip_item if self._grip_dragging
+                     else self._offset_source if self.mode == "offset_side"
+                     else None),
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,
@@ -2907,6 +2928,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
         "move": "displacement",
+        "paste": "displacement",
+        "duplicate": "displacement",
+        "rotate": "rotate_by",
+        "array": "array_linear",
+        "offset_side": "offset_distance",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -2939,6 +2965,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
+        "paste": "_apply_paste_displacement",
+        "duplicate": "_apply_move_displacement",
+        "rotate": "_apply_rotate_by",
+        "array": "_apply_array_linear",
+        "offset_side": "_apply_offset_distance",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -3066,7 +3097,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         transform re-derives the point its own preview helper consumes from the
         resolved dict and the scene's armed state:
 
-        * ``move`` lands its base anchor at ``anchor + offset``;
+        * ``move`` / ``paste`` / ``duplicate`` land the base anchor at
+          ``anchor + offset``;
         * ``draw_arc`` at step 2 sweeps to the endpoint the typed span implies on
           the stored radius circle (``_arc_end_point_for_span``).
 
@@ -3078,7 +3110,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if (self.mode == "draw_arc" and self._draw_arc_step == 2
                 and self._arc_variant == _ARC_VARIANT_ENDPOINTS):
             return self._geom_ctl._arc_ep_center_for_radius(resolved["radius"])
-        if self.mode == "move":
+        if self.mode in ("move", "paste", "duplicate"):
             offset = resolved["offset"]
             return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
         if self.mode == "draw_arc" and self._draw_arc_step == 2:
@@ -3527,9 +3559,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _move_align(self, event, snapped):
         return self._tools._move_align(event, snapped)
 
-    def array_items(self, params):
-        return self._tools.array_items(params)
-
     # OFFSET COMMAND helpers -> see scene_tools.py (SceneTools)
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -3718,8 +3747,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
         "paste":                    "_move_paste_move",
+        "copy_base":                "_move_preview_node",
+        "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
+        "array":                    "_move_array",
         "mirror":                   "_move_mirror",
         "stretch":                  "_move_stretch",
         "wall":                     "_move_wall_router",
@@ -3750,6 +3782,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
+        "paste":           "_preview_from_move",
+        "duplicate":       "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
@@ -3886,96 +3920,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
 
-    def _move_offset_side(self, event, snapped):
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._offset_source is not None:
-            # Compute distance from cursor to source entity
-            if not getattr(self, '_offset_manual', False):
-                self._offset_dist = self._tools._perpendicular_distance(
-                    self._offset_source, snapped)
-            if self._offset_dist > 0:
-                sd = self._tools._offset_signed_dist(
-                    self._offset_source, self._offset_dist, snapped)
-                self._tools._clear_offset_preview()
-                preview = self._tools._make_offset_item(self._offset_source, sd)
-                if preview is not None:
-                    pen = preview.pen()
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                    preview.setPen(pen)
-                    preview.setZValue(200)
-                    self.addItem(preview)
-                    self._offset_preview = preview
-                self._show_status(
-                    f"Offset: {self._offset_dist:.1f} mm  "
-                    f"(Tab = type distance, click to commit)", timeout=0)
+    def _move_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.move_offset_side(*args, **kwargs)
 
     def _move_preview_node(self, event, snapped):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
 
-    def _preview_from_move(self, target) -> None:
-        """Slide the move/paste ghost silhouette so the base point lands on
-        ``target``.
+    def _preview_from_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._preview_from_move(*args, **kwargs)
 
-        Rebuilds ``_move_ghost`` (read by ``drawForeground`` block 8) as the
-        base silhouette translated by ``target - node_start_pos`` and repaints.
-        A no-op before the base point is set.
-        """
-        if self.node_start_pos is None:
-            return
-        offset = QPointF(target.x() - self.node_start_pos.x(),
-                         target.y() - self.node_start_pos.y())
-        self._move_ghost = [p.translated(offset.x(), offset.y())
-                            for p in self._move_ghost_base]
-        for v in self.views():
-            v.viewport().update()
+    def _move_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._move_paste_move(*args, **kwargs)
 
-    def _move_paste_move(self, event, snapped):
-        """Ghost preview for paste/move: silhouette rides the cursor after the
-        base point is set. Before that, show the plain cursor marker."""
-        if self.node_start_pos is None:
-            self.update_preview_node(snapped)
-            self.preview_pipe.hide()
-            return
-        snapped = self._move_handle_snap(event, snapped)
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        offset = QPointF(snapped.x() - self.node_start_pos.x(),
-                         snapped.y() - self.node_start_pos.y())
-        self._preview_from_move(snapped)
-        # Feed the dynamic-input HUD its live dX/dY seed (measured from the
-        # base point in ``_transform_seed_values``).  The status-bar readout
-        # below is a separate surface and stays: S1 retired the painted
-        # on-canvas Dim HUD, which move never used, not the status line — and
-        # it carries ``dist``, which the two-field HUD does not.  A no-op while
-        # a field has focus, so a mid-edit reseed cannot land.  ``paste`` also
-        # reaches here, harmlessly: it has no schema, so nothing seeds from it.
-        self.publish_placement_state(self.node_start_pos, snapped)
-        self._show_status(
-            f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
-            f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
+    def _move_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.move_rotate(*args, **kwargs)
 
-    def _move_rotate(self, event, snapped):
-        if self._rotate_pivot is None:
-            return
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._rotate_preview_line is None:
-            self._rotate_preview_line = QGraphicsLineItem()
-            p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
-            p.setStyle(Qt.PenStyle.DashLine)
-            self._rotate_preview_line.setPen(p)
-            self._rotate_preview_line.setZValue(200)
-            self.addItem(self._rotate_preview_line)
-        self._rotate_preview_line.setLine(
-            self._rotate_pivot.x(), self._rotate_pivot.y(),
-            snapped.x(), snapped.y())
-        self._rotate_preview_line.show()
-        dx = snapped.x() - self._rotate_pivot.x()
-        dy = snapped.y() - self._rotate_pivot.y()
-        angle = math.degrees(math.atan2(-dy, dx))
-        self._show_status(f"Rotate: {angle:.1f}°", timeout=0)
+    def _move_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.move_array(*args, **kwargs)
 
     def _move_mirror(self, event, snapped):
         if self._mirror_p1 is None:
@@ -4340,13 +4302,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # resolves a cursor point through ``get_effective_position`` and places
     # there.  Deliberately EXCLUDES:
     #   • ``select`` / ``None``            — no point placed
-    #   • object-pick transforms/modifies  — rotate, scale, mirror, break,
+    #   • object-pick transforms/modifies  — scale, mirror, break,
     #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
     #     merge_points, offset(_side), align, the two constraint pickers, room
     #     (click-inside-region), place_import (ghost drag, no snap point)
     # ``move``/``paste`` are placement (destination point) AND self-exclude the
     # moved item; they stay armed here and the press path swaps the sentinel for
-    # the real self-exclude item.
+    # the real self-exclude item. ``rotate`` picks its pivot and rays with
+    # SNAP + ALIGN (scene-tools.md D8), so it is armed too.
     # Single-placement modes (user, 2026-09-16): place ONE item, then return to
     # Select with the item selected (so its manipulator frame shows) — instead of
     # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
@@ -4365,7 +4328,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste",
+        "move", "paste", "copy_base", "duplicate", "rotate", "array",
     })
 
     _PRESS_DISPATCH = {
@@ -4383,11 +4346,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "room":                     "_press_room",
         "room_manual":              "_press_room_manual",
         "paste":                    "_press_paste_move",
+        "copy_base":                "_press_copy_base",
+        "duplicate":                "_press_paste_move",
         "move":                     "_press_paste_move",
         "place_import":             "_press_place_import",
         "offset":                   "_press_offset",
         "offset_side":              "_press_offset_side",
         "rotate":                   "_press_rotate",
+        "array":                    "_press_array",
         "scale":                    "_press_scale",
         "mirror":                   "_press_mirror",
         "break":                    "_press_break",
@@ -4426,62 +4392,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ------------------------------------------------------------------
     # Dialog callbacks — called by main.py after showing the dialog
     # ------------------------------------------------------------------
-
-    def complete_numeric_input(self, mode: str, value: float, accepted: bool):
-        """Handle result from a numeric input dialog shown by main.py."""
-        if not accepted:
-            return
-        if mode == "offset_side":
-            self._offset_dist = value
-            self._offset_manual = True
-            self._show_status(
-                f"Offset: {value:.1f} mm (fixed)  "
-                f"Click to pick side and commit.", timeout=0)
-        elif mode == "rotate":
-            if self._rotate_pivot is not None:
-                self._tools._apply_rotate(self._rotate_pivot, value)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
-        elif mode == "scale":
-            if self._scale_base is not None:
-                self._tools._apply_scale(self._scale_base, value)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
-        elif mode == "fillet":
-            self._fillet_radius = value
-            if self._fillet_preview is not None:
-                if self._fillet_preview.scene() is self:
-                    self.removeItem(self._fillet_preview)
-                self._fillet_preview = None
-            data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                        self._fillet_radius)
-            if data is not None:
-                pp = QPainterPath()
-                pp.addEllipse(data["center"], data["radius"], data["radius"])
-                self._fillet_preview = self.addPath(
-                    pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-            self._show_status(
-                f"Fillet radius: {value:.1f}  Press Enter to commit", timeout=0)
-        elif mode == "chamfer":
-            self._chamfer_dist = value
-            if self._chamfer_preview is not None:
-                if self._chamfer_preview.scene() is self:
-                    self.removeItem(self._chamfer_preview)
-                self._chamfer_preview = None
-            data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
-                                          self._chamfer_dist)
-            if data is not None:
-                self._chamfer_preview = QGraphicsLineItem(
-                    data["cp1"].x(), data["cp1"].y(),
-                    data["cp2"].x(), data["cp2"].y())
-                p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
-                p.setCosmetic(True)
-                self._chamfer_preview.setPen(p)
-                self.addItem(self._chamfer_preview)
-            self._show_status(
-                f"Chamfer distance: {value:.1f}  Press Enter to commit", timeout=0)
 
     def complete_confirmation(self, action_id: str, result: str):
         """Handle result from a confirmation dialog shown by main.py.
@@ -5113,63 +5023,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     @staticmethod
     def _inset_polygon(pts: list[QPointF], dist: float) -> list[QPointF] | None:
-        """Offset a polygon inward by *dist* using edge normals."""
-        import math as _m
-        n = len(pts)
-        if n < 3:
-            return None
-
-        # Compute inward normals for each edge
-        normals = []
-        for i in range(n):
-            j = (i + 1) % n
-            dx = pts[j].x() - pts[i].x()
-            dy = pts[j].y() - pts[i].y()
-            length = _m.hypot(dx, dy)
-            if length < 1e-12:
-                normals.append((0.0, 0.0))
-                continue
-            # Inward normal (assuming CW winding for scene Y-down)
-            nx = dy / length
-            ny = -dx / length
-            normals.append((nx, ny))
-
-        # Check winding: if polygon area is positive (CCW), flip normals
-        area = 0.0
-        for i in range(n):
-            j = (i + 1) % n
-            area += pts[i].x() * pts[j].y() - pts[j].x() * pts[i].y()
-        if area > 0:  # CCW winding
-            normals = [(-nx, -ny) for nx, ny in normals]
-
-        # Offset each edge inward and intersect consecutive offset edges
-        result = []
-        for i in range(n):
-            prev = (i - 1) % n
-            # Previous edge offset line
-            p1 = QPointF(pts[prev].x() + normals[prev][0] * dist,
-                         pts[prev].y() + normals[prev][1] * dist)
-            p2 = QPointF(pts[i].x() + normals[prev][0] * dist,
-                         pts[i].y() + normals[prev][1] * dist)
-            # Current edge offset line
-            p3 = QPointF(pts[i].x() + normals[i][0] * dist,
-                         pts[i].y() + normals[i][1] * dist)
-            p4 = QPointF(pts[(i + 1) % n].x() + normals[i][0] * dist,
-                         pts[(i + 1) % n].y() + normals[i][1] * dist)
-            # Intersect
-            dx1 = p2.x() - p1.x()
-            dy1 = p2.y() - p1.y()
-            dx2 = p4.x() - p3.x()
-            dy2 = p4.y() - p3.y()
-            denom = dx1 * dy2 - dy1 * dx2
-            if abs(denom) < 1e-10:
-                result.append(QPointF(pts[i].x() + normals[i][0] * dist,
-                                      pts[i].y() + normals[i][1] * dist))
-            else:
-                t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
-                result.append(QPointF(p1.x() + t * dx1, p1.y() + t * dy1))
-
-        return result
+        """Offset a polygon inward by *dist* — delegates to
+        :func:`tool_geometry.inset_polygon` (one implementation shared with the
+        Offset tool, scene-tools.md D9)."""
+        from . import tool_geometry
+        return tool_geometry.inset_polygon(pts, dist)
 
     def _press_room(self, event, pos, snapped, item_under, node_under, pipe_under):
         """Room mode: click inside a closed wall region to create a room."""
@@ -5287,208 +5145,62 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts.append(snapped)
             self._room_manual_active._rebuild()
 
-    def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self.node_start_pos is None:
-            self.node_start_pos = snapped
-            self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
-            self._begin_move_handle_snap(snapped)
-        else:
-            snapped = self._move_handle_snap(event, snapped)
-            offset = CAD_Math.get_vector(self.node_start_pos, snapped)
-            if self.mode == "paste":
-                self.paste_items(offset)
-            elif self.mode == "move":
-                self.move_items(offset)
-            self.push_undo_state()
-            self.node_start_pos = None
-            self._move_ghost = []
-            self._move_ghost_base = []
-            self.set_mode(None)
+    def _press_copy_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D4)
+        return self._modify_ctl.press_copy_base(*args, **kwargs)
 
-    def begin_move_from(self, base: QPointF) -> None:
-        """Enter the Move tool on the current selection with *base* preset.
+    def _press_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._press_paste_move(*args, **kwargs)
 
-        Skips Move's first (base-point) click: the selection immediately rides
-        the cursor from *base*, and the next click places it (same commit /
-        undo / Esc as an ordinary Move). Used by Block Editor import to place
-        geometry by its picked base point.
+    def begin_move_from(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl.begin_move_from(*args, **kwargs)
 
-        Args:
-            base: Scene point that tracks the cursor.
-        """
-        self.set_mode("move")
-        self.node_start_pos = QPointF(base)
-        self._move_ghost_base = self._build_move_ghost_base(is_paste=False)
-        self._begin_move_handle_snap(self.node_start_pos)
+    def _begin_move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._begin_move_handle_snap(*args, **kwargs)
 
-    def _begin_move_handle_snap(self, base: QPointF) -> None:
-        """S2: build the Move tool's HandleSnapSession once the base is set.
+    def _move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._move_handle_snap(*args, **kwargs)
 
-        Move only (a paste has no scene items yet). The moving set is what
-        ``move_items`` will move (``_selected_items``, else the live
-        selection) plus each Sprinkler's Node, so none of it is a target. The
-        picked base point is itself a handle (rest = the base): the
-        destination has no cursor snap, so this is how "base onto a point"
-        still lands.
+    def _apply_move_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._apply_move_displacement(*args, **kwargs)
 
-        Args:
-            base: The Move base point — the handle offsets' anchor.
-        """
-        self._move_handle_session = None
-        view = self._snap_view()
-        # Built regardless of the snap toggles (items are at rest until the
-        # commit); _move_handle_snap gates its use per frame.
-        if self.mode != "move" or view is None:
-            return
-        moving = list(self._selected_items or self.selectedItems())
-        moving += [it.node for it in moving
-                   if isinstance(it, Sprinkler) and it.node is not None]
-        if moving:
-            self._move_handle_session = HandleSnapSession(
-                self._snap_engine, self, view, moving, QPointF(base),
-                extra_handles=[QPointF(base)])
-
-    def _move_handle_snap(self, event, snapped: QPointF) -> QPointF:
-        """S2: after the Move base point, the selection's own snap points
-        (and the base point) snap to geometry — handles only: the destination
-        has no cursor snap (``get_effective_position`` returns the raw cursor
-        in this step), so without a hit the destination is the raw cursor.
-
-        *event* is the scene's ``QGraphicsSceneMouseEvent`` (dispatched from
-        ``mousePressEvent`` / ``mouseMoveEvent``), so the raw cursor is
-        ``event.scenePos()``; direct callers without one fall back to
-        *snapped*.
-
-        Returns:
-            The corrected destination (winning handle exactly on its target;
-            marker published to ``_snap_result``), else *snapped* unchanged
-            (the raw cursor from a real mouse event).
-        """
-        hs = self._move_handle_session
-        if (hs is None or self.mode != "move" or self.node_start_pos is None
-                or not self._snap_enabled or not self._snap_engine.enabled):
-            return snapped
-        # Zoom/pan between the base click and here: re-collect the targets
-        # (visible rect + aperture scale). Safe — the moved items are at rest
-        # until the commit (the preview is a ghost).
-        hs.sync_view(self._snap_view())
-        scene_pos = getattr(event, "scenePos", None)
-        raw = scene_pos() if scene_pos is not None else snapped
-        hit = hs.best(raw)
-        if hit is None:
-            return snapped
-        corrected, res = hit
-        self._snap_result = res          # marker only (never a hysteresis held)
-        # No ALIGN in the destination step (handles only); kept defensive for
-        # direct callers that computed *snapped* through the picker.
-        self._align_result = None
-        self._align_track_ray = None
-        return corrected
-
-    def _apply_move_displacement(self, params: dict) -> bool:
-        """Apply a typed dX/dY displacement (transform schema — dict, not point).
-
-        The commit half of the ``move`` branch of :meth:`_press_paste_move`,
-        so a typed displacement and a dragged one share ``move_items`` and one
-        undo push.  Only ``move`` routes here — ``paste`` is deliberately kept
-        out of the schema and anchor tables (F2), because it commits through
-        ``paste_items`` and would otherwise be applied as a move of the current
-        selection.
-
-        Every displacement commits: unlike the length/radius/spacing schemas
-        there is no magnitude floor, so this always reports success (decision
-        D2's verdict is still returned for the dispatcher's sake).
-
-        Args:
-            params: ``resolve_displacement``'s output — ``{"offset": QPointF}``,
-                already Y-flipped into scene coordinates.
-
-        Returns:
-            True — the move is unconditional.
-        """
-        self.move_items(params["offset"])
-        self.push_undo_state()
-        self.node_start_pos = None
-        self._move_ghost = []
-        self._move_ghost_base = []
-        self.clear_placement_state()
-        self.set_mode(None)
-        return True
+    def _apply_paste_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D5)
+        return self._modify_ctl._apply_paste_displacement(*args, **kwargs)
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)
 
-    def _press_offset(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Select entity to offset — go straight to live preview (no dialog)
-        hit = [i for i in self.items(pos)
-               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem, EllipseItem, SplineItem))]
-        if not hit:
-            return
-        self._offset_source = hit[0]
-        self._offset_highlight = self._tools._highlight_item(hit[0])
-        self._offset_dist = 0  # will be computed from cursor distance
-        self._offset_manual = False  # cursor-driven distance
-        self.set_mode("offset_side")
-        self._show_status(
-            "Move cursor to set offset distance and side, "
-            "click to commit. Tab = type distance.")
+    # ── Offset (D9) ───────────────────────────────────────────────────
+    def _press_offset(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.press_offset(*args, **kwargs)
 
-    def _press_offset_side(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Click determines which side — commit the offset
-        if self._offset_source is not None and self._offset_dist > 0:
-            sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
-            self._tools._clear_offset_preview()
-            new_item = self._tools._make_offset_item(self._offset_source, sd)
-            if new_item is not None:
-                if isinstance(new_item, LineItem):
-                    self.addItem(new_item)
-                    self._draw_lines.append(new_item)
-                elif isinstance(new_item, PolylineItem):
-                    self.addItem(new_item)
-                    self._polylines.append(new_item)
-                elif isinstance(new_item, CircleItem):
-                    self.addItem(new_item)
-                    self._draw_circles.append(new_item)
-                elif isinstance(new_item, RectangleItem):
-                    self.addItem(new_item)
-                    self._draw_rects.append(new_item)
-                elif isinstance(new_item, ArcItem):
-                    self.addItem(new_item)
-                    self._draw_arcs.append(new_item)
-                elif isinstance(new_item, EllipseItem):
-                    self.addItem(new_item)
-                    self._draw_ellipses.append(new_item)
-                elif isinstance(new_item, SplineItem):
-                    self.addItem(new_item)
-                    self._draw_splines.append(new_item)
-                self.push_undo_state()
-        # Stay in offset mode ready for next entity
-        self._offset_source = None
-        if self._offset_highlight is not None:
-            if self._offset_highlight.scene() is self:
-                self.removeItem(self._offset_highlight)
-            self._offset_highlight = None
-        self.set_mode("offset")
+    def _press_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.press_offset_side(*args, **kwargs)
 
-    # ── Interactive Rotate ────────────────────────────────────────────
-    def _press_rotate(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._rotate_pivot is None:
-            self._rotate_pivot = snapped
-            self.instructionChanged.emit("Click to set angle, or Tab for exact angle")
-        else:
-            dx = snapped.x() - self._rotate_pivot.x()
-            dy = snapped.y() - self._rotate_pivot.y()
-            angle = math.degrees(math.atan2(-dy, dx))
-            self._tools._apply_rotate(self._rotate_pivot, angle)
-            self.push_undo_state()
-            self._selected_items = []
-            self.set_mode(None)
+    def _apply_offset_distance(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
+        return self._modify_ctl.apply_offset_distance(*args, **kwargs)
+
+    # ── Interactive Rotate (D8) ───────────────────────────────────────
+    def _press_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.press_rotate(*args, **kwargs)
+
+    def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
+        return self._modify_ctl.apply_rotate_by(*args, **kwargs)
+
+    # ── Linear Array (D10) ────────────────────────────────────────────
+    def _press_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.press_array(*args, **kwargs)
+
+    def _apply_array_linear(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.apply_array_linear(*args, **kwargs)
 
     # ── Interactive Scale ─────────────────────────────────────────────
     def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._scale_base is None:
             self._scale_base = snapped
-            self.instructionChanged.emit("Tab = enter scale factor")
+            # No factor entry yet (the dead numeric-input dialog is retired,
+            # D15; Scale has no HUD schema) — don't promise a Tab.
+            self.instructionChanged.emit(
+                "Base point set — scale factor entry not available yet (Esc to cancel)")
 
     # ── Mirror ────────────────────────────────────────────────────────
     def _press_mirror(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -5541,7 +5253,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hit is not None and isinstance(hit, LineItem):
                 self._fillet_item1 = hit
                 self._fillet_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line (Tab = set radius)")
+                self.instructionChanged.emit("Click second line")
         elif self._fillet_item2 is None:
             hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
@@ -5564,7 +5276,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
                     self._fillet_preview.pen().setCosmetic(True)
                     self.instructionChanged.emit(
-                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit, Tab to change")
+                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit")
 
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -5573,7 +5285,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hit is not None and isinstance(hit, LineItem):
                 self._chamfer_item1 = hit
                 self._chamfer_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line (Tab = set distance)")
+                self.instructionChanged.emit("Click second line")
         elif self._chamfer_item2 is None:
             hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
@@ -5593,7 +5305,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._chamfer_preview.setPen(p)
                     self.addItem(self._chamfer_preview)
                     self.instructionChanged.emit(
-                        f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit, Tab to change")
+                        f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit")
 
     # ── Stretch (base/destination pick after crossing window) ────────
     def _press_stretch(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -7046,20 +6758,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.push_undo_state()
 
-        # Serialize selected items via copy mechanism
+        # Serialise + paste directly (never via the OS clipboard, I1).
         old_selection = list(self.selectedItems())
-        self.select_items(items)
-
-        old_clip = QApplication.clipboard().text()
-        self.copy_selected_items()
+        data = self._clipboard_item_dicts(items)
 
         # Temporarily set active level so paste assigns the target level
         saved_level = self.active_level
         self.active_level = target_level
-        self.paste_items(QPointF(0, 0))
+        self.paste_items(QPointF(0, 0), data=data)
         self.active_level = saved_level
-
-        QApplication.clipboard().setText(old_clip)
 
         # Restore original selection
         self.select_items(old_selection)
@@ -7229,17 +6936,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
               and event.modifiers() == (Qt.KeyboardModifier.ControlModifier
                                         | Qt.KeyboardModifier.ShiftModifier)):
             self.redo()
-        elif event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self.copy_selected_items()
-        elif event.key() == Qt.Key.Key_M and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            if self.selectedItems():
-                self._selected_items = self.selectedItems()
-                self.set_mode("move")
-        elif event.key() == Qt.Key.Key_D and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            self.duplicate_selected()
-        elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            if self.clipboard_data():
-                self.set_mode("paste")
+        # Ctrl+C/X/V/D are window QShortcuts (main.py, scene-tools.md D2);
+        # Ctrl+M is retired (Move is Shift+M).
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if self.mode == "draw_spline":
                 self._finish_draw_spline()
@@ -7252,42 +6950,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode in ("gridline_array", "gridline_offset"):
                 self._commit_gridline_replicate()
                 return
-            # Commit offset on Enter (same logic as click)
-            if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
-                cursor_pos = self._last_scene_pos
-                if cursor_pos is not None:
-                    sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, cursor_pos)
-                    self._tools._clear_offset_preview()
-                    new_item = self._tools._make_offset_item(self._offset_source, sd)
-                    if new_item is not None:
-                        if isinstance(new_item, LineItem):
-                            self.addItem(new_item)
-                            self._draw_lines.append(new_item)
-                        elif isinstance(new_item, PolylineItem):
-                            self.addItem(new_item)
-                            self._polylines.append(new_item)
-                        elif isinstance(new_item, CircleItem):
-                            self.addItem(new_item)
-                            self._draw_circles.append(new_item)
-                        elif isinstance(new_item, RectangleItem):
-                            self.addItem(new_item)
-                            self._draw_rects.append(new_item)
-                        elif isinstance(new_item, ArcItem):
-                            self.addItem(new_item)
-                            self._draw_arcs.append(new_item)
-                        elif isinstance(new_item, EllipseItem):
-                            self.addItem(new_item)
-                            self._draw_ellipses.append(new_item)
-                        elif isinstance(new_item, SplineItem):
-                            self.addItem(new_item)
-                            self._draw_splines.append(new_item)
-                        self.push_undo_state()
-                    self._offset_source = None
-                    if self._offset_highlight is not None:
-                        if self._offset_highlight.scene() is self:
-                            self.removeItem(self._offset_highlight)
-                        self._offset_highlight = None
-                    self.set_mode("offset")
+            # Offset: Enter commits at the cursor's side/distance through the
+            # same helper a click uses (D9 step 4; the typed path is the HUD).
+            if self.mode == "offset_side":
+                self._modify_ctl.commit_offset()
+                return
+            # Array: Enter commits at the cursor's aim/spacing with the
+            # default total, like a click (D10); no aim -> commit_array's
+            # refusal status. The typed path is the HUD.
+            if self.mode == "array":
+                self._modify_ctl.commit_array(self._array_spacing,
+                                              self._array_count_default)
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
@@ -7410,9 +7083,53 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # COPY / PASTE / MOVE
 
-    def copy_selected_items(self):
+    # type key (to_dict()["type"]) -> (class, tracking-list attribute).
+    # Keys are the REAL to_dict() discriminators (ArcItem writes "arc",
+    # TextItem "text") — scene-tools.md I1.
+    _GEOM_TYPE_REGISTRY = {
+        "draw_line":      (LineItem, "_draw_lines"),
+        "reference_line": (ReferenceLineItem, "_reference_lines"),
+        "polyline":       (PolylineItem, "_polylines"),
+        "draw_rectangle": (RectangleItem, "_draw_rects"),
+        "draw_circle":    (CircleItem, "_draw_circles"),
+        "arc":            (ArcItem, "_draw_arcs"),
+        "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
+        "draw_spline":    (SplineItem, "_draw_splines"),
+        "polygon":        (RegularPolygonItem, "_draw_polygons"),
+        "text":           (TextItem, "_texts"),
+    }
+
+    def _add_from_dict(self, d: dict):
+        """Deserialise one 2D-geometry/text dict, add it and register it.
+
+        The one per-type deserialise-and-register helper (scene-tools.md I1)
+        used by Paste and Duplicate.
+
+        Args:
+            d: A ``to_dict()`` record.
+
+        Returns:
+            The new scene item, or None for an unknown type or a record that
+            fails ``from_dict``.
+        """
+        entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
+        if entry is None:
+            return None
+        cls, attr = entry
+        try:
+            item = cls.from_dict(d)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "clipboard item failed from_dict: %r", d.get("type"))
+            return None
+        self.addItem(item)
+        getattr(self, attr).append(item)
+        return item
+
+    def _clipboard_item_dicts(self, items) -> list:
+        """Serialise *items* to clipboard records (nodes carry their pipes)."""
         data = []
-        for item in self.selectedItems():
+        for item in items:
             if isinstance(item, Node):
                 sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
                 pipes = []
@@ -7431,13 +7148,48 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 })
             elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
-        QApplication.clipboard().setText(json.dumps(data))
-        self._show_status(f"Copied {len(data)} item(s)")
+        return data
 
-    def paste_items(self, offset):
-        data = self.clipboard_data()
+    def copy_selected_items(self):
+        """Immediate copy (context menu / copy-to-level): versioned payload
+        with base = the selection's bounding-box centre (scene-tools.md D4)."""
+        items = list(self.selectedItems())
+        rect = QRectF()
+        for it in items:
+            rect = rect.united(it.sceneBoundingRect())
+        n = self._modify_ctl.write_clipboard(items, rect.center())
+        self._show_status(f"Copied {n} item(s)" if n is not None
+                          else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
+
+    def paste_items(self, offset, data=None):
+        """Add clipboard records translated by *offset*.
+
+        Args:
+            offset: Scene displacement applied to every record.
+            data: Records to paste; defaults to :meth:`clipboard_data`.
+
+        Returns:
+            Every pasted top-level item — 2D geometry / text, each record's
+            Node (pipe end nodes are not listed), block instances and
+            gridlines. A skipped record (unknown type, missing block
+            definition) contributes nothing, and so does a node record that
+            landed on an existing node (``find_nearby_node``) and created no
+            sprinkler, pipe or pipe end node.
+        """
+        if data is None:
+            data = self.clipboard_data() or []
+        new_items = []
         for obj in data:
             obj_type = obj.get("type", "")
+            if obj_type in self._GEOM_TYPE_REGISTRY:
+                item = self._add_from_dict(obj)
+                if item is not None:
+                    if hasattr(item, "translate"):
+                        item.translate(offset.x(), offset.y())
+                    else:
+                        item.manip_translate(offset.x(), offset.y())
+                    new_items.append(item)
+                continue
             if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
@@ -7453,33 +7205,43 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
                 node1 = existing if existing else self.add_node(
                     new_x, new_y, z_hint=paste_z)
+                # A node reused via find_nearby_node is not new: the record
+                # only counts as pasted if it created something (the node,
+                # a sprinkler, a pipe or a pipe end node).
+                created = existing is None
 
-                # Restore ceiling and layer from copied data
-                if "ceiling_level" in obj:
-                    node1.ceiling_level = obj["ceiling_level"]
-                    node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
-                if "ceiling_offset_mm" in obj:
-                    node1.ceiling_offset = obj["ceiling_offset_mm"]
-                    node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
-                elif "z_offset" in obj:
-                    # Old clipboard data: z_offset was raw elevation offset
-                    node1.ceiling_offset = obj["z_offset"]
-                    node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
-                if "level" in obj:
-                    node1.level = obj["level"]
-                # Recompute z_pos from ceiling level + offset
-                if self._level_manager:
-                    lvl = self._level_manager.get(node1.ceiling_level)
-                    if lvl:
-                        node1.z_pos = lvl.elevation + node1.ceiling_offset
-                    elif "elevation" in obj:
-                        node1.z_pos = obj["elevation"]
+                # A node reused via find_nearby_node belongs to the network:
+                # never mutate it. Only a node created here takes the
+                # copied ceiling / level / elevation.
+                if existing is None:
+                    # Restore ceiling and layer from copied data
+                    if "ceiling_level" in obj:
+                        node1.ceiling_level = obj["ceiling_level"]
+                        node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
+                    if "ceiling_offset_mm" in obj:
+                        node1.ceiling_offset = obj["ceiling_offset_mm"]
+                        node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
+                    elif "z_offset" in obj:
+                        # Old clipboard data: z_offset was raw elevation offset
+                        node1.ceiling_offset = obj["z_offset"]
+                        node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
+                    if "level" in obj:
+                        node1.level = obj["level"]
+                    # Recompute z_pos from ceiling level + offset
+                    if self._level_manager:
+                        lvl = self._level_manager.get(node1.ceiling_level)
+                        if lvl:
+                            node1.z_pos = lvl.elevation + node1.ceiling_offset
+                        elif "elevation" in obj:
+                            node1.z_pos = obj["elevation"]
 
                 if obj.get("sprinkler"):
                     template = Sprinkler(None)
                     for key, meta in obj["sprinkler"].items():
                         template.set_property(key, meta["value"])
-                    self.add_sprinkler(node1, template)
+                    # None when the node already carries a sprinkler.
+                    if self.add_sprinkler(node1, template) is not None:
+                        created = True
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -7488,67 +7250,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         px, py, z_hint=paste_z)
                     node2 = existing_p if existing_p else self.add_node(
                         px, py, z_hint=paste_z)
+                    if existing_p is None:
+                        created = True
                     if not any(
                         (pipe.node1 == node1 and pipe.node2 == node2) or
                         (pipe.node1 == node2 and pipe.node2 == node1)
                         for pipe in self.sprinkler_system.pipes
                     ):
                         self.add_pipe(node1, node2)
+                        created = True
                 node1.fitting.update()
-
-            elif obj_type == "draw_line":
-                item = LineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_lines.append(item)
-
-            elif obj_type == "reference_line":
-                item = ReferenceLineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._reference_lines.append(item)
-
-            elif obj_type == "draw_rectangle":
-                item = RectangleItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_rects.append(item)
-
-            elif obj_type == "draw_circle":
-                item = CircleItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_circles.append(item)
-
-            elif obj_type == "arc":
-                item = ArcItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_arcs.append(item)
-
-            elif obj_type == "draw_ellipse":
-                item = EllipseItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_ellipses.append(item)
-
-            elif obj_type == "draw_spline":
-                item = SplineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_splines.append(item)
-
-            elif obj_type == "polyline":
-                item = PolylineItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._polylines.append(item)
-
-            elif obj_type == "polygon":
-                item = RegularPolygonItem.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._draw_polygons.append(item)
+                if created:
+                    new_items.append(node1)
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
@@ -7561,6 +7274,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     )
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)
+                    new_items.append(inst)
                 # else: definition absent (cross-project paste) — skip silently
 
             elif "origin" in obj and "angle" in obj and not obj_type:
@@ -7575,94 +7289,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 gl.grid_label = auto_label(gl.grip_points()[0], gl.grip_points()[1])
                 self._register_gridline(gl)
                 apply_duplicate_warnings(self._gridlines)
+                new_items.append(gl)
 
         self._show_status(f"Pasted {len(data)} item(s)")
+        return new_items
 
-    def _shape_paths_for_move(self, items):
-        """Scene-coord QPainterPath silhouettes for live scene *items*.
-        Nodes have no useful shape() — emit a small cross marker."""
-        from .node import Node
-        from .sprinkler import Sprinkler
-        paths = []
-        for item in items:
-            if isinstance(item, Sprinkler) and item.node is not None:
-                item = item.node
-            if isinstance(item, Node):
-                c = item.scenePos()
-                r = _GHOST_NODE_MARKER_MM
-                p = QPainterPath()
-                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
-                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
-                paths.append(p)
-                continue
-            if isinstance(item, GridlineItem):
-                # Ghost the centerline (grip endpoints), not the fat hit-strip
-                # + bubbles that shape() returns.
-                pts = item.grip_points()
-                p = QPainterPath()
-                p.moveTo(pts[0]); p.lineTo(pts[1])
-                paths.append(p)
-                continue
-            if hasattr(item, "shape"):
-                try:
-                    paths.append(item.mapToScene(item.shape()))
-                    continue
-                except Exception:
-                    pass
-            if hasattr(item, "sceneBoundingRect"):
-                p = QPainterPath(); p.addRect(item.sceneBoundingRect())
-                paths.append(p)
-        return paths
+    def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._shape_paths_for_move(*args, **kwargs)
 
-    def _clipboard_ghost_paths(self, data):
-        """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
-        without adding anything to the scene. Covers the copyable types."""
-        from .geometry_2d import (
-            LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem as _RegularPolygonItem, EllipseItem as _EllipseItem,
-            SplineItem as _SplineItem,
-        )
-        paths = []
-        if not data:
-            return paths
-        geom_ctors = {
-            "draw_line": LineItem, "reference_line": ReferenceLineItem,
-            "draw_rectangle": RectangleItem,
-            "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
-            "polygon": _RegularPolygonItem, "draw_ellipse": _EllipseItem,
-            "draw_spline": _SplineItem,
-        }
-        for obj in data:
-            t = obj.get("type", "")
-            if t == "gridline":
-                ox, oy = obj.get("origin", [0.0, 0.0])
-                length = float(obj.get("length", 0.0))
-                th = math.radians(float(obj.get("angle", 0.0)))
-                p = QPainterPath(); p.moveTo(ox, oy)
-                p.lineTo(ox + length * math.cos(th), oy - length * math.sin(th))
-                paths.append(p)
-            elif t == "node":
-                c = QPointF(obj.get("x", 0.0), obj.get("y", 0.0))
-                r = _GHOST_NODE_MARKER_MM
-                p = QPainterPath()
-                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
-                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
-                for seg in obj.get("pipes", []):
-                    p.moveTo(c.x(), c.y()); p.lineTo(seg.get("x", 0.0), seg.get("y", 0.0))
-                paths.append(p)
-            elif t in geom_ctors:
-                try:
-                    item = geom_ctors[t].from_dict(obj)
-                    paths.append(item.mapToScene(item.shape()))
-                except Exception:
-                    pass
-        return paths
+    def _clipboard_ghost_paths(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._clipboard_ghost_paths(*args, **kwargs)
 
-    def _build_move_ghost_base(self, is_paste: bool):
-        """Base silhouettes (offset 0). Paste → clipboard; move → live selection."""
-        if is_paste:
-            return self._clipboard_ghost_paths(self.clipboard_data())
-        return self._shape_paths_for_move(self._selected_items or self.selectedItems())
+    def _build_move_ghost_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
+        return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
 
     def move_items(self, offset):
         if not self._selected_items:
@@ -7684,54 +7323,42 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif hasattr(item, "translate"):
                 item.translate(offset.x(), offset.y())
                 item.setSelected(True)
+            elif hasattr(item, "manip_translate"):   # Text (D7)
+                item.manip_translate(offset.x(), offset.y())
+                item.setSelected(True)
         self._tools._solve_constraints()  # enforce constraints after move
         self._selected_items = None   # clear after use
 
-    def clipboard_data(self):
+    def clipboard_payload(self):
+        """The versioned FirePro3D clipboard payload (scene-tools.md I1).
+
+        Returns:
+            ``{"fp3d_clipboard", "base", "scene_role", "items"}``, or None when
+            the clipboard is empty, not JSON, or lacks the current
+            ``CLIPBOARD_FORMAT_VERSION`` key (foreign).
+        """
+        from .constants import CLIPBOARD_FORMAT_VERSION
         text = QApplication.clipboard().text()
         if not text:
             return None
         try:
-            return json.loads(text)
+            payload = json.loads(text)
         except json.JSONDecodeError:
             return None
+        if (not isinstance(payload, dict)
+                or payload.get("fp3d_clipboard") != CLIPBOARD_FORMAT_VERSION
+                or not isinstance(payload.get("items"), list)):
+            return None
+        return payload
 
-    # -------------------------------------------------------------------------
-    # DUPLICATE (Sprint I)
+    def clipboard_data(self):
+        """The clipboard payload's item records, or None.
 
-    def duplicate_selected(self):
-        """Copy selected items and immediately paste them at +10,+10 offset."""
-        items = self.selectedItems()
-        if not items:
-            return
-
-        data = []
-        for item in items:
-            if isinstance(item, Node):
-                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
-                pipes_d = []
-                for p in item.pipes:
-                    other = p.node1 if p.node2 == item else p.node2
-                    pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
-                data.append({
-                    "type": "node",
-                    "x": item.pos().x(), "y": item.pos().y(),
-                    "sprinkler": sprinkler, "pipes": pipes_d,
-                })
-            elif hasattr(item, "to_dict"):
-                data.append(item.to_dict())
-
-        if not data:
-            return
-
-        # Temporarily swap clipboard → paste → restore
-        old = QApplication.clipboard().text()
-        QApplication.clipboard().setText(json.dumps(data))
-        self.paste_items(QPointF(10, 10))
-        QApplication.clipboard().setText(old)
-        self._show_status(f"Duplicated {len(data)} item(s)")
-        self.push_undo_state()
-
+        Only the versioned payload is ever read from the OS clipboard (I1);
+        internal copy paths pass records to ``paste_items(data=...)``.
+        """
+        payload = self.clipboard_payload()
+        return payload["items"] if payload is not None else None
 
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)
