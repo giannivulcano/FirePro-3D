@@ -478,10 +478,21 @@ def offset_item(src, signed_d: float):
         new.set_ry(src._ry + d)
         return new
     if isinstance(src, SplineItem):
-        # Tiller-Hanson approximation: offset the control polygon (mitered).
         cps = list(src._control_points)
         if len(cps) < 2:
             return None
+        # Fit against the TRUE offset curve (review G7 I-3).
+        if src.is_closed() and _offset_closed_loop(cps[:-1], d) is None:
+            return None                     # inward past the loop's extent
+        fit = fit_offset_spline(src, d)
+        if fit is not None:
+            new = _clone(src)
+            new._control_points, new._knots = fit
+            new._weights = None
+            new._regenerate()
+            return new
+        # Unresolvable seam / degenerate fit: Tiller-Hanson — offset the
+        # control polygon (loop), mitered.
         if src.is_closed():
             # Closed loop (first == last): offset the control LOOP mitered
             # at every vertex incl. the seam, then re-close (I-2).
@@ -496,6 +507,248 @@ def offset_item(src, signed_d: float):
         new._regenerate()
         return new
     return None
+
+
+# ── Spline offset fit (review G7 I-3) ───────────────────────────────────────
+
+SPLINE_OFFSET_FIT_TOL = 0.01          # max deviation, as a fraction of |d|
+SPLINE_OFFSET_MAX_CP_FACTOR = 4       # cap: control points <= 4x the source's
+_SPLINE_FIT_SAMPLES = 600             # offset targets along the source
+
+
+def _bspline_basis(knots, p: int, n: int, ts):
+    """Cox-de Boor basis matrix ``B[j, i] = N_{i,p}(ts[j])`` (numpy, m x n).
+
+    The right end of the domain belongs to the last non-empty span, so a
+    clamped curve evaluates to its last control point at ``t1``.
+    """
+    import numpy as np
+    k = np.asarray(knots, float)
+    ts = np.asarray(ts, float)
+    nk = len(k) - 1
+    B = np.zeros((len(ts), nk))
+    last = max(i for i in range(nk) if k[i] < k[i + 1])
+    for i in range(nk):
+        if k[i] < k[i + 1]:
+            B[:, i] = (ts >= k[i]) & (ts < k[i + 1])
+    B[ts >= k[last + 1], last] = 1.0
+    for q in range(1, p + 1):
+        Bn = np.zeros((len(ts), nk - q))
+        for i in range(nk - q):
+            den1 = k[i + q] - k[i]
+            den2 = k[i + q + 1] - k[i + 1]
+            a = (ts - k[i]) / den1 * B[:, i] if den1 > 0 else 0.0
+            b = (k[i + q + 1] - ts) / den2 * B[:, i + 1] if den2 > 0 else 0.0
+            Bn[:, i] = a + b
+        B = Bn
+    return B[:, :n]
+
+
+def _split_widest_span(inner: list) -> list:
+    """Insert one knot at the middle of the widest span of [0, 1]."""
+    edges = [0.0] + list(inner) + [1.0]
+    i = max(range(len(edges) - 1), key=lambda j: edges[j + 1] - edges[j])
+    return sorted(list(inner) + [(edges[i] + edges[i + 1]) / 2])
+
+
+def _split_span_at(inner: list, x: float) -> list:
+    """Insert one knot at the middle of the span of [0, 1] containing *x*.
+
+    A residual peak sitting ON a knot belongs to both neighbouring spans;
+    the wider of them is split.
+    """
+    edges = [0.0] + list(inner) + [1.0]
+    spans = [j for j in range(len(edges) - 1)
+             if edges[j] < edges[j + 1] and edges[j] <= x <= edges[j + 1]]
+    i = max(spans, key=lambda j: edges[j + 1] - edges[j])
+    return sorted(list(inner) + [(edges[i] + edges[i + 1]) / 2])
+
+
+def _clamped_uniform_knots(n: int, p: int) -> list:
+    """Clamped uniform knot vector on [0, 1] for *n* control points."""
+    inner = [i / (n - p) for i in range(1, n - p)]
+    return [0.0] * (p + 1) + inner + [1.0] * (p + 1)
+
+
+def _refine_lsq_fit(tgt, u, p: int, inner: list, start, end,
+                    tol: float, n_max: int):
+    """Least-squares clamped B-spline through targets *tgt* at params *u*.
+
+    End control points are pinned to *start* / *end*; interior knots start
+    at *inner* and one is inserted per round in the span where the pointwise
+    residual peaks, until it is <= *tol* or the control count reaches
+    *n_max*.
+
+    Returns:
+        ``(max_residual, control_points ndarray, knots)`` of the best round.
+    """
+    import numpy as np
+    best = None
+    while True:
+        kn = [0.0] * (p + 1) + list(inner) + [1.0] * (p + 1)
+        n = len(kn) - p - 1
+        A = _bspline_basis(kn, p, n, u)
+        rhs = tgt - np.outer(A[:, 0], start) - np.outer(A[:, -1], end)
+        X, *_ = np.linalg.lstsq(A[:, 1:-1], rhs, rcond=None)
+        C = np.vstack([start, X, end])
+        # Pointwise residual (same parameter) bounds the true deviation.
+        r = np.linalg.norm(A @ C - tgt, axis=1)
+        err = float(r.max())
+        if best is None or err < best[0]:
+            best = (err, C, kn)
+        if err <= tol or n >= n_max:
+            return best
+        inner = _split_span_at(inner, float(u[r.argmax()]))
+
+
+_SEAM_EXT_SAMPLES = 40        # targets along each miter extension leg
+
+
+def _seam_targets(Q, T, d):
+    """Closed-loop offset samples *Q* (tangents *T*) joined at the seam.
+
+    Outer seam corner: the two end tangent lines are extended to their
+    intersection (miter, limited to 4|d|). Inner corner: the samples are
+    trimmed where the loop's head and tail portions cross. Smooth seam:
+    unchanged.
+
+    Returns:
+        ``(targets, seam_point, lo, hi, shift)`` — Q indices lo..hi are kept
+        and ``Q[i]`` is ``targets[i + shift]`` — or None when the seam cannot
+        be resolved (the caller then keeps the control-loop offset).
+    """
+    import numpy as np
+    a, ua, b, vb = Q[0], T[0], Q[-1], T[-1]
+    den = ua[0] * vb[1] - ua[1] * vb[0]
+    if abs(den) < 1e-9 or float(np.linalg.norm(a - b)) < 1e-9:
+        M = (a + b) / 2                                   # smooth seam
+        return np.vstack([M, Q[1:-1], M]), M, 1, len(Q) - 2, 0
+    # a + s*ua == b + t*vb
+    s_ = ((b[0] - a[0]) * vb[1] - (b[1] - a[1]) * vb[0]) / den
+    t_ = ((b[0] - a[0]) * ua[1] - (b[1] - a[1]) * ua[0]) / den
+    if s_ <= 0 and t_ >= 0:                               # outer corner: miter
+        M = a + s_ * ua
+        if np.linalg.norm(M - a) > 4 * abs(d):            # miter limit
+            return None
+        k = _SEAM_EXT_SAMPLES
+        ext1 = np.linspace(M, a, k)[:-1]
+        ext2 = np.linspace(b, M, k)[1:]
+        return np.vstack([ext1, Q, ext2]), M, 0, len(Q) - 1, k - 1
+    # inner corner: trim at the crossing of the head and tail portions
+    q = len(Q) // 4
+    head, tail = Q[:q], Q[-q:]
+    for i in range(len(head) - 1):
+        p1, r_ = head[i], head[i + 1] - head[i]
+        for j in range(len(tail) - 1):
+            p3, s2 = tail[j], tail[j + 1] - tail[j]
+            dd = r_[0] * s2[1] - r_[1] * s2[0]
+            if abs(dd) < 1e-15:
+                continue
+            w = p3 - p1
+            tt = (w[0] * s2[1] - w[1] * s2[0]) / dd
+            uu = (w[0] * r_[1] - w[1] * r_[0]) / dd
+            if 0 <= tt <= 1 and 0 <= uu <= 1:
+                X = p1 + tt * r_
+                lo, hi = i + 1, len(Q) - q + j
+                return np.vstack([X, Q[lo:hi + 1], X]), X, lo, hi, 1 - lo
+    return None
+
+
+def fit_offset_spline(src, d: float):
+    """Clamped B-spline approximating the TRUE offset of a spline (D9).
+
+    Samples the source exactly (its own knots / weights), offsets every
+    sample along its normal by *d*, then least-squares fits a non-rational
+    clamped spline of the source's degree to those samples
+    (:func:`_refine_lsq_fit`), adding control points where the residual
+    peaks until it is within ``SPLINE_OFFSET_FIT_TOL * |d|``, capped at
+    ``SPLINE_OFFSET_MAX_CP_FACTOR`` x the source count (the best fit found
+    is returned at the cap).
+
+    Open spline: + = the left-normal side; params follow the source's, the
+    ends are pinned to the exact offset end points. Closed spline (first ==
+    last control point): + = outward; the seam is mitered (outer corner) or
+    trimmed (inner corner) by :func:`_seam_targets`, params are chord
+    length and both ends are pinned to the one seam point, so the result is
+    closed. Either way every source knot is kept with one more multiplicity
+    (the offset is one order less continuous there: its speed jumps with the
+    curvature).
+
+    Known limit: where |d| exceeds the source's local radius of curvature on
+    the concave side the true offset self-intersects (a swallowtail); it is
+    not trimmed, so the result follows the untrimmed offset there.
+
+    Args:
+        src: A ``SplineItem`` with at least 2 control points.
+        d: Signed offset.
+
+    Returns:
+        ``(control_points, knots)`` or None (degenerate source, unresolved
+        seam) — the caller then keeps the control-polygon offset.
+    """
+    import numpy as np
+    from collections import Counter
+    cps = np.array([(p.x(), p.y()) for p in src._control_points], float)
+    n0, p = len(cps), int(src._degree)
+    if n0 < 2 or abs(d) < 1e-12:
+        return None
+    k = list(src._knots) if src._knots else _clamped_uniform_knots(n0, p)
+    if len(k) != n0 + p + 1:
+        return None
+    t0, t1 = k[p], k[-p - 1]
+    if not t1 > t0:
+        return None
+    w = np.asarray(src._weights, float) if src._weights else None
+
+    def _src_pts(t):
+        B = _bspline_basis(k, p, n0, t)
+        if w is None:
+            return B @ cps
+        Bw = B * w[None, :]
+        return (Bw @ cps) / Bw.sum(1)[:, None]
+
+    # Dense params (every other one is a "midpoint"), so the residual check
+    # covers the curve between fitted points too.
+    ts = np.linspace(t0, t1, 2 * _SPLINE_FIT_SAMPLES - 1)
+    h = (t1 - t0) * 1e-8       # tangent step (one-sided at the clamped ends)
+    P = _src_pts(ts)
+    T = _src_pts(np.clip(ts + h, t0, t1)) - _src_pts(np.clip(ts - h, t0, t1))
+    L = np.linalg.norm(T, axis=1)
+    if np.any(L < 1e-12):
+        return None
+    T /= L[:, None]
+    closed = src.is_closed()
+    if closed:
+        area = float(np.sum(P[:-1, 0] * P[1:, 1] - P[1:, 0] * P[:-1, 1]))
+        d = d if area <= 0 else -d          # + outward (inset_polygon's rule)
+    Q = P + d * np.stack([-T[:, 1], T[:, 0]], 1)       # left normal * d
+    mult = Counter((x - t0) / (t1 - t0) for x in k[p + 1:-p - 1] if t0 < x < t1)
+    src_inner = sorted(x for x, m_ in mult.items() for _ in range(min(m_ + 1, p)))
+    tol = SPLINE_OFFSET_FIT_TOL * abs(d)
+    n_max = max(n0, SPLINE_OFFSET_MAX_CP_FACTOR * n0, p + 1)
+    if not closed:
+        tgt, u, start, end, inner = Q, (ts - t0) / (t1 - t0), Q[0], Q[-1], src_inner
+    else:
+        seam = _seam_targets(Q, T, d)
+        if seam is None:
+            return None
+        tgt, M, lo, hi, shift = seam
+        seg = np.linalg.norm(np.diff(tgt, axis=0), axis=1)
+        if seg.sum() < 1e-9:
+            return None
+        u = np.concatenate([[0.0], np.cumsum(seg)]) / seg.sum()
+        # source knots move to the chord parameter of their own samples
+        q_t = (ts[lo:hi + 1] - t0) / (t1 - t0)
+        q_u = u[lo + shift:hi + shift + 1]
+        inner = sorted(float(np.interp(x, q_t, q_u)) for x in src_inner
+                       if q_t[0] < x < q_t[-1])
+        start = end = M
+    while len(inner) + p + 1 < max(n0, p + 1):
+        inner = _split_widest_span(inner)
+    _, C, kn = _refine_lsq_fit(tgt, u, p, inner, start, end, tol, n_max)
+    if closed:
+        C[-1] = C[0]                                       # exactly closed
+    return [QPointF(float(x), float(y)) for x, y in C], list(kn)
 
 
 def _inset_ok(src_pts, new_pts) -> bool:

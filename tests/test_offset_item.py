@@ -226,8 +226,15 @@ def test_closed_spline_offsets_closed_and_keeps_fill(qapp):
     assert (cps[0].x(), cps[0].y()) == pytest.approx((-5.0, 5.0))
     inward = tg.offset_item(src, -5.0)
     assert inward.is_closed()
-    assert (inward._control_points[0].x(),
-            inward._control_points[0].y()) == pytest.approx((5.0, -5.0))
+    # inner seam corner: trimmed where the TRUE offset's head and tail cross
+    # (the source is rounded near its seam, so this is not the control-loop
+    # corner (5, -5)); the seam point sits d from the source curve.
+    import numpy as np
+    seam = inward._control_points[0]
+    S = _exact_pts(src, 20000)
+    gap = float(_seg_dists(np.array([[seam.x(), seam.y()]]), S)[0])
+    assert gap == pytest.approx(5.0, rel=0.01)
+    assert src.get_closed_path().contains(seam)
     # side: inside -> -1, outside -> +1, whatever the winding
     assert tg.offset_side_sign(src, QPointF(50, -50)) == -1.0          # [RED]
     assert tg.offset_side_sign(src, QPointF(300, -50)) == 1.0
@@ -245,3 +252,113 @@ def test_uniform_degenerate_floor(qapp):
     assert tg.offset_item(_make("rect"), -24.9) is None                # [RED]
     assert tg.offset_item(_make("arc"), -49.9) is None                 # [RED]
     assert tg.offset_item(_make("ellipse"), -39.9) is None
+
+
+# ── I-3: spline offset fits the TRUE offset curve (review G7, Option A) ──────
+# Error is measured by an independent exact evaluator (ezdxf BSpline on the
+# items' own control points / knots), over ALL interior samples of the result.
+
+def _exact_pts(spline, m):
+    import numpy as np
+    from ezdxf.math import BSpline
+    cps = [(p.x(), p.y()) for p in spline._control_points]
+    b = BSpline(cps, order=spline._degree + 1, knots=spline._knots,
+                weights=spline._weights)
+    k = list(b.knots())
+    t0, t1 = k[spline._degree], k[-spline._degree - 1]
+    return np.array([tuple(v)[:2] for v in b.points(np.linspace(t0, t1, m))])
+
+
+def _seg_dists(pts, poly):
+    """Distance from each of *pts* to the polyline *poly* (numpy arrays)."""
+    import numpy as np
+    a, b = poly[:-1], poly[1:]
+    ab = b - a
+    L2 = np.maximum((ab ** 2).sum(1), 1e-18)
+    out = np.empty(len(pts))
+    for i, p in enumerate(pts):
+        t = np.clip(((p - a) * ab).sum(1) / L2, 0.0, 1.0)
+        out[i] = np.min(np.hypot(*(a + t[:, None] * ab - p).T))
+    return out
+
+
+def _open_spline_error(src, new, d):
+    """Max |dist(new curve, source curve) - |d|| / |d| over interior samples."""
+    import numpy as np
+    S = _exact_pts(src, 6000)
+    N = _exact_pts(new, 1500)[30:-30]           # interior (ends are pinned exact)
+    return float(np.max(np.abs(_seg_dists(N, S) - abs(d))) / abs(d))
+
+
+@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
+def test_open_spline_offset_within_2pct(qapp, d):
+    src = _make("spline")
+    new = tg.offset_item(src, d)
+    assert type(new).__name__ == "SplineItem" and not new.is_closed()
+    assert new._degree == src._degree
+    err = _open_spline_error(src, new, d)
+    assert err <= 0.02, f"max error {err:.2%} of d"                  # [RED] (~27 %)
+    # clamped knots: the curve starts/ends exactly on the offset endpoints
+    k = new._knots
+    assert k[:new._degree + 1] == [k[0]] * (new._degree + 1)
+    assert k[-new._degree - 1:] == [k[-1]] * (new._degree + 1)
+    # capped control-point count
+    assert len(new._control_points) <= 4 * len(src._control_points)
+
+
+def test_open_spline_offset_side_matches_offset_side_sign(qapp):
+    src = _make("spline")
+    new = tg.offset_item(src, 5.0)
+    mid = _exact_pts(new, 101)[50]
+    from PyQt6.QtCore import QPointF as P
+    assert tg.offset_side_sign(src, P(float(mid[0]), float(mid[1]))) == 1.0
+
+
+def test_spline_offset_round_trips(qapp):
+    from firepro3d.geometry_2d import SplineItem
+    new = tg.offset_item(_make("spline"), 5.0)
+    back = SplineItem.from_dict(new.to_dict())
+    assert back.to_dict() == new.to_dict()
+
+
+@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
+def test_closed_spline_offset_within_2pct(qapp, d):
+    """Closed spline: the fitted offset stays within 2 % of |d| of the true
+    offset everywhere away from the seam corner, and is exactly closed."""
+    import numpy as np
+    src = _closed_spline()
+    new = tg.offset_item(src, d)
+    assert new.is_closed() and new._degree == src._degree
+    assert len(new._control_points) <= 4 * len(src._control_points)
+    S = _exact_pts(src, 8000)
+    N = _exact_pts(new, 2000)
+    seam = N[0]
+    away = np.hypot(*(N - seam).T) > 1.5 * abs(d)     # the corner is mitered
+    assert away.sum() > len(N) // 3                    # most of the curve counts
+    err = float(np.max(np.abs(_seg_dists(N[away], S) - abs(d))) / abs(d))
+    assert err <= 0.02, f"max error {err:.2%} of d"                  # [RED]
+    # outward = bigger, inward = smaller, whatever the winding
+    grew = src.get_closed_path().contains(
+        QPointF(float(seam[0]), float(seam[1])))
+    assert grew == (d < 0)
+
+
+@pytest.mark.parametrize("name, d", [("deg2", 5.0), ("deg2", 20.0),
+                                     ("rational", 5.0), ("rational", -20.0),
+                                     ("wiggly8", 5.0), ("wiggly8", -5.0)])
+def test_other_open_splines_within_2pct(qapp, name, d):
+    from firepro3d.geometry_2d import SplineItem
+    Q = QPointF
+    src = {
+        "deg2": lambda: SplineItem([Q(0, 0), Q(50, -60), Q(100, 0), Q(150, -40)],
+                                   degree=2),
+        "rational": lambda: SplineItem([Q(0, 0), Q(50, -60), Q(100, 0), Q(150, -40)],
+                                       weights=[1, 2, 0.5, 1]),
+        # min radius of curvature ~10.9 mm: |d| = 5 stays swallowtail-free
+        "wiggly8": lambda: SplineItem([Q(0, 0), Q(40, -50), Q(80, 20), Q(120, -60),
+                                       Q(160, 10), Q(200, -40), Q(240, 30),
+                                       Q(280, 0)]),
+    }[name]()
+    new = tg.offset_item(src, d)
+    assert _open_spline_error(src, new, d) <= 0.02
+    assert len(new._control_points) <= 4 * len(src._control_points)
