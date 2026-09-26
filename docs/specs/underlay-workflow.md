@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: 434066c
+last-verified: 2026-09-26  # 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: a972466
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
@@ -165,7 +165,7 @@ class Underlay:
 
 **Behavior:**
 
-- `levels` — list of level names the underlay is assigned to. Defaults to `[active_level]` at import time. Special value `["*"]` means visible on all levels. Empty list → always hidden. Level assignment is managed exclusively from the Underlay Manager (§16.6) Levels column; the import dialog's Level combo is removed.
+- `levels` — list of level names the underlay is assigned to. Defaults to `[active_level]` at import time. Special value `["*"]` means visible on all levels. Empty list → always hidden. Levels have two authoring homes: the import dialog's Placement **Levels** multi-select (§10.1 "Levels re-added" — authored at import and overwritten on Modify, §10.7) and the Underlay Manager (§16.6) Levels column for post-import reassignment.
 - `snap` — per-underlay OSNAP enable. `False` → `UnderlaySnapIndex.query()` returns nothing for this record; replaces the old global `Model_Space._snap_to_underlay` toggle (removed). The general SNAP / F3 master gate still applies when `snap` is `True`.
 - `visible` — user's explicit hide/show toggle, independent of level filtering. An underlay is visible in the scene only when `visible == True` AND the per-level check (§7.2) passes.
 - `hidden_layers` — source DXF layer names toggled off post-import. Empty for PDFs. Persisted and reapplied on refresh/reload. Edited from the Underlay Manager's expandable layer rows (§16.6).
@@ -325,11 +325,11 @@ for data, item in getattr(scene, "underlays", []):
 
 ### 7.3 Import behavior
 
-New underlays default to `[active_level]`; `Model_Space.add_underlay` sets `record.levels` to the active level at insertion time. The import dialog's **Level** combo is removed — all level assignment happens post-import in the Underlay Manager (§16.6) Levels column. `params.scale` bakes into geometry via `import_scale`; the display `scale` field is preserved.
+A new underlay's `record.levels` comes from the import dialog's Placement **Levels** multi-select (`ImportParams.levels`, defaulting to `[active_level]`); `_record_levels(params, active_level)` falls back to `[active_level]` when the dialog authored none (§10.1 "Levels re-added"). The same rule applies on Modify (`replace_underlay`, §10.7). Post-import reassignment is also available in the Underlay Manager (§16.6) Levels column. `params.scale` bakes into geometry via `import_scale`; the display `scale` field is preserved.
 
 ### 7.4 Level reassignment
 
-Exclusively via the **Underlay Manager** (§16.6) Levels column: each chip in the column represents an assigned level; clicking the column opens a picker showing all project levels plus "All Levels" (`"*"`). Multi-level assignment is supported (any number of levels, or `["*"]`). The old browser tree "Change Level" submenu is removed.
+Post-import, via the **Underlay Manager** (§16.6) Levels column (re-running Modify re-authors levels from the import dialog instead — §7.3): each chip in the column represents an assigned level; clicking the column opens a picker showing all project levels plus "All Levels" (`"*"`). Multi-level assignment is supported (any number of levels, or `["*"]`). The old browser tree "Change Level" submenu is removed.
 
 **Level rename:** `LevelWidget._remap_underlay_views` walks `scene.underlays` on rename and rewrites any occurrence of the old name in `record.levels` to the new name. Empty-after-remap lists are left as-is (underlay becomes hidden until reassigned).
 

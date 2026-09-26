@@ -3,7 +3,7 @@
 **Key files:**
 
 - `firepro3d/displayable_item.py` -- Mixin with per-item display attributes
-- `firepro3d/display_manager.py` -- Revit-style per-category and per-instance appearance control (2,071 lines)
+- `firepro3d/display_manager.py` -- Revit-style per-category and per-instance appearance control
 - `firepro3d/constants.py` -- Z-ordering constants and colour maps
 
 ## Overview

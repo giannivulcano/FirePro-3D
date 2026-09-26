@@ -2,7 +2,7 @@
 
 **Key files:**
 
-- `firepro3d/scene_io.py` -- SceneIOMixin: JSON save/load (639 lines)
+- `firepro3d/scene_io.py` -- SceneIOMixin: JSON save/load (format contract: [`scene-io.md`](../specs/scene-io.md))
 - `firepro3d/dxf_import_worker.py` -- DXF import via ezdxf (background thread)
 - `firepro3d/pdf_import_worker.py` -- PDF import via PyMuPDF/fitz (background thread)
 - `firepro3d/underlay.py` -- Underlay data model for imported images/PDFs

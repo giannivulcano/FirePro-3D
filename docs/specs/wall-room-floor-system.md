@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-09-24
-verified-commit: 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-09-26
+verified-commit: a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -178,7 +178,7 @@ Wall placement is a first-class client of the unified 2D-geometry placement disp
 
 **Spacebar** cycles wall alignment Center → Left → Right. This is the **sole** alignment binding; Left-Shift no longer cycles wall alignment. Gated on `not is_input_mode()` so a focused HUD field receives the key for typing.
 
-**Line variant:** places one segment (anchor → tip) then re-arms. Ctrl constrains the tip to 45° increments. `_auto_join_wall()` snaps endpoints to nearby walls (§5.3). Placement is always-continuous (Esc → select mode).
+**Line variant:** places one segment (anchor → tip), then returns to Select with the new wall selected — **single-placement** (`Model_Space._end_placement_switch`, gated on `_SINGLE_PLACEMENT_MODES`; see the 2026-09-16 impl note). Ctrl constrains the tip to 45° increments. `_auto_join_wall()` snaps endpoints to nearby walls (§5.3). Esc before the commit exits to Select.
 
 **Polyline variant:** chains segments. Ctrl constrains angle. Close-near-start snaps the tip to the chain's first point and ends the chain. Each committed segment calls `_auto_join_wall()`. Otherwise identical to Line.
 
@@ -739,7 +739,7 @@ as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect
 
 **Polygon:** click-vertex boundary; **click near the first vertex (≥3 verts) / Enter / double-click** closes; **Delete** pops the last vertex (routed through `Model_View` for both the polygon and the tool-shortcut path; discards the in-progress slab at one vertex). `close_polygon()` finalizes; minimum 3 points. Vertex insert/remove after placement via `insert_point()` / `remove_point()` (keeps ≥ 3). The old click-near-a-vertex-to-delete-mid-placement gesture was removed (Delete replaces it). **Ctrl** angle-constrains each new vertex against the previous one (`_constrain_angle`, 2026-09-24) on both move and press, so the preview tip, the published HUD point and the committed vertex agree. The close-near-first-vertex test still reads the **raw** cursor, not the constrained tip (the polyline precedent), so a constrained tip that lands on vertex 0 does not close the polygon. Whether the close test should also accept the tip is an open design follow-up. Roof polygon placement (`_press_roof` / `_move_roof`) follows the same Ctrl rule, and its close-near-first and vertex-pop tests also read the raw cursor. Roof placement has no section of its own in this spec yet.
 
-**Continuous** placement (each commit re-arms; Esc exits to select). The **passive HUD** shows geometry only (rect side W + Angle, then depth H; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
+**Single-placement** (a completed rect or closed polygon returns to Select with the new slab selected — `_end_placement_switch`, see the 2026-09-16 impl note; Esc exits to Select). The **passive HUD** shows geometry only (rect side W + Angle, then depth H; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
 
 **Dispatch surfaces** (all mirror the wall): `_press_floor_router` / `_move_floor_router` dispatch on `_floor_primitive`; `_apply_floor_dynamic_input` handles typed placement (rect side → depth → commit; polygon routes the point through the vertex handler); `_floor_schema_for_primitive` (rect → `rect_side*` / `rect_depth*` by step, polygon → `line`); `_PLACEMENT_VARIANTS["floor"]`. (The rect rotate step and its `_transform_seed_values` floor branch are gone.)
 

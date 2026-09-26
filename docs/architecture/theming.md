@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-09-01 · verified-commit: cfcb6d6 (feat/underlay-manager-chrome-match — FramelessShellMixin house shell, on_accent token, role=title/name selectors; house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
+<!-- last-verified: 2026-09-26 - verified-commit: a972466 (doc-drift sweep: canvas selection section now = selection-manipulator tokens) - prior 2026-09-01 cfcb6d6 (feat/underlay-manager-chrome-match — FramelessShellMixin house shell, on_accent token, role=title/name selectors; house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
 
 # Theming & UI Style
 
@@ -218,32 +218,23 @@ Rules:
 
 ### Canvas selection & resize grips (base style)
 
-The canonical look-and-feel for any selectable/resizable canvas item
-(established 2026-07-20 from the paper-space viewport; sheet text conforms;
-future resizable items must too). Values live in `constants.py`
-(`SELECTION_OUTLINE_COLOR`, `SELECTION_OUTLINE_WIDTH_MM`,
-`SELECTION_GRIP_SIZE_MM`, `SELECTION_GRIP_OUTLINE_WIDTH_MM`) — one home,
-deliberately theme-independent (CAD selection blue reads on both themes):
+Selection feedback (the dashed frame + the 8 corner/edge-midpoint handles) on
+**both** the model and paper scenes is drawn by one component, the selection
+manipulator. Its geometry, handle set, resize behaviour and styling are owned
+by [`selection-manipulator.md`](../specs/selection-manipulator.md) — this page
+owns only the tokens it reads:
 
-- **Selected boundary** — dashed `SELECTION_OUTLINE_COLOR` outline at
-  `SELECTION_OUTLINE_WIDTH_MM` around the item's box.
-- **Grips** — **8 handles** (4 corners + 4 edge midpoints): white-filled
-  squares of `SELECTION_GRIP_SIZE_MM` with a `SELECTION_OUTLINE_COLOR`
-  outline, centred on the box corners/midpoints. Scaled items divide by their
-  scale so grips stay true paper-mm.
-- **Resize behavior** — corner grips resize both axes anchoring the
-  diagonally-opposite corner; midpoint grips resize one axis; a drag gesture
-  is captured press→release and lands as **one undo command**.
+- **Colour** — theme tokens `selection` (at rest) / `selection_active`
+  (hovered or dragging), so selection follows the accent on both themes. The
+  old theme-independent blue `SELECTION_OUTLINE_COLOR` style is retired for
+  selection; that constant survives only on the polyline close-ring indicator
+  (`geometry_drawing_controller.py`).
+- **Size** — paper-scene handles are true paper-mm (`SELECTION_GRIP_SIZE_MM`,
+  `SELECTION_GRIP_OUTLINE_WIDTH_MM` in `constants.py`); model-scene handles are
+  screen-pixel sized (`ItemIgnoresTransformations`).
 - **Distinct states keep distinct looks** — e.g. sheet text inline-*editing*
   uses its own lighter `#88aaff` dashed frame; only the *selected* state uses
-  the base style.
-- **Model-space grab handles** are screen-pixel sized rather than paper-mm (they
-  use `ItemIgnoresTransformations`; `SELECTION_GRIP_SIZE_MM` is paper-only). The
-  gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) uses the
-  `SELECTION_OUTLINE_COLOR` constant. Model-space grips are the selection
-  manipulator's handle items (the old `model_view.drawForeground` grip loop was
-  retired); how they render and which tokens they read is owned by
-  [`selection-manipulator.md`](../specs/selection-manipulator.md).
+  the manipulator style.
 
 ### ALIGN alignment guide
 

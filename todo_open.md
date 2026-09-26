@@ -71,6 +71,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: seam review 2026-09-23 (m5). The Font group's editable family/size combos take focus on click and are not the `PropertyManager`, so the inline-edit focus policy commits. Moot while the ribbon is paper-scoped (D6); decide when "Extend the ribbon Text/Frame groups to model text" lands (keep-live list vs commit). `firepro3d/text_item.py` `_focus_out_keeps_edit`, `firepro3d/font_group.py`.
 - [ ] [type:maint] Diagnose why the QGraphicsTextItem document renderer hits an engine-less device on the live model viewport [P3] [subject:Architecture]
   - Details: the model surface now sidesteps it entirely (glyph outlines #62 + self-painted caret/selection, 2026-09-23), so this is diagnostic only — relevant if a model-surface text item ever needs Qt's own document rendering. Memory `project_qpainter_engineless_qgraphicstextitem`: never band-aid via `QWidget.paintEngine()`. Needs a live readout at the paint device.
+- [ ] [type:maint] Reconcile `paper-space.md` §9.3 to the unified `TextItem` [P3] [subject:Documentation]
+  - Details: found 2026-09-26 (doc-drift batch). §9.3 (plus §4.11 and the earlier `TextAnnotationItem`-vs-`NoteAnnotation` intro paragraph) still specify the retired `TextAnnotationItem(QGraphicsTextItem)` + `NoteAnnotation` contrast; containment C5 (`20de3d8`) moved sheet text onto the unified `TextItem`, owned by `text-annotation-system.md`. Rewrite §9.3 as a pointer + paper-specific deltas only (Rule A), or retire it. Only the grip/selected-state lines and the annotations.py row were fixed in the batch.
 
 ## UI follow-ups
 
@@ -406,8 +408,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Snapping Engine Roadmap (from `docs/specs/snapping-engine.md` §12)
 
-- [ ] [type:feature] Fix ConstructionLine perpendicular / nearest / phase-4 participation [P3] [subject:CAD]
-  - Details: deferred — ConstructionLine tool is not in active use; revisit if the feature sees real usage. Spec §5 note 2 corrected 2026-04-08. ref: snap-spec §5-row-ConstructionLine.
 - [ ] [type:maint] F3 integration test on real keypress [P3] [subject:Testing]
   - Details: QTest.keyClick did not dispatch through QAction shortcut on headless Windows; investigate pytest-qt / qtbot or alternate dispatch.
 - [ ] [type:design] Decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` [P3] [subject:CAD]
@@ -428,8 +428,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: found 2026-09-24 (snap-polish 1b, S5) — the dwell machine is fed only the real snap result, so an ALIGN crossing (align_intersection) can't itself be acquired. `align_controller.py`, `model_space.py`. ref: align-placement.
 - [ ] [type:bug] `_align_snap_dict` id collision for source-less points [P3] [subject:CAD]
   - Details: found 2026-09-24 (snap-polish 1b, S5) — points with no source item get `hash(snap_type)` as id, so two of the same type collide (acquire/hysteresis identity). `model_space.py`.
-- [ ] [type:maint] Doc drift sweep: retired ConstructionLine/HatchItem refs + stale tier wording [P3] [subject:Docs]
-  - Details: found 2026-09-24 (snap-polish Task 13, pre-existing). `snapping-engine.md` still has a ConstructionLine matrix row / note 2 / §6.1 phase-4 mention / roadmap item 4 (class no longer exists); §7.2 + §10.3 describe a HatchItem regression test (HatchItem retired); `docs/architecture/entities.md` lists HatchItem; `manip_handle.GripHandle.on_drag` comment still says "OSNAP > ALIGN > grid" tier wording (now one picker); `wall-room-floor-system.md` §11.4 "Continuous placement" + §4 wall-line "always-continuous" contradict the single-placement impl note; theming.md's removed paragraph claimed paper grips use blue `SELECTION_*` constants — verify and re-home or drop. Also the existing "Fix ConstructionLine perpendicular…" roadmap item above is moot (class gone) — close it.
 - [ ] [type:design] Roof placement has no governing spec section [P3] [subject:Docs]
   - Details: found 2026-09-24 (snap-polish Task 13). Roof polygon/rect placement (click flow, close → RoofDialog, Ctrl, HUD absence — `_move_roof` publishes no placement state) is described nowhere; forge a section in `wall-room-floor-system.md` (orphan-gate on next roof touch).
 - [ ] [type:bug] Spline endpoint snaps include off-curve interior control points [P3] [subject:CAD]
@@ -540,6 +538,7 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 - [ ] [type:feature] Label-rotate: NoteAnnotation + DimensionAnnotation [P2] [subject:UX]
   - ⚠️ 2026-09-24: the manipulator rotate knob was removed app-wide; this now rides the future "Rotate transform in the modification schema" task (give the annotations `manip_rotate` so that tool can drive them).
   - Details: "all labels should be rotatable" (2026-08-31 grill). They're translate-only today, so a mixed selection including a note/dimension hides the group rotate knob. Give each a baked `manip_rotate` + `{"translate","rotate"}` capability (notes rotate the text glyph; dimensions rotate the two endpoints), routed through their serialize paths. `annotations.py`. Lineage: Adopt the `SelectionBox` manipulator app-wide → U1.
+  - ⚠️ 2026-09-26 (doc-drift batch): BOTH target classes are retired — `DimensionAnnotation` (C1/C8, `d9eb2c6`) and `NoteAnnotation` (C5, `20de3d8`; text is now the unified `TextItem`). Re-scope to TextItem rotation or close as moot on next triage.
 - [ ] [type:feature] Optional dedicated centre move-handle (general) [P3] [subject:UX]
   - Details: move is interior-drag today (grab anywhere in the frame), no visible centre handle by design. PARTIAL 2026-09-10: RectangleItem now shows a centre move grip in BOTH states (rotated = parametric grip 8; unrotated box-native = `manip_box_extra_handles()` appended to the rigid set). The general case (multi-select group centre, paper viewport/text, other rigid-fallback selections) is still interior-drag only — generalize via a rigid CENTRE/MOVE handle if wanted app-wide. `selection_manipulator.py`.
 - [ ] [type:feature] Elevation edit undo + datum-extent persistence [P3] [subject:Architecture]
@@ -586,6 +585,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: the direct connection rebuilds the whole tree synchronously on every scene change (duplicate work: `set_scene` also connects `sceneModified→schedule_refresh`), and a synchronous rebuild mid-`itemChanged` emission `clear()`s the tree item Qt is still processing (re-entrancy landmine; didn't crash in repros but is fragile). `main.py`, `model_browser.py`.
 - [ ] [type:feature] Ability to select/access individual items within an underlay group [P3] [subject:CAD]
   - Details: future feature to interact with sub-items of an imported underlay.
+- [ ] [type:maint] `underlay-workflow.md` browser Relink contradiction [P3] [subject:Documentation]
+  - Details: found 2026-09-26 (doc-drift batch, pre-existing). §5.4 (Browser tree) says browser right-click offers "Relink" as the first action, while §9.3 says browser underlay nodes are navigation-only with no Relink. Check `project_browser.py`/`model_browser.py` context menus and fix whichever is wrong.
 
 ## Code Health & Architectural Debt (from 2026-04-29 gap analysis)
 
@@ -593,8 +594,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: current size ~7,829 lines; next slice = room (reads scene-side `_walls`), then floor/roof/gridline. Governing spec `docs/specs/model-space-architecture.md`. Grilled contract: pure core out / side-effect shell stays; four binding seams (universal scene-graph mutation, undo-snapshot glue, dual-serialization unified to one `NetworkCodec`, ordered idempotent `set_mode`→`clear()` teardown); extracting a concern converts `main`/`view` bare-attr reach-ins into public scene methods same-commit. Slices 1–11 landed (tool-geometry+constraint-solver, SceneTools composition, NetworkCodec unify, underlay controller, pipe/node controller, sprinkler-workflow controller, placement-input coordinator, 2D-geometry drawing, arc+polygon, wall-placement, feature-placement) — see todo_closed.md. `main.py` (MainWindow, #2 monolith) is a sibling task with its own spec (below). Why it matters: the single biggest bug surface in the codebase (two context menus, two view paths, focus loss, z-order, ALIGN scope/first-point/angled-extension bugs). `model_space.py`, `scene_tools.py`, `scene_io.py`, `tool_geometry.py`, `constraints.py`. ref: model-space-architecture.
 - [ ] [type:maint] Retire redundant per-test QSettings isolation now that the autouse fixture exists (#312 follow-up) [P3] [subject:Testing]
   - Details: filed 2026-09-09. The autouse `_isolate_qsettings` + class-level `_IsolatedQSettings` (conftest.py) supersedes the ad-hoc monkeypatch fixtures (`isolated_settings`, `patched_qsettings`, the `test_data_folder_setting` redirect) and the manual save/restore try/finally blocks in `test_preferences_dialog.py` / `test_crosshair_cursor.py` / `test_import_prefs_wiring.py` / `test_fullscreen_immersive.py` / `test_theme_tokens.py` / `test_gridline_paper_scale.py`. They still work (explicit-INI/monkeypatch takes precedence) — remove opportunistically to cut churn. `tests/`.
-- [ ] [type:maint] `underlay-workflow.md` broader levels-drift sweep [P3] [subject:Documentation]
-  - Details: §10.7 was reconciled 2026-09-08 (`levels` is dialog-authored placement, overwritten on Modify), but §7.3/§16.6 (≈ lines 151/315/373/959/975) still describe levels as managed "exclusively from the Underlay Manager" with the "import dialog Level combo removed" — the pre-Rev-8 narrative, contradicted by §10.1 "Levels re-added". Sweep the whole spec to the Rev-8 dialog-authored-levels model. `docs/specs/underlay-workflow.md`.
 - [ ] [type:maint] Underlay slice — post-landing cleanups [P3] [subject:Code Quality]
   - Details: filed 2026-09-02 — (a) `underlay_controller.py` imports `underlay_layer_pen`/`_pdf_width_to_px`/`_record_levels` lazily inside methods from `model_space` to dodge the model_space↔controller import cycle — promote those pure helpers to a shared module so the controller can import them at top-level; (b) DWG-cleanup test gap — no test exercises the DWG `load_from_file` temp-file-cleanup path (the seam bug where `scene_io` wrote `_dwg_cleanup_path` onto a deleted bridge property was caught by review, not tests); add a DWG-underlay load test; (c) the subagents' targeted underlay test set missed `test_append_geom_to_path.py`/`test_pdf_text_render.py`/`test_import_dialog_preview.py` — they call `Model_Space._append_geom_to_path` statically; add those files to any future underlay-touching targeted set. `underlay_controller.py`, `tests/`. ref: model-space-architecture §5.
 - [ ] [type:maint] Undo-perf bench: pipe restore via `add_pipe` [P3] [subject:Architecture]
@@ -613,6 +612,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: the `_offset_*`/`_compute_*`/`_get_item_segments`/`_point_to_segment_dist`/`extract_edges` wrappers delegate to `tool_geometry`; when callers move onto the composed `SceneTools`, retire the wrappers and point callers at `tool_geometry.*` directly. `scene_tools.py`, `model_space.py`.
 - [ ] [type:maint] PEP 8 class naming [P3] [subject:Code Quality]
   - Details: `Model_Space`, `Model_View`, `CAD_Math` use underscores; should be `ModelSpace`, `ModelView`, `CADMath`. Requires renaming classes + updating all imports and string references. Low priority due to churn.
+- [ ] [type:maint] [cleanup:delete] Dead `SELECTION_OUTLINE_WIDTH_MM` + unused `SELECTION_OUTLINE_COLOR` import [P3] [subject:Code Quality]
+  - Details: found 2026-09-26 (doc-drift batch). Selection feedback moved to the manipulator's theme tokens, so `constants.SELECTION_OUTLINE_WIDTH_MM` has no reader and `model_space.py` imports `SELECTION_OUTLINE_COLOR` without using it (the only live reader is the polyline close ring in `geometry_drawing_controller.py`). Delete the constant + the import; grep tests first.
 
 ## Import
 
@@ -717,12 +718,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ## Documentation Gaps (from 2026-04-29 gap analysis)
 
-- [ ] [type:maint] Update architecture docs for undocumented components [P2] [subject:Documentation]
-  - Details: 8 components added since docs were written: DesignArea (`design_area.py`), DetailView (`detail_view.py`), GridLine (`gridline.py`), WaterSupply (`water_supply.py`), BlockItem (`block_item.py`), Theme (`theme.py`), UserLayerManager (`user_layer_manager.py`), Constraints (`constraints.py`). Add to `docs/architecture/entities.md` and `docs/architecture/overview.md`.
-- [ ] [type:maint] Update stale metrics in architecture docs [P3] [subject:Documentation]
-  - Details: `model_space.py` listed as 7,195 lines (actual: 7,677), `scene_io.py` as 639 (actual: 672), `wall.py` as 1,028 (actual: 1,061). Update `docs/architecture/overview.md`, `docs/architecture/io.md`, `docs/architecture/refactoring.md`.
-- [ ] [type:maint] Update refactoring.md [P3] [subject:Documentation]
-  - Details: all identified problems remain unfixed and codebase has grown. Add notes about model_space.py growth (+482 lines), wall.py growth, and newly identified decomposition targets (detail_view.py, design_area.py, gridline.py). `docs/architecture/refactoring.md`.
 
 ## Codebase Audit — Census 2026-09-09 (see audit/FINDINGS.md)
 

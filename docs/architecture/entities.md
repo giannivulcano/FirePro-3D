@@ -3,17 +3,24 @@
 **Key files:**
 
 - `firepro3d/displayable_item.py` -- Mixin providing display-manager attributes
-- `firepro3d/node.py` -- Junction points in the piping network (330 lines)
-- `firepro3d/pipe.py` -- Pipe segments connecting nodes (671 lines)
-- `firepro3d/sprinkler.py` -- SVG-based sprinkler symbols (165 lines)
-- `firepro3d/fitting.py` -- Pipe fittings: elbows, tees, caps (429 lines)
-- `firepro3d/room.py` -- Polygonal room/space regions (540 lines)
-- `firepro3d/wall.py` -- Wall segments with thickness and openings (1,028 lines)
+- `firepro3d/node.py` -- Junction points in the piping network
+- `firepro3d/pipe.py` -- Pipe segments connecting nodes
+- `firepro3d/sprinkler.py` -- SVG-based sprinkler symbols
+- `firepro3d/fitting.py` -- Pipe fittings: elbows, tees, caps
+- `firepro3d/design_area.py` -- Hydraulic design areas (`DesignArea`, `DesignAreaBadge`)
+- `firepro3d/water_supply.py` -- Water-supply node (`WaterSupply`)
+- `firepro3d/room.py` -- Polygonal room/space regions
+- `firepro3d/wall.py` -- Wall segments with thickness and openings
 - `firepro3d/floor_slab.py` -- Floor slab polygons
 - `firepro3d/roof.py` -- Roof polygons
 - `firepro3d/wall_opening.py` -- Door and window openings in walls
-- `firepro3d/geometry_2d.py` -- Lines, polylines, rectangles, circles, arcs
-- `firepro3d/annotations.py` -- Dimensions, notes, hatches
+- `firepro3d/gridline.py` -- Structural gridlines (`GridlineItem`, `GridBubble`)
+- `firepro3d/geometry_2d.py` -- Lines, reference lines, polylines, rectangles, circles, arcs, ellipses, splines, regular polygons
+- `firepro3d/text_item.py` -- The unified `TextItem` (model, paper and block text)
+- `firepro3d/block_definition.py`, `firepro3d/block_instance.py` -- Block flyweight (definition + placed instance)
+- `firepro3d/detail_view.py` -- Detail markers (`DetailMarker`, `DetailViewManager`)
+- `firepro3d/constraints.py` -- Parametric constraints between geometry items
+- `firepro3d/annotations.py` -- Legacy `Annotation` base + the retired-hatch load migration helper
 
 ## DisplayableItemMixin
 
@@ -190,23 +197,46 @@ Walls are extruded to 3D meshes between base_level and top_level for the 3D view
 
 Polygon-based entities for floor slabs and roofs. Both support section-cut hatching when the view's cut plane intersects them. RoofItem supports pitched geometry for 3D visualization.
 
-## Annotation and construction entities
+## Text, 2D geometry and reference entities
 
-### Annotations
+### Text
 
-- `DimensionAnnotation` -- two-point + offset dimension lines with witness lines
-- `NoteAnnotation` -- positioned text blocks with width and formatting
-- `HatchItem` -- region fill with pattern (diagonal, crosshatch, etc.)
+`TextItem` (`text_item.py`) is the single text primitive on every surface —
+model, paper sheets and blocks (containment C5). It replaced the retired
+`NoteAnnotation` and paper `TextAnnotationItem`. Behaviour is owned by
+[`text-annotation-system.md`](../specs/text-annotation-system.md).
 
-### Construction geometry
+The model dimension tool and `DimensionAnnotation` were retired (containment
+C1/C8), as was `HatchItem` — fills are now properties of the 2D geometry items
+(`fill_type` / `fill_pattern` / `fill_opacity` on `Geometry2DMixin`).
 
-Non-printing geometric aids defined in `geometry_2d.py`:
+### 2D geometry
 
-- `ConstructionLine` -- infinite reference lines
-- `PolylineItem` -- connected line segments
-- `LineItem`, `RectangleItem`, `CircleItem`, `ArcItem` -- basic shapes
+Drafting primitives defined in `geometry_2d.py`:
 
-These are drawn with Display Manager colour/lineweight (the per-item layer system was removed) and participate in the snap engine.
+- `LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem`,
+  `EllipseItem`, `SplineItem`, `RegularPolygonItem` -- basic shapes (closed
+  shapes carry the fill properties above)
+- `ReferenceLineItem` -- reference line (a `LineItem` subclass; replaces the
+  retired `ConstructionLine`)
+
+These are drawn with Display Manager colour/lineweight (the per-item layer
+system was removed) and participate in the snap engine. Mechanics are owned by
+[`2d-geometry.md`](../specs/2d-geometry.md).
+
+### Blocks, gridlines, detail markers, constraints
+
+- **Blocks** -- `BlockDefinition` (shared geometry) + `BlockInstance` (placed,
+  level-scoped) → [`block-system.md`](../specs/block-system.md)
+- **Gridlines** -- `GridlineItem` with `GridBubble` ends →
+  [`grid-system.md`](../specs/grid-system.md)
+- **Detail markers** -- `DetailMarker` / `DetailViewManager` →
+  [`view-relationships.md`](../specs/view-relationships.md)
+- **Constraints** -- `ConcentricConstraint`, `DimensionalConstraint`,
+  `AlignmentConstraint` (`constraints.py`) →
+  [`parametric-constraint-system.md`](../specs/parametric-constraint-system.md)
+- **Sprinkler design** -- `DesignArea`, `WaterSupply` →
+  [`sprinkler-system-components.md`](../specs/sprinkler-system-components.md)
 
 ## Property system
 

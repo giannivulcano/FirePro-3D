@@ -2,24 +2,23 @@
 
 **Key files:**
 
-- `firepro3d/model_space.py` -- Central scene class (7,195 lines, 196 methods)
-- `firepro3d/scene_tools.py` -- Geometry editing tools mixin (1,612 lines)
-- `firepro3d/scene_io.py` -- Save/load mixin (639 lines)
+- `firepro3d/model_space.py` -- Central scene class (`Model_Space`)
+- `firepro3d/scene_tools.py` -- Geometry editing tools (composed collaborator `SceneTools`)
+- `firepro3d/scene_io.py` -- Save/load mixin
 - `firepro3d/model_view.py` -- 2D QGraphicsView with snapping and zoom
-- `firepro3d/main.py` -- Entry point, QMainWindow with ribbon UI
+- `main.py` (project root) -- Entry point, QMainWindow with ribbon UI
 - `firepro3d/constants.py` -- Shared constants (Z-ordering, NFPA limits)
 
 ## Model_Space: the central hub
 
-`Model_Space` is the core of the application. It inherits from three classes using Python's mixin pattern:
-
-```python
-class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
-```
-
-- **QGraphicsScene** (PyQt6) -- provides the 2D canvas, item management, hit testing
-- **SceneToolsMixin** (`scene_tools.py`) -- offset, array, rotate, scale, mirror, join, explode, break, fillet, chamfer, stretch, trim, extend, merge, hatch, constraints
-- **SceneIOMixin** (`scene_io.py`) -- JSON save/load, scene clearing, serialization of all entity types
+`Model_Space` is the core of the application: a `QGraphicsScene` plus two
+state-sharing mixins (`HaloSelectionMixin`, `SceneIOMixin`) and a growing set of
+**composed domain controllers** (geometry tools, pipe network, sprinkler
+workflow, placement input, 2D-geometry drawing, wall/feature placement, modify
+tools, text editing, underlays). The exact composition, the decomposition
+contract and the slice history are owned by
+[`model-space-architecture.md`](../specs/model-space-architecture.md) — this
+page does not restate them.
 
 Model_Space owns all scene data and coordinates interaction between the view, managers, and entities.
 
@@ -48,7 +47,7 @@ Model_Space communicates with the UI through PyQt6 signals, keeping the scene de
 ```python
 requestPropertyUpdate = pyqtSignal(object)       # property panel refresh
 cursorMoved = pyqtSignal(str)                     # status bar coordinate display
-underlaysChanged = pyqtSignal()                   # layer manager refresh
+underlaysChanged = pyqtSignal()                   # underlay list changed (browser / Underlay Manager refresh)
 modeChanged = pyqtSignal(str)                     # status bar mode indicator
 instructionChanged = pyqtSignal(str)              # step-by-step tool instructions
 sceneModified = pyqtSignal()                      # dirty flag / undo state
@@ -99,12 +98,8 @@ classDiagram
         +items()
     }
 
-    class SceneToolsMixin {
-        +offset, array, rotate
-        +mirror, join, explode
-        +break, fillet, chamfer
-        +stretch, trim, extend
-        +merge, hatch, constraints
+    class HaloSelectionMixin {
+        +HALO hover + pick ranking
     }
 
     class SceneIOMixin {
@@ -150,7 +145,7 @@ classDiagram
     }
 
     QGraphicsScene <|-- Model_Space
-    SceneToolsMixin <|-- Model_Space
+    HaloSelectionMixin <|-- Model_Space
     SceneIOMixin <|-- Model_Space
 
     Model_Space --> ScaleManager
@@ -175,7 +170,7 @@ The `modeChanged` signal notifies the status bar, and `instructionChanged` provi
 
 ## Undo/redo
 
-Model_Space maintains an undo stack (`_undo_stack`, max 50 entries) of full scene snapshots serialized as JSON dictionaries. Each `push_undo_state()` call captures the complete scene state. Undo/redo restores by clearing and re-loading from a snapshot. The `sceneModified` signal fires on each push to track dirty state.
+Model_Space maintains an undo stack (`_undo_stack`, `UNDO_MAX` entries) of scene snapshots serialized as dictionaries by `_capture_network()` — the model content, **excluding** underlays and scale — and restored by `_restore_network()`. This snapshot path is the second of the two serialization paths whose parity is an invariant owned by [`scene-io.md`](../specs/scene-io.md). Paper space keeps its own `QUndoStack` (`paper_commands.py`). The `sceneModified` signal fires on each push to track dirty state.
 
 ## Connection to other subsystems
 
@@ -183,4 +178,12 @@ Model_Space maintains an undo stack (`_undo_stack`, max 50 entries) of full scen
 - **Level system** (`level_manager.py`) -- filters entity visibility when switching plan tabs
 - **Analysis** (`hydraulic_solver.py`, `thermal_radiation_solver.py`) -- reads the piping network from SprinklerSystem
 - **I/O** (`scene_io.py`) -- serializes all entities, managers, and settings to versioned JSON (currently version 9)
-- **3D view** (`view_3d.py`) -- reads entity data from Model_Space to build 3D meshes
+- **3D view** (`view_3d.py`) -- reads entity data from Model_Space to build 3D meshes (orphan — no governing spec yet)
+- **Sprinkler design** (`design_area.py`, `water_supply.py`) -- design areas and the water-supply node feed the hydraulic solver → [`sprinkler-system-components.md`](../specs/sprinkler-system-components.md)
+- **Gridlines** (`gridline.py`) -- `GridlineItem` + bubbles, snap and ALIGN participation → [`grid-system.md`](../specs/grid-system.md)
+- **Detail views** (`detail_view.py`) -- `DetailMarker` / `DetailViewManager`, a clipped second view on the same scene → [`view-relationships.md`](../specs/view-relationships.md)
+- **Blocks** (`block_definition.py`, `block_instance.py`, `block_library.py`) -- flyweight definition/instance + library → [`block-system.md`](../specs/block-system.md)
+- **Parametric constraints** (`constraints.py`) -- concentric / dimensional / alignment constraints → [`parametric-constraint-system.md`](../specs/parametric-constraint-system.md)
+- **Theme** (`theme.py`) -- colour / metrics / typography tokens → [`theming.md`](theming.md)
+
+The full file → governing-spec lookup is [`SPEC-INDEX.md`](../specs/SPEC-INDEX.md).
