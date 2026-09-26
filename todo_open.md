@@ -410,8 +410,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 - [ ] [type:maint] F3 integration test on real keypress [P3] [subject:Testing]
   - Details: QTest.keyClick did not dispatch through QAction shortcut on headless Windows; investigate pytest-qt / qtbot or alternate dispatch.
-- [ ] [type:design] Decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` [P3] [subject:CAD]
-  - Details: decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec.
 - [ ] [type:design] Spec session: pipe-with-fitting named targets [P2] [subject:CAD]
   - Details: ref: snap-spec §8.3.
 - [ ] [type:bug] Phase-4 intersections on curves use the Bézier control polygon [P3] [subject:CAD]
@@ -432,8 +430,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: found 2026-09-24 (snap-polish Task 13). Roof polygon/rect placement (click flow, close → RoofDialog, Ctrl, HUD absence — `_move_roof` publishes no placement state) is described nowhere; forge a section in `wall-room-floor-system.md` (orphan-gate on next roof touch).
 - [ ] [type:bug] Spline endpoint snaps include off-curve interior control points [P3] [subject:CAD]
   - Details: found 2026-09-24 (snap-polish Task 13). `snap_engine._collect` SplineItem branch emits every `grip_points()` control point as `endpoint`; interior control points of a Bézier/NURBS lie off the curve → snaps to empty space. Emit only the true curve ends (+ maybe on-curve knots). `snap_engine.py`. ref: snapping-engine §5 note 11.
-- [ ] [type:design] ALIGN is inert when SNAP (F3) is off [P3] [subject:CAD]
-  - Details: found 2026-09-24 (snap-polish G1 review M5b; pre-existing). The SNAP toggle disables the engine, so ALIGN tracking (a separate F11 toggle) also stops. Decide whether F11 ALIGN should work with F3 off (would need find() to run ALIGN-only when engine.enabled is False). `model_space.py`, `snap_engine.py`. Related: the F3/underlay design item above.
+- [ ] [type:feature] ALIGN suspended while SNAP is off — hide acquired markers + dim the ALIGN pill [P3] [subject:CAD]
+  - Details: from the 2026-09-26 design grill (ratified, `align-placement.md` §6.1). Engine gate already suspends ALIGN when F3 is off; build the visible half: (1) gate the `+` acquired markers in `Model_View.drawForeground` on SNAP as well as ALIGN — do NOT clear `AlignController.acquired` in `toggle_snap` (hide, restore on F3 on); (2) ALIGN footer pill keeps its checked (F11) state but renders dimmed with tooltip "ALIGN suspended — SNAP (F3) is off" while SNAP is off — wire `snapToggled` into `_update_guides_indicator` / `footer.set_align_on`. P4 first step: probe that a dynamic-property selector (e.g. `[suspended="true"]`) combined with `:checked` actually renders on the footer `QToolButton` (repolish on change; verify by pixel sampling — unstyled pseudo-states render as base). Guards (VC3): acquire a point, F3 off → marker not painted + pill dimmed/tooltip; F3 on → same marker back. Needs a user smoke (visual).
 - [ ] [type:maint] One snap-target eligibility filter for `find()` and `HandleSnapSession` [P3] [subject:Architecture]
   - Details: found 2026-09-24 (snap-polish G4 review S3). `handle_snap.HandleSnapSession` re-implements `_check_scene_items`'s target filter (z>150, origin, pipes, underlay children) and already diverges on visibility. Extract a shared predicate without changing engine behaviour. `handle_snap.py`, `snap_engine.py`.
 - [ ] [type:maint] Flaky `test_elev_selection_interaction::test_empty_click_deselects` under real mouse input [P3] [subject:Testing]

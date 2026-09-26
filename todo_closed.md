@@ -607,6 +607,12 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 - [x] [type:feature] Fix ConstructionLine perpendicular / nearest / phase-4 participation [P3] [subject:CAD] [done:2026-09-26]
   - Details: deferred — ConstructionLine tool is not in active use; revisit if the feature sees real usage. Spec §5 note 2 corrected 2026-04-08. ref: snap-spec §5-row-ConstructionLine.
   - Closed as MOOT 2026-09-26: `ConstructionLine` is retired (`tests/test_construction_line_retired.py`); successor `ReferenceLineItem` is a `LineItem` and snaps via the LineItem row. Spec roadmap #4 marked moot.
+- [x] [type:design] Decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` [P3] [subject:CAD] [done:2026-09-26]
+  - Details: decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec.
+  - Findings (design/Small research-only, downgraded via FP3 2026-09-26): ALREADY DECIDED + BUILT. `_snap_to_underlay` no longer exists — `3d91e5b` retired the global underlay-snap toggle + button for a per-underlay `record.snap` gate. `SnapEngine.find()` returns None when `enabled` is False, so F3 already disables underlay snap; `underlay-workflow.md` §16.7 documents it (F3 = outer gate, `record.snap` = inner gate). Only change: pointer added to the snap spec's F3 row. No follow-up. Revisit trigger: none.
+- [x] [type:design] ALIGN is inert when SNAP (F3) is off [P3] [subject:CAD] [done:2026-09-26]
+  - Details: found 2026-09-24 (snap-polish G1 review M5b; pre-existing). The SNAP toggle disables the engine, so ALIGN tracking (a separate F11 toggle) also stops. Decide whether F11 ALIGN should work with F3 off (would need find() to run ALIGN-only when engine.enabled is False). `model_space.py`, `snap_engine.py`. Related: the F3/underlay design item above.
+  - Findings (design/Medium, FP1 grill 2026-09-26): RATIFIED — ALIGN is subordinate to SNAP (AutoCAD-OTRACK model): F3 off ⇒ no acquire, no tracking. Acquired points are kept but hidden while F3 is off and reappear on F3 on. The ALIGN pill keeps its F11 state but renders dimmed + tooltip while SNAP is off. Rejected: keep-acquired-live, fully independent ALIGN. As-built: the engine gate already suspends ALIGN; divergence = `+` markers still drawn (gated on ALIGN only) and the pill shows ON. Recorded in `align-placement.md` §6.1; build filed as "ALIGN suspended while SNAP is off".
 
 ## View Relationships Follow-Ups (from `docs/specs/view-relationships.md` §11)
 

@@ -338,7 +338,7 @@ Keyboard bindings (F3 is now bound — see below; the one-shot overrides remain 
 
 | Key | Function | Notes |
 |---|---|---|
-| **F3** | Toggle all snap types on/off (matches AutoCAD's OSNAP F3 binding) | **Bound 2026-06-22** as a window-level `QShortcut` (a ribbon-button shortcut would be tab-scoped); drives `Model_Space.toggle_snap` |
+| **F3** | Toggle all snap types on/off (matches AutoCAD's OSNAP F3 binding) | **Bound 2026-06-22** as a window-level `QShortcut` (a ribbon-button shortcut would be tab-scoped); drives `Model_Space.toggle_snap`. F3 is also the outer gate for per-underlay snap (`underlay-workflow.md` §16.7) and suspends ALIGN (`align-placement.md` §6.1) |
 | **`END`, `MID`, `INT`, `CEN`, `QUA`, `PER`, `TAN`, `NEA`** typed at the command prompt | One-shot snap override for the next pick | Deferred to the future SNAP toolbar / command-line spec |
 
 ### 9.5 Status bar

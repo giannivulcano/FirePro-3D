@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-25
-verified-commit: 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+last-verified: 2026-09-26
+verified-commit: 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -517,6 +517,26 @@ restated). Per-direction toggles drop whole ray **kinds** in `build_rays` so a d
 kind never reaches the picker. The F11 shortcut and the "ALIGN" status-bar pill are
 wired window-level in `main.py` (mirrors the F3/SNAP pattern). A one-time startup
 migration copies any legacy `inference/*` key to `align/*` (`_migrate_inference_to_align`).
+
+### 6.1 ALIGN is subordinate to SNAP (F3)
+
+**Ratified 2026-09-26** (design grill, FP1 — build pending, see `todo_open.md`
+"ALIGN suspended while SNAP is off"). ALIGN works like AutoCAD OTRACK: it
+acquires only from real snaps, so with **SNAP (F3) off, ALIGN is suspended** —
+no acquisition and no tracking — whatever the F11 toggle says.
+
+- **As-built mechanism (already true):** `SnapEngine.find()` returns `None` while
+  `enabled` is False, so both the ALIGN-only pick (`only_types=ALIGN_SNAP_TYPES`)
+  and the dwell feed (which reads `_snap_result`) go dark.
+- **Acquired points are kept but hidden** while F3 is off and reappear when F3
+  comes back on: the acquired set is not cleared by `toggle_snap`; the `+`
+  markers must be gated on SNAP as well as ALIGN. *(As-built divergence: markers
+  are gated on ALIGN only, so they stay drawn but inert — the build task fixes it.)*
+- **Pill feedback:** the ALIGN pill keeps its F11 on/off state (the user's choice
+  is preserved) but renders **dimmed** with a tooltip ("ALIGN suspended — SNAP (F3)
+  is off") while SNAP is off. *(Not built.)*
+- Rejected alternatives: keeping acquired paths live with F3 off, and fully
+  independent ALIGN (silent snap engine for acquisition).
 
 ---
 
