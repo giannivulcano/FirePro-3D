@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-26  # 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: a972466
+last-verified: 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
@@ -251,7 +251,7 @@ After all underlays are processed, a single aggregate `QMessageBox.warning` list
 
 ### 5.4 Browser tree
 
-Missing underlays appear in the browser tree with a warning icon. Right-click offers "Relink" as the first action. Browser underlay nodes are **navigation-only** (§9.3) — level readout shows the `levels` list or "All Levels"; no Change-Level, Relink, or layer-visibility editing is offered from the browser. Full management is via the Underlay Manager (§16.6).
+Missing underlays appear in the browser tree labelled "(missing)"; the browser's right-click on a missing underlay offers only **Remove** (`model_browser.py`). **Relink lives in the Underlay Manager** (§16.6): the row context menu's "Relink…" and the details panel's "Relink…" button, both shown only for a missing source. *(Reconciled 2026-09-26: this section used to claim a browser "Relink" action, which no code implements; two in-app messages still point users at it — filed as a bug.)* Browser underlay nodes are **navigation-only** (§9.3) — level readout shows the `levels` list or "All Levels"; no Change-Level, Relink, or layer-visibility editing is offered from the browser. Full management is via the Underlay Manager (§16.6).
 
 ### 5.5 Recovery paths
 
@@ -394,7 +394,7 @@ Browser underlay nodes are **navigation-only**. Level readout shows the `levels`
 | "Underlays" root | Expand/collapse | — |
 | File node | Select underlay in scene (if unlocked), pan to it, populate property panel (always, even if locked) | Lock/Unlock, Hide/Show, Scale, Rotate, Refresh, Duplicate, Remove |
 | Source layer node (DXF) | — | (navigation display only; no layer toggle) |
-| Missing file node | — | Relink, Remove |
+| Missing file node | — | Remove (Relink is in the Underlay Manager — §16.6) |
 
 **Remove confirmation:** The "Remove" action shows a confirmation dialog ("Remove underlay '{filename}'? This cannot be undone.") since underlay removal is not undoable and re-importing requires effort.
 

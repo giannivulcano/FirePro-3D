@@ -71,8 +71,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: seam review 2026-09-23 (m5). The Font group's editable family/size combos take focus on click and are not the `PropertyManager`, so the inline-edit focus policy commits. Moot while the ribbon is paper-scoped (D6); decide when "Extend the ribbon Text/Frame groups to model text" lands (keep-live list vs commit). `firepro3d/text_item.py` `_focus_out_keeps_edit`, `firepro3d/font_group.py`.
 - [ ] [type:maint] Diagnose why the QGraphicsTextItem document renderer hits an engine-less device on the live model viewport [P3] [subject:Architecture]
   - Details: the model surface now sidesteps it entirely (glyph outlines #62 + self-painted caret/selection, 2026-09-23), so this is diagnostic only — relevant if a model-surface text item ever needs Qt's own document rendering. Memory `project_qpainter_engineless_qgraphicstextitem`: never band-aid via `QWidget.paintEngine()`. Needs a live readout at the paint device.
-- [ ] [type:maint] Reconcile `paper-space.md` §9.3 to the unified `TextItem` [P3] [subject:Documentation]
-  - Details: found 2026-09-26 (doc-drift batch). §9.3 (plus §4.11 and the earlier `TextAnnotationItem`-vs-`NoteAnnotation` intro paragraph) still specify the retired `TextAnnotationItem(QGraphicsTextItem)` + `NoteAnnotation` contrast; containment C5 (`20de3d8`) moved sheet text onto the unified `TextItem`, owned by `text-annotation-system.md`. Rewrite §9.3 as a pointer + paper-specific deltas only (Rule A), or retire it. Only the grip/selected-state lines and the annotations.py row were fixed in the batch.
 
 ## UI follow-ups
 
@@ -582,8 +580,8 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: the direct connection rebuilds the whole tree synchronously on every scene change (duplicate work: `set_scene` also connects `sceneModified→schedule_refresh`), and a synchronous rebuild mid-`itemChanged` emission `clear()`s the tree item Qt is still processing (re-entrancy landmine; didn't crash in repros but is fragile). `main.py`, `model_browser.py`.
 - [ ] [type:feature] Ability to select/access individual items within an underlay group [P3] [subject:CAD]
   - Details: future feature to interact with sub-items of an imported underlay.
-- [ ] [type:maint] `underlay-workflow.md` browser Relink contradiction [P3] [subject:Documentation]
-  - Details: found 2026-09-26 (doc-drift batch, pre-existing). §5.4 (Browser tree) says browser right-click offers "Relink" as the first action, while §9.3 says browser underlay nodes are navigation-only with no Relink. Check `project_browser.py`/`model_browser.py` context menus and fix whichever is wrong.
+- [ ] [type:bug] Missing-underlay messages point users to a Relink action that doesn't exist [P3] [subject:UX]
+  - Details: found 2026-09-26 (paper/underlay doc fixes). The load warning (`scene_io.py`, "Missing Underlay Files") says "Use right-click → Relink in the browser tree", and the canvas placeholder label (`underlay_controller.py`) says "Missing — right-click to relink" — but neither the browser (Remove only) nor the canvas offers Relink; it lives only in the Underlay Manager (`underlay-workflow.md` §5.4). Fix the two strings to point at Underlay Manager → Relink… (or add the action where they point). Repro: open a project whose underlay file was moved.
 
 ## Code Health & Architectural Debt (from 2026-04-29 gap analysis)
 
