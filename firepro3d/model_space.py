@@ -429,6 +429,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._rotate_pivot: "QPointF | None" = None
         self._rotate_start_deg: "float | None" = None
         self._rotate_ray = None
+        # Array (scene-tools.md D10; behaviour in ModifyToolsController):
+        # base point, unit direction, cursor spacing (mm), click-commit total.
+        self._array_base: "QPointF | None" = None
+        self._array_dir: "QPointF | None" = None
+        self._array_spacing: float = 0.0
+        self._array_count_default: int = 3      # TOTAL incl. the original
         self._scale_base: "QPointF | None" = None
         self._scale_preview_line = None
         self._scale_factor: float = 1.0
@@ -1155,7 +1161,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
-                        "copy_base", "duplicate",
+                        "copy_base", "duplicate", "array",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -1372,7 +1378,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._detail_rect_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
-        if mode in ("move", "duplicate", "rotate", "scale") and not self._selected_items:
+        if (mode in ("move", "duplicate", "rotate", "scale", "array")
+                and not self._selected_items):
             self._selected_items = list(self.selectedItems())
 
         # Clear OSNAP snap trace whenever mode changes
@@ -1412,6 +1419,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "constraint_dimensional":  "Click first grip point",
             "align": "Click reference edge",
             "rotate":          "Pick pivot point",
+            "array":           "Pick base point",
             "scale":           "Pick base point (Tab = enter factor)",
             "mirror":          "Pick first axis point",
             "break":           "Select object to break",
@@ -2924,6 +2932,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
+        "array": "array_linear",
         "offset_side": "offset_distance",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
@@ -2960,6 +2969,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "_apply_paste_displacement",
         "duplicate": "_apply_move_displacement",
         "rotate": "_apply_rotate_by",
+        "array": "_apply_array_linear",
         "offset_side": "_apply_offset_distance",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
@@ -3550,9 +3560,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _move_align(self, event, snapped):
         return self._tools._move_align(event, snapped)
 
-    def array_items(self, params):
-        return self._tools.array_items(params)
-
     # OFFSET COMMAND helpers -> see scene_tools.py (SceneTools)
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -3745,6 +3752,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
+        "array":                    "_move_array",
         "mirror":                   "_move_mirror",
         "stretch":                  "_move_stretch",
         "wall":                     "_move_wall_router",
@@ -3928,6 +3936,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
         return self._modify_ctl.move_rotate(*args, **kwargs)
+
+    def _move_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.move_array(*args, **kwargs)
 
     def _move_mirror(self, event, snapped):
         if self._mirror_p1 is None:
@@ -4318,7 +4329,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste", "copy_base", "duplicate", "rotate",
+        "move", "paste", "copy_base", "duplicate", "rotate", "array",
     })
 
     _PRESS_DISPATCH = {
@@ -4343,6 +4354,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "offset":                   "_press_offset",
         "offset_side":              "_press_offset_side",
         "rotate":                   "_press_rotate",
+        "array":                    "_press_array",
         "scale":                    "_press_scale",
         "mirror":                   "_press_mirror",
         "break":                    "_press_break",
@@ -5218,6 +5230,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
         return self._modify_ctl.apply_rotate_by(*args, **kwargs)
+
+    # ── Linear Array (D10) ────────────────────────────────────────────
+    def _press_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.press_array(*args, **kwargs)
+
+    def _apply_array_linear(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
+        return self._modify_ctl.apply_array_linear(*args, **kwargs)
 
     # ── Interactive Scale ─────────────────────────────────────────────
     def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):

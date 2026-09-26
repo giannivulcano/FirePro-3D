@@ -5,7 +5,8 @@ verified-commit: c47ab60
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
-  - firepro3d/array_dialog.py
+  - firepro3d/modify_tools_controller.py
+  - firepro3d/transform_ghost.py
   # Tool state machines that live on the scene (shared with other specs — this
   # spec governs only the modify-tool rows/handlers listed in §1):
   - firepro3d/model_space.py

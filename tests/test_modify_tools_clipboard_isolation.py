@@ -38,12 +38,20 @@ def dead_clip(monkeypatch):
 
 
 def test_array_does_not_touch_the_clipboard(qapp, dead_clip):
+    """The on-canvas linear Array (D10; ArrayDialog/array_items retired)
+    copies through paste_items(data=) — never the OS clipboard (I1)."""
+    from tests._snap_polish_helpers import click, move
     view, scene = make_view(scale=1.0)
     try:
         a = LineItem(QPointF(0, 0), QPointF(100, 0))
-        scene.addItem(a); scene._draw_lines.append(a); a.setSelected(True)
-        scene.array_items({"mode": "linear", "rows": 1, "cols": 3,
-                           "x_spacing": 200, "y_spacing": 0})
+        scene.addItem(a); scene._draw_lines.append(a)
+        scene.push_undo_state(); a.setSelected(True)
+        scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        assert scene.begin_dynamic_input() is True
+        scene.dynamic_input.editor("Spacing").setText("200")
+        scene.dynamic_input.editor("Count").setText("3")
+        scene.dynamic_input._accept()
         assert len(scene._draw_lines) == 3                              # [RED]
         xs = sorted(round(l.line().p1().x()) for l in scene._draw_lines)
         assert xs == [0, 200, 400]

@@ -119,7 +119,7 @@ class Model_View(QGraphicsView):
         without the set.
         """
         if mode in (None, "select", "move", "paste", "copy_base", "duplicate",
-                    "rotate"):
+                    "rotate", "array"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:

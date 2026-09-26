@@ -272,6 +272,11 @@ class PlacementInputCoordinator:
             # point schemas.)
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
+        elif schema.name == "array_linear":
+            # D10: a typed Spacing / Count re-ghosts every copy along the aim
+            # (a dict, not a point — like ``rotation`` above).
+            self._scene._modify_ctl.preview_array(resolved["spacing"],
+                                                  resolved["count"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -644,6 +649,10 @@ class PlacementInputCoordinator:
         if self._scene.mode == "rotate":
             # D8: the pivot anchors the ALIGN origin and the rotate_by HUD.
             a = self._scene._rotate_pivot
+            return QPointF(a) if a is not None else None
+        if self._scene.mode == "array":
+            # D10: the base point anchors the ALIGN origin and the HUD.
+            a = self._scene._array_base
             return QPointF(a) if a is not None else None
         if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
@@ -1081,6 +1090,12 @@ class PlacementInputCoordinator:
                 span += 360.0
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
+        if schema.name == "array_linear":
+            # D10: the live cursor spacing + the click-commit total. Must
+            # precede the gridline replicate fallback below (gridline state).
+            s = self._scene
+            return {"Spacing": s._array_spacing,
+                    "Count": max(2, int(s._array_count_default))}
         if schema.name == "offset_distance":
             # D9: the live cursor distance (or the sticky last distance before
             # the first move). Must precede the gridline replicate fallback

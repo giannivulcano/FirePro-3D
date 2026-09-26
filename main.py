@@ -42,7 +42,6 @@ from firepro3d.header_rail import HeaderRail
 from firepro3d.frameless_shell import FramelessShellMixin
 from firepro3d.main_helpers import migrate_fullscreen_pref
 # view_3d deferred — imports pyvista/VTK which is slow
-from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
@@ -3641,25 +3640,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._active_contextual_key = key
         self._active_contextual_title = title
         self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
-
-    def _require_selection(self, action):
-        """Run *action* only if something is selected; otherwise show message."""
-        if not self.scene.selectedItems():
-            self.statusBar().showMessage("Select an item first", 3000)
-            return
-        action()
-
-    # ── Array / Multiply (Sprint J) ──────────────────────────────────────────
-
-    def _open_array_dialog(self):
-        """Open the Array dialog and execute the array on the current selection."""
-        if not self.scene.selectedItems():
-            return
-        dlg = ArrayDialog(self, scale_manager=self.scene.scale_manager,
-                          scene=self.scene,
-                          selected_items=self.scene.selectedItems())
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.scene.array_items(dlg.get_params())
 
     # ── Grid Lines ───────────────────────────────────────────────────────────
 

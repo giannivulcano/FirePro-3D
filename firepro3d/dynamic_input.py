@@ -288,6 +288,17 @@ def resolve_spacing_count(anchor, values: dict) -> dict:
             "count": max(1, int(round(values["Count"])))}
 
 
+def resolve_array_linear(anchor, values: dict) -> dict:
+    """Return a linear array's spacing (mm) and TOTAL count (scene-tools D10).
+
+    Count includes the original, so ``4`` means three copies.  Coerced the
+    same way as :func:`resolve_spacing_count` (rounded, floored at one); the
+    field's ``minimum`` already refuses a total below two, and the commit
+    path re-checks it.
+    """
+    return resolve_spacing_count(anchor, values)
+
+
 # ── Track (ALIGN distance-along-path) ───────────────────────────────────────
 
 def resolve_track(anchor: QPointF, values: dict) -> QPointF:
@@ -397,6 +408,19 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_spacing_count,
         returns_point=False,
+    ),
+    "array_linear": Schema(
+        name="array_linear",
+        fields=(
+            FieldSpec("Spacing", "Sp", FieldKind.DIMENSION, minimum=0.0),
+            # TOTAL incl. the original; minimum is strict (> 1) -> total >= 2.
+            FieldSpec("Count", "N", FieldKind.COUNT, minimum=1.0),
+        ),
+        resolve=resolve_array_linear,
+        returns_point=False,
+        # Anchored transform: the base point is armed first (D10), so the HUD
+        # stays shut until it exists — like ``move`` and ``rotate_by``.
+        needs_anchor=True,
     ),
     "arc_span": Schema(
         name="arc_span",

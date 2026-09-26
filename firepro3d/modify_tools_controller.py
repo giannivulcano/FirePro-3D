@@ -43,7 +43,8 @@ class ModifyToolsController:
     # Modes an Undo / Redo must cancel first: their transient state (base
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
-                                      "rotate", "offset", "offset_side"})
+                                      "rotate", "offset", "offset_side",
+                                      "array"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -467,6 +468,10 @@ class ModifyToolsController:
             s._rotate_pivot = None
             s._rotate_start_deg = None
             s._rotate_ray = None
+        if new_mode != "array":
+            s._array_base = None
+            s._array_dir = None
+            s._array_spacing = 0.0
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_fit_cache = {}
@@ -860,6 +865,120 @@ class ModifyToolsController:
     def apply_rotate_by(self, params: dict) -> bool:
         """Typed relative angle (``rotate_by``): commit about the pivot."""
         return self.commit_rotate(float(params["delta_deg"]))
+
+    # ── Array (D10) ─────────────────────────────────────────────────────────
+    # Linear only: base point, then the cursor sets direction + spacing; the
+    # HUD types Spacing + Count (TOTAL incl. the original). Copies are
+    # independent (not associative); one undo step.
+
+    def _aim_array(self, snapped: QPointF) -> None:
+        """Set the array direction + spacing from the base -> *snapped* ray.
+
+        A zero-length ray keeps the previous direction/spacing.
+        """
+        s = self._scene
+        dx = snapped.x() - s._array_base.x()
+        dy = snapped.y() - s._array_base.y()
+        length = math.hypot(dx, dy)
+        if length > 1e-9:
+            s._array_dir = QPointF(dx / length, dy / length)
+            s._array_spacing = length
+
+    def press_array(self, event, pos, snapped, *_):
+        """Array click: the base point, then the next click commits."""
+        s = self._scene
+        if s._array_base is None:
+            s._array_base = QPointF(snapped)
+            s._move_ghost_base = self._shape_paths_for_move(
+                self._transformable(s._selected_items))
+            s._move_ghost = []
+            s.instructionChanged.emit(
+                "Pick spacing + direction (or type Spacing / Count)")
+            return
+        self._aim_array(snapped)
+        self.commit_array(s._array_spacing, s._array_count_default)
+
+    def move_array(self, event, snapped):
+        """Array cursor: aim from the base; the ghost shows every copy."""
+        s = self._scene
+        s.preview_pipe.hide()
+        if s._array_base is None:
+            s.update_preview_node(snapped)
+            return
+        s.preview_node.hide()
+        self._aim_array(snapped)
+        self.preview_array(s._array_spacing, s._array_count_default)
+        # Feed the HUD its live Spacing seed (_transform_seed_values).
+        s.publish_placement_state(s._array_base, snapped)
+        s._show_status(
+            f"Spacing: {self._fmt_len(s._array_spacing)}  "
+            f"Count: {s._array_count_default}", timeout=0)
+
+    def preview_array(self, spacing: float, count: int) -> None:
+        """Rebuild the ghost as ``count - 1`` translated copies of the base.
+
+        D11: every copy the commit would create is ghosted (no cap).
+        """
+        s = self._scene
+        d = s._array_dir or QPointF(1.0, 0.0)
+        count = int(count)
+        s._move_ghost = [p.translated(d.x() * spacing * k, d.y() * spacing * k)
+                         for k in range(1, count) for p in s._move_ghost_base]
+        for v in s.views():
+            v.viewport().update()
+
+    def commit_array(self, spacing: float, count: int) -> bool:
+        """Create ``count - 1`` copies of the selection along the direction.
+
+        Copies go through the same serialiser + ``paste_items(data=)`` path
+        as Duplicate (every selectable kind; the OS clipboard is never
+        touched). One undo step; returns to Select with the ORIGINAL
+        selection selected (D10).
+
+        Args:
+            spacing: Distance between consecutive copies (mm).
+            count: TOTAL count including the original.
+
+        Returns:
+            True when copies were created; False when refused (no direction,
+            spacing <= 0 or count < 2 — the tool stays live) or when nothing
+            could be copied (no undo step, back to Select).
+        """
+        s = self._scene
+        count = int(count)
+        if count < 2 or spacing <= 0 or s._array_dir is None:
+            s._show_status("Array needs a direction, Spacing > 0 and Count ≥ 2",
+                           3000)
+            return False
+        src = [it for it in (s._selected_items or []) if it.scene() is s]
+        records = s._clipboard_item_dicts(src)
+        d = s._array_dir
+        created = []
+        for k in range(1, count):
+            created += s.paste_items(
+                QPointF(d.x() * spacing * k, d.y() * spacing * k),
+                data=records) or []
+        if created:
+            s.push_undo_state()
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s._selected_items = []
+        s.set_mode(None)
+        # paste_items selects what it creates; D10 keeps the ORIGINALS.
+        s.clearSelection()
+        for it in src:
+            if it.scene() is s:
+                it.setSelected(True)
+        if not created:
+            s._show_status("Nothing arrayed", 3000)
+            return False
+        s._show_status(f"Arrayed {len(created)} item(s) ({count} total)")
+        return True
+
+    def apply_array_linear(self, params: dict) -> bool:
+        """Typed Spacing + Count (``array_linear``): commit along the aim."""
+        return self.commit_array(float(params["spacing"]), int(params["count"]))
 
     # ── Ghost silhouettes ───────────────────────────────────────────────────
 
