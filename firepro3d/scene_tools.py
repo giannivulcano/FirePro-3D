@@ -21,10 +21,12 @@ Tools included:
 from __future__ import annotations
 
 import math
-import json
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QApplication
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
+from PyQt6.QtWidgets import (
+    QDialog, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
+    QGraphicsPathItem, QGraphicsRectItem, QLabel, QVBoxLayout,
+)
 
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,

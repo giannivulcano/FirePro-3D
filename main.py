@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QToolButton, QProgressDialog)
 from firepro3d.themed_message import (
     themed_info, themed_warn, themed_error, themed_confirm, themed_choice,
-    themed_input_number, themed_input_choice,
+    themed_input_choice,
 )
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
@@ -594,7 +594,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
         self.scene.instructionChanged.connect(self.footer.set_instruction)
         self.scene.openViewRequested.connect(self._on_open_view_requested)
-        self.scene.numericInputRequested.connect(self._on_numeric_input_requested)
         self.scene.warningIssued.connect(self._on_warning_issued)
         self.scene.confirmRequested.connect(self._on_confirm_requested)
 
@@ -1323,12 +1322,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
     # Dialog signal handlers (dialogs moved out of Model_Space)
     # ─────────────────────────────────────────────────────────────────────────
-
-    def _on_numeric_input_requested(self, mode: str, title: str, label: str,
-                                     default: float, min_val: float, max_val: float):
-        val, ok = themed_input_number(self, title, label, initial=default, dimension=True,
-                                      minimum=min_val, maximum=max_val)
-        self.scene.complete_numeric_input(mode, val, ok)
 
     def _on_warning_issued(self, title: str, message: str):
         themed_warn(self, title, message)

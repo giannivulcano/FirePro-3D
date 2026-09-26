@@ -167,7 +167,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     radiationCancel = pyqtSignal()        # Escape pressed during radiation selection
     openViewRequested = pyqtSignal(str, str)  # (view_type, direction) — marker double-click
     # Dialog signals — UI shown by main.py, result fed back via callback
-    numericInputRequested = pyqtSignal(str, str, str, float, float, float)  # mode, title, label, default, min, max
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
@@ -1420,7 +1419,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "align": "Click reference edge",
             "rotate":          "Pick pivot point",
             "array":           "Pick base point",
-            "scale":           "Pick base point (Tab = enter factor)",
+            "scale":           "Pick base point",
             "mirror":          "Pick first axis point",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
@@ -4394,50 +4393,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # Dialog callbacks — called by main.py after showing the dialog
     # ------------------------------------------------------------------
 
-    def complete_numeric_input(self, mode: str, value: float, accepted: bool):
-        """Handle result from a numeric input dialog shown by main.py."""
-        if not accepted:
-            return
-        if mode == "scale":
-            if self._scale_base is not None:
-                self._tools._apply_scale(self._scale_base, value)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
-        elif mode == "fillet":
-            self._fillet_radius = value
-            if self._fillet_preview is not None:
-                if self._fillet_preview.scene() is self:
-                    self.removeItem(self._fillet_preview)
-                self._fillet_preview = None
-            data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                        self._fillet_radius)
-            if data is not None:
-                pp = QPainterPath()
-                pp.addEllipse(data["center"], data["radius"], data["radius"])
-                self._fillet_preview = self.addPath(
-                    pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-            self._show_status(
-                f"Fillet radius: {value:.1f}  Press Enter to commit", timeout=0)
-        elif mode == "chamfer":
-            self._chamfer_dist = value
-            if self._chamfer_preview is not None:
-                if self._chamfer_preview.scene() is self:
-                    self.removeItem(self._chamfer_preview)
-                self._chamfer_preview = None
-            data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
-                                          self._chamfer_dist)
-            if data is not None:
-                self._chamfer_preview = QGraphicsLineItem(
-                    data["cp1"].x(), data["cp1"].y(),
-                    data["cp2"].x(), data["cp2"].y())
-                p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
-                p.setCosmetic(True)
-                self._chamfer_preview.setPen(p)
-                self.addItem(self._chamfer_preview)
-            self._show_status(
-                f"Chamfer distance: {value:.1f}  Press Enter to commit", timeout=0)
-
     def complete_confirmation(self, action_id: str, result: str):
         """Handle result from a confirmation dialog shown by main.py.
 
@@ -5242,7 +5197,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._scale_base is None:
             self._scale_base = snapped
-            self.instructionChanged.emit("Tab = enter scale factor")
+            # No factor entry yet (the dead numeric-input dialog is retired,
+            # D15; Scale has no HUD schema) — don't promise a Tab.
+            self.instructionChanged.emit(
+                "Base point set — scale factor entry not available yet (Esc to cancel)")
 
     # ── Mirror ────────────────────────────────────────────────────────
     def _press_mirror(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -5295,7 +5253,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hit is not None and isinstance(hit, LineItem):
                 self._fillet_item1 = hit
                 self._fillet_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line (Tab = set radius)")
+                self.instructionChanged.emit("Click second line")
         elif self._fillet_item2 is None:
             hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
@@ -5318,7 +5276,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
                     self._fillet_preview.pen().setCosmetic(True)
                     self.instructionChanged.emit(
-                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit, Tab to change")
+                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit")
 
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -5327,7 +5285,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hit is not None and isinstance(hit, LineItem):
                 self._chamfer_item1 = hit
                 self._chamfer_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line (Tab = set distance)")
+                self.instructionChanged.emit("Click second line")
         elif self._chamfer_item2 is None:
             hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
@@ -5347,7 +5305,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._chamfer_preview.setPen(p)
                     self.addItem(self._chamfer_preview)
                     self.instructionChanged.emit(
-                        f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit, Tab to change")
+                        f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit")
 
     # ── Stretch (base/destination pick after crossing window) ────────
     def _press_stretch(self, event, pos, snapped, item_under, node_under, pipe_under):

@@ -55,12 +55,11 @@ sceneModified = pyqtSignal()                      # dirty flag / undo state
 radiationConfirm = pyqtSignal()                   # Enter during radiation selection
 radiationCancel = pyqtSignal()                    # Escape during radiation selection
 openViewRequested = pyqtSignal(str, str)          # view marker double-click
-numericInputRequested = pyqtSignal(...)           # prompt user for a dimension
 warningIssued = pyqtSignal(str, str)              # show warning dialog
 confirmRequested = pyqtSignal(str, str, str)      # show confirmation dialog
 ```
 
-Dialog-triggering signals (`numericInputRequested`, `warningIssued`, `confirmRequested`) allow the scene to request UI without importing dialog classes directly.
+Dialog-triggering signals (`warningIssued`, `confirmRequested`) allow the scene to request UI without importing dialog classes directly.
 
 ## Data flow
 
