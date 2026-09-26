@@ -406,6 +406,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._offset_typed: bool = False        # distance locked by the HUD
         self._offset_sticky = None              # last committed distance (D9 step 5)
         self._offset_sticky_locked: bool = False  # sticky distance was typed
+        self._offset_fit_cache: dict = {}         # spline-offset fit cache (tool_geometry)
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay

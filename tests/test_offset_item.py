@@ -362,3 +362,81 @@ def test_other_open_splines_within_2pct(qapp, name, d):
     new = tg.offset_item(src, d)
     assert _open_spline_error(src, new, d) <= 0.02
     assert len(new._control_points) <= 4 * len(src._control_points)
+
+
+# ── R-1: C0-corner splines (interior knot multiplicity == degree) ────────────
+
+def _corner_spline():
+    from firepro3d.geometry_2d import SplineItem
+    return SplineItem([QPointF(0, 0), QPointF(30, -60), QPointF(60, 0),
+                       QPointF(90, -60), QPointF(120, 0), QPointF(150, -60),
+                       QPointF(180, 0)],
+                      knots=[0, 0, 0, 0, .5, .5, .5, 1, 1, 1, 1])
+
+
+def _dist_to_corner_points(spline, M):
+    """Distance from *M* to the curve at the result's C0 knots (multiplicity
+    >= degree), evaluated exactly with ezdxf — where a B-spline passes
+    through a control point."""
+    import numpy as np
+    from collections import Counter
+    from ezdxf.math import BSpline
+    p = spline._degree
+    k = spline._knots
+    ks = [x for x, m in Counter(k[p + 1:-p - 1]).items() if m >= p]
+    if not ks:
+        return float("inf")
+    b = BSpline([(q.x(), q.y()) for q in spline._control_points], order=p + 1,
+                knots=k)
+    return min(float(np.hypot(*(np.array(tuple(b.point(x))[:2]) - M)))
+               for x in ks)
+
+
+def _corner_miter(d):
+    """Miter point of the source's corner (90,-60), from its end tangents."""
+    import numpy as np
+    c = np.array([90.0, -60.0])
+    tin = np.array([30.0, -60.0]); tin /= np.linalg.norm(tin)
+    tout = np.array([30.0, 60.0]); tout /= np.linalg.norm(tout)
+    a = c + d * np.array([-tin[1], tin[0]])
+    b = c + d * np.array([-tout[1], tout[0]])
+    den = tin[0] * tout[1] - tin[1] * tout[0]
+    s = ((b[0] - a[0]) * tout[1] - (b[1] - a[1]) * tout[0]) / den
+    return a + s * tin, s
+
+
+@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
+def test_corner_spline_offset_is_mitered_and_within_2pct(qapp, d):
+    """A sharp (C0) corner is offset as two fitted runs joined by a miter
+    (outer side) or trimmed at their crossing (inner side)."""
+    import numpy as np
+    src = _corner_spline()
+    new = tg.offset_item(src, d)
+    assert type(new).__name__ == "SplineItem" and not new.is_closed()
+    assert len(new._control_points) <= 4 * len(src._control_points)
+    S = _exact_pts(src, 12000)
+    N = _exact_pts(new, 3000)[45:-45]
+    M, s = _corner_miter(d)
+    if s > 0:          # outer corner: the result runs through the miter point
+        assert _dist_to_corner_points(new, M) <= 1e-6                    # [RED]
+        leg = float(np.hypot(*(M - np.array([90.0, -60.0]))))
+        N = N[np.hypot(*(N - M).T) > leg]            # the miter legs are > d
+    err = float(np.max(np.abs(_seg_dists(N, S) - abs(d))) / abs(d))
+    assert err <= 0.02, f"max error {err:.2%} of d"                      # [RED]
+
+
+def test_fit_never_returns_an_out_of_tolerance_curve(qapp):
+    """R-1 (a): whatever fit_offset_spline returns is within tolerance —
+    never the best-at-cap curve (independently measured). The corner
+    spline's inner side (d > 0 here) is exactly d from the source
+    everywhere, so no exclusion is needed."""
+    from firepro3d.geometry_2d import SplineItem
+    for src, d in [(_corner_spline(), 5.0), (_corner_spline(), 20.0),
+                   (_make("spline"), 5.0)]:
+        fit = tg.fit_offset_spline(src, d)
+        if fit is None:
+            continue
+        new = SplineItem(fit[0], src._degree, fit[1])
+        err = _open_spline_error(src, new, d)
+        assert err <= 0.02, f"{err:.2%}"                                 # [RED]
+    assert tg.offset_item(_make("spline"), 200.0) is not None

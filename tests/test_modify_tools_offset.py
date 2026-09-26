@@ -390,3 +390,53 @@ def test_committed_item_inherits_style(qapp, name):
                                           pytest.approx(0.7))
     finally:
         close_view(view, scene)
+
+
+# ── R-2: live ghost cost (user-confirmed metric: <= 30 ms per mouse move) ───
+
+import os
+
+
+def _spline40():
+    import random
+    from firepro3d.geometry_2d import SplineItem
+    rnd = random.Random(1)
+    return SplineItem([QPointF(i * 50 - 1000, rnd.uniform(-80, 80))
+                       for i in range(40)])
+
+
+def _median_move_ms(view, scene, pts):
+    import time
+    ts = []
+    for p in pts:
+        t = time.perf_counter()
+        scene._modify_ctl.move_offset_side(None, p)
+        ts.append((time.perf_counter() - t) * 1000)
+    ts.sort()
+    return ts[len(ts) // 2]
+
+
+@pytest.mark.skipif(bool(os.environ.get("FP3D_SKIP_PERF")),
+                    reason="FP3D_SKIP_PERF set")
+@pytest.mark.parametrize("which", ["open40", "smooth_near"])
+def test_offset_ghost_update_is_fast_on_a_40_point_spline(qapp, which):
+    """The real move_offset_side (distance, side, ghost) on a 40-control-point
+    spline: median <= 30 ms per mouse move (never loosen)."""
+    view, scene = make_view(scale=1.0)
+    try:
+        sp = _spline40()
+        scene.addItem(sp); scene._draw_splines.append(sp)
+        scene.push_undo_state()
+        scene.clearSelection(); sp.setSelected(True)
+        scene._modify_ctl.start("offset")
+        assert scene.mode == "offset_side"
+        if which == "open40":
+            pts = [QPointF(-500 + k * 7, 150) for k in range(25)]
+        else:                       # close to the curve: small d, fit succeeds
+            pts = [QPointF(-400 + k * 3, -95 - (k % 3)) for k in range(25)]
+        scene._modify_ctl.move_offset_side(None, pts[0])       # arm the cache
+        ms = _median_move_ms(view, scene, pts)
+        assert scene._move_ghost, "ghost must be live"
+        assert ms <= 30.0, f"median {ms:.1f} ms per move"                 # [RED]
+    finally:
+        close_view(view, scene)

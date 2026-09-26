@@ -322,6 +322,7 @@ class ModifyToolsController:
         s = self._scene
         s.set_mode("offset_side")
         s._offset_source = item
+        s._offset_fit_cache = {}
         s._offset_side = 1.0
         locked = bool(s._offset_sticky_locked and s._offset_sticky)
         s._offset_typed = locked
@@ -361,7 +362,11 @@ class ModifyToolsController:
         s = self._scene
         if s._offset_source is None or s._offset_dist <= 0:
             return None
-        return tg.offset_item(s._offset_source, s._offset_side * s._offset_dist)
+        # The scene-side fit cache keeps a spline offset's d-independent work
+        # between mouse moves (review G7 R-2); it is keyed on the source's
+        # geometry, so a stale entry can never be reused.
+        return tg.offset_item(s._offset_source, s._offset_side * s._offset_dist,
+                              cache=s._offset_fit_cache)
 
     def _refresh_offset_ghost(self) -> None:
         from .transform_ghost import ghost_base_paths
@@ -460,6 +465,7 @@ class ModifyToolsController:
             s._rotate_ray = None
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
+            s._offset_fit_cache = {}
             s._offset_dist = 0.0
             s._offset_typed = False
             s._offset_sticky = None
