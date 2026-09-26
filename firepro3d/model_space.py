@@ -6955,6 +6955,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode == "offset_side":
                 self._modify_ctl.commit_offset()
                 return
+            # Array: Enter commits at the cursor's aim/spacing with the
+            # default total, like a click (D10); no aim -> commit_array's
+            # refusal status. The typed path is the HUD.
+            if self.mode == "array":
+                self._modify_ctl.commit_array(self._array_spacing,
+                                              self._array_count_default)
+                return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
                 self._finish_polyline()

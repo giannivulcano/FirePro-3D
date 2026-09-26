@@ -917,11 +917,19 @@ class ModifyToolsController:
     def preview_array(self, spacing: float, count: int) -> None:
         """Rebuild the ghost as ``count - 1`` translated copies of the base.
 
-        D11: every copy the commit would create is ghosted (no cap).
+        D11: every copy the commit would create is ghosted (no cap) — and
+        nothing is ghosted that the commit would refuse: with no aim yet
+        (``_array_dir`` None) the ghost is empty, since the cursor sets the
+        direction (D10) and ``commit_array`` refuses without one.
         """
         s = self._scene
-        d = s._array_dir or QPointF(1.0, 0.0)
+        d = s._array_dir
         count = int(count)
+        if d is None:
+            s._move_ghost = []
+            for v in s.views():
+                v.viewport().update()
+            return
         s._move_ghost = [p.translated(d.x() * spacing * k, d.y() * spacing * k)
                          for k in range(1, count) for p in s._move_ghost_base]
         for v in s.views():
