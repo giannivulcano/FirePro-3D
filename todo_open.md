@@ -311,6 +311,7 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Status 2026-09-26: **MERGED to main as `b9eda69` (unpushed; branch deleted)** — was `feat/scene-tools-2d` HEAD `8eb3780` — all 8 plan groups + VC9 seam fixes landed, each two-stage reviewed with RED-on-revert guards; keep-green passes per file (with an in-memory clipboard). NOT done: full suite (VC6) and user smoke — see the P1 "Scene tools branch: full-suite run + smoke" task below. Close this line only after that passes.
 - [ ] [type:maint] Scene tools (MERGED to main 2026-09-26 as `b9eda69`, unpushed): real-clipboard test pass + perf-guard isolation decision + user smoke [P1] [subject:Testing]
   - Details: 2026-09-26 wrap — the VC6 full-suite run was killed at ~36% by host memory pressure (0 failures so far) and the Windows clipboard was ACCESS_DENIED machine-wide (session lock) all session, so every clipboard test only ran under an in-memory stand-in (scratchpad `plug/fakeclip.py`, not committed). Steps: unlock the session (check Notepad copy/paste), free memory, run `venv/Scripts/python -m pytest -q` once on the unchanged tree and read its exit code; prove any failure at `0caf2b8` (VC7) before patching; then smoke in the Block Editor (Edit/Modify groups + Shift+C/X/V/D/M/R/O/A on every primitive; ghost look = mockup B; icons; Offset on a spline/closed shape; Array; New/Open mid-tool), then `/superpowers:finishing-a-development-branch` (push only with explicit approval). Spec: `docs/specs/scene-tools.md`. **Run 2026-09-26 (16 foreground batches, each file once, in-memory clipboard shim):** 5,639 passed, 2 skipped, 1 xfail; 3 non-passes — (a) `test_selection_readouts_fixes::test_selection_and_mode_slots_never_raise` = shim artifact (15/15 pass without it); (b) `test_text_inline_routing::test_ctrl_c_ctrl_v_while_editing_leave_scene_untouched` = locked OS clipboard, fails at base `7ab9c83` too; (c) `test_offset_real_mouse_move_is_fast[open40_near]` 31.7 ms in-batch, passes standalone — perf guard has no headroom under load: decide isolate-perf-marker vs other. Remaining: real-clipboard pass (a/b should clear), perf-guard decision, smoke, merge.
+  - 2026-09-26 (headless-cleanup VC6): the full suite now COMPLETES when run as 6 alphabetical chunks ([a-d] [e-l] [m-r] [s-t] u [v-z], one process each — no memory kill). The ONLY failures are 43 real-clipboard tests (modify_tools_paste 22, modify_tools_copy_cut 15, dynamic_input_parity 2, block_seams 1, gridline_array_offset 1, modify_tools_ribbon 1, text_inline_routing ctrl-c/v 1), identical set at `e96b6ae` in a worktree ⇒ clipboard still ACCESS_DENIED (`Set-Clipboard` fails, session locked). Everything else green. Re-run just those 7 files with the clipboard available to close the real-clipboard pass.
 - [ ] [type:bug] Copy-to-Level carries the source level onto pasted node copies [P2] [subject:CAD]
   - Details: found 2026-09-25 (G5 review) — `copy_items_to_level` (`model_space.py`) passes node records whose level/ceiling fields override the target level `add_node` just set. Pre-existing. Repro + guard first.
 - [ ] [type:bug] Pasting/duplicating/arraying a sprinkler node with a pipe creates a zero-length self-pipe [P2] [subject:Hydraulic Calculator]
@@ -513,8 +514,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 - [ ] [type:maint] Retire the git-tracked repo `sprinklers.json` [P3] [subject:Code Quality]
   - Details: now that runtime reads/writes `%APPDATA%`, the tracked seed file only feeds the one-time migration and dirties dev checkouts no more; `git rm` + `.gitignore` once migration has shipped a while. `sprinklers.json`, `.gitignore`.
-- [ ] [type:maint] Shared `_app_data_dir()` helper [P3] [subject:Code Quality]
-  - Details: `sprinkler_db._default_db_path()` and `titleblock_template._library_dir()` duplicate the `%APPDATA% or ~` + `FirePro3D` resolution; extract one helper both call. `sprinkler_db.py`, `titleblock_template.py`.
 - [ ] [type:feature] SVG symbol system expansion [P3] [subject:Sprinkler Design]
   - Details: asymmetric sidewall symbol, orientation-driven selection, wall auto-detection, tab-cycle orientation, in-app symbol editor. `sprinkler.py`. ref: sprinkler-spec §8.1, D7.
 - [ ] [type:feature] Multi-system SprinklerSystem [P3] [subject:Architecture]
@@ -610,8 +609,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: the `_offset_*`/`_compute_*`/`_get_item_segments`/`_point_to_segment_dist`/`extract_edges` wrappers delegate to `tool_geometry`; when callers move onto the composed `SceneTools`, retire the wrappers and point callers at `tool_geometry.*` directly. `scene_tools.py`, `model_space.py`.
 - [ ] [type:maint] PEP 8 class naming [P3] [subject:Code Quality]
   - Details: `Model_Space`, `Model_View`, `CAD_Math` use underscores; should be `ModelSpace`, `ModelView`, `CADMath`. Requires renaming classes + updating all imports and string references. Low priority due to churn.
-- [ ] [type:maint] [cleanup:delete] Dead `SELECTION_OUTLINE_WIDTH_MM` + unused `SELECTION_OUTLINE_COLOR` import [P3] [subject:Code Quality]
-  - Details: found 2026-09-26 (doc-drift batch). Selection feedback moved to the manipulator's theme tokens, so `constants.SELECTION_OUTLINE_WIDTH_MM` has no reader and `model_space.py` imports `SELECTION_OUTLINE_COLOR` without using it (the only live reader is the polyline close ring in `geometry_drawing_controller.py`). Delete the constant + the import; grep tests first.
 
 ## Import
 
@@ -694,8 +691,6 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
   - Details: during an internal sheet drag the drop cursor shows over non-sheet rows (drop correctly rejected); scope `dragMoveEvent` acceptance to the sheet zone. `project_browser.py`.
 - [ ] [type:bug] Intra-batch filename collision dedupe [P3] [subject:CAD]
   - Details: separate-files export: two numbers sanitizing to the same filename silently overwrite within one batch (overwrite confirm only checks disk). Suffix or warn. `main.py`, `paper_export.py`.
-- [ ] [type:maint] Stale `LEGACY_SHEET_KEYS` tuple [P3] [subject:Code Quality]
-  - Details: in `titleblock_template.py` still lists Title/Drawing No (docstring-only use) — trim to ("Rev","Date") on next touch.
 - [ ] [type:feature] "Sheet X of Y" positional auto field [P3] [subject:CAD]
   - Details: only if wanted for AHJ sets; distinct from Sheet No (needs total-count invalidation). `paper_space.py`.
 - [ ] [type:design] Per-sheet persistent undo stacks [P3] [subject:Architecture]

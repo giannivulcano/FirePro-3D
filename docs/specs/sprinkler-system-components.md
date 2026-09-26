@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-08-11
-verified-commit: 0b6e6b1
+last-verified: 2026-09-26
+verified-commit: e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/sprinkler_db.py
@@ -128,7 +128,8 @@ Serialization: `to_dict()` / `from_dict()` with safe defaults for all fields.
 
 JSON-backed store. The default path resolves to `%APPDATA%/FirePro3D/sprinklers.json`
 (fallback `~/FirePro3D/sprinklers.json` when `APPDATA` is unset) via
-`_default_db_path()`, mirroring the title-block library resolver. The `path=` ctor
+`_default_db_path()`, which resolves through the shared `app_data.app_data_dir()` (so the
+Preferences data-folder override applies; the title-block library uses the same root). The `path=` ctor
 argument still overrides for tests/injection. On first use of the default path, a
 one-time **copy-if-absent** migration (`_migrate_legacy_db()`) copies any legacy
 CWD-relative `sprinklers.json` verbatim to the new location; idempotent once the

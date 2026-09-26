@@ -675,6 +675,10 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 
 - [x] SprinklerRecord schema expansion — add optional fields: response_type, max_s_spacing, max_l_spacing, thread_size, listing, deflector_min, deflector_max. `sprinkler_db.py` [ref:sprinkler-spec§4.1,D2] [type:Task] [P2] [subject:Sprinkler Design] [done:2026-05-03]
 
+- [x] [type:maint] Shared `_app_data_dir()` helper [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: `sprinkler_db._default_db_path()` and `titleblock_template._library_dir()` duplicate the `%APPDATA% or ~` + `FirePro3D` resolution; extract one helper both call. `sprinkler_db.py`, `titleblock_template.py`.
+  - Done: 2026-09-26 (headless cleanup batch) — ALREADY DONE upstream: `app_data.py::app_data_dir()` exists (block-system GENERALIZE) and both `sprinkler_db._default_db_path()` and `titleblock_template._library_dir()` route through it. Only the stale "mirrors _library_dir" docstring in `sprinkler_db.py` + `sprinkler-system-components.md` wording were fixed. Evidence: keep-green set (17 files + test_multi_sheet) 706 passed before and after; `import main` OK; full suite in alphabetical chunks (see commit).
+
 ## Wall, Room & Floor Slab Follow-Ups (from `docs/specs/wall-room-floor-system.md` §13–§14)
 
 - [x] **Three-wall junction renders a bad joint** (user smoke-test screenshots 2026-07-11 + 2026-07-13) — two root causes, both from "3+ walls → Butt" ending every wall flat/perpendicular at its endpoint (a diagonal's flat end can't mate with anything): (1) **3 shared endpoints** → new **full-miter pie join** (user-picked from rendered mockups): each face miters to its angular neighbour's wedge face, junction-wedge vertex inserted so all three fills cover the triangle (seamless with scene-global hatch), end edges suppressed; Butt fallback past the `MAX_MITER` clamp; 4+-way crossings stay Butt. (2) **Tee joins** (endpoint mid-span on a host wall — the user's actual screenshot topology): `_auto_join_wall` Pass 2 now snaps to the host **centerline** (was: face — the picked point visibly "jumped"), and `_tee_cope_corners` copes the end onto the host's near face at any angle (also heals legacy face-snapped tees on reload). 14 regression tests. `wall.py` (`_pie_miter_corners`, `_tee_cope_corners`, wedge-point fill), `model_space.py` (tee snap) [ref:wall-spec§5] [type:Bug] [P2] [subject:CAD] [done:2026-07-13]
@@ -782,6 +786,9 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 - [x] [type:maint] `underlay-workflow.md` broader levels-drift sweep [P3] [subject:Documentation] [done:2026-09-26]
   - Details: §10.7 was reconciled 2026-09-08 (`levels` is dialog-authored placement, overwritten on Modify), but §7.3/§16.6 (≈ lines 151/315/373/959/975) still describe levels as managed "exclusively from the Underlay Manager" with the "import dialog Level combo removed" — the pre-Rev-8 narrative, contradicted by §10.1 "Levels re-added". Sweep the whole spec to the Rev-8 dialog-authored-levels model. `docs/specs/underlay-workflow.md`.
   - Done: 2026-09-26 (doc-drift batch). §3.2 `levels`, §7.3 import behaviour, §7.4 reassignment rewritten to the Rev-8 model: dialog-authored (import + Modify via `_record_levels`, verified in `underlay_controller.py`) with the Manager Levels column as the post-import editor. §9.3 browser line + §16.6 were already consistent (a separate §5.4-vs-§9.3 Relink contradiction was filed).
+- [x] [type:maint] [cleanup:delete] Dead `SELECTION_OUTLINE_WIDTH_MM` + unused `SELECTION_OUTLINE_COLOR` import [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: found 2026-09-26 (doc-drift batch). Selection feedback moved to the manipulator's theme tokens, so `constants.SELECTION_OUTLINE_WIDTH_MM` has no reader and `model_space.py` imports `SELECTION_OUTLINE_COLOR` without using it (the only live reader is the polyline close ring in `geometry_drawing_controller.py`). Delete the constant + the import; grep tests first.
+  - Done: 2026-09-26 (headless cleanup batch). Deleted `constants.SELECTION_OUTLINE_WIDTH_MM` (no reader repo-wide) + the unused `SELECTION_OUTLINE_COLOR` import in `model_space.py`; constants comment now says selection colour is the theme tokens and `SELECTION_OUTLINE_COLOR` is the close-ring only. `grid-system.md` theming bullet re-pointed at the manipulator. Evidence: keep-green set (17 files + test_multi_sheet) 706 passed before and after; `import main` OK; full suite in alphabetical chunks (see commit).
 
 ## Pipe Placement Bug Fixes (from `docs/specs/pipe-placement-methodology.md` §9)
 
@@ -905,3 +912,9 @@ Shipped on `main` (Small tier: /todo:audit Census → /todo F1–F4 batch → gr
 - [x] [type:maint] Update refactoring.md [P3] [subject:Documentation] [done:2026-09-26]
   - Details: all identified problems remain unfixed and codebase has grown. Add notes about model_space.py growth (+482 lines), wall.py growth, and newly identified decomposition targets (detail_view.py, design_area.py, gridline.py). `docs/architecture/refactoring.md`.
   - Done: 2026-09-26 (doc-drift batch). Rewritten as a status page: each candidate re-verified against code and tagged (Model_Space decomposition in progress → spec link; new MainWindow decomposition entry; display_manager / undo / Fitting / wall / constants still open; design_area.py + gridline.py added as to-assess). detail_view.py NOT listed — it is small, not a real target. No LOC counts.
+
+## Multi-sheet management
+
+- [x] [type:maint] Stale `LEGACY_SHEET_KEYS` tuple [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: in `titleblock_template.py` still lists Title/Drawing No (docstring-only use) — trim to ("Rev","Date") on next touch.
+  - Done: 2026-09-26 (headless cleanup batch). Trimmed to ("Rev", "Date") — Title/Drawing No adopt into Sheet.name/number and drop (`paper_space` from_dict; `titleblock-template-system.md` already said so). Tuple has no code reader (docstring-only). Evidence: keep-green set (17 files + test_multi_sheet) 706 passed before and after; `import main` OK; full suite in alphabetical chunks (see commit).

@@ -1047,8 +1047,9 @@ def library_diverges(embedded: TitleBlockTemplate) -> bool:
 _LEGACY_PROJECT_KEYS = {"Company": "", "Project": "name",
                         "Drawn By": "", "Checked By": ""}
 
-# Sheet-scoped keys that stay per-sheet after migration (public for scene_io tests).
-LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
+# Sheet-scoped keys that stay per-sheet after migration. Title/Drawing No are
+# not here: they adopt into Sheet.name/number and drop (paper_space from_dict).
+LEGACY_SHEET_KEYS = ("Rev", "Date")
 
 
 def migrate_project_info(info) -> dict:

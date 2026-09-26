@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-09-10
-verified-commit: fd4d05f
+last-verified: 2026-09-26
+verified-commit: e96b6ae   # 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -51,7 +51,7 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 
 - **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules. Snap reads `line()`, which the parametric model keeps in sync.
 - **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is a Grid Line paper-category setting; there is no per-item property). See §10.2.
-- **Theming:** Selection-grip style (white fill + `SELECTION_OUTLINE_COLOR`) is owned by `docs/architecture/theming.md`. See §5 / §14.
+- **Theming:** Selection-grip style is the selection manipulator's (theme `selection` tokens — `selection-manipulator.md`; tokens in `docs/architecture/theming.md`). See §5 / §14.
 - **Constants:** Grid constant *values* live in `firepro3d/constants.py` (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors). This spec names them, not their values (Rule A).
 
 ## 4. Data Model (Parametric)

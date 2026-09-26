@@ -148,8 +148,8 @@ _DEFAULTS: list[SprinklerRecord] = [
 def _default_db_path() -> str:
     """Resolve the stable, per-user sprinkler-library path.
 
-    Mirrors ``titleblock_template._library_dir()``: roaming ``%APPDATA%`` on
-    Windows, falling back to the home directory elsewhere / when unset.
+    Resolved through the shared ``app_data.app_data_dir()`` (the Preferences
+    data-folder override, else roaming ``%APPDATA%`` / home + ``FirePro3D``).
     """
     return app_data_dir("sprinklers.json")
 
