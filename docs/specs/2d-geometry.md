@@ -7,8 +7,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-09-24
-verified-commit: 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
+last-verified: 2026-09-26
+verified-commit: dbeb8b6   # 2026-09-26 design grill: sec.4 close/pop either-point rule (ratified; build pending); prior 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -314,6 +314,19 @@ manipulator frame shows), via `Model_Space._end_placement_switch(item)` called a
 the last step of each commit, gated on `_SINGLE_PLACEMENT_MODES`. Chain tools
 (polyline, wall-polyline, floor-polygon) switch only when the chain **completes**
 (Enter / double-click / close-near-first / loop-close); mid-chain keeps drawing.
+
+**Close / pop test point with Ctrl — ratified 2026-09-26 (design grill, FP1; build
+pending, see `todo_open.md` "Close-near-first tests the tip or the cursor").** For
+polyline, floor-polygon and roof-polygon placement, close-near-first (≥3 vertices,
+within the 8 px close tolerance of vertex 0) fires when **either** the committed
+point (the Ctrl-constrained tip) **or** the snapped cursor is within tolerance —
+so a constrained tip that lands on vertex 0 closes instead of adding a
+near-duplicate vertex, and snapping onto vertex 0 with Ctrl held still closes.
+The close ring / preview follow whichever point triggered. Roof vertex-pop
+(click near an existing vertex to remove it) uses the same either-point rule.
+*(As-built divergence until the build lands: all three test the snapped cursor
+only.)* Rejected: committed-tip-only; cursor-only with duplicate suppression.
+
 Continuous modes (pipe/sprinkler/gridline) still re-arm every commit. **Esc**
 exits to Select in all modes. A mode is
 registered by adding rows to the dispatch tables: `_PRESS_DISPATCH`,
