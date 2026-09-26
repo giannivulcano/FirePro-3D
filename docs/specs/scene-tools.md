@@ -699,10 +699,15 @@ double-rotated ghost (moot — `halo_scene_path`).
 
 ## Existing Code Context
 
-- `firepro3d/scene_tools.py` — `SceneTools` (composed `scene._tools`): array,
-  `_apply_rotate/_scale/_mirror`, join/explode, break, fillet/chamfer commits,
+- `firepro3d/modify_tools_controller.py` — `ModifyToolsController`
+  (`scene._modify_ctl`, owns no state): Copy/Cut/Paste/Duplicate/Move/Rotate/
+  Offset/linear Array press/move/preview/commit + `start` / `clear` (D1–D11).
+- `firepro3d/transform_ghost.py` — ghost base paths (`ghost_base_paths`),
+  `paint_ghost`, dim/restore of the originals (D11).
+- `firepro3d/scene_tools.py` — `SceneTools` (composed `scene._tools`):
+  `_apply_scale/_mirror`, join/explode, break, fillet/chamfer commits,
   stretch, trim/extend/merge/constraint click handlers, align, pick helpers,
-  `_PadlockItem`.
+  `_PadlockItem`. (Array and Rotate moved to `ModifyToolsController`.)
 - `firepro3d/tool_geometry.py` — pure math: `extract_edges`, offset
   (`offset_polyline_pts`, `offset_signed_dist`, `inset_polygon`,
   `distance_to_item`, `offset_side_sign`, `offset_item` — D9),
@@ -710,13 +715,11 @@ double-rotated ghost (moot — `halo_scene_path`).
 - `firepro3d/model_space.py` — mode state machines: `set_mode` teardown,
   `_PRESS_DISPATCH` / `_MOVE_DISPATCH` / `_PREVIEW_DISPATCH`,
   `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE`, the tools' `_press_*` / `_move_*`,
-  `copy_selected_items` / `paste_items` / `move_items` / `duplicate_selected` /
-  `_clipboard_ghost_paths`, `complete_numeric_input`, `keyPressEvent`
-  (Ctrl+M/D/V, Enter commits), gridline replicate, `_inset_polygon`.
+  the modify-tool dispatch shells, `copy_selected_items` / `paste_items` /
+  `move_items`, `keyPressEvent` (Enter commits; Ctrl+C/X/V/D are window
+  `QShortcut`s, Ctrl+M retired), gridline replicate, `_inset_polygon`.
 - `firepro3d/model_view.py` — `_TOOL_SHORTCUTS` (draw tools only), Tab →
   `begin_dynamic_input`, stretch crossing band, plan context menu.
-- `firepro3d/array_dialog.py` — `ArrayDialog` (its opener
-  `_open_array_dialog` has no caller).
 - `main.py` — `_build_contextual_edit_group`, `_build_geo2d_context`,
   `_build_block_editor_context`, window `QShortcut`s (Ctrl+C/V/D, Shift+A).
 - `firepro3d/dynamic_input.py` — HUD schemas.

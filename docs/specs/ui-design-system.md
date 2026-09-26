@@ -486,7 +486,7 @@ follows these rules so every column reads as a proper rail:
    keeps its 3-button `Save / Save && Close / Close` box in-body). Remaining:
    `PreferencesDialog`, `DisplayManager`,
    `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,
-   `PaperExportDialog`, `ArrayDialog`, `CalibrateDialog`, `LevelDialog`,
+   `PaperExportDialog`, `CalibrateDialog`, `LevelDialog`,
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,
    `FSVisibilityDialog`, `SectionPatternDialog`, `SheetViewPropertiesDialog`,
    `_RecordEditDialog`, `AlgorithmParamsDialog`.
