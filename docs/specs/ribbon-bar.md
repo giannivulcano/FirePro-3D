@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-22
-verified-commit: af36ed6
+last-verified: 2026-09-26
+verified-commit: d9d6f20   # Block Editor Edit/Modify groups pointer; prior af36ed6
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -111,6 +111,8 @@ All ribbon QSS comes from `theme.build_ribbon_qss` at `RibbonBar` construction; 
 Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a two-token themed model (primary + accent roles, remapped per theme at load time). See `specs/icon-style-guide.md` for the full authoring contract, sentinel colors, per-theme token table, and fallback behavior. Do not restate token values here (Rule A: owned by `icon-style-guide.md`). *(The accent display value derives from `theme.accent` — one accent shared by icons, the ALIGN/SNAP status-bar pills, and the mode badge; see `icon-style-guide.md §4.2`.)* The `_I` closure in `init_ribbon` calls `themed_icon(name, current_theme)` and is evaluated once at ribbon-build time (runtime theme-switch is not a current feature).
 
 ### 3.8 Contextual tabs
+
+> **Block Editor page (2026-09-26):** after "2D Geometry" it carries the shared **Edit** and **Modify** groups (`build_edit_group` / `build_modify_group`, active-scene routed; modal buttons in `_block_mode_buttons`); the Modify-tool keys are window `QShortcut`s per §3.3. Behaviour + key map owned by `scene-tools.md` D1/D2.
 
 **Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement *group* — the authoring group, now in the **Block-Editor** contextual page (`_block_mode_buttons`), not a base tab (the Create tab was dissolved, C7) — is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
 

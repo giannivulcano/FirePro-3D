@@ -1,7 +1,7 @@
 ---
-status: partial          # as-built §1–§6 code-verified at c47ab60; as-intended D1–D15 ratified 2026-09-25 grill; implementation design I1–I5 approved; build pending
-last-verified: 2026-09-25
-verified-commit: c47ab60
+status: partial          # D1–D15 BUILT on feat/scene-tools-2d (unmerged) — full suite + user smoke pending; §1–§6 are the PRE-build as-built record at c47ab60
+last-verified: 2026-09-26
+verified-commit: d9d6f20   # branch feat/scene-tools-2d; prior c47ab60 (orphan-gate as-built audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -507,7 +507,7 @@ ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
   picks the side; (4) click/Enter commits a new item (source kept), one undo;
   (5) stays armed with the **last distance sticky**; Esc → Select. Too-large
   inward offset → no ghost + status "Offset too large", nothing created. Result
-  inherits the source's style (colour, linetype, fill, level). Per primitive
+  inherits the source's style (colour, lineweight, fill — 2D primitives carry no linetype and are level-less, C3; corrected 2026-09-26). Per primitive
   (**mitered corners** throughout): Line/RefLine → parallel of the **same type**;
   open polyline → mitered parallel polyline; closed polyline → closed, mitered at
   **every** vertex incl. the seam; Rect (incl. rotated) → rect ±d per side, same
@@ -566,7 +566,7 @@ ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
 
 ## Implementation design (approved 2026-09-25 brainstorm — Phase 3)
 
-Status: design approved by the user section-by-section; build pending. Mockup
+Status: design approved section-by-section; **built 2026-09-26** on `feat/scene-tools-2d` (see "Build deltas" below). Mockup
 gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
 4 px / α128 / glow 8 px + 1 px solid accent trace, α255); icons = the 9 in
 `.superpowers/brainstorm/*/content/modify-icons.html` approved as drawn.
@@ -681,6 +681,19 @@ double-rotated ghost (moot — `halo_scene_path`).
 7. Offset (all primitives).
 8. Linear Array.
 9. Dead-code retirement + import fix.
+
+### Build deltas (as-built 2026-09-26, ratified where noted)
+
+Where the build refined the design above (each reviewed; guards in `tests/test_modify_tools_*.py`, `tests/test_offset_item.py`, `tests/test_transform_ghost.py`):
+
+- **D9 sticky distance (user-ratified 2026-09-25):** a *typed* Distance stays locked for every next pick — the cursor only picks the side; typing `0` releases the lock (schema `offset_distance`, which admits 0); a click-derived distance only pre-fills the HUD. A typed value commits on the side the cursor held when the HUD engaged (the HUD freezes the cursor).
+- **D9 spline offset:** `tool_geometry.fit_offset_spline` — adaptive clamped least-squares fit to the true offset curve (≤ 1 % of |d|, extra control points allowed, C0 corner knots split and mitered/trimmed, closed seams mitered); never returns an out-of-tolerance fit (falls back). Live ghost: per-source cached linear fit (C0 + d·C1), zoom-adaptive sampling (≈ 1 px chord). **Known limits:** swallowtail self-intersections are not trimmed; the far-cursor 40-pt case repaints ≈ 30–35 ms (user-accepted; xfail) — both tracked by the "Trim self-intersecting spline offsets" follow-up. Inward closed offsets are refused unless the result lies inside the source.
+- **D9 snap:** in `offset_side` the source is excluded from snap targets (through-point snaps to other geometry stay live).
+- **D10 Enter:** bare Enter commits at the current aim (no aim → refusal status); no ghost is shown before an aim exists.
+- **D5/D13 paste gate:** the Block Editor accepts only the 2D registry types (allow-list); nothing is ever read from a bare-list clipboard; internal round-trips (array, copy-to-level) never touch the OS clipboard; Copy/Cut verify the clipboard write and refuse (Cut deletes nothing) if it did not land.
+- **Selection / undo:** Move re-selects its originals; Undo/Redo cancel an active modify tool first (`CANCEL_ON_UNDO_MODES`); New/Open end the active tool before clearing the scene (`scene_io._clear_scene`).
+- **Rotate commit** fixed `RectangleItem.manip_rotate` and `TextItem.manip_rotate` (compose about the item's own pivot, then translate — no new persisted state); governed by `selection-manipulator.md` (baked-at-rest rule).
+- **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
 
 ## Verification Checklist
 
