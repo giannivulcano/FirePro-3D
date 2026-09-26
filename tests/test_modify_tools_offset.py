@@ -238,3 +238,155 @@ def test_offset_hud_seeds_the_live_cursor_distance(qapp):
             pytest.approx(30.0, abs=0.05)
     finally:
         close_view(view, scene)
+
+
+# ── fix round (review G7) ────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("cursor, dist", [(QPointF(98, 4), 4.0),     # near endpoint
+                                          (QPointF(52, 3), 3.0),     # near midpoint
+                                          (QPointF(30, 5), 5.0)])    # near the line
+def test_offset_cursor_near_source_is_not_snapped_onto_it(qapp, cursor, dist):
+    """I-1: the source is excluded from snap targets in offset_side, so a
+    cursor inside the snap aperture of the source still sets side + distance."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")           # (0,0)-(100,0)
+        scene._modify_ctl.start("offset")
+        move(view, cursor)
+        assert scene._offset_dist == pytest.approx(dist, abs=0.05)     # [RED]
+        assert len(scene._move_ghost) == 1
+        click(view, cursor)
+        items = getattr(scene, attr)
+        assert len(items) == 2
+        assert items[-1].grip_points()[0].y() == pytest.approx(dist, abs=0.05)
+    finally:
+        close_view(view, scene)
+
+
+def test_offset_through_point_snaps_to_other_geometry(qapp):
+    """I-1: snaps to OTHER geometry stay live — the cursor near another
+    line's endpoint offsets THROUGH that endpoint."""
+    from firepro3d.geometry_2d import LineItem
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")           # (0,0)-(100,0)
+        other = LineItem(QPointF(100, 30), QPointF(200, 30))
+        scene.addItem(other); scene._draw_lines.append(other)
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(102, 28))                        # near (100, 30)
+        assert scene._offset_dist == pytest.approx(30.0, abs=1e-6)
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_zero_releases_the_locked_distance(qapp):
+    """D-2: typing 0 releases the typed lock — the cursor drives the distance
+    again (instead of the HUD refusing it)."""
+    view, scene = make_view(scale=1.0)
+    try:
+        line, attr = add_primitive(scene, "line")           # (0,0)-(100,0)
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(50, 40))
+        _type_distance(scene, "5")                          # locks 5
+        click(view, QPointF(50, 0))                         # next pick: locked
+        move(view, QPointF(50, -40))
+        assert scene._offset_dist == pytest.approx(5.0)
+        _type_distance(scene, "0")                          # release
+        assert scene.dynamic_input is None or not scene.dynamic_input.is_engaged()
+        move(view, QPointF(50, -30))
+        assert scene._offset_dist == pytest.approx(30.0, abs=0.05)     # [RED]
+        click(view, QPointF(50, -30))
+        ys = sorted(round(it.grip_points()[0].y(), 3) for it in getattr(scene, attr))
+        assert ys == [-30.0, 0.0, 5.0]
+    finally:
+        close_view(view, scene)
+
+
+def test_negative_typed_distance_is_refused(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(50, 40))
+        _type_distance(scene, "-5")
+        assert len(getattr(scene, attr)) == 1
+        assert scene.dynamic_input is not None              # stays open, flagged
+    finally:
+        close_view(view, scene)
+
+
+def test_removed_source_refuses_and_clears_ghost(qapp):
+    """M-1: the armed source left the scene -> no stale ghost, no commit."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(80, 0))
+        assert len(scene._move_ghost) == 1
+        scene.removeItem(item)
+        getattr(scene, attr).remove(item)
+        move(view, QPointF(90, 0))
+        assert scene._move_ghost == []                                  # [RED]
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert getattr(scene, attr) == []                               # [RED]
+        assert scene.mode == "offset"
+    finally:
+        close_view(view, scene)
+
+
+def test_status_uses_display_units(qapp):
+    """M-3: the live readout goes through ScaleManager.format_length."""
+    view, scene = make_view(scale=1.0)
+    try:
+        add_primitive(scene, "circle")                      # r=50
+        log = _statuses(scene)
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(80, 0))
+        assert f"Offset: {scene.scale_manager.format_length(30.0)}" in log  # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_enter_with_no_distance_says_what_to_do(qapp):
+    """M-5: preselected, no cursor move, Enter -> a status, nothing made."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")
+        log = _statuses(scene)
+        scene._modify_ctl.start("offset")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert len(getattr(scene, attr)) == 1
+        assert "Move the cursor or type a distance" in log              # [RED]
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("name", ["line", "polyline_closed", "rect", "circle",
+                                  "arc", "polygon", "ellipse", "spline"])
+def test_committed_item_inherits_style(qapp, name):
+    """D9 style inheritance, checked on the item the TOOL committed (the one
+    in the scene list after a real commit), not on offset_item's return."""
+    from PyQt6.QtGui import QColor
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, name)
+        pen = item.pen(); pen.setColor(QColor("#ab12cd")); pen.setWidthF(2.5)
+        item.setPen(pen)
+        if item.is_fillable():
+            item.fill_type = "hatch"
+            item.fill_pattern = "ANSI31"
+            item._display_fill_color = "#00ff00"
+            item.fill_opacity = 0.7
+        scene._modify_ctl.start("offset")
+        move(view, QPointF(400, -400))
+        _type_distance(scene, "5")
+        new = getattr(scene, attr)[-1]
+        assert new is not item and new.scene() is scene
+        assert new.pen().color().name() == "#ab12cd"
+        assert new.pen().widthF() == pytest.approx(2.5)
+        if item.is_fillable():
+            assert (new.fill_type, new.fill_pattern, new._display_fill_color,
+                    new.fill_opacity) == ("hatch", "ANSI31", "#00ff00",
+                                          pytest.approx(0.7))
+    finally:
+        close_view(view, scene)

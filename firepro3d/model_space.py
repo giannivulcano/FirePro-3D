@@ -2586,7 +2586,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             held = None     # S2 handle-snap marker: a handle's target, not a cursor snap
         res = self._snap_engine.find(
             scene_pos, self, _view.transform(),
-            exclude=self._grip_item if self._grip_dragging else None,
+            # Offset (D9): never snap onto the armed source — its own
+            # endpoints/midpoint/nearest would zero the distance; snaps to
+            # other geometry stay live ("through point").
+            exclude=(self._grip_item if self._grip_dragging
+                     else self._offset_source if self.mode == "offset_side"
+                     else None),
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,
@@ -2918,7 +2923,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
-        "offset_side": "distance",
+        "offset_side": "offset_distance",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }

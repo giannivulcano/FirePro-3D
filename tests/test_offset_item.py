@@ -202,3 +202,46 @@ def test_offset_side_sign(qapp):
     # left normal is +x)
     assert tg.offset_side_sign(_make("polyline_open"), QPointF(120, -80)) == 1.0
     assert tg.offset_side_sign(_make("polyline_open"), QPointF(80, -80)) == -1.0
+
+
+# ── fix round (review G7) ────────────────────────────────────────────────────
+
+def _closed_spline():
+    from firepro3d.geometry_2d import SplineItem
+    return SplineItem([QPointF(0, 0), QPointF(100, 0), QPointF(100, -100),
+                       QPointF(0, -100), QPointF(0, 0)])
+
+
+def test_closed_spline_offsets_closed_and_keeps_fill(qapp):
+    """I-2: a closed spline (first == last control point) offsets to a closed
+    spline — seam included — and keeps its fill; its side is inside/outside."""
+    src = _closed_spline()
+    assert src.is_closed()
+    src.fill_type = "solid"
+    out = tg.offset_item(src, 5.0)
+    assert out.is_closed()                                            # [RED]
+    assert out.fill_type == "solid" and out.is_fillable()
+    # outward: the loop grew on every side (seam corner included)
+    cps = out._control_points
+    assert (cps[0].x(), cps[0].y()) == pytest.approx((-5.0, 5.0))
+    inward = tg.offset_item(src, -5.0)
+    assert inward.is_closed()
+    assert (inward._control_points[0].x(),
+            inward._control_points[0].y()) == pytest.approx((5.0, -5.0))
+    # side: inside -> -1, outside -> +1, whatever the winding
+    assert tg.offset_side_sign(src, QPointF(50, -50)) == -1.0          # [RED]
+    assert tg.offset_side_sign(src, QPointF(300, -50)) == 1.0
+
+
+def test_uniform_degenerate_floor(qapp):
+    """M-2: an inward offset that leaves (almost) nothing is refused alike."""
+    assert tg.OFFSET_MIN_EXTENT_MM > 0
+    # hexagon inscribed R=50: apothem 43.301 -> 0.1 left
+    assert tg.offset_item(_make("polygon"), -43.2) is None             # [RED]
+    # 100 mm square -> 0.2 mm square
+    assert tg.offset_item(_make("polyline_closed"), -49.9) is None     # [RED]
+    assert tg.offset_item(_make("polyline_closed"), -49.0) is not None
+    # rect 100x50 -> 0.2 mm tall
+    assert tg.offset_item(_make("rect"), -24.9) is None                # [RED]
+    assert tg.offset_item(_make("arc"), -49.9) is None                 # [RED]
+    assert tg.offset_item(_make("ellipse"), -39.9) is None

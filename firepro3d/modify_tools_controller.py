@@ -268,6 +268,31 @@ class ModifyToolsController:
     # the next pick). The ghost is the candidate item's trace in _move_ghost.
 
     OFFSET_TOO_LARGE = "Offset too large"
+    OFFSET_NO_DISTANCE = "Move the cursor or type a distance"
+    OFFSET_SOURCE_GONE = "Offset source no longer exists — pick object to offset"
+
+    def _fmt_len(self, mm: float) -> str:
+        """Display-unit length (units-and-formatting.md: ScaleManager owns it)."""
+        sm = getattr(self._scene, "scale_manager", None)
+        return sm.format_length(mm) if sm is not None else f"{mm:.1f} mm"
+
+    def _drop_dead_source(self) -> bool:
+        """M-1: the armed source left the scene -> clear it, re-arm the pick.
+
+        Returns:
+            True when the source was dead (and has been dropped).
+        """
+        s = self._scene
+        src = s._offset_source
+        if src is None or src.scene() is s:
+            return False
+        s._move_ghost = []
+        s.clear_placement_state()
+        s.set_mode("offset")
+        s._show_status(self.OFFSET_SOURCE_GONE, 3000)
+        for v in s.views():
+            v.viewport().update()
+        return True
 
     @staticmethod
     def _offsettable(it) -> bool:
@@ -321,7 +346,7 @@ class ModifyToolsController:
         s.preview_node.hide()
         s.preview_pipe.hide()
         src = s._offset_source
-        if src is None or src.scene() is not s:
+        if src is None or self._drop_dead_source():
             return
         if not s._offset_typed:
             s._offset_dist = tg.distance_to_item(src, snapped)
@@ -346,7 +371,7 @@ class ModifyToolsController:
         if cand is None and s._offset_dist > 0:
             s._show_status(self.OFFSET_TOO_LARGE, 0)
         elif cand is not None:
-            s._show_status(f"Offset: {s._offset_dist:.1f} mm", 0)
+            s._show_status(f"Offset: {self._fmt_len(s._offset_dist)}", 0)
         for v in s.views():
             v.viewport().update()
 
@@ -358,7 +383,10 @@ class ModifyToolsController:
             distance, or too large inward ("Offset too large", nothing made).
         """
         s = self._scene
-        if s._offset_source is None or s._offset_dist <= 0:
+        if s._offset_source is None or self._drop_dead_source():
+            return False
+        if s._offset_dist <= 0:
+            s._show_status(self.OFFSET_NO_DISTANCE, 3000)
             return False
         new = self._offset_candidate()
         if new is None:
@@ -375,7 +403,7 @@ class ModifyToolsController:
         s._move_ghost = []
         s.clear_placement_state()
         s.set_mode("offset")                    # re-arm (D9 step 5)
-        s._show_status(f"Offset {s._offset_sticky:.1f} mm", 3000)
+        s._show_status(f"Offset {self._fmt_len(s._offset_sticky)}", 3000)
         return True
 
     def press_offset_side(self, event, pos, snapped, *_):
@@ -385,9 +413,25 @@ class ModifyToolsController:
     def apply_offset_distance(self, params: dict) -> bool:
         """Typed Distance (``distance`` schema): commit at that distance on the
         side the cursor last picked; a refusal keeps the HUD open."""
+        from . import tool_geometry as tg
         s = self._scene
+        typed = float(params["distance"])
+        if typed < 0:
+            s._show_status("Distance must be positive (0 = follow the cursor)", 3000)
+            return False
+        if typed == 0:
+            # D-2: 0 releases a typed (locked) distance — the cursor drives
+            # the distance again, from where it is now.
+            s._offset_typed = False
+            s._offset_sticky_locked = False
+            p = s.get_resolved_point()
+            src = s._offset_source
+            s._offset_dist = (tg.distance_to_item(src, p)
+                              if p is not None and src is not None else 0.0)
+            self._refresh_offset_ghost()
+            return True
         prev = (s._offset_dist, s._offset_typed)
-        s._offset_dist = abs(float(params["distance"]))
+        s._offset_dist = typed
         s._offset_typed = True
         if self.commit_offset():
             return True

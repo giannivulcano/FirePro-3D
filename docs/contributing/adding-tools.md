@@ -76,20 +76,24 @@ class SceneToolsMixin:
 
 ### Existing Tool Example: Offset
 
-For reference, here is how the offset tool computes perpendicular distance to determine the offset side. This shows the typical pattern of helper methods supporting the main tool:
+For reference, the Offset tool (`docs/specs/scene-tools.md` D9) keeps its pure
+geometry in `firepro3d/tool_geometry.py` and its gesture in
+`firepro3d/modify_tools_controller.py`; `Model_Space` only holds thin dispatch
+shells. The cursor handler measures the true distance to the source's drawn
+geometry, picks the side, and previews the candidate item as the ghost:
 
 ```python
-def _perpendicular_distance(self, source, pt: QPointF) -> float:
-    """Return the perpendicular distance from *pt* to *source* entity."""
-    if isinstance(source, LineItem):
-        line = source.line()
-        p1 = source.mapToScene(line.p1())
-        p2 = source.mapToScene(line.p2())
-        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
-        seg_len = math.hypot(dx, dy)
-        if seg_len < 1e-10:
-            return math.hypot(pt.x() - p1.x(), pt.y() - p1.y())
-        return abs(dx * (p1.y() - pt.y()) - dy * (p1.x() - pt.x())) / seg_len
+def move_offset_side(self, event, snapped):
+    from . import tool_geometry as tg
+    s = self._scene
+    src = s._offset_source
+    if src is None or self._drop_dead_source():
+        return
+    if not s._offset_typed:                      # a typed distance is locked
+        s._offset_dist = tg.distance_to_item(src, snapped)
+    s._offset_side = tg.offset_side_sign(src, snapped)
+    self._refresh_offset_ghost()                 # ghost = offset_item(...) trace
+    s.publish_placement_state(snapped, snapped)  # seeds the Distance HUD
 ```
 
 ### Wire Into Model_Space Mouse Events

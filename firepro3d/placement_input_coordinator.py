@@ -1081,7 +1081,7 @@ class PlacementInputCoordinator:
                 span += 360.0
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
-        if self._scene.mode == "offset_side" and schema.name == "distance":
+        if schema.name == "offset_distance":
             # D9: the live cursor distance (or the sticky last distance before
             # the first move). Must precede the gridline replicate fallback
             # below, which reads gridline state (``_replicate_spacing``).

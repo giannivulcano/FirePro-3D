@@ -378,6 +378,17 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_distance,
         returns_point=False,
     ),
+    # Offset tool (scene-tools.md D9): like ``distance`` but 0 is accepted —
+    # typing 0 releases a typed (locked) distance so the cursor drives it
+    # again; negatives parse and are refused by the applier (red border).
+    "offset_distance": Schema(
+        name="offset_distance",
+        fields=(
+            FieldSpec("Distance", "Dist", FieldKind.DIMENSION, minimum=None),
+        ),
+        resolve=resolve_distance,
+        returns_point=False,
+    ),
     "spacing_count": Schema(
         name="spacing_count",
         fields=(

@@ -245,6 +245,12 @@ def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
 # OFFSET (scene-tools.md D9) — offset_item + its cursor measures
 # ─────────────────────────────────────────────────────────────────────────────
 
+# One degenerate floor for every inward offset (review G7 M-2): a result whose
+# defining half-extent (radius, semi-axis, apothem, half-width, half an edge)
+# would be at or below this is refused ("Offset too large"). Matches the
+# ellipse anti-degeneracy floor; the circle keeps its own larger 1 mm floor.
+OFFSET_MIN_EXTENT_MM = _ELLIPSE_AXIS_MIN
+
 def inset_polygon(pts: list, dist: float) -> "list[QPointF] | None":
     """Offset a closed polygon inward by *dist* (negative = outward).
 
@@ -351,7 +357,25 @@ def _is_closed_shape(item) -> bool:
     """True for shapes whose offset side is inside/outside (D9)."""
     return (isinstance(item, (RectangleItem, CircleItem, RegularPolygonItem,
                               EllipseItem))
-            or (isinstance(item, PolylineItem) and item.is_closed()))
+            or (isinstance(item, (PolylineItem, SplineItem))
+                and item.is_closed()))
+
+
+def _offset_closed_loop(pts, d):
+    """Mitered offset of a closed vertex loop (+d outward), or None if it
+    collapses, inverts or leaves an edge at/below the degenerate floor."""
+    new_pts = inset_polygon(pts, -d)
+    if new_pts is None or not _inset_ok(pts, new_pts):
+        return None
+    n = len(pts)
+    for i in range(n):
+        j = (i + 1) % n
+        src_len = math.hypot(pts[j].x() - pts[i].x(), pts[j].y() - pts[i].y())
+        new_len = math.hypot(new_pts[j].x() - new_pts[i].x(),
+                             new_pts[j].y() - new_pts[i].y())
+        if src_len > 2 * OFFSET_MIN_EXTENT_MM and new_len <= 2 * OFFSET_MIN_EXTENT_MM:
+            return None
+    return new_pts
 
 
 def offset_side_sign(item, pt: QPointF) -> float:
@@ -402,9 +426,7 @@ def offset_item(src, signed_d: float):
     if isinstance(src, PolylineItem):
         pts = list(src._points)
         if src.is_closed():
-            new_pts = inset_polygon(pts, -d)
-            if new_pts is not None and not _inset_ok(pts, new_pts):
-                return None
+            new_pts = _offset_closed_loop(pts, d)
         else:
             new_pts = offset_polyline_pts(pts, d)
         if not new_pts or len(new_pts) < 2:
@@ -415,7 +437,7 @@ def offset_item(src, signed_d: float):
         return new
     if isinstance(src, RectangleItem):
         r = src.rect().adjusted(-d, -d, d, d)
-        if r.width() <= 0 or r.height() <= 0:
+        if min(r.width(), r.height()) / 2 <= OFFSET_MIN_EXTENT_MM:
             return None
         new = _clone(src)
         new.prepareGeometryChange()
@@ -431,7 +453,7 @@ def offset_item(src, signed_d: float):
         new.set_radius(src._radius + d)
         return new
     if isinstance(src, ArcItem):
-        if src._radius + d <= 0.01:        # ArcItem's own floor
+        if src._radius + d <= OFFSET_MIN_EXTENT_MM:
             return None
         new = _clone(src)
         new.set_radius(src._radius + d)
@@ -440,14 +462,16 @@ def offset_item(src, signed_d: float):
         # Stored radius is the circumradius (inscribed) or the apothem
         # (circumscribed); the apothem moves by exactly d either way.
         n = src._sides
-        step = d / math.cos(math.pi / n) if src._inscribed else d
-        if src._radius_mm + step <= 0:
+        c = math.cos(math.pi / n)
+        apothem = src._radius_mm * c if src._inscribed else src._radius_mm
+        if apothem + d <= OFFSET_MIN_EXTENT_MM:
             return None
+        step = d / c if src._inscribed else d
         new = _clone(src)
         new.set_radius(src._radius_mm + step)
         return new
     if isinstance(src, EllipseItem):
-        if min(src._rx, src._ry) + d <= _ELLIPSE_AXIS_MIN:
+        if min(src._rx, src._ry) + d <= OFFSET_MIN_EXTENT_MM:
             return None
         new = _clone(src)
         new.set_rx(src._rx + d)
@@ -458,7 +482,15 @@ def offset_item(src, signed_d: float):
         cps = list(src._control_points)
         if len(cps) < 2:
             return None
-        new_cps = offset_polyline_pts(cps, d)
+        if src.is_closed():
+            # Closed loop (first == last): offset the control LOOP mitered
+            # at every vertex incl. the seam, then re-close (I-2).
+            loop = _offset_closed_loop(cps[:-1], d)
+            if loop is None:
+                return None
+            new_cps = loop + [QPointF(loop[0])]
+        else:
+            new_cps = offset_polyline_pts(cps, d)
         new = _clone(src)
         new._control_points = [QPointF(p) for p in new_cps]
         new._regenerate()

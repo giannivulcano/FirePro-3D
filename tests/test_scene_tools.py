@@ -6,7 +6,7 @@ Covers:
 - Break / break-at-point logic
 - extract_edges helper
 - _get_item_segments
-- _offset_signed_dist (side detection)
+- offset_signed_dist (side detection)
 """
 
 from __future__ import annotations
@@ -251,7 +251,8 @@ class TestPerpendicularDistance:
 
 
 class TestOffsetSignedDist:
-    """SceneTools._offset_signed_dist — side detection."""
+    """tool_geometry.offset_signed_dist — side detection (the SceneTools
+    wrapper had no production caller left and was retired, review G7 M-4)."""
 
     def test_line_left_side_positive(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -259,49 +260,49 @@ class TestOffsetSignedDist:
         # Point above the line (y > 0) is on the left for rightward segment
         # Cross product: dx*(side_y - p1_y) - dy*(side_x - p1_x)
         # 100*(50-0) - 0*(50-0) = 5000 > 0 => left => positive
-        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, 50))
+        sd = tg.offset_signed_dist(line, 10.0, QPointF(50, 50))
         assert sd == 10.0
 
     def test_line_right_side_negative(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, -50))
+        sd = tg.offset_signed_dist(line, 10.0, QPointF(50, -50))
         assert sd == -10.0
 
     def test_circle_outside_positive(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(100, 0))
+        sd = tg.offset_signed_dist(circle, 10.0, QPointF(100, 0))
         assert sd == 10.0  # outside => grow
 
     def test_circle_inside_negative(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(10, 0))
+        sd = tg.offset_signed_dist(circle, 10.0, QPointF(10, 0))
         assert sd == -10.0  # inside => shrink
 
     def test_rectangle_outside_positive(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(150, 50))
+        sd = tg.offset_signed_dist(rect, 5.0, QPointF(150, 50))
         assert sd == 5.0
 
     def test_rectangle_inside_negative(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(50, 50))
+        sd = tg.offset_signed_dist(rect, 5.0, QPointF(50, 50))
         assert sd == -5.0
 
     def test_arc_outside_positive(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(80, 0))
+        sd = tg.offset_signed_dist(arc, 10.0, QPointF(80, 0))
         assert sd == 10.0
 
     def test_arc_inside_negative(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(10, 0))
+        sd = tg.offset_signed_dist(arc, 10.0, QPointF(10, 0))
         assert sd == -10.0
 
 

@@ -165,10 +165,6 @@ class SceneTools:
         """Delegates to :func:`tool_geometry.offset_polyline_pts`."""
         return tool_geometry.offset_polyline_pts(pts, signed_dist)
 
-    def _offset_signed_dist(self, source, dist: float, side_pt: QPointF) -> float:
-        """Delegates to :func:`tool_geometry.offset_signed_dist`."""
-        return tool_geometry.offset_signed_dist(source, dist, side_pt)
-
     # Offset item creation, the cursor distance and the preview live in
     # tool_geometry.offset_item / distance_to_item and ModifyToolsController
     # (scene-tools.md D9).

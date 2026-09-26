@@ -33,7 +33,7 @@ class TestRegistry:
     def test_schemas_registered(self):
         assert set(SCHEMAS) == {
             "line", "circle", "polygon",
-            "displacement", "distance", "spacing_count",
+            "displacement", "distance", "offset_distance", "spacing_count",
             "arc_span", "arc_radius", "rotation", "rotate_by", "track",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
