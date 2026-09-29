@@ -68,6 +68,7 @@ def _placeholder_op(t) -> tuple:
     path.moveTo(-h, -h)
     path.lineTo(h, h)
     pen = QPen(QColor(_PLACEHOLDER_COLOR))
+    pen.setCosmetic(True)               # match BlockInstance's orphan placeholder
     return (pen, QBrush(Qt.BrushStyle.NoBrush), t.map(path))
 
 

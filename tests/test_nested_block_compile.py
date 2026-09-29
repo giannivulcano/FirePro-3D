@@ -184,8 +184,11 @@ def test_nested_text_snap_points_are_mapped(qapp):
 def test_origin_assignment_clears_caches(qapp):
     d = _line_def("B")
     first = d.render_ops()
+    before = first[0][2].boundingRect()
     d.origin = (10.0, 0.0)
     assert d.render_ops() is not first
+    after = d.render_ops()[0][2].boundingRect()
+    assert after == before.translated(-10.0, 0.0)          # geometry moved too
 
 
 def test_compile_survives_a_corrupt_cycle(qapp):
@@ -283,3 +286,85 @@ def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
     finally:
         for w in (wa, wb):
             w.editor_scene.cleanup()
+
+
+def _undo_redo_cycles(scene, n):
+    for _ in range(n):
+        scene.undo()
+        scene.redo()
+
+
+def test_editor_undo_redo_leaves_project_backrefs_unchanged(qapp):
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(a)
+    proj.place_block_instance(b.id, (0.0, 0.0))
+    n0 = len(b._instances)
+    w = _editor(proj, a.id)
+    try:
+        w.seed_from_definition(a)
+        w.editor_scene.place_block_instance(b.id, (300.0, 0.0))
+        w.editor_scene.push_undo_state()
+        _undo_redo_cycles(w.editor_scene, 5)
+        assert len(b._instances) == n0
+    finally:
+        w.editor_scene.cleanup()
+
+
+def test_closed_editor_scene_is_freed(qapp):
+    import gc
+    import weakref
+    from PyQt6.QtWidgets import QTabWidget
+    from PyQt6.QtCore import QEvent
+    from firepro3d.block_editor import BlockEditorManager
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(a)
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, proj)
+    refs = []
+    for mode in ("close", "forget"):
+        w = mgr.open_for_definition(a.id)
+        w.seed_from_definition(a)
+        refs.append(weakref.ref(w.editor_scene))
+        w.editor_scene.cleanup()
+        if mode == "close":
+            mgr.close(w)
+        else:                                  # main.py tab-close order
+            mgr.forget(w)
+            tabs.removeTab(tabs.indexOf(w))
+            w.deleteLater()
+        del w
+    for _ in range(3):
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+        QApplication.processEvents()
+        gc.collect()
+    assert [r() for r in refs] == [None, None]
+    assert len(b._instances) == 0
+
+
+def test_default_origin_excludes_instance_pen_margin(qapp):
+    proj = Model_Space()
+    b = _line_def("B", 0, 100, 0)
+    proj.register_block_definition(b)
+    w = _editor(proj)
+    try:
+        w.editor_scene.place_block_instance(b.id, (0.0, 0.0))
+        ln = LineItem(QPointF(0, 50), QPointF(100, 50))
+        w._add_primitive(ln)
+        o = w.origin_point()
+        assert (o.x(), o.y()) == (0.0, 0.0)
+    finally:
+        w.editor_scene.cleanup()
+
+
+def test_nested_placeholder_pen_is_cosmetic(qapp):
+    sc = Model_Space()
+    a = _line_def("A", 0, 1, 0, extra=[_nested("deadbeef", 300, 300)])
+    sc.register_block_definition(a)
+    ph = [op for op in a.render_ops() if op[0].color() == QColor("#c0392b")]
+    assert ph and ph[0][0].isCosmetic()

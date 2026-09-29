@@ -1606,8 +1606,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         new_defn._instances = []
         for inst in self._block_instances:
             if inst.block_id == block_id:
-                new_defn._instances.append(inst)
-                inst.on_definition_changed()
+                new_defn._instances.append(inst)   # registry.add already repainted
 
     def reload_block_definition(self, block_id: str, root: str | None = None) -> bool:
         """Pull the library copy of *block_id* into the embedded registry.
@@ -1709,8 +1708,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         inst.set_block_rotation(rotation)
         self.addItem(inst)
         self._block_instances.append(inst)
+        # Backref only when the definition lives in THIS scene's own store: a
+        # Block Editor resolves through the borrowed project registry, and its
+        # instances repaint via registry.invalidate (it walks attached scenes).
+        # A backref there would pin closed editors and grow on every undo.
         d = self.get_block_definition(block_id)
-        if d is not None:
+        if d is not None and self._block_definitions.get(block_id) is d:
             d._instances.append(inst)   # backref for edit-propagation
         self.blockInstancesChanged.emit()
         return inst
@@ -1722,7 +1725,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if inst in self._block_instances:
             self._block_instances.remove(inst)
         d = self.get_block_definition(inst.block_id)
-        if d is not None and inst in d._instances:
+        if (d is not None and self._block_definitions.get(inst.block_id) is d
+                and inst in d._instances):
             d._instances.remove(inst)
         self.blockInstancesChanged.emit()
 

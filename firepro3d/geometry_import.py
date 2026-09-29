@@ -40,6 +40,9 @@ def _geometric_bbox(item):
         xs = [p.x() for p in pts]
         ys = [p.y() for p in pts]
         return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+    if hasattr(item, "geometric_rect"):
+        # BlockInstance: pen-free posed bounds (boundingRect adds a pen margin).
+        return item.geometric_rect()
     # Fallback for unknown item types — use sceneBoundingRect.
     return item.sceneBoundingRect()
 

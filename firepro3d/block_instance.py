@@ -121,6 +121,10 @@ class BlockInstance(QGraphicsObject):
     def _posed_path(self) -> QPainterPath:
         return self.pose_transform().map(self._local_path())
 
+    def geometric_rect(self) -> QRectF:
+        """Pen-free posed geometry bounds (for origin / bbox computations)."""
+        return self._posed_path().boundingRect()
+
     def boundingRect(self) -> QRectF:
         r = self._posed_path().boundingRect()
         m = 2.0  # pen margin (mm)
