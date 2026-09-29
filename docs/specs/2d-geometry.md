@@ -7,8 +7,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-09-26
-verified-commit: dbeb8b6   # 2026-09-26 design grill: sec.4 close/pop either-point rule (ratified; build pending); prior 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
+last-verified: 2026-09-29
+verified-commit: 4c48685   # Arc Span panel cap; prior dbeb8b6   # 2026-09-26 design grill: sec.4 close/pop either-point rule (ratified; build pending); prior 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -505,6 +505,8 @@ They are the **single** mutation path shared by the readout HUD and the property
 No rotation-angle readouts (rect / ellipse / polygon). **Panel fold-in:**
 - Line Length, Rect Width/Height, Circle Radius and Arc Radius/Span become editable
   unit-formatted dimension rows (Span is angle-typed), routed to the same setters.
+  The Span row carries `maximum = 360 − 1e-6` (property-panel §3.8), so an entry
+  ≥ 360 reverts in the field (2026-09-29).
 - The ellipse rows are relabelled `R1` / `R2`.
 - Panel dimension edits go through `Geometry2DMixin._dim_edit`: no undo step when nothing changed; otherwise `_push_undo` → `Model_Space.request_undo_push`, so a multi-target panel commit (inside `deferred_undo_push()`) is **one** undo step. Circle/Arc radius rows carry the setter floor as `minimum`.
 

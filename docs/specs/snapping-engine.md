@@ -319,6 +319,8 @@ The 8 base marker glyphs from §4 plus the 2 named-target variants from §8 are 
 
 Exactly one marker is drawn per `find()` call. If `find()` returns `None`, no marker. If multiple candidates tie on the picker, the picker breaks the tie deterministically (first-found wins after Changes A + B from §6.3).
 
+**Orientation (2026-09-29, verified-commit `b22f00b`; user-ratified).** Every glyph is rotated to lie along the snapped geometry's local tangent at the snap point (an endpoint square on a 45° line renders as ◇; the ⊥ legs run along the line and its normal). `snap_tangent_deg(result)` resolves the scene-space heading: the nearest `source_lines` segment (intersection X, ALIGN rays — the first line wins a tie); else the nearest segment of the `source_item`'s own line / path / ellipse / rect geometry in scene coords (a polyline corner takes its first leg in path order; curves use the flattened path); else the item's scene rotation (text, blocks, underlay groups). The heading is mapped through the float `viewportTransform()` and folded into [−90°, 90°) — a segment's direction is defined only mod 180° — so a horizontal line keeps today's upright glyphs; an axis-aligned result keeps the crisp non-antialiased render. **Known gap:** underlay snaps report the whole group (the snap index carries no segment), so their glyph takes the group's rotation, not the DXF segment's (follow-up filed). Guards: `tests/test_snap_glyph_orientation.py`.
+
 ### 9.2.1 Snap trace highlighting
 
 When a snap result has a `source_item`, `Model_View.drawForeground()` draws a dashed-line trace in the snap type's color. Highlighting rules:

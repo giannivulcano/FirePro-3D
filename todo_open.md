@@ -285,10 +285,6 @@
   - Details: user-agreed follow-up, 2026-09-24 — v1 only hides labels that don't fit their segment/arc; labels from adjacent features can still collide. Add a simple de-overlap pass if it bites in use. ref: 2d-geometry (readouts section).
 - [ ] [type:bug] Selection readouts: labels paint over manipulator grips [P3] [subject:UX]
   - Details: 2026-09-24 seam review M7 — readouts are drawn in `Model_View.drawForeground`, after the manipulator's `_HandleItem` grips, so an overlapping label hides a grip that still wins the pick. No overlap at the shipped offsets; revisit if it shows. `model_view.py`, `selection_readouts.py`. ref: selection-mode §15.
-- [ ] [type:bug] Right-click while a readout edit is open still opens the context menu [P3] [subject:UX]
-  - Details: 2026-09-24 seam review M8 — the press cancels the edit and is consumed, but Qt still delivers `contextMenuEvent`. Suppress it while `readouts.is_editing()` if unwanted. `model_view.py`, `model_space.py`. ref: selection-mode §15.
-- [ ] [type:bug] Arc Span panel row rejects >= 360 silently [P3] [subject:UX]
-  - Details: 2026-09-24 seam review M9 — `ArcItem.set_property("Span")` ignores values outside (0, 360) but no `maximum` reaches the panel's `DimensionEdit`, so there is no red-border feedback. Pass a maximum through the dimension row meta. `geometry_2d.py`, `property_manager.py`, `dimension_edit.py`.
 - [ ] [type:maint] `Model_Space._on_selection_changed` full-repaints every view on each selection change [P3] [subject:Architecture]
   - Details: 2026-09-24 readouts fix round — pre-existing (gridline spacing / underlay record path) `for v in self.views(): v.viewport().update()` on every selection change, plan + editor scenes. Bench on a large plan drawing; repaint only the gridline-spacing overlay region if it costs. `model_space.py`. Memory: prioritize performance in scene iteration.
 - [ ] [type:maint] Extend panel undo coalescing beyond 2D-geometry setters [P3] [subject:Architecture]
@@ -403,6 +399,8 @@
 
 ## Snapping Engine Roadmap (from `docs/specs/snapping-engine.md` §12)
 
+- [ ] [type:feature] Underlay snap glyphs orient to the DXF/PDF segment, not the underlay group [P3] [subject:CAD]
+  - Details: follow-up of the 2026-09-29 glyph-orientation task (snapping-engine §9.2 "Known gap"). `_query_underlay_snaps` calls `ctx.check(..., group, ...)` with no segment, so `snap_tangent_deg` falls back to the group's scene rotation. Carry the index geometry's segment (as `source_lines`) on underlay candidates — check the trace path doesn't then light up differently. `snap_engine.py`, `underlay_snap_index.py`.
 - [ ] [type:maint] F3 integration test on real keypress [P3] [subject:Testing]
   - Details: QTest.keyClick did not dispatch through QAction shortcut on headless Windows; investigate pytest-qt / qtbot or alternate dispatch.
 - [ ] [type:design] Spec session: pipe-with-fitting named targets [P2] [subject:CAD]
@@ -708,6 +706,9 @@
   - Details: follow-up of the 2026-09-23 GC access-violation fix, which converted only the proven paper-scene `indexChanged` / `add_text_mode_toggled` lambdas to bound methods. Others remain (`levelsChanged`, project-browser `activateModelSpace`/`sheetSelected`, QAction/QShortcut `triggered`/`activated`, …) — none proven to emit during destruction. Convert any whose sender can outlive the MainWindow (parentless / Python-owned) to bound methods; the rest are low-risk children. `main.py`, `docs/specs/test-harness.md` Invariant 6.
 - [ ] [type:maint] `test_text_inline_routing.py` real-input tests flake in full-suite runs only [P3] [subject:Testing]
   - Details: block polish 2026-09-23 — two DIFFERENT tests failed once each in 14-min full runs and pass 3/3 in isolation: `test_ctrl_c_ctrl_v_while_editing_leave_scene_untouched` (system clipboard) and `test_drag_inside_selects_text_not_moves` (posted mouse drag). Likely window-activation/focus or shared-clipboard state leaking from an earlier test. Suspect the same lingering-MainWindow family as the module-singleton fixture item below. ref: `test-harness.md`.
+  - Sighting 2026-09-29 (readout/glyph batch VC6): `test_lost_release_mid_session_does_not_hijack_next_handle_drag` failed once in the s-z chunk (main checkout), passed 3/3 alone and in a same-change positive-control chunk in a `%TEMP%` worktree; base s-z chunk clean once — not yet proven pre-existing.
+- [ ] [type:maint] `test_snap_curve_accuracy.py` real-input tests flake as a whole file (pre-existing at base) [P3] [subject:Testing]
+  - Details: found 2026-09-29 (readout/glyph batch VC7). At base `1965c66` in a `%TEMP%` worktree the isolated file failed 4 tests at once (`test_circle_endpoint_lands_on_circle[0.25/1.0]`, `test_arc_outside_cursor_lands_on_arc`, `test_ellipse_outside_cursor_lands_on_curve`) on ~1 run in 8; alternating base/HEAD A/B showed the same rate either side. All use `_drag_line_end_to` real-input drags — same class as the real-input offset/array flake. Likely window activation/focus; check the drag helper's exposure/activation wait.
 - [ ] [type:maint] Module-singleton MainWindow fixtures never actually delete the window [P3] [subject:Testing]
   - Details: found 2026-09-23. `close()` + `deleteLater()` (+ `processEvents()`) does not dispatch DeferredDelete at that loop level, so the window lingers until an unrelated later test's pump flushes it — its destruction-time signals then fire mid-way through another module (why native crashes *move* with selection) and windows/VTK contexts accumulate. Fix direction: a shared conftest teardown helper that closes, `deleteLater()`s and `QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)` + `gc.collect()` deterministically; migrate the ~10 `_main_window_singleton`/`_mw` fixtures. `tests/conftest.py`, test-harness.md Invariant 6 fixture note.
 

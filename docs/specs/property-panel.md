@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-22   # color row → ui_kit.Swatch/colour_picker + generic `disabled`/`allow_none` meta (todo #70); prior 2026-09-19 header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
-verified-commit: af36ed6
+last-verified: 2026-09-29   # dimension `maximum` meta (Arc Span cap); prior 2026-09-22   # color row → ui_kit.Swatch/colour_picker + generic `disabled`/`allow_none` meta (todo #70); prior 2026-09-19 header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
+verified-commit: 4c48685   # prior af36ed6
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -45,7 +45,7 @@ Non-entity **adapter clients** implement this protocol as plain objects (not `QG
 | `enum` / `combo` | `QComboBox` from `options` | `currentTextChanged` |
 | `color` | `ui_kit.Swatch` (painted chip + hex label) → the house picker `colour_picker.pick_colour` (`ui-design-system.md` D6); optional meta `allow_none` offers **No Fill** (emits `""`); the Swatch `context` is the property key; cancel changes nothing | `colorChanged` |
 | `level_ref` | `QComboBox` populated from `LevelManager.levels` | `currentTextChanged` |
-| `dimension` | `DimensionEdit` seeded from `meta["value_mm"]`; optional meta keys `parser`, `minimum`, `formatter` pass through (§3.8) | `editingFinished` → `value_mm()` |
+| `dimension` | `DimensionEdit` seeded from `meta["value_mm"]`; optional meta keys `parser`, `minimum`, `maximum`, `formatter` pass through (§3.8) | `editingFinished` → `value_mm()` |
 | `bool` | `_MixedStateCheckBox` — Word-like tristate: `PartiallyChecked` is display-only for mixed multi-select; `nextCheckState` resolves partial → checked and clicks never cycle back into partial. Commits on **`clicked`**, not `toggled` (Qt's partial state reports `isChecked()` True, so the partial→checked click never fires `toggled`). Theme styles `::indicator:indeterminate` (accent fill) — without it the QSS renders partial identically to unchecked. | `clicked` → `isChecked()` |
 | `font` | `QFontComboBox` (seeded via `setCurrentFont` when value truthy) | `currentFontChanged` → `family()` |
 | `button` | `QPushButton` labelled `value`; fires `meta["callback"]` (exceptions swallowed), then debounced refresh | click |
@@ -95,7 +95,7 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 
 `QLineEdit` storing **mm** internally; displays via `ScaleManager.format_length`; parses via `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())`; empty/invalid input **reverts** to last valid value; `valueChanged(float mm)` on successful commit; select-all on focus. Per project convention (CLAUDE.md / memory), *all* dimension fields use this pattern — never `QDoubleSpinBox`.
 
-**Optional overrides (added 2026-07-09, resolving D4):** `parser` (callable `str -> float|None`, replaces the whole parse path incl. fallback unit), `minimum` (accepted values must be strictly greater — non-positive rejection for text heights), `formatter` (callable `mm -> str`, replaces the display path — e.g. the sheet-text Word-style `"12 pt"` rendering). **Seed guard (always on):** an untouched or blank commit keeps the *exact* stored mm — re-parsing the displayed text would re-quantize it at display precision (imperial 3/16"→1/4" at 1/8" resolution).
+**Optional overrides (added 2026-07-09, resolving D4):** `parser` (callable `str -> float|None`, replaces the whole parse path incl. fallback unit), `minimum` (accepted values must be strictly greater — non-positive rejection for text heights), `maximum` (added 2026-09-29: accepted values must be ≤ it, the `DimSpec.maximum` convention — the ArcItem Span row sets `360 − 1e-6` so an out-of-range entry reverts instead of displaying a value the item never took), `formatter` (callable `mm -> str`, replaces the display path — e.g. the sheet-text Word-style `"12 pt"` rendering). **Seed guard (always on):** an untouched or blank commit keeps the *exact* stored mm — re-parsing the displayed text would re-quantize it at display precision (imperial 3/16"→1/4" at 1/8" resolution).
 
 **Table cells — `DimensionDelegate` (added 2026-07-16):** the same contract inside `QTableWidget`/item views. A `QStyledItemDelegate` whose editor is a `DimensionEdit`; on commit it writes the mm value to a configurable `value_role` (default `UserRole`) and the `format_length` string to `DisplayRole`. Consumers: level table elevation column (`level_widget.py`, role `UserRole`), gridlines dialog Offset/Spacing/Length columns (`grid_lines_dialog.py`, role `UserRole+1` = numeric sort key). **Tab-commit rule:** Qt calls `setModelData` *before* the editor's `editingFinished` fires on Tab-to-next-cell, so the delegate must call `DimensionEdit.commit()` (public force-parse) before reading `value_mm()` — reading without it silently reverts Tab-committed values. Any new dimension column uses this delegate; never a bespoke cell-commit path.
 
