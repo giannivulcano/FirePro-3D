@@ -65,7 +65,7 @@ Model space has labels (identity/property display). Paper space has annotations 
 
 ### 4.6 Vector PDF Export
 
-`QPdfWriter` + `QPainter` produces native vector PDF paths. Text is embedded as PDF text objects (selectable/searchable). Only `TitleBlockPdfItem` (pixmap from PDF raster) and future imported images produce raster content.
+`QPdfWriter` + `QPainter` produces native vector PDF paths. Text is embedded as PDF text objects (selectable/searchable). Only template image fields (logos) and future imported images produce raster content.
 
 ### 4.7 DXF Export Target
 
@@ -328,7 +328,7 @@ Custom: user-entered ratio (e.g., "1:125")
 
 ### 7.3 Vector Fidelity
 
-`QPainter` renders `QGraphicsScene` geometry as vector PDF paths natively. Text is embedded as PDF text objects (selectable/searchable). Only `TitleBlockPdfItem` (pixmap from PDF raster) and future imported images produce raster content.
+`QPainter` renders `QGraphicsScene` geometry as vector PDF paths natively. Text is embedded as PDF text objects (selectable/searchable). Only template image fields (logos) and future imported images produce raster content.
 
 ### 7.4 Print Workflow
 
@@ -345,30 +345,11 @@ Menu action "Export to PDF..." opens a dialog with:
 
 ## 8. Title Block Template System
 
-> **Custom templates are governed by `titleblock-template-system.md`** (current — built 2026-07-22): **parametric** single-size templates (margins, bordered areas, right-strip cell stack) authored in the Title Block editor (Draft tab), stored in a per-user library and embedded in the `.fpd`, one per project; the template drives the sheet's page size/orientation. That design **superseded** the earlier custom-DXF/PDF + ATTDEF/JSON-sidecar plan (never built) — the DXF-artwork chain survives only as the no-template fallback. This section documents the built-in chain; the template layer's contract lives in its own spec (Rule A).
+> **Custom templates are governed by `titleblock-template-system.md`** (current — built 2026-07-22): **parametric** single-size templates (margins, bordered areas, right-strip cell stack) authored in the Title Block editor (Draft tab), stored in a per-user library and embedded in the `.fpd`, one per project; the template drives the sheet's page size/orientation. That design **superseded** the earlier custom-DXF/PDF + ATTDEF/JSON-sidecar plan (never built) and **retired the built-in CEL DXF/PDF fallback chain** (its `TitleBlockDxfItem`/`TitleBlockPdfItem`/`TitleBlockFieldOverlay` classes, `TITLE_BLOCK_DXFS`/`PDFS` dicts and assets were deleted 2026-09-26). The resolution order and no-template behaviour are owned by `titleblock-template-system.md` (Rule A).
 
-### 8.1 Template Resolution Order (Per Sheet)
+### 8.1 Template Resolution (Per Sheet)
 
-0. Project parametric template matching the sheet's size+orientation → `TitleBlockTemplateItem` (see `titleblock-template-system.md`)
-1. Built-in DXF template matching the sheet's paper size → vector rendering via `TitleBlockDxfItem`
-2. Built-in PDF template matching the sheet's paper size → raster rendering via `TitleBlockPdfItem`
-3. Built-in programmatic fallback → `TitleBlockItem` with geometric drawing (paints via merged `DEFAULT_TITLE_BLOCK_FIELDS` defaults — post-migration sheets may lack project-scoped keys)
-
-### 8.2 Built-in Template Files
-
-```
-firepro3d/
-  default titleblocks/
-    CEL Titleblock (ANSI B) R0.dxf      # existing
-    CEL Titleblock (ANSI B) R0.pdf      # existing
-    CEL Titleblock (ANSI D) R0.dxf      # existing
-    CEL Titleblock (ANSI D) R0.pdf      # existing
-```
-
-### 8.3 Field Mapping (as built)
-
-- **DXF/PDF templates:** field values are painted over the artwork by `TitleBlockFieldOverlay` at **hardcoded fractional positions** (`_get_field_layout`) — they are *not* measured from the artwork geometry. Known divergence; superseded rather than fixed (custom parametric templates own field placement — `titleblock-template-system.md`).
-- **Programmatic template:** field positions hardcoded in `TitleBlockItem`.
+Owned by `titleblock-template-system.md` (resolution + blank-sheet nudge). The programmatic `TitleBlockItem` is retained only for the `title_block` property and Scale-refresh refs and is always hidden; its field positions are hardcoded.
 
 ### 8.4 Field Set
 
@@ -517,7 +498,6 @@ User modifies model while PDF export is in progress → export captures state at
 ### 11.2 Memory
 
 - Each open sheet tab holds a `PaperScene`. Closed tabs release their scene. Sheet data (the model) stays in memory as part of the project.
-- Raster title blocks (`TitleBlockPdfItem`) cache a `QPixmap`. One pixmap per unique template per paper size — not per sheet.
 
 ### 11.3 File Size
 
@@ -533,7 +513,7 @@ User modifies model while PDF export is in progress → export captures state at
 
 | File | Role |
 |------|------|
-| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData` (data + serialization; `TextAnnotationData` is imported from `text_item.py`), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, `PaperScene` (composition + `dispose()` + **`QUndoStack`** owner), `PaperSpaceWidget`, title blocks (`TitleBlockTemplateItem` template renderer + legacy `TitleBlockDxfItem`/`PdfItem`/`Item` fallbacks), `sheet_page_mm`, dialogs (`SheetViewPropertiesDialog`, `RevisionsDialog` — `TitleBlockDialog` retired 2026-07-21; sheet text has no dialog; §9.6 panel) |
+| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData` (data + serialization; `TextAnnotationData` is imported from `text_item.py`), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, `PaperScene` (composition + `dispose()` + **`QUndoStack`** owner), `PaperSpaceWidget`, title blocks (`TitleBlockTemplateItem` template renderer + the always-hidden legacy `TitleBlockItem`), `sheet_page_mm`, dialogs (`SheetViewPropertiesDialog`, `RevisionsDialog` — `TitleBlockDialog` retired 2026-07-21; sheet text has no dialog; §9.6 panel) |
 | `firepro3d/text_item.py` | The unified `TextItem` + `TextAnnotationData` (containment C5) — sheet text runs in its paper mode (§9.3); governed by `text-annotation-system.md` |
 | `firepro3d/paper_commands.py` | **(new)** `QUndoCommand` subclasses for paper-space undo/redo — viewport (`Add`/`Remove`/`Geometry`/`ChangeProperties`) + text (`Add`/`Delete`/`Geometry`/`Edit`/`Format`). Keyed on persistent data identity; no `main.py` import (§17) |
 | `firepro3d/paper_export.py` | Plot step: `render_sheet` (transient off-screen scene), `export_pdf(sheets,…)` (vector PDF), `print_sheets(sheets,…)`, `default_pdf_filename` |

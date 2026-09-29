@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from .constants import (
@@ -30,7 +29,7 @@ from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared
 from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
+    QGraphicsItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QMenu, QCheckBox, QLabel, QDateEdit,
@@ -38,10 +37,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
 )
 from PyQt6.QtCore import (
-    Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, QDate, pyqtSignal,
+    Qt, QRectF, QPointF, QSizeF, QByteArray, QDate, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
+    QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QPixmap,
     QPainterPath, QImage, QUndoStack,
 )
 from .paper_commands import (
@@ -53,15 +52,6 @@ from .paper_commands import (
     SetSheetFieldCommand, EditRevisionsCommand,
     _find_viewport,
 )
-try:
-    from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
-    _PDF_AVAILABLE = True
-except ImportError:
-    _PDF_AVAILABLE = False
-
-# Base directory for default title block PDFs
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 def _split_view_key(key: str):
     """'plan:Plan: Level 1' -> ('plan', 'Plan: Level 1'); '' -> ('', '')."""
@@ -138,18 +128,6 @@ def sheet_page_mm(sheet: "Sheet") -> tuple[float, float]:
         return (min(base), max(base))
     return base
 
-
-# Map paper size name → DXF title block file (preferred, vector)
-TITLE_BLOCK_DXFS: dict[str, str] = {
-    "ANSI B": os.path.join(_BASE_DIR, "default titleblocks", "CEL Titleblock (ANSI B) R0.dxf"),
-    "ANSI D": os.path.join(_BASE_DIR, "default titleblocks", "CEL Titleblock (ANSI D) R0.dxf"),
-}
-
-# Map paper size name → PDF title block file (raster fallback)
-TITLE_BLOCK_PDFS: dict[str, str] = {
-    "ANSI B": os.path.join(_BASE_DIR, "default titleblocks", "CEL Titleblock (ANSI B) R0.pdf"),
-    "ANSI D": os.path.join(_BASE_DIR, "default titleblocks", "CEL Titleblock (ANSI D) R0.pdf"),
-}
 
 # Margins (mm)
 MARGIN        = 10.0    # outer border
@@ -1679,86 +1657,6 @@ def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TitleBlockFieldOverlay — field values painted over DXF/PDF artwork
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TitleBlockFieldOverlay(QGraphicsItem):
-    """Draws title block field values on top of DXF/PDF artwork.
-
-    Only used when an external (DXF/PDF) title block is active.
-    """
-
-    def __init__(self, paper_w: float, paper_h: float,
-                 fields: dict[str, str], parent=None):
-        super().__init__(parent)
-        self._paper_w = paper_w
-        self._paper_h = paper_h
-        self._fields = fields
-        self.setZValue(1)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-
-    def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._paper_w, self._paper_h)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        layout = _get_field_layout(self._paper_w, self._paper_h)
-        if layout is None:
-            return
-        for field_name, (x, y, w, h, font_size) in layout.items():
-            value = self._fields.get(field_name, "")
-            if not value:
-                continue
-            f = QFont("Arial")
-            f.setPointSizeF(font_size)
-            f.setBold(True)
-            painter.setFont(f)
-            painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
-            painter.drawText(
-                QRectF(x + 1, y + h * 0.3, w - 2, h * 0.65),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                value,
-            )
-
-
-def _get_field_layout(paper_w: float, paper_h: float
-                      ) -> "dict[str, tuple[float, float, float, float, float]] | None":
-    """Return field layout for the given paper size.
-
-    Returns {field_name: (x, y, w, h, font_size_pt)} in mm.
-    """
-    bx = MARGIN + INNER_MARGIN
-    by = paper_h - MARGIN - INNER_MARGIN - TITLE_H
-    bw = paper_w - 2 * (MARGIN + INNER_MARGIN)
-    bh = TITLE_H
-
-    c0 = bx
-    c1 = bx + bw * 0.30
-    c2 = bx + bw * 0.70
-    c3 = bx + bw * 0.85
-
-    r0 = by
-    r1 = by + bh * 0.33
-    r2 = by + bh * 0.66
-    r3 = by + bh
-
-    row_h = (r3 - r0) / 3.0
-    half_col1 = (c2 - c1) / 2.0
-
-    return {
-        "Company":    (c0, r0, c1 - c0, bh, 2.5),
-        "Project":    (c1, r0, c2 - c1, row_h, 2.2),
-        "Title":      (c1, r1, c2 - c1, row_h, 2.2),
-        "Drawn By":   (c1, r2, half_col1, row_h, 2.0),
-        "Checked By": (c1 + half_col1, r2, half_col1, row_h, 2.0),
-        "Scale":      (c2, r0, c3 - c2, row_h, 2.2),
-        "Drawing No": (c2, r1, c3 - c2, row_h, 2.2),
-        "Rev":        (c3, r0, bx + bw - c3, row_h, 2.2),
-        "Date":       (c3, r1, bx + bw - c3, row_h, 2.2),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # PaperGraphicsView — drop-aware view for placing sheet viewports
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2017,220 +1915,6 @@ class PaperGraphicsView(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PDF-based title block background
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _render_titleblock_pdf(pdf_path: str, paper_w_mm: float, paper_h_mm: float,
-                            render_dpi: int = 150) -> "QPixmap | None":
-    """
-    Render page 0 of *pdf_path* to a QPixmap scaled to exactly
-    paper_w_mm × paper_h_mm scene units (1 unit = 1 mm).
-
-    Returns None if the PDF cannot be loaded or QPdf is unavailable.
-    """
-    if not _PDF_AVAILABLE:
-        return None
-    if not os.path.isfile(pdf_path):
-        return None
-    try:
-        doc = QPdfDocument(None)
-        status = doc.load(pdf_path)
-        # PyQt6 versions differ: load() may return Error enum, Status enum, or int.
-        # Accept 0, Error.NoError, or any "no error" variant; fall through to pageCount check.
-        try:
-            _no_err = getattr(QPdfDocument, "Error", QPdfDocument.Status).NoError
-            if status != _no_err and status != 0:
-                return None
-        except (TypeError, AttributeError):
-            pass  # fallback: just check pageCount below
-        if doc.pageCount() == 0:
-            return None
-        # Native page size in points (1/72 inch)
-        page_size_pt = doc.pagePointSize(0)
-        if not page_size_pt.isValid() or page_size_pt.width() == 0:
-            return None
-        # Convert pts → inches → px at render_dpi
-        w_px = int(page_size_pt.width()  / 72.0 * render_dpi)
-        h_px = int(page_size_pt.height() / 72.0 * render_dpi)
-        options = QPdfDocumentRenderOptions()
-        image = doc.render(0, QSize(w_px, h_px), options)
-        if image.isNull():
-            return None
-        pixmap = QPixmap.fromImage(image)
-        return pixmap
-    except Exception as e:
-        pass  # render failed — caller checks for None
-        return None
-
-
-class TitleBlockPdfItem(QGraphicsPixmapItem):
-    """
-    Renders a PDF title block as a full-paper background pixmap.
-
-    The pixmap is scaled (via QTransform) so it exactly covers the paper
-    rectangle (0, 0, paper_w_mm, paper_h_mm) in scene coordinates.
-    """
-
-    def __init__(self, pdf_path: str, paper_w: float, paper_h: float, parent=None):
-        super().__init__(parent)
-        self._paper_w = paper_w
-        self._paper_h = paper_h
-        self.setZValue(0.5)   # above paper background, below viewport/title items
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-
-        pixmap = _render_titleblock_pdf(pdf_path, paper_w, paper_h)
-        if pixmap and not pixmap.isNull():
-            self.setPixmap(pixmap)
-            # Scale to paper dimensions
-            sx = paper_w / pixmap.width()
-            sy = paper_h / pixmap.height()
-            self.setTransform(QTransform().scale(sx, sy))
-            self.setPos(0, 0)
-        else:
-            pass  # pixmap failed to render — item will be blank
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DXF-based title block (vector quality)
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TitleBlockDxfItem(QGraphicsItem):
-    """
-    Renders a DXF title block as crisp vector geometry.
-
-    The DXF is parsed once at construction; all SPLINE and LWPOLYLINE
-    entities are converted to QPainterPaths and painted directly.
-    DXF coordinates are in mm and Y-flipped to match the Qt scene.
-    """
-
-    def __init__(self, dxf_path: str, paper_w: float, paper_h: float, parent=None):
-        super().__init__(parent)
-        self._paper_w = paper_w
-        self._paper_h = paper_h
-        self._paths: list[QPainterPath] = []
-        self._ok = False
-        self.setZValue(0.5)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-
-        try:
-            self._parse_dxf(dxf_path)
-            self._ok = True
-        except Exception:
-            pass  # leave _paths empty; caller checks is_valid()
-
-    # ── public ────────────────────────────────────────────────────────────
-    def is_valid(self) -> bool:
-        return self._ok and len(self._paths) > 0
-
-    def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._paper_w, self._paper_h)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        pen = QPen(Qt.GlobalColor.black, 0)
-        pen.setCosmetic(False)
-        pen.setWidthF(0.25)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        for path in self._paths:
-            painter.drawPath(path)
-
-    # ── DXF parsing ──────────────────────────────────────────────────────
-    def _parse_dxf(self, dxf_path: str):
-        import ezdxf
-
-        doc = ezdxf.readfile(dxf_path)
-        msp = doc.modelspace()
-        paper_h = self._paper_h
-
-        for entity in msp:
-            etype = entity.dxftype()
-            try:
-                if etype == "LWPOLYLINE":
-                    self._convert_lwpolyline(entity, paper_h)
-                elif etype == "SPLINE":
-                    self._convert_spline(entity, paper_h)
-                elif etype == "LINE":
-                    self._convert_line(entity, paper_h)
-                elif etype == "CIRCLE":
-                    self._convert_circle(entity, paper_h)
-                elif etype == "ARC":
-                    self._convert_arc(entity, paper_h)
-            except Exception:
-                pass  # skip unparseable entities
-
-    def _convert_lwpolyline(self, entity, paper_h: float):
-        points = list(entity.get_points(format="xyb"))
-        if len(points) < 2:
-            return
-        path = QPainterPath()
-        # First point
-        x0, y0, _ = points[0]
-        path.moveTo(x0, paper_h - y0)
-        for i in range(1, len(points)):
-            x, y, _ = points[i]
-            path.lineTo(x, paper_h - y)
-        if entity.closed:
-            path.closeSubpath()
-        self._paths.append(path)
-
-    def _convert_spline(self, entity, paper_h: float):
-        # Flatten spline to polyline points using ezdxf
-        try:
-            pts = list(entity.flattening(0.1))  # tolerance 0.1 mm
-        except Exception:
-            pts = list(entity.control_points)
-        if len(pts) < 2:
-            return
-        path = QPainterPath()
-        path.moveTo(pts[0].x, paper_h - pts[0].y)
-        for pt in pts[1:]:
-            path.lineTo(pt.x, paper_h - pt.y)
-        self._paths.append(path)
-
-    def _convert_line(self, entity, paper_h: float):
-        s = entity.dxf.start
-        e = entity.dxf.end
-        path = QPainterPath()
-        path.moveTo(s.x, paper_h - s.y)
-        path.lineTo(e.x, paper_h - e.y)
-        self._paths.append(path)
-
-    def _convert_circle(self, entity, paper_h: float):
-        c = entity.dxf.center
-        r = entity.dxf.radius
-        path = QPainterPath()
-        path.addEllipse(QPointF(c.x, paper_h - c.y), r, r)
-        self._paths.append(path)
-
-    def _convert_arc(self, entity, paper_h: float):
-        import math
-        c = entity.dxf.center
-        r = entity.dxf.radius
-        # DXF angles are counter-clockwise from +X in degrees
-        # Qt arcs: addArc expects a bounding rect and angles in 1/16th degree
-        # But it's easier to flatten to points
-        start_deg = entity.dxf.start_angle
-        end_deg = entity.dxf.end_angle
-        if end_deg < start_deg:
-            end_deg += 360.0
-        span = end_deg - start_deg
-        n_seg = max(int(span / 5), 4)
-        path = QPainterPath()
-        for i in range(n_seg + 1):
-            angle = math.radians(start_deg + span * i / n_seg)
-            x = c.x + r * math.cos(angle)
-            y = paper_h - (c.y + r * math.sin(angle))
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-        self._paths.append(path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

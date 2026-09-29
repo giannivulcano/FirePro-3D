@@ -31,8 +31,8 @@ class _IsolatedQSettings(_RealQSettings):
     """QSettings subclass that reroutes registry-scope constructions to a
     per-test temp INI so tests never touch the real Windows registry (#312).
 
-    Explicit ``QSettings(fileName, IniFormat)`` constructions (the ``tmp_settings``
-    fixture and the per-file isolation fixtures) are honored as-is. Every other
+    Explicit ``QSettings(fileName, IniFormat)`` constructions (e.g. a test's own
+    temp-INI fixture) are honored as-is. Every other
     form — 2-arg ``(org, app)``, bare, ``(scope, org, app)``, ``(NativeFormat,
     scope, org, app)`` — reroutes to ``<test_dir>/<org_app>.ini``, keyed by the
     string args so same-scope reads/writes stay coherent within a test.
@@ -129,21 +129,6 @@ def real_qsettings():
     """The unpatched QSettings class — lets the isolation guard test read the
     REAL registry to prove nothing leaked there (#312)."""
     return _RealQSettings
-
-
-@pytest.fixture
-def tmp_settings(tmp_path):
-    """A QSettings pinned to an INI file under ``tmp_path`` (no registry writes).
-
-    Used by ALIGN-settings tests to round-trip ``align/*`` keys without touching
-    the real Windows registry.  Pair with monkeypatching
-    ``preferences_dialog.QSettings`` when a pane's internal
-    ``QSettings(org, app)`` calls must be redirected here.
-    """
-    from PyQt6.QtCore import QSettings
-
-    ini_path = str(tmp_path / "align_test.ini")
-    return QSettings(ini_path, QSettings.Format.IniFormat)
 
 
 @pytest.fixture

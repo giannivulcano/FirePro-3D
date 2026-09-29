@@ -1,8 +1,7 @@
 """Settings pane classes for FirePro3D.
 
-Real home of all ``SettingsPane`` subclasses.  The legacy entry-point
-``firepro3d.preferences_dialog`` is a thin re-export shim that keeps existing
-importers working.
+Home of all ``SettingsPane`` subclasses (the legacy
+``firepro3d.preferences_dialog`` re-export shim was retired 2026-09-26).
 
 Governing spec: ``docs/specs/settings-dialog.md``.
 """

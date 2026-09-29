@@ -25,7 +25,7 @@ except ImportError:
 from .constants import (PDF_BEZIER_FLATTEN_TOL, PDF_CURVE_JOIN_EPS,
                         PDF_CIRCLE_FIT_REL_TOL, PDF_CIRCLE_FIT_ABS_TOL)
 
-# QSettings org/app — must match preferences_dialog._QSETTINGS_ORG/_APP.
+# QSettings org/app — must match settings.panes._QSETTINGS_ORG/_APP.
 _QSETTINGS_ORG = "GV"
 _QSETTINGS_APP = "FirePro3D"
 

@@ -351,6 +351,9 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
   - Details: user, 2026-09-23 (block polish smoke). Done: f7d615d + 0c66329 — bold folder rows / shared indentation+chevrons; on-disk Library/Series folders + .fpdb merged with project blocks (library-only italic, double-click loads + places); block_library change listeners; harness Invariant 7 isolates the library per test (de3b134).
 - [x] [type:bug] Block Editor imported geometry line weight differs from drawn primitives; default primitive weight -> 1 [P2] [subject:CAD] [done:2026-09-23]
   - Details: user, 2026-09-23. Done: 360835a + de3b134 — constants.DEFAULT_GEOMETRY_LINEWEIGHT (1.0) feeds both _geom_color_lw and the import factory.
+- [x] [type:maint] [cleanup:delete] Retire the dead `MakeBlockDialog` (`make_block_dialog.py`) [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: block polish 2026-09-23 reuse sweep — no production caller left (C7 retired Quick Block; `BlockSaveDialog` replaced it); only `tests/test_block_s2_fixes.py` + the metrics/hexguard lists reference it. Delete the module + prune those references; `block-system.md` still says BlockSaveDialog "extends MakeBlockDialog" (it extends HouseDialog) — fix in the same pass.
+  - Done 2026-09-26 (batch A dead-code sweep): module + its test + metrics/hexguard entries removed; block-system/ui-design-system/SPEC-INDEX refs fixed
 
 ## 🎯 Current Focus — MVP: AHJ Package (decided 2026-06-23 grill; full rationale in `DOCS-REVIEW.md`)
 
@@ -781,6 +784,9 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
   - Details: "all labels should be rotatable" (2026-08-31 grill). They're translate-only today, so a mixed selection including a note/dimension hides the group rotate knob. Give each a baked `manip_rotate` + `{"translate","rotate"}` capability (notes rotate the text glyph; dimensions rotate the two endpoints), routed through their serialize paths. `annotations.py`. Lineage: Adopt the `SelectionBox` manipulator app-wide → U1.
   - ⚠️ 2026-09-26 (doc-drift batch): BOTH target classes are retired — `DimensionAnnotation` (C1/C8, `d9eb2c6`) and `NoteAnnotation` (C5, `20de3d8`; text is now the unified `TextItem`). Re-scope to TextItem rotation or close as moot on next triage.
   - Findings (re-typed feature→design per C1 — target classes retired, so the open question was what to build; FP1 grill 2026-09-26): CLOSED AS DELIVERED. Free text rotation is built — `TextItem` has `manip_rotate` + rotate capability, the scene-tools Rotate drives it, guarded by `tests/test_modify_tools_rotate.py::test_rotated_text_about_far_pivot_is_rigid_and_persists`; `DimensionAnnotation` is retired (C1/C8). User chose not to file rotation for attached labels (room tags, pipe labels). No follow-up.
+- [x] [type:maint] Remove dead `layer_manager.py` [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: `LayerManager` is never instantiated (docstring-only usage); if ever wired up, its `refresh()→_apply_all()` would fight `Underlay.hidden_layers` (defaults every layer to visible). Delete the module or reconcile with the browser-tree layer visibility path. `layer_manager.py`.
+  - Done 2026-09-26 (batch A dead-code sweep): already done in `5aa383d` (audit F1-F3); closed on re-check (only a stale .pyc remained)
 
 ## Code Health & Architectural Debt (from 2026-04-29 gap analysis)
 
@@ -805,6 +811,9 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 - [x] [type:maint] [cleanup:delete] Dead `SELECTION_OUTLINE_WIDTH_MM` + unused `SELECTION_OUTLINE_COLOR` import [P3] [subject:Code Quality] [done:2026-09-26]
   - Details: found 2026-09-26 (doc-drift batch). Selection feedback moved to the manipulator's theme tokens, so `constants.SELECTION_OUTLINE_WIDTH_MM` has no reader and `model_space.py` imports `SELECTION_OUTLINE_COLOR` without using it (the only live reader is the polyline close ring in `geometry_drawing_controller.py`). Delete the constant + the import; grep tests first.
   - Done: 2026-09-26 (headless cleanup batch). Deleted `constants.SELECTION_OUTLINE_WIDTH_MM` (no reader repo-wide) + the unused `SELECTION_OUTLINE_COLOR` import in `model_space.py`; constants comment now says selection colour is the theme tokens and `SELECTION_OUTLINE_COLOR` is the close-ring only. `grid-system.md` theming bullet re-pointed at the manipulator. Evidence: keep-green set (17 files + test_multi_sheet) 706 passed before and after; `import main` OK; full suite in alphabetical chunks (see commit).
+- [x] [type:maint] Retire redundant per-test QSettings isolation now that the autouse fixture exists (#312 follow-up) [P3] [subject:Testing] [done:2026-09-26]
+  - Details: filed 2026-09-09. The autouse `_isolate_qsettings` + class-level `_IsolatedQSettings` (conftest.py) supersedes the ad-hoc monkeypatch fixtures (`isolated_settings`, `patched_qsettings`, the `test_data_folder_setting` redirect) and the manual save/restore try/finally blocks in `test_preferences_dialog.py` / `test_crosshair_cursor.py` / `test_import_prefs_wiring.py` / `test_fullscreen_immersive.py` / `test_theme_tokens.py` / `test_gridline_paper_scale.py`. They still work (explicit-INI/monkeypatch takes precedence) — remove opportunistically to cut churn. `tests/`.
+  - Done 2026-09-26: `isolated_settings`/`patched_qsettings` now return the pane's own (org, app) store; the data-folder/block-row/units monkeypatch redirects, the save/restore try/finally blocks (crosshair, immersive, theme — theme keeps its `refresh_theme_preference()` cache reset), `_clear_keys`, `clean_paper_settings` and the conftest `tmp_settings` fixture are gone. Same 531 tests pass before/after. Left alone: `test_pdf_bezier_flatten` (fakes values, not isolation) and the block-dir override test's reset (it asserts the blank-default behaviour).
 
 ## Pipe Placement Bug Fixes (from `docs/specs/pipe-placement-methodology.md` §9)
 
@@ -934,3 +943,15 @@ Shipped on `main` (Small tier: /todo:audit Census → /todo F1–F4 batch → gr
 - [x] [type:maint] Stale `LEGACY_SHEET_KEYS` tuple [P3] [subject:Code Quality] [done:2026-09-26]
   - Details: in `titleblock_template.py` still lists Title/Drawing No (docstring-only use) — trim to ("Rev","Date") on next touch.
   - Done: 2026-09-26 (headless cleanup batch). Trimmed to ("Rev", "Date") — Title/Drawing No adopt into Sheet.name/number and drop (`paper_space` from_dict; `titleblock-template-system.md` already said so). Tuple has no code reader (docstring-only). Evidence: keep-green set (17 files + test_multi_sheet) 706 passed before and after; `import main` OK; full suite in alphabetical chunks (see commit).
+
+## Title block template editor
+
+- [x] [type:maint] [cleanup:delete] Remove the dead CEL DXF/PDF title-block chain [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: Task A retired the resolution-chain fallback → `TitleBlockDxfItem`/`TitleBlockPdfItem` classes, the `TITLE_BLOCK_DXFS`/`TITLE_BLOCK_PDFS` dicts, and the `CEL Titleblock (ANSI D) R0.dxf/.pdf` asset files are now unused. Grep for stragglers (tests referenced the class *names* in kind lists — already updated) then delete. `paper_space.py`, `firepro3d/graphics/`.
+  - Done 2026-09-26 (batch A dead-code sweep): also deleted the dead `TitleBlockFieldOverlay`/`_get_field_layout` + `_render_titleblock_pdf` and orphaned imports; removed ANSI D .dxf/.pdf + ANSI B .pdf; KEPT `CEL Titleblock (ANSI B) R0.dxf` (sample DXF fixture for test_underlay_slice_parity)
+
+## Settings dialog follow-ups
+
+- [x] [type:maint] Retire the `preferences_dialog.py` re-export shim [P3] [subject:Code Quality] [done:2026-09-26]
+  - Details: `preferences_dialog.py` is a thin shim re-exporting from `firepro3d.settings.panes` for back-compat (used by `underlay_import_dialog.py:2522` + several tests). Migrate those importers to `firepro3d.settings.panes` and delete the shim. `preferences_dialog.py`, `underlay_import_dialog.py`, `tests/`.
+  - Done 2026-09-26 (batch A dead-code sweep): underlay_import_dialog + 10 test files repointed to `settings.panes` (redundant shim QSettings monkeypatches dropped); shim-reexport test retired; spec applies-to/refs updated

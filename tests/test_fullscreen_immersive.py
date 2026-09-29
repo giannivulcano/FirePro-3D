@@ -10,7 +10,7 @@ from firepro3d.view_3d import View3D
 _main_module.View3D = View3D
 from firepro3d import snap_engine
 from main import MainWindow
-from firepro3d.preferences_dialog import UIPane, _QSETTINGS_ORG, _QSETTINGS_APP
+from firepro3d.settings.panes import UIPane, _QSETTINGS_ORG, _QSETTINGS_APP
 
 
 @pytest.fixture(scope="module")
@@ -54,23 +54,15 @@ def test_migrate_fullscreen_pref_reads_and_migrates():
 
 
 def test_uipane_immersive_persists_and_calls_back(qapp):
-    s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
-    saved = s.value("ui/immersive", None)
-    try:
-        s.setValue("ui/immersive", False)
-        s.sync()
-        calls = []
-        pane = UIPane(on_immersive_changed=lambda v: calls.append(v))
-        pane.load()
-        assert pane._immersive_cb.isChecked() is False
-        pane._immersive_cb.setChecked(True)
-        pane.apply()
-        assert QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(
-            "ui/immersive", type=bool) is True
-        assert calls == [True]
-    finally:
-        if saved is None:
-            s.remove("ui/immersive")
-        else:
-            s.setValue("ui/immersive", saved)
-        s.sync()
+    s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)   # conftest-isolated store
+    s.setValue("ui/immersive", False)
+    s.sync()
+    calls = []
+    pane = UIPane(on_immersive_changed=lambda v: calls.append(v))
+    pane.load()
+    assert pane._immersive_cb.isChecked() is False
+    pane._immersive_cb.setChecked(True)
+    pane.apply()
+    assert QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(
+        "ui/immersive", type=bool) is True
+    assert calls == [True]

@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/model_space.py
   - firepro3d/pipe_network_controller.py
   - firepro3d/model_view.py
-  - firepro3d/preferences_dialog.py
+  - firepro3d/settings/panes.py
   - firepro3d/main.py
   - firepro3d/constants.py
   - firepro3d/gridline.py
@@ -499,7 +499,7 @@ post-snap body extracted from `press_pipe`), so all validation / collinear-merge
 
 ## 6. Settings
 
-Five ALIGN knobs live in the Preferences **SNAP** pane (`preferences_dialog.py`, the
+Five ALIGN knobs live in the Settings **SNAP** pane (`settings/panes.py`, the
 "ALIGN" tab) plus the F11 master toggle. All live-apply (into the live `Model_Space` +
 its `AlignController`), persist to `QSettings` under `align/*`, and are covered by
 Reset-to-Defaults:

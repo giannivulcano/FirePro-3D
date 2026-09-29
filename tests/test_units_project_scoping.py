@@ -5,9 +5,9 @@ Part of U5 Leg B — settings dialog phase.
 import pytest
 
 
-def test_unitspane_apply_does_not_write_qsettings(qapp, model_scene, tmp_settings, monkeypatch):
-    import firepro3d.settings.panes as panes
-    monkeypatch.setattr(panes, "QSettings", lambda *a, **k: tmp_settings)
+def test_unitspane_apply_does_not_write_qsettings(qapp, model_scene):
+    from PyQt6.QtCore import QSettings
+    tmp_settings = QSettings("GV", "FirePro3D")   # conftest-isolated store
     from firepro3d.settings.panes import UnitsPane
     scene = model_scene()
     p = UnitsPane(scale_manager=scene.scale_manager)

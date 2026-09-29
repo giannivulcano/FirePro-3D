@@ -138,8 +138,7 @@ def test_selection_tokens_distinct_for_grip_states():
 def test_detect_honors_theme_preference(qapp):
     """detect() returns the forced variant when ui/theme is light/dark."""
     from PyQt6.QtCore import QSettings
-    s = QSettings(th._THEME_PREF_ORG, th._THEME_PREF_APP)
-    original = s.value(th.THEME_SETTINGS_KEY, None)
+    s = QSettings(th._THEME_PREF_ORG, th._THEME_PREF_APP)   # conftest-isolated store
     try:
         s.setValue(th.THEME_SETTINGS_KEY, "light"); s.sync()
         th.refresh_theme_preference()
@@ -148,37 +147,24 @@ def test_detect_honors_theme_preference(qapp):
         th.refresh_theme_preference()
         assert th.detect() is th.DARK
     finally:
-        if original is None:
-            s.remove(th.THEME_SETTINGS_KEY)
-        else:
-            s.setValue(th.THEME_SETTINGS_KEY, original)
-        s.sync()
-        th.refresh_theme_preference()
+        th.refresh_theme_preference()   # drop the cached pref (module global)
 
 
 def test_uipane_persists_and_reverts(qapp):
     """UIPane.apply writes ui/theme; revert restores the snapshot."""
     from PyQt6.QtCore import QSettings
-    from firepro3d.preferences_dialog import UIPane
-    s = QSettings(th._THEME_PREF_ORG, th._THEME_PREF_APP)
-    original = s.value(th.THEME_SETTINGS_KEY, None)
+    from firepro3d.settings.panes import UIPane
+    s = QSettings(th._THEME_PREF_ORG, th._THEME_PREF_APP)   # conftest-isolated store
     fired = []
-    try:
-        s.setValue(th.THEME_SETTINGS_KEY, "system"); s.sync()
-        th.refresh_theme_preference()
-        pane = UIPane(on_theme_changed=lambda: fired.append(True))
-        pane.load()
-        # choose "Dark" (index 2) and apply
-        pane._theme_combo.setCurrentIndex(2)
-        pane.apply()
-        assert str(s.value(th.THEME_SETTINGS_KEY)).lower() == "dark"
-        assert fired == [True]  # callback fired on real change
-    finally:
-        if original is None:
-            s.remove(th.THEME_SETTINGS_KEY)
-        else:
-            s.setValue(th.THEME_SETTINGS_KEY, original)
-        s.sync()
+    s.setValue(th.THEME_SETTINGS_KEY, "system"); s.sync()
+    th.refresh_theme_preference()
+    pane = UIPane(on_theme_changed=lambda: fired.append(True))
+    pane.load()
+    # choose "Dark" (index 2) and apply
+    pane._theme_combo.setCurrentIndex(2)
+    pane.apply()
+    assert str(s.value(th.THEME_SETTINGS_KEY)).lower() == "dark"
+    assert fired == [True]  # callback fired on real change
 
 
 def test_selection_hover_token_resolves():

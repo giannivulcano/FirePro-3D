@@ -71,13 +71,8 @@ def test_block_library_dir_honours_override(qapp, tmp_path, monkeypatch):
     assert app_data.block_library_dir() == app_data.app_data_dir("blocks")
 
 
-def test_general_pane_block_library_row_persists(qapp, tmp_path, monkeypatch):
-    from firepro3d import preferences_dialog as pd
-    import firepro3d.settings.panes as panes_mod
-    ini = str(tmp_path / "s.ini")
-    factory = lambda *a, **k: QSettings(ini, QSettings.Format.IniFormat)
-    monkeypatch.setattr(pd, "QSettings", factory)
-    monkeypatch.setattr(panes_mod, "QSettings", factory)
+def test_general_pane_block_library_row_persists(qapp, tmp_path):
+    from firepro3d.settings import panes as pd
     pane = pd.GeneralPane()
     pane.load()
     pane._block_dir_edit.setText(str(tmp_path / "blk"))

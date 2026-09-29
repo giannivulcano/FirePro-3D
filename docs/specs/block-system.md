@@ -468,8 +468,7 @@ project registry — **disconnected from all model views**.
   `UnderlayImportDialog` subclass with `preserve_curves` on — preview UX in `underlay-workflow.md
   §10.14`). **SVG deferred.**
 - **Metadata authored in the editor** (name + editable library/series combos) via a consolidated
-  `BlockSaveDialog` (a `HouseDialog`; the old `MakeBlockDialog` is dead code pending retirement —
-  `todo_open.md`), validated at Save (reuse `set_block_metadata` rules;
+  `BlockSaveDialog` (a `HouseDialog`; the old `MakeBlockDialog` was deleted 2026-09-26), validated at Save (reuse `set_block_metadata` rules;
   rename keeps `id`). The **Manager detail panel stays read-only** — the editor is *the* editing
   surface (resolves `todo_open.md:66`).
   *As-built divergence (2026-09-23):* the dialog opens only on a block's first Save and on Save As

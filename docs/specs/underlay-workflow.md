@@ -4,7 +4,7 @@ last-verified: 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay M
 verified-commit: 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
-  - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
+  - firepro3d/settings/panes.py        # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
   - firepro3d/model_space.py          # §16.3 pens, repen_underlay — now thin delegating shells (see note below)
   - firepro3d/underlay_controller.py  # 2026-09-02: underlay concern extracted here (UnderlayController); behavior unchanged

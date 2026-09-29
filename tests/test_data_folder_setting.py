@@ -3,19 +3,8 @@ import os
 from PyQt6.QtCore import QSettings
 
 
-def _ini_settings(monkeypatch, ini_path):
-    """Point the preferences pane's QSettings at a temp INI (no registry writes)."""
-    from firepro3d import preferences_dialog as pd
-    import firepro3d.settings.panes as panes_mod
-    _factory = lambda *a, **k: QSettings(ini_path, QSettings.Format.IniFormat)
-    monkeypatch.setattr(pd, "QSettings", _factory)
-    monkeypatch.setattr(panes_mod, "QSettings", _factory)
-
-
-def test_data_folder_persists_across_panes(qapp, tmp_path, monkeypatch):
-    from firepro3d import preferences_dialog as pd
-    ini = str(tmp_path / "s.ini")
-    _ini_settings(monkeypatch, ini)
+def test_data_folder_persists_across_panes(qapp, tmp_path):
+    from firepro3d.settings import panes as pd
 
     pane = pd.GeneralPane()
     pane.load()
@@ -28,19 +17,13 @@ def test_data_folder_persists_across_panes(qapp, tmp_path, monkeypatch):
     pane2.load()
     assert pane2._data_folder_edit.text() == target
 
-    # And app_data honors it (read the same INI for the override).
+    # And app_data honors it (same conftest-isolated store).
     from firepro3d import app_data
-    monkeypatch.setattr(
-        app_data, "_configured_root",
-        lambda: QSettings(ini, QSettings.Format.IniFormat).value(
-            app_data.ROOT_KEY, "", type=str) or None)
     assert app_data.app_data_dir("blocks") == os.path.join(target, "blocks")
 
 
-def test_blank_clears_override(qapp, tmp_path, monkeypatch):
-    from firepro3d import preferences_dialog as pd
-    ini = str(tmp_path / "s.ini")
-    _ini_settings(monkeypatch, ini)
+def test_blank_clears_override(qapp, tmp_path):
+    from firepro3d.settings import panes as pd
 
     pane = pd.GeneralPane()
     pane.load()
@@ -49,16 +32,14 @@ def test_blank_clears_override(qapp, tmp_path, monkeypatch):
     pane._data_folder_edit.clear()          # blank = use default
     pane.apply()
 
-    stored = QSettings(ini, QSettings.Format.IniFormat).value(
+    stored = QSettings("GV", "FirePro3D").value(
         pd._DATA_ROOT_KEY, "?", type=str)
     assert stored == ""
 
 
-def test_titleblock_dir_persists(qapp, tmp_path, monkeypatch):
+def test_titleblock_dir_persists(qapp, tmp_path):
     """E2: the dedicated title-block library path persists to QSettings."""
-    from firepro3d import preferences_dialog as pd
-    ini = str(tmp_path / "s.ini")
-    _ini_settings(monkeypatch, ini)
+    from firepro3d.settings import panes as pd
 
     pane = pd.GeneralPane()
     pane.load()
@@ -69,6 +50,6 @@ def test_titleblock_dir_persists(qapp, tmp_path, monkeypatch):
     pane2 = pd.GeneralPane()
     pane2.load()
     assert pane2._tb_dir_edit.text() == tb
-    stored = QSettings(ini, QSettings.Format.IniFormat).value(
+    stored = QSettings("GV", "FirePro3D").value(
         "paths/titleblock_dir", "?", type=str)
     assert stored == tb

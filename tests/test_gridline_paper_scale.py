@@ -59,17 +59,6 @@ def temp_settings(tmp_path):
     yield s
 
 
-@pytest.fixture
-def clean_paper_settings():
-    """Clear paper/* from the real QSettings before and after (mirrors TestProjectRoundTrip)."""
-    s = QSettings("GV", "FirePro3D")
-    s.remove("paper")
-    s.sync()
-    yield
-    s.remove("paper")
-    s.sync()
-
-
 class TestGridLineCategoryModel:
     def test_factory_has_bubble_height_and_medium_weight(self):
         cat = FACTORY_PAPER_CATEGORIES["Grid Line"]
@@ -95,8 +84,8 @@ class TestGridLineCategoryModel:
         save_paper_categories(cats, temp_settings)
         assert load_paper_categories(temp_settings)["Grid Line"]["bubble_label_height_mm"] == 4.5
 
-    def test_project_snapshot_round_trips_bubble_height(self, clean_paper_settings):
-        # Arrange: write a non-default bubble height into the real QSettings.
+    def test_project_snapshot_round_trips_bubble_height(self):
+        # Arrange: write a non-default bubble height into the (isolated) QSettings.
         cats = load_paper_categories()
         cats["Grid Line"]["bubble_label_height_mm"] = 4.5
         save_paper_categories(cats)
@@ -711,7 +700,7 @@ class TestRepaintEcho:
 class TestDisplayManagerLabelHt:
     """Widget-driven tests: drive the DimensionEdit, verify QSettings round-trip."""
 
-    def test_grid_line_row_edits_height(self, qapp, clean_paper_settings):
+    def test_grid_line_row_edits_height(self, qapp):
         """Editing the Label Ht cell for Grid Line persists bubble_label_height_mm."""
         from firepro3d.display_manager import DisplayManager
         from firepro3d.model_space import Model_Space
@@ -731,7 +720,7 @@ class TestDisplayManagerLabelHt:
         finally:
             dlg.close()
 
-    def test_other_rows_disabled(self, qapp, clean_paper_settings):
+    def test_other_rows_disabled(self, qapp):
         """Non-Grid-Line rows have a disabled (grayed-out) bubble_ht widget."""
         from firepro3d.display_manager import DisplayManager
         from firepro3d.model_space import Model_Space

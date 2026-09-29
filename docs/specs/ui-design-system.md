@@ -12,7 +12,6 @@ applies-to:
   - firepro3d/themed_message.py
   - firepro3d/underlay_manager.py
   - firepro3d/underlay_import_dialog.py
-  - firepro3d/make_block_dialog.py
   - firepro3d/block_manager.py
   - firepro3d/block_editor.py       # BlockSaveDialog chrome (HouseDialog + CreatableSelector); behaviour → block-system.md
 source-tasks:

@@ -7,7 +7,6 @@ applies-to:
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
   - firepro3d/settings/system_settings_dialog.py   # new (this spec)
   - firepro3d/settings/template.py                 # new (this spec) — .fpdt lifecycle
-  - firepro3d/preferences_dialog.py                # retired → thin re-export shim or hard-cut
   - firepro3d/main.py                              # ribbon buttons, startup/new-project wiring, override removal
   - firepro3d/scene_io.py                          # template = blank-project .fpd; clone/save-as-default
   - firepro3d/scale_manager.py                     # units source-of-truth (project-scoped)
@@ -67,7 +66,7 @@ Consolidate the scattered/legacy snap dialogs into the UX pane, introduce a mini
 - `settings/project_settings_dialog.py` — `ProjectSettingsDialog(HouseDialog)`.
 - `settings/system_settings_dialog.py` — `SystemSettingsDialog(HouseDialog)`.
 - `settings/template.py` — `.fpdt` lifecycle helpers (§4.5).
-- `preferences_dialog.py` — retired. Grep all `preferences_dialog` / `PreferencesDialog` importers first; keep a **thin re-export shim same-commit** if any external caller exists, else hard-cut.
+- `preferences_dialog.py` — retired. Grep all `preferences_dialog` / `PreferencesDialog` importers first; keep a **thin re-export shim same-commit** if any external caller exists, else hard-cut. *(As-built: the shim shipped 2026-09-14 and was deleted 2026-09-26 once every importer moved to `settings.panes`.)*
 
 ### 4.2 Dialog composition (house nav, not raw `QTabWidget`)
 Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QStackedWidget`** (one page per pane) — the `underlay_import_dialog.py` pattern (`SideTabs.tabSelected → stack.setCurrentIndex`).

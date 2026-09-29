@@ -2532,7 +2532,7 @@ class UnderlayImportDialog(HouseDialog):
     def _seed_pdf_options_from_prefs(self):
         """Seed the PDF Options combos from the Preferences defaults (one-off)."""
         from PyQt6.QtCore import QSettings
-        from .preferences_dialog import _QSETTINGS_ORG, _QSETTINGS_APP
+        from .settings.panes import _QSETTINGS_ORG, _QSETTINGS_APP
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
         dpi = s.value("import/pdf_dpi", 150, type=int)
         mode = s.value("import/pdf_import_mode", "auto", type=str)

@@ -4,8 +4,8 @@ The 1-of-6 lesson: EVERY ALIGN knob must (a) live-apply to the running seam,
 (b) round-trip through QSettings, and (c) be restored by Reset-to-Defaults.
 Each knob below is covered on all three axes.
 
-Isolation: monkeypatch ``preferences_dialog.QSettings`` so the pane's internal
-``QSettings(org, app)`` calls write to a temp INI (never the Windows registry).
+Isolation: the pane's internal ``QSettings(org, app)`` calls land in
+the autouse ``_isolate_qsettings`` store (conftest, #312) (never the Windows registry).
 The ``model_space`` fixture supplies a live ``Model_Space`` with an
 ``AlignController`` so live-apply asserts against observable state
 (``_align_controller.dwell_ms`` etc.), not just widget values.
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from firepro3d.preferences_dialog import SnappingPane
+from firepro3d.settings.panes import SnappingPane
 from firepro3d.constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
@@ -24,17 +24,11 @@ from firepro3d.constants import (
 
 
 @pytest.fixture
-def patched_qsettings(tmp_settings, monkeypatch):
-    """Redirect the pane's internal QSettings(org, app) to the temp INI."""
-    import firepro3d.preferences_dialog as pd_mod
-    import firepro3d.settings.panes as panes_mod
-
-    def _fake_qsettings(org=None, app=None):
-        return tmp_settings
-
-    monkeypatch.setattr(pd_mod, "QSettings", _fake_qsettings)
-    monkeypatch.setattr(panes_mod, "QSettings", _fake_qsettings)
-    return tmp_settings
+def patched_qsettings():
+    """The pane's own (org, app) store -- already per-test isolated by conftest."""
+    from PyQt6.QtCore import QSettings
+    from firepro3d.settings.panes import _QSETTINGS_ORG, _QSETTINGS_APP
+    return QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
 
 @pytest.fixture

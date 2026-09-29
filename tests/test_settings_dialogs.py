@@ -1,8 +1,6 @@
 """Tests for the settings package refactor.
 
-Verifies that panes are importable from firepro3d.settings.panes, that
-firepro3d.preferences_dialog still re-exports everything tests depend on,
-and that the new SystemSettingsDialog / ProjectSettingsDialog work correctly.
+Verifies that panes are importable from firepro3d.settings.panes and that the new SystemSettingsDialog / ProjectSettingsDialog work correctly.
 """
 
 
@@ -12,16 +10,6 @@ def test_panes_importable_from_settings_package(qapp):
         GeneralPane, UIPane, ProjectInfoPane,
     )
     assert issubclass(UXPane, SettingsPane)
-
-
-def test_preferences_dialog_shim_reexports(qapp):
-    from firepro3d.preferences_dialog import (
-        SnappingPane, UnitsPane, ImportPane, GeneralPane, UIPane,
-        ProjectInfoPane, SettingsPane, _QSETTINGS_ORG, _QSETTINGS_APP,
-    )
-    from firepro3d.settings.panes import UXPane
-    assert _QSETTINGS_ORG == "GV" and _QSETTINGS_APP == "FirePro3D"
-    assert SnappingPane is UXPane
 
 
 def test_uxpane_has_snap_align_halo_switchbar(qapp):

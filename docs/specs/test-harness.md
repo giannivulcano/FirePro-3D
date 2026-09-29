@@ -29,9 +29,10 @@ SEH bug #371).
   `paths/block_dir` at a fresh per-test temp dir. See Invariant 7.
 - **`real_qsettings`** — yields the unpatched `QSettings` class so a test can read
   the REAL registry (only the isolation guard test needs this).
-- **`tmp_settings`** — an explicit INI-backed `QSettings(path, IniFormat)` for
-  ALIGN-settings round-trips. Predates the autouse isolation; still valid (explicit
-  INI-file constructions are honored, not rerouted).
+- *(retired 2026-09-26: `tmp_settings` and the per-file `isolated_settings` /
+  `patched_qsettings` / monkeypatch-`QSettings` redirects — tests read the pane's
+  own `QSettings(org, app)`, which the autouse store already isolates per test.
+  Explicit INI-file constructions are still honored, not rerouted.)*
 - **`model_space` / `make_model_space` / `model_scene` / `shown_model_view` /
   `elevation_scene_for`** — scene/view factories. `make_model_space` and
   `shown_model_view` call `scene.cleanup()` on teardown (worker drain, Invariant 2).

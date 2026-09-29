@@ -1,5 +1,5 @@
 from firepro3d import snap_engine
-from firepro3d.preferences_dialog import SettingsPane, SnappingPane, UnitsPane
+from firepro3d.settings.panes import SettingsPane, SnappingPane, UnitsPane
 
 # NOTE: PreferencesDialog was removed as part of the settings-dialog redesign.
 # Its tests have been retired here.  New dialog tests live in test_settings_dialogs.py.
@@ -208,7 +208,7 @@ def test_units_pane_on_changed_called(qapp):
 
 # ── ImportPane tests (Task D4) ────────────────────────────────────────────────
 
-from firepro3d.preferences_dialog import ImportPane, GeneralPane
+from firepro3d.settings.panes import ImportPane, GeneralPane
 from PyQt6.QtCore import QSettings
 
 
@@ -267,7 +267,7 @@ def test_general_pane_revert_restores(qapp):
 
 # ── ProjectInfoPane tests (Task D5) ──────────────────────────────────────────
 
-from firepro3d.preferences_dialog import ProjectInfoPane
+from firepro3d.settings.panes import ProjectInfoPane
 
 
 def test_project_info_apply_calls_set_info(qapp):

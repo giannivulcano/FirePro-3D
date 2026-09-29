@@ -55,19 +55,6 @@ def test_snap_collects_block_origin_and_vertices(model_space):
     assert (110, 0) in pts    # line far end (0,0)-(100,0) shifted by +10 x
 
 
-def test_make_block_dialog_is_frameless_themed(qapp):
-    # dialog adopts the house frameless shell (themed header, scoped objectName)
-    # + a #footerBar button rail (round-3 feedback)
-    from PyQt6.QtWidgets import QFrame
-    from firepro3d.make_block_dialog import MakeBlockDialog
-    dlg = MakeBlockDialog()
-    assert dlg.objectName() == "MakeBlockDialog"
-    assert hasattr(dlg, "_titlebar")
-    names = {c.objectName() for c in dlg.findChildren(QFrame)}
-    assert "dialogBody" in names and "footerBar" in names
-    dlg.deleteLater()
-
-
 def test_place_block_hud_live_angle_seed(model_space):
     # HUD Angle live-updates from the anchor→cursor heading (place_block pivot)
     from PyQt6.QtCore import QPointF

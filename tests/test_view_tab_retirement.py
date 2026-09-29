@@ -80,7 +80,7 @@ def test_report_docks_start_hidden(win):
 
 
 def test_generalpane_drops_report_dock_defaults(qapp):
-    from firepro3d.preferences_dialog import GeneralPane
+    from firepro3d.settings.panes import GeneralPane
     pane = GeneralPane()
     pane.load()
     labels = {cb.text() for cb in pane._dock_checks.values()}

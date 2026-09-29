@@ -1,9 +1,7 @@
 """Per-field tests for SnappingPane: live-apply, QSettings persistence, and Reset.
 
-Isolation strategy: monkeypatch ``preferences_dialog.QSettings`` so every
-internal ``QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)`` call inside the pane
-returns an INI-backed instance writing to ``tmp_path``.  This avoids touching
-the real Windows registry (NativeFormat) that the pane normally uses.
+Isolation: the pane's ``QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)`` calls land
+in the autouse ``_isolate_qsettings`` store (conftest, #312) -- a fresh per-test INI, never the Windows registry.
 
 The ``snap_globals`` autouse fixture saves/restores ``snap_engine`` module
 globals that apply() mutates, so tests don't leak state between each other.
@@ -15,7 +13,7 @@ import pytest
 from PyQt6.QtCore import QSettings
 
 from firepro3d import snap_engine
-from firepro3d.preferences_dialog import (
+from firepro3d.settings.panes import (
     SnappingPane,
     _FACTORY_DEFAULTS,
     _SNAP_TYPES,
@@ -27,26 +25,9 @@ from firepro3d.preferences_dialog import (
 # ── QSettings isolation ───────────────────────────────────────────────────────
 
 @pytest.fixture
-def isolated_settings(tmp_path, monkeypatch):
-    """Return a QSettings backed by a temp INI file.
-
-    Monkeypatches ``preferences_dialog.QSettings`` so that any call to
-    ``QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)`` inside the pane returns
-    this isolated instance instead of the real Windows registry object.
-    """
-    ini_path = str(tmp_path / "snap_test.ini")
-    settings_instance = QSettings(ini_path, QSettings.Format.IniFormat)
-
-    import firepro3d.preferences_dialog as pd_mod
-    import firepro3d.settings.panes as panes_mod
-
-    def _fake_qsettings(org=None, app=None):
-        # Called as QSettings(org, app) — always return our INI instance
-        return settings_instance
-
-    monkeypatch.setattr(pd_mod, "QSettings", _fake_qsettings)
-    monkeypatch.setattr(panes_mod, "QSettings", _fake_qsettings)
-    return settings_instance
+def isolated_settings():
+    """The pane's own (org, app) store -- already per-test isolated by conftest."""
+    return QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
 
 # ── Module-global leak guard ──────────────────────────────────────────────────
