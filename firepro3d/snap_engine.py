@@ -191,6 +191,95 @@ def snap_glyph_type(snap_result) -> str:
     return t
 
 
+def _seg_dist_sq(p: QPointF, a: QPointF, b: QPointF) -> float:
+    """Squared distance from *p* to segment a→b."""
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p.x() - a.x()) * dx
+                                                + (p.y() - a.y()) * dy) / L2))
+    qx, qy = a.x() + t * dx - p.x(), a.y() + t * dy - p.y()
+    return qx * qx + qy * qy
+
+
+def _nearest_seg_deg(p: QPointF, segs) -> float | None:
+    """Scene-space direction (deg, ``atan2(dy, dx)``) of the segment nearest
+    *p*; the first in order wins a tie (a polyline corner → its first leg)."""
+    best, best_d = None, math.inf
+    for a, b in segs:
+        if a.x() == b.x() and a.y() == b.y():
+            continue
+        d = _seg_dist_sq(p, a, b)
+        if d < best_d:
+            best_d = d
+            best = math.degrees(math.atan2(b.y() - a.y(), b.x() - a.x()))
+    return best
+
+
+def _path_segs(scene_path: QPainterPath):
+    """Consecutive vertex pairs of a scene-space path, flattened."""
+    for poly in scene_path.toSubpathPolygons():
+        for i in range(poly.count() - 1):
+            yield poly.at(i), poly.at(i + 1)
+
+
+def snap_tangent_deg(snap_result) -> float | None:
+    """Local direction of the geometry a snap lands on (snapping-engine §9.2).
+
+    Scene-space degrees (``atan2(dy, dx)``, Qt Y-down), used to rotate the
+    marker glyph so it lies along the snapped geometry. Resolution order:
+    the nearest ``source_lines`` segment (intersections, ALIGN rays); else
+    the nearest segment of ``source_item``'s own line / path / ellipse /
+    rect geometry in scene coords; else ``source_item``'s scene rotation
+    (text, blocks, underlay groups). None when there is no source.
+    """
+    p = snap_result.point
+    lines = getattr(snap_result, "source_lines", None)
+    if lines:
+        return _nearest_seg_deg(p, ((ln.p1(), ln.p2()) for ln in lines))
+    src = getattr(snap_result, "source_item", None)
+    if src is None:
+        return None
+    if isinstance(src, QGraphicsLineItem):
+        ln = src.line()
+        return _nearest_seg_deg(p, [(src.mapToScene(ln.p1()),
+                                     src.mapToScene(ln.p2()))])
+    path = None
+    if isinstance(src, QGraphicsPathItem):
+        path = src.path()
+    elif isinstance(src, QGraphicsEllipseItem):
+        path = QPainterPath()
+        path.addEllipse(src.rect())
+    elif isinstance(src, QGraphicsRectItem):
+        path = QPainterPath()
+        path.addRect(src.rect())
+    if path is not None:
+        deg = _nearest_seg_deg(p, _path_segs(src.mapToScene(path)))
+        if deg is not None:
+            return deg
+    t = src.sceneTransform()
+    return math.degrees(math.atan2(t.m12(), t.m11()))
+
+
+def _viewport_deg(view, point: QPointF, scene_deg: float) -> float:
+    """*scene_deg* at *point* as a viewport-pixel direction (deg).
+
+    Uses the float ``viewportTransform()`` when the view has one — an integer
+    ``mapFromScene`` probe rounds to 0 px when zoomed out (selection-mode
+    §15) — so a flipped or rotated view turns the glyph with it.
+    """
+    r = math.radians(scene_deg)
+    q = QPointF(point.x() + math.cos(r), point.y() + math.sin(r))
+    vt = getattr(view, "viewportTransform", None)
+    if callable(vt):
+        t = vt()
+        a, b = t.map(point), t.map(q)
+    else:
+        k = 1e4                                  # long probe for int mappers
+        q = QPointF(point.x() + k * math.cos(r), point.y() + k * math.sin(r))
+        a, b = QPointF(view.mapFromScene(point)), QPointF(view.mapFromScene(q))
+    return math.degrees(math.atan2(b.y() - a.y(), b.x() - a.x()))
+
+
 def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     """Draw the snap trace and marker glyph for one snap result.
 
@@ -205,8 +294,9 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
        segments adjacent to the snap point are highlighted (so a single
        corner snap does not light up an entire DXF rectangle).
     2. **Marker glyph** — a colour-coded shape (viewport/device coords) at the
-       snap point.  ``face-`` named targets are drawn with a *filled* glyph;
-       all others are outlined.
+       snap point, rotated to lie along the snapped geometry's local tangent
+       (:func:`snap_tangent_deg`, §9.2).  ``face-`` named targets are drawn
+       with a *filled* glyph; all others are outlined.
 
     All optional fields are guarded via ``getattr`` so a minimal result
     (``point`` + ``snap_type`` only) paints without raising.  The marker is
@@ -294,15 +384,29 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
         painter.restore()
 
     # ── 2. Marker glyph (viewport/device coordinates) ─────────────────────────
+    # Drawn about the origin after translate + rotate, so the glyph lies along
+    # the snapped geometry's local tangent (§9.2); an axis-aligned tangent
+    # keeps the crisp, non-antialiased pixel-grid rendering.
     color  = QColor(SNAP_COLORS.get(snap_type, "#ffffff"))
     marker = SNAP_MARKERS.get(snap_type, "square")
     vp     = view.mapFromScene(point)
     x, y   = vp.x(), vp.y()
     s      = 6   # half-size in screen pixels
+    tan = snap_tangent_deg(snap_result)
+    angle = 0.0
+    if tan is not None:
+        # A segment's heading is only defined mod 180° (a→b vs b→a): fold it
+        # into [-90, 90) so a horizontal line keeps today's upright glyphs.
+        angle = (_viewport_deg(view, point, tan) + 90.0) % 180.0 - 90.0
+        if abs(angle) < 1e-6:
+            angle = 0.0
 
     painter.save()
     painter.resetTransform()
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    painter.translate(int(x), int(y))
+    if angle:
+        painter.rotate(angle)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, bool(angle))
     pen = QPen(color, 2)
     pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
     painter.setPen(pen)
@@ -317,41 +421,34 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
     if marker == "square":
-        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        painter.drawRect(-s, -s, 2 * s, 2 * s)
     elif marker == "circle":
-        painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        painter.drawEllipse(-s, -s, 2 * s, 2 * s)
     elif marker == "triangle":
-        poly = QPolygon([
-            QPoint(int(x),     int(y) - s),
-            QPoint(int(x) + s, int(y) + s),
-            QPoint(int(x) - s, int(y) + s),
-        ])
-        painter.drawPolygon(poly)
+        painter.drawPolygon(QPolygon([
+            QPoint(0, -s), QPoint(s, s), QPoint(-s, s),
+        ]))
     elif marker == "diamond":
-        poly = QPolygon([
-            QPoint(int(x),     int(y) - s),
-            QPoint(int(x) + s, int(y)),
-            QPoint(int(x),     int(y) + s),
-            QPoint(int(x) - s, int(y)),
-        ])
-        painter.drawPolygon(poly)
+        painter.drawPolygon(QPolygon([
+            QPoint(0, -s), QPoint(s, 0), QPoint(0, s), QPoint(-s, 0),
+        ]))
     elif marker == "cross":
-        painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-        painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+        painter.drawLine(-s, -s, s, s)
+        painter.drawLine(s, -s, -s, s)
     elif marker == "right_angle":
         # ⊥ perpendicular symbol: right-angle corner
-        painter.drawLine(int(x) - s, int(y), int(x), int(y))
-        painter.drawLine(int(x), int(y), int(x), int(y) - s)
-        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        painter.drawLine(-s, 0, 0, 0)
+        painter.drawLine(0, 0, 0, -s)
+        painter.drawRect(-s, -s, 2 * s, 2 * s)
     elif marker == "tangent_circle":
-        # Tangent: small circle with horizontal line through bottom
-        painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        painter.drawLine(int(x) - s - 2, int(y) + s, int(x) + s + 2, int(y) + s)
+        # Tangent: small circle with a line along the tangent through its foot
+        painter.drawEllipse(-s, -s, 2 * s, 2 * s)
+        painter.drawLine(-s - 2, s, s + 2, s)
     elif marker == "x_cross":
         # Intersection: X inside a square
-        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-        painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+        painter.drawRect(-s, -s, 2 * s, 2 * s)
+        painter.drawLine(-s, -s, s, s)
+        painter.drawLine(s, -s, -s, s)
 
     painter.restore()
 
