@@ -104,6 +104,8 @@ class BlockDefinition:
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
+        # Nested-block resolver (registry.get), injected by BlockRegistry (D5).
+        self._resolve = None
 
     @classmethod
     def new(cls, *, name: str, library: str, series: str,
@@ -151,6 +153,11 @@ class BlockDefinition:
         self._text_snap_pts = None
         for inst in list(self._instances):
             inst.on_definition_changed()
+
+    def invalidate_cache(self) -> None:
+        """Drop the compiled render ops + text snap points (next read recompiles)."""
+        self._render_ops = None
+        self._text_snap_pts = None
 
     def render_ops(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
         """Return the cached, shared (pen, brush, path) render-op list.
