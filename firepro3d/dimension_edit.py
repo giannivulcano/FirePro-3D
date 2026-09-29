@@ -49,13 +49,14 @@ class DimensionEdit(QLineEdit):
     def __init__(self, scale_manager: ScaleManager | None = None,
                  initial_mm: float = 0.0, parent=None,
                  parser=None, minimum: float | None = None,
-                 formatter=None):
+                 formatter=None, maximum: float | None = None):
         super().__init__(parent)
         self._sm = scale_manager
         self._value_mm: float = initial_mm
         self._last_valid_mm: float = initial_mm
         self._parser = parser        # optional str -> float|None override
         self._minimum = minimum      # accepted values must be strictly > minimum
+        self._maximum = maximum      # accepted values must be <= maximum
         self._formatter = formatter  # optional mm -> str display override
         self._seed_text = ""
 
@@ -118,7 +119,8 @@ class DimensionEdit(QLineEdit):
         Returns:
             True when a new valid value was accepted *or* the field was
             untouched/blank (an untouched seed is valid, not a rejection);
-            False when the text failed to parse or did not clear ``minimum``,
+            False when the text failed to parse or fell outside
+            ``minimum``/``maximum``,
             in which case the field has reverted to its last valid value.
         """
         return self._on_editing_finished()
@@ -162,15 +164,16 @@ class DimensionEdit(QLineEdit):
             fallback = self._sm.bare_number_unit() if self._sm else "mm"
             parsed = ScaleManager.parse_dimension(text, fallback)
 
-        if parsed is not None and (self._minimum is None
-                                   or parsed > self._minimum):
+        if (parsed is not None
+                and (self._minimum is None or parsed > self._minimum)
+                and (self._maximum is None or parsed <= self._maximum)):
             self._value_mm = parsed
             self._last_valid_mm = parsed
             self._reformat()
             self.valueChanged.emit(self._value_mm)
             return True
         else:
-            # Invalid or below minimum -> revert
+            # Invalid or out of range -> revert
             self._value_mm = self._last_valid_mm
             self._reformat()
             return False

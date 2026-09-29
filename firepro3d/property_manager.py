@@ -322,7 +322,8 @@ class PropertyManager(QWidget):
                 dim_edit = DimensionEdit(sm, initial_mm=float(val_mm),
                                          parser=meta.get("parser"),
                                          minimum=meta.get("minimum"),
-                                         formatter=meta.get("formatter"))
+                                         formatter=meta.get("formatter"),
+                                         maximum=meta.get("maximum"))
                 dim_edit.editingFinished.connect(
                     lambda k=key, de=dim_edit: self._apply_property(
                         k, de.value_mm())

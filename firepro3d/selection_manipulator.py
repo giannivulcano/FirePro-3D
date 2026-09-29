@@ -463,6 +463,25 @@ class SelectionManipulator(QGraphicsObject):
         """True while a press->release gesture is in flight."""
         return self._mode is not None
 
+    def held_delta(self, item: QGraphicsItem) -> Optional[QTransform]:
+        """Scene-space transform the held preview currently applies to *item*.
+
+        Rigid gestures (interior move, resize) preview by holding a transform
+        on each item and bake geometry only on release; this maps the item's
+        rest-pose scene coordinates to where it is drawn now. Handles that
+        edit geometry live leave the transform untouched (identity delta).
+
+        Returns:
+            ``s0⁻¹ · sceneTransform()`` for a wrapped item mid-gesture, else
+            None (no gesture, or *item* is not part of it).
+        """
+        if self._mode is None:
+            return None
+        for it, _s0, s0_inv, _t0 in self._items0:
+            if it is item:
+                return s0_inv * it.sceneTransform()
+        return None
+
     def selection_items(self) -> List[QGraphicsItem]:
         """Top-level items the manipulator currently transforms."""
         return list(self._items)

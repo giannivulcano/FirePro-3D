@@ -1615,7 +1615,9 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                             "value": ScaleManager.format_span(self._span_deg),
                             "value_mm": self._span_deg,
                             "parser": ScaleManager.parse_span,
-                            "formatter": ScaleManager.format_span, "minimum": 0.0},
+                            "formatter": ScaleManager.format_span, "minimum": 0.0,
+                            # set_property accepts 0 < span < 360 only
+                            "maximum": 360.0 - 1e-6},
             "Colour":      {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }

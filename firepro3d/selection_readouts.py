@@ -68,6 +68,50 @@ def readout_text(spec: DimSpec, scale_manager) -> str:
     return f"{spec.prefix} {body}" if spec.prefix else body
 
 
+def map_spec(spec: DimSpec, t) -> DimSpec:
+    """*spec* as drawn under the scene-space ``QTransform`` *t*.
+
+    Pure. Linear: endpoints (and ``away``) map; ``value`` scales with the
+    mapped a→b length. Angular: the centre and both legs map, the sweep is
+    re-measured (a mirroring *t* reverses its direction) and ``value`` follows
+    the span; ``ref_radius`` scales with the start leg.
+    """
+    from dataclasses import replace
+
+    def m(p):
+        return None if p is None else t.map(QPointF(p))
+
+    if spec.kind == "linear":
+        a, b = m(spec.a), m(spec.b)
+        value = spec.value
+        if spec.a is not None and spec.b is not None:
+            d0 = math.hypot(spec.b.x() - spec.a.x(), spec.b.y() - spec.a.y())
+            if d0 > 0:
+                value = spec.value * math.hypot(b.x() - a.x(), b.y() - a.y()) / d0
+        return replace(spec, a=a, b=b, away=m(spec.away), value=value)
+
+    if spec.center is None:
+        return spec
+    from .arc_math import point_at, yup_angle
+    c0, r0 = spec.center, spec.ref_radius or 1.0
+    c = m(c0)
+    p_start = m(point_at(c0, r0, spec.start_deg))
+    p_end = m(point_at(c0, r0, spec.start_deg + spec.span_deg))
+    start = yup_angle(c, p_start)
+    sweep = (yup_angle(c, p_end) - start) % 360.0          # CCW, [0, 360)
+    ccw = spec.span_deg >= 0
+    if t.determinant() < 0:                                 # mirrored
+        ccw = not ccw
+    if sweep == 0.0 and spec.span_deg != 0.0:
+        sweep = 360.0
+    span = sweep if ccw else sweep - 360.0
+    value = span if math.isclose(spec.value, spec.span_deg) else spec.value
+    ref = (math.hypot(p_start.x() - c.x(), p_start.y() - c.y())
+           if spec.ref_radius else spec.ref_radius)
+    return replace(spec, center=c, start_deg=start, span_deg=span,
+                   value=value, ref_radius=ref)
+
+
 @dataclass
 class ReadoutEntry:
     """A spec bound to its item and laid out for one view.
@@ -157,14 +201,27 @@ class SelectionReadoutController:
 
     # ── specs / layout / pick ────────────────────────────────────────────
     def entries(self) -> list[tuple[object, DimSpec]]:
-        """(item, spec) for every dimension of every selected primitive."""
+        """(item, spec) for every dimension of every selected primitive.
+
+        Mid-gesture, specs are mapped through the manipulator's held preview
+        (``SelectionManipulator.held_delta``) so labels follow a move drag
+        live instead of jumping on release.
+        """
         if not self.readouts_active():
             return []
+        live = getattr(self._scene, "_live_manip", None)
+        manip = live() if callable(live) else None
+        dragging = manip is not None and manip.is_dragging()
         out = []
         for it in self._scene.selectedItems():
             fn = getattr(it, "dimension_specs", None)
-            if callable(fn):
-                out.extend((it, s) for s in fn())
+            if not callable(fn):
+                continue
+            specs = fn()
+            t = manip.held_delta(it) if dragging else None
+            if t is not None and not t.isIdentity():
+                specs = [map_spec(s, t) for s in specs]
+            out.extend((it, s) for s in specs)
         return out
 
     def layouts(self, view) -> list[ReadoutEntry]:

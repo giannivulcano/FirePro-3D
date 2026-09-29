@@ -34,6 +34,9 @@ class Model_View(QGraphicsView):
         self._panning = False
         self._pan_start = QPoint()
         self._zoom_factor = 1.15  # Zoom speed multiplier
+        # A right press that cancelled a readout edit swallows the context
+        # menu Qt delivers for the same click (on press or release per platform).
+        self._swallow_ctx_menu = False
 
         # Detail view clip rect (None = no clipping, full plan view)
         self._clip_rect: QRectF | None = None
@@ -693,10 +696,11 @@ class Model_View(QGraphicsView):
     # -----------------------------
     def mousePressEvent(self, event):
         sc = self.scene()
+        self._swallow_ctx_menu = False
         # Selection-readout edit open (selection-mode §15): the canvas is inert.
         # A middle press still pans (navigating while typing); any other press
         # outside the HUD cancels the edit and is consumed — no deselect, no
-        # band, no manipulator gesture.
+        # band, no manipulator gesture, and (right button) no context menu.
         ro = getattr(sc, "readouts", None) if sc is not None else None
         if ro is not None and ro.is_editing():
             if event.button() == Qt.MouseButton.MiddleButton:
@@ -706,6 +710,8 @@ class Model_View(QGraphicsView):
                 if ro.hud is not None:
                     ro.hud.restore_focus()
             else:
+                self._swallow_ctx_menu = (
+                    event.button() == Qt.MouseButton.RightButton)
                 ro.cancel_edit()
             event.accept()
             return
@@ -1295,6 +1301,10 @@ class Model_View(QGraphicsView):
     # ── Right-click context menu ───────────────────────────────────────────
 
     def contextMenuEvent(self, event):
+        if self._swallow_ctx_menu:
+            self._swallow_ctx_menu = False
+            event.accept()
+            return
         scene = self.scene()
         if scene is None:
             return
