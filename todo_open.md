@@ -4,51 +4,47 @@
 >
 > **Task shape** (governed by the task-taxonomy spec): every task is a top-level `- [ ]` line carrying exactly one `[type:bug|feature|design|maint]` tag (first bracket), a plain-English summary, a `[P1|P2|P3]` marker, and an optional `[subject:*]` area tag — with a nested `- Details:` bullet holding file refs, metadata, edge cases, and lineage. Subsystem `##`/`###` headers group by *area*, never by type.
 
-## 🎯 Current Focus — MVP: AHJ Package (decided 2026-06-23 grill; full rationale in `DOCS-REVIEW.md`)
-
-MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler Design core of the FPE suite (see `project-suite-vision` / `project-mvp-priority-model` memories).
-
-### B. Paper-space AHJ output (the MVP blocker — most machinery already exists)
+## Paper-space sheet output
 
 - [ ] [type:feature] Per-character (rich-text run) formatting for sheet text [P2] [subject:Architecture]
   - Details: formatting currently applies to the whole block. Spec-level change: `TextAnnotationData` moves from block-level fields to runs (§5.3); QGraphicsTextItem rich-text/QTextCharFormat path; panel + template semantics for partial selections. Needs a spec session first. `paper_space.py`, `docs/specs/paper-space.md §5.3/§9`. Lineage: Sheet-space annotations → property-panel replacement (both done parents).
-- [ ] [type:bug] `WallSegment.paint` cosmetic pen ignores the paper "Wall" line-weight [P3] [subject:CAD]
+- [ ] [type:bug] `WallSegment.paint` cosmetic pen ignores the paper "Wall" line-weight [P2] [subject:CAD]
   - Details: `paint()` builds a local `QPen(...).setCosmetic(True)` and never reads `self.pen()`, so `apply_paper_overrides`/`_apply_generic`'s `setPen(width=lw_mm)` is a no-op on wall outlines (walls plot at a fixed cosmetic width regardless of the paper "Wall" line-weight category). Route the wall outline pen through `_display_color`+category weight like the fill. Sibling reference: the pipe line-weight paper-normalization was fixed 2026-09-03 (`fix/pipe-paper-line-weight` → `paper_display._apply_pipe` now divides `lw_mm/paper_scale`, §9.9.1) — the wall version needs the *opposite* fix (make `WallSegment.paint` read the applied pen instead of a hardcoded cosmetic one). `wall.py`, `paper_display.py`.
-- [ ] [type:maint] Batch per-level viewport isolation if a many-levels sheet ever lags [P3] [subject:Architecture]
+- [ ] [type:maint] Batch per-level viewport isolation if a many-levels sheet ever lags [P2] [subject:Architecture]
   - Details: v1 applies/restores per differing viewport; a many-distinct-levels sheet does N sweeps. If it ever lags, batch in `paper_export.render_sheet` (group viewports by level, apply once per level, restore once). Filed in `paper-space.md §6.6`; not needed at current viewport counts. Imperceptible-perf → maint. `paper_export.py`.
-- [ ] [type:feature] Retrofit wall/floor/roof/geometry template persistence [P3] [subject:Architecture]
+- [ ] [type:feature] Retrofit wall/floor/roof/geometry template persistence [P2] [subject:Architecture]
   - Details: property-panel spec D0 — pipe/sprinkler/text templates persist, these reset per session. `main.py`, `model_space.py`.
 - [ ] [type:feature] Text-box placement polish — rubber-band placement + "Fit to contents" [P2] [subject:UX]
   - Details: (user, 2026-07-20 wrap) (a) click-drag rubber-band placement — drag on Add-Text click sets the initial box size (click-only keeps auto-size); (b) property-panel "Fit to contents" button — resets `box_height_mm`/wrap to the content extents (undo-routed). `paper_space.py`, `property_manager.py`.
-- [ ] [type:feature] Absorb the Modify→Text group into the entity-aware Font group [P3] [subject:UX]
+- [ ] [type:feature] Absorb the Modify→Text group into the entity-aware Font group [P2] [subject:UX]
   - Details: ribbon-bar spec D2 end state — NoteAnnotation gains family/hex-color/underline (data-model upgrade) and the Font group targets model text too (routed via `push_undo_state`); legacy Modify→Text group deleted. ref: ribbon-bar-spec D2. `main.py`, `annotations.py`, `font_group.py`.
-- [ ] [type:feature] Colored highlight for sheet text [P3] [subject:CAD]
+- [ ] [type:feature] Colored highlight for sheet text [P2] [subject:CAD]
   - Details: `opaque_bg: bool` → background color (True→white migration); Word-style highlight palette in Font group + panel. `paper_space.py`, `font_group.py`.
-- [ ] [type:feature] Contextual Modify tab that appears on selection and matches the entity [P3] [subject:UX]
+- [ ] [type:feature] Contextual Modify tab that appears on selection and matches the entity [P2] [subject:UX]
   - Details: from the 2026-07-16 ribbon-bar spec grill, D8. Revit-style: Modify tab hidden when nothing is selected, appears+activates on selection, contents specific to the selected entity type, disappears on deselect. Replaces the always-visible tab + force-switch. Needs a design pass (per-entity group registry, QTabBar dynamic insert/remove). ref: ribbon-bar-spec D8. `main.py`, `ribbon_bar.py`.
 - [ ] [type:feature] Sheet-text leaders — add/delete leader + leader properties [P2] [subject:Architecture]
   - Details: right-click add/delete leader; leader properties in the panel. (Deferred in the 2026-06-25 grill; pulled back by smoke test.) `paper_space.py`.
-- [ ] [type:feature] Sheet-text printed border property (None/Solid/Dashed) [P3] [subject:CAD]
+- [ ] [type:feature] Sheet-text printed border property (None/Solid/Dashed) [P2] [subject:CAD]
   - Details: (user request, 2026-07-20 smoke) panel dropdown for a printed box border: None (default) / Solid / Dashed / etc.; renders in export as authored; new `TextAnnotationData` field + panel enum row + paint. Distinct from the selection boundary (which is UI-only). `paper_space.py`.
-- [ ] [type:bug] Latent point-size ~2.4× PDF over-sizing in the legacy title-block fallback text [P3] [subject:CAD]
+- [ ] [type:bug] Latent point-size ~2.4× PDF over-sizing in the legacy title-block fallback text [P2] [subject:CAD]
   - Details: `TitleBlockItem` (`TitleBlockFieldOverlay` + the CEL DXF/PDF chain deleted 2026-09-26; `TitleBlockItem` is now always hidden — re-check whether any pt text still renders before building). Scoped down 2026-07-22: viewport view-titles + the "View not found" placeholder were converted to the mm primitive (`_draw_mm_text`, DPI-regression-tested) with the titleblock-template build; the remaining pt text lives only in the no-template fallback chain (renders for projects without a parametric template). ref: paper-space §4.11. `paper_space.py`.
-- [ ] [type:feature] Expose paper-space text as a Display-Manager category [P3] [subject:Architecture]
+- [ ] [type:feature] Expose paper-space text as a Display-Manager category [P2] [subject:Architecture]
   - Details: project-level colour / opaque-bg customization. `display_manager.py`, `paper_display.py`, `paper_space.py`.
 
-### C. Hydraulic calc deliverable
+## Hydraulic calc deliverable
 
-> Cardinal elevations on sheets ALREADY WORK (`ViewResolver`). Riser (MVP): cardinal elevation + imported standard detail — reuse, no build.
+> Cardinal elevations on sheets ALREADY WORK (`ViewResolver`). Riser: cardinal elevation + imported standard detail — reuse, no build.
 
 - [ ] [type:feature] Storage protection criteria system (NFPA 13 Table 4.3.1.7.1) [P2] [subject:Sprinkler Design]
   - Details: when Room hazard is Miscellaneous/Low-Piled/High-Piled Storage, conditional Protection Criteria fields appear (Commodity Classification I–IV/Group A plastics, Type of Storage, Storage Height; ceiling height already computed); table lookup resolves to a design curve (OH1/OH2/EH1/EH2 or "See Chapter 25") + hose allowances + duration; resolved curve inherited by design areas AND consumed by auto-populate; badge STORAGE HEIGHT cell fills. Today all three storage classes disengage inheritance with a warning. Needs its own grill (table encoding scope, Chapter-25 rows, in-rack). Lineage: Design-Area Criteria System (done parent). `room.py`, `nfpa_curves.py`, `design_area.py`, `auto_populate_dialog.py`.
-- [ ] [type:feature] Hose allowance inside/outside split [P3] [subject:Hydraulic Calculator]
+- [ ] [type:feature] Hose allowance inside/outside split [P2] [subject:Hydraulic Calculator]
   - Details: WaterSupply gains Inside + Outside hose allowance (old single value migrates to Outside on load); solver total = inside + outside; report + badge HOSE cells (currently TBD) read both. `water_supply.py`, `hydraulic_solver.py`, `hydraulic_report.py`, `design_area.py`.
-- [ ] [type:feature] Domestic water allowance → solver demand [P3] [subject:Hydraulic Calculator]
+- [ ] [type:feature] Domestic water allowance → solver demand [P2] [subject:Hydraulic Calculator]
   - Details: currently informational (badge/WaterSupply property only); add to the supply-curve check like hose stream, with report line items. `hydraulic_solver.py`, `hydraulic_report.py`.
-- [ ] [type:feature] Auto-generated one-line riser diagram from pipe/valve topology [P3] [subject:Sprinkler Design]
+- [ ] [type:feature] Auto-generated one-line riser diagram from pipe/valve topology [P2] [subject:Sprinkler Design]
   - Details: desired POST-MVP differentiator (plays to the hydraulic/topology strength). Arbitrary-angle section-view subsystem is deferred OUT of the MVP (2026-06-23) — cardinal elevations suffice. `model_space.py`, new module.
 
-### Post-MVP order
+## Documentation reorg
 
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
