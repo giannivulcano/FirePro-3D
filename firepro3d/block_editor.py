@@ -366,6 +366,13 @@ class BlockEditorWidget(QWidget):
                 seeded create's replace-on-save); stored, not modified.
         """
         for d in prim_dicts:
+            if d.get("type") == "block_instance":
+                # Nested block (D2/D8): a live instance resolved through the
+                # borrowed project registry, not a factory primitive.
+                pos = d.get("pos", [0.0, 0.0])
+                self.editor_scene.place_block_instance(
+                    d["block_id"], (pos[0], pos[1]), rotation=d.get("rotation", 0.0))
+                continue
             cls = _PRIMITIVE_FACTORY.get(d.get("type"))
             if cls is None:
                 continue
@@ -407,6 +414,8 @@ class BlockEditorWidget(QWidget):
                      "_draw_arcs", "_draw_ellipses", "_draw_splines", "_polylines", "_draw_polygons",
                      "_texts"):
             items.extend(getattr(s, attr))
+        # Nested blocks (D8): emitted as D2 block_instance records on commit.
+        items.extend(getattr(s, "_block_instances", []))
         # Reference lines are scaffolding: included in the block ONLY when
         # explicitly printed; a non-printing reference line is dropped (task D).
         items.extend(r for r in getattr(s, "_reference_lines", [])
@@ -439,7 +448,8 @@ class BlockEditorWidget(QWidget):
         """
         self.editor_scene.commit_text_edit()   # inline text edit ends before saving
         items = self.gather_primitives()
-        prims = [it.to_dict() for it in items]
+        prims = [it.to_nested_dict() if hasattr(it, "to_nested_dict") else it.to_dict()
+                 for it in items]
         if not prims:
             return None
         origin = self.origin_point()

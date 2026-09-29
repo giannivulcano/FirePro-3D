@@ -198,3 +198,88 @@ def test_compile_survives_a_corrupt_cycle(qapp):
     sc._block_definitions[b.id] = b
     ops = sc.get_block_definition(a.id).render_ops()     # must terminate
     assert any(op[0].color() == QColor("#c0392b") for op in ops)
+
+
+def _editor(proj, block_id=None):
+    from firepro3d.block_editor import BlockEditorWidget
+    return BlockEditorWidget(proj, block_id=block_id)
+
+
+def test_editor_saves_nested_reference_and_reopens_it(qapp):
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    a = _line_def("A")
+    proj.register_block_definition(a)
+    w = _editor(proj, a.id)
+    try:
+        w.seed_from_definition(a)
+        w.editor_scene.place_block_instance(b.id, (300.0, 0.0), rotation=30.0)
+        w.commit_block(a.name, a.library, a.series)
+        recs = [p for p in a.primitives if p["type"] == "block_instance"]
+        assert recs == [{"type": "block_instance", "block_id": b.id,
+                         "pos": [300.0, 0.0], "rotation": 30.0}]
+        w2 = _editor(proj, a.id)
+        w2.seed_from_definition(a)
+        insts = w2.editor_scene._block_instances
+        assert [(i.block_id, i.block_pos(), i.block_rotation()) for i in insts] == \
+               [(b.id, (300.0, 0.0), 30.0)]
+        w2.editor_scene.cleanup()
+    finally:
+        w.editor_scene.cleanup()
+        QApplication.processEvents()
+
+
+def test_instances_only_block_is_savable(qapp, monkeypatch):
+    # A False _has_geometry opens a modal info box; fail instead of hanging.
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda *a, **k: pytest.fail("modal: no geometry"))
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    w = _editor(proj)
+    try:
+        w.editor_scene.place_block_instance(b.id, (0.0, 0.0))
+        assert w._has_geometry(None)
+        d = w.commit_block("Only", "L", "S")
+        assert d is not None and d.primitives[0]["type"] == "block_instance"
+    finally:
+        w.editor_scene.cleanup()
+
+
+def test_commit_refuses_a_cycle(qapp):
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(a)
+    ok = proj.commit_block_definition(
+        block_id=b.id, name="B", library="L", series="S",
+        primitives=[_nested(a.id, 0, 0)], origin=(0.0, 0.0), place_instance=False)
+    assert ok is None
+    assert all(p["type"] != "block_instance" for p in b.primitives)
+
+
+def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
+    proj = Model_Space()
+    b = _line_def("B", 0, 100, 0)
+    proj.register_block_definition(b)
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(a)
+    plan_a = proj.place_block_instance(a.id, (0.0, 0.0))
+    wa = _editor(proj, a.id)
+    wa.seed_from_definition(a)
+    nested_b = wa.editor_scene._block_instances[0]
+    wb = _editor(proj, b.id)
+    wb.seed_from_definition(b)
+    try:
+        calls = {"plan": 0, "editor": 0}
+        plan_a.on_definition_changed = lambda: calls.__setitem__("plan", calls["plan"] + 1)
+        nested_b.on_definition_changed = lambda: calls.__setitem__("editor", calls["editor"] + 1)
+        wb.editor_scene._draw_lines[0].translate(0.0, 50.0)
+        wb.commit_block(b.name, b.library, b.series)
+        assert calls["plan"] >= 1 and calls["editor"] >= 1
+        assert plan_a.render_ops()[1][2].boundingRect().top() == 50.0
+    finally:
+        for w in (wa, wb):
+            w.editor_scene.cleanup()

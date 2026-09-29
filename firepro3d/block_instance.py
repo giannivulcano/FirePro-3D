@@ -79,6 +79,15 @@ class BlockInstance(QGraphicsObject):
     def block_pos(self) -> tuple[float, float]:
         return (self._pose_x, self._pose_y)
 
+    def to_nested_dict(self) -> dict:
+        """Record for this instance nested inside a definition (no level — C3).
+
+        Returns:
+            A D2 ``block_instance`` primitive record (definition-local pose).
+        """
+        return {"type": "block_instance", "block_id": self.block_id,
+                "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot}
+
     def set_block_rotation(self, deg: float) -> None:
         self.prepareGeometryChange()
         self._pose_rot = float(deg)

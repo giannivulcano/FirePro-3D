@@ -210,7 +210,8 @@ class ModifyToolsController:
         # D13 allow-list: the Block Editor accepts only what _add_from_dict
         # registers; anything else (plan entities, gridline records with no
         # type key, openings, view markers, …) refuses the whole paste.
-        if s.scene_role == "block_editor" and not types <= set(s._GEOM_TYPE_REGISTRY):
+        if s.scene_role == "block_editor" and not types <= (set(s._GEOM_TYPE_REGISTRY)
+                                                            | {"block_instance"}):
             s._show_status("Plan elements can't be pasted into the Block Editor", 4000)
             return False
         s.set_mode("paste")

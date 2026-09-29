@@ -143,12 +143,16 @@ class BlockRegistry:
         return out
 
     # ── invalidation ─────────────────────────────────────────────────────
-    def invalidate(self, block_id: str) -> None:
+    def invalidate(self, block_id: str, *, already=()) -> None:
         """Drop compile caches of *block_id* + its users; repaint their instances.
 
         Args:
             block_id: The definition whose contents changed.
+            already: Instances the caller has just repainted (e.g. the
+                backrefs ``BlockDefinition.set_primitives`` notified) — skipped
+                so each live instance repaints exactly once.
         """
+        skip = {id(i) for i in already}
         affected = {block_id} | self.users_of(block_id)
         for i in affected:
             d = self._store.get(i)
@@ -160,5 +164,5 @@ class BlockRegistry:
                 self._scenes.remove(sc)
                 continue
             for inst in list(getattr(sc, "_block_instances", [])):
-                if inst.block_id in affected:
+                if inst.block_id in affected and id(inst) not in skip:
                     inst.on_definition_changed()

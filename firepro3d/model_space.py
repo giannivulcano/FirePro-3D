@@ -1794,9 +1794,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = self._block_definitions.get(block_id)
             if defn is None:
                 return None
+            # Defence in depth (D8): refuse a save that would nest A in itself.
+            nested = {p.get("block_id") for p in primitives
+                      if p.get("type") == "block_instance"}
+            if any(self._block_registry.would_cycle(block_id, n) for n in nested):
+                self._show_status("A block can't contain itself", 5000)
+                return None
             defn.name, defn.library, defn.series = name, library, series
             defn.origin = (ox, oy)
             defn.set_primitives(list(primitives))
+            # Recompile + repaint every user of this definition (plan + editors);
+            # set_primitives already repainted defn's own backref instances.
+            self._block_registry.invalidate(defn.id, already=defn._instances)
             self.blockDefinitionsChanged.emit()
         for it in (source_items or []):
             self._remove_item_from_lists(it)
