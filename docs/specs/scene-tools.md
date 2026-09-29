@@ -1,7 +1,7 @@
 ---
-status: partial          # D1–D15 BUILT + merged to main (b9eda69); VC6 full suite + user smoke passed 2026-09-29; D9/D10 change requests pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
-last-verified: 2026-09-29  # VC6 + user smoke on main
-verified-commit: ae6ff19   # main (build merged as b9eda69); prior d9d6f20 (branch), c47ab60 (orphan-gate audit)
+status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment (per-vertex miter, splines on the control polygon) BUILT 2026-09-29 on feature/offset-chord-translate; D10 change request pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
+last-verified: 2026-09-29  # D9 amendment: guards + user smoke on feature/offset-chord-translate
+verified-commit: 8576f74   # feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -509,12 +509,19 @@ ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
   inward offset → no ghost + status "Offset too large", nothing created. Result
   inherits the source's style (colour, lineweight, fill — 2D primitives carry no linetype and are level-less, C3; corrected 2026-09-26). Per primitive
   (**mitered corners** throughout): Line/RefLine → parallel of the **same type**;
-  open polyline → mitered parallel polyline; closed polyline → closed, mitered at
-  **every** vertex incl. the seam; Rect (incl. rotated) → rect ±d per side, same
-  angle; Circle → concentric r±d (**geometric r, not pen-inflated**); Arc →
-  concentric, same angles, r±d; RegularPolygon → regular polygon, same sides +
-  rotation, apothem ±d; **Ellipse → ellipse rx±d, ry±d**, same centre +
-  rotation; Spline → spline approximating the offset curve; Text → not
+  open polyline → mitered parallel polyline (**per vertex**: each end vertex
+  moves d perpendicular to its end segment; each interior vertex goes to the
+  intersection of its two offset legs); **open spline → the same rule applied
+  to its control (reference) polygon** — same knots/degree, same point count
+  (amended 2026-09-29); an open chain whose end points coincide (zero chord)
+  offsets its vertex loop ±d like a closed one; closed polyline → closed,
+  mitered at **every** vertex incl. the seam; **closed spline → its control
+  loop ±d, mitered incl. the seam** (amended 2026-09-29; closed splines only
+  arise from DXF import or a grip-snap);
+  Rect (incl. rotated) → rect ±d per side, same angle; Circle → concentric r±d
+  (**geometric r, not pen-inflated**); Arc → concentric, same angles, r±d;
+  RegularPolygon → regular polygon, same sides + rotation, apothem ±d;
+  **Ellipse → ellipse rx±d, ry±d**, same centre + rotation; Text → not
   offsettable.
 - **D10 Array.** On-canvas **linear** only: selection → Shift+A → base point →
   cursor sets direction + spacing, live ghost of all copies → HUD **Spacing ·
@@ -603,7 +610,9 @@ gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
   before `LineItem`). The closed-polyline case uses `Model_Space._inset_polygon`
   **promoted into `tool_geometry`** (one implementation, two callers). `None` =
   degenerate (too-large inward offset). Style copy (colour, linetype, fill,
-  level) is part of `offset_item`.
+  level) is part of `offset_item`. Cursor distance = `distance_to_item` (true
+  distance to the drawn element; also the pick measure); side = the nearest
+  segment's left normal (open chains) or inside/outside (closed, zero chord).
 - **Ghost** — `firepro3d/transform_ghost.py`: build base paths with
   `halo.halo_scene_path(item)`; per frame apply a `QTransform` (translate, or
   rotate about the pivot with the `manip_rotate` sign); paint
@@ -687,13 +696,13 @@ double-rotated ghost (moot — `halo_scene_path`).
 Where the build refined the design above (each reviewed; guards in `tests/test_modify_tools_*.py`, `tests/test_offset_item.py`, `tests/test_transform_ghost.py`):
 
 - **D9 sticky distance (user-ratified 2026-09-25):** a *typed* Distance stays locked for every next pick — the cursor only picks the side; typing `0` releases the lock (schema `offset_distance`, which admits 0); a click-derived distance only pre-fills the HUD. A typed value commits on the side the cursor held when the HUD engaged (the HUD freezes the cursor).
-- **D9 spline offset:** `tool_geometry.fit_offset_spline` — adaptive clamped least-squares fit to the true offset curve (≤ 1 % of |d|, extra control points allowed, C0 corner knots split and mitered/trimmed, closed seams mitered); never returns an out-of-tolerance fit (falls back). Live ghost: per-source cached linear fit (C0 + d·C1), zoom-adaptive sampling (≈ 1 px chord). **Known limits:** swallowtail self-intersections are not trimmed; the far-cursor 40-pt case repaints ≈ 30–35 ms (user-accepted; xfail) — both tracked by the "Trim self-intersecting spline offsets" follow-up. Inward closed offsets are refused unless the result lies inside the source.
+- **D9 spline offset — RETIRED 2026-09-29** (branch `feature/offset-chord-translate`): the 2026-09-26 `fit_offset_spline` least-squares fit (and its live-ghost cache, `offset_item`'s `cache` arg, `Model_Space._offset_fit_cache`) is deleted. A spline offsets its control (reference) polygon with the polyline miter rule — open: `offset_polyline_pts`; closed / zero chord: the wrapped loop (`_offset_chain_as_loop`). Consequences: no fitted true-offset curve (so no swallowtails to trim); a closed spline's inward reach is the control loop's (≈ 60 mm on the noisy 39-point perf shape, where the fit reached 100+ mm) — past it, "Offset too large". The ghost candidate is built by `_spline_copy` (one flatten, not from_dict's two: closed 39-pt ≈ 5 ms/move); `open40_far` passes the 30 ms guard (xfail removed).
 - **D9 snap:** in `offset_side` the source is excluded from snap targets (through-point snaps to other geometry stay live).
 - **D10 Enter:** bare Enter commits at the current aim (no aim → refusal status); no ghost is shown before an aim exists.
 - **D5/D13 paste gate:** the Block Editor accepts only the 2D registry types (allow-list); nothing is ever read from a bare-list clipboard; internal round-trips (array, copy-to-level) never touch the OS clipboard; Copy/Cut verify the clipboard write and refuse (Cut deletes nothing) if it did not land.
 - **Selection / undo:** Move re-selects its originals; Undo/Redo cancel an active modify tool first (`CANCEL_ON_UNDO_MODES`); New/Open end the active tool before clearing the scene (`scene_io._clear_scene`).
 - **Rotate commit** fixed `RectangleItem.manip_rotate` and `TextItem.manip_rotate` (compose about the item's own pivot, then translate — no new persisted state); governed by `selection-manipulator.md` (baked-at-rest rule).
-- **Smoke 2026-09-29 — change requests (as-proposed, pending a human gate):** D9 for **open polylines and splines** → a copy translated along the normal of the end-point chord (closed polylines keep ±d); D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→. Each is a P1 `todo_open.md` task with its own grill; D9/D10 above stay the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
+- **Smoke 2026-09-29 — change requests:** D9 for **open polylines and splines** — first grilled as a copy translated along the end-point chord normal (built, then rejected at smoke the same day as the wrong fork); re-pinned by the user as the **per-vertex miter** (splines: on the control polygon, closed / zero-chord: wrapped) with the pre-existing nearest-segment cursor measure — **BUILT** (see D9 above). D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→ — still as-proposed, pending its own P1 task + grill; D10 above stays the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
 - **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
 
 ## Verification Checklist
