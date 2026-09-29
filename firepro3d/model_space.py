@@ -52,6 +52,7 @@ from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
+from .block_instance import BlockInstance
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
 from .constraints import Constraint as ConstraintBase
@@ -938,6 +939,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The blocked removals swallowed selectionChanged — re-emit once so the
         # manipulator frame, property panel and browser drop the deleted items.
         self.selectionChanged.emit()
+        if any(isinstance(i, BlockInstance) for i in selected):
+            # blockSignals swallowed remove_block_instance's emit.
+            self.blockInstancesChanged.emit()
 
         # Single scene refresh after all removals
         self.update()
@@ -990,6 +994,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if item in self._rooms:
                     self._rooms.remove(item)
                 self.removeItem(item)
+            elif isinstance(item, BlockInstance):
+                self.remove_block_instance(item)
             elif isinstance(item, (DoorOpening, WindowOpening)):
                 if item.wall is not None and item in item.wall.openings:
                     item.wall.openings.remove(item)
