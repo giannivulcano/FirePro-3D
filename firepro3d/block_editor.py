@@ -265,6 +265,9 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
+        # Resolve nested blocks through the PROJECT registry (D4): the editor's
+        # own _block_definitions stays private to its undo snapshot.
+        self.editor_scene.borrow_block_registry(project_scene.block_registry)
         # The blue placement preview-node is a pipe/sprinkler affordance the plan
         # scene suppresses while the crosshair owns the cursor (main._apply_crosshair).
         # The block editor authors only 2D geometry (which has its own ghost), so
@@ -770,11 +773,23 @@ class BlockEditorManager:
         if idx != -1:
             self._tabs.removeTab(idx)
         self._open.pop(getattr(widget, "_editor_key", None), None)
+        self._detach_registry(widget)
         widget.deleteLater()
 
     def forget(self, widget: BlockEditorWidget) -> None:
         """Drop a widget from tracking (called when its tab is closed elsewhere)."""
         self._open.pop(getattr(widget, "_editor_key", None), None)
+        self._detach_registry(widget)
+
+    def _detach_registry(self, widget: BlockEditorWidget) -> None:
+        """Stop the project registry repainting a closed editor's scene.
+
+        The editor scene is Python-owned (no Qt parent), so the registry's
+        strong reference would otherwise keep it alive after the tab closes.
+        """
+        es = getattr(widget, "editor_scene", None)
+        if es is not None:
+            es.block_registry.detach_scene(es)
 
     def open_editors(self) -> list:
         """Return the currently open editor widgets (stable-ish, dict order).

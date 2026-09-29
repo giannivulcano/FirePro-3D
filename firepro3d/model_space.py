@@ -238,6 +238,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_lines: list[LineItem] = []
         self._reference_lines: list[ReferenceLineItem] = []
         self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
+        # The registry fronts _block_definitions (resolution / dependency /
+        # cycle / invalidation choke point — nested blocks D3). A Block Editor
+        # scene swaps in the project's registry via borrow_block_registry (D4).
+        from .block_registry import BlockRegistry
+        self._block_registry = BlockRegistry(self._block_definitions)
+        self._block_registry.attach_scene(self)
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state (Block S2 T3): 2-step position→rotate
         # machine mirroring wall_rect.  A low-opacity BlockInstance is the ghost.
@@ -1545,14 +1551,31 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._pipe_ctl.remove_node(n)
 
     # ── Block registry / lifecycle (S1) ──────────────────────────────────
+    def borrow_block_registry(self, registry) -> None:
+        """Resolve blocks through another scene's registry (Block Editor, D4).
+
+        The editor keeps its own ``_block_definitions`` for its undo snapshot;
+        resolution, cycle checks and repaint go through the project registry.
+
+        Args:
+            registry: The project scene's ``BlockRegistry``.
+        """
+        self._block_registry = registry
+        registry.attach_scene(self)
+
+    @property
+    def block_registry(self):
+        """The ``BlockRegistry`` this scene resolves blocks through."""
+        return self._block_registry
+
     def register_block_definition(self, definition) -> None:
         """Add/replace a BlockDefinition in the project-scoped registry."""
-        self._block_definitions[definition.id] = definition
+        self._block_registry.add(definition)
         self.blockDefinitionsChanged.emit()
 
     def get_block_definition(self, block_id: str):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
-        return self._block_definitions.get(block_id)
+        return self._block_registry.get(block_id)
 
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""
@@ -1579,7 +1602,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         new definition's instance backrefs, and repaint every referencing
         instance. Pure registry mutation — does NOT push undo or emit (callers
         batch those). Shared by reload-from-library and load-from-file replace."""
-        self._block_definitions[block_id] = new_defn
+        self._block_registry.add(new_defn)
         new_defn._instances = []
         for inst in self._block_instances:
             if inst.block_id == block_id:
@@ -1642,7 +1665,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if clash:
                 summary["refused"].append(defn.name)
                 continue
-            self._block_definitions[defn.id] = defn
+            self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
             changed = True
         if changed:
@@ -7270,7 +7293,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
-                if obj.get("block_id") in self._block_definitions:
+                if self.get_block_definition(obj.get("block_id")) is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],
                         (_p[0] + offset.x(), _p[1] + offset.y()),

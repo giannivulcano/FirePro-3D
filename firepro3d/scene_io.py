@@ -506,7 +506,7 @@ class SceneIOMixin:
             if inst.scene() is self:
                 self.removeItem(inst)
         self._block_instances = []
-        self._block_definitions = {}
+        self._block_definitions.clear()   # keep the registry's store identity
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
         self._draw_rect_side_pt = None

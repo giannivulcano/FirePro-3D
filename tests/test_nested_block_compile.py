@@ -60,3 +60,35 @@ def test_registry_missing_nested(qapp):
     a = _line_def("A", extra=[_nested("deadbeef", 0, 0)])
     r, _ = _reg(a)
     assert r.missing_nested() == {"deadbeef": {a.id}}
+
+
+from firepro3d.model_space import Model_Space
+
+
+def test_editor_scene_resolves_through_borrowed_project_registry(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    proj = Model_Space()
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    w = BlockEditorWidget(proj)
+    try:
+        es = w.editor_scene
+        assert es.get_block_definition(b.id) is b
+        es.push_undo_state()
+        es.undo()                                  # editor restore wipes ITS dict only
+        assert proj.get_block_definition(b.id) is b
+        assert es.get_block_definition(b.id) is b
+    finally:
+        w.editor_scene.cleanup()
+        w.deleteLater()
+        QApplication.processEvents()
+
+
+def test_project_reset_keeps_registry_store_identity(qapp):
+    proj = Model_Space()
+    store = proj._block_definitions
+    proj._clear_scene()                      # scene_io reset (holds the old rebind)
+    assert proj._block_definitions is store
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    assert proj.get_block_definition(b.id) is b
