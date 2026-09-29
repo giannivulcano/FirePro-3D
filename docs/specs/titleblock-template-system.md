@@ -1,7 +1,7 @@
 ---
 status: current           # rev 3 + 2026-08-04 editor-UX batch + 2026-09-15 UI-convention rollout; user smoke in progress
-last-verified: 2026-09-26
-verified-commit: e96b6ae   # 2026-09-26 headless cleanup: LEGACY_SHEET_KEYS trimmed to Rev/Date (spec already correct); prior 9fe9985
+last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-26
+verified-commit: d34aeb0   # batch A dead-code sweep; prior e96b6ae   # 2026-09-26 headless cleanup: LEGACY_SHEET_KEYS trimmed to Rev/Date (spec already correct); prior 9fe9985
 applies-to:
   - firepro3d/titleblock_template.py   # data model + layout solver + token engine + arrangement ops + library I/O
   - firepro3d/titleblock_editor.py     # editor window (Overview [+drawing-area border] / Fields / Arrangements)

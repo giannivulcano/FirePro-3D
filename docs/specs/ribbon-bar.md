@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-26
-verified-commit: d9d6f20   # Block Editor Edit/Modify groups pointer; prior af36ed6
+last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-26
+verified-commit: d34aeb0   # batch A dead-code sweep; prior d9d6f20   # Block Editor Edit/Modify groups pointer; prior af36ed6
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py

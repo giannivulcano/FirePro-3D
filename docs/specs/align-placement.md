@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-26
-verified-commit: 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-26
+verified-commit: d34aeb0   # batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
