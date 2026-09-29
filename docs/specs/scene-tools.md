@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); VC6 full suite + user smoke passed 2026-09-29; D9/D10 change requests pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
-last-verified: 2026-09-26
-verified-commit: d9d6f20   # branch feat/scene-tools-2d; prior c47ab60 (orphan-gate as-built audit)
+last-verified: 2026-09-29  # VC6 + user smoke on main
+verified-commit: ae6ff19   # main (build merged as b9eda69); prior d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py

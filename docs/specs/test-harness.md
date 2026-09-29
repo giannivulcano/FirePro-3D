@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-23
-verified-commit: d34aeb0   # batch A dead-code sweep; prior 72412e2
+last-verified: 2026-09-29  # Invariant 8 perf marker; prior 2026-09-28
+verified-commit: ae6ff19   # Invariant 8 perf marker; prior d34aeb0
 ---
 
 # Test Harness — Governing Spec
