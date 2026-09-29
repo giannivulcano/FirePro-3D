@@ -31,6 +31,45 @@ _PRIMITIVE_FACTORY = {
     "text": TextItem,
 }
 
+_NESTED_TYPE = "block_instance"
+_PLACEHOLDER_COLOR = "#c0392b"      # BlockInstance orphan placeholder colour
+_PLACEHOLDER_MM = 200.0
+_COMPILING: set[str] = set()        # re-entrancy guard (corrupt cyclic data)
+
+
+def _nested_pose(rec: dict):
+    """QTransform for a nested record: translate(pos) then rotate(-rot) (Y-up CCW).
+
+    Matches ``BlockInstance.pose_transform`` (D2).
+
+    Args:
+        rec: A ``block_instance`` primitive record.
+
+    Returns:
+        The record's definition-local pose ``QTransform``.
+    """
+    from PyQt6.QtGui import QTransform
+    x, y = rec.get("pos", [0.0, 0.0])
+    t = QTransform()
+    t.translate(float(x), float(y))
+    t.rotate(-float(rec.get("rotation", 0.0)))
+    return t
+
+
+def _placeholder_op(t) -> tuple:
+    """Red box-with-diagonal render op for an unresolvable nested block.
+
+    Args:
+        t: The nested record's full transform (pose, then origin shift).
+    """
+    h = _PLACEHOLDER_MM / 2.0
+    path = QPainterPath()
+    path.addRect(-h, -h, _PLACEHOLDER_MM, _PLACEHOLDER_MM)
+    path.moveTo(-h, -h)
+    path.lineTo(h, h)
+    pen = QPen(QColor(_PLACEHOLDER_COLOR))
+    return (pen, QBrush(Qt.BrushStyle.NoBrush), t.map(path))
+
 
 def _local_path(item) -> QPainterPath:
     """Return the primitive's geometry as a QPainterPath in the item's own coords.
@@ -85,7 +124,8 @@ class BlockDefinition:
         self.library = library
         self.series = series
         self.scale_mode = scale_mode
-        self.origin = (float(origin[0]), float(origin[1]))
+        # Set directly (not via the setter): the caches do not exist yet.
+        self._origin = (float(origin[0]), float(origin[1]))
         self.attributes = list(attributes)
         self.primitives = list(primitives)
         # Reference definitions (render_mode="reference") own the curve-preserving,
@@ -154,6 +194,16 @@ class BlockDefinition:
         for inst in list(self._instances):
             inst.on_definition_changed()
 
+    @property
+    def origin(self) -> tuple[float, float]:
+        """Definition-local insertion origin (scene mm); assigning clears caches."""
+        return self._origin
+
+    @origin.setter
+    def origin(self, value) -> None:
+        self._origin = (float(value[0]), float(value[1]))
+        self.invalidate_cache()
+
     def invalidate_cache(self) -> None:
         """Drop the compiled render ops + text snap points (next read recompiles)."""
         self._render_ops = None
@@ -191,6 +241,19 @@ class BlockDefinition:
             ox, oy = self.origin
             out: list[list[QPointF]] = []
             for prim in self.primitives:
+                if prim.get("type") == _NESTED_TYPE:
+                    child = self._resolve_nested(prim)
+                    if child is None or child.id in _COMPILING or child.id == self.id:
+                        continue
+                    from PyQt6.QtGui import QTransform
+                    t = _nested_pose(prim) * QTransform.fromTranslate(-ox, -oy)
+                    _COMPILING.add(self.id)
+                    try:
+                        boxes = child.text_snap_points()
+                    finally:
+                        _COMPILING.discard(self.id)
+                    out.extend([[t.map(p) for p in box] for box in boxes])
+                    continue
                 cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
                 if cls is None:
                     continue
@@ -215,6 +278,9 @@ class BlockDefinition:
         ox, oy = self.origin
         ops: list[tuple[QPen, QBrush, QPainterPath]] = []
         for prim in self.primitives:
+            if prim.get("type") == _NESTED_TYPE:
+                ops.extend(self._nested_ops(prim, ox, oy))
+                continue
             cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
             if cls is None:
                 continue
@@ -233,6 +299,32 @@ class BlockDefinition:
                 brush = QBrush(Qt.BrushStyle.NoBrush)
             ops.append((pen, brush, path))
         return ops
+
+    def _resolve_nested(self, prim):
+        """The nested definition for *prim*, or None (missing / unresolvable)."""
+        if self._resolve is None:
+            return None
+        return self._resolve(prim.get("block_id", ""))
+
+    def _nested_ops(self, prim, ox, oy) -> list:
+        """B's cached ops mapped through the record pose, then A's origin shift.
+
+        Qt ``QTransform`` composes row-vector style: ``p * (pose * shift)``
+        applies the pose first, then the origin shift — the same order as
+        ``mapToParent`` followed by ``translate(-ox, -oy)`` for primitives.
+        An unresolvable or cyclic nested block yields the red placeholder.
+        """
+        from PyQt6.QtGui import QTransform
+        t = _nested_pose(prim) * QTransform.fromTranslate(-ox, -oy)
+        child = self._resolve_nested(prim)
+        if child is None or child.id in _COMPILING or child.id == self.id:
+            return [_placeholder_op(t)]
+        _COMPILING.add(self.id)
+        try:
+            child_ops = child.render_ops()
+        finally:
+            _COMPILING.discard(self.id)
+        return [(pen, brush, t.map(path)) for pen, brush, path in child_ops]
 
     def _compile_reference(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
         """Batched compile: accumulate each layer's geometry into one path.
