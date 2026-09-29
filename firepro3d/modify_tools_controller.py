@@ -321,7 +321,6 @@ class ModifyToolsController:
         s = self._scene
         s.set_mode("offset_side")
         s._offset_source = item
-        s._offset_fit_cache = {}
         s._offset_side = 1.0
         locked = bool(s._offset_sticky_locked and s._offset_sticky)
         s._offset_typed = locked
@@ -349,7 +348,7 @@ class ModifyToolsController:
         if src is None or self._drop_dead_source():
             return
         if not s._offset_typed:
-            s._offset_dist = tg.distance_to_item(src, snapped)
+            s._offset_dist = tg.offset_cursor_distance(src, snapped)
         s._offset_side = tg.offset_side_sign(src, snapped)
         self._refresh_offset_ghost()
         # Feed the Distance HUD its live seed (_transform_seed_values).
@@ -361,14 +360,7 @@ class ModifyToolsController:
         s = self._scene
         if s._offset_source is None or s._offset_dist <= 0:
             return None
-        # The scene-side fit cache keeps a spline offset's d-independent work
-        # between mouse moves (review G7 R-2); it is keyed on the source's
-        # geometry, so a stale entry can never be reused. The ghost path is
-        # sampled to ~1 device pixel at the current zoom (R2-1).
-        from .view_scale import scene_view_scale
-        s._offset_fit_cache["chord_tol"] = 1.0 / scene_view_scale(s)
-        return tg.offset_item(s._offset_source, s._offset_side * s._offset_dist,
-                              cache=s._offset_fit_cache)
+        return tg.offset_item(s._offset_source, s._offset_side * s._offset_dist)
 
     def _refresh_offset_ghost(self) -> None:
         from .transform_ghost import ghost_base_paths
@@ -407,7 +399,6 @@ class ModifyToolsController:
         s._offset_sticky = s._offset_dist
         s._offset_sticky_locked = bool(s._offset_typed)
         s._offset_source = None
-        s._offset_fit_cache = {}                # drop the old source's arrays
         s._move_ghost = []
         s.clear_placement_state()
         s.set_mode("offset")                    # re-arm (D9 step 5)
@@ -434,7 +425,7 @@ class ModifyToolsController:
             s._offset_sticky_locked = False
             p = s.get_resolved_point()
             src = s._offset_source
-            s._offset_dist = (tg.distance_to_item(src, p)
+            s._offset_dist = (tg.offset_cursor_distance(src, p)
                               if p is not None and src is not None else 0.0)
             self._refresh_offset_ghost()
             return True
@@ -472,7 +463,6 @@ class ModifyToolsController:
             s._array_spacing = 0.0
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
-            s._offset_fit_cache = {}
             s._offset_dist = 0.0
             s._offset_typed = False
             s._offset_sticky = None

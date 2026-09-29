@@ -7,6 +7,8 @@ commits a new item (source kept), one undo; the tool stays armed with the last
 distance sticky; Esc → Select; a too-large inward offset shows no ghost, posts
 "Offset too large" and creates nothing. Text is not offsettable.
 """
+import math
+
 import pytest
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtTest import QTest
@@ -398,16 +400,7 @@ def test_committed_item_inherits_style(qapp, name):
 # context baseline. Never loosen the threshold; `perf`-marked, so it runs in
 # its own process (test-harness Invariant 8), never inside a busy chunk.
 
-import math
 import time
-
-
-def _spline40():
-    import random
-    from firepro3d.geometry_2d import SplineItem
-    rnd = random.Random(1)
-    return SplineItem([QPointF(i * 50 - 1000, rnd.uniform(-80, 80))
-                       for i in range(40)])
 
 
 def _closed39():
@@ -423,7 +416,7 @@ def _closed39():
     return SplineItem(c)
 
 
-_PERF_WARMUP_MOVES = 5    # arm the tool + warm the fit cache / paint path
+_PERF_WARMUP_MOVES = 5    # arm the tool + warm the paint path
 _PERF_PASSES = 3          # best-of-N medians: one scheduler hiccup can't flip it
 
 
@@ -439,7 +432,7 @@ def _real_move_median_ms(make_source, attr, pts):
         scene.clearSelection(); src.setSelected(True)
         scene._modify_ctl.start("offset")
         assert scene.mode == "offset_side"
-        for p in pts[:_PERF_WARMUP_MOVES]:               # arm + warm the cache
+        for p in pts[:_PERF_WARMUP_MOVES]:               # arm + warm the paint path
             move(view, p)
         medians = []
         for _ in range(_PERF_PASSES):
@@ -464,31 +457,66 @@ def _line_baseline_ms():
 
 
 _PERF_CASES = {
-    "open40_far": (_spline40, [QPointF(-500 + k * 7, 150) for k in range(23)]),
-    "open40_near": (_spline40, [QPointF(-400 + k * 3, -95 - (k % 3)) for k in range(23)]),
     "closed39_out": (_closed39, [QPointF(450 + k, 0) for k in range(23)]),
-    "closed39_in": (_closed39, [QPointF(300 + k, 0) for k in range(23)]),
+    # ~40 mm inward: the control loop reaches ~60 mm into this noisy shape
+    "closed39_in": (_closed39, [QPointF(360 + k, 0) for k in range(23)]),
 }
 
 
-_KNOWN_SLOW = pytest.mark.xfail(
-    strict=False,
-    reason="KNOWN LIMIT, user-accepted (measured 31-35 ms): the HALO glow's "
-           "repaint cost tracks the ghost's drawn LENGTH. At d~145 the "
-           "40-point spline's untrimmed offset loops (d >> its bend radius) "
-           "more than double that length (5609 mm vs 2517 mm at d=5), so the "
-           "ghost repaint alone is ~24 ms. Self-intersection trimming (filed "
-           "follow-up) removes the loops. The threshold is NOT loosened.")
-
-
 @pytest.mark.perf
-@pytest.mark.parametrize("case", [
-    pytest.param(c, marks=_KNOWN_SLOW) if c == "open40_far" else c
-    for c in _PERF_CASES])
+@pytest.mark.parametrize("case", list(_PERF_CASES))
 def test_offset_real_mouse_move_is_fast(qapp, case):
-    """Median real mouse move <= 30 ms on a 40-point open / 39-point closed
-    spline (handler + ghost repaint), with a LineItem baseline for context."""
+    """Median real mouse move <= 30 ms on a 39-point closed spline
+    (control-loop offset) (handler + ghost repaint), with a LineItem baseline for context."""
     make_source, pts = _PERF_CASES[case]
     ms = _real_move_median_ms(make_source, "_draw_splines", pts)
     base = _line_baseline_ms()
     assert ms <= 30.0, f"{case}: median {ms:.1f} ms per move (line {base:.1f} ms)"  # [RED]
+
+
+# ── D9 amended 2026-09-29: open chains translate along the end-point chord ──
+
+def _chord_signed(item_pts, p):
+    a, b = item_pts[0], item_pts[-1]
+    L = math.hypot(b.x() - a.x(), b.y() - a.y())
+    return (-(b.y() - a.y()) * (p.x() - a.x()) + (b.x() - a.x()) * (p.y() - a.y())) / L
+
+
+@pytest.mark.parametrize("name, pts_attr, cursor", [
+    ("polyline_open", "_points", QPointF(20, 40)),
+    ("spline", "_control_points", QPointF(60, 60))])
+def test_open_chain_click_puts_the_copy_chord_through_the_cursor(qapp, name, pts_attr, cursor):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, name)
+        src_pts = [QPointF(p) for p in getattr(item, pts_attr)]
+        scene._modify_ctl.start("offset")
+        move(view, cursor)
+        click(view, cursor)
+        new = getattr(scene, attr)[-1]
+        assert new is not item
+        new_pts = getattr(new, pts_attr)
+        dx, dy = new_pts[0].x() - src_pts[0].x(), new_pts[0].y() - src_pts[0].y()
+        for p, q in zip(src_pts, new_pts):                 # a pure translation
+            assert (q.x() - p.x(), q.y() - p.y()) == pytest.approx((dx, dy), abs=1e-6)
+        assert _chord_signed(new_pts, cursor) == pytest.approx(0.0, abs=0.05)  # [RED]
+        assert _chord_signed(src_pts, QPointF(src_pts[0].x() + dx,
+                                              src_pts[0].y() + dy)) > 0
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("cursor, sign", [(QPointF(20, 40), 1.0), (QPointF(80, -90), -1.0)])
+def test_open_polyline_typed_distance_translates_on_cursor_side(qapp, cursor, sign):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "polyline_open")  # chord normal (+.707,+.707)
+        scene._modify_ctl.start("offset")
+        move(view, cursor)
+        _type_distance(scene, "10")
+        new = getattr(scene, attr)[-1]
+        s = sign * 10.0 * math.sqrt(0.5)
+        assert [(round(p.x(), 3), round(p.y(), 3)) for p in new._points] == \
+            [(round(x + s, 3), round(y + s, 3)) for x, y in [(0, 0), (100, 0), (100, -100)]]
+    finally:
+        close_view(view, scene)

@@ -1,11 +1,12 @@
 """D9: offset_item per primitive — type preserved, style inherited, true distances.
 
-scene-tools.md D9: Line/RefLine → parallel of the SAME type; open polyline →
-mitered parallel; closed polyline → closed, mitered at every vertex incl. the
-seam; Rect (incl. rotated) → rect ±d per side, same angle; Circle → concentric
-r±d (geometric r, not pen-inflated); Arc → concentric, same angles; Regular
-polygon → same sides + rotation, apothem ±d; Ellipse → rx±d, ry±d; Spline →
-spline approximating the offset curve; Text → not offsettable.
+scene-tools.md D9: Line/RefLine → parallel of the SAME type; open polyline /
+open spline → copy translated along the unit normal of the end-point chord
+(amended 2026-09-29); closed polyline / closed spline / zero-chord chain → its
+(control) loop ±d, mitered at every vertex incl. the seam; Rect (incl.
+rotated) → rect ±d per side, same angle; Circle → concentric r±d (geometric r,
+not pen-inflated); Arc → concentric, same angles; Regular polygon → same sides
++ rotation, apothem ±d; Ellipse → rx±d, ry±d; Text → not offsettable.
 """
 import math
 
@@ -61,14 +62,6 @@ def test_closed_polyline_inward(qapp):
     out = tg.offset_item(_make("polyline_closed"), -10.0)
     assert sorted((round(p.x(), 3), round(p.y(), 3)) for p in out._points) == \
         sorted([(10.0, -10.0), (90.0, -10.0), (90.0, -90.0), (10.0, -90.0)])
-
-
-def test_open_polyline_mitered(qapp):
-    src = _make("polyline_open")                          # (0,0)-(100,0)-(100,-100)
-    out = tg.offset_item(src, 10.0)                       # left normal: +y then +x
-    pts = [(round(p.x(), 3), round(p.y(), 3)) for p in out._points]
-    assert pts == [(0.0, 10.0), (110.0, 10.0), (110.0, -100.0)]
-    assert not out.is_closed()
 
 
 def test_rect_offset_per_side(qapp):
@@ -155,28 +148,6 @@ def test_source_is_not_mutated(qapp):
         assert src.to_dict() == before, name
 
 
-def test_spline_offset_is_approximately_d(qapp):
-    src = _make("spline")
-    new = tg.offset_item(src, 5.0)
-    assert type(new).__name__ == "SplineItem"
-    # Measured at the offset CURVE's midpoint (a control point is off-curve,
-    # so its distance to the source says nothing about the offset).
-    poly = new.path().toSubpathPolygons()[0]
-    d = tg.distance_to_item(src, poly.at(poly.count() // 2))
-    assert d == pytest.approx(5.0, rel=0.35)
-
-
-def test_spline_offset_curve_stays_near_d(qapp):
-    """The offset CURVE (not just a control point) stays ~d from the source."""
-    src = _make("spline")
-    new = tg.offset_item(src, 5.0)
-    poly = new.path().toSubpathPolygons()[0]
-    n = poly.count()
-    ds = [tg.distance_to_item(src, poly.at(i)) for i in range(n // 10, n - n // 10)]
-    assert min(ds) == pytest.approx(5.0, rel=0.35)
-    assert max(ds) == pytest.approx(5.0, rel=0.35)
-
-
 def test_distance_to_item_open_polyline_uses_segments(qapp):
     src = _make("polyline_open")                          # (0,0)-(100,0)-(100,-100)
     # point beyond the first segment's end on its infinite line: true distance > 0
@@ -198,10 +169,9 @@ def test_offset_side_sign(qapp):
     # open line: left normal of (0,0)->(100,0) is +y (scene)
     assert tg.offset_side_sign(_make("line"), QPointF(50, 20)) == 1.0
     assert tg.offset_side_sign(_make("line"), QPointF(50, -20)) == -1.0
-    # open polyline: the NEAREST segment decides (second leg, x=100 going -y:
-    # left normal is +x)
+    # open polyline: the END-POINT CHORD (0,0)->(100,-100) decides (D9 2026-09-29)
     assert tg.offset_side_sign(_make("polyline_open"), QPointF(120, -80)) == 1.0
-    assert tg.offset_side_sign(_make("polyline_open"), QPointF(80, -80)) == -1.0
+    assert tg.offset_side_sign(_make("polyline_open"), QPointF(80, -90)) == -1.0
 
 
 # ── fix round (review G7) ────────────────────────────────────────────────────
@@ -210,34 +180,6 @@ def _closed_spline():
     from firepro3d.geometry_2d import SplineItem
     return SplineItem([QPointF(0, 0), QPointF(100, 0), QPointF(100, -100),
                        QPointF(0, -100), QPointF(0, 0)])
-
-
-def test_closed_spline_offsets_closed_and_keeps_fill(qapp):
-    """I-2: a closed spline (first == last control point) offsets to a closed
-    spline — seam included — and keeps its fill; its side is inside/outside."""
-    src = _closed_spline()
-    assert src.is_closed()
-    src.fill_type = "solid"
-    out = tg.offset_item(src, 5.0)
-    assert out.is_closed()                                            # [RED]
-    assert out.fill_type == "solid" and out.is_fillable()
-    # outward: the loop grew on every side (seam corner included)
-    cps = out._control_points
-    assert (cps[0].x(), cps[0].y()) == pytest.approx((-5.0, 5.0))
-    inward = tg.offset_item(src, -5.0)
-    assert inward.is_closed()
-    # inner seam corner: trimmed where the TRUE offset's head and tail cross
-    # (the source is rounded near its seam, so this is not the control-loop
-    # corner (5, -5)); the seam point sits d from the source curve.
-    import numpy as np
-    seam = inward._control_points[0]
-    S = _exact_pts(src, 20000)
-    gap = float(_seg_dists(np.array([[seam.x(), seam.y()]]), S)[0])
-    assert gap == pytest.approx(5.0, rel=0.01)
-    assert src.get_closed_path().contains(seam)
-    # side: inside -> -1, outside -> +1, whatever the winding
-    assert tg.offset_side_sign(src, QPointF(50, -50)) == -1.0          # [RED]
-    assert tg.offset_side_sign(src, QPointF(300, -50)) == 1.0
 
 
 def test_uniform_degenerate_floor(qapp):
@@ -254,66 +196,6 @@ def test_uniform_degenerate_floor(qapp):
     assert tg.offset_item(_make("ellipse"), -39.9) is None
 
 
-# ── I-3: spline offset fits the TRUE offset curve (review G7, Option A) ──────
-# Error is measured by an independent exact evaluator (ezdxf BSpline on the
-# items' own control points / knots), over ALL interior samples of the result.
-
-def _exact_pts(spline, m):
-    import numpy as np
-    from ezdxf.math import BSpline
-    cps = [(p.x(), p.y()) for p in spline._control_points]
-    b = BSpline(cps, order=spline._degree + 1, knots=spline._knots,
-                weights=spline._weights)
-    k = list(b.knots())
-    t0, t1 = k[spline._degree], k[-spline._degree - 1]
-    return np.array([tuple(v)[:2] for v in b.points(np.linspace(t0, t1, m))])
-
-
-def _seg_dists(pts, poly):
-    """Distance from each of *pts* to the polyline *poly* (numpy arrays)."""
-    import numpy as np
-    a, b = poly[:-1], poly[1:]
-    ab = b - a
-    L2 = np.maximum((ab ** 2).sum(1), 1e-18)
-    out = np.empty(len(pts))
-    for i, p in enumerate(pts):
-        t = np.clip(((p - a) * ab).sum(1) / L2, 0.0, 1.0)
-        out[i] = np.min(np.hypot(*(a + t[:, None] * ab - p).T))
-    return out
-
-
-def _open_spline_error(src, new, d):
-    """Max |dist(new curve, source curve) - |d|| / |d| over interior samples."""
-    import numpy as np
-    S = _exact_pts(src, 6000)
-    N = _exact_pts(new, 1500)[30:-30]           # interior (ends are pinned exact)
-    return float(np.max(np.abs(_seg_dists(N, S) - abs(d))) / abs(d))
-
-
-@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
-def test_open_spline_offset_within_2pct(qapp, d):
-    src = _make("spline")
-    new = tg.offset_item(src, d)
-    assert type(new).__name__ == "SplineItem" and not new.is_closed()
-    assert new._degree == src._degree
-    err = _open_spline_error(src, new, d)
-    assert err <= 0.02, f"max error {err:.2%} of d"                  # [RED] (~27 %)
-    # clamped knots: the curve starts/ends exactly on the offset endpoints
-    k = new._knots
-    assert k[:new._degree + 1] == [k[0]] * (new._degree + 1)
-    assert k[-new._degree - 1:] == [k[-1]] * (new._degree + 1)
-    # capped control-point count
-    assert len(new._control_points) <= 4 * len(src._control_points)
-
-
-def test_open_spline_offset_side_matches_offset_side_sign(qapp):
-    src = _make("spline")
-    new = tg.offset_item(src, 5.0)
-    mid = _exact_pts(new, 101)[50]
-    from PyQt6.QtCore import QPointF as P
-    assert tg.offset_side_sign(src, P(float(mid[0]), float(mid[1]))) == 1.0
-
-
 def test_spline_offset_round_trips(qapp):
     from firepro3d.geometry_2d import SplineItem
     new = tg.offset_item(_make("spline"), 5.0)
@@ -321,128 +203,6 @@ def test_spline_offset_round_trips(qapp):
     assert back.to_dict() == new.to_dict()
 
 
-@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
-def test_closed_spline_offset_within_2pct(qapp, d):
-    """Closed spline: the fitted offset stays within 2 % of |d| of the true
-    offset everywhere away from the seam corner, and is exactly closed."""
-    import numpy as np
-    src = _closed_spline()
-    new = tg.offset_item(src, d)
-    assert new.is_closed() and new._degree == src._degree
-    assert len(new._control_points) <= 4 * len(src._control_points)
-    S = _exact_pts(src, 8000)
-    N = _exact_pts(new, 2000)
-    seam = N[0]
-    away = np.hypot(*(N - seam).T) > 1.5 * abs(d)     # the corner is mitered
-    assert away.sum() > len(N) // 3                    # most of the curve counts
-    err = float(np.max(np.abs(_seg_dists(N[away], S) - abs(d))) / abs(d))
-    assert err <= 0.02, f"max error {err:.2%} of d"                  # [RED]
-    # outward = bigger, inward = smaller, whatever the winding
-    grew = src.get_closed_path().contains(
-        QPointF(float(seam[0]), float(seam[1])))
-    assert grew == (d < 0)
-
-
-@pytest.mark.parametrize("name, d", [("deg2", 5.0), ("deg2", 20.0),
-                                     ("rational", 5.0), ("rational", -20.0),
-                                     ("wiggly8", 5.0), ("wiggly8", -5.0)])
-def test_other_open_splines_within_2pct(qapp, name, d):
-    from firepro3d.geometry_2d import SplineItem
-    Q = QPointF
-    src = {
-        "deg2": lambda: SplineItem([Q(0, 0), Q(50, -60), Q(100, 0), Q(150, -40)],
-                                   degree=2),
-        "rational": lambda: SplineItem([Q(0, 0), Q(50, -60), Q(100, 0), Q(150, -40)],
-                                       weights=[1, 2, 0.5, 1]),
-        # min radius of curvature ~10.9 mm: |d| = 5 stays swallowtail-free
-        "wiggly8": lambda: SplineItem([Q(0, 0), Q(40, -50), Q(80, 20), Q(120, -60),
-                                       Q(160, 10), Q(200, -40), Q(240, 30),
-                                       Q(280, 0)]),
-    }[name]()
-    new = tg.offset_item(src, d)
-    assert _open_spline_error(src, new, d) <= 0.02
-    assert len(new._control_points) <= 4 * len(src._control_points)
-
-
-# ── R-1: C0-corner splines (interior knot multiplicity == degree) ────────────
-
-def _corner_spline():
-    from firepro3d.geometry_2d import SplineItem
-    return SplineItem([QPointF(0, 0), QPointF(30, -60), QPointF(60, 0),
-                       QPointF(90, -60), QPointF(120, 0), QPointF(150, -60),
-                       QPointF(180, 0)],
-                      knots=[0, 0, 0, 0, .5, .5, .5, 1, 1, 1, 1])
-
-
-def _dist_to_corner_points(spline, M):
-    """Distance from *M* to the curve at the result's C0 knots (multiplicity
-    >= degree), evaluated exactly with ezdxf — where a B-spline passes
-    through a control point."""
-    import numpy as np
-    from collections import Counter
-    from ezdxf.math import BSpline
-    p = spline._degree
-    k = spline._knots
-    ks = [x for x, m in Counter(k[p + 1:-p - 1]).items() if m >= p]
-    if not ks:
-        return float("inf")
-    b = BSpline([(q.x(), q.y()) for q in spline._control_points], order=p + 1,
-                knots=k)
-    return min(float(np.hypot(*(np.array(tuple(b.point(x))[:2]) - M)))
-               for x in ks)
-
-
-def _corner_miter(d):
-    """Miter point of the source's corner (90,-60), from its end tangents."""
-    import numpy as np
-    c = np.array([90.0, -60.0])
-    tin = np.array([30.0, -60.0]); tin /= np.linalg.norm(tin)
-    tout = np.array([30.0, 60.0]); tout /= np.linalg.norm(tout)
-    a = c + d * np.array([-tin[1], tin[0]])
-    b = c + d * np.array([-tout[1], tout[0]])
-    den = tin[0] * tout[1] - tin[1] * tout[0]
-    s = ((b[0] - a[0]) * tout[1] - (b[1] - a[1]) * tout[0]) / den
-    return a + s * tin, s
-
-
-@pytest.mark.parametrize("d", [5.0, 20.0, -5.0, -20.0])
-def test_corner_spline_offset_is_mitered_and_within_2pct(qapp, d):
-    """A sharp (C0) corner is offset as two fitted runs joined by a miter
-    (outer side) or trimmed at their crossing (inner side)."""
-    import numpy as np
-    src = _corner_spline()
-    new = tg.offset_item(src, d)
-    assert type(new).__name__ == "SplineItem" and not new.is_closed()
-    assert len(new._control_points) <= 4 * len(src._control_points)
-    S = _exact_pts(src, 12000)
-    N = _exact_pts(new, 3000)[45:-45]
-    M, s = _corner_miter(d)
-    if s > 0:          # outer corner: the result runs through the miter point
-        assert _dist_to_corner_points(new, M) <= 1e-6                    # [RED]
-        leg = float(np.hypot(*(M - np.array([90.0, -60.0]))))
-        N = N[np.hypot(*(N - M).T) > leg]            # the miter legs are > d
-    err = float(np.max(np.abs(_seg_dists(N, S) - abs(d))) / abs(d))
-    assert err <= 0.02, f"max error {err:.2%} of d"                      # [RED]
-
-
-def test_fit_never_returns_an_out_of_tolerance_curve(qapp):
-    """R-1 (a): whatever fit_offset_spline returns is within tolerance —
-    never the best-at-cap curve (independently measured). The corner
-    spline's inner side (d > 0 here) is exactly d from the source
-    everywhere, so no exclusion is needed."""
-    from firepro3d.geometry_2d import SplineItem
-    for src, d in [(_corner_spline(), 5.0), (_corner_spline(), 20.0),
-                   (_make("spline"), 5.0)]:
-        fit = tg.fit_offset_spline(src, d)
-        if fit is None:
-            continue
-        new = SplineItem(fit[0], src._degree, fit[1])
-        err = _open_spline_error(src, new, d)
-        assert err <= 0.02, f"{err:.2%}"                                 # [RED]
-    assert tg.offset_item(_make("spline"), 200.0) is not None
-
-
-# ── R2-2: a closed spline's legitimate inward offset is not refused ─────────
 
 def _closed39():
     import math
@@ -457,42 +217,10 @@ def _closed39():
     return SplineItem(c)
 
 
-@pytest.mark.parametrize("d", [-100.0, -200.0])
-def test_closed_noisy_spline_inward_offset_is_fitted(qapp, d):
-    """The control-loop collapse check would refuse these (its 64 mm legs
-    invert), but the true offset exists: the fit decides, not the loop."""
-    import numpy as np
-    src = _closed39()
-    assert tg._offset_closed_loop(list(src._control_points)[:-1], d) is None
-    new = tg.offset_item(src, d)
-    assert new is not None and new.is_closed()                        # [RED]
-    area = lambda P: 0.5 * float(np.sum(P[:-1, 0] * P[1:, 1] - P[1:, 0] * P[:-1, 1]))
-    a0, a1 = area(_exact_pts(src, 8000)), area(_exact_pts(new, 8000))
-    assert a0 * a1 > 0 and abs(a1) < abs(a0)          # same winding, shrunk
-
-
 def test_closed_spline_inward_past_its_extent_is_refused(qapp):
-    """The fit's own collapse test: inward past the loop's extent -> None."""
+    """The control loop's collapse test: inward past its extent -> None."""
     assert tg.offset_item(_closed39(), -420.0) is None
     assert tg.offset_item(_closed_spline(), -60.0) is None
-
-
-@pytest.mark.parametrize("chord_tol", [1.0, 0.25])
-def test_result_path_chord_error_follows_chord_tol(qapp, chord_tol):
-    """R2-1: the result path (the live ghost) is sampled to the caller's
-    chord tolerance (the tool passes ~1 device px at the current zoom): the
-    exact curve never strays more than that from the drawn polyline."""
-    import numpy as np
-    from tests.test_modify_tools_offset import _spline40
-    src = _spline40()
-    new = tg.offset_item(src, 5.0, cache={"chord_tol": chord_tol})
-    poly = np.array([(q.x(), q.y()) for q in new.path().toSubpathPolygons()[0]])
-    exact = _exact_pts(new, 20000)
-    err = float(_seg_dists(exact[::7], poly).max())
-    assert err <= chord_tol * 1.05, f"chord error {err:.3f} > {chord_tol}"
-    if chord_tol == 1.0:
-        fine = tg.offset_item(src, 5.0, cache={"chord_tol": 0.25})
-        assert fine.path().elementCount() > new.path().elementCount()   # zoom-driven
 
 
 # ── R3-1: an inward closed offset past collapse is refused, not mirrored ────
@@ -518,3 +246,88 @@ def test_inward_closed_offset_within_reach_still_works(qapp):
     assert new is not None and new.is_closed()
     path = src.get_closed_path()
     assert all(path.contains(q) for q in new.path().toSubpathPolygons()[0])
+
+
+# ── D9 amended 2026-09-29: open chains → copy translated along the chord normal ──
+
+_R2 = math.sqrt(0.5)
+
+
+def _chord_n(a, b):
+    L = math.hypot(b.x() - a.x(), b.y() - a.y())
+    return (-(b.y() - a.y()) / L, (b.x() - a.x()) / L)
+
+
+def test_open_polyline_is_translated_along_chord_normal(qapp):
+    src = _make("polyline_open")                 # (0,0)-(100,0)-(100,-100)
+    out = tg.offset_item(src, 10.0)              # chord normal (+.707, +.707)
+    got = [(round(p.x(), 3), round(p.y(), 3)) for p in out._points]
+    s = 10.0 * _R2
+    assert got == [(round(x + s, 3), round(y + s, 3))
+                   for x, y in [(0, 0), (100, 0), (100, -100)]]     # [RED]
+    assert not out.is_closed() and type(out) is type(src)
+
+
+def test_open_spline_is_translated_along_chord_normal(qapp):
+    src = _make("spline")                        # (0,0) .. (150,-40)
+    nx, ny = _chord_n(src._control_points[0], src._control_points[-1])
+    for d in (7.0, -12.0):
+        out = tg.offset_item(src, d)
+        assert out._degree == src._degree and out._knots == src._knots
+        assert out._weights == src._weights
+        assert len(out._control_points) == len(src._control_points)  # [RED]
+        for p, q in zip(src._control_points, out._control_points):
+            assert (q.x(), q.y()) == pytest.approx((p.x() + nx * d, p.y() + ny * d))
+
+
+def test_offset_cursor_distance_is_perpendicular_to_chord(qapp):
+    src = _make("polyline_open")
+    # (20, 40): 42.43 from the chord line x + y = 0 (nearest SEGMENT is 40 away)
+    assert tg.offset_cursor_distance(src, QPointF(20, 40)) == pytest.approx(60 * _R2)
+    assert tg.offset_side_sign(src, QPointF(20, 40)) == 1.0
+    assert tg.offset_side_sign(src, QPointF(80, -90)) == -1.0
+    # non-chain items keep the true distance (the pick measure)
+    assert tg.offset_cursor_distance(_make("circle"), QPointF(80, 0)) == \
+        pytest.approx(30.0, abs=0.05)
+
+
+def _zero_chord_polyline():
+    from firepro3d.geometry_2d import PolylineItem
+    p = PolylineItem(QPointF(0, 0))
+    for q in [(100, 0), (100, -100), (0, -100), (0, 0)]:
+        p.append_point(QPointF(*q))
+    return p                                   # OPEN, end points coincide
+
+
+@pytest.mark.parametrize("d, sq", [(30.0, (-30, 30, 130, -130)), (-20.0, (20, -20, 80, -80))])
+def test_zero_chord_polyline_offsets_its_loop(qapp, d, sq):
+    src = _zero_chord_polyline()
+    assert not src.is_closed()
+    out = tg.offset_item(src, d)
+    x0, y0, x1, y1 = sq
+    assert [(round(p.x(), 3), round(p.y(), 3)) for p in out._points] ==         [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]             # [RED]
+    assert not out.is_closed()
+    assert tg.offset_side_sign(src, QPointF(130, -50)) == 1.0          # outside
+    assert tg.offset_side_sign(src, QPointF(80, -50)) == -1.0          # inside
+    assert tg.offset_cursor_distance(src, QPointF(130, -50)) == pytest.approx(30.0)
+
+
+def test_zero_chord_two_point_chain_is_refused(qapp):
+    from firepro3d.geometry_2d import PolylineItem
+    p = PolylineItem(QPointF(5, 5)); p.append_point(QPointF(5, 5))
+    assert tg.offset_item(p, 10.0) is None
+
+
+def test_closed_spline_offsets_its_control_loop_and_keeps_fill(qapp):
+    """Closed spline (first == last control point): control loop ±d, mitered
+    at every vertex incl. the seam; stays closed, keeps its fill, same knots."""
+    src = _closed_spline()                      # square loop 100 x 100
+    src.fill_type = "solid"
+    out = tg.offset_item(src, 5.0)
+    assert out.is_closed() and out.fill_type == "solid" and out.is_fillable()
+    assert out._knots == src._knots
+    assert [(round(p.x(), 3), round(p.y(), 3)) for p in out._control_points] ==         [(-5, 5), (105, 5), (105, -105), (-5, -105), (-5, 5)]
+    inward = tg.offset_item(src, -5.0)
+    assert [(round(p.x(), 3), round(p.y(), 3)) for p in inward._control_points] ==         [(5, -5), (95, -5), (95, -95), (5, -95), (5, -5)]              # [RED]
+    assert tg.offset_side_sign(src, QPointF(50, -50)) == -1.0
+    assert tg.offset_side_sign(src, QPointF(300, -50)) == 1.0
