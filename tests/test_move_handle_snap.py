@@ -10,6 +10,8 @@ line's own endpoint lands exactly on B.p1.
 import math
 import time
 
+import pytest
+
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
 
@@ -95,6 +97,7 @@ def _bench_scene(n):
     return view, scene, a
 
 
+@pytest.mark.perf
 def test_handle_snap_move_cost_is_interactive(qapp):
     from firepro3d.handle_snap import HandleSnapSession
 

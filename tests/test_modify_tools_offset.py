@@ -395,10 +395,10 @@ def test_committed_item_inherits_style(qapp, name):
 # ── R-2 / R2-1: live ghost cost — user metric: <= 30 ms per REAL mouse move ─
 # (viewport mouse event -> snap -> move_offset_side -> ghost repaint), median
 # over N moves on a SHOWN view. A LineItem source is timed the same way as the
-# context baseline. Never loosen the threshold; FP3D_SKIP_PERF=1 skips.
+# context baseline. Never loosen the threshold; `perf`-marked, so it runs in
+# its own process (test-harness Invariant 8), never inside a busy chunk.
 
 import math
-import os
 import time
 
 
@@ -481,8 +481,7 @@ _KNOWN_SLOW = pytest.mark.xfail(
            "follow-up) removes the loops. The threshold is NOT loosened.")
 
 
-@pytest.mark.skipif(bool(os.environ.get("FP3D_SKIP_PERF")),
-                    reason="FP3D_SKIP_PERF set")
+@pytest.mark.perf
 @pytest.mark.parametrize("case", [
     pytest.param(c, marks=_KNOWN_SLOW) if c == "open40_far" else c
     for c in _PERF_CASES])

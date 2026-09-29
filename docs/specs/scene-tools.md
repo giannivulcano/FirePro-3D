@@ -1,5 +1,5 @@
 ---
-status: partial          # D1–D15 BUILT on feat/scene-tools-2d (unmerged) — full suite + user smoke pending; §1–§6 are the PRE-build as-built record at c47ab60
+status: partial          # D1–D15 BUILT + merged to main (b9eda69); VC6 full suite + user smoke passed 2026-09-29; D9/D10 change requests pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
 last-verified: 2026-09-26
 verified-commit: d9d6f20   # branch feat/scene-tools-2d; prior c47ab60 (orphan-gate as-built audit)
 applies-to:
@@ -693,6 +693,7 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - **D5/D13 paste gate:** the Block Editor accepts only the 2D registry types (allow-list); nothing is ever read from a bare-list clipboard; internal round-trips (array, copy-to-level) never touch the OS clipboard; Copy/Cut verify the clipboard write and refuse (Cut deletes nothing) if it did not land.
 - **Selection / undo:** Move re-selects its originals; Undo/Redo cancel an active modify tool first (`CANCEL_ON_UNDO_MODES`); New/Open end the active tool before clearing the scene (`scene_io._clear_scene`).
 - **Rotate commit** fixed `RectangleItem.manip_rotate` and `TextItem.manip_rotate` (compose about the item's own pivot, then translate — no new persisted state); governed by `selection-manipulator.md` (baked-at-rest rule).
+- **Smoke 2026-09-29 — change requests (as-proposed, pending a human gate):** D9 for **open polylines and splines** → a copy translated along the normal of the end-point chord (closed polylines keep ±d); D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→. Each is a P1 `todo_open.md` task with its own grill; D9/D10 above stay the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
 - **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
 
 ## Verification Checklist

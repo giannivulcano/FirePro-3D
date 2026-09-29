@@ -109,6 +109,17 @@ SEH bug #371).
    smoke-test "Test" folder broke `test_block_browser.py`). `_isolate_block_library`
    sets the override to a per-test temp dir. Tests that need a specific tree still
    pass an explicit `root=`; a test of the override itself sets/resets the key.
+8. **Wall-clock timing guards are `perf`-marked and run in their own process.**
+   A guard that asserts an absolute latency (e.g. the offset ghost's ≤ 30 ms real
+   mouse move, the handle-snap ≤ 16 ms move) carries `@pytest.mark.perf`
+   (registered in `pytest.ini`). Its threshold is the contract and is never
+   loosened; host load is excluded instead: the full suite runs as alphabetical
+   chunks (`[a-d] [e-l] [m-r] [s-t] u [v-z]`, one process each — a single process
+   is memory-killed) with `-m "not perf"`, plus one standalone `-m perf` process.
+   Every process's exit code is read on its own (VC6). A generous sanity bound
+   that is "not a benchmark" (seconds, orders of magnitude of slack) stays
+   unmarked. Why: 2026-09-26 the offset guard measured 31.7 ms in-batch vs
+   22.8 ms standalone — load, not a regression.
 
 ## Known native-crash families
 
