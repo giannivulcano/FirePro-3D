@@ -1,9 +1,11 @@
 """D9: offset_item per primitive — type preserved, style inherited, true distances.
 
-scene-tools.md D9: Line/RefLine → parallel of the SAME type; open polyline /
-open spline → copy translated along the unit normal of the end-point chord
-(amended 2026-09-29); closed polyline / closed spline / zero-chord chain → its
-(control) loop ±d, mitered at every vertex incl. the seam; Rect (incl.
+scene-tools.md D9: Line/RefLine → parallel of the SAME type; open polyline →
+mitered parallel (ends perpendicular to the end segment, interior vertices at
+the offset legs' intersection); open spline → the same on its control
+(reference) polygon (amended 2026-09-29); closed polyline / closed spline /
+zero-chord chain → its (control) loop ±d, mitered at every vertex incl. the
+seam; Rect (incl.
 rotated) → rect ±d per side, same angle; Circle → concentric r±d (geometric r,
 not pen-inflated); Arc → concentric, same angles; Regular polygon → same sides
 + rotation, apothem ±d; Ellipse → rx±d, ry±d; Text → not offsettable.
@@ -62,6 +64,14 @@ def test_closed_polyline_inward(qapp):
     out = tg.offset_item(_make("polyline_closed"), -10.0)
     assert sorted((round(p.x(), 3), round(p.y(), 3)) for p in out._points) == \
         sorted([(10.0, -10.0), (90.0, -10.0), (90.0, -90.0), (10.0, -90.0)])
+
+
+def test_open_polyline_mitered(qapp):
+    src = _make("polyline_open")                          # (0,0)-(100,0)-(100,-100)
+    out = tg.offset_item(src, 10.0)                       # left normal: +y then +x
+    pts = [(round(p.x(), 3), round(p.y(), 3)) for p in out._points]
+    assert pts == [(0.0, 10.0), (110.0, 10.0), (110.0, -100.0)]
+    assert not out.is_closed()
 
 
 def test_rect_offset_per_side(qapp):
@@ -169,9 +179,10 @@ def test_offset_side_sign(qapp):
     # open line: left normal of (0,0)->(100,0) is +y (scene)
     assert tg.offset_side_sign(_make("line"), QPointF(50, 20)) == 1.0
     assert tg.offset_side_sign(_make("line"), QPointF(50, -20)) == -1.0
-    # open polyline: the END-POINT CHORD (0,0)->(100,-100) decides (D9 2026-09-29)
+    # open polyline: the NEAREST segment decides (second leg, x=100 going -y:
+    # left normal is +x)
     assert tg.offset_side_sign(_make("polyline_open"), QPointF(120, -80)) == 1.0
-    assert tg.offset_side_sign(_make("polyline_open"), QPointF(80, -90)) == -1.0
+    assert tg.offset_side_sign(_make("polyline_open"), QPointF(80, -80)) == -1.0
 
 
 # ── fix round (review G7) ────────────────────────────────────────────────────
@@ -248,47 +259,55 @@ def test_inward_closed_offset_within_reach_still_works(qapp):
     assert all(path.contains(q) for q in new.path().toSubpathPolygons()[0])
 
 
-# ── D9 amended 2026-09-29: open chains → copy translated along the chord normal ──
+# ── D9 amended 2026-09-29: per-vertex mitered offset; splines on their control
+#    polygon; closed / zero-chord chains wrapped round the loop ────────────────
 
-_R2 = math.sqrt(0.5)
+def _miter_expected(pts, d):
+    """Independent reference: ends move d perpendicular to their end leg (left
+    normal = + side); each interior vertex is where its offset legs meet."""
+    def n(a, b):
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        return (-(b[1] - a[1]) / L, (b[0] - a[0]) / L)
+    out = []
+    for i, p in enumerate(pts):
+        if i == 0 or i == len(pts) - 1:
+            a, b = (pts[0], pts[1]) if i == 0 else (pts[-2], pts[-1])
+            nx, ny = n(a, b)
+            out.append((p[0] + d * nx, p[1] + d * ny))
+            continue
+        (ax, ay), (bx, by) = n(pts[i - 1], p), n(p, pts[i + 1])
+        # line 1: p + d*na + s*(p - prev); line 2: p + d*nb + u*(next - p)
+        p1 = (p[0] + d * ax, p[1] + d * ay)
+        p2 = (p[0] + d * bx, p[1] + d * by)
+        r = (p[0] - pts[i - 1][0], p[1] - pts[i - 1][1])
+        q = (pts[i + 1][0] - p[0], pts[i + 1][1] - p[1])
+        den = r[0] * q[1] - r[1] * q[0]
+        s = ((p2[0] - p1[0]) * q[1] - (p2[1] - p1[1]) * q[0]) / den
+        out.append((p1[0] + s * r[0], p1[1] + s * r[1]))
+    return out
 
 
-def _chord_n(a, b):
-    L = math.hypot(b.x() - a.x(), b.y() - a.y())
-    return (-(b.y() - a.y()) / L, (b.x() - a.x()) / L)
-
-
-def test_open_polyline_is_translated_along_chord_normal(qapp):
-    src = _make("polyline_open")                 # (0,0)-(100,0)-(100,-100)
-    out = tg.offset_item(src, 10.0)              # chord normal (+.707, +.707)
-    got = [(round(p.x(), 3), round(p.y(), 3)) for p in out._points]
-    s = 10.0 * _R2
-    assert got == [(round(x + s, 3), round(y + s, 3))
-                   for x, y in [(0, 0), (100, 0), (100, -100)]]     # [RED]
-    assert not out.is_closed() and type(out) is type(src)
-
-
-def test_open_spline_is_translated_along_chord_normal(qapp):
-    src = _make("spline")                        # (0,0) .. (150,-40)
-    nx, ny = _chord_n(src._control_points[0], src._control_points[-1])
+def test_open_spline_offsets_its_control_polygon_mitered(qapp):
+    """Open spline: every control point moves per the polyline miter rule on
+    the reference polygon; same count, knots, degree, weights."""
+    src = _make("spline")                        # (0,0)(50,-60)(100,0)(150,-40)
+    cps = [(p.x(), p.y()) for p in src._control_points]
     for d in (7.0, -12.0):
         out = tg.offset_item(src, d)
+        assert type(out) is type(src) and not out.is_closed()
         assert out._degree == src._degree and out._knots == src._knots
         assert out._weights == src._weights
-        assert len(out._control_points) == len(src._control_points)  # [RED]
-        for p, q in zip(src._control_points, out._control_points):
-            assert (q.x(), q.y()) == pytest.approx((p.x() + nx * d, p.y() + ny * d))
+        got = [(q.x(), q.y()) for q in out._control_points]
+        assert len(got) == len(cps)                                     # [RED]
+        for g, e in zip(got, _miter_expected(cps, d)):
+            assert g == pytest.approx(e, abs=1e-6)
 
 
-def test_offset_cursor_distance_is_perpendicular_to_chord(qapp):
-    src = _make("polyline_open")
-    # (20, 40): 42.43 from the chord line x + y = 0 (nearest SEGMENT is 40 away)
-    assert tg.offset_cursor_distance(src, QPointF(20, 40)) == pytest.approx(60 * _R2)
-    assert tg.offset_side_sign(src, QPointF(20, 40)) == 1.0
-    assert tg.offset_side_sign(src, QPointF(80, -90)) == -1.0
-    # non-chain items keep the true distance (the pick measure)
-    assert tg.offset_cursor_distance(_make("circle"), QPointF(80, 0)) == \
-        pytest.approx(30.0, abs=0.05)
+def test_open_polyline_matches_the_miter_reference(qapp):
+    pts = [(0, 0), (100, 0), (100, -100)]
+    out = tg.offset_item(_make("polyline_open"), 10.0)
+    for g, e in zip([(q.x(), q.y()) for q in out._points], _miter_expected(pts, 10.0)):
+        assert g == pytest.approx(e, abs=1e-6)
 
 
 def _zero_chord_polyline():
@@ -309,7 +328,7 @@ def test_zero_chord_polyline_offsets_its_loop(qapp, d, sq):
     assert not out.is_closed()
     assert tg.offset_side_sign(src, QPointF(130, -50)) == 1.0          # outside
     assert tg.offset_side_sign(src, QPointF(80, -50)) == -1.0          # inside
-    assert tg.offset_cursor_distance(src, QPointF(130, -50)) == pytest.approx(30.0)
+    assert tg.distance_to_item(src, QPointF(130, -50)) == pytest.approx(30.0)
 
 
 def test_zero_chord_two_point_chain_is_refused(qapp):

@@ -348,7 +348,7 @@ class ModifyToolsController:
         if src is None or self._drop_dead_source():
             return
         if not s._offset_typed:
-            s._offset_dist = tg.offset_cursor_distance(src, snapped)
+            s._offset_dist = tg.distance_to_item(src, snapped)
         s._offset_side = tg.offset_side_sign(src, snapped)
         self._refresh_offset_ghost()
         # Feed the Distance HUD its live seed (_transform_seed_values).
@@ -425,7 +425,7 @@ class ModifyToolsController:
             s._offset_sticky_locked = False
             p = s.get_resolved_point()
             src = s._offset_source
-            s._offset_dist = (tg.offset_cursor_distance(src, p)
+            s._offset_dist = (tg.distance_to_item(src, p)
                               if p is not None and src is not None else 0.0)
             self._refresh_offset_ghost()
             return True

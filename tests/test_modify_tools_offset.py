@@ -403,6 +403,14 @@ def test_committed_item_inherits_style(qapp, name):
 import time
 
 
+def _spline40():
+    import random
+    from firepro3d.geometry_2d import SplineItem
+    rnd = random.Random(1)
+    return SplineItem([QPointF(i * 50 - 1000, rnd.uniform(-80, 80))
+                       for i in range(40)])
+
+
 def _closed39():
     """The reviewer's noisy closed spline: 39 points on r~400 (+-30 noise)."""
     import random
@@ -457,6 +465,8 @@ def _line_baseline_ms():
 
 
 _PERF_CASES = {
+    "open40_far": (_spline40, [QPointF(-500 + k * 7, 150) for k in range(23)]),
+    "open40_near": (_spline40, [QPointF(-400 + k * 3, -95 - (k % 3)) for k in range(23)]),
     "closed39_out": (_closed39, [QPointF(450 + k, 0) for k in range(23)]),
     # ~40 mm inward: the control loop reaches ~60 mm into this noisy shape
     "closed39_in": (_closed39, [QPointF(360 + k, 0) for k in range(23)]),
@@ -466,57 +476,90 @@ _PERF_CASES = {
 @pytest.mark.perf
 @pytest.mark.parametrize("case", list(_PERF_CASES))
 def test_offset_real_mouse_move_is_fast(qapp, case):
-    """Median real mouse move <= 30 ms on a 39-point closed spline
-    (control-loop offset) (handler + ghost repaint), with a LineItem baseline for context."""
+    """Median real mouse move <= 30 ms on a 40-point open / 39-point closed
+    spline (control-polygon offset) (handler + ghost repaint), with a LineItem baseline for context."""
     make_source, pts = _PERF_CASES[case]
     ms = _real_move_median_ms(make_source, "_draw_splines", pts)
     base = _line_baseline_ms()
     assert ms <= 30.0, f"{case}: median {ms:.1f} ms per move (line {base:.1f} ms)"  # [RED]
 
 
-# ── D9 amended 2026-09-29: open chains translate along the end-point chord ──
+# ── D9 amended 2026-09-29: per-vertex mitered offset (splines: control polygon) ──
 
-def _chord_signed(item_pts, p):
-    a, b = item_pts[0], item_pts[-1]
-    L = math.hypot(b.x() - a.x(), b.y() - a.y())
-    return (-(b.y() - a.y()) * (p.x() - a.x()) + (b.x() - a.x()) * (p.y() - a.y())) / L
+def _nearest_curve_dist(item, p):
+    """Independent true distance from *p* to the item's drawn path."""
+    best = float("inf")
+    for poly in item.path().toSubpathPolygons():
+        pts = [poly.at(i) for i in range(poly.count())]
+        for a, b in zip(pts, pts[1:]):
+            ab = (b.x() - a.x(), b.y() - a.y())
+            L2 = ab[0] ** 2 + ab[1] ** 2 or 1e-18
+            s = max(0.0, min(1.0, ((p.x() - a.x()) * ab[0] + (p.y() - a.y()) * ab[1]) / L2))
+            best = min(best, math.hypot(a.x() + s * ab[0] - p.x(), a.y() + s * ab[1] - p.y()))
+    return best
 
 
-@pytest.mark.parametrize("name, pts_attr, cursor", [
-    ("polyline_open", "_points", QPointF(20, 40)),
-    ("spline", "_control_points", QPointF(60, 60))])
-def test_open_chain_click_puts_the_copy_chord_through_the_cursor(qapp, name, pts_attr, cursor):
+def test_open_polyline_click_puts_the_nearest_offset_leg_through_the_cursor(qapp):
+    """Cursor (20, 40): nearest leg is (0,0)-(100,0), 40 away on its left →
+    mitered parallel at d = 40, whose first leg runs through the cursor."""
     view, scene = make_view(scale=1.0)
     try:
-        item, attr = add_primitive(scene, name)
-        src_pts = [QPointF(p) for p in getattr(item, pts_attr)]
+        item, attr = add_primitive(scene, "polyline_open")  # (0,0)-(100,0)-(100,-100)
         scene._modify_ctl.start("offset")
-        move(view, cursor)
-        click(view, cursor)
+        move(view, QPointF(20, 40))
+        click(view, QPointF(20, 40))
         new = getattr(scene, attr)[-1]
         assert new is not item
-        new_pts = getattr(new, pts_attr)
-        dx, dy = new_pts[0].x() - src_pts[0].x(), new_pts[0].y() - src_pts[0].y()
-        for p, q in zip(src_pts, new_pts):                 # a pure translation
-            assert (q.x() - p.x(), q.y() - p.y()) == pytest.approx((dx, dy), abs=1e-6)
-        assert _chord_signed(new_pts, cursor) == pytest.approx(0.0, abs=0.05)  # [RED]
-        assert _chord_signed(src_pts, QPointF(src_pts[0].x() + dx,
-                                              src_pts[0].y() + dy)) > 0
+        assert [(round(p.x(), 3), round(p.y(), 3)) for p in new._points] == \
+            [(0.0, 40.0), (140.0, 40.0), (140.0, -100.0)]                # [RED]
     finally:
         close_view(view, scene)
 
 
-@pytest.mark.parametrize("cursor, sign", [(QPointF(20, 40), 1.0), (QPointF(80, -90), -1.0)])
-def test_open_polyline_typed_distance_translates_on_cursor_side(qapp, cursor, sign):
+def test_open_spline_click_offsets_the_control_polygon_by_the_cursor_distance(qapp):
+    """Open spline, cursor off the curve: the committed spline's END control
+    points moved perpendicular to their end legs by the cursor's true distance
+    to the drawn curve, towards the cursor; knots unchanged."""
     view, scene = make_view(scale=1.0)
     try:
-        item, attr = add_primitive(scene, "polyline_open")  # chord normal (+.707,+.707)
+        item, attr = add_primitive(scene, "spline")         # (0,0)(50,-60)(100,0)(150,-40)
+        src = [QPointF(p) for p in item._control_points]
+        knots = list(item._knots)
+        cursor = QPointF(60, 60)
+        d = _nearest_curve_dist(item, cursor)
+        scene._modify_ctl.start("offset")
+        move(view, cursor)
+        click(view, cursor)
+        new = getattr(scene, attr)[-1]
+        assert new is not item and new._knots == knots
+        cps = new._control_points
+        assert len(cps) == len(src)                                     # [RED]
+        for end, (a, b) in ((0, (src[0], src[1])), (-1, (src[-2], src[-1]))):
+            L = math.hypot(b.x() - a.x(), b.y() - a.y())
+            nx, ny = -(b.y() - a.y()) / L, (b.x() - a.x()) / L
+            mv = (cps[end].x() - src[end].x(), cps[end].y() - src[end].y())
+            assert math.hypot(*mv) == pytest.approx(d, abs=0.05)
+            assert abs(mv[0] * nx + mv[1] * ny) == pytest.approx(d, abs=0.05)
+        # towards the cursor: the moved start point is on the cursor's side
+        # of the first leg (cursor is left of (0,0)->(50,-60))
+        a, b = src[0], src[1]
+        side = lambda p: (b.x() - a.x()) * (p.y() - a.y()) - (b.y() - a.y()) * (p.x() - a.x())
+        assert side(cursor) > 0 and side(cps[0]) > 0
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("cursor, sign", [(QPointF(50, 30), 1.0), (QPointF(50, -30), -1.0)])
+def test_open_polyline_typed_distance_on_cursor_side(qapp, cursor, sign):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "polyline_open")
         scene._modify_ctl.start("offset")
         move(view, cursor)
         _type_distance(scene, "10")
         new = getattr(scene, attr)[-1]
-        s = sign * 10.0 * math.sqrt(0.5)
+        s = sign * 10.0
         assert [(round(p.x(), 3), round(p.y(), 3)) for p in new._points] == \
-            [(round(x + s, 3), round(y + s, 3)) for x, y in [(0, 0), (100, 0), (100, -100)]]
+            [(0.0, s), (100.0 + s, s), (100.0 + s, -100.0)]
     finally:
         close_view(view, scene)

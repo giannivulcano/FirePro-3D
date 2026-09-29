@@ -206,9 +206,22 @@ def offset_signed_dist(source, dist: float, side_pt: QPointF) -> float:
         cross = dx * (side_pt.y() - p1.y()) - dy * (side_pt.x() - p1.x())
         return dist if cross >= 0 else -dist
     if isinstance(source, (PolylineItem, SplineItem)):
-        # D9 (2026-09-29): open chains side by their end-point chord; closed /
-        # zero-chord chains by inside/outside — one rule, offset_side_sign.
-        return dist * offset_side_sign(source, side_pt)
+        # Open chains: the side of the segment NEAREST the cursor decides
+        # (scene-tools.md D9 "cursor sets side"), not the first segment. A
+        # spline measures against its drawn curve, a polyline its vertices.
+        if isinstance(source, PolylineItem):
+            pts = list(source._points)
+            segs = list(zip(pts, pts[1:]))
+        else:
+            segs = _path_segments(source)
+        segs = [(a, b) for a, b in segs
+                if math.hypot(b.x() - a.x(), b.y() - a.y()) > 1e-10]
+        if not segs:
+            return dist
+        p1, p2 = min(segs, key=lambda s: point_to_segment_dist(side_pt, *s))
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        cross = dx * (side_pt.y() - p1.y()) - dy * (side_pt.x() - p1.x())
+        return dist if cross >= 0 else -dist
     if isinstance(source, CircleItem):
         cx = source.x() + source.boundingRect().center().x()
         cy = source.y() + source.boundingRect().center().y()
@@ -348,59 +361,27 @@ def _is_closed_shape(item) -> bool:
                 and item.is_closed()))
 
 
-# D9 (amended 2026-09-29): an open polyline / spline offsets as a copy
-# translated along the unit normal of the chord joining its end points.
+# D9 (amended 2026-09-29): every chain offsets per vertex, mitered — an open
+# chain's end vertices move perpendicular to their end segment, each interior
+# vertex goes to where its two offset legs meet. A spline applies this to its
+# control (reference) polygon. A closed chain, or an open one whose end points
+# coincide (zero chord), wraps it round the loop (+ = outward).
 _CHORD_MIN_MM = 1e-6   # end points closer than this coincide (zero chord)
 
 
-def _open_chord(item):
-    """Start point + unit left normal of an open chain's end-point chord.
-
-    The chord runs from the first to the last drawn point; its left normal
-    ``(-dy, dx) / L`` is the + side (the ``LineItem`` convention).
-
-    Returns:
-        ``(a, (nx, ny))`` in scene coordinates, or None when *item* is not an
-        open polyline / spline, or its end points coincide (zero chord).
-    """
-    if isinstance(item, PolylineItem):
-        if item.is_closed() or len(item._points) < 2:
-            return None
-        a, b = item._points[0], item._points[-1]
-    elif isinstance(item, SplineItem):
-        path = item.path()
-        if item.is_closed() or path.elementCount() < 2:
-            return None
-        e0, e1 = path.elementAt(0), path.elementAt(path.elementCount() - 1)
-        a, b = QPointF(e0.x, e0.y), QPointF(e1.x, e1.y)
-    else:
-        return None
-    a, b = item.mapToScene(a), item.mapToScene(b)
-    dx, dy = b.x() - a.x(), b.y() - a.y()
-    L = math.hypot(dx, dy)
-    if L < _CHORD_MIN_MM:
-        return None
-    return a, (-dy / L, dx / L)
+def _chain_pts(item) -> list:
+    """The vertices D9 offsets: a polyline's points, a spline's control points."""
+    return list(item._points if isinstance(item, PolylineItem)
+                else item._control_points)
 
 
-def _chord_signed_dist(chord, pt: QPointF) -> float:
-    """Signed distance of *pt* from the chord's infinite line (+ = left)."""
-    a, (nx, ny) = chord
-    return nx * (pt.x() - a.x()) + ny * (pt.y() - a.y())
-
-
-def offset_cursor_distance(item, pt: QPointF) -> float:
-    """The Offset tool's cursor distance (D9).
-
-    Open polylines / splines: the perpendicular distance to the end-point
-    chord line, so the translated copy's chord passes through the cursor.
-    Everything else: :func:`distance_to_item` (which also stays the pick
-    measure for every type).
-    """
-    chord = _open_chord(item)
-    if chord is not None:
-        return abs(_chord_signed_dist(chord, pt))
-    return distance_to_item(item, pt)
+def _is_zero_chord(item) -> bool:
+    """An OPEN polyline / spline whose end points coincide (offset as a loop)."""
+    if not isinstance(item, (PolylineItem, SplineItem)) or item.is_closed():
+        return False
+    pts = _chain_pts(item)
+    return len(pts) >= 2 and math.hypot(pts[-1].x() - pts[0].x(),
+                                        pts[-1].y() - pts[0].y()) < _CHORD_MIN_MM
 
 
 def _chain_loop(pts):
@@ -414,8 +395,7 @@ def _chain_loop(pts):
 
 def _zero_chord_contains(item, pt: QPointF) -> bool:
     """Inside test for a zero-chord chain: its (control) vertex loop."""
-    loop = _chain_loop(item._points if isinstance(item, PolylineItem)
-                       else item._control_points)
+    loop = _chain_loop(_chain_pts(item))
     if loop is None:
         return False
     path = QPainterPath()
@@ -454,20 +434,29 @@ def _offset_chain_as_loop(pts, d):
     return new + [QPointF(new[0])] if len(loop) < len(pts) else new
 
 
+def _offset_chain(item, d):
+    """D9 per-vertex offset of a polyline / spline's (control) vertices:
+    closed or zero-chord → the loop, wrapped; open → mitered, ends
+    perpendicular to their end segment. None when degenerate."""
+    pts = _chain_pts(item)
+    if len(pts) < 2:
+        return None
+    if item.is_closed() or _is_zero_chord(item):
+        return _offset_chain_as_loop(pts, d)
+    return offset_polyline_pts(pts, d)
+
+
 def offset_side_sign(item, pt: QPointF) -> float:
     """Which side of *item* the cursor *pt* picks.
 
     Returns:
-        +1.0 = outward (closed shapes, zero-chord chains) / the end-point
-        chord's left-normal side (open polylines, splines) / the left normal
-        (lines) / away from the centre (arcs); -1.0 otherwise.
+        +1.0 = outward (closed shapes, zero-chord chains) / the left-normal
+        side of the nearest segment (lines, open polylines, splines) / away
+        from the centre (arcs); -1.0 otherwise.
     """
-    chord = _open_chord(item)
-    if chord is not None:
-        return 1.0 if _chord_signed_dist(chord, pt) >= 0 else -1.0
     if _is_closed_shape(item):
         return -1.0 if item.get_closed_path().contains(item.mapFromScene(pt)) else 1.0
-    if isinstance(item, (PolylineItem, SplineItem)):
+    if _is_zero_chord(item):
         return -1.0 if _zero_chord_contains(item, pt) else 1.0
     return 1.0 if offset_signed_dist(item, 1.0, pt) > 0 else -1.0
 
@@ -478,13 +467,12 @@ def _clone(item):
     return type(item).from_dict(item.to_dict())
 
 
-def _spline_copy(src, cps, path=None):
+def _spline_copy(src, cps):
     """*src*'s style / degree / knots / weights with new control points.
 
     Built WITHOUT the from_dict round-trip, which flattens the curve twice
-    (the Offset ghost rebuilds this per mouse move): *path* (the translated
-    source path) is reused as-is, else the curve is flattened once. The
-    committed copy is re-created through to_dict/from_dict anyway.
+    (the Offset ghost rebuilds this per mouse move) — flattened once here.
+    The committed copy is re-created through to_dict/from_dict anyway.
     """
     data = src.to_dict()
     new = SplineItem([], src._degree, None, None,
@@ -494,10 +482,7 @@ def _spline_copy(src, cps, path=None):
     new._degree = src._degree
     new._knots = list(src._knots) if src._knots else None
     new._weights = list(src._weights) if src._weights else None
-    if path is None:
-        new._regenerate()
-    else:
-        new.setPath(path)
+    new._regenerate()
     return new
 
 
@@ -507,8 +492,8 @@ def offset_item(src, signed_d: float):
     Args:
         src: A 2D geometry item.
         signed_d: Offset distance; + = outward (closed shapes, arcs,
-            zero-chord chains), the left normal (lines), or the end-point
-            chord's left normal (open polylines, splines — translated copy).
+            zero-chord chains) or the left-normal side (lines, open
+            polylines, open splines' control polygons).
 
     Returns:
         A new, scene-less item of the source's type inheriting its style, or
@@ -518,17 +503,6 @@ def offset_item(src, signed_d: float):
     d = float(signed_d)
     if not math.isfinite(d):
         return None
-    chord = _open_chord(src)
-    if chord is not None:                  # D9: open chain → translated copy
-        _, (nx, ny) = chord
-        if isinstance(src, SplineItem):
-            return _spline_copy(
-                src, [QPointF(p.x() + nx * d, p.y() + ny * d)
-                      for p in src._control_points],
-                src.path().translated(nx * d, ny * d))
-        new = _clone(src)
-        new.translate(nx * d, ny * d)
-        return new
     # ReferenceLineItem subclasses LineItem: one branch, and _clone keeps the
     # exact type (a RefLine offsets to a RefLine).
     if isinstance(src, LineItem):
@@ -540,8 +514,8 @@ def offset_item(src, signed_d: float):
         new = _clone(src)
         new.translate(-dy / L * d, dx / L * d)
         return new
-    if isinstance(src, PolylineItem):      # closed, or open with a zero chord
-        new_pts = _offset_chain_as_loop(list(src._points), d)
+    if isinstance(src, PolylineItem):
+        new_pts = _offset_chain(src, d)
         if new_pts is None:
             return None
         new = _clone(src)
@@ -590,9 +564,9 @@ def offset_item(src, signed_d: float):
         new.set_rx(src._rx + d)
         new.set_ry(src._ry + d)
         return new
-    if isinstance(src, SplineItem):        # closed, or open with a zero chord:
-        # the control loop, mitered (Tiller-Hanson) — same knots / degree
-        new_cps = _offset_chain_as_loop(list(src._control_points), d)
+    if isinstance(src, SplineItem):
+        # the control (reference) polygon, mitered — same knots / degree
+        new_cps = _offset_chain(src, d)
         if new_cps is None:
             return None
         return _spline_copy(src, new_cps)
