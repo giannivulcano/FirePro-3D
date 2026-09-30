@@ -192,9 +192,11 @@ def test_drop_into_editor_nests_and_cycles_are_refused(qapp, tmp_path):
         assert not _drag(v, _mime_for(br, "A"), [QPointF(10, 10)])
         assert wb.editor_scene._block_instances == []
         assert any("can't contain itself" in m for m in msgs)
+        assert "A contains B — a block can't contain itself" in msgs
         # B onto B's own editor → refused
         assert not _drag(v, _mime_for(br, "B"), [QPointF(10, 10)])
         assert wb.editor_scene._block_instances == []
+        assert "B can't contain itself" in msgs          # exact user-visible text
         # an unrelated block C nests into B's editor
         assert _drag(v, _mime_for(br, "C"), [QPointF(10, 10)])
         assert [i.block_id for i in wb.editor_scene._block_instances] == [c.id]
@@ -242,15 +244,30 @@ def test_italic_leaf_autoloads_on_drop_and_clash_refuses(qapp, tmp_path, monkeyp
 
 
 def test_double_click_places_into_the_active_canvas(qapp, main_window):
+    """AC13 through the real browser path: a real double-click on the leaf
+    (BlocksBrowser itemDoubleClicked -> blockActivated -> MainWindow) with the
+    Block Editor tab active arms the EDITOR; real clicks on the editor view
+    place the instance there — none lands in the plan."""
     proj = main_window.scene
-    b = _line_def("B")
-    proj.register_block_definition(b)
+    b = _line_def("B_AC13")
+    proj.register_block_definition(b)          # emits → the browser lists it
     w = main_window.block_editor_manager.open_new()
     QApplication.processEvents()
+    QTest.qWaitForWindowExposed(w.view)
+    plan_before = len(proj._block_instances)
     try:
-        main_window._on_block_activated(b.id)
+        assert main_window.central_tabs.currentWidget() is w
+        _dclick_leaf(main_window, b.name)
         assert w.editor_scene.mode == "place_block"
         assert proj.mode != "place_block"
+        w.view.resetTransform()
+        w.view.centerOn(0, 0)
+        QApplication.processEvents()
+        _click_place(w.view, QPointF(30, 20))
+        placed = [(i.block_id, i.block_rotation()) for i in w.editor_scene._block_instances]
+        assert placed == [(b.id, 0.0)]
+        assert len(proj._block_instances) == plan_before
+        assert all(i.block_id != b.id for i in proj._block_instances)
     finally:
         w.editor_scene.set_mode("select")
         main_window.block_editor_manager.close(w)
@@ -463,3 +480,178 @@ def test_drag_cycle_check_sees_the_project_copy_nesting_the_host(qapp, tmp_path)
         assert w.editor_scene._block_instances == []
     finally:
         w.editor_scene.cleanup(); v.close(); QApplication.processEvents()
+
+
+# ── VC9 seam round: italic drop / double-click = TWO undo steps (user decision) ─
+
+def _plan_view(win):
+    """Make the Plan tab current and return its (real) Model_View."""
+    for i in range(win.central_tabs.count()):
+        if win.central_tabs.tabText(i).startswith("Plan: "):
+            win.central_tabs.setCurrentIndex(i)
+            QApplication.processEvents()
+            return win.central_tabs.widget(i)
+    raise AssertionError("no Plan tab")
+
+
+def _ctrl_z(view):
+    """A real Ctrl+Z key press on *view* (the window-wide undo shortcut)."""
+    view.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    QApplication.processEvents()
+
+
+def _dclick_leaf(win, name, library_only=False):
+    """A real mouse double-click on the Blocks browser leaf *name* (looked up
+    after the browser is revealed — revealing it may rebuild the tree)."""
+    win._focus_blocks_browser()
+    QApplication.processEvents()
+    tree = win.blocks_browser._tree
+    leaf = _leaf(win.blocks_browser, name, library_only)
+    tree.scrollToItem(leaf)
+    QApplication.processEvents()
+    at = tree.visualItemRect(leaf).center()
+    # The OS sequence: press+release, then the double-click press+release.
+    QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, at)
+    QTest.mouseDClick(tree.viewport(), Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier, at)
+    QApplication.processEvents()
+
+
+def _click_place(view, scene_pt):
+    """place_block with real mouse input: press for position, press again at
+    the same point for 0° (anchor == cursor → the angle falls back to 0)."""
+    from PyQt6.QtCore import QPoint
+    vp_pt = view.mapFromScene(scene_pt)
+    for _ in range(2):
+        QTest.mouseMove(view.viewport(), vp_pt)
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, QPoint(vp_pt))
+        QApplication.processEvents()
+
+
+def _drop_lib_instances(scene, block_id):
+    for inst in [i for i in scene._block_instances if i.block_id == block_id]:
+        if inst.scene() is scene:
+            scene.removeItem(inst)
+        scene._block_instances.remove(inst)
+
+
+@pytest.mark.parametrize("how", ["drop", "double_click"])
+def test_italic_leaf_load_and_place_are_two_undo_steps(qapp, main_window, tmp_path,
+                                                       monkeypatch, how):
+    """Ctrl+Z #1 removes the placed instance (the definition stays loaded);
+    Ctrl+Z #2 unloads the definition — for a drop AND a double-click."""
+    from firepro3d import block_library
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda *a, **k: pytest.fail(f"modal: {a}"))
+    win = main_window
+    proj = win.scene
+    lib = _line_def(f"LibTwoStep_{how}")
+    block_library.save_to_library(lib, root=str(tmp_path))
+    view = _plan_view(win)
+    br = win.blocks_browser
+    old_root = br._lib_root
+    br._lib_root = str(tmp_path)
+    br.refresh()
+    proj.set_mode("select")
+    proj.push_undo_state()                   # baseline == the pre-test scene
+    n0 = len(proj._block_instances)
+    try:
+        assert lib.id not in proj._block_definitions
+        if how == "drop":
+            assert _drag(view, _mime_for(br, lib.name, library_only=True),
+                         [QPointF(0, 0), QPointF(40, 40)])
+        else:
+            _dclick_leaf(win, lib.name, library_only=True)
+            assert proj.mode == "place_block"
+            _click_place(view, QPointF(40, 40))
+            proj.set_mode("select")
+        assert lib.id in proj._block_definitions
+        assert [i.block_id for i in proj._block_instances[n0:]] == [lib.id]
+        _ctrl_z(view)                        # #1: the placement only
+        assert len(proj._block_instances) == n0
+        assert lib.id in proj._block_definitions
+        _ctrl_z(view)                        # #2: the load
+        assert lib.id not in proj._block_definitions
+        assert len(proj._block_instances) == n0
+    finally:
+        proj.set_mode("select")
+        _drop_lib_instances(proj, lib.id)
+        _forget_defs(proj, lib)
+        proj.push_undo_state()
+        br._lib_root = old_root
+        br.refresh()
+        QApplication.processEvents()
+
+
+# ── VC9 seam round: AC3 end to end (drag -> editor Save -> plan pixels) ────
+
+def _lit_rows(scene, rect):
+    """Lit-pixel count per rendered row of *rect* (black backdrop, 2 px/mm)."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    w, h = int(rect.width() * 2), int(rect.height() * 2)
+    img = QImage(w, h, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.black)
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, w, h), rect)
+    p.end()
+    rows = []
+    for y in range(h):
+        n = 0
+        for x in range(w):
+            c = QColor(img.pixel(x, y))
+            if c.red() + c.green() + c.blue() > 200:
+                n += 1
+        rows.append(n)
+    return rows
+
+
+def test_nested_drag_save_renders_in_plan_and_follows_B_saves(qapp, tmp_path):
+    """AC3: B's leaf dragged into A's editor, A saved through the editor's
+    Save, a PLAN A draws B's pixels; editing + saving B in its own editor
+    moves those pixels in the plan A."""
+    from PyQt6.QtCore import QRectF
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.blocks_browser import BlocksBrowser
+    proj = Model_Space()
+    b = _line_def("B")                                   # (0,0)-(100,0)
+    proj.register_block_definition(b)
+    a = _line_def("A")
+    proj.register_block_definition(a)
+    wa = BlockEditorWidget(proj, block_id=a.id)
+    wa.seed_from_definition(a)
+    v = wa.view
+    v.resize(900, 700); v.show(); QTest.qWaitForWindowExposed(v)
+    v.resetTransform(); v.centerOn(0, 0); QApplication.processEvents()
+    br = BlocksBrowser(proj, root=str(tmp_path))
+    wb = None
+    try:
+        assert _drag(v, _mime_for(br, "B"), [QPointF(150, 250), QPointF(200, 300)])
+        [nested] = wa.editor_scene._block_instances
+        bx, by = nested.block_pos()
+        assert wa.save() is a                            # the editor's real Save
+        assert [p["block_id"] for p in a.primitives
+                if p["type"] == "block_instance"] == [b.id]
+        proj.place_block_instance(a.id, (0.0, 0.0))
+        area = QRectF(bx - 20, by - 40, 140, 120)        # around B only
+        row = lambda y_mm: int((y_mm - area.top()) * 2)  # scene y -> image row
+        before = _lit_rows(proj, area)
+        assert sum(before[row(by) - 3:row(by) + 4]) > 100   # B's line drawn in A
+        assert sum(before[row(by + 50) - 3:row(by + 50) + 4]) == 0
+        # edit B in its own editor and Save
+        wb = BlockEditorWidget(proj, block_id=b.id)
+        wb.seed_from_definition(b)
+        wb.editor_scene._draw_lines[0].translate(0.0, 50.0)
+        assert wb.save() is b
+        after = _lit_rows(proj, area)
+        assert sum(after[row(by) - 3:row(by) + 4]) == 0          # old B gone
+        assert sum(after[row(by + 50) - 3:row(by + 50) + 4]) > 100   # new B drawn
+    finally:
+        for w in (wa, wb):
+            if w is not None:
+                w.editor_scene.cleanup()
+        v.close(); proj.cleanup(); QApplication.processEvents()

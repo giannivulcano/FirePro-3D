@@ -256,11 +256,14 @@ def test_commit_refuses_a_cycle(qapp):
     proj.register_block_definition(b)
     a = _line_def("A", extra=[_nested(b.id, 0, 0)])
     proj.register_block_definition(a)
+    status = []
+    proj._show_status = lambda msg, timeout=5000: status.append(msg)
     ok = proj.commit_block_definition(
         block_id=b.id, name="B", library="L", series="S",
         primitives=[_nested(a.id, 0, 0)], origin=(0.0, 0.0), place_instance=False)
     assert ok is None
     assert all(p["type"] != "block_instance" for p in b.primitives)
+    assert status == ["A block can't contain itself"]   # exact user-visible text
 
 
 def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
@@ -374,8 +377,9 @@ def test_nested_placeholder_pen_is_cosmetic(qapp):
 # ── Task 13: missing nested definitions warn on load (D12; AC14) ─────────────
 
 def test_project_load_warns_about_missing_nested_blocks(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtCore import QRectF
     proj = Model_Space()
-    a = _line_def("A", extra=[_nested("deadbeef", 0, 0)])
+    a = _line_def("A", extra=[_nested("deadbeef", 300, 300)])
     proj.register_block_definition(a)
     proj.place_block_instance(a.id, (0.0, 0.0))
     path = str(tmp_path / "p.fpd")
@@ -390,6 +394,15 @@ def test_project_load_warns_about_missing_nested_blocks(qapp, tmp_path, monkeypa
                for t in texts)
     assert a.id in fresh._block_definitions      # A still loads
     assert len(fresh._block_instances) == 1      # ... and its placed instance
+    # ... and the reopened A still DRAWS the red placeholder for the missing id
+    ph = [op for op in fresh._block_definitions[a.id].render_ops()
+          if op[0].color() == QColor("#c0392b")]
+    assert len(ph) == 1 and ph[0][2].boundingRect().contains(QPointF(300, 300))
+    img = _render(fresh, QRectF(200, 200, 200, 200))       # around the placeholder
+    red = sum(1 for x in range(0, 400, 2) for y in range(0, 400, 2)
+              if (lambda c: c.red() > 150 and c.green() < 100 and c.blue() < 100)(
+                  QColor(img.pixel(x, y))))
+    assert red > 0
 
 
 def test_project_load_without_missing_nested_blocks_does_not_warn(qapp, tmp_path, monkeypatch):
@@ -467,12 +480,18 @@ def test_registry_users_map_matches_per_id_users_of(qapp):
 
 
 def test_nested_compile_is_shared_across_instances(qapp, monkeypatch):
-    """200 plan instances of a 2-level nested block share one op list."""
+    """200 plan instances of a 2-level nested block share one op list.
+
+    B is ALSO nested in a second host (A2) and placed directly, so a host
+    that bypasses B's cache (compiling B itself instead of reading
+    ``B.render_ops()``) recompiles B per host and is caught.
+    """
     sc = Model_Space()
     c = _line_def("C")
     b = _line_def("B", extra=[_nested(c.id, 0, 0)])
     a = _line_def("A", extra=[_nested(b.id, 0, 0)])
-    for d in (c, b, a):
+    a2 = _line_def("A2", extra=[_nested(b.id, 50, 0)])
+    for d in (c, b, a, a2):
         sc.register_block_definition(d)
     calls = {"n": 0}
     real = BlockDefinition._compile
@@ -486,3 +505,11 @@ def test_nested_compile_is_shared_across_instances(qapp, monkeypatch):
     ops = {id(i.render_ops()) for i in insts}
     assert len(ops) == 1                         # one shared list
     assert calls["n"] == 3                       # A, B, C compiled once each
+    # Second host of B + B placed directly: B's cached list is reused.
+    b_ops = b.render_ops()
+    hosts2 = [sc.place_block_instance(a2.id, (i * 10.0, 500.0)) for i in range(50)]
+    direct_b = [sc.place_block_instance(b.id, (i * 10.0, 900.0)) for i in range(50)]
+    assert len({id(i.render_ops()) for i in hosts2}) == 1
+    assert {id(i.render_ops()) for i in direct_b} == {id(b_ops)}
+    assert b.render_ops() is b_ops               # B never recompiled
+    assert calls["n"] == 4                       # + A2 only; B and C stay at one
