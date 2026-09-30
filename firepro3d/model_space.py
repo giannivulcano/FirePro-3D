@@ -6734,9 +6734,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 item = item.parentItem()
             if isinstance(item, ENTITY_TYPES):
                 return item
-            # Nested blocks are entities in the Block Editor only (D10): the
-            # plan keeps its generic menu (Explode is editor-only, C1).
-            if self.scene_role == "block_editor" and isinstance(item, BlockInstance):
+            # Placed/nested blocks are entities in the plan and the Block
+            # Editor (D10 + smoke 1); only the editor's menu adds Explode (C1).
+            if isinstance(item, BlockInstance):
                 return item
             # DetailMarker (avoid import — check by class name)
             if type(item).__name__ == "DetailMarker":
@@ -6744,15 +6744,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._nested_block_near(pos)
 
     def _nested_block_near(self, pos):
-        """The Block Editor's nested block under *pos* within the HALO aperture.
+        """The block instance under *pos* within the HALO aperture.
 
         A block's ``shape()`` is its bare posed path, so a point on a
         line-only block is not "inside" it for ``items(pos)``; the HALO
         aperture pick (the same one that highlights and click-selects it)
-        resolves it instead. Plan scenes return None (D10 / C1).
-        """
-        if self.scene_role != "block_editor":
-            return None
+        resolves it instead. Serves the plan and the Block Editor alike
+        (D10 + smoke 1)."""
         from . import halo_selection
         views = sorted(self.views(), key=lambda v: not v.isVisible())
         for v in views[:1]:
@@ -6770,8 +6768,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .room import Room
 
         selected = self.selectedItems()
-        nested_block = (self.scene_role == "block_editor"
-                        and isinstance(target, BlockInstance))
+        is_block = isinstance(target, BlockInstance)
+        # Explode is Block-Editor-only (containment C1); Edit Block is offered
+        # on the plan too (smoke 1) and opens the block's editor tab.
+        nested_block = self.scene_role == "block_editor" and is_block
         menu = build_entity_context_menu(
             selected,
             target,
@@ -6798,7 +6798,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ),
             on_edit_block=(
                 (lambda: self.blockEditRequested.emit(target.block_id))
-                if nested_block else None
+                if is_block else None
             ),
             on_explode=(
                 (lambda: self.explode_selected_blocks())

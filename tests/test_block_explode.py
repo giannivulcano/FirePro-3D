@@ -281,11 +281,11 @@ def test_entity_menu_actions_explode_and_request_edit(qapp, monkeypatch):
 
 
 def test_plan_scene_menus_do_not_offer_explode(qapp):
+    """Smoke 1: the plan offers Edit Block on a placed block (entity path and
+    the one-block selection fallback) but never Explode (containment C1)."""
     from firepro3d.geometry_2d import CircleItem
     sc = Model_Space()
-    # A block WITH AREA (a circle) so items(pos) really hits it: the plan's
-    # exact-hit entity path must still skip it (only the editor treats
-    # nested blocks as entities).
+    # A block WITH AREA (a circle) so items(pos) really hits it.
     b = _line_def("B", (0, 0), (100, 0),
                   extra=[CircleItem(QPointF(50, 0), 20).to_dict()])
     sc.register_block_definition(b)
@@ -295,12 +295,191 @@ def test_plan_scene_menus_do_not_offer_explode(qapp):
     from firepro3d.model_view import Model_View
     v = Model_View(sc)
     gm = v._build_plan_context_menu(sc, [inst], "select")
-    assert "Explode" not in {a.text() for a in gm.actions()}
-    assert "Edit Block" not in {a.text() for a in gm.actions()}
-    assert sc._find_entity_at(QPointF(50, 0)) is None     # plan entity path unchanged
+    acts = {a.text(): a for a in gm.actions()}
+    assert "Explode" not in acts
+    assert "Edit Block" in acts
+    asked = []
+    sc.blockEditRequested.connect(asked.append)
+    acts["Edit Block"].trigger()
+    assert asked == [b.id]
+    assert sc._find_entity_at(QPointF(50, 0)) is inst     # plan entity path reaches blocks
     sc.explode_selected_blocks()
     assert sc._block_instances == [inst]                  # C1: never explodes on a plan
     sc.cleanup()
+
+
+# ── Plan (Model Space) right-click → Edit Block (smoke round 1) ───────────
+
+def _plan_view(main_window):
+    """The shown plan Model_View of the MainWindow's project scene."""
+    from firepro3d.model_view import Model_View
+    from PyQt6.QtTest import QTest
+    v = main_window.central_tabs.currentWidget()
+    if not (isinstance(v, Model_View) and v.scene() is main_window.scene):
+        v = next(w for w in main_window.scene.views()
+                 if isinstance(w, Model_View) and w.isVisible())
+    QTest.qWaitForWindowExposed(v.window())
+    return v
+
+
+def _plan_right_click(view, scene_pt, monkeypatch):
+    """Send a real QContextMenuEvent to *view*; return the captured menu."""
+    from PyQt6.QtGui import QContextMenuEvent
+    from PyQt6.QtWidgets import QMenu
+    menus = []
+    monkeypatch.setattr(QMenu, "exec", lambda self, *a: menus.append(self))
+    vp = view.viewport()
+    pt = view.mapFromScene(scene_pt)
+    QApplication.sendEvent(vp, QContextMenuEvent(
+        QContextMenuEvent.Reason.Mouse, pt, vp.mapToGlobal(pt)))
+    QApplication.processEvents()
+    return menus[-1] if menus else None
+
+
+# Far from the default grid seed so only the test geometry is near the click.
+_FAR = (987_000.0, 913_000.0)
+
+
+class _PlanBlock:
+    """Place a block on the MainWindow plan, frame it 1:1, clean up after."""
+
+    def __init__(self, main_window, defn, loose=None):
+        self.mw, self.defn, self.loose = main_window, defn, loose
+        self.sc = main_window.scene
+
+    def __enter__(self):
+        self.sc.clearSelection()
+        self.sc.register_block_definition(self.defn)
+        self.inst = self.sc.place_block_instance(self.defn.id, _FAR)
+        if self.loose is not None:
+            self.sc.addItem(self.loose); self.sc._draw_lines.append(self.loose)
+        from PyQt6.QtTest import QTest
+        self.view = _plan_view(self.mw)
+        QTest.qWait(250)        # let MainWindow's deferred startup fits land first
+        self._t = self.view.transform()
+        self._c = self.view.mapToScene(self.view.viewport().rect().center())
+        self.view.resetTransform(); self.view.centerOn(_FAR[0] + 50, _FAR[1])
+        QApplication.processEvents()
+        assert self.view.transform().m11() == 1.0     # 1 px = 1 mm framing held
+        return self
+
+    def at(self, dx, dy):
+        return QPointF(_FAR[0] + dx, _FAR[1] + dy)
+
+    def __exit__(self, *exc):
+        mgr = self.mw.block_editor_manager
+        for w in list(mgr.open_editors()):
+            w._modified = False
+            mgr.close(w)
+        for it in (self.inst, self.loose):
+            if it is not None and it.scene() is self.sc:
+                self.sc.removeItem(it)
+        if self.inst in self.sc._block_instances:
+            self.sc._block_instances.remove(self.inst)
+        if self.loose is not None and self.loose in self.sc._draw_lines:
+            self.sc._draw_lines.remove(self.loose)
+        _forget_defs(self.sc, self.defn)
+        self.mw.central_tabs.setCurrentWidget(self.view)
+        self.view.setTransform(self._t); self.view.centerOn(self._c)
+        QApplication.processEvents()
+
+
+def test_plan_right_click_on_a_block_offers_edit_block_and_opens_its_editor(
+        qapp, main_window, monkeypatch):
+    """Guard (a): a block WITH AREA on the plan — a real right-click selects
+    it and shows the entity menu with Edit Block (no Explode); triggering it
+    opens a seeded Block Editor tab for that block."""
+    from firepro3d.geometry_2d import CircleItem
+    b = _line_def("PlanB", (0, 0), (100, 0),
+                  extra=[CircleItem(QPointF(50, 0), 20).to_dict()])
+    with _PlanBlock(main_window, b) as pb:
+        assert pb.inst in pb.sc.items(pb.at(50, 10))
+        menu = _plan_right_click(pb.view, pb.at(50, 10), monkeypatch)
+        assert menu is not None
+        acts = {a.text(): a for a in menu.actions()}
+        assert "Edit Block" in acts and "Explode" not in acts
+        assert pb.inst.isSelected()
+        n_tabs = main_window.central_tabs.count()
+        acts["Edit Block"].trigger(); QApplication.processEvents()
+        assert main_window.central_tabs.count() == n_tabs + 1
+        w = main_window.central_tabs.currentWidget()
+        assert getattr(w, "_edit_block_id", None) == b.id
+        assert len(w.gather_primitives()) == 2                 # seeded (line + circle)
+        # A second Edit Block focuses the open tab (no duplicate).
+        acts["Edit Block"].trigger(); QApplication.processEvents()
+        assert main_window.central_tabs.count() == n_tabs + 1
+
+
+def test_plan_right_click_resolves_a_line_only_block_via_nearest_pick(
+        qapp, main_window, monkeypatch):
+    """Guard (b): a line-only block (zero-area shape) resolves through the
+    HALO nearest-pick fallback on the plan too."""
+    b = _line_def("PlanLine", (0, 0), (100, 0))
+    with _PlanBlock(main_window, b) as pb:
+        pt = pb.at(50, 4.0)
+        assert pb.inst not in pb.sc.items(pt)                  # only HALO reaches it
+        assert pb.sc._find_entity_at(pt) is pb.inst
+        menu = _plan_right_click(pb.view, pt, monkeypatch)
+        labels = {a.text() for a in menu.actions()}
+        assert pb.inst.isSelected()
+        assert "Edit Block" in labels and "Explode" not in labels
+
+
+def test_plan_right_click_a_nearer_loose_line_beats_the_block(
+        qapp, main_window, monkeypatch):
+    """Guard (c): 6 mm from a loose line, 14 mm from a line-only block — the
+    line is nearest, so the block is neither targeted nor offered Edit Block."""
+    b = _line_def("PlanNear", (0, 0), (100, 0))
+    loose = LineItem(QPointF(_FAR[0], _FAR[1] + 20), QPointF(_FAR[0] + 100, _FAR[1] + 20))
+    with _PlanBlock(main_window, b, loose=loose) as pb:
+        pt = pb.at(50, 14.0)
+        assert pb.sc.items(pt) == []                           # only HALO reaches either
+        assert pb.sc._find_entity_at(pt) is not pb.inst
+        menu = _plan_right_click(pb.view, pt, monkeypatch)
+        labels = {a.text() for a in menu.actions()} if menu else set()
+        assert not pb.inst.isSelected()
+        assert "Edit Block" not in labels and "Explode" not in labels
+
+
+def test_plan_entity_menu_delete_removes_the_block(qapp, main_window, monkeypatch):
+    """The entity menu keeps Delete/Copy/Hide for a block, and Delete works."""
+    b = _line_def("PlanDel", (0, 0), (100, 0))
+    with _PlanBlock(main_window, b) as pb:
+        menu = _plan_right_click(pb.view, pb.at(50, 3.0), monkeypatch)
+        acts = {a.text(): a for a in menu.actions()}
+        assert {"Edit Block", "Copy", "Hide", "Delete"} <= set(acts)
+        acts["Delete"].trigger(); QApplication.processEvents()
+        assert pb.inst.scene() is None
+        assert pb.inst not in pb.sc._block_instances
+
+
+def test_plan_generic_menu_offers_edit_block_for_one_selected_block(
+        qapp, main_window, monkeypatch):
+    """Right-click on empty plan space with exactly one block selected: the
+    generic menu offers Edit Block (not Explode); two selected → neither."""
+    b = _line_def("PlanGen", (0, 0), (100, 0))
+    with _PlanBlock(main_window, b) as pb:
+        pb.inst.setSelected(True)
+        empty = pb.at(50, -300.0)
+        assert pb.sc._find_entity_at(empty) is None
+        menu = _plan_right_click(pb.view, empty, monkeypatch)
+        acts = {a.text(): a for a in menu.actions()}
+        assert "Delete" in acts                               # the generic menu
+        assert "Edit Block" in acts and "Explode" not in acts
+        acts["Edit Block"].trigger(); QApplication.processEvents()
+        w = main_window.central_tabs.currentWidget()
+        assert getattr(w, "_edit_block_id", None) == b.id
+        mgr = main_window.block_editor_manager
+        w._modified = False; mgr.close(w)
+        main_window.central_tabs.setCurrentWidget(pb.view); QApplication.processEvents()
+        other = pb.sc.place_block_instance(b.id, (_FAR[0], _FAR[1] + 100))
+        try:
+            pb.inst.setSelected(True); other.setSelected(True)
+            menu = _plan_right_click(pb.view, empty, monkeypatch)
+            labels = {a.text() for a in menu.actions()}
+            assert "Edit Block" not in labels and "Explode" not in labels
+        finally:
+            pb.sc.removeItem(other); pb.sc._block_instances.remove(other)
 
 
 def test_real_right_click_on_a_nested_block_offers_edit_block_and_explode(qapp, monkeypatch):

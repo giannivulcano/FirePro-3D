@@ -1617,17 +1617,20 @@ class Model_View(QGraphicsView):
                     lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "offset")
                 )
 
-            # Nested blocks (Block Editor only — D10 / containment C1).
+            # Blocks: Edit Block for exactly one (plan + Block Editor — D10,
+            # smoke 1); Explode in the Block Editor only (containment C1).
             from .block_instance import BlockInstance
             blocks = [i for i in selected if isinstance(i, BlockInstance)]
-            if blocks and getattr(scene, "scene_role", None) == "block_editor":
+            in_editor = getattr(scene, "scene_role", None) == "block_editor"
+            if len(blocks) == 1 or (blocks and in_editor):
                 menu.addSeparator()
                 if len(blocks) == 1:
                     menu.addAction("Edit Block").triggered.connect(
                         lambda _checked=False, bid=blocks[0].block_id:
                             scene.blockEditRequested.emit(bid))
-                menu.addAction("Explode").triggered.connect(
-                    lambda _checked=False: scene.explode_selected_blocks())
+                if in_editor:
+                    menu.addAction("Explode").triggered.connect(
+                        lambda _checked=False: scene.explode_selected_blocks())
 
             # Fill submenu: shown when exactly one fillable item is selected
             fillable = [i for i in selected if getattr(i, "is_fillable", lambda: False)()]

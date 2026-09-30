@@ -407,6 +407,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # scene gets (Escape/status/mode-sync/property panel) so 2D placement in
         # an editor tab mirrors a plan view.
         self.block_editor_manager.on_open = self._adopt_block_editor
+        # Plan right-click ▸ Edit Block on a placed block opens it in its own
+        # editor tab (smoke 1). Editor scenes are wired in the manager's
+        # _created; the plan scene is created once, so this is its one connect.
+        self.scene.blockEditRequested.connect(self.block_editor_manager.edit_definition)
 
         # Paper space — ViewResolver + Sheet + widget
         self.scene._sheets = [Sheet.create_default()]

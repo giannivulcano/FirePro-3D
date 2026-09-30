@@ -74,14 +74,14 @@ def build_entity_context_menu(
     on_offset_gridline : callable or None
         "Offset Gridline…" action (shown only when target is a GridlineItem).
     on_edit_block : callable or None
-        "Edit Block" action (Block Editor, nested block — nested-blocks D10).
+        "Edit Block" action (a block instance, plan or Block Editor — D10).
     on_explode : callable or None
         "Explode" action (Block Editor only — containment C1).
     """
     menu = QMenu()
     has_sel = bool(selected) or target is not None
 
-    # ── Nested block (Block Editor) ──
+    # ── Block instance (Edit Block: plan + editor; Explode: editor only) ──
     if on_edit_block is not None:
         menu.addAction("Edit Block").triggered.connect(on_edit_block)
     if on_explode is not None:
