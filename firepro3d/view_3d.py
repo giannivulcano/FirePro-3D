@@ -595,7 +595,22 @@ class View3D(QWidget):
             self._render_pending = True
 
     def showEvent(self, event):
+        """Flush the work deferred while hidden, one event-loop turn later (I6).
+
+        Deferring keeps any render out of ``showEvent`` itself, before the
+        native GL window is exposed.
+        """
         super().showEvent(event)
+        QTimer.singleShot(0, self._flush_pending)
+
+    def _flush_pending(self) -> None:
+        """Apply the work that accumulated while the view was hidden.
+
+        Order: the pending heatmap, then a rebuild (which re-syncs the
+        selection and renders) or, failing that, the selection or a render.
+        """
+        if self._plotter is None or not self.isVisible():
+            return                           # hidden again / closed: keep pending
         if self._pending_heatmap is not None:
             pending, self._pending_heatmap = self._pending_heatmap, None
             if pending is _HEATMAP_CLEAR:
@@ -610,6 +625,7 @@ class View3D(QWidget):
             self._render()
 
     def _do_rebuild(self):
+        """Rebuild-timer slot: rebuild only if still dirty and visible (I6)."""
         if not self._dirty or not self.isVisible():
             return                           # stays dirty until shown
         self.rebuild()
@@ -1434,8 +1450,11 @@ class View3D(QWidget):
         return False
 
     def cancel_interaction(self) -> None:
-        """Public Escape (I12): end orbit, drop the 3D pick, clear the 2D
-        selection, and cancel a radiation pick in progress."""
+        """Public Escape (I12): cancel every 3D interaction in progress.
+
+        Ends an orbit, drops the 3D pick, clears the 2D selection, and cancels
+        a radiation pick in progress.
+        """
         self._click_pos = None
         self._last_mouse = None
         self._orbiting = False
@@ -1462,6 +1481,9 @@ class View3D(QWidget):
     def reset_for_project(self, scale_manager) -> None:
         """Re-seat the view on a newly loaded/created project (I9, D1).
 
+        Takes the live scale manager, re-fits the camera on the next build,
+        drops the 3D pick and the previous project's heatmap.
+
         Args:
             scale_manager: The live ``scene.scale_manager`` (scene_io replaces
                 it on load/new).
@@ -1469,6 +1491,9 @@ class View3D(QWidget):
         self._sm = scale_manager
         self._first_build = True
         self.clear_pick()
+        # The old heatmap is keyed by the previous project's entities; clear it
+        # now, or (hidden) replace any pending result with a pending clear.
+        self.clear_radiation_heatmap()
         self.request_rebuild()
 
     def delete_selected(self):
