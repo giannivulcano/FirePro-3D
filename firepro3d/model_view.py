@@ -674,9 +674,10 @@ class Model_View(QGraphicsView):
         if reg.would_cycle(host, defn.id, merged):
             host_name = getattr(reg.get(host), "name", None) or "this block"
             if defn.id == host:
-                return defn, pool, f"{host_name} can't contain itself"
+                return defn, pool, block_library.LOOP_REASON.replace(
+                    "a block", host_name, 1)
             return defn, pool, (f"{defn.name} contains {host_name} — "
-                                "a block can't contain itself")
+                                f"{block_library.LOOP_REASON}")
         return defn, pool, None
 
     def _begin_block_drag(self, sc, payload, defn, pool) -> None:

@@ -1944,7 +1944,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             nested = {p.get("block_id") for p in primitives
                       if p.get("type") == "block_instance"}
             if any(self._block_registry.would_cycle(block_id, n) for n in nested):
-                self._show_status("A block can't contain itself", 5000)
+                from . import block_library
+                why = block_library.LOOP_REASON
+                self._show_status(why[:1].upper() + why[1:], 5000)
                 return None
             defn.name, defn.library, defn.series = name, library, series
             defn.origin = (ox, oy)
