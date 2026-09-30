@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QToolButton, QLabel,
     QSizePolicy, QStackedWidget, QTabBar,
 )
-from PyQt6.QtGui import QIcon, QFont, QPainter, QColor
+from PyQt6.QtGui import QIcon, QFont, QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize, QRect
 from . import theme as th
 
@@ -27,26 +27,47 @@ class _VLabel(QLabel):
     """A QLabel rendered rotated 90° CCW — the vertical left-edge group label.
 
     Qt can't rotate a QLabel via QSS, so this swaps the size hint (w↔h) and
-    paints the text sideways with the theme's ``text_secondary`` token.
+    paints the text sideways in the ``theme.RIBBON_VLABEL_ROLE`` colour. A label
+    longer than the ribbon strip (``M.RIBBON_STACK_H`` minus the group's top/
+    bottom margin) wraps onto two lines at the most balanced word break instead
+    of clipping (bug 2026-09-30: THERMAL RADIATION clipped in Arial).
     """
 
+    @staticmethod
+    def _avail() -> int:
+        m = th.M.RIBBON_GROUP_MARGIN
+        return th.M.RIBBON_STACK_H - m[1] - m[3]
+
+    def _lines(self) -> list[str]:
+        fm = QFontMetrics(self.font())
+        text = self.text()
+        words = text.split(" ")
+        if fm.horizontalAdvance(text) <= self._avail() or len(words) < 2:
+            return [text]
+        splits = [(" ".join(words[:i]), " ".join(words[i:]))
+                  for i in range(1, len(words))]
+        best = min(splits, key=lambda ab: max(fm.horizontalAdvance(ab[0]),
+                                              fm.horizontalAdvance(ab[1])))
+        return list(best)
+
     def sizeHint(self) -> QSize:
-        s = super().sizeHint()
-        return QSize(s.height(), s.width())
+        fm = QFontMetrics(self.font())
+        lines = self._lines()
+        return QSize(fm.height() * len(lines),
+                     max(fm.horizontalAdvance(s) for s in lines))
 
     def minimumSizeHint(self) -> QSize:
-        s = super().minimumSizeHint()
-        return QSize(s.height(), s.width())
+        return self.sizeHint()
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setPen(QColor(th.detect().text_secondary))
+        p.setPen(QColor(getattr(th.detect(), th.RIBBON_VLABEL_ROLE)))
         p.setFont(self.font())
         p.translate(0, self.height())
         p.rotate(-90)
         # In the rotated frame the drawable rect is (0,0, height, width).
         p.drawText(QRect(0, 0, self.height(), self.width()),
-                   Qt.AlignmentFlag.AlignCenter, self.text())
+                   Qt.AlignmentFlag.AlignCenter, "\n".join(self._lines()))
         p.end()
 
 
@@ -205,13 +226,13 @@ class RibbonGroup(QWidget):
         self._small_count = 0
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(4, 2, 7, 0)   # extra right pad clears the separator
+        outer.setContentsMargins(*th.M.RIBBON_GROUP_MARGIN)   # extra right pad clears the separator
         outer.setSpacing(4)
 
         # Vertical ALL-CAPS group label on the left edge (AutoCAD-style density).
         lbl = _VLabel(title.upper())
         f = QFont()
-        f.setPointSizeF(6.5)
+        f.setPointSizeF(th.M.RIBBON_VLABEL_PT)
         lbl.setFont(f)
         outer.addWidget(lbl)
 
