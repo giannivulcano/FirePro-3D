@@ -103,6 +103,16 @@ def test_ribbon_and_canvas_tabs_share_one_height(qapp):
         rh = {rt.tabRect(i).height() for i in range(rt.count())}
         ch = {ct.tabRect(i).height() for i in range(ct.count())}
         assert len(rh) == 1 and rh == ch, f"ribbon {rh} vs canvas {ch}"
+        # Dock header rails ("Browser Dock" / "Properties Panel") end on the
+        # canvas divider row: the pane's border-top sits 1px under the tab bar.
+        from PyQt6.QtWidgets import QLabel
+        bottom = lambda wd: wd.mapTo(win, wd.rect().bottomLeft()).y()
+        divider_y = bottom(ct) + 1
+        hdrs = [l for l in win.findChildren(QLabel)
+                if l.text() in ("Browser Dock", "Properties Panel")]
+        assert len(hdrs) == 2
+        for l in hdrs:
+            assert bottom(l) == divider_y, f"{l.text()} ends at {bottom(l)}, canvas divider {divider_y}"
     finally:
         win.close()
         win.deleteLater()

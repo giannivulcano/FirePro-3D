@@ -126,7 +126,7 @@ class _Metrics:
     RIBBON_LARGE_MIN_W = 72
     RIBBON_SMALL_ICON = 18
     RIBBON_SMALL_H = 26
-    DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
+    DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
     DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
