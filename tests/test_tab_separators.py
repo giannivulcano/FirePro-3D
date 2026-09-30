@@ -82,3 +82,29 @@ def test_west_tab_separators(qapp):
     assert _accent_count(img, range(0, bar.width()), [y]) >= want
     y0 = tab_gap_center(bar, 0)
     assert _accent_count(img, range(2, bar.width() - 3), [y0]) == 0   # beside selected
+
+
+def test_ribbon_and_canvas_tabs_share_one_height(qapp):
+    """Smoke 2026-09-30: ribbon tabs 26px vs canvas tabs 31px (the 20px close
+    dot pushed the canvas taller). Under the real app QSS both match."""
+    import main as _main_module
+    from firepro3d.view_3d import View3D
+    _main_module.View3D = View3D
+    from main import MainWindow
+    old_font, old_ss = qapp.font(), qapp.styleSheet()
+    th.apply_app_font(qapp)
+    qapp.setStyleSheet(th.build_app_qss(th.detect()))
+    win = MainWindow()
+    try:
+        win.resize(1920, 1080)
+        win.show()
+        qapp.processEvents()
+        rt, ct = win.ribbon._tab_bar, win.central_tabs.tabBar()
+        rh = {rt.tabRect(i).height() for i in range(rt.count())}
+        ch = {ct.tabRect(i).height() for i in range(ct.count())}
+        assert len(rh) == 1 and rh == ch, f"ribbon {rh} vs canvas {ch}"
+    finally:
+        win.close()
+        win.deleteLater()
+        qapp.setStyleSheet(old_ss)
+        qapp.setFont(old_font)

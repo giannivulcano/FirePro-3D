@@ -70,11 +70,10 @@ class LevelWidget(QWidget):
 
         hdr = QLabel("Levels")
         hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        f = QFont()
-        f.setBold(True)
-        f.setPointSize(9)
-        hdr.setFont(f)
+        # Size + weight in the label's OWN QSS: the app QSS `QWidget { font-size }`
+        # beats setFont() (smoke audit 2026-09-30).
         hdr.setStyleSheet(
+            f"font-size: {th.M.DOCK_HEADER_PT}pt; font-weight: bold; "
             f"color: {_t.text_primary}; "
             f"background: {_t.bg_raised}; "
             f"padding: 4px; "

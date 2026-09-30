@@ -25,13 +25,12 @@ def dock_header(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setFixedHeight(M.DOCK_HEADER_H)
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    f = QFont()
-    f.setBold(True)
-    f.setPointSize(9)
-    lbl.setFont(f)
+    # Size + weight in the label's OWN QSS: the app QSS `QWidget { font-size }`
+    # beats setFont() (smoke audit 2026-09-30).
     lbl.setStyleSheet(
         f"background: {t.surface}; color: {t.ink};"
-        f" border-bottom: 1px solid {t.line_strong};")
+        f" border-bottom: 1px solid {t.line_strong};"
+        f" font-size: {M.DOCK_HEADER_PT}pt; font-weight: bold;")
     return lbl
 
 

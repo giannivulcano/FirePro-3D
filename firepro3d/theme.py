@@ -103,8 +103,15 @@ class _Metrics:
     TAB_SEP_LEN = 14         # "|" separator length (px)
     TAB_SEP_W = 1            # "|" separator thickness (px)
     TOP_TAB_PT = 10
-    RIBBON_TAB_PAD = (6, 10, 2)       # QSS (top, horizontal, bottom)
-    CANVAS_TAB_PAD = (6, 8, 2, 8)     # QSS (top, right, bottom, left)
+    # Ribbon + canvas tabs share one height (smoke 2026-09-30): same vertical
+    # pad, same text size, and a close dot no taller than the text line.
+    TOP_TAB_PAD_T = 6
+    TOP_TAB_PAD_B = 2
+    TOP_TAB_PAD_X = 10
+    RIBBON_TAB_PAD = (TOP_TAB_PAD_T, TOP_TAB_PAD_X, TOP_TAB_PAD_B)        # QSS (top, horizontal, bottom)
+    CANVAS_TAB_PAD = (TOP_TAB_PAD_T, 8, TOP_TAB_PAD_B, 8)     # QSS (top, right, bottom, left) — x is the mockup's 8/8
+    CANVAS_CLOSE_BOX = 15     # canvas-tab close-dot box (was 20); ≤ the 10pt text line (15px) or the canvas tab grows past the ribbon's
+    CANVAS_CLOSE_ICON = 14    # close-dot glyph (was 18)
     # ribbon body (ribbon_bar.py)
     RIBBON_STACK_H = 88
     RIBBON_GROUP_MARGIN = (4, 2, 7, 0)    # (l, t, r, b); extra right pad clears the separator
@@ -120,6 +127,7 @@ class _Metrics:
     RIBBON_SMALL_ICON = 18
     RIBBON_SMALL_H = 26
     DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
+    DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8

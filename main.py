@@ -106,10 +106,12 @@ class _TabCloseButton(QToolButton):
     def __init__(self, normal, hover, parent=None):
         super().__init__(parent)
         from PyQt6.QtCore import QSize
+        from firepro3d.theme import M
         self._normal, self._hover = normal, hover
         self.setIcon(normal)
-        self.setIconSize(QSize(18, 18))
-        self.setFixedSize(20, 20)
+        # No taller than the tab text line, so canvas tabs match the ribbon's height.
+        self.setIconSize(QSize(M.CANVAS_CLOSE_ICON, M.CANVAS_CLOSE_ICON))
+        self.setFixedSize(M.CANVAS_CLOSE_BOX, M.CANVAS_CLOSE_BOX)
         self.setAutoRaise(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
@@ -1265,7 +1267,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _make_tab_close_icons(self):
         """Return (normal, hover) QIcons for the canvas tab close dot — the header
-        rail's close control dot (frameless_shell._winctl_pixmap, 20px); hover
+        rail's close control dot (frameless_shell._winctl_pixmap, M.CANVAS_CLOSE_ICON); hover
         brightens the circle (line_strong -> faint), matching _WinDot. Rendered
         into a custom QToolButton (see _CanvasTabBar) so the platform style can't
         cap/scale it like the built-in close indicator."""
@@ -1273,8 +1275,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.frameless_shell import _winctl_pixmap
         from firepro3d.theme import detect
         t = detect()
-        normal = QIcon(_winctl_pixmap("close", t.line_strong, t.accent, 18))
-        hover = QIcon(_winctl_pixmap("close", t.faint, t.accent, 18))
+        from firepro3d.theme import M
+        normal = QIcon(_winctl_pixmap("close", t.line_strong, t.accent, M.CANVAS_CLOSE_ICON))
+        hover = QIcon(_winctl_pixmap("close", t.faint, t.accent, M.CANVAS_CLOSE_ICON))
         return normal, hover
 
     def _activate_elevation(self, direction: str):
