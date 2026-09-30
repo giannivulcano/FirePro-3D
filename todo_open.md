@@ -59,8 +59,6 @@
   - Details: the deferred larger vision from `Downloads/Ribbon Text Group — Spec.md` (seed): named `TextStyle` bundles (font/height/width-factor/B-I-U) + per-entity overrides + the launcher/style-manager dialog + SHX fonts (FontSelect already has a font-source seam). ref: text-annotation-system D1/D2.
 - [ ] [type:feature] Extend the ribbon Text/Frame groups to model/Block-Editor text (undo-routed) [P2] [subject:UX]
   - Details: the ribbon Text/Frame groups are paper-scoped (`_font_group_targets` returns targets only on a `PaperSpaceWidget`; only `paper_scene.selectionChanged` drives `_update_font_group_context`). Wire model/Block-Editor selection + route model-text commits through the scene undo snapshot. Overlaps the "Absorb Modify→Text into the entity-aware Font group" item. ref: text-annotation-system D6. `main.py`.
-- [ ] [type:maint] Tokenize the ribbon `_VLabel` group-label font size (literal `6.5pt`) [P3] [subject:UX]
-  - Details: user, 2026-09-22 audit — the vertical ribbon group label colour IS tokenized (`text_secondary`) but the size is a hardcoded `setPointSizeF(6.5)`. Lift to a `theme.M` metric. (User chose to leave the colour grey, not accent-green.) `firepro3d/ribbon_bar.py`.
 - [ ] [type:feature] Paper text inline edit parity with the model primitive [P2] [subject:UX]
   - Details: 2026-09-22 grill decision — the model-surface primitive sets the edit contract (spec text-annotation-system § "Inline edit (model surface) — AS-BUILT": commit-always exits, editor owns every key but Ctrl+S, single undo step, empty-deletes, text-wins-over-centre-grip, self-painted caret). Paper text keeps its older behaviour (dashed #88aaff edit frame, `_on_edit_finished`, `commit_place_text`, paper QUndoStack). Bring paper onto the same contract (likely a paper-side `TextEditController` sharing the predicate + funnel). `firepro3d/paper_space.py`, `firepro3d/text_item.py`.
 - [ ] [type:bug] A real Content change in the property panel mid-inline-edit wipes the live typing and double-pushes undo [P3] [subject:UX]
@@ -209,6 +207,45 @@
 - [ ] [type:feature] SBV — Valve element (prerequisite for valve tags) [P3] [subject:Architecture]
   - Details: surfaced by the System Blocks concept (Q7) — no valve element exists anywhere (grep 0 hits). Likely an Architectural-style Feature/fitting on the pipe network with a Mark; needs its own design pass. Valve tags then come free via SB6.
 
+## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
+
+One constraint type per session, in order (spec §12). Every session: §11 guard tests (math / real-scene E2E drag / save-reopen / undo / diagnostics pixel-sampled / ribbon+icon) → full suite → user smoke + approval → flip the spec's §7.3/§12 row to built + stamp `verified-commit` → reconcile smoke deltas → only then the next session. Decisions D1–D20 + B1–B4 are ratified (2026-09-29 grill); do not re-litigate — a session pins only its own catalogue row (ref order, helper fields, degenerate cases) before building.
+
+- [ ] [type:feature] CS1 — Constraint foundation + Horizontal [P1] [subject:CAD]
+  - Details: spec §3/§5/§6/§7/§8/§10, D1–D20. Mockup gates FIRST (before code): (1) whole constraint icon-family contact sheet (15 types + Smart Dimension + Inspect toggles; 48-unit two-token; real loader at 54/27/16 px, light+dark), (2) Constraints property-panel container + canvas glyph/tint look. Build: pure `sketch_model.py` (enum = whole catalogue, REGISTRY, records, file format), `sketch_solver.py` (numpy weighted min-change projection, union-find components + equality substitution, SVD DOF), `sketch_adapters.py` (per-primitive variables/handles/write-back); Qt `constraint_controller.py` (block_editor role only; drag / typed_edit / transform_commit / delete seams; D17 dry-run refusal), `constraint_paint.py` (origin cross + X/Y axes, glyphs, tint). Primitive `uid` on every primitive dict (legacy assigned on load; copies mint new); `"constraints"` key on `BlockDefinition` (additive, no schema bump; inert round-trip of unknown types). D4: origin fixed at scene (0,0) — migrate non-zero `origin` by translating primitives; retire the Set Origin tool + red marker; import/make-from-selection translate the base point to (0,0). Ribbon: Constrain (Smart Dimension button arrives in CS4) + Inspect groups after Modify on the Block Editor page. Horizontal (edge or 2 points). Retire (VC5 whole-repo grep, coupled tests rewritten/retired): `constraints.py`, `constraint_concentric`/`constraint_dimensional` modes + pickers, `SceneTools._solve_constraints` call sites (reroute to controller), `Model_View.drawForeground` §3b (latent AttributeError on non-dimensional constraints), the plan-scene geo2d Constraints group (its buttons armed the plan scene), `_PadlockItem` + `AlignmentConstraint`. Perf test: the §9 bench against the real solver (worst-case one-component + realistic) must meet D18 (drag ≤ 8 ms, commit ≤ 50 ms, open ≤ 200 ms). `block_definition.py`, `block_editor.py`, `geometry_2d.py`, `text_item.py`, `block_instance.py`, `model_space.py`, `scene_tools.py`, `manip_handle.py`, `selection_manipulator.py`, `modify_tools_controller.py`, `selection_readouts.py`, `model_view.py`, `main.py`, property panel, `graphics/Ribbon/`.
+- [ ] [type:feature] CS2 — Vertical + diagnostics (DOF badge, D10 tint toggle, amber redundant / red conflicting, hold-last-good) [P1] [subject:CAD]
+  - Details: spec §7.4, D9/D10. H+V on one line = first conflict guard. Depends CS1.
+- [ ] [type:feature] CS3 — Coincident (point↔point, point↔origin, point-on-curve / point-on-axis) [P1] [subject:CAD]
+  - Details: spec §7.3. The primary way to keep drawn shapes joined (D8: snaps never constrain) — make it one click + two picks. Depends CS2.
+- [ ] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD]
+  - Details: spec D7/D12, §10. Persisted dims reuse `readout_paint` + the readout HUD editor; label placement picks aligned/Δx/Δy; a permanent dim suppresses its transient readout. Depends CS3.
+- [ ] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P1] [subject:CAD]
+  - Details: spec §7.3 (atan2 angle residual, from refs[0] to refs[1] CCW Y-up). Depends CS4.
+- [ ] [type:feature] CS6 — Concentric [P1] [subject:CAD]
+  - Details: spec §7.3 (substituted). Depends CS5.
+- [ ] [type:feature] CS7 — Symmetric (about an edge, X/Y axis, or reference line) [P1] [subject:CAD]
+  - Details: spec D13, §7.3 (2 DOF; entity pairs expand to handle pairs). Mirror stays an unlinked scene tool. Depends CS6.
+- [ ] [type:feature] CS8 — Fix [P1] [subject:CAD]
+  - Details: spec §7.3. Depends CS7.
+- [ ] [type:feature] CS9 — Parallel [P1] [subject:CAD]
+  - Details: spec §7.3 (normalized cross). Depends CS8.
+- [ ] [type:feature] CS10 — Perpendicular [P1] [subject:CAD]
+  - Details: spec §7.3 (normalized dot). Depends CS9.
+- [ ] [type:feature] CS11 — Equal (lengths / radii) [P1] [subject:CAD]
+  - Details: spec §7.3 (unsquared). Depends CS10.
+- [ ] [type:feature] CS12 — Tangent (line–arc/circle, arc–arc) [P1] [subject:CAD]
+  - Details: spec §7.3 (signed distance + `helper.side` / `helper.internal`). Depends CS11.
+- [ ] [type:feature] CS13 — Midpoint [P1] [subject:CAD]
+  - Details: spec §7.3. Depends CS12.
+- [ ] [type:feature] CS14 — Collinear [P1] [subject:CAD]
+  - Details: spec §7.3. Depends CS13.
+- [ ] [type:feature] CS15 — Smart Dimension: point–line distance [P1] [subject:CAD]
+  - Details: spec §7.3 (signed, side in `helper`). Depends CS14. After CS15 the spec `status` → current.
+- [ ] [type:maint] Retire the Align tool (Shift+L, mode `"align"`, `_execute_align`) — redundant with Move + the snap system [P3] [subject:CAD]
+  - Details: user, 2026-09-29 constraint grill (D2). ALIGN *tracking* in the snap system stays — only the Align modify tool goes. The padlock/`AlignmentConstraint` half is retired by CS1; if this runs first, retire both. Whole-repo grep (`"align"` mode, `_press_align`, `_execute_align`, Shift+L shortcut, `tests/test_align_tool.py`, `docs/superpowers/specs/2026-04-30-align-tool-design.md`, `scene-tools.md`). Confirm with the user that nothing else rides on the tool before removal.
+- [ ] [type:bug] Explode drops a closed polyline's closing segment [P3] [subject:CAD]
+  - Details: found reading code in the 2026-09-29 constraint grounding (NOT reproduced yet — run the repro first): `SceneTools.explode_selected_items` loops `range(len(pts)-1)` and ignores `_closed`, so a closed N-vertex polyline explodes to N−1 lines. `scene_tools.py`. ref: scene-tools.md.
+
 ## Underlay Import dialog
 
 - [ ] [type:maint] DRY the Modify pending-state consume [P3] [subject:Code Quality]
@@ -240,6 +277,15 @@
   - Details: filed 2026-08-30 from task 73; PDF sibling shipped. Bench whether DXF `SPLINE entity.flattening(0.5)` (`dxf_import_worker.py:549`) and the fixed-count ARC/ELLIPSE tessellation (`steps=64`) actually inflate a reference DXF underlay before changing anything. Note the unit gap: DXF tolerance is in drawing units (mm/inch/feet, file-dependent), not paper points — decide unit-normalization (e.g. via `$INSUNITS`/extents) so a fixed number means a fixed plotted deviation. Consider a Preferences knob mirroring the PDF one. Needs a representative DXF underlay to visually gate. `dxf_import_worker.py`, `underlay_cache.py`, `settings/panes.py`. ref: underlay-workflow §18.5.
 - [ ] [type:feature] Import fills — detect + preserve DXF HATCH/SOLID + PDF filled paths [P3] [subject:CAD]
   - Details: filed 2026-09-17 (from a question during the reference-graphic wrap-up). The import pipeline is **stroke-only today** — no fill is detected or preserved: DXF **HATCH** is exploded to its boundary/pattern lines as strokes (`dxf_import_worker.py:619` `virtual_entities()`), DXF **SOLID** imports as a closed outline with no fill flag (`dxf_import_worker.py:655`, `kind:"path_points" closed:True`), and the **PDF** vector worker doesn't distinguish the fill operator at all (`pdf_import_worker.py`). No geom-dict kind carries a fill/brush attribute; `geom_dicts_to_primitives` reads only `color`; the batched underlay/reference render strokes everything `NoBrush` (only `text` gets a brush). Asymmetry: `geometry_2d` primitives already SUPPORT fills (solid/hatch via the `"fill"` dict key read in `_geom2d_from_dict`) — the import path just never emits that key. Scope: (1) DXF worker emit a `fill`/solid-fill on SOLID + true HATCH regions (solid vs pattern; ezdxf `entity.dxf.solid_fill`/pattern); (2) PDF worker detect fill vs stroke ops; (3) thread a `fill` onto the geom dict; (4) `_compile_reference` + `_build_batched_underlay_group` honor a `QBrush` per batched path (weigh perf — filled paths are heavier than cosmetic strokes; may need per-fill batching). Gate on a real hatched/filled reference. `dxf_import_worker.py`, `pdf_import_worker.py`, `geometry_import.py`, `dwg_converter.append_geom_to_path`, `underlay_controller.py`, `block_definition.py`. ref: reference-graphic-model.md, underlay-workflow §16.3, 2d-geometry §fill.
+
+## MainWindow chrome polish (2026-09-30 user batch)
+
+- [ ] [type:feature] 3D Model canvas tab is closable and reopenable from the Project Browser [P2] [subject:UX]
+  - Details: user, 2026-09-30 — the 3D tab can't be closed today; add a 3D Model entry to the project browser that (re)opens it. `main.py`, project browser, 3D view (orphan — forge on first touch). ref: view-relationships.
+- [ ] [type:feature] Block Editor ribbon tab always available; Block group moves off Architecture to its left edge (small icons: Manager, New → opens editor tab, Open) + logical reorganization [P2] [subject:UX]
+  - Details: user, 2026-09-30 — integrate with the current Block Editor tab contents; reorganize its buttons logically. Interacts with the constraint-system ribbon groups (Constrain/Inspect after Modify, CS1) and the Block-Editor-tab close-button focus bug. `main.py`, `firepro3d/ribbon_bar.py`, `firepro3d/block_editor.py`, `firepro3d/block_manager.py`. ref: ribbon-bar, block-editor spec.
+- [ ] [type:bug] Widget `setFont()` sizes silently overridden by the app QSS — Selector + sprinkler tables [P3] [subject:UX]
+  - Details: filed 2026-09-30 from the chrome-polish smoke audit. `build_app_qss`'s `QWidget { font-size: 9.75pt }` (and `QDialog[houseDialog="true"] QComboBox`) beats a widget's `setFont()` SIZE (bold/family survive; a setFont made after polish survives until the next `app.setStyleSheet`, e.g. theme switch `main.py` `_apply_theme`). (1) `ui_kit.Selector` (painted QComboBox, intended 11px) is correct in the Properties panel (`_form_container` QSS) but renders 13px elsewhere — confirmed in `BlockSaveDialog` library/series selectors (`CreatableSelector`). (2) `sprinkler_db.py` + `auto_populate_dialog.py` QTableWidgets (8.5pt) are correct on first build but drop to 9.75pt if the app QSS is re-applied while open. Fix pattern (as done for `_VLabel`/`dock_header`/Levels header in feat/chrome-polish): size in the widget's own QSS or a scoped rule; guard under the real app QSS + one re-apply. Full site list: the audit (100 `setFont` hits; 12 on widgets). `firepro3d/ui_kit.py`, `firepro3d/sprinkler_db.py`, `firepro3d/auto_populate_dialog.py`. ref: ui-design-system, architecture/theming.
 
 ## Accent-colour / status-chrome unification
 
@@ -544,8 +590,6 @@
   - Details: 16 tools in `SceneToolsMixin` — offset (line intersection, polyline offset), array (linear/polar, 200-copy preview cap), rotate/scale/mirror (anchor point transforms), join/explode (merge segments, decompose groups), break/break-at-point (segment splitting), fillet/chamfer, stretch (crossing-window selection), trim/extend (to intersections), merge/hatch (polygon merging, fill patterns), constraints (creation and solving). Per-tool workflow, algorithm, edge cases, and mode state machine integration. `scene_tools.py`.
 - [ ] [type:design] Spec session: auto-populate sprinkler placement algorithm [P3] [subject:Architecture]
   - Details: NFPA 13 density/area curve interpolation, polygon decomposition into rectangles (scanline), branch-line direction detection (1/2/3+ pipe logic), `_walk_branch()` algorithm, wall-proximity 2× rule, edge cases (L-shaped rooms, concave rooms, dead-end branches, multiple design areas). `auto_populate_dialog.py`, `design_area.py`.
-- [ ] [type:design] Spec session: parametric constraint system [P2] [subject:Architecture]
-  - Details: extend foundation spec (`docs/specs/parametric-constraint-system.md`) with resolution order design, over-constrained detection, constraint visualization, editing UI, dependency graph, and new constraint types (H/V lock, equal spacing, tangent, parallel, perpendicular, fix/pin). Foundation spec covers existing 3 types + solver + serialization + lifecycle. `constraints.py`.
 - [ ] [type:design] Spec session: annotations & hatch patterns [P3] [subject:Architecture]
   - Details: NoteAnnotation (MText-like word-wrap, bold/italic, alignment), DimensionAnnotation (two-point + offset witness lines), HatchItem (region fill with constraint interaction), SVG hatch pattern loader (24×24 viewBox tiling, seamless rules), built-in Qt brush patterns. `annotations.py`, `hatch_patterns.py`.
 

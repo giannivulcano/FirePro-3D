@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
-                         QFontDatabase, QIntValidator)
+                         QFontDatabase, QIntValidator, QCursor)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
@@ -25,13 +25,12 @@ def dock_header(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setFixedHeight(M.DOCK_HEADER_H)
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    f = QFont()
-    f.setBold(True)
-    f.setPointSize(9)
-    lbl.setFont(f)
+    # Size + weight in the label's OWN QSS: the app QSS `QWidget { font-size }`
+    # beats setFont() (smoke audit 2026-09-30).
     lbl.setStyleSheet(
         f"background: {t.surface}; color: {t.ink};"
-        f" border-bottom: 1px solid {t.line_strong};")
+        f" border-bottom: 1px solid {t.line_strong};"
+        f" font-size: {M.DOCK_HEADER_PT}pt; font-weight: bold;")
     return lbl
 
 
@@ -300,6 +299,54 @@ class TopTabs(QWidget):
             self._bar.setCurrentIndex(i)
 
 
+def tab_gap_center(bar: QTabBar, i: int) -> int:
+    """Pixel coordinate of the gap between tab ``i`` and ``i + 1``.
+
+    x for a North strip, y for a West strip. Qt folds a QSS tab margin into
+    ``tabRect`` (margin-right / margin-bottom — probed 2026-09-30), so the gap
+    is the last ``M.TAB_GAP`` px of tab ``i``; if a style places it between the
+    rects instead, use their midpoint.
+    """
+    r, nxt = bar.tabRect(i), bar.tabRect(i + 1)
+    west = bar.shape() in (QTabBar.Shape.RoundedWest, QTabBar.Shape.TriangularWest)
+    end, start = (r.bottom(), nxt.top()) if west else (r.right(), nxt.left())
+    gap = M.LEFT_TAB_GAP if west else M.TAB_GAP
+    if start - end > 1:
+        return (end + start) // 2
+    return end - (gap - 1) // 2
+
+
+def paint_tab_separators(bar: QTabBar) -> None:
+    """Paint the house "|" separators between adjacent tabs (chrome polish 2026-09-30).
+
+    Call at the END of a QTabBar subclass's ``paintEvent`` (after ``super()``).
+    Skipped beside the selected and the hovered tab (their outline bounds them).
+    North strips get a vertical ``M.TAB_SEP_LEN`` line centred on the tab; West
+    strips a horizontal dash centred across the strip. Colour ``TAB_SEP_ROLE``.
+    """
+    n = bar.count()
+    if n < 2:
+        return
+    from .theme import TAB_SEP_ROLE
+    skip = {bar.currentIndex()}
+    if bar.underMouse():
+        skip.add(bar.tabAt(bar.mapFromGlobal(QCursor.pos())))
+    west = bar.shape() in (QTabBar.Shape.RoundedWest, QTabBar.Shape.TriangularWest)
+    p = QPainter(bar)
+    col = QColor(getattr(_detect(), TAB_SEP_ROLE))
+    for i in range(n - 1):
+        if i in skip or (i + 1) in skip:
+            continue
+        c = tab_gap_center(bar, i)
+        if west:
+            ln = min(M.TAB_SEP_LEN, bar.width() - 4)
+            p.fillRect(QRect((bar.width() - ln) // 2, c, ln, M.TAB_SEP_W), col)
+        else:
+            cy = bar.tabRect(i).center().y()
+            p.fillRect(QRect(c, cy - M.TAB_SEP_LEN // 2, M.TAB_SEP_W, M.TAB_SEP_LEN), col)
+    p.end()
+
+
 class _WestTabBar(QTabBar):
     """West ``QTabBar`` that paints the selection accent bar itself.
 
@@ -312,6 +359,7 @@ class _WestTabBar(QTabBar):
 
     def paintEvent(self, e):
         super().paintEvent(e)
+        paint_tab_separators(self)
         i = self.currentIndex()
         if i < 0:
             return

@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: d34aeb0   # batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-09-30  # chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 416584c   # chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -135,9 +135,10 @@ interpolation in `build_dialog_qss` (`{M.RADIUS_INPUT}` alongside `{t.accent}`).
 
 | Token | Value | Source / reconciliation |
 |---|---|---|
-| `HEADER_H` | 40 | shared |
-| `HEADER_MARGIN` | (14,7,10,7) | shared |
-| `HEADER_ICON` / `HEADER_ICON_GAP` / `HEADER_TITLE_GAP` | 22 / 8 / 10 | shared |
+| `HEADER_H` | 34 | shared — dialog shell + MainWindow header rail (chrome polish 2026-09-30, was 40; user chose shared) |
+| `HEADER_MARGIN` | (14,4,10,4) | shared (was (14,7,10,7)) |
+| `HEADER_ICON` / `HEADER_ICON_GAP` / `HEADER_TITLE_GAP` | 24 / 10 / 14 | shared (was 22 / 8 / 10) |
+| `DOCK_HEADER_H` / `DOCK_HEADER_PT` | 27 / 9 | `ui_kit.dock_header` (+ Levels header pt); size set in the label's own QSS — `setFont()` loses to the app QSS `QWidget { font-size }` |
 | `WINCTL_DOT` / `WINCTL_ICON` | 20 / 18 | `_WinDot` |
 | `DIALOG_BODY_MARGIN` | (20,18,20,18) | simple form dialogs (content-driven, kept) |
 | `PANEL_PAGE_MARGIN` | (14,14,14,14) | dense panel pages (Manager `14/12`→`14/14`, invisible) |
@@ -493,8 +494,8 @@ follows these rules so every column reads as a proper rail:
    **LANDED 2026-09-19 (merge `0a7b44a`).** `MainWindow(FramelessShellMixin,
    QMainWindow)` is now frameless-fullscreen by default (taskbar hidden); the
    mixin gained a `window_type` param (Dialog default, Window for the shell),
-   startup fullscreen applied in `main()`, `ui/immersive`→`ui/fullscreen` pref
-   migration; custom `header_rail.py` (via `setMenuWidget`, stacked above the
+   startup fullscreen applied in `main()` (startup-state pref contract →
+   `mainwindow-chrome-revamp.md`); custom `header_rail.py` (via `setMenuWidget`, stacked above the
    ribbon) + `footer_rail.py` (3 sub-rails, replaces the status bar) drive the
    chrome. Full header/footer-rail invariants + the frameless-MainWindow contract
    → **`docs/specs/mainwindow-chrome-revamp.md` (status: current)** — the

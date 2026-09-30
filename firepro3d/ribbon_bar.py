@@ -16,37 +16,71 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QToolButton, QLabel,
-    QSizePolicy, QStackedWidget, QTabBar,
+    QSizePolicy, QStackedWidget, QTabBar, QStyle, QStylePainter,
+    QStyleOptionToolButton,
 )
-from PyQt6.QtGui import QIcon, QFont, QPainter, QColor
-from PyQt6.QtCore import Qt, QSize, QRect
+from PyQt6.QtGui import QIcon, QFontMetrics, QPainter, QColor
+from PyQt6.QtCore import Qt, QSize, QRect, QEvent
 from . import theme as th
+from .ui_kit import paint_tab_separators
+
+
+def _balanced_two_lines(fm: QFontMetrics, text: str) -> list[str]:
+    """Split ``text`` at the word break that minimises the wider line.
+
+    Shared by the vertical group label and the large-button caption. A single
+    word is returned whole (one line).
+    """
+    words = text.split(" ")
+    if len(words) < 2:
+        return [text]
+    splits = [(" ".join(words[:i]), " ".join(words[i:]))
+              for i in range(1, len(words))]
+    best = min(splits, key=lambda ab: max(fm.horizontalAdvance(ab[0]),
+                                          fm.horizontalAdvance(ab[1])))
+    return list(best)
 
 
 class _VLabel(QLabel):
     """A QLabel rendered rotated 90° CCW — the vertical left-edge group label.
 
     Qt can't rotate a QLabel via QSS, so this swaps the size hint (w↔h) and
-    paints the text sideways with the theme's ``text_secondary`` token.
+    paints the text sideways in the ``theme.RIBBON_VLABEL_ROLE`` colour. A label
+    longer than the ribbon strip (``M.RIBBON_STACK_H`` minus the group's top/
+    bottom margin) wraps onto two lines at the most balanced word break instead
+    of clipping (bug 2026-09-30: THERMAL RADIATION clipped in Arial).
     """
 
+    @staticmethod
+    def _avail() -> int:
+        m = th.M.RIBBON_GROUP_MARGIN
+        return th.M.RIBBON_STACK_H - m[1] - m[3]
+
+    def _lines(self) -> list[str]:
+        fm = QFontMetrics(self.font())
+        text = self.text()
+        if fm.horizontalAdvance(text) <= self._avail():
+            return [text]
+        return _balanced_two_lines(fm, text)
+
     def sizeHint(self) -> QSize:
-        s = super().sizeHint()
-        return QSize(s.height(), s.width())
+        fm = QFontMetrics(self.font())
+        lines = self._lines()
+        return QSize(fm.height() * len(lines),
+                     max(fm.horizontalAdvance(s) for s in lines))
 
     def minimumSizeHint(self) -> QSize:
-        s = super().minimumSizeHint()
-        return QSize(s.height(), s.width())
+        return self.sizeHint()
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setPen(QColor(th.detect().text_secondary))
+        p.setPen(QColor(getattr(th.detect(), th.RIBBON_VLABEL_ROLE)))
         p.setFont(self.font())
         p.translate(0, self.height())
         p.rotate(-90)
         # In the rotated frame the drawable rect is (0,0, height, width).
         p.drawText(QRect(0, 0, self.height(), self.width()),
-                   Qt.AlignmentFlag.AlignCenter, self.text())
+                   Qt.AlignmentFlag.AlignCenter, "\n".join(self._lines()))
         p.end()
 
 
@@ -148,31 +182,104 @@ RibbonSmallButton:disabled {
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RibbonButton(QToolButton):
-    """Large ribbon button: 54×54 px icon with text label beneath."""
+    """Large ribbon button: ``M.RIBBON_LARGE_ICON`` icon over a fixed text box.
+
+    Every large button reserves ``M.RIBBON_BTN_TEXT_LINES`` text lines under the
+    icon (text top + centre aligned) so one- and two-line captions share one
+    height and a two-line caption is never clipped (smoke 2026-09-30).
+    ``QToolButton`` can't reserve a text box, so the style draws only the panel
+    (hover/checked/menu indicator) and this class paints icon + text itself.
+    A caption breaks at an explicit ``\\n``, else — when wider than the minimum
+    text box — at the most balanced word break.
+    """
 
     def __init__(self, text: str, icon: QIcon | None = None, parent=None):
         super().__init__(parent)
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(48, 48))
+        self.setIconSize(QSize(th.M.RIBBON_LARGE_ICON, th.M.RIBBON_LARGE_ICON))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setFixedHeight(68)
-        self.setMinimumWidth(72)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self._pin_height()
+
+    def _pin_height(self) -> None:
+        # Fixed height = the derived sizeHint, re-pinned whenever the font or
+        # style changes (the ribbon QSS 8pt arrives at polish, after __init__).
+        self.setFixedHeight(self.sizeHint().height())
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._pin_height()
+
+    def _lines(self) -> list[str]:
+        m = th.M
+        text = self.text()
+        if "\n" in text:
+            return text.split("\n")[:m.RIBBON_BTN_TEXT_LINES]
+        fm = self.fontMetrics()
+        if fm.horizontalAdvance(text) <= m.RIBBON_LARGE_MIN_W - 2 * m.RIBBON_BTN_HPAD:
+            return [text]
+        return _balanced_two_lines(fm, text)
+
+    def _text_top(self) -> int:
+        m = th.M
+        return m.RIBBON_BTN_PAD + m.RIBBON_LARGE_ICON + m.RIBBON_ICON_TEXT_GAP
+
+    def sizeHint(self) -> QSize:
+        self.ensurePolished()
+        m = th.M
+        fm = self.fontMetrics()
+        text_w = max(fm.horizontalAdvance(s) for s in self._lines())
+        w = max(m.RIBBON_LARGE_MIN_W, m.RIBBON_LARGE_ICON + 2 * m.RIBBON_BTN_HPAD,
+                text_w + 2 * m.RIBBON_BTN_HPAD)
+        h = (self._text_top() + m.RIBBON_BTN_TEXT_LINES * fm.lineSpacing()
+             + m.RIBBON_BTN_PAD)
+        return QSize(w, h)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, event):
+        m = th.M
+        p = QStylePainter(self)
+        opt = QStyleOptionToolButton()
+        self.initStyleOption(opt)
+        # self.icon(), not opt.icon: sip hands back a reference to the option's
+        # member, so blanking opt.icon below would blank a saved copy too.
+        icon = self.icon()
+        opt.text = ""
+        opt.icon = QIcon()
+        p.drawComplexControl(QStyle.ComplexControl.CC_ToolButton, opt)
+        if not icon.isNull():
+            mode = QIcon.Mode.Normal if self.isEnabled() else QIcon.Mode.Disabled
+            ix = (self.width() - m.RIBBON_LARGE_ICON) // 2
+            icon.paint(p, QRect(ix, m.RIBBON_BTN_PAD, m.RIBBON_LARGE_ICON,
+                                m.RIBBON_LARGE_ICON),
+                       Qt.AlignmentFlag.AlignCenter, mode)
+        t = th.detect()
+        p.setPen(QColor(t.text_primary if self.isEnabled() else t.text_disabled))
+        p.setFont(self.font())
+        top = self._text_top()
+        p.drawText(QRect(m.RIBBON_BTN_HPAD, top, self.width() - 2 * m.RIBBON_BTN_HPAD,
+                         self.height() - top - m.RIBBON_BTN_PAD),
+                   Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                   "\n".join(self._lines()))
+        p.end()
 
 
 class RibbonSmallButton(QToolButton):
-    """Compact ribbon button: 27×27 px icon with text beside it."""
+    """Compact ribbon button: ``M.RIBBON_SMALL_ICON`` icon with text beside it."""
 
     def __init__(self, text: str, icon: QIcon | None = None, parent=None):
         super().__init__(parent)
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(20, 20))   # +25% over the compact 16px
+        self.setIconSize(QSize(th.M.RIBBON_SMALL_ICON, th.M.RIBBON_SMALL_ICON))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.setFixedHeight(26)
+        self.setFixedHeight(th.M.RIBBON_SMALL_H)
         self.setMinimumWidth(100)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
@@ -205,14 +312,13 @@ class RibbonGroup(QWidget):
         self._small_count = 0
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(4, 2, 7, 0)   # extra right pad clears the separator
+        outer.setContentsMargins(*th.M.RIBBON_GROUP_MARGIN)   # extra right pad clears the separator
         outer.setSpacing(4)
 
         # Vertical ALL-CAPS group label on the left edge (AutoCAD-style density).
+        # Its size comes from build_ribbon_qss (`_VLabel` rule) — a setFont()
+        # here would lose to the app QSS `QWidget { font-size }` (smoke 2026-09-30).
         lbl = _VLabel(title.upper())
-        f = QFont()
-        f.setPointSizeF(6.5)
-        lbl.setFont(f)
         outer.addWidget(lbl)
 
         # Row that holds large buttons and small-button column stacks
@@ -368,6 +474,14 @@ class RibbonPage(QWidget):
 # RibbonBar
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _RibbonTabBar(QTabBar):
+    """Ribbon tab strip: house tab language + painted "|" separators."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        paint_tab_separators(self)
+
+
 class RibbonBar(QWidget):
     """
     Full ribbon widget: a QTabBar on top and a QStackedWidget of RibbonPages
@@ -397,7 +511,7 @@ class RibbonBar(QWidget):
         # scroll buttons are off (the ribbon has a fixed, small tab set).
         from PyQt6.QtCore import Qt as _Qt
         from PyQt6.QtWidgets import QWidget as _QWidget, QHBoxLayout as _QHBox
-        self._tab_bar = QTabBar(self)
+        self._tab_bar = _RibbonTabBar(self)
         self._tab_bar.setExpanding(False)
         self._tab_bar.setUsesScrollButtons(False)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
@@ -423,7 +537,7 @@ class RibbonBar(QWidget):
         # strip so the whole ribbon reads as one surface distinct from the rails.
         self._stack = QStackedWidget(self)
         self._stack.setStyleSheet(f"background: {_t.surface};")
-        self._stack.setFixedHeight(88)
+        self._stack.setFixedHeight(th.M.RIBBON_STACK_H)
         outer.addWidget(self._stack)
 
     def _on_tab_changed(self, index: int):

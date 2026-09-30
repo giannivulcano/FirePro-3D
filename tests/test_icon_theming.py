@@ -219,6 +219,7 @@ def test_geom2d_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
 _CHROME_ICONS = [
     "new_icon.svg", "open_icon.svg", "save_as_icon.svg", "recent_icon.svg",
     "save_icon.svg", "undo_icon.svg", "redo_icon.svg",
+    "app_glyph_icon.svg",   # header-rail logo glyph (chrome polish 2026-09-30)
 ]
 
 

@@ -2,6 +2,36 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## MainWindow chrome polish (2026-09-30 user batch)
+
+- [x] [type:maint] Tokenize the ribbon `_VLabel` group-label font size (literal `6.5pt`) [P3] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-22 audit — the vertical ribbon group label colour IS tokenized (`text_secondary`) but the size is a hardcoded `setPointSizeF(6.5)`. Lift to a `theme.M` metric. (User chose to leave the colour grey, not accent-green.) `firepro3d/ribbon_bar.py`.
+  - Folded into the ribbon-proportions item: M.RIBBON_VLABEL_PT via build_ribbon_qss. feat/chrome-polish.
+- [x] [type:feature] "|" separators between tabs in the canvas TopTabs and browser LeftTabs (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — mock up first. `firepro3d/ui_kit.py` (TopTabs/LeftTabs), `firepro3d/theme.py` (`_tab_language_qss`). ref: mainwindow-chrome-revamp-stage2, ui-design-system.
+  - Build: ui_kit.paint_tab_separators (accent, hidden beside selected/hovered) on ribbon (_RibbonTabBar) + canvas + West strips; ribbon+canvas tabs share one 26px height (close dot 15px box); dock rails 27px aligned to the canvas divider; LeftTabs 22px/9pt. feat/chrome-polish.
+- [x] [type:feature] Header rail polish: bolder/larger text, "|" separators (App name | Save/Undo/Redo | File name), project-icon review (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30. `firepro3d/header_rail.py`, `firepro3d/graphics/`. ref: mainwindow-chrome-revamp, icon-style-guide.
+  - Build: separators were 0px tall (width-only QFrame) — fixed height M.HEADER_SEP_H, muted; mono two-token app_glyph_icon.svg replaces Logo.png; rail metrics tokenized; HEADER_* shared with the dialog shell (user choice, 34px). feat/chrome-polish.
+- [x] [type:bug] Ribbon vertical group label is clipped at the bottom [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30. `firepro3d/ribbon_bar.py` (`_VLabel`), `theme.build_ribbon_qss`. ref: ribbon-bar.
+  - Repro: THERMAL RADIATION 96px Arial text in an 86px strip (test font Segoe UI masked it). Fix: wrap to two balanced lines; guard renders the real ribbon in Arial under the app QSS (RED with fix reverted). feat/chrome-polish.
+- [x] [type:feature] Ribbon proportions: smaller vertical group-label text + ribbon icon sizing review (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — "label text (vertical) too big", "icons" (user unsure what's off — show icon-size variants on a slider in the mockup). Folds the "Tokenize the ribbon `_VLabel` group-label font size" maint item. `firepro3d/ribbon_bar.py`, `firepro3d/theme.py`. ref: ribbon-bar, icon-style-guide.
+  - Build: label size now QSS-owned (app QSS QWidget font-size beat setFont — label had always rendered 9.75pt); 7pt accent; icons 40/18; large buttons reserve a 2-line top-aligned caption box (self-painted). Folded the _VLabel tokenize maint item. feat/chrome-polish.
+
+## MainWindow startup window state — 2026-09-30
+
+- [x] [type:bug] MainWindow opens in a stuck restored state — not draggable/resizable until a header double-click, which jumps it to centre [P1] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — on launch the window appears small ("minimized"), can't be moved or resized; double-clicking the header recentres it and only then does drag/resize/maximize work. ref: mainwindow-chrome-revamp.
+  - Root cause (two, both live-traced): (1) a `geometry` blob saved while fullscreen made `restoreGeometry` pre-set `WindowFullScreen` on the hidden window → `main()`'s `resize(800,600)` sized it and `showFullScreen()` was a no-op → 800×600 at (0,0) reporting `isFullScreen()` → header-drag + edge-resize gated off. Fix: `restore_settings` strips fullscreen/maximized and re-applies `normalGeometry()` (clearing state on the already-native window resets to Qt's 640×480 default); `main()` resizes only on first run. (2) the header restore/fullscreen toggle persisted `ui/fullscreen`, which shadowed the System Settings "Maximize window on startup" (`ui/immersive`) → closing restored reopened restored. User decision: setting is the sole owner, header toggle session-only; `main_helpers.retire_fullscreen_key` folds + removes the old key. Guards (RED at HEAD, GREEN after): `tests/test_fullscreen_immersive.py` — restored-geometry state, stale-key-vs-setting, retire-fold, header-toggle-no-persist; rewrote `test_migrate_fullscreen_pref_reads_and_migrates` (retired "ui/fullscreen wins" contract, user-ratified). User live smoke passed. `main.py`, `firepro3d/main_helpers.py`.
+
+## Block Editor constraint system — design (grill + spec rewrite) — 2026-09-29
+
+- [x] [type:design] Spec session: parametric constraint system [P2] [subject:Architecture] [done:2026-09-29]
+  - Details: extend foundation spec (`docs/specs/parametric-constraint-system.md`) with resolution order design, over-constrained detection, constraint visualization, editing UI, dependency graph, and new constraint types (H/V lock, equal spacing, tangent, parallel, perpendicular, fix/pin). Foundation spec covers existing 3 types + solver + serialization + lifecycle. `constraints.py`.
+  - Findings: /todo design/Large. Compared the external draft `FPD Design/constraint-system-spec.md` against the codebase (3-agent survey) and ran a 20-round grill + brainstorm. **Spec rewritten in place** (`status: proposal`; SPEC-INDEX row updated) on `docs/constraint-system-spec`. Key settled decisions: atom = existing typed primitive exposing named handles (the draft's point-table / recipes / fusion rejected — our primitives are typed parametric items); Block Editor only, frozen at insert; origin fixed at scene (0,0) (Set Origin + red marker retired) with non-printing X/Y axes as targets; SolidWorks as the behaviour reference (selection-first, Smart Dimension, boxed glyphs, blue/ink/red); dims = persisted selection readouts (the draft's "annotation engine" does not exist); snaps never constrain, no journal; admit + flag redundant/conflicting, hold last good; Symmetric = "mirror"; D17 op table (Move of grounded geometry refused); hand-rolled numpy weighted min-change projection solver. P4 bench: naive dense misses D18 (31 ms drag), components + equality substitution meet it (0.4 ms realistic; ~4 ms worst case estimated — re-measured in CS1). Draft errors corrected: angle sign, tangent sign, unnormalized parallel/perpendicular, squared equal, arc endpoint model, axes-needed-for-rotation claim. Filed CS1–CS15 (one constraint per session) + Align-tool retirement (maint) + closed-polyline Explode bug. Revisit trigger: if CS1's real-solver bench misses D18 on the worst case, reopen B1 (solver engine) before CS2.
+
 ## System Blocks — concept design — 2026-09-29
 
 - [x] [type:design] System Blocks — author the app's own 2D annotation graphics (tags, labels, gridlines, markers, symbols) as blocks in a System library, with attributes bound to host-element data [P2] [subject:Architecture] [done:2026-09-29]

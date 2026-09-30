@@ -71,12 +71,17 @@ def apply_app_font(app: QApplication) -> None:
 class _Metrics:
     # base ramp (reference)
     XS, SM, MD, LG, XL = 4, 8, 12, 16, 20
-    # header / titlebar
-    HEADER_H = 40
-    HEADER_MARGIN = (14, 7, 10, 7)
-    HEADER_ICON = 22
-    HEADER_ICON_GAP = 8
-    HEADER_TITLE_GAP = 10
+    # header / titlebar (shared: MainWindow header rail + house dialog shell)
+    HEADER_H = 34
+    HEADER_MARGIN = (14, 4, 10, 4)
+    HEADER_ICON = 24
+    HEADER_ICON_GAP = 10
+    HEADER_TITLE_GAP = 14
+    # header rail only (header_rail.py)
+    HEADER_SEP_H = 18            # "|" divider height between rail sections
+    HEADER_ACTION_ICON = 17      # Save/Undo/Redo glyph
+    HEADER_ACTION_BTN = 26       # Save/Undo/Redo button box
+    HEADER_TITLE_FS = 13         # app-name + project-name font (px)
     WINCTL_DOT = 20
     WINCTL_ICON = 18
     # body / panels
@@ -88,10 +93,41 @@ class _Metrics:
     SECTION_GAP = 8
     TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
     TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
-    LEFT_TAB_W = 24          # browser LeftTabs vertical strip width (mockup-tuned)
+    LEFT_TAB_W = 22          # browser LeftTabs vertical strip width (mockup-tuned 2026-09-30)
     LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
     LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
-    DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
+    LEFT_TAB_PT = 9          # West tab text (smoke bump 8→9, 2026-09-30)
+    LEFT_TAB_PAD = (8, 0, 8, 2)   # QSS (top, right, bottom, left) — maps to the VISUAL sides
+    # top tab strips (ribbon + canvas) — chrome polish 2026-09-30
+    TAB_GAP = 2              # QSS margin-right between top tabs
+    TAB_SEP_LEN = 14         # "|" separator length (px)
+    TAB_SEP_W = 1            # "|" separator thickness (px)
+    TOP_TAB_PT = 10
+    # Ribbon + canvas tabs share one height (smoke 2026-09-30): same vertical
+    # pad, same text size, and a close dot no taller than the text line.
+    TOP_TAB_PAD_T = 6
+    TOP_TAB_PAD_B = 2
+    TOP_TAB_PAD_X = 10
+    RIBBON_TAB_PAD = (TOP_TAB_PAD_T, TOP_TAB_PAD_X, TOP_TAB_PAD_B)        # QSS (top, horizontal, bottom)
+    CANVAS_TAB_PAD = (TOP_TAB_PAD_T, 8, TOP_TAB_PAD_B, 8)     # QSS (top, right, bottom, left) — x is the mockup's 8/8
+    CANVAS_CLOSE_BOX = 15     # canvas-tab close-dot box (was 20); ≤ the 10pt text line (15px) or the canvas tab grows past the ribbon's
+    CANVAS_CLOSE_ICON = 14    # close-dot glyph (was 18)
+    # ribbon body (ribbon_bar.py)
+    RIBBON_STACK_H = 88
+    RIBBON_GROUP_MARGIN = (4, 2, 7, 0)    # (l, t, r, b); extra right pad clears the separator
+    RIBBON_VLABEL_PT = 7.0
+    RIBBON_LARGE_ICON = 40
+    # Large-button height is DERIVED (RibbonButton.sizeHint): pad + icon + gap +
+    # a text box RIBBON_BTN_TEXT_LINES lines tall (always reserved, top-aligned).
+    RIBBON_BTN_TEXT_LINES = 2
+    RIBBON_BTN_PAD = 3        # border 1 + QSS padding 2 (build_ribbon_qss RibbonButton)
+    RIBBON_BTN_HPAD = 5       # border 1 + QSS padding 4
+    RIBBON_ICON_TEXT_GAP = 2
+    RIBBON_LARGE_MIN_W = 72
+    RIBBON_SMALL_ICON = 18
+    RIBBON_SMALL_H = 26
+    DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
+    DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8
@@ -149,6 +185,12 @@ class _Metrics:
 
 
 M = _Metrics()
+
+# Colour ROLES (token names, resolved per theme via getattr(detect(), ROLE)) —
+# chrome polish 2026-09-30. One home so painters/QSS never hardcode a token.
+TAB_SEP_ROLE = "accent"        # "|" between tabs (ribbon / canvas / browser)
+HEADER_SEP_ROLE = "muted"      # header-rail section dividers
+RIBBON_VLABEL_ROLE = "accent"  # vertical ribbon group labels
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -673,9 +715,9 @@ QTabWidget#centralTabs::pane {{ border: none; border-top: 1px solid {t.line_stro
    faint line bordering the canvas. Dialog previews (#previewView) keep theirs. */
 QTabWidget#centralTabs QGraphicsView {{ border: none; }}
 QTabWidget#centralTabs QTabBar {{ background: {t.surface}; }}
-/* Match the ribbon TopTabs metrics (7px 16px 8px, 9pt); right padding insets
-   the close dot from the tab's right edge. */
-QTabWidget#centralTabs QTabBar::tab {{ padding: 4px 10px 5px 16px; margin-right: 2px; font-size: 9pt; }}
+/* Canvas tab metrics: M.CANVAS_TAB_PAD / M.TAB_GAP / M.TOP_TAB_PT (shared text
+   size with the ribbon tabs); ui_kit.paint_tab_separators draws the "|" in the gap. */
+QTabWidget#centralTabs QTabBar::tab {{ padding: {M.CANVAS_TAB_PAD[0]}px {M.CANVAS_TAB_PAD[1]}px {M.CANVAS_TAB_PAD[2]}px {M.CANVAS_TAB_PAD[3]}px; margin-right: {M.TAB_GAP}px; font-size: {M.TOP_TAB_PT}pt; }}
 {_tab_language_qss(t, "QTabWidget#centralTabs QTabBar::tab", edge="bottom")}
 /* Selected canvas tab matches the browser rail: accent-soft fill + 1px accent
    outline + the 2px accent bar (border-bottom renders fine on North tabs). */
@@ -692,7 +734,7 @@ QTabWidget#centralTabs QTabBar::scroller QToolButton {{
 
 /* ── Browser LeftTabs (west strip; mainwindow-chrome-revamp-stage2.md) ───── */
 QTabBar#leftTabsBar {{ background: transparent; }}
-QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: 9pt; }}
+QTabBar#leftTabsBar::tab {{ padding: {M.LEFT_TAB_PAD[0]}px {M.LEFT_TAB_PAD[1]}px {M.LEFT_TAB_PAD[2]}px {M.LEFT_TAB_PAD[3]}px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: {M.LEFT_TAB_PT}pt; }}
 {_tab_language_qss(t, "QTabBar#leftTabsBar::tab", edge="right")}
 /* Browser rail: selected tab keeps the hover-highlight look — accent-soft fill
    + 1px accent outline. The 2px accent side-bar on the content-facing edge is
@@ -828,9 +870,9 @@ RibbonBar QTabBar {{
     background: {t.surface};
 }}
 RibbonBar QTabBar::tab {{
-    padding: 7px 16px 8px;
-    margin-right: 2px;
-    font-size: 9pt;
+    padding: {M.RIBBON_TAB_PAD[0]}px {M.RIBBON_TAB_PAD[1]}px {M.RIBBON_TAB_PAD[2]}px;
+    margin-right: {M.TAB_GAP}px;
+    font-size: {M.TOP_TAB_PT}pt;
     min-width: 80px;
 }}
 {_tab_language_qss(t, "RibbonBar QTabBar::tab", edge="bottom")}
@@ -840,6 +882,9 @@ RibbonBar QTabBar::tab:selected {{
     background: {t.accent_soft}; border: 1px solid {t.accent};
     border-top-left-radius: 5px; border-top-right-radius: 5px;
     border-bottom: 2px solid {t.accent}; }}
+/* Vertical group label size (ribbon_bar._VLabel; colour = RIBBON_VLABEL_ROLE,
+   painted). Must live in QSS: the app QSS `QWidget {{ font-size }}` beats setFont(). */
+_VLabel {{ font-size: {M.RIBBON_VLABEL_PT}pt; }}
 RibbonButton {{
     background: transparent;
     border: 1px solid transparent;
