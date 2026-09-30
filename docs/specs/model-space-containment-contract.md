@@ -177,6 +177,14 @@ The line between "allowed in the model" and "paper-space only":
   model. *"Is it a note about the drawing?"* → paper. (Consequence: a north
   arrow / legend is a **paper** Block, not a model object.)
 
+> **Ratified amendment, not yet built (2026-09-29).** The System Blocks
+> concept grill (Q2) adds a third class, **host-bound annotation → model**: tags and
+> labels that read data from a host element live in Model Space on the host's level
+> (sheet-scoped tags also remain allowed on paper). Free notes, keynotes and legends
+> stay paper-only. The as-intended rule is owned by
+> `docs/superpowers/specs/2026-09-29-system-blocks-concept-design.md` until task SB3
+> writes it into this section.
+
 ## Design Decisions
 
 Full rationale for each invariant lives in the 2026-09-16 grill transcript.

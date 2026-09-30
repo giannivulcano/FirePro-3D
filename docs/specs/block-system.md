@@ -51,6 +51,14 @@ source-tasks:
 > see `paper-space.md`). The flyweight def/instance core, `.fpdb` library, Manager, and Block Editor
 > **stay current**. Invariants live once in the contract; this links up (Rule A).
 
+> **System Blocks (proposal, 2026-09-29).** A ratified concept extends this
+> subsystem, but none of it is built yet: bound `@[key]` text fields plus an attribute schema in
+> the reserved `attributes` slots (revisits decisions 6 and 9), `scale_mode:
+> "annotative"` activated, and a read-only shipped **System** library tier with a
+> multi-root library. See `docs/superpowers/specs/2026-09-29-system-blocks-concept-design.md`.
+> This spec is amended in place as tasks SB1a/SB1b land. Until then the body below
+> is the current contract.
+
 > **Reference-graphic unification (2026-09-17, `3c3b00c`).** `BlockDefinition`
 > gained a `render_mode` (`"default"` = per-primitive compile, unchanged for
 > authored blocks; `"reference"` = **batched-per-layer** compile, one render op
