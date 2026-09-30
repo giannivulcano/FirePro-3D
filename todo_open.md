@@ -172,7 +172,7 @@
   - Details: concept Q3/Q5/Q12 + F7. Several tags per host; drag changes offset only; type change re-resolves or shows "?"; cascade delete in one undo step; per-instance swap within host category; leader style from Display Manager category. Depends SB5 + phase-4 readiness. Guard G4. `hosted_tag.py` (new), `model_space.py`, ribbon (Tag button).
 - [ ] [type:feature] SB7 — Paper (sheet-scoped) tags: host = (viewport, element); viewport deletion behaves as host deletion [P3] [subject:Architecture]
   - Details: concept Q2 option B. Depends SB6 + the P1 "Paper-space block placement" task. Host moves map through the viewport transform. `paper_space.py`, `hosted_tag.py`.
-- [ ] [type:feature] Valve element (prerequisite for valve tags) [P3] [subject:Architecture]
+- [ ] [type:feature] SBV — Valve element (prerequisite for valve tags) [P3] [subject:Architecture]
   - Details: surfaced by the System Blocks concept (Q7) — no valve element exists anywhere (grep 0 hits). Likely an Architectural-style Feature/fitting on the pipe network with a Mark; needs its own design pass. Valve tags then come free via SB6.
 
 ## Underlay Import dialog

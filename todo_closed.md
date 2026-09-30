@@ -14,7 +14,7 @@
     - **Composite rule:** parametric items stay bespoke but take their fixed sub-graphics from blocks. This resolves the folded reference-graphics blocker.
     - **Containment C9** gains a host-bound-annotation class (pointer added to C9).
     - **F6 sizing** stays a proposal pending its probe (first step of SB1c).
-    - **Follow-ups filed:** SB1a, SB1b, SB1c, SB2, SB3, SB4a–g, SB5, SB6, SB7 and the Valve element.
+    - **Follow-ups filed:** SB1a, SB1b, SB1c, SB2, SB3, SB4a–g, SB5, SB6, SB7 and SBV (the Valve element).
 - [x] [type:design] Redefine reference/annotation graphics (gridlines, elevation markers, section cuts, detail markers, …) as block-backed composites [P3] [subject:Architecture] [done:2026-09-29]
   - Details: user, 2026-09-21. **Superseded** by the System Blocks concept (folded into that run). Its blocker (parametric + screen-fixed) is resolved by the composite rule (Q9) and view-scale annotative sizing (F6). The conversions are filed as SB4b (plan bubble), SB4c (elevation bubble + datum) and SB4d (elevation-marker head + detail-callout bubble). Section cuts: no section marker exists yet (the section-view subsystem is still a proposal).
 - [x] [type:feature] Block attributes — author text/numeric attributes on a block definition; placed instances carry a reference level; `=[AttributeName]` dimension binding deferred to the constraints subsystem [P2] [subject:Architecture] [done:2026-09-29]
