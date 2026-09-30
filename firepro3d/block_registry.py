@@ -119,6 +119,24 @@ class BlockRegistry:
         return {i: self._store[i].to_dict() for i in sorted(self.closure(block_id))
                 if i in self._store and i != block_id}
 
+    def merged_with_file(self, bundled, defn) -> dict:
+        """The store as it would read after loading a library file (D11).
+
+        The single merge rule shared by the load's cycle check and the
+        drag-time preview: bundled copies only fill ids the project lacks
+        (the project copy wins), while the file's own definition wins for
+        its id (it is what gets embedded or swapped in).
+
+        Args:
+            bundled: The file's bundled ``BlockDefinition`` list.
+            defn: The file's own ``BlockDefinition``.
+
+        Returns:
+            ``{id: BlockDefinition}`` to pass as ``extra`` to :meth:`closure`
+            / :meth:`would_cycle`.
+        """
+        return {**{d.id: d for d in bundled}, **self._store, defn.id: defn}
+
     def users_of(self, block_id: str) -> set[str]:
         """Definitions that nest *block_id* directly or transitively.
 
@@ -128,8 +146,55 @@ class BlockRegistry:
         Returns:
             Ids of every definition whose closure contains *block_id*.
         """
-        return {i for i in self._store if i != block_id
-                and block_id in self.closure(i)}
+        return set(self._inverse_closures().get(block_id, ())) - {block_id}
+
+    def users_map(self) -> dict[str, set[str]]:
+        """``{id: users_of(id)}`` for every stored definition, in one pass.
+
+        Each definition's closure is computed once (memoised over the nesting
+        DAG) and then inverted — the Block Manager's "Used in" column reads
+        this instead of calling :meth:`users_of` per row.
+
+        Returns:
+            Stored id → ids of the definitions nesting it (direct or indirect).
+        """
+        inv = self._inverse_closures()
+        return {i: set(inv.get(i, ())) - {i} for i in self._store}
+
+    def _inverse_closures(self) -> dict[str, set[str]]:
+        """``{nested id: {stored ids whose closure contains it}}`` (one pass)."""
+        memo: dict[str, set[str]] = {}
+        active: set[str] = set()
+        cyclic = False
+
+        def walk(i: str) -> set[str]:
+            nonlocal cyclic
+            if i in memo:
+                return memo[i]
+            d = self._store.get(i)
+            if d is None:
+                return set()
+            if i in active:                  # a cycle: memo would be partial
+                cyclic = True
+                return set()
+            active.add(i)
+            out: set[str] = set()
+            for child in nested_ids(d):
+                out.add(child)
+                out |= walk(child)
+            active.discard(i)
+            memo[i] = out
+            return out
+
+        for i in self._store:                # recursion depth = nesting depth
+            walk(i)
+        if cyclic:                           # never expected; stay exact anyway
+            memo = {i: self.closure(i) for i in self._store}
+        inv: dict[str, set[str]] = {}
+        for i, reach in memo.items():
+            for j in reach:
+                inv.setdefault(j, set()).add(i)
+        return inv
 
     def would_cycle(self, host_id, candidate_id, extra: dict | None = None) -> bool:
         """True if nesting *candidate_id* inside *host_id* forms a cycle.

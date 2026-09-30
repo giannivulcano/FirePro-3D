@@ -159,3 +159,21 @@ def test_manager_save_writes_the_bundle(qapp, tmp_path):
         assert set(data["bundled"]) == {b.id, c.id}
     finally:
         dlg.close()
+
+
+def test_name_clash_refusal_adds_nothing(qapp, tmp_path):
+    """A file refused for a NAME CLASH leaves the project untouched: none of
+    its bundled dependencies are added and no undo step is pushed."""
+    from firepro3d.block_manager import _format_load_summary
+    sc, a, b, c = _project_ABC()
+    path = block_library.save_to_library(a, root=str(tmp_path),
+                                         bundled=sc.block_registry.bundle_for(a.id))
+    target = Model_Space()
+    target.register_block_definition(_line_def("A"))        # same name, other id
+    target.push_undo_state()
+    before_ids = set(target._block_definitions)
+    before_undo = (len(target._undo_stack), target._undo_pos)
+    summary = target.load_blocks_from_files([path])
+    assert set(target._block_definitions) == before_ids     # no orphan B / C
+    assert (len(target._undo_stack), target._undo_pos) == before_undo
+    assert _format_load_summary(summary) == "refused 1 (name in use)"

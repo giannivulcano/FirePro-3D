@@ -1667,9 +1667,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         lib_def, bundled = loaded
         if self._load_would_cycle(bundled, lib_def):
             return False
-        for dep in bundled:                              # project copy wins
-            if dep.id != block_id and self.get_block_definition(dep.id) is None:
-                self._block_registry.add(dep)
+        self._add_bundled(bundled, lib_def)              # project copy wins
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -1709,12 +1707,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["refused"].append(
                     f"{defn.name} ({block_library.LOOP_REASON})")
                 continue
-            for dep in bundled:                              # project copy wins
-                if dep.id != defn.id and self.get_block_definition(dep.id) is None:
-                    self._block_registry.add(dep)
-                    changed = True
             existing = self._block_definitions.get(defn.id)
             if existing is not None:
+                changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 if existing.version == defn.version:
                     summary["skipped"].append(defn.name)
                 else:
@@ -1722,13 +1717,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     summary["replaced"].append(defn.name)
                     changed = True
                 continue
-            # id not present: refuse a (library, series, name) clash
+            # id not present: refuse a (library, series, name) clash — the
+            # refused file adds nothing, not even its bundled deps
             clash = any(
                 (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
                 for o in self._block_definitions.values())
             if clash:
                 summary["refused"].append(defn.name)
                 continue
+            self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
             changed = True
@@ -1741,18 +1738,30 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _load_would_cycle(self, bundled, defn) -> bool:
         """True if loading *defn* with its *bundled* definitions forms a cycle.
 
-        The walk runs over the project store merged with the file: bundled
-        copies only fill ids the project lacks (the project copy wins), while
-        *defn* itself is the copy that would be embedded or swapped in.
+        The walk runs over ``BlockRegistry.merged_with_file`` (project copy
+        wins for bundled deps; *defn* wins for its own id).
 
         Args:
             bundled: The file's bundled ``BlockDefinition`` list.
             defn: The file's own ``BlockDefinition``.
         """
-        pool = {d.id: d for d in [*bundled, defn]}
-        merged = {**{d.id: d for d in bundled}, **self._block_definitions,
-                  defn.id: defn}
-        return any(i in self._block_registry.closure(i, merged) for i in pool)
+        reg = self._block_registry
+        merged = reg.merged_with_file(bundled, defn)
+        pool = {d.id for d in [*bundled, defn]}
+        return any(i in reg.closure(i, merged) for i in pool)
+
+    def _add_bundled(self, bundled, defn) -> bool:
+        """Add the file's bundled deps the project lacks (project copy wins).
+
+        Returns:
+            True if anything was added.
+        """
+        added = False
+        for dep in bundled:
+            if dep.id != defn.id and self.get_block_definition(dep.id) is None:
+                self._block_registry.add(dep)
+                added = True
+        return added
 
     def set_block_metadata(self, block_id: str, name: str, library: str,
                            series: str) -> bool:

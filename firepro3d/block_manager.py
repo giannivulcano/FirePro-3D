@@ -87,8 +87,8 @@ class BlockTableModel(QAbstractTableModel):
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
         # Blocks that nest each definition, directly or indirectly (D12).
-        reg = self._scene.block_registry
-        self._used = {d.id: len(reg.users_of(d.id)) for d in self._defs}
+        users = self._scene.block_registry.users_map()     # one pass, not per row
+        self._used = {d.id: len(users.get(d.id, ())) for d in self._defs}
 
     def _on_changed(self):
         self.beginResetModel()

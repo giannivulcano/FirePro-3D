@@ -395,3 +395,71 @@ def test_refused_double_click_on_italic_leaf_loads_nothing(qapp, main_window, tm
         br._lib_root = old_root
         br.refresh()
         QApplication.processEvents()
+
+
+# ── G5 review: drag-time cycle check uses the load's merge rule ─────────────
+
+def _nest_rec(bid):
+    return {"type": "block_instance", "block_id": bid, "pos": [0, 0], "rotation": 0.0}
+
+
+def _bundle_case(tmp_path, *, project_b_nests_host):
+    """Project holds host H and B; library-only X nests B and bundles its own
+    B copy. Exactly one of the two B copies nests H."""
+    from firepro3d import block_library
+    proj = Model_Space()
+    h = _line_def("H")
+    proj.register_block_definition(h)
+    b_proj = _line_def("B", extra=[_nest_rec(h.id)] if project_b_nests_host else ())
+    proj.register_block_definition(b_proj)
+    b_file = BlockDefinition.from_dict(b_proj.to_dict())
+    b_file.primitives = [LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict()]
+    if not project_b_nests_host:
+        b_file.primitives.append(_nest_rec(h.id))
+    x = _line_def("X", extra=[_nest_rec(b_proj.id)])
+    block_library.save_to_library(x, root=str(tmp_path),
+                                  bundled={b_file.id: b_file.to_dict()})
+    return proj, h, b_proj, x
+
+
+def _host_editor(proj, h):
+    from firepro3d.block_editor import BlockEditorWidget
+    w = BlockEditorWidget(proj, block_id=h.id)
+    w.seed_from_definition(h)
+    v = w.view
+    v.resize(900, 700); v.show(); QTest.qWaitForWindowExposed(v)
+    return w, v
+
+
+def test_drag_cycle_check_lets_the_project_copy_win(qapp, tmp_path, monkeypatch):
+    """The bundle's B nests the host but the project's B does not: the load
+    keeps the project's B, so no loop forms — the drag is accepted and the
+    real load succeeds."""
+    from firepro3d.blocks_browser import BlocksBrowser
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError(a)))
+    proj, h, b_proj, x = _bundle_case(tmp_path, project_b_nests_host=False)
+    w, v = _host_editor(proj, h)
+    br = BlocksBrowser(proj, root=str(tmp_path))
+    try:
+        assert _drag(v, _mime_for(br, "X", library_only=True), [QPointF(10, 10)])
+        assert x.id in proj._block_definitions
+        assert proj.get_block_definition(b_proj.id) is b_proj      # project copy kept
+        assert [i.block_id for i in w.editor_scene._block_instances] == [x.id]
+    finally:
+        w.editor_scene.cleanup(); v.close(); QApplication.processEvents()
+
+
+def test_drag_cycle_check_sees_the_project_copy_nesting_the_host(qapp, tmp_path):
+    """The project's B nests the host but the bundle's does not: loading X
+    would give X ⊃ B ⊃ H inside H — the drag is refused, nothing loads."""
+    from firepro3d.blocks_browser import BlocksBrowser
+    proj, h, b_proj, x = _bundle_case(tmp_path, project_b_nests_host=True)
+    w, v = _host_editor(proj, h)
+    br = BlocksBrowser(proj, root=str(tmp_path))
+    try:
+        assert not _drag(v, _mime_for(br, "X", library_only=True), [QPointF(10, 10)])
+        assert x.id not in proj._block_definitions
+        assert w.editor_scene._block_instances == []
+    finally:
+        w.editor_scene.cleanup(); v.close(); QApplication.processEvents()

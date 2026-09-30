@@ -658,15 +658,20 @@ class Model_View(QGraphicsView):
         reg = sc.block_registry
         defn = reg.get(payload["id"])
         pool: dict = {}
+        merged = None
         if defn is None and payload.get("path"):
             loaded = block_library.load_block_file_with_bundle(payload["path"])
             tmp, bundled = loaded if loaded else (None, [])
             pool = {d.id: d for d in [tmp, *bundled] if d is not None}
             defn = tmp
+            if tmp is not None:
+                # The load's own merge rule: project copy wins for bundled
+                # deps, the file's definition for its id (D11).
+                merged = reg.merged_with_file(bundled, tmp)
         if defn is None:
             return None, pool, "This block can't be read"
         host = getattr(sc, "_editing_block_id", None)
-        if reg.would_cycle(host, defn.id, pool or None):
+        if reg.would_cycle(host, defn.id, merged):
             host_name = getattr(reg.get(host), "name", None) or "this block"
             if defn.id == host:
                 return defn, pool, f"{host_name} can't contain itself"
@@ -684,8 +689,9 @@ class Model_View(QGraphicsView):
         sc.set_mode("place_block", template=payload["id"])
         if pool:
             # Library-only leaf: ghost from the temporary, unregistered
-            # definition (its bundle resolves nested ids first).
-            defn._resolve = lambda i: pool.get(i) or sc.get_block_definition(i)
+            # definition; nested ids resolve as the load will (project copy
+            # first, then the file's bundle).
+            defn._resolve = lambda i: sc.get_block_definition(i) or pool.get(i)
             sc._place_block_make_ghost()
             g = sc._place_block_ghost
             if g is not None:

@@ -444,3 +444,23 @@ def test_load_summary_text_reports_loops_and_missing(qapp, tmp_path):
     assert "nested block(s) missing" in text
     assert block_library.load_failure_message("B", sc.load_blocks_from_files([loop])) \
         == "Could not load \u201cB\u201d: a block can't contain itself."
+
+
+# ── G5 review: one-pass users map (Block Manager "Used in" perf) ─────────────
+
+def test_registry_users_map_matches_per_id_users_of(qapp):
+    """users_map() == {id: users_of(id)} over direct, indirect, unrelated
+    and missing-nested references (a diamond included)."""
+    d = _line_def("D")
+    c = _line_def("C", extra=[_nested(d.id, 0, 0)])
+    b = _line_def("B", extra=[_nested(c.id, 0, 0), _nested(d.id, 5, 0)])
+    e = _line_def("E", extra=[_nested(c.id, 0, 0), _nested("deadbeef", 0, 0)])
+    a = _line_def("A", extra=[_nested(b.id, 0, 0), _nested(e.id, 0, 0)])
+    x = _line_def("X")
+    r, store = _reg(d, c, b, e, a, x)
+    um = r.users_map()
+    assert set(um) == set(store)
+    for i in store:
+        assert um[i] == r.users_of(i), i
+    assert um[d.id] == {c.id, b.id, e.id, a.id}
+    assert um[x.id] == set() and um[a.id] == set()
