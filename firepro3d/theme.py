@@ -701,9 +701,9 @@ QTabWidget#centralTabs::pane {{ border: none; border-top: 1px solid {t.line_stro
    faint line bordering the canvas. Dialog previews (#previewView) keep theirs. */
 QTabWidget#centralTabs QGraphicsView {{ border: none; }}
 QTabWidget#centralTabs QTabBar {{ background: {t.surface}; }}
-/* Match the ribbon TopTabs metrics (7px 16px 8px, 9pt); right padding insets
-   the close dot from the tab's right edge. */
-QTabWidget#centralTabs QTabBar::tab {{ padding: 4px 10px 5px 16px; margin-right: 2px; font-size: 9pt; }}
+/* Canvas tab metrics: M.CANVAS_TAB_PAD / M.TAB_GAP / M.TOP_TAB_PT (shared text
+   size with the ribbon tabs); ui_kit.paint_tab_separators draws the "|" in the gap. */
+QTabWidget#centralTabs QTabBar::tab {{ padding: {M.CANVAS_TAB_PAD[0]}px {M.CANVAS_TAB_PAD[1]}px {M.CANVAS_TAB_PAD[2]}px {M.CANVAS_TAB_PAD[3]}px; margin-right: {M.TAB_GAP}px; font-size: {M.TOP_TAB_PT}pt; }}
 {_tab_language_qss(t, "QTabWidget#centralTabs QTabBar::tab", edge="bottom")}
 /* Selected canvas tab matches the browser rail: accent-soft fill + 1px accent
    outline + the 2px accent bar (border-bottom renders fine on North tabs). */
@@ -720,7 +720,7 @@ QTabWidget#centralTabs QTabBar::scroller QToolButton {{
 
 /* ── Browser LeftTabs (west strip; mainwindow-chrome-revamp-stage2.md) ───── */
 QTabBar#leftTabsBar {{ background: transparent; }}
-QTabBar#leftTabsBar::tab {{ padding: 12px 6px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: 9pt; }}
+QTabBar#leftTabsBar::tab {{ padding: {M.LEFT_TAB_PAD[0]}px {M.LEFT_TAB_PAD[1]}px {M.LEFT_TAB_PAD[2]}px {M.LEFT_TAB_PAD[3]}px; margin-bottom: {M.LEFT_TAB_GAP}px; font-size: {M.LEFT_TAB_PT}pt; }}
 {_tab_language_qss(t, "QTabBar#leftTabsBar::tab", edge="right")}
 /* Browser rail: selected tab keeps the hover-highlight look — accent-soft fill
    + 1px accent outline. The 2px accent side-bar on the content-facing edge is
@@ -856,9 +856,9 @@ RibbonBar QTabBar {{
     background: {t.surface};
 }}
 RibbonBar QTabBar::tab {{
-    padding: 7px 16px 8px;
-    margin-right: 2px;
-    font-size: 9pt;
+    padding: {M.RIBBON_TAB_PAD[0]}px {M.RIBBON_TAB_PAD[1]}px {M.RIBBON_TAB_PAD[2]}px;
+    margin-right: {M.TAB_GAP}px;
+    font-size: {M.TOP_TAB_PT}pt;
     min-width: 80px;
 }}
 {_tab_language_qss(t, "RibbonBar QTabBar::tab", edge="bottom")}

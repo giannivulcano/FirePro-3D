@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon, QFont, QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize, QRect
 from . import theme as th
+from .ui_kit import paint_tab_separators
 
 
 class _VLabel(QLabel):
@@ -389,6 +390,14 @@ class RibbonPage(QWidget):
 # RibbonBar
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _RibbonTabBar(QTabBar):
+    """Ribbon tab strip: house tab language + painted "|" separators."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        paint_tab_separators(self)
+
+
 class RibbonBar(QWidget):
     """
     Full ribbon widget: a QTabBar on top and a QStackedWidget of RibbonPages
@@ -418,7 +427,7 @@ class RibbonBar(QWidget):
         # scroll buttons are off (the ribbon has a fixed, small tab set).
         from PyQt6.QtCore import Qt as _Qt
         from PyQt6.QtWidgets import QWidget as _QWidget, QHBoxLayout as _QHBox
-        self._tab_bar = QTabBar(self)
+        self._tab_bar = _RibbonTabBar(self)
         self._tab_bar.setExpanding(False)
         self._tab_bar.setUsesScrollButtons(False)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)

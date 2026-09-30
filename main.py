@@ -25,6 +25,7 @@ from firepro3d.underlay_import_dialog import UnderlayImportDialog
 from firepro3d.property_manager import PropertyManager
 from firepro3d.sprinkler_db import SprinklerDatabase
 from firepro3d.scale_manager import DisplayUnit
+from firepro3d.ui_kit import paint_tab_separators
 from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
@@ -148,6 +149,10 @@ class _CanvasTabBar(QTabBar):
         lay.addWidget(btn)
         btn.clicked.connect(lambda _=False, w=wrap: self._emit_close(w))
         self.setTabButton(index, QTabBar.ButtonPosition.RightSide, wrap)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        paint_tab_separators(self)
 
     def _emit_close(self, wrap):
         for i in range(self.count()):
