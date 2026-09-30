@@ -169,31 +169,31 @@ RibbonSmallButton:disabled {
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RibbonButton(QToolButton):
-    """Large ribbon button: 54×54 px icon with text label beneath."""
+    """Large ribbon button: ``M.RIBBON_LARGE_ICON`` icon with text label beneath."""
 
     def __init__(self, text: str, icon: QIcon | None = None, parent=None):
         super().__init__(parent)
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(48, 48))
+        self.setIconSize(QSize(th.M.RIBBON_LARGE_ICON, th.M.RIBBON_LARGE_ICON))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setFixedHeight(68)
+        self.setFixedHeight(th.M.RIBBON_LARGE_H)
         self.setMinimumWidth(72)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
 
 class RibbonSmallButton(QToolButton):
-    """Compact ribbon button: 27×27 px icon with text beside it."""
+    """Compact ribbon button: ``M.RIBBON_SMALL_ICON`` icon with text beside it."""
 
     def __init__(self, text: str, icon: QIcon | None = None, parent=None):
         super().__init__(parent)
         self.setText(text)
         if icon:
             self.setIcon(icon)
-        self.setIconSize(QSize(20, 20))   # +25% over the compact 16px
+        self.setIconSize(QSize(th.M.RIBBON_SMALL_ICON, th.M.RIBBON_SMALL_ICON))
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.setFixedHeight(26)
+        self.setFixedHeight(th.M.RIBBON_SMALL_H)
         self.setMinimumWidth(100)
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
@@ -444,7 +444,7 @@ class RibbonBar(QWidget):
         # strip so the whole ribbon reads as one surface distinct from the rails.
         self._stack = QStackedWidget(self)
         self._stack.setStyleSheet(f"background: {_t.surface};")
-        self._stack.setFixedHeight(88)
+        self._stack.setFixedHeight(th.M.RIBBON_STACK_H)
         outer.addWidget(self._stack)
 
     def _on_tab_changed(self, index: int):

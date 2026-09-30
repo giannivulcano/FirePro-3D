@@ -22,3 +22,14 @@ def test_remove_page_removes_both(qapp):
     rb.remove_page(1)
     assert rb._tab_bar.count() == 1
     assert rb._stack.count() == 1
+
+
+def test_ribbon_button_metrics_are_tokens(qapp):
+    from firepro3d.theme import M
+    from firepro3d.ribbon_bar import RibbonButton, RibbonSmallButton, RibbonBar
+    b, s, rb = RibbonButton("X"), RibbonSmallButton("Y"), RibbonBar()
+    assert b.iconSize().width() == M.RIBBON_LARGE_ICON == 40
+    assert b.height() == M.RIBBON_LARGE_H
+    assert s.iconSize().width() == M.RIBBON_SMALL_ICON == 18
+    assert s.height() == M.RIBBON_SMALL_H
+    assert rb._stack.height() == M.RIBBON_STACK_H
