@@ -88,6 +88,10 @@ _LOOSE_AUTHORING_MODES = frozenset({
     "text", "dimension",
 })
 
+# Status hint shown when an authoring/modify mode is refused because the
+# canvas shows no view (view-3d.md §10 I5).
+NO_VIEW_HINT = "Open a view from the Project Browser"
+
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
@@ -210,6 +214,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
+        self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -1116,6 +1121,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def set_mode(self, mode, template=None):
         self._text_edit_ctl.commit()     # a tool switch ends any inline edit
+        if not self.view_available and mode not in (None, "select"):
+            # Empty canvas (view-3d.md I5): no view to author in.
+            self.instructionChanged.emit(NO_VIEW_HINT)
+            return
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).

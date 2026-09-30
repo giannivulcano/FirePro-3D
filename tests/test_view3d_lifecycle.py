@@ -290,3 +290,22 @@ class TestRebuildFixes:
         i = v._pipe_refs.index(good)
         expect = (v._node_to_3d(good.node1) + v._node_to_3d(good.node2)) / 2.0
         assert v._pipe_midpoints_3d[i] == pytest.approx(expect)
+
+
+class TestNoViewRefusal:
+    """view-3d.md §10 I5: with no canvas view open, authoring modes are refused."""
+
+    def test_set_mode_refused_with_hint_when_no_view(self, qapp):
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        hints = []
+        ms.instructionChanged.connect(hints.append)
+        ms.view_available = False
+        ms.set_mode("pipe")
+        assert ms.mode != "pipe"
+        assert hints and "Project Browser" in hints[-1]
+        ms.set_mode("select")                  # always allowed
+        assert ms.mode == "select"
+        ms.view_available = True
+        ms.set_mode("pipe")
+        assert ms.mode == "pipe"
