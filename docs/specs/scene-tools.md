@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment (per-vertex miter, splines on the control polygon) BUILT 2026-09-29 on feature/offset-chord-translate; D10 change request pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
-last-verified: 2026-09-29  # D9 amendment: guards + user smoke on feature/offset-chord-translate
-verified-commit: 8576f74   # feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-09-30  # nested-blocks account (block Explode reachable in the Block Editor, D13/D14 deltas, block rotate step retired); prior 2026-09-29 D9 amendment: guards + user smoke on feature/offset-chord-translate
+verified-commit: 345f1b7   # feat/nested-blocks (account); prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -370,7 +370,7 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
   cursor → click / typed angle commits via the per-item `manip_rotate`
   protocol (P1-B).
 - **HUD:** would need a **relative** angle field. The existing `rotation`
-  schema is an *absolute* orientation (polygon/block rotate step) — reusing it
+  schema is an *absolute* orientation (polygon rotate step; the block rotate step was retired 2026-09-30) — reusing it
   for a relative rotate would change its meaning. **Open (proposed new schema or
   reuse).**
 - **Open:** Q-R1 reference-ray step (AutoCAD ROTATE "Reference") or angle from
@@ -541,12 +541,18 @@ ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
 - **D13 Containment.** Paste refuses loose 2D geometry / text into a plan scene
   ("2D geometry can only be pasted in the Block Editor") and plan entities
   (walls, pipes, block instances…) into the Block Editor. No cross-scene 2D paste.
+  *(Amended 2026-09-30, nested blocks: `block_instance` records are now admitted
+  into the Block Editor — they become nested blocks; `block-system.md` "Nested
+  blocks".)*
 - **D14 Out of this milestone.** Trim (refine the Trim design follow-up with
   §3/§5.9); the arc Y-down/Y-up convention fix (DV7 — own bug task); Scale,
   Mirror, Extend, Break, Fillet, Chamfer, Stretch, Merge, Join, Explode stay
   unreachable (one surfacing follow-up) — but the DV3 missing-import crash is
   fixed now; polar / rows×cols array; plan block instances + architecture tabs
-  (milestone 2).
+  (milestone 2). *(2026-09-30, nested blocks: a **block-instance Explode** —
+  Modify ▸ Explode + right-click, `Model_Space.explode_selected_blocks` → `block_explode.py` —
+  is now reachable in the **Block Editor only** (containment C1); the geometry
+  `SceneTools.explode_selected_items` (Polyline/Rect) stays unreachable and unchanged.)*
 - **D15 Dead plumbing.** `numericInputRequested` / `complete_numeric_input`
   deleted (the HUD replaces it).
 
@@ -703,6 +709,7 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - **Selection / undo:** Move re-selects its originals; Undo/Redo cancel an active modify tool first (`CANCEL_ON_UNDO_MODES`); New/Open end the active tool before clearing the scene (`scene_io._clear_scene`).
 - **Rotate commit** fixed `RectangleItem.manip_rotate` and `TextItem.manip_rotate` (compose about the item's own pivot, then translate — no new persisted state); governed by `selection-manipulator.md` (baked-at-rest rule).
 - **Smoke 2026-09-29 — change requests:** D9 for **open polylines and splines** — first grilled as a copy translated along the end-point chord normal (built, then rejected at smoke the same day as the wrong fork); re-pinned by the user as the **per-vertex miter** (splines: on the control polygon, closed / zero-chord: wrapped) with the pre-existing nearest-segment cursor measure — **BUILT** (see D9 above). D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→ — still as-proposed, pending its own P1 task + grill; D10 above stays the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
+- **Nested blocks (2026-09-30, `feat/nested-blocks`):** the Block Editor Modify group gains a non-modal **Explode** small button (enabled only while a block instance is selected) that explodes block instances — contract in `block-system.md` "Nested blocks"; the D13 allow-list admits `block_instance` records in the editor. Neither touches the §1/§2 tool rows (the geometry Join/Explode methods stay unreachable).
 - **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
 
 ## Verification Checklist

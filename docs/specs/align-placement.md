@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-26
-verified-commit: d34aeb0   # batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+last-verified: 2026-09-30  # nested-blocks account: `rotation` schema no longer serves place_block; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-26
+verified-commit: 345f1b7   # feat/nested-blocks (account); prior d34aeb0 batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -364,7 +364,7 @@ asserted. A **transform** schema resolves to a plain dict handled by its own app
 | `circle` | Radius | `QPointF` | `draw_circle` |
 | `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 (Center / Start variants) |
 | `arc_radius` | Radius | `{"radius": float}` | `draw_arc` step 3, End Points variant (centre on the chord bisector; radius < ½ chord refused by the applier) |
-| `rotation` | Angle | `{"angle_deg": float}` | `polygon` / `place_block` (rotate step) |
+| `rotation` | Angle | `{"angle_deg": float}` | `polygon` (rotate step) — no longer `place_block`, whose rotate step was retired 2026-09-30 (one click at 0°, no HUD — `block-system.md` Decision 8) |
 | `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
 | `distance` | Distance | `{"distance": float}` | `gridline_offset` |
 | `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |

@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-09-16
-verified-commit: bf332b2
+last-verified: 2026-09-30   # nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: 345f1b7    # feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -87,6 +87,13 @@ text live in **Paper Space**. Model = the model; paper = the deliverable.
   elevation offset and is filtered by the active level / view-range exactly like
   any placed model entity (see `view-relationships.md §7.1`).
 - A **Paper-placed Block instance is sheet-scoped** (no level).
+- **Nested Blocks (landed 2026-09-30):** a Block definition may reference other
+  Block definitions — **live nested instances, acyclic** (no definition contains
+  itself, directly or transitively). A nested reference lives inside the
+  definition and is **level-less like a primitive**; only the outermost placed
+  instance carries level scope. Breaking a nested or placed Block back into
+  primitives (**Explode**) is **Block-Editor-only** — Model Space never receives
+  loose geometry (C1). Mechanics: `block-system.md` ("Nested blocks").
 
 ### C4 — Underlay reference-graphic unification → RESOLVED into a target architecture
 

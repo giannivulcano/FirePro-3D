@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) built; thumbnails + attribute authoring deferred
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-24
-verified-commit: d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
+last-verified: 2026-09-30  # nested-blocks account (feat/nested-blocks); prior 2026-09-28
+verified-commit: 345f1b7   # nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -16,6 +16,10 @@ applies-to:
   - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + bbox_top_left
   - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
   - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
+  - firepro3d/block_registry.py     # nested blocks — BlockRegistry (resolution / dependency / cycle / invalidation choke point)
+  - firepro3d/block_explode.py      # nested blocks — explode_instances (Block-Editor-only, C1)
+  - firepro3d/mime_types.py         # nested blocks — one home for in-app drag MIME types (MIME_BLOCK)
+  - firepro3d/model_view.py         # nested blocks — block drop target (plan + Block Editor views) + fit_scene_rect
 source-tasks:
   - todo_open.md:18   # ribbon taxonomy (Draw = geometry + blocks)
   - todo_open.md:286  # block_item paste/undo orphan bug (constructively fixed)
@@ -24,6 +28,7 @@ source-tasks:
   - todo_open.md:90   # Feature naming decision (settled for both systems)
   - todo_open.md:66   # "Open in Editor" → the v2 Block Editor authoring surface
   - todo_open.md:60   # interactive snapped origin-pick (folded into the v2 Set-Origin tool)
+  - "todo_open.md → [feature] Nested blocks — drag a block from the Blocks browser into the Block Editor, plus a Block Editor ribbon Explode (2026-09-29)"
 ---
 
 # Block System — Design Spec
@@ -55,6 +60,15 @@ source-tasks:
 > reference definition (`Underlay.definition`). Authored-block render/snap is
 > untouched. Target + rationale owned by `reference-graphic-model.md`; noted here
 > per Rule A.
+
+> **Nested blocks (2026-09-30, `feat/nested-blocks`, `345f1b7`).** A definition may
+> hold **live references to other definitions** (acyclic), resolved through one
+> `BlockRegistry`; blocks drag from the Blocks browser onto plan views and the
+> Block Editor; the Block Editor gains **Explode**; `.fpdb` gains schema 2
+> (`bundled`); placement became **one click at 0°** (Decision 8). The durable
+> contract is the "Nested blocks" section below; the HOW (D1–D12, AC1–AC14) and
+> the as-built amendments live in
+> [`2026-09-29-nested-blocks-design.md`](../superpowers/specs/2026-09-29-nested-blocks-design.md).
 
 ## Goal
 
@@ -106,13 +120,22 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
   **no per-instance geometry copies**. Editing a definition rebuilds its cached render-ops and calls
   `update()` on every instance → all repaint. This is the "edit def → all instances update"
   invariant *and* the responsiveness guarantee, in one mechanism.
+- **Nested blocks keep the flyweight (2026-09-30):** a nested reference is **flattened at compile**
+  — the host's cached op list is its own primitives plus each nested definition's cached ops
+  mapped through the nested pose, then the host's origin shift — so there is still **one shared
+  op list per definition** and no per-instance copies; paint, `boundingRect`/`shape` (HALO) and
+  snap read the flattened list unchanged. Editing a nested definition invalidates every
+  definition that uses it (`BlockRegistry.invalidate`). Guard:
+  `tests/test_nested_block_compile.py::test_nested_compile_is_shared_across_instances`.
 - **Theming/state applied at paint time:** definitions are colour-neutral; the display-manager
   colour, pre-highlight, and selection styling are applied as a pen override when the instance
   paints — so one shared geometry still respects per-instance/theme state.
 
 ### Runtime home & integration seams (on `Model_Space`)
 
-- `_block_definitions: dict[str, BlockDefinition]` — project-scoped flyweight registry.
+- `_block_definitions: dict[str, BlockDefinition]` — project-scoped flyweight store, fronted by
+  a **`BlockRegistry`** (`block_registry.py`, `Model_Space.block_registry`) — see "Nested blocks"
+  below.
 - `_block_instances: list[BlockInstance]` — placed instances (parallels the existing entity lists).
 - Instances integrate as first-class entities: **selectable, movable, snappable** (`snap_engine`
   snaps the insertion origin, the definition's stroked on-curve vertices and each text
@@ -159,8 +182,8 @@ level does this block show on?" is an **instance** question, so level scope live
 - **Browser dock:** mirror `feature_browser.py`'s tree pattern.
 - **Ribbon + icons:** `ribbon-bar.md` for group/button wiring; `icon-style-guide.md` for the
   two-token themed icon authoring + guard tests (not restated here).
-- **Placement/mode + Dynamic-Input HUD:** the existing placement-coordinator seam and the transform
-  HUD (`align-placement.md §4` / grid-system placement conventions).
+- **Placement/mode:** the existing placement-coordinator seam (grid-system placement conventions).
+  Since 2026-09-30 `place_block` offers **no Dynamic-Input HUD** (one click at 0° — Decision 8).
 
 ## Design Decisions
 
@@ -184,14 +207,25 @@ level does this block show on?" is an **instance** question, so level scope live
    `(id, version)`. Cut from the S4 Manager to keep it pure assembly of existing parts; the `(id,
    version)` key stays reserved for the v2 Editor (which makes geometry mutable and gives thumbnails
    their reason to exist). Tracked as a follow-up (see `todo_open.md`).
-6. **Capture = 2D drafting primitives only** (`LineItem`/`RectangleItem`/`CircleItem`/`ArcItem`/
-   `PolylineItem`/`RegularPolygonItem`). Walls/pipes/features/text/dimensions are refused. Text +
-   attributes are a coupled v2 concern.
+6. **Capture = 2D drafting primitives + nested block references.** A definition's `primitives`
+   hold the 2D drafting primitive records (the `BlockDefinition` primitive factory — line / rect /
+   circle / arc / polyline / polygon / ellipse / spline, and text since 2026-09-23) and, since
+   2026-09-30, inline **`block_instance` records: live references to other definitions** (editing
+   the nested definition updates every host), **acyclic** (no definition may contain itself
+   directly or transitively — refused at drop, double-click, library load/reload and Save).
+   Nested references are **level-less** like primitives (containment C3). Walls/pipes/features/
+   dimensions are refused. Attributes remain a future concern (the reserved `attributes` slot).
 7. **Make-from-selection consumes the selection** (deletes the linework, drops one `BlockInstance` at
    the picked origin — AutoCAD `BLOCK` semantics), fully undoable. Chosen over copy-in-place because
    it matches the mental model and exercises the def→instance path immediately.
-8. **Placement = 2-step** (click position → rotation step with Ctrl-snap + typed HUD angle; Enter at
-   step 1 accepts 0°), **stay-in-mode repeat until Esc**.
+8. **Placement = one click at 0°** (amended 2026-09-30, smoke 2 — the original rotation step is
+   **retired**): a ghost follows the snapped cursor, a click places the instance at 0° on the
+   active level (one undo step), and the mode **stays live until Esc** (repeat placement). No
+   Dynamic-Input HUD. Rotation is applied afterwards through the instance's **Rotation**
+   property row. *Known gap (2026-09-30):* the scene Rotate tool does **not** yet turn block
+   instances — `BlockInstance` has no `manip_rotate`, so `item_capabilities` reports translate
+   only and Rotate skips it (raised for follow-up). Drag-and-drop placement follows the same
+   one-drop-at-0° rule (see "Nested blocks" below).
 9. **`scale_mode` enum in schema, `Real-size` the only v1 value** (`Annotative` reserved for v2 with
    paper-space). Instances render at the definition's real size; **no rescale/mirror in plan views**
    (that is Editor-only, v2). **Attributes structure reserved in schema, no UI in v1.**
@@ -213,7 +247,8 @@ level does this block show on?" is an **instance** question, so level scope live
 12. **Load = browse-anywhere file dialog, not an in-app library mirror (S4.5, 2026-09-04).** The
     S4-grill "union/library view" was un-deferred as a Revit "Load Family" flow: a multi-select
     `QFileDialog` embeds picked `.fpdb` definitions into the project (a `.fpdb` IS `to_dict()` JSON, so
-    an arbitrary path loads via `block_library.load_block_file`). Chosen over an in-app tree mirroring
+    an arbitrary path loads — since 2026-09-30 via `block_library.load_block_file_with_bundle`, which also
+    returns a schema-2 file's bundled definitions). Chosen over an in-app tree mirroring
     the on-disk library because a file dialog also loads one-off blocks from anywhere and needs no live
     library-tree widget. The batch is one undoable registry mutation with per-file collision rules
     (skip / replace-via-`_swap_block_definition` / refuse). The project table becomes a
@@ -243,6 +278,26 @@ level does this block show on?" is an **instance** question, so level scope live
   "primitives": [ { /* each primitive's own to_dict() */ } ]   // reuse geometry_2d items
 }
 ```
+
+**Nested reference record (2026-09-30).** A nested block rides *inside* `primitives` as an inline
+record — the placed-instance shape minus level fields (containment C3):
+
+```jsonc
+{ "type": "block_instance", "block_id": "<nested id>", "pos": [x_mm, y_mm], "rotation": <deg> }
+```
+
+`pos` is definition-local (before the host's origin shift); `rotation` is Y-up CCW degrees (the
+`BlockInstance.pose_transform` convention). Files without such records load unchanged. Record
+producer: `BlockInstance.to_nested_dict`.
+
+**`.fpdb` schema 2 — `bundled` (library files only).** A library save of a definition that nests
+others writes `"schema": 2` plus `"bundled": { "<id>": { /* full definition */ }, … }` holding every
+transitively nested definition (`BlockRegistry.bundle_for`); a definition with no nested references
+is still written as schema 1, and **schema-1 files load unchanged**. Loading / reloading adds a
+bundled definition only when its id is absent (**the project copy wins**), then the file's own
+definition; a file that would form a nesting cycle is skipped with its reason in the load summary.
+`index.json` is unchanged (one block per file). The `.fpd` project embed is unchanged in shape —
+nested records ride inside each embedded definition's `primitives`.
 
 ### `.fpd` project embed
 
@@ -284,6 +339,14 @@ level does this block show on?" is an **instance** question, so level scope live
   placeholder + surface a warning; block delete of the (missing) definition is moot. Covered by a
   guard test.
 - **Delete definition with live instances:** refused in the Manager (instance-count > 0).
+- **Delete definition nested in another (2026-09-30):** `delete_block_definition` also refuses
+  while any other definition nests it, directly or indirectly (`BlockRegistry.users_of`); the
+  Manager's Delete names the users (`Model_Space.block_users_message`: "“B” is used inside: A, D —
+  explode or remove it there first.").
+- **Missing nested definition (2026-09-30):** a nested record whose id is not in the registry
+  compiles to a red box-with-diagonal **placeholder** (never a crash); a project load lists the
+  missing ids and their users in a "Missing Nested Blocks" warning, and a library load's summary
+  counts them ("N nested block(s) missing").
 - **Divergence:** embedded `version` ≠ library `version` for same `id` → Manager marks "modified";
   Save-to-Library / Reload-from-Library resolve it (embedded stays authoritative until the user acts).
 - **Library lookups resolve by `id`, not folder location (2026-09-05).** `source_status` /
@@ -311,6 +374,11 @@ level does this block show on?" is an **instance** question, so level scope live
   responsive because they share one geometry object and one render-op list; instance `paint()` is a
   transform + stroke of the shared paths. A guard/bench asserts N-instance responsiveness and that no
   per-instance geometry copy is created.
+- **Nested blocks (2026-09-30):** flattening keeps one compile per definition (guard linked under
+  "The flyweight core"). **Block Manager rebuild bar (user-ratified 2026-09-29):** 300 definitions ×
+  50 primitives with depth-2 nesting rebuild in a **median of 5 ≤ 50 ms** (measured ~1.4–2.4 ms
+  with the one-pass `BlockRegistry.users_map`). No suite guard (host-noise); a session bench only —
+  a `perf`-marked guard is an open follow-up.
 
 ## Code Style & Testing
 
@@ -344,8 +412,8 @@ level does this block show on?" is an **instance** question, so level scope live
       `id` / replace diff `version` with instance repaint / refuse `(library,series,name)` clash) in one
       undoable batch with a summary; the project view is a Library→Series→block tree; unload = Delete;
       "Open in Editor" is a stub.
-- [ ] **Placement:** browser double-click → `place_block` mode; 2-step (position → rotation, Enter=0°),
-      snapped, level-aware, repeat until Esc.
+- [ ] **Placement:** browser double-click → `place_block` mode; ~~2-step (position → rotation, Enter=0°)~~
+      **one click at 0°** (amended 2026-09-30 — Decision 8), snapped, level-aware, repeat until Esc.
 - [ ] ~~**Thumbnail:** non-blank pixmap; library PNG cached and referenced in `index.json`.~~
       **DEFERRED (cut from S4, 2026-09-04)** — tracked as a follow-up in `todo_open.md`.
 - [ ] **`BlockItem` retired:** repo-wide grep shows no live importers; app launch-smoke passes.
@@ -371,7 +439,7 @@ level does this block show on?" is an **instance** question, so level scope live
    round-trip, undo, propagation, perf, clean retirement.
 2. **S2 — Create & place loop (project-only). BUILT 2026-09-04.** `BlocksBrowser` dock +
    `blockDefinitionsChanged` signal; `place_block` 2-step mode (position→rotation, ghost, Enter=0°,
-   HUD `angle_deg`, repeat-until-Esc); `make_block_from_selection` (consume → def + instance, one
+   HUD `angle_deg`, repeat-until-Esc — *the rotation step was retired 2026-09-30, Decision 8*); `make_block_from_selection` (consume → def + instance, one
    undo); the three seam fixes (`translate` movability, `block_instance` copy/paste branch, orphan
    placeholder); ribbon Make/Insert/Manager buttons. Origin = selection bbox top-left in v1
    (interactive snapped origin-pick deferred to a smoke follow-up); "save to library?" not wired
@@ -438,6 +506,10 @@ project registry — **disconnected from all model views**.
   **Seeding** (edit / clone / make-from-selection via `seed_from_dicts`) resets the editor's undo
   history so the seeded geometry is the baseline and cannot be undone away (2026-09-24 — before this
   the first Ctrl+Z after an edit restored the empty construction snapshot and wiped the block).
+  **Fit on open (2026-09-30):** seeding also frames the view on the block's own pen-free geometry
+  (`BlockEditorWidget.fit_view_to_block` → `Model_View.fit_scene_rect`, deferred to first show when
+  not yet shown); a blank editor keeps the default view, and re-focusing an open tab never re-seeds
+  or re-zooms.
 - **The editor never mutates the project scene** except through two calls:
   `Model_Space.commit_block_definition(...)` (Save) and S3 `save_to_library` (opt-in). It is a
   scratchpad; the definition lands in the **project** `Model_Space`.
@@ -449,7 +521,10 @@ project registry — **disconnected from all model views**.
   same core.
 - **Entry points:** Create Block button (blank | seeded-with-selection-**copy** → new `id`); Manager →
   Create new (blank); Manager → Create new based off selected (clone geometry + `attributes`, new
-  `id`); Manager → **Open in Editor** (same `id`, edit-in-place). **Quick Block is retired**
+  `id`); Manager → **Open in Editor** (same `id`, edit-in-place); right-click **Edit Block** on a
+  block instance (plan *or* Block Editor) and double-click on a nested instance (Block Editor only)
+  — 2026-09-30. Open in Editor and Edit Block share one path, `BlockEditorManager.edit_definition`
+  (focus an open tab unchanged, else open + seed). **Quick Block is retired**
   (`model-space-containment-contract.md` C7): under C1's placement-only Model Space there is no loose
   *model* geometry to consume-and-bake, so the separate Quick Block button and its `MakeBlockDialog`
   instant-bake path are gone. The Create/Insert Block + Block Manager entry commands live in the
@@ -517,12 +592,78 @@ project registry — **disconnected from all model views**.
   indexed `.fpdb`, merged with the project registry (a library entry whose `id` is in the project
   lists once, as project). Library-only leaves are italic/dimmed; double-click loads them via
   `load_blocks_from_files` then emits `blockActivated` (a refused/unreadable load reports and does
-  not place). Bold folder rows + sibling-browser tree chrome; collapsed folders survive refresh;
+  not place). *Since 2026-09-30:* leaves also drag out, activation places into the **active**
+  canvas, and a cycle refusal is checked **before** any load — see "Nested blocks" below. Bold folder rows + sibling-browser tree chrome; collapsed folders survive refresh;
   refreshes on `blockDefinitionsChanged`, the library change listener, and `showEvent`. (DD-12 still
   holds: the Manager's Load stays a browse-anywhere file dialog.)
 
 Guards: `tests/test_block_save_library.py`, `tests/test_block_polish_bugs.py`,
 `tests/test_block_curve_import.py`.
+
+### Nested blocks, drag-and-drop & Explode (2026-09-30)
+
+Built on `feat/nested-blocks` (`345f1b7`). This is the durable contract; the HOW, rejected
+alternatives and as-built amendments live in
+[`2026-09-29-nested-blocks-design.md`](../superpowers/specs/2026-09-29-nested-blocks-design.md).
+Record shapes: "Input / Output" above.
+
+- **Registry — the one resolution choke point.** `BlockRegistry` (`block_registry.py`) fronts the
+  project `Model_Space._block_definitions`. `get` resolves (and injects itself as the definition's
+  nested resolver); `add` inserts or replaces, then invalidates. Dependencies are derived **by id
+  from definition contents**, never object back-references (undo restore recreates definition
+  objects): `closure`, `users_of` (direct + indirect users), `users_map` (every definition's users
+  in one pass), `would_cycle(host, candidate)`, `missing_nested`, `bundle_for`, and
+  `merged_with_file` (the single merge rule shared by library load and drag preview).
+  `invalidate(id)` drops the compile caches of *id* and every user and repaints their live
+  instances in every attached scene (plan + open editors). Undo restore and `.fpd` load still
+  write the store dict directly; `get` injects the resolver lazily so those definitions resolve too.
+- **Editors borrow the registry read-only.** A Block Editor scene resolves through the project
+  registry (`Model_Space.borrow_block_registry`); its own `_block_definitions` stays private to its
+  undo snapshot, its instances take no definition back-reference (they repaint via `invalidate`),
+  and closing the tab detaches its scene. Registry writes a drop triggers (a library load) go to the
+  owning project scene.
+- **Authoring nested blocks.** The editor saves its placed instances as nested records
+  (instances-only blocks are savable; the default origin's bbox includes them, pen-free), re-places
+  them when seeding, and admits `block_instance` records on paste. Save re-checks `would_cycle`
+  (refused: "A block can't contain itself") and invalidates every user; the status line adds the
+  count of blocks that use the saved one. Nested instances are gathered **after** the primitive
+  lists, so draw order across an editor round-trip is by type, not authoring order.
+- **Delete a selected instance** (Delete key, plan and editor) removes it through
+  `remove_block_instance` — one undo step.
+- **Drag-and-drop.** Blocks-browser leaves drag out as `MIME_BLOCK` (payload `{"id", "path" | null}`
+  — the path set for library-only leaves; every in-app drag MIME type lives in `mime_types.py`).
+  **Plan views and Block Editor views accept; detail views refuse** (they share the plan scene but
+  are not placement surfaces); paper and elevation views are other view classes. Hovering enters
+  `place_block` with its ghost on the snapped point (a library-only leaf previews from a temporary,
+  unregistered definition — nothing loads on hover); a drop that would form a cycle is refused with
+  a footer reason ("B contains A — a block can't contain itself"). The drop places at the snapped
+  point at **0°** (plan: active level), selects it, pushes **one undo step**, and restores the prior
+  mode. Browser double-click enters `place_block` in the **active** canvas (plan or editor) with the
+  same refusal, checked before any load. **A library-only (italic) leaf costs two undo steps**
+  (user decision, 2026-09-29): the project load, then the placement — in an editor, the load is a
+  project step and the placement an editor step.
+- **Explode — Block-Editor-only (containment C1).** Modify ▸ **Explode** (small button, enabled while
+  the selection holds a block instance; icon `graphics/Ribbon/explode_icon.svg`, the "shattered
+  square" candidate the user picked) and right-click **Explode** on an editor block instance.
+  `block_explode.explode_instances` re-creates the definition's primitives at their exact posed
+  scene positions and turns nested records into new instances at the composed pose; when any
+  selected block nests others, one prompt asks **This level only / Flatten all**. One undo step;
+  the results become the selection; missing or imported-reference definitions are left in place
+  (status message only); a failure part-way restores the prior state with no undo step. Plan
+  scenes never offer Explode. (Unrelated to the still-unreachable `SceneTools.explode_selected_items`
+  — `scene-tools.md`.)
+- **Edit Block** — see Entry points above (right-click in plan and editor; nested double-click in
+  the editor; `BlockEditorManager.edit_definition`). Saving the nested block repaints every open
+  host tab and placed host.
+- **Block Manager.** A **"Used in"** column counts the definitions nesting each row (direct +
+  indirect, from `users_map`); "Instances" stays the placed-instance count. Delete refusal and the
+  missing-nested warning: see "Edge Cases & Error Handling". Save-to-Library writes the schema-2
+  bundle (Manager and editor alike).
+
+Guards: `tests/test_nested_block_compile.py`, `tests/test_block_drag_drop.py`,
+`tests/test_block_explode.py`, `tests/test_block_library_bundle.py`,
+`tests/test_block_usage_counts.py`, `tests/test_block_instance_delete.py`,
+`tests/test_block_editor_fit.py`, `tests/test_block_placement.py`.
 
 ### Deferred (v2.x)
 

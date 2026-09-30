@@ -1,7 +1,7 @@
 ---
-status: proposal
-last-verified: 2026-09-29
-verified-commit: c60baa2
+status: current            # built on feat/nested-blocks; see "As-built amendments (2026-09-30)" for what diverged
+last-verified: 2026-09-30   # Phase 6 account; prior 2026-09-29 (proposal)
+verified-commit: 345f1b7    # feat/nested-blocks; prior c60baa2 (proposal base)
 applies-to:
   - firepro3d/block_registry.py        # NEW — registry choke point (resolve / users_of / would_cycle / invalidate)
   - firepro3d/block_definition.py      # resolver-aware compile + text snap points; origin property
@@ -16,6 +16,9 @@ applies-to:
   - firepro3d/model_space.py           # registry wiring, delete fix, paste allow-list, commit guard
   - firepro3d/modify_tools_controller.py
   - firepro3d/scene_io.py              # missing-nested warning
+  - firepro3d/entity_context_menu.py   # Edit Block / Explode entries
+  - firepro3d/geometry_import.py       # geometric_bounds (fit on open, instance bbox)
+  - firepro3d/placement_input_coordinator.py  # place_block rotate-step HUD branches removed
   - main.py                            # Explode button, active-scene double-click, right-click entries
 source-tasks:
   - "todo_open.md → [feature] Nested blocks — drag a block from the Blocks browser into the Block Editor, plus a Block Editor ribbon Explode (2026-09-29)"
@@ -24,10 +27,12 @@ source-tasks:
 
 # Nested Blocks — Design Spec
 
-> **Status: proposal (unbuilt).** Phase 2 grill ratified the WHAT (2026-09-29);
-> this document records the HOW agreed in Phase 3 brainstorming (all four design
-> sections user-approved). Two framework behaviours are **unverified** and stay
-> *as-proposed pending the Phase 4 probe* (marked P4 below).
+> **Status: current (built 2026-09-30, `feat/nested-blocks`, `345f1b7`).** Phase 2 grill
+> ratified the WHAT (2026-09-29); this document records the HOW agreed in Phase 3
+> brainstorming. The D-sections below are the design as approved; where the build
+> diverged, **"As-built amendments (2026-09-30)" at the end wins**. The durable contract
+> is `docs/specs/block-system.md` ("Nested blocks") + containment contract C3; this doc
+> keeps the HOW and the rationale. The P4 probe resolved in favour of D7 as designed.
 
 ## Goal
 
@@ -229,30 +234,30 @@ the selection are ignored. `SceneTools.explode_selected_items` is untouched.
 
 (Ratified in the Phase 2 grill, 2026-09-29.)
 
-- [ ] **AC1** Delete removes a selected block instance in plan and editor; one undo step restores it.
-- [ ] **AC2** A real drag from the browser onto a plan view places an instance at the snapped drop point, 0°, active level, selected; one undo step.
-- [ ] **AC3** Dropping B into A's editor and saving stores a nested reference; a plan instance of A renders B's pixels; editing + saving B changes the plan A's pixels.
-- [ ] **AC4** A ghost follows the snapped cursor during a drag; an italic leaf auto-loads on drop; a clashing italic leaf refuses the drop and places nothing.
-- [ ] **AC5** Cycle drags are refused (A onto A's editor; B⊃A onto A's editor) with a footer reason; a looping library file is skipped with its reason.
-- [ ] **AC6** Explode is one level: primitive scene coordinates equal the instance's rendered positions at 30° (pixel-sampled); a nested C stays an instance; result selected; Ctrl+Z restores the single instance.
-- [ ] **AC7** The flatten prompt appears when nested blocks exist: "Flatten all" leaves no instances; "This level only" keeps C.
-- [ ] **AC8** Explode is enabled only while a block instance is selected; right-click on a nested instance offers Edit Block + Explode.
-- [ ] **AC9** Saving A (nesting B, C) to the library and loading into a fresh project yields A, B, C with A fully rendered; loading where B exists leaves the project's B unchanged.
-- [ ] **AC10** Deleting B while A nests it is refused, naming A; B remains.
-- [ ] **AC11** "Used in" counts direct + indirect users; the save message includes the user-block count.
-- [ ] **AC12** Edit Block opens (or focuses) B's editor tab; saving B repaints the open A tab.
-- [ ] **AC13** Browser double-click places into the active canvas (editor → nested flow).
-- [ ] **AC14** A missing nested definition loads as a placeholder and is listed in the load warning.
+- [x] **AC1** Delete removes a selected block instance in plan and editor; one undo step restores it.
+- [x] **AC2** A real drag from the browser onto a plan view places an instance at the snapped drop point, 0°, active level, selected; one undo step.
+- [x] **AC3** Dropping B into A's editor and saving stores a nested reference; a plan instance of A renders B's pixels; editing + saving B changes the plan A's pixels.
+- [x] **AC4** A ghost follows the snapped cursor during a drag; an italic leaf auto-loads on drop; a clashing italic leaf refuses the drop and places nothing.
+- [x] **AC5** Cycle drags are refused (A onto A's editor; B⊃A onto A's editor) with a footer reason; a looping library file is skipped with its reason.
+- [x] **AC6** Explode is one level: primitive scene coordinates equal the instance's rendered positions at 30° (pixel-sampled); a nested C stays an instance; result selected; Ctrl+Z restores the single instance.
+- [x] **AC7** The flatten prompt appears when nested blocks exist: "Flatten all" leaves no instances; "This level only" keeps C.
+- [x] **AC8** Explode is enabled only while a block instance is selected; right-click on a nested instance offers Edit Block + Explode.
+- [x] **AC9** Saving A (nesting B, C) to the library and loading into a fresh project yields A, B, C with A fully rendered; loading where B exists leaves the project's B unchanged.
+- [x] **AC10** Deleting B while A nests it is refused, naming A; B remains.
+- [x] **AC11** "Used in" counts direct + indirect users; the save message includes the user-block count.
+- [x] **AC12** Edit Block opens (or focuses) B's editor tab; saving B repaints the open A tab.
+- [x] **AC13** Browser double-click places into the active canvas (editor → nested flow).
+- [x] **AC14** A missing nested definition loads as a placeholder and is listed in the load warning.
 
 ## Verification Checklist
 
-- [ ] All AC guard tests pass and each is shown RED with its change reverted (VC3).
-- [ ] P4 probe result recorded; D7 either confirmed or switched to the fallback (then re-approved).
-- [ ] Keep-green: every `tests/test_block_*.py`, `test_blocks_browser_style.py`, `test_model_browser_blocks.py`, `test_reference_compile.py`, `test_reference_definition_import.py`, `test_snap_engine_primitives.py`, `test_snap_text_points.py`, `test_project_browser_sheets.py`, `test_modify_tools_ribbon.py` (exact set extended with Explode), `test_icon_theming.py` (`_MODIFY_ICONS` extended), ribbon roster/contextual tests.
-- [ ] Full suite in alphabetical chunks on the native platform (never forced offscreen); pre-existing failures proved at base (VC7).
-- [ ] VC9 whole-diff seam review (Large build).
-- [ ] Flyweight perf gate: 200 plan instances of a 2-level nested block — one compile per definition, no per-instance op copies.
-- [ ] User smoke in the real app.
+- [x] All AC guard tests pass and each is shown RED with its change reverted (VC3).
+- [x] P4 probe result recorded; D7 either confirmed or switched to the fallback (then re-approved). *(D7 confirmed — no fallback.)*
+- [x] Keep-green: every `tests/test_block_*.py`, `test_blocks_browser_style.py`, `test_model_browser_blocks.py`, `test_reference_compile.py`, `test_reference_definition_import.py`, `test_snap_engine_primitives.py`, `test_snap_text_points.py`, `test_project_browser_sheets.py`, `test_modify_tools_ribbon.py` (exact set extended with Explode), `test_icon_theming.py` (`_MODIFY_ICONS` extended), ribbon roster/contextual tests.
+- [x] Full suite in alphabetical chunks on the native platform (never forced offscreen); pre-existing failures proved at base (VC7). *(The `[s-z]` chunk aborts natively in `test_scene_tools.py` at base and HEAD alike — pre-existing, filed; split into three processes it passes at the base count.)*
+- [x] VC9 whole-diff seam review (Large build).
+- [x] Flyweight perf gate: 200 plan instances of a 2-level nested block — one compile per definition, no per-instance op copies.
+- [x] User smoke in the real app. *(Two rounds, 2026-09-29/30 — produced the plan Edit Block, fit-on-open and one-click-placement decisions below.)*
 
 ## Input / Output
 
@@ -306,3 +311,81 @@ observable ground truth (scene coordinates, pixels, registry contents) — six
 files: `test_block_instance_delete.py`, `test_block_drag_drop.py`,
 `test_nested_block_compile.py`, `test_block_explode.py`,
 `test_block_library_bundle.py`, `test_block_usage_counts.py`.
+
+## As-built amendments (2026-09-30)
+
+Where these disagree with a D-section above, **these win** (verified against `345f1b7`).
+
+### Decisions made during the build (user-ratified, binding)
+
+- **Detail views refuse block drops** (D7). Only full plan views and Block Editor views accept
+  (`Model_View._block_drop_target_ok`; a detail view is recognised by `_detail_name`).
+- **A library-only (italic) leaf drop or double-click is two undo steps** — the project load, then
+  the placement.
+- **Explode icon = the "shattered square"** (mockup candidate B), `graphics/Ribbon/explode_icon.svg`.
+- **Perf bar** (ratified 2026-09-29): Block Manager rebuild, 300 definitions × 50 primitives,
+  depth-2 nesting, median of 5 ≤ 50 ms. Measured ~1.4–2.4 ms after the one-pass `users_map`
+  (≈ 830 ms before it). No suite guard (host noise) — a session-scratchpad bench only.
+- **Right-click Edit Block in Model Space too** (smoke 1; amends D10). A `BlockInstance` is an
+  entity for `_find_entity_at` in any scene; the plan's entity menu and selection-fallback menu
+  (exactly one block selected) offer **Edit Block**. **Explode stays Block-Editor-only** (C1).
+  Double-click-to-edit on a nested instance stays Block-Editor-only.
+- **Fit on open** (smoke 1). A freshly seeded Block Editor tab frames the block's own pen-free
+  geometry (`BlockEditorWidget.fit_view_to_block` at the end of `seed_from_dicts` →
+  `Model_View.fit_scene_rect`, deferred to the first show). A blank editor keeps the default view;
+  re-focusing an open tab keeps its zoom.
+- **Block placement is one click at 0°** (smoke 2). The rotation half of block-system Decision 8
+  is **retired**; repeat-until-Esc is kept; `place_block` has no Dynamic-Input HUD (it left
+  `_APPLIER_FOR_MODE`; the coordinator's place_block anchor / schema / seed branches are gone).
+  Afterwards a block is rotated through its Rotation property row — the scene Rotate tool cannot
+  turn a `BlockInstance` yet (no `manip_rotate`; known gap).
+
+### Divergences from the design
+
+- **D2 — "stacking preserved" is NOT honoured on an editor round-trip.** `gather_primitives`
+  collects per-type lists and appends block instances after texts (then printing reference
+  lines), so a Save puts nested blocks after every primitive. A definition's own `primitives`
+  order is compiled as stored; only the editor round-trip reorders (by type — already true of
+  primitive types before this build).
+- **D3 — registry API as built.** `replace()` / `remove()` were not implemented: `add` covers
+  replace, and `delete_block_definition` pops the store dict. Added beyond the design:
+  `closure(id, extra)`, `bundle_for`, `merged_with_file` (the single merge rule shared by the load
+  cycle check, reload and the drag preview), `users_map` (one inverse-closure pass; `users_of`
+  reads the same pass), `missing_nested`, `attach_scene` / `detach_scene`, and
+  `invalidate(id, already=…)` (skips instances the caller has just repainted, so a commit repaints
+  each instance once). "Every write path routes here" does **not** hold for undo restore
+  (`_restore_network`) and `.fpd` load (`scene_io`): both still write the store dict directly;
+  `get` injects the resolver lazily, and neither calls `invalidate` (so open editors are not
+  repainted after a project undo or load — follow-up).
+- **D4.** Editor-scene instances take **no** definition back-reference (a back-reference is kept only
+  when the definition lives in the scene's own store); they repaint through `registry.invalidate`.
+  `BlockEditorManager._detach_registry` (on close / forget) lets the Python-owned editor scene be freed.
+- **D5.** The resolver is injected on `add` and lazily on `get`. Corrupt cyclic data compiles to the
+  red placeholder (re-entrancy guard) instead of recursing.
+- **D7.** The drop restores the prior mode, then calls `place_block_instance` directly (not the
+  place_block click path). The library-leaf ghost resolves nested ids project-first, then the
+  file's bundle (the D11 merge rule). Browser double-click refuses **before** any load through
+  `BlocksBrowser.activation_guard` → `MainWindow._block_activation_refusal`, which reuses
+  `Model_View._resolve_block_drag`. An exception inside a drag handler is logged and the drag
+  state reset (`_abort_block_drag`) — never raised into Qt's drag loop.
+- **D8.** Paste admits `block_instance` records into the editor with an existence check only; a
+  cycle (pasting A into A's editor) is refused at Save, not at paste (follow-up).
+- **D9.** `block_explode.can_explode` skips missing and geom-backed (imported-reference) definitions
+  — status message only, state untouched. Primitives prefer `translate()`, else
+  `manip_translate`. A failure part-way restores via `_restore_network` (no undo step). With
+  *Flatten all*, an unexplodable nested child stays an instance.
+- **D10.** `open_for_definition` does not seed, so Edit Block goes through the new
+  `BlockEditorManager.edit_definition` (focus an open tab unchanged — never re-seed; otherwise open
+  and seed); the Manager's Open in Editor uses the same path. A line-only block's `shape()` has no
+  area, so `_find_entity_at` falls back to `Model_Space._nested_block_near`: the HALO aperture
+  pick, returning a block only when it is the **nearest** candidate (`ranked[0]`) — a nearer loose
+  line wins. The Explode button is enabled for any selected block, including ones `can_explode`
+  refuses (follow-up).
+- **D11.** Schema 2 is written only when the bundle is non-empty (otherwise schema 1). A file refused
+  for a (library, series, name) clash adds nothing, not even its bundled definitions.
+  Reload-from-Library also reads the bundle and refuses a looping file. Bundled definitions are
+  added by id only, with no name-clash check (follow-up).
+- **D12.** The project-load warning is a "Missing Nested Blocks" dialog listing each missing id and
+  the blocks using it (not the literal "Missing nested block(s): …"); only the Manager's
+  Load-from-Library message reports a library load's missing count. All loop-refusal wording is
+  composed from one constant, `block_library.LOOP_REASON`.
