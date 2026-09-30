@@ -10,6 +10,16 @@ from PyQt6.QtCore import QPointF
 _NESTED_TYPE = "block_instance"
 
 
+def can_explode(inst) -> bool:
+    """Whether *inst* resolves to a definition with authored primitives.
+
+    A missing definition, or a geom-backed one (an imported reference with
+    no authored primitives), cannot be exploded and is left in place.
+    """
+    d = inst.definition()
+    return d is not None and not (not d.primitives and getattr(d, "geoms", None))
+
+
 def has_nested(instances) -> bool:
     """Whether any instance's definition nests another block.
 
@@ -60,9 +70,9 @@ def explode_instances(scene, instances, flatten: bool) -> list:
     """
     created: list = []
     for inst in list(instances):
-        d = inst.definition()
-        if d is None or (not d.primitives and getattr(d, "geoms", None)):
+        if not can_explode(inst):
             continue
+        d = inst.definition()
         ox, oy = d.origin
         px, py = inst.block_pos()
         rot = inst.block_rotation()

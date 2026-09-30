@@ -748,10 +748,9 @@ class BlockManagerDialog(HouseDialog):
         mgr = getattr(self.main_window, "block_editor_manager", None)
         if mgr is None:
             return
-        w = mgr.open_for_definition(defn.id)
-        # seed only if freshly opened (empty editor); focusing an existing one keeps its state
-        if not w.gather_primitives():
-            w.seed_from_definition(defn)
+        # The one Edit Block path: seeds a freshly opened tab; focusing an
+        # already-open one keeps its state (never re-seeds, even if emptied).
+        mgr.edit_definition(defn.id)
         self.raise_()  # keep manager reachable; editor tab is now active in the main window
 
     def _create_new_block(self) -> None:

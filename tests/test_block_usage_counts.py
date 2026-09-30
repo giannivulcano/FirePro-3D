@@ -116,3 +116,61 @@ def test_double_click_on_a_nested_block_opens_its_editor_tab(qapp, main_window):
     finally:
         _close_all(mgr)
         _forget_defs(proj, a, b)
+
+
+def test_edit_block_never_reseeds_an_open_dirty_tab(qapp, main_window):
+    """Requesting Edit Block for an already-open, modified editor focuses it
+    and keeps the user's edit (no re-seed, no duplicate)."""
+    proj = main_window.scene
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    mgr = main_window.block_editor_manager
+    try:
+        wb = mgr.edit_definition(b.id)
+        QApplication.processEvents()
+        extra = LineItem(QPointF(0, 50), QPointF(80, 50))
+        wb.editor_scene.addItem(extra); wb.editor_scene._draw_lines.append(extra)
+        wb.editor_scene._draw_lines[0].translate(0, 10)         # move the seeded line
+        mgr.open_new()                                          # focus elsewhere
+        QApplication.processEvents()
+        assert mgr.edit_definition(b.id) is wb
+        QApplication.processEvents()
+        assert main_window._active_editor_widget() is wb
+        lines = wb.editor_scene._draw_lines
+        assert len(lines) == 2 and extra in lines
+        assert abs(lines[0]._pt1.y() - 10.0) < 1e-6              # the move survived
+        assert len([w for w in mgr.open_editors() if w._edit_block_id == b.id]) == 1
+    finally:
+        _close_all(mgr)
+        _forget_defs(proj, b)
+
+
+def test_block_manager_open_in_editor_seeds_fresh_and_focuses_open(qapp, main_window):
+    """Block Manager ▸ Open in Editor goes through the one Edit Block path:
+    a fresh tab is seeded; an open tab the user emptied is focused, never
+    re-seeded."""
+    from types import SimpleNamespace
+    from firepro3d.block_manager import BlockManagerDialog
+    proj = main_window.scene
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    mgr = main_window.block_editor_manager
+    fake = SimpleNamespace(_current_def=lambda: b, main_window=main_window,
+                           raise_=lambda: None)
+    try:
+        BlockManagerDialog._open_in_editor(fake)
+        QApplication.processEvents()
+        wb = [w for w in mgr.open_editors() if w._edit_block_id == b.id]
+        assert len(wb) == 1 and len(wb[0].gather_primitives()) == 1
+        wb = wb[0]
+        es = wb.editor_scene
+        for ln in list(es._draw_lines):                         # the user empties it
+            es.removeItem(ln); es._draw_lines.remove(ln)
+        BlockManagerDialog._open_in_editor(fake)
+        QApplication.processEvents()
+        assert [w for w in mgr.open_editors() if w._edit_block_id == b.id] == [wb]
+        assert wb.gather_primitives() == []                     # not re-seeded
+        assert main_window._active_editor_widget() is wb
+    finally:
+        _close_all(mgr)
+        _forget_defs(proj, b)

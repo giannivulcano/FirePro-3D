@@ -1745,17 +1745,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Block-Editor-only (containment C1). One prompt when any selected
         block nests others (This level only / Flatten all); non-block items
-        are ignored; one undo step; the results become the selection.
+        are ignored; one undo step; the results become the selection. When
+        nothing selected can be exploded (missing / imported-reference
+        definitions) only a status message is shown. A failure part-way
+        restores the pre-explode state (logged; no undo step, no raise).
 
         Returns:
             The newly created items (empty when nothing was exploded).
         """
-        from .block_explode import explode_instances, has_nested
+        from .block_explode import can_explode, explode_instances, has_nested
         if self.scene_role != "block_editor":
             return []
         insts = [i for i in self.selectedItems() if isinstance(i, BlockInstance)]
         if not insts:
             self._show_status("Select a block to explode", 3000)
+            return []
+        if not any(can_explode(i) for i in insts):
+            self._show_status("The selected block can't be exploded "
+                              "(missing or imported-reference definition)", 4000)
             return []
         flatten = False
         if has_nested(insts):
@@ -1769,8 +1776,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if key is None:
                 return []
             flatten = key == "all"
+        before = self._capture_network()
         self.clearSelection()
-        new = explode_instances(self, insts, flatten)
+        try:
+            new = explode_instances(self, insts, flatten)
+        except Exception:
+            logging.getLogger(__name__).exception("block explode failed; state restored")
+            self._restore_network(before)
+            self._show_status("Explode failed — nothing was changed", 4000)
+            return []
         for it in new:
             it.setSelected(True)
         self.push_undo_state()
@@ -6660,9 +6674,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         views = sorted(self.views(), key=lambda v: not v.isVisible())
         for v in views[:1]:
             a = halo_selection.HALO_APERTURE_PX / max(v.transform().m11(), 1e-9)
-            for c in self.halo_candidates_at(pos, a, v.viewportTransform()):
-                if isinstance(c, BlockInstance):
-                    return c
+            ranked = self.halo_candidates_at(pos, a, v.viewportTransform())
+            # Only the nearest candidate counts: a nearer loose line wins
+            # (the same item HALO highlights and click-selects).
+            if ranked and isinstance(ranked[0], BlockInstance):
+                return ranked[0]
         return None
 
     def _show_entity_context_menu(self, target, screen_pos):

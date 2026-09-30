@@ -281,11 +281,17 @@ def test_entity_menu_actions_explode_and_request_edit(qapp, monkeypatch):
 
 
 def test_plan_scene_menus_do_not_offer_explode(qapp):
+    from firepro3d.geometry_2d import CircleItem
     sc = Model_Space()
-    b = _line_def("B", (0, 0), (100, 0))
+    # A block WITH AREA (a circle) so items(pos) really hits it: the plan's
+    # exact-hit entity path must still skip it (only the editor treats
+    # nested blocks as entities).
+    b = _line_def("B", (0, 0), (100, 0),
+                  extra=[CircleItem(QPointF(50, 0), 20).to_dict()])
     sc.register_block_definition(b)
     inst = sc.place_block_instance(b.id, (0.0, 0.0))
     inst.setSelected(True)
+    assert inst in sc.items(QPointF(50, 0))               # the exact-hit path sees it
     from firepro3d.model_view import Model_View
     v = Model_View(sc)
     gm = v._build_plan_context_menu(sc, [inst], "select")
@@ -321,4 +327,132 @@ def test_real_right_click_on_a_nested_block_offers_edit_block_and_explode(qapp, 
         assert inst.isSelected()
     finally:
         w.hide()
+        es.cleanup()
+
+
+def _shown_editor(*defs):
+    from PyQt6.QtTest import QTest
+    proj, w, es = _proj_and_editor(*defs)
+    w.resize(800, 600); w.show(); QTest.qWaitForWindowExposed(w)
+    w.view.resetTransform(); w.view.centerOn(0, 0); QApplication.processEvents()
+    return proj, w, es
+
+
+def _right_click(w, scene_pt, monkeypatch):
+    from PyQt6.QtGui import QContextMenuEvent
+    from PyQt6.QtWidgets import QMenu
+    menus = []
+    monkeypatch.setattr(QMenu, "exec", lambda self, *a: menus.append(self))
+    vp = w.view.viewport()
+    pt = w.view.mapFromScene(scene_pt)
+    QApplication.sendEvent(vp, QContextMenuEvent(
+        QContextMenuEvent.Reason.Mouse, pt, vp.mapToGlobal(pt)))
+    QApplication.processEvents()
+    return {a.text() for a in menus[-1].actions()} if menus else set()
+
+
+def test_a_nearer_loose_line_beats_a_block_within_the_aperture(qapp, monkeypatch):
+    """Right-click 6 mm from a loose line and 14 mm from a line-only block
+    (both inside the HALO aperture): the line is nearest, so the block is
+    neither targeted, selected nor offered Edit Block / Explode."""
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _shown_editor(b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        loose = LineItem(QPointF(0, 20), QPointF(100, 20))
+        es.addItem(loose); es._draw_lines.append(loose)
+        pt = QPointF(50, 14.0)
+        assert es.items(pt) == []                              # only HALO reaches either
+        assert es._find_entity_at(pt) is not inst
+        labels = _right_click(w, pt, monkeypatch)
+        assert not inst.isSelected()
+        assert not ({"Edit Block", "Explode"} & labels)
+    finally:
+        w.hide()
+        es.cleanup()
+
+
+def test_a_line_only_block_resolves_when_it_is_nearest(qapp, monkeypatch):
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _shown_editor(b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        loose = LineItem(QPointF(0, 20), QPointF(100, 20))
+        es.addItem(loose); es._draw_lines.append(loose)
+        pt = QPointF(50, 5.0)                                  # 5 mm from block, 15 from line
+        assert es._find_entity_at(pt) is inst
+        labels = _right_click(w, pt, monkeypatch)
+        assert inst.isSelected() and {"Edit Block", "Explode"} <= labels
+    finally:
+        w.hide()
+        es.cleanup()
+
+
+def test_prompt_cancel_explodes_nothing(qapp, monkeypatch):
+    c = _line_def("C", (0, 0), (0, 50))
+    b = _line_def("B", (0, 0), (100, 0),
+                  extra=[{"type": "block_instance", "block_id": c.id,
+                          "pos": [100, 0], "rotation": 0.0}])
+    proj, w, es = _proj_and_editor(c, b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        es.push_undo_state()
+        inst.setSelected(True)
+        depth = len(es._undo_stack)
+        monkeypatch.setattr("firepro3d.themed_message.themed_choice",
+                            lambda *a, **k: None)
+        assert es.explode_selected_blocks() == []
+        assert es._block_instances == [inst] and inst.scene() is es
+        assert es.selectedItems() == [inst] and es._draw_lines == []
+        assert len(es._undo_stack) == depth
+    finally:
+        es.cleanup()
+
+
+def test_nothing_explodable_keeps_selection_and_pushes_no_undo(qapp):
+    """Only a missing-definition block selected: status only — no selection
+    change, no undo step."""
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _proj_and_editor(b)
+    try:
+        orphan = es.place_block_instance("no-such-block", (0.0, 0.0))
+        es.push_undo_state()
+        orphan.setSelected(True)
+        depth, pos = len(es._undo_stack), es._undo_pos
+        msgs = []
+        es._show_status = lambda *a, **k: msgs.append(a)
+        assert es.explode_selected_blocks() == []
+        assert es.selectedItems() == [orphan] and orphan.scene() is es
+        assert (len(es._undo_stack), es._undo_pos) == (depth, pos)
+        assert msgs
+    finally:
+        es.cleanup()
+
+
+def test_a_failing_explode_rolls_back_cleanly(qapp, monkeypatch, caplog):
+    """A primitive that raises mid-explode: the instance is still there, no
+    stray primitives, no undo step, the error is logged, nothing propagates."""
+    from firepro3d import geometry_2d as g
+    b = BlockDefinition.new(name="B", library="L", series="S", origin=(0.0, 0.0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict(),
+                                        g.CircleItem(QPointF(50, 50), 10).to_dict()])
+    proj, w, es = _proj_and_editor(b)
+    try:
+        es.place_block_instance(b.id, (0.0, 0.0), rotation=30.0)
+        es.push_undo_state()
+        es._block_instances[0].setSelected(True)
+        depth, pos = len(es._undo_stack), es._undo_pos
+
+        def boom(self, *a):
+            raise RuntimeError("boom")
+        monkeypatch.setattr(g.CircleItem, "manip_rotate", boom)
+        with caplog.at_level("ERROR"):
+            assert es.explode_selected_blocks() == []
+        assert len(es._block_instances) == 1
+        assert es._block_instances[0].scene() is es
+        assert es._draw_lines == [] and es._draw_circles == []
+        assert not [i for i in es.items() if isinstance(i, (LineItem, g.CircleItem))]
+        assert (len(es._undo_stack), es._undo_pos) == (depth, pos)
+        assert any("explode" in r.getMessage().lower() for r in caplog.records)
+    finally:
         es.cleanup()
