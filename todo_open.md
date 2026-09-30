@@ -246,6 +246,21 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 - [ ] [type:feature] Import fills — detect + preserve DXF HATCH/SOLID + PDF filled paths [P3] [subject:CAD]
   - Details: filed 2026-09-17 (from a question during the reference-graphic wrap-up). The import pipeline is **stroke-only today** — no fill is detected or preserved: DXF **HATCH** is exploded to its boundary/pattern lines as strokes (`dxf_import_worker.py:619` `virtual_entities()`), DXF **SOLID** imports as a closed outline with no fill flag (`dxf_import_worker.py:655`, `kind:"path_points" closed:True`), and the **PDF** vector worker doesn't distinguish the fill operator at all (`pdf_import_worker.py`). No geom-dict kind carries a fill/brush attribute; `geom_dicts_to_primitives` reads only `color`; the batched underlay/reference render strokes everything `NoBrush` (only `text` gets a brush). Asymmetry: `geometry_2d` primitives already SUPPORT fills (solid/hatch via the `"fill"` dict key read in `_geom2d_from_dict`) — the import path just never emits that key. Scope: (1) DXF worker emit a `fill`/solid-fill on SOLID + true HATCH regions (solid vs pattern; ezdxf `entity.dxf.solid_fill`/pattern); (2) PDF worker detect fill vs stroke ops; (3) thread a `fill` onto the geom dict; (4) `_compile_reference` + `_build_batched_underlay_group` honor a `QBrush` per batched path (weigh perf — filled paths are heavier than cosmetic strokes; may need per-fill batching). Gate on a real hatched/filled reference. `dxf_import_worker.py`, `pdf_import_worker.py`, `geometry_import.py`, `dwg_converter.append_geom_to_path`, `underlay_controller.py`, `block_definition.py`. ref: reference-graphic-model.md, underlay-workflow §16.3, 2d-geometry §fill.
 
+## MainWindow chrome polish (2026-09-30 user batch)
+
+- [ ] [type:feature] "|" separators between tabs in the canvas TopTabs and browser LeftTabs (mockup-gated) [P2] [subject:UX]
+  - Details: user, 2026-09-30 — mock up first. `firepro3d/ui_kit.py` (TopTabs/LeftTabs), `firepro3d/theme.py` (`_tab_language_qss`). ref: mainwindow-chrome-revamp-stage2, ui-design-system.
+- [ ] [type:feature] Header rail polish: bolder/larger text, "|" separators (App name | Save/Undo/Redo | File name), project-icon review (mockup-gated) [P2] [subject:UX]
+  - Details: user, 2026-09-30. `firepro3d/header_rail.py`, `firepro3d/graphics/`. ref: mainwindow-chrome-revamp, icon-style-guide.
+- [ ] [type:feature] 3D Model canvas tab is closable and reopenable from the Project Browser [P2] [subject:UX]
+  - Details: user, 2026-09-30 — the 3D tab can't be closed today; add a 3D Model entry to the project browser that (re)opens it. `main.py`, project browser, 3D view (orphan — forge on first touch). ref: view-relationships.
+- [ ] [type:bug] Ribbon vertical group label is clipped at the bottom [P2] [subject:UX]
+  - Details: user, 2026-09-30. `firepro3d/ribbon_bar.py` (`_VLabel`), `theme.build_ribbon_qss`. ref: ribbon-bar.
+- [ ] [type:feature] Ribbon proportions: smaller vertical group-label text + ribbon icon sizing review (mockup-gated) [P2] [subject:UX]
+  - Details: user, 2026-09-30 — "label text (vertical) too big", "icons" (user unsure what's off — show icon-size variants on a slider in the mockup). Folds the "Tokenize the ribbon `_VLabel` group-label font size" maint item. `firepro3d/ribbon_bar.py`, `firepro3d/theme.py`. ref: ribbon-bar, icon-style-guide.
+- [ ] [type:feature] Block Editor ribbon tab always available; Block group moves off Architecture to its left edge (small icons: Manager, New → opens editor tab, Open) + logical reorganization [P2] [subject:UX]
+  - Details: user, 2026-09-30 — integrate with the current Block Editor tab contents; reorganize its buttons logically. Interacts with the constraint-system ribbon groups (Constrain/Inspect after Modify, CS1) and the Block-Editor-tab close-button focus bug. `main.py`, `firepro3d/ribbon_bar.py`, `firepro3d/block_editor.py`, `firepro3d/block_manager.py`. ref: ribbon-bar, block-editor spec.
+
 ## Accent-colour / status-chrome unification
 
 > Chrome Revamp Stage 2 shipped 2026-09-19 (`feat/chrome-revamp-stage2`; governing spec `docs/specs/mainwindow-chrome-revamp-stage2.md`): browser LeftTabs, canvas TopTabs language, three-tone window scheme, property-panel overline, middle-surface tokenization. Follow-ups below.

@@ -40,7 +40,7 @@ from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.footer_rail import FooterRail
 from firepro3d.header_rail import HeaderRail
 from firepro3d.frameless_shell import FramelessShellMixin
-from firepro3d.main_helpers import migrate_fullscreen_pref
+from firepro3d.main_helpers import migrate_fullscreen_pref, retire_fullscreen_key
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
@@ -712,6 +712,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         geom = self.settings.value("geometry", b"")
         if geom:
             self.restoreGeometry(geom)
+            # Keep only the saved NORMAL geometry: the startup state is owned by
+            # ui/immersive (applied in main()). A blob saved while fullscreen
+            # otherwise pre-sets WindowFullScreen, making main()'s
+            # showFullScreen() a no-op — the window shows small but stuck
+            # "fullscreen", with header-drag and edge-resize gated off.
+            # Re-apply the normal rect: clearing the state on the (already
+            # native) hidden window resets it to Qt's 640x480 default.
+            normal = self.normalGeometry()
+            self.setWindowState(self.windowState() & ~(
+                Qt.WindowState.WindowFullScreen | Qt.WindowState.WindowMaximized))
+            if normal.isValid():
+                self.setGeometry(normal)
         state = self.settings.value("windowState", b"")
         if state:
             self.restoreState(state, self._STATE_VERSION)
@@ -732,6 +744,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Applied by main() AFTER its resize()+show(), NOT in showEvent — so the
         # headless MainWindow tests (which call .show() directly, never main())
         # never trigger the View3D/VTK fullscreen-resize crash class.
+        retire_fullscreen_key(self.settings)
         self._start_fullscreen = migrate_fullscreen_pref(self.settings.value)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
@@ -4120,14 +4133,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                            dirty=self._modified)
 
     def _toggle_max_or_fullscreen(self):
-        """Header maximize/restore dot: toggle frameless-fullscreen ↔ normal,
-        and persist the choice under ui/fullscreen."""
-        going_fullscreen = not (self.isFullScreen() or self.isMaximized())
-        if going_fullscreen:
-            self.showFullScreen()
-        else:
+        """Header maximize/restore dot: toggle frameless-fullscreen ↔ normal
+        for this session only — the startup state is owned by the System
+        Settings "Maximize window on startup" toggle (ui/immersive)."""
+        if self.isFullScreen() or self.isMaximized():
             self.showNormal()
-        self.settings.setValue("ui/fullscreen", going_fullscreen)
+        else:
+            self.showFullScreen()
 
     def _on_paper_modified(self):
         """A paper mutation dirties the project (save prompt + autosave)."""
@@ -5001,7 +5013,9 @@ def main():
 
     splash.set_progress(25, "Building UI...")
     window = MainWindow(splash=splash)
-    window.resize(800, 600)
+    if not window.settings.contains("geometry"):
+        window.resize(800, 600)   # first run only — keep the saved restore size
+
     splash.close()
     # Apply the startup window state here (not in showEvent) so headless tests,
     # which construct MainWindow() and call .show() directly, never trigger the

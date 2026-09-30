@@ -493,8 +493,8 @@ follows these rules so every column reads as a proper rail:
    **LANDED 2026-09-19 (merge `0a7b44a`).** `MainWindow(FramelessShellMixin,
    QMainWindow)` is now frameless-fullscreen by default (taskbar hidden); the
    mixin gained a `window_type` param (Dialog default, Window for the shell),
-   startup fullscreen applied in `main()`, `ui/immersive`→`ui/fullscreen` pref
-   migration; custom `header_rail.py` (via `setMenuWidget`, stacked above the
+   startup fullscreen applied in `main()` (startup-state pref contract →
+   `mainwindow-chrome-revamp.md`); custom `header_rail.py` (via `setMenuWidget`, stacked above the
    ribbon) + `footer_rail.py` (3 sub-rails, replaces the status bar) drive the
    chrome. Full header/footer-rail invariants + the frameless-MainWindow contract
    → **`docs/specs/mainwindow-chrome-revamp.md` (status: current)** — the

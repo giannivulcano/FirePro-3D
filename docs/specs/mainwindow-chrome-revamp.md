@@ -1,7 +1,7 @@
 ---
 status: current           # built + live-smoked (feat/mainwindow-chrome, 2026-09-19)
-last-verified: 2026-09-19
-verified-commit: 76757eb
+last-verified: 2026-09-30  # startup-state amendment (ui/immersive sole owner; geometry blob normal-rect only); prior 2026-09-19
+verified-commit: PENDING   # prior 76757eb
 applies-to:
   - main.py
   - firepro3d/frameless_shell.py
@@ -72,7 +72,7 @@ Layout (approved): **Mode/instruction** (accent mode badge + instruction) — *(
 
 ### Frameless + fullscreen (spike-first; VTK is the make-or-break)
 - **Parameterize** `FramelessShellMixin.init_frameless_shell` with a `window_type` arg (default `Qt.WindowType.Dialog`; MainWindow passes `Qt.WindowType.Window`); MainWindow builds its own header (`build_titlebar=False`) and reuses `_WinDot`.
-- **Default fullscreen** (`showFullScreen`, taskbar hidden); **F11** and the **restore dot** toggle fullscreen ↔ maximized-windowed; minimize→taskbar; persist last state; migrate `ui/immersive` → `ui/fullscreen` (read-migration, no orphaned key).
+- **Default fullscreen** (`showFullScreen`, taskbar hidden); **F11** and the **restore dot** toggle fullscreen ↔ maximized-windowed; minimize→taskbar. **Startup state (amended 2026-09-30, user decision):** owned solely by the System Settings "Maximize window on startup" toggle (`ui/immersive`, default on); the header restore dot / double-click is **session-only** and persists nothing. The retired `ui/fullscreen` key (the header toggle's former "persist last state", which silently shadowed the setting) is folded into `ui/immersive` once when that is unset, then removed (`main_helpers.retire_fullscreen_key`). The saved `geometry` blob contributes only the **normal** rect — `restore_settings` strips any fullscreen/maximized state it carries, so `main()`'s `showFullScreen()` is never a no-op.
 - **VTK crash approach:** set `Qt.AA_DontCreateNativeWidgetSiblings` early + audit `View3D`'s `QtInteractor` native-window creation; verify against the existing "viewport delete → qFatal" repro.
 - **Riskiest-first spike (build step 1):** frameless + `showFullScreen` on a MainWindow with a live 3D view + viewport-delete. **Fallback:** if the spike can't get a clean 3D + viewport-delete under frameless-fullscreen in a bounded attempt, ship header/footer/ribbon chrome on the current `showMaximized` and split frameless-fullscreen to **stage 1b** (header rail still built).
 
@@ -115,7 +115,7 @@ Layout (approved): **Mode/instruction** (accent mode badge + instruction) — *(
 - [ ] Dockable `_SnapToolbar` retired; osnap state still persists under `snap/{attr}`; angle-snap reachable in the Snap pane.
 
 **Frameless/fullscreen**
-- [ ] `FramelessShellMixin` accepts `window_type`; MainWindow opens frameless-fullscreen, taskbar hidden; F11/restore-dot toggle; state persists; `ui/immersive`→`ui/fullscreen` migrates.
+- [ ] `FramelessShellMixin` accepts `window_type`; MainWindow opens frameless-fullscreen, taskbar hidden; restore-dot toggle is session-only; startup state follows `ui/immersive` alone (amended 2026-09-30); a saved-while-fullscreen geometry blob still opens properly fullscreen (guards: `tests/test_fullscreen_immersive.py`).
 - [ ] **Hard live gate:** frameless-fullscreen with the 3D view opened + rebuilt + a viewport deleted — no native-window `qFatal`/0xC0000409. (Or documented 1b split if the spike fails.)
 
 **Tokenization guards**
@@ -139,7 +139,7 @@ Two non-fatal exceptions surfaced during Alt+F4 teardown (surfaced only because 
 - **Undo model divergence:** model scene uses a custom list stack (not `QUndoStack`); the header must read the right stack per active tab (paper vs model vs block-editor).
 - **Fullscreen trap:** header dots + F11 always provide an exit; minimize restores the taskbar.
 - **Multi-monitor:** fullscreen covers the current screen; drag-between-monitors only applies in windowed mode.
-- **QSettings migration:** read-migrate `ui/immersive`→`ui/fullscreen`; leave `snap/{attr}` untouched; add `snap/bar_expanded`.
+- **QSettings migration:** fold the retired `ui/fullscreen` into `ui/immersive` (only when unset), then remove it (amended 2026-09-30); leave `snap/{attr}` untouched; add `snap/bar_expanded`.
 - **Live-only bug classes:** frameless/focus/paint + the VTK native-window crash are not headless-catchable — covered by the live-smoke gate.
 
 ## Code Style & Testing

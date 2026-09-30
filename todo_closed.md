@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## MainWindow startup window state — 2026-09-30
+
+- [x] [type:bug] MainWindow opens in a stuck restored state — not draggable/resizable until a header double-click, which jumps it to centre [P1] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — on launch the window appears small ("minimized"), can't be moved or resized; double-clicking the header recentres it and only then does drag/resize/maximize work. ref: mainwindow-chrome-revamp.
+  - Root cause (two, both live-traced): (1) a `geometry` blob saved while fullscreen made `restoreGeometry` pre-set `WindowFullScreen` on the hidden window → `main()`'s `resize(800,600)` sized it and `showFullScreen()` was a no-op → 800×600 at (0,0) reporting `isFullScreen()` → header-drag + edge-resize gated off. Fix: `restore_settings` strips fullscreen/maximized and re-applies `normalGeometry()` (clearing state on the already-native window resets to Qt's 640×480 default); `main()` resizes only on first run. (2) the header restore/fullscreen toggle persisted `ui/fullscreen`, which shadowed the System Settings "Maximize window on startup" (`ui/immersive`) → closing restored reopened restored. User decision: setting is the sole owner, header toggle session-only; `main_helpers.retire_fullscreen_key` folds + removes the old key. Guards (RED at HEAD, GREEN after): `tests/test_fullscreen_immersive.py` — restored-geometry state, stale-key-vs-setting, retire-fold, header-toggle-no-persist; rewrote `test_migrate_fullscreen_pref_reads_and_migrates` (retired "ui/fullscreen wins" contract, user-ratified). User live smoke passed. `main.py`, `firepro3d/main_helpers.py`.
+
 ## Block Editor constraint system — design (grill + spec rewrite) — 2026-09-29
 
 - [x] [type:design] Spec session: parametric constraint system [P2] [subject:Architecture] [done:2026-09-29]
