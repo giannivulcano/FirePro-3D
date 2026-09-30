@@ -71,12 +71,17 @@ def apply_app_font(app: QApplication) -> None:
 class _Metrics:
     # base ramp (reference)
     XS, SM, MD, LG, XL = 4, 8, 12, 16, 20
-    # header / titlebar
-    HEADER_H = 40
-    HEADER_MARGIN = (14, 7, 10, 7)
-    HEADER_ICON = 22
-    HEADER_ICON_GAP = 8
-    HEADER_TITLE_GAP = 10
+    # header / titlebar (shared: MainWindow header rail + house dialog shell)
+    HEADER_H = 34
+    HEADER_MARGIN = (14, 4, 10, 4)
+    HEADER_ICON = 24
+    HEADER_ICON_GAP = 10
+    HEADER_TITLE_GAP = 14
+    # header rail only (header_rail.py)
+    HEADER_SEP_H = 18            # "|" divider height between rail sections
+    HEADER_ACTION_ICON = 17      # Save/Undo/Redo glyph
+    HEADER_ACTION_BTN = 26       # Save/Undo/Redo button box
+    HEADER_TITLE_FS = 13         # app-name + project-name font (px)
     WINCTL_DOT = 20
     WINCTL_ICON = 18
     # body / panels
@@ -88,9 +93,26 @@ class _Metrics:
     SECTION_GAP = 8
     TOPTABS_BAR_INSET = 12   # horizontal inset of the tab strip (TopTabs)
     TOPTABS_PAGE_TOP = 14    # breathing room below the divider (TopTabs)
-    LEFT_TAB_W = 24          # browser LeftTabs vertical strip width (mockup-tuned)
+    LEFT_TAB_W = 22          # browser LeftTabs vertical strip width (mockup-tuned 2026-09-30)
     LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
     LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
+    LEFT_TAB_PT = 8          # West tab text
+    LEFT_TAB_PAD = (8, 0, 8, 2)   # QSS (top, right, bottom, left) — maps to the VISUAL sides
+    # top tab strips (ribbon + canvas) — chrome polish 2026-09-30
+    TAB_GAP = 2              # QSS margin-right between top tabs
+    TAB_SEP_LEN = 14         # "|" separator length (px)
+    TAB_SEP_W = 1            # "|" separator thickness (px)
+    TOP_TAB_PT = 10
+    RIBBON_TAB_PAD = (6, 10, 2)       # QSS (top, horizontal, bottom)
+    CANVAS_TAB_PAD = (6, 8, 2, 8)     # QSS (top, right, bottom, left)
+    # ribbon body (ribbon_bar.py)
+    RIBBON_STACK_H = 88
+    RIBBON_GROUP_MARGIN = (4, 2, 7, 0)    # (l, t, r, b); extra right pad clears the separator
+    RIBBON_VLABEL_PT = 7.0
+    RIBBON_LARGE_ICON = 40
+    RIBBON_LARGE_H = 68
+    RIBBON_SMALL_ICON = 18
+    RIBBON_SMALL_H = 26
     DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
@@ -149,6 +171,12 @@ class _Metrics:
 
 
 M = _Metrics()
+
+# Colour ROLES (token names, resolved per theme via getattr(detect(), ROLE)) —
+# chrome polish 2026-09-30. One home so painters/QSS never hardcode a token.
+TAB_SEP_ROLE = "accent"        # "|" between tabs (ribbon / canvas / browser)
+HEADER_SEP_ROLE = "muted"      # header-rail section dividers
+RIBBON_VLABEL_ROLE = "accent"  # vertical ribbon group labels
 
 
 # ─────────────────────────────────────────────────────────────────────────────
