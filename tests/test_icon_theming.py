@@ -31,7 +31,7 @@ _GEOM2D_ICONS = [
 _MODIFY_ICONS = [
     "copy_icon.svg", "cut_icon.svg", "paste_icon.svg", "duplicate_icon.svg",
     "delete_icon.svg", "move_icon.svg", "rotate_icon.svg", "offset_icon.svg",
-    "array_icon.svg",
+    "array_icon.svg", "explode_icon.svg",
 ]
 
 

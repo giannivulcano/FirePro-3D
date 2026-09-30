@@ -122,7 +122,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         assert ed is not None
         btns = main_window._be_modify_buttons
         edit = {"Copy", "Cut", "Paste", "Duplicate", "Delete"}
-        modify = {"Move", "Rotate", "Offset", "Array"}
+        modify = {"Move", "Rotate", "Offset", "Array", "Explode"}
         assert set(btns) == edit | modify
         for label, b in btns.items():
             assert _group_title(b) == ("EDIT" if label in edit else "MODIFY"), label

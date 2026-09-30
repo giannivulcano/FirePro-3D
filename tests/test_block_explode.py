@@ -11,6 +11,39 @@ from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 
 
+@pytest.fixture(scope="module")
+def _main_window_singleton(qapp, tmp_path_factory):
+    """Module-scoped MainWindow (test_modify_tools_ribbon.py pattern; the
+    autosave path is redirected so a real recovery file can't pop a modal)."""
+    from PyQt6.QtTest import QTest
+    import main as _main_module
+    from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
+    _main_module.View3D = View3D
+    from main import MainWindow
+    recovery = str(tmp_path_factory.mktemp("autosave") / "recovery.FPD")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
+        win = MainWindow()
+        win.show()
+        QTest.qWaitForWindowExposed(win)
+        yield win
+        win._modified = False
+        win.close()
+        win.deleteLater()
+
+
+@pytest.fixture
+def main_window(_main_window_singleton):
+    yield _main_window_singleton
+
+
+def _forget_defs(proj, *defs):
+    """Drop test definitions from the shared MainWindow scene (singleton hygiene)."""
+    for d in defs:
+        proj._block_definitions.pop(d.id, None)
+    proj.blockDefinitionsChanged.emit()
+
+
 def _proj_and_editor(*defs):
     from firepro3d.block_editor import BlockEditorWidget
     proj = Model_Space()
@@ -170,3 +203,30 @@ def test_explode_ignores_non_blocks_and_needs_no_prompt_without_nesting(qapp, mo
         assert len(es._draw_lines) == 2
     finally:
         es.cleanup()
+
+
+def test_explode_button_enabled_only_with_a_block_selected(qapp, main_window):
+    proj = main_window.scene
+    b = _line_def("B", (0, 0), (100, 0))
+    proj.register_block_definition(b)
+    w = main_window.block_editor_manager.open_new()
+    QApplication.processEvents()
+    try:
+        es = w.editor_scene
+        btn = main_window._be_modify_buttons["Explode"]
+        assert btn.toolTip() and not btn.icon().isNull()
+        ln = LineItem(QPointF(0, 200), QPointF(50, 200)); es.addItem(ln); es._draw_lines.append(ln)
+        ln.setSelected(True); QApplication.processEvents()
+        assert not btn.isEnabled()
+        inst = es.place_block_instance(b.id, (0.0, 0.0)); inst.setSelected(True)
+        QApplication.processEvents()
+        assert btn.isEnabled()
+        btn.click(); QApplication.processEvents()
+        assert es._block_instances == []
+        assert inst.scene() is None and any(isinstance(i, LineItem) and i.isSelected()
+                                            and i is not ln for i in es.items())
+    finally:
+        w._modified = False
+        main_window.block_editor_manager.close(w)
+        _forget_defs(proj, b)
+        QApplication.processEvents()

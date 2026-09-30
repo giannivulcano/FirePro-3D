@@ -3201,7 +3201,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         buttons["Delete"] = b
         return buttons
 
-    def build_modify_group(self, page, scene_getter, mode_registry=None) -> dict:
+    def build_modify_group(self, page, scene_getter, mode_registry=None,
+                           *, explode: bool = False) -> dict:
         """Modify group (scene-tools.md D1): Move · Rotate · Offset · Array.
 
         Args:
@@ -3209,9 +3210,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             scene_getter: Zero-arg callable returning the scene to act on.
             mode_registry: Optional ``{mode: button}`` dict (see
                 :meth:`build_edit_group`).
+            explode: Also add the Block-Editor-only Explode button
+                (nested-blocks D10; containment C1).
 
         Returns:
-            ``{label: button}`` for the four buttons.
+            ``{label: button}`` for the four buttons (five with *explode*).
         """
         g = page.add_group("Modify")
         spec = (
@@ -3224,6 +3227,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         for label, icon, tool, tip in spec:
             buttons[label] = self._add_modify_tool_button(
                 g, label, icon, tool, tip, scene_getter, mode_registry)
+        if explode:
+            b = g.add_small_button("Explode", self._modify_icon("explode_icon.svg"),
+                                   lambda: scene_getter().explode_selected_blocks())
+            b.setToolTip("Explode — break the selected block into editable geometry")
+            buttons["Explode"] = b
         return buttons
 
     # Buttons that need a selection (scene-tools.md D1/D3 select-first).
@@ -3236,19 +3244,26 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Selection-needing tools are disabled with an empty selection; Paste
         is enabled only while the clipboard holds a FirePro3D payload
         (``clipboard_payload()``, scene-tools.md D5).
+        Explode is enabled only while at least one block instance is
+        selected (nested-blocks D10).
         """
         from PyQt6 import sip
+        from firepro3d.block_instance import BlockInstance
         buttons = getattr(self, "_be_modify_buttons", None) or {}
         scene = self._active_scene()
         try:
-            has_sel = bool(scene.selectedItems())
+            selected = scene.selectedItems()
         except RuntimeError:
             return
+        has_sel = bool(selected)
+        has_block = any(isinstance(i, BlockInstance) for i in selected)
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
             if label in self._MODIFY_NEEDS_SELECTION:
                 b.setEnabled(has_sel)
+            elif label == "Explode":
+                b.setEnabled(has_block)
             elif label == "Paste":
                 b.setEnabled(scene.clipboard_payload() is not None)
 
@@ -4833,7 +4848,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             **self.build_edit_group(page, self._active_scene,
                                     self._block_mode_buttons),
             **self.build_modify_group(page, self._active_scene,
-                                      self._block_mode_buttons),
+                                      self._block_mode_buttons, explode=True),
         }
         self._connect_modify_refresh(self._active_scene())
         self._refresh_modify_buttons()
