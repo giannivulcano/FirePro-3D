@@ -5,6 +5,7 @@ Revit-style Project Browser dock widget.
 
 Tree structure
 --------------
+    3D Model           ← top-level leaf (view-3d.md I3)
   ▼ 2D Model
       ▼ Plans
           Level 1          ← one item per defined level
@@ -23,6 +24,7 @@ Tree structure
 
 Signals (pure push contract)
 -----------------------------
+activate3DView()               — 3D Model leaf activated / context-menu Open
 activateModelSpace()           — model space root / sub-item activated
 activatePaperSheet(number)     — sheet double-clicked; number = Sheet.number
 sheetSelected(number)          — single-click selection → sheet props panel
@@ -53,7 +55,7 @@ from .mime_types import MIME_SHEET, MIME_VIEW
 # Tree item role constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-_ROLE_TYPE  = Qt.ItemDataRole.UserRole         # "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation"
+_ROLE_TYPE  = Qt.ItemDataRole.UserRole         # "view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation"
 _ROLE_NAME  = Qt.ItemDataRole.UserRole + 1     # str name for sheets / levels / elevations
 _ROLE_VIEW  = Qt.ItemDataRole.UserRole + 2
 
@@ -140,6 +142,7 @@ class ProjectBrowser(QWidget):
     parent : QWidget | None
     """
 
+    activate3DView = pyqtSignal()      # the 3D Model leaf (view-3d.md I3)
     activateModelSpace = pyqtSignal()
     activatePaperSheet = pyqtSignal(str)   # sheet NUMBER (identity, spec §19.1)
     activateElevation = pyqtSignal(str)    # direction name (North/South/East/West)
@@ -294,6 +297,14 @@ class ProjectBrowser(QWidget):
         stub_brush = QBrush(QColor(_t.text_disabled if hasattr(_t, "text_disabled") else "#888888"))
         f_bold = QFont(); f_bold.setBold(True)
 
+        # ── 3D Model (top-level leaf, above 2D Model — view-3d.md I3) ─────────
+        v3d = QTreeWidgetItem(self._tree, ["3D Model"])
+        v3d.setData(0, _ROLE_TYPE, "view3d")
+        v3d.setFont(0, f_bold)
+        v3d.setToolTip(0, "Open the 3D Model view")
+        v3d.setFlags(v3d.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+        self._view3d_item = v3d
+
         # ── Model Space root ─────────────────────────────────────────────────
         ms_root = QTreeWidgetItem(self._tree, ["2D Model"])
         ms_root.setData(0, _ROLE_TYPE, "model_root")
@@ -361,6 +372,8 @@ class ProjectBrowser(QWidget):
         elif role == "detail":
             name = item.data(0, _ROLE_NAME)
             self.activateDetailView.emit(name)
+        elif role == "view3d":
+            self.activate3DView.emit()
         elif role in ("model_root", "ms_stub"):
             self.activateModelSpace.emit()
         elif role == "sheet":
@@ -412,6 +425,9 @@ class ProjectBrowser(QWidget):
             act_open.triggered.connect(lambda: self.activateDetailView.emit(name))
             act_del = menu.addAction("Delete")
             act_del.triggered.connect(lambda: self.deleteDetailView.emit(name))
+        elif role == "view3d":
+            act_open = menu.addAction("Open")
+            act_open.triggered.connect(self.activate3DView.emit)
         else:
             return
         menu.exec(self._tree.viewport().mapToGlobal(pos))
