@@ -514,9 +514,16 @@ class BlockEditorWidget(QWidget):
         if block_library.source_status(defn) != "project-only":
             self._save_to_library(defn, parent or self)
         n = self._project_scene.instance_count(defn.id)
+        m = len(self._project_scene.block_registry.users_of(defn.id))
+        parts = []
+        if n:
+            parts.append(f"{n} placed instance(s)")
+        if m:
+            parts.append(f"{m} block(s) that use it")
         self.editor_scene._show_status(
             f"Saved block \u201c{defn.name}\u201d"
-            + (f" \u2014 updated {n} placed instance(s)" if n else ""), timeout=5000)
+            + (f" \u2014 updated {' and '.join(parts)}" if parts else ""),
+            timeout=5000)
         return defn
 
     def save_as(self, parent=None):

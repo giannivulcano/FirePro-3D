@@ -47,10 +47,11 @@ class Col(IntEnum):
     SERIES = 2
     COUNT = 3
     STATUS = 4
+    USED_IN = 5      # appended LAST: saved header state keys on section numbers
 
 
 _HEADERS = {Col.NAME: "Name", Col.LIBRARY: "Library", Col.SERIES: "Series",
-            Col.COUNT: "Instances", Col.STATUS: "Source"}
+            Col.COUNT: "Instances", Col.STATUS: "Source", Col.USED_IN: "Used in"}
 
 BlockDefRole = Qt.ItemDataRole.UserRole + 1   # any cell -> its row's BlockDefinition
 SortRole = Qt.ItemDataRole.UserRole + 2       # per-column sort key (numeric for COUNT)
@@ -67,6 +68,7 @@ class BlockTableModel(QAbstractTableModel):
         self._root = root
         self._defs = []
         self._counts = {}
+        self._used = {}
         self._rebuild()
         for signame in ("blockDefinitionsChanged", "blockInstancesChanged"):
             sig = getattr(scene, signame, None)
@@ -78,6 +80,9 @@ class BlockTableModel(QAbstractTableModel):
         self._counts = {}
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
+        # Blocks that nest each definition, directly or indirectly (D12).
+        reg = self._scene.block_registry
+        self._used = {d.id: len(reg.users_of(d.id)) for d in self._defs}
 
     def _on_changed(self):
         self.beginResetModel()
@@ -127,6 +132,8 @@ class BlockTableModel(QAbstractTableModel):
             return str(self._counts.get(d.id, 0))
         if col == Col.STATUS:
             return block_library.source_status(d, root=self._root)
+        if col == Col.USED_IN:
+            return str(self._used.get(d.id, 0))
         return ""
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -139,6 +146,8 @@ class BlockTableModel(QAbstractTableModel):
         if role == SortRole:
             if col == Col.COUNT:
                 return self._counts.get(d.id, 0)          # numeric sort key
+            if col == Col.USED_IN:
+                return self._used.get(d.id, 0)
             return self._display(d, col)
         if role == Qt.ItemDataRole.DisplayRole:
             return self._display(d, col)
@@ -498,7 +507,8 @@ class BlockManagerDialog(HouseDialog):
         self.view.setItemDelegateForColumn(
             Col.STATUS, SourceStatusDelegate(self.t, self.view))
         for col, width in ((Col.NAME, 200), (Col.LIBRARY, 130),
-                           (Col.SERIES, 130), (Col.COUNT, 80), (Col.STATUS, 120)):
+                           (Col.SERIES, 130), (Col.COUNT, 80), (Col.STATUS, 120),
+                           (Col.USED_IN, 70)):
             self.view.setColumnWidth(col, width)
         body.addWidget(self.view, 1)
 
@@ -679,6 +689,10 @@ class BlockManagerDialog(HouseDialog):
         if n > 0:
             themed_info(self, "Delete Block",
                         f"Can’t delete “{defn.name}” — {n} instance(s) in the model.")
+            return
+        msg = self.scene.block_users_message(defn.id)
+        if msg is not None:
+            themed_info(self, "Delete Block", msg)
             return
         self.scene.delete_block_definition(defn.id)
 

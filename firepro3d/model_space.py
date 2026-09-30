@@ -1594,11 +1594,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
 
-        Refused (returns False) while any instance references it. On success the
-        definition is popped, an undo state is pushed (``_capture_network`` already
-        serializes definitions), and ``blockDefinitionsChanged`` is emitted.
+        Refused (returns False) while any instance references it or any other
+        definition nests it, directly or indirectly (D12 — see
+        :meth:`block_users_message`). On success the definition is popped, an
+        undo state is pushed (``_capture_network`` already serializes
+        definitions), and ``blockDefinitionsChanged`` is emitted.
         """
         if self.instance_count(block_id) > 0:
+            return False
+        if self._block_registry.users_of(block_id):
             return False
         if block_id not in self._block_definitions:
             return False
@@ -1606,6 +1610,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
         return True
+
+    def block_users_message(self, block_id: str) -> str | None:
+        """Delete-refusal text when other blocks nest *block_id* (D12).
+
+        Args:
+            block_id: The definition the user wants to delete.
+
+        Returns:
+            ``“B” is used inside: A, D — explode or remove it there first.``
+            (users sorted by name, direct and indirect), or None when no
+            other block nests it.
+        """
+        users = self._block_registry.users_of(block_id)
+        if not users:
+            return None
+        d = self.get_block_definition(block_id)
+        names = sorted(self.get_block_definition(u).name for u in users)
+        return (f"“{d.name}” is used inside: {', '.join(names)}"
+                " — explode or remove it there first.")
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the

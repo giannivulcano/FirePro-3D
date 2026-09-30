@@ -174,3 +174,88 @@ def test_block_manager_open_in_editor_seeds_fresh_and_focuses_open(qapp, main_wi
     finally:
         _close_all(mgr)
         _forget_defs(proj, b)
+
+
+# ── Task 12: "Used in" counts, delete refusal, save message (D12; AC10, AC11) ──
+
+from firepro3d.model_space import Model_Space
+
+
+def test_used_in_counts_direct_and_indirect(qapp):
+    from firepro3d.block_manager import BlockTableModel, Col, SortRole
+    sc = Model_Space()
+    c = _line_def("C"); b = _line_def("B", extra=[_nested(c.id, 0, 0)])
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    for d in (c, b, a):
+        sc.register_block_definition(d)
+    m = BlockTableModel(sc)
+    row = m.row_for_id(c.id)
+    assert m.data(m.index(row, Col.USED_IN), Qt.ItemDataRole.DisplayRole) == "2"
+    assert m.data(m.index(row, Col.USED_IN), SortRole) == 2           # numeric sort key
+    assert m.data(m.index(m.row_for_id(a.id), Col.USED_IN),
+                  Qt.ItemDataRole.DisplayRole) == "0"
+    assert m.headerData(Col.USED_IN, Qt.Orientation.Horizontal) == "Used in"
+    assert Col.USED_IN == m.columnCount() - 1 and Col.STATUS == 4     # new LAST column
+
+
+def test_delete_refused_while_nested_names_users(qapp):
+    sc = Model_Space()
+    b = _line_def("B"); a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    sc.register_block_definition(b); sc.register_block_definition(a)
+    assert sc.delete_block_definition(b.id) is False
+    assert b.id in sc._block_definitions
+    assert sc.block_users_message(b.id) == \
+        "\u201cB\u201d is used inside: A \u2014 explode or remove it there first."
+    assert sc.block_users_message(a.id) is None
+
+
+def test_delete_refused_for_indirect_use_names_all_users(qapp):
+    sc = Model_Space()
+    c = _line_def("C"); b = _line_def("B", extra=[_nested(c.id, 0, 0)])
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    for d in (c, b, a):
+        sc.register_block_definition(d)
+    assert sc.delete_block_definition(c.id) is False
+    assert c.id in sc._block_definitions
+    assert sc.block_users_message(c.id) == \
+        "\u201cC\u201d is used inside: A, B \u2014 explode or remove it there first."
+
+
+def test_manager_delete_shows_the_users_message(qapp, monkeypatch):
+    import firepro3d.themed_message as tm
+    from firepro3d.block_manager import BlockManagerDialog
+    sc = Model_Space()
+    b = _line_def("B"); a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    sc.register_block_definition(b); sc.register_block_definition(a)
+    shown = []
+    monkeypatch.setattr(tm, "themed_info", lambda *args, **k: shown.append(args))
+
+    class _MW:
+        settings = None
+    dlg = BlockManagerDialog(sc, _MW(), apply_stylesheet=False)
+    try:
+        row = dlg.model.row_for_id(b.id)
+        dlg.view.setCurrentIndex(dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._delete()
+        assert b.id in sc._block_definitions
+        assert shown and shown[-1][2] == sc.block_users_message(b.id)
+    finally:
+        dlg.close()
+
+
+def test_save_message_counts_user_blocks(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    proj = Model_Space()
+    b = _line_def("B"); a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(b); proj.register_block_definition(a)
+    proj.place_block_instance(b.id, (0.0, 0.0))
+    w = BlockEditorWidget(proj, block_id=b.id)
+    w.seed_from_definition(b)
+    msgs = []
+    # _show_status writes to the host window's status bar; capture the text.
+    w.editor_scene._show_status = lambda message, timeout=5000: msgs.append(message)
+    try:
+        w.save(None)
+        assert "updated 1 placed instance(s) and 1 block(s) that use it" in msgs[-1]
+    finally:
+        w.editor_scene.cleanup()
