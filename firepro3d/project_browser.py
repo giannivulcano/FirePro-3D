@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QByteArray
 from PyQt6.QtGui import QFont, QColor, QBrush, QIcon
 from . import theme as th
+from .mime_types import MIME_SHEET, MIME_VIEW
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,25 +81,24 @@ class _ProjectTree(QTreeWidget):
                     "view_name": view_name,
                 })
                 mime.setData(
-                    "application/x-firepro3d-view",
+                    MIME_VIEW,
                     QByteArray(payload.encode("utf-8")),
                 )
                 break
             if role_type == "sheet":
                 mime.setData(
-                    "application/x-firepro3d-sheet",
+                    MIME_SHEET,
                     QByteArray(str(item.data(0, _ROLE_NAME)).encode("utf-8")),
                 )
                 break
         return mime
 
     def mimeTypes(self):
-        return ["application/x-firepro3d-view",
-                "application/x-firepro3d-sheet"]
+        return [MIME_VIEW, MIME_SHEET]
 
     def _is_internal_sheet_drag(self, e) -> bool:
         return (e.source() is self
-                and e.mimeData().hasFormat("application/x-firepro3d-sheet"))
+                and e.mimeData().hasFormat(MIME_SHEET))
 
     def dragEnterEvent(self, e):
         if self._is_internal_sheet_drag(e):
@@ -117,7 +117,7 @@ class _ProjectTree(QTreeWidget):
             e.ignore()
             return
         number = bytes(
-            e.mimeData().data("application/x-firepro3d-sheet")).decode("utf-8")
+            e.mimeData().data(MIME_SHEET)).decode("utf-8")
         target = self.itemAt(e.position().toPoint())
         role = target.data(0, _ROLE_TYPE) if target is not None else None
         if role not in ("sheet", "paper_root"):

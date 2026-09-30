@@ -134,7 +134,7 @@ MARGIN        = 10.0    # outer border
 INNER_MARGIN  = 5.0     # inside border to content
 TITLE_H       = 65.0    # title block height
 
-MIME_VIEW = "application/x-firepro3d-view"
+from .mime_types import MIME_VIEW  # noqa: F401 (re-export)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

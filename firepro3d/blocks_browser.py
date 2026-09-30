@@ -10,15 +10,40 @@ batch via ``Model_Space.load_blocks_from_files``) and then emits the same.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+import json
+
+from PyQt6.QtCore import QByteArray, QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-                             QFrame)
+from PyQt6.QtWidgets import (QAbstractItemView, QWidget, QVBoxLayout, QTreeWidget,
+                             QTreeWidgetItem, QFrame)
 
 from . import block_library
+from .mime_types import MIME_BLOCK
 
 _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
+
+
+class _BlocksTree(QTreeWidget):
+    """Tree whose block leaves drag out as ``MIME_BLOCK`` (folders don't).
+
+    The payload is ``{"id": block_id, "path": .fpdb path | None}`` — a
+    library-only leaf carries its file so the drop target can load it.
+    """
+
+    def mimeData(self, items):  # noqa: N802 (Qt API)
+        mime = QMimeData()
+        for item in items:
+            block_id = item.data(0, _ROLE_ID)
+            if isinstance(block_id, str) and block_id:
+                payload = {"id": block_id, "path": item.data(0, _ROLE_PATH)}
+                mime.setData(MIME_BLOCK,
+                             QByteArray(json.dumps(payload).encode("utf-8")))
+                break
+        return mime
+
+    def mimeTypes(self):  # noqa: N802 (Qt API)
+        return [MIME_BLOCK]
 
 
 class BlocksBrowser(QWidget):
@@ -44,7 +69,9 @@ class BlocksBrowser(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
-        self._tree = QTreeWidget()
+        self._tree = _BlocksTree()
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self._tree.setHeaderHidden(True)
         self._tree.setFrameShape(QFrame.Shape.NoFrame)
         self._tree.setRootIsDecorated(True)
@@ -126,13 +153,14 @@ class BlocksBrowser(QWidget):
                     leaf = QTreeWidgetItem(s_item, [name])
                     leaf.setData(0, _ROLE_ID, block_id)
                     if path is None:
-                        leaf.setToolTip(0, "Double-click to place")
+                        leaf.setToolTip(0, "Drag onto a canvas or double-click "
+                                           "to place")
                     else:
                         leaf.setData(0, _ROLE_PATH, path)
                         leaf.setFont(0, f_lib)
                         leaf.setForeground(0, dim)
-                        leaf.setToolTip(0, "In the library — double-click to "
-                                           "load into the project and place")
+                        leaf.setToolTip(0, "In the library — drag or double-click "
+                                           "to load into the project and place")
                 s_item.setExpanded((library, series) not in collapsed)
             lib_item.setExpanded((library,) not in collapsed)
 
