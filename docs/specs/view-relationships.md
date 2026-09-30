@@ -97,7 +97,7 @@ Note that **view widget** and **view scene** are *implementation details*. The s
 Consequences:
 - The snap engine is 2D (canvas input only) — see `snapping-engine.md`.
 - The pipe placement methodology is plan-view-driven — see `pipe-placement-methodology.md`.
-- `ElevationView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides pan / zoom / fit / coordinate display, no editing.
+- `ElevationView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides orbit / pan / zoom / fit, click-pick, and whole-item **delete / hide** (no geometry editing) — its behaviour contract is `view-3d.md` (§10).
 - A future "edit model geometry in elevation" capability is still a **planned extension**: the spec must not introduce constraints that preclude it (e.g. must not assume Z is invisible to view widgets).
 
 ### 3.2 Two distinct Z systems
@@ -167,7 +167,7 @@ This table enumerates every property in the data model that contributes to an ob
 |---|---|---|---|
 | **Plan** | Horizontal slab `[z_bottom, z_top]` | Top-down (-Z) | `Model_View` rendering `Model_Space` |
 | **Section** | Vertical line in plan + look direction + depth | Horizontal | `ElevationView` rendering `ElevationScene` (cardinal cut line only) |
-| **3D** | None (full model) | Camera-controlled | `View3D` (vispy/PyVista) |
+| **3D** | None (full model) | Camera-controlled | `View3D` (PyVista/VTK — `view-3d.md`) |
 
 Section as a first-class subsystem with arbitrary cut lines is **planned**, not implemented. Today only the cardinal-line specialization (elevation) exists.
 
@@ -207,7 +207,7 @@ FirePro3D's view system today is **hybrid**: some views share a scene, others re
 | **Detail** (`Model_View` with `_clip_rect`) | `Model_Space` (shared) | Same scene as plan; rendered through a clip rectangle |
 | **Paper viewport** (`PaperViewport`) | renders `Model_Space` into a target rect | Direct call to `Model_Space.render(painter, target, src)` |
 | **Elevation** (`ElevationView`) | `ElevationScene` (per-instance) | Rebuilt from the data model on demand (`ElevationScene.rebuild()` at `elevation_scene.py:614`; `ElevationManager.rebuild_all()` at `elevation_manager.py:114`); items are `ElevGridlineItem`, `ElevDatumItem`, etc. — distinct from plan items |
-| **3D** (`View3D`) | vispy/PyVista internal representation | Rebuilt from the data model |
+| **3D** (`View3D`) | PyVista/VTK actors | Rebuilt from the data model (triggers + idle-while-hidden: `view-3d.md`) |
 
 The pattern is: **plan-family views share `Model_Space`; non-plan views materialize their own representation from the data model.**
 

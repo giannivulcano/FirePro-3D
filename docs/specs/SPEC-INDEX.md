@@ -46,6 +46,7 @@
 | Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
 | **Test harness / fixtures** | `specs/test-harness.md` | `tests/`, `tests/conftest.py` | current (forged 2026-09-09 on first touch — #373/#367/#312/#375 test-infra cluster; QSettings isolation, async-worker sink lifetime, View3D stub, native-crash families; Invariant 6 orphaned-lambda destruction emit added 2026-09-23; Invariant 8 `perf`-marked timing guards run in their own process added 2026-09-29) |
 | **Settings dialogs** (Project + System) | `specs/settings-dialog.md` | `settings/panes.py`, `settings/project_settings_dialog.py`, `settings/system_settings_dialog.py`, `settings/template.py`, `main.py` (ribbon + startup/new wiring), `scene_io.py` (template clone), `scale_manager.py` (units source), `app_data.py` | current (built 2026-09-14 on `feat/settings-dialog`; closes the `preferences_dialog.py` orphan) |
+| **3D view** (PyVista/VTK projection, ViewCube, 3D pick/delete/hide, closable 3D Model tab) | `specs/view-3d.md` | `view_3d.py`, `view_cube.py`, `main.py` (3D tab lifecycle + View3D wiring), `tests/conftest.py` (View3D stub — harness rules stay under `test-harness.md`) | **partial** (forged 2026-09-30 orphan gate; as-built at `35d3c17`, as-intended I1–I16 ratified in the 2026-09-30 grill; closable-tab build pending) |
 | **Scene I/O** (`.fpd` project format) | `specs/scene-io.md` | `scene_io.py`, `network_codec.py` (per-entity encode/decode; the `_capture_network`/`_restore_network` undo path in `model_space.py` shares the dual-serialization invariant) | **partial** (forged 2026-09-17 on first touch, containment orphan-gate; current format contract code-verified, the C8 clean-drop invariant is a target pending the C1/C8 slice) |
 
 ## Orphans — no governing spec (forge on first touch)
@@ -53,6 +54,5 @@
 | Subsystem | Modules (`firepro3d/`) | Note |
 |---|---|---|
 | Thermal radiation analysis | `thermal_radiation_solver.py`, `thermal_radiation_report.py`, `fire_curves.py` | Fully implemented, undocumented. Highest-value orphan. |
-| 3D view | `view_3d.py`, `view_cube.py` | PyVista/VTK; cross-test teardown hazards (see memory). |
 
 _Backfill posture: **lazy** — these get a spec the first time a task touches them (blocking-prerequisite), not proactively._
