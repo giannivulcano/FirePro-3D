@@ -119,3 +119,44 @@ class TestIdleWhileHidden:
         v.show_radiation_heatmap(result)
         assert applied.n == 0
         assert v._pending_heatmap is result
+
+
+class TestResetEscapeCleanup:
+
+    def test_reset_for_project_takes_live_scale_manager_and_refits(self, real3d):
+        from firepro3d.scale_manager import ScaleManager
+        ms, v = real3d
+        v._first_build = False
+        v._3d_selected = [_wall(ms, 0, 0, 1000, 0)]
+        fresh = ScaleManager()
+        v.reset_for_project(fresh)
+        assert v._sm is fresh
+        assert v._first_build is True
+        assert v.get_3d_selected() == []
+        assert v._dirty is True
+
+    def test_cancel_interaction_clears_pick_and_scene_selection(self, real3d):
+        ms, v = real3d
+        w = _wall(ms, 0, 0, 1000, 0)
+        v._3d_selected = [w]
+        w.setSelected(True)
+        v.cancel_interaction()
+        assert v.get_3d_selected() == []
+        assert ms.selectedItems() == []
+
+    def test_no_slot_runs_after_cleanup(self, real3d, monkeypatch):
+        ms, v = real3d
+        errors = []
+        monkeypatch.setattr(sys, "excepthook", lambda *a: errors.append(a))
+        # Treat the view as on-screen so a still-connected request_rebuild
+        # would arm the rebuild timer (a hidden view idles by design, I6).
+        monkeypatch.setattr(v, "isVisible", lambda: True)
+        rebuilds = _Counter()
+        v.rebuild = rebuilds.wrap(v.rebuild)
+        v.cleanup()
+        ms.selectionChanged.emit()
+        ms.sceneModified.emit()
+        QTest.qWait(150)
+        assert errors == []
+        assert rebuilds.n == 0, "a scene signal reached the closed view"
+        assert not v._rebuild_timer.isActive()

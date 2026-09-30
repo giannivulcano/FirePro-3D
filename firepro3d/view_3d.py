@@ -156,10 +156,20 @@ class View3D(QWidget):
         """Release the VTK/OpenGL render window so its GL context does not
         leak past Qt teardown. Idempotent — safe to call more than once.
 
-        Qt does not deliver closeEvent to child widgets, so MainWindow must
-        call this explicitly when it closes (see MainWindow.closeEvent).
+        Stops the rebuild timer and disconnects the scene slots first so no
+        queued signal reaches a closed plotter (I11, D5). Qt does not deliver
+        closeEvent to child widgets, so MainWindow calls this explicitly.
         Leaked plotters accumulate GL contexts and crash later 3D renders.
         """
+        timer = getattr(self, "_rebuild_timer", None)
+        if timer is not None:
+            timer.stop()
+        for sig, slot in ((self._scene.sceneModified, self.request_rebuild),
+                          (self._scene.selectionChanged, self._on_2d_selection_changed)):
+            try:
+                sig.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass                          # already disconnected / scene gone
         plotter = getattr(self, "_plotter", None)
         if plotter is not None:
             try:
@@ -1452,6 +1462,18 @@ class View3D(QWidget):
         self._clear_actors("sel_overlay")
         self._clear_actors("sel_overlay_edges")
         self._render()
+
+    def reset_for_project(self, scale_manager) -> None:
+        """Re-seat the view on a newly loaded/created project (I9, D1).
+
+        Args:
+            scale_manager: The live ``scene.scale_manager`` (scene_io replaces
+                it on load/new).
+        """
+        self._sm = scale_manager
+        self._first_build = True
+        self.clear_pick()
+        self.request_rebuild()
 
     def delete_selected(self):
         """Delete the 3D pick through the scene's single delete path (I8)."""
