@@ -263,11 +263,33 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         w.view.resetTransform()
         w.view.centerOn(0, 0)
         QApplication.processEvents()
-        _click_place(w.view, QPointF(30, 20))
-        placed = [(i.block_id, i.block_rotation()) for i in w.editor_scene._block_instances]
+        es = w.editor_scene
+        depth0 = es._undo_pos
+        _click_place(w.view, QPointF(30, 20))          # ONE click (no rotate step)
+        placed = [(i.block_id, i.block_rotation()) for i in es._block_instances]
         assert placed == [(b.id, 0.0)]
+        assert es._block_instances[0].block_pos() == pytest.approx((30.0, 20.0), abs=10.0)
+        assert es._undo_pos == depth0 + 1              # one undo step
         assert len(proj._block_instances) == plan_before
         assert all(i.block_id != b.id for i in proj._block_instances)
+        # the mode stays armed with a fresh ghost; a second click nests another
+        assert es.mode == "place_block"
+        g = es._place_block_ghost
+        assert g is not None and g.scene() is es and g not in es._block_instances
+        _hover(w.view, QPointF(-60, 45))
+        shown_at = es._place_block_ghost.block_pos()    # the snapped cursor
+        _click_place(w.view, QPointF(-60, 45))
+        assert [(i.block_id, i.block_rotation()) for i in es._block_instances] == \
+            [(b.id, 0.0), (b.id, 0.0)]
+        assert es._block_instances[1].block_pos() == shown_at
+        assert shown_at == pytest.approx((-60.0, 45.0), abs=10.0)
+        # Esc exits and removes the ghost
+        g = es._place_block_ghost
+        QTest.keyClick(w.view.viewport(), Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        assert es.mode != "place_block"
+        assert es._place_block_ghost is None and g.scene() is None
+        assert len(es._block_instances) == 2
     finally:
         w.editor_scene.set_mode("select")
         main_window.block_editor_manager.close(w)
@@ -520,16 +542,27 @@ def _dclick_leaf(win, name, library_only=False):
     QApplication.processEvents()
 
 
+def _hover(view, scene_pt):
+    """A bare (no-button) MouseMove delivered synchronously to the viewport
+    (QTest.mouseMove moves the OS cursor and delivers asynchronously)."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QMouseEvent
+    ev = QMouseEvent(QEvent.Type.MouseMove, QPointF(view.mapFromScene(scene_pt)),
+                     Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                     Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(view.viewport(), ev)
+    QApplication.processEvents()
+
+
 def _click_place(view, scene_pt):
-    """place_block with real mouse input: press for position, press again at
-    the same point for 0° (anchor == cursor → the angle falls back to 0)."""
+    """place_block with real mouse input: ONE click places at 0° (the
+    rotation step was removed — smoke 2)."""
     from PyQt6.QtCore import QPoint
     vp_pt = view.mapFromScene(scene_pt)
-    for _ in range(2):
-        QTest.mouseMove(view.viewport(), vp_pt)
-        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
-                         Qt.KeyboardModifier.NoModifier, QPoint(vp_pt))
-        QApplication.processEvents()
+    _hover(view, scene_pt)
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, QPoint(vp_pt))
+    QApplication.processEvents()
 
 
 def _drop_lib_instances(scene, block_id):

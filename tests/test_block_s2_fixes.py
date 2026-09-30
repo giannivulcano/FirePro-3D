@@ -19,27 +19,24 @@ def test_block_instance_not_native_movable(qapp):
     assert not bool(inst.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
 
 
-def test_place_block_hud_schema_only_at_rotate_step(model_space):
-    # #2: the rotation schema surfaces at step 1, nothing at step 0
-    from firepro3d.dynamic_input import SCHEMAS
-    model_space._place_block_step = 0
-    assert model_space._plc._place_block_schema_for_step() is None
-    model_space._place_block_step = 1
-    assert model_space._plc._place_block_schema_for_step() is SCHEMAS.get("rotation")
-
-
-def test_place_block_hud_available_at_rotate_step(model_space):
-    # #2 (real gate): the HUD was refused because get_placement_anchor() knew no
-    # _place_block_anchor, so _hud_available() returned False despite the schema.
+def test_place_block_offers_no_rotation_hud(model_space):
+    # Smoke 2 retired the rotate step (and with it the S2 #2 rotation HUD):
+    # before and after a placement there is no schema, no anchor, and the
+    # HUD refuses to open.
     from PyQt6.QtCore import QPointF
     d = _def()
     model_space.register_block_definition(d)
     model_space.set_mode("place_block", template=d.id)
-    model_space._place_block_step = 1
-    model_space._place_block_anchor = QPointF(5.0, 7.0)
-    anc = model_space._plc.get_placement_anchor()
-    assert anc is not None and (anc.x(), anc.y()) == (5.0, 7.0)
-    assert model_space._plc._hud_available() is True
+    p = QPointF(5.0, 7.0)
+    for _ in range(2):                       # before, then after, a placement
+        model_space._move_place_block(None, p)
+        assert model_space.active_schema() is None
+        assert model_space._plc.get_placement_anchor() is None
+        assert model_space._plc._hud_available() is False
+        assert model_space.begin_dynamic_input(seed="5") is False
+        model_space._press_place_block(None, p, p, None, None, None)
+    assert [i.block_rotation() for i in model_space._block_instances] == [0.0, 0.0]
+    assert model_space.mode == "place_block"
 
 
 def test_snap_collects_block_origin_and_vertices(model_space):
@@ -53,33 +50,3 @@ def test_snap_collects_block_origin_and_vertices(model_space):
     pts = [(round(p.x()), round(p.y())) for _t, p, _n in eng._collect(inst)]
     assert (10, 0) in pts     # origin (== insertion point)
     assert (110, 0) in pts    # line far end (0,0)-(100,0) shifted by +10 x
-
-
-def test_place_block_hud_live_angle_seed(model_space):
-    # HUD Angle live-updates from the anchor→cursor heading (place_block pivot)
-    from PyQt6.QtCore import QPointF
-    from firepro3d.dynamic_input import SCHEMAS
-    d = _def()
-    model_space.register_block_definition(d)
-    model_space.set_mode("place_block", template=d.id)
-    model_space._place_block_step = 1
-    model_space._place_block_anchor = QPointF(0.0, 0.0)
-    model_space.publish_placement_state(QPointF(0.0, 0.0), QPointF(0.0, -100.0))
-    vals = model_space._plc._seed_values_for(
-        SCHEMAS.get("rotation"), model_space._plc.get_placement_anchor())
-    assert abs(vals["Angle"] - 90.0) < 1e-6   # cursor straight up = +90° Y-up
-
-
-def test_place_block_rotate_ref_lines_appear_and_clear(model_space):
-    # rotate step draws protractor guides (wall_rect parity); cleared on exit
-    from PyQt6.QtCore import QPointF
-    d = _def()
-    model_space.register_block_definition(d)
-    model_space.set_mode("place_block", template=d.id)
-    model_space._place_block_set_position(QPointF(0.0, 0.0))
-    assert model_space._place_block_ref_line0 is not None
-    assert model_space._place_block_ref_line0.scene() is model_space
-    assert model_space._place_block_ref_lineA is not None
-    model_space.set_mode(None)
-    assert model_space._place_block_ref_line0 is None
-    assert model_space._place_block_ref_lineA is None
