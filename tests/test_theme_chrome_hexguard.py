@@ -28,6 +28,8 @@ GUARDED = [
     # firepro3d/ scan, and carries pre-existing legacy hex; the revamp moved all
     # chrome styling OUT of main.py into these two token-clean rail modules.)
     "header_rail.py", "footer_rail.py",
+    # Empty-canvas placeholder (view-3d.md §10 I5).
+    "canvas_placeholder.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")
