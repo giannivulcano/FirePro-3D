@@ -244,6 +244,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_registry import BlockRegistry
         self._block_registry = BlockRegistry(self._block_definitions)
         self._block_registry.attach_scene(self)
+        # The scene that OWNS the borrowed registry (registry writes / library
+        # loads go there); None = this scene owns its own registry.
+        self._block_registry_owner = None
+        # The definition id a Block Editor scene is editing (the cycle-check
+        # host); None on the plan scene and in an unsaved editor.
+        self._editing_block_id = None
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state (Block S2 T3): 2-step position→rotate
         # machine mirroring wall_rect.  A low-opacity BlockInstance is the ghost.
@@ -1551,7 +1557,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._pipe_ctl.remove_node(n)
 
     # ── Block registry / lifecycle (S1) ──────────────────────────────────
-    def borrow_block_registry(self, registry) -> None:
+    def borrow_block_registry(self, registry, owner=None) -> None:
         """Resolve blocks through another scene's registry (Block Editor, D4).
 
         The editor keeps its own ``_block_definitions`` for its undo snapshot;
@@ -1559,8 +1565,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Args:
             registry: The project scene's ``BlockRegistry``.
+            owner: The scene that owns *registry* (where registry writes such
+                as library loads must happen); None if not known.
         """
         self._block_registry = registry
+        self._block_registry_owner = owner
         registry.attach_scene(self)
 
     @property

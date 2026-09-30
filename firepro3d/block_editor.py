@@ -261,13 +261,14 @@ class BlockEditorWidget(QWidget):
     def __init__(self, project_scene, *, block_id: str | None = None, parent=None):
         super().__init__(parent)
         self._project_scene = project_scene
-        self._edit_block_id = block_id
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
+        self._edit_block_id = block_id       # mirrored onto the scene (drop cycle host)
         # Resolve nested blocks through the PROJECT registry (D4): the editor's
         # own _block_definitions stays private to its undo snapshot.
-        self.editor_scene.borrow_block_registry(project_scene.block_registry)
+        self.editor_scene.borrow_block_registry(project_scene.block_registry,
+                                                owner=project_scene)
         # The blue placement preview-node is a pipe/sprinkler affordance the plan
         # scene suppresses while the crosshair owns the cursor (main._apply_crosshair).
         # The block editor authors only 2D geometry (which has its own ghost), so
@@ -285,6 +286,17 @@ class BlockEditorWidget(QWidget):
         self._origin_marker = None   # QGraphicsItem crosshair
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
         self.editor_scene.originPicked.connect(self._on_origin_picked)
+
+    @property
+    def _edit_block_id(self):
+        """The definition id this editor edits (None = unsaved / Save As)."""
+        return self.editor_scene._editing_block_id
+
+    @_edit_block_id.setter
+    def _edit_block_id(self, block_id) -> None:
+        # One home: the scene carries it so a drop onto the editor view can
+        # cycle-check against the edited block (nested-blocks D7).
+        self.editor_scene._editing_block_id = block_id
 
     def _on_scene_modified(self):
         self._dirty = True

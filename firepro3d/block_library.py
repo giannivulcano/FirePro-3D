@@ -273,6 +273,22 @@ def load_block_file(path: str) -> BlockDefinition | None:
         return None
 
 
+def load_block_file_with_bundle(path: str):
+    """Load a ``.fpdb`` plus the nested definitions it bundles.
+
+    Interim shim (nested-blocks Task 7): bundles arrive with the schema-2 save
+    (Task 11), which replaces this body; until then the bundle is empty.
+
+    Args:
+        path: The ``.fpdb`` file path.
+
+    Returns:
+        ``(definition, [bundled definitions])``, or None if unreadable.
+    """
+    d = load_block_file(path)
+    return (d, []) if d is not None else None
+
+
 def source_status(definition: BlockDefinition, root: str | None = None) -> str:
     """Return 'project-only' | 'library' | 'modified' for an embedded def.
 

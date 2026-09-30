@@ -103,6 +103,7 @@ class Model_View(QGraphicsView):
         # Accept drag-drop for PDF/DXF import
         self.setAcceptDrops(True)
         self._drop_highlight = False
+        self._block_drag = None     # live Blocks-browser drag state (D7)
 
         # One-time flag for initial zoom on first show
         self._first_show = True
@@ -602,10 +603,144 @@ class Model_View(QGraphicsView):
                 painter.restore()
 
     # ─────────────────────────────
+    # Drag & Drop (block drops — nested-blocks D7)
+    # ─────────────────────────────
+    # A Blocks-browser leaf dragged onto a plan view or a Block Editor view
+    # reuses place_block's ghost + snap: dragEnter enters place_block, each
+    # dragMove feeds the snapped cursor through the same move handler the
+    # mouse uses, drop places at 0° (one undo step), and leave/drop restore
+    # the prior mode. Paper / elevation views are other view classes.
+
+    _BLOCK_DROP_ROLES = ("plan", "block_editor")
+
+    @staticmethod
+    def _block_payload(event):
+        """The decoded ``MIME_BLOCK`` payload ``{"id", "path"}``, or None."""
+        from .mime_types import MIME_BLOCK
+        md = event.mimeData()
+        if not md.hasFormat(MIME_BLOCK):
+            return None
+        import json
+        try:
+            payload = json.loads(bytes(md.data(MIME_BLOCK)).decode("utf-8"))
+        except ValueError:
+            return None
+        if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
+            return None
+        return payload
+
+    def _block_drop_target_ok(self) -> bool:
+        """True when this view's scene accepts block drops (plan / editor)."""
+        sc = self.scene()
+        return (sc is not None
+                and getattr(sc, "scene_role", None) in self._BLOCK_DROP_ROLES)
+
+    @staticmethod
+    def _resolve_block_drag(sc, payload):
+        """Resolve *payload* for a drag over *sc*.
+
+        A library-only leaf is parsed into a temporary, unregistered
+        definition (nothing is loaded on hover).
+
+        Returns:
+            ``(definition | None, pool, refusal reason | None)`` — *pool* is
+            ``{id: definition}`` of the temporary file's definitions ({} when
+            the block is already in the project).
+        """
+        from . import block_library
+        reg = sc.block_registry
+        defn = reg.get(payload["id"])
+        pool: dict = {}
+        if defn is None and payload.get("path"):
+            loaded = block_library.load_block_file_with_bundle(payload["path"])
+            tmp, bundled = loaded if loaded else (None, [])
+            pool = {d.id: d for d in [tmp, *bundled] if d is not None}
+            defn = tmp
+        if defn is None:
+            return None, pool, "This block can't be read"
+        host = getattr(sc, "_editing_block_id", None)
+        if reg.would_cycle(host, defn.id, pool or None):
+            host_name = getattr(reg.get(host), "name", None) or "this block"
+            if defn.id == host:
+                return defn, pool, f"{host_name} can't contain itself"
+            return defn, pool, (f"{defn.name} contains {host_name} — "
+                                "a block can't contain itself")
+        return defn, pool, None
+
+    def _begin_block_drag(self, sc, payload, defn, pool) -> None:
+        """Enter place_block for the dragged block, remembering the mode."""
+        prev_mode = sc.mode
+        prev_tpl = (sc._place_block_id if prev_mode == "place_block"
+                    else getattr(sc, "current_template", None))
+        self._block_drag = {"prev_mode": prev_mode, "prev_template": prev_tpl,
+                            "payload": payload}
+        sc.set_mode("place_block", template=payload["id"])
+        if pool:
+            # Library-only leaf: ghost from the temporary, unregistered
+            # definition (its bundle resolves nested ids first).
+            defn._resolve = lambda i: pool.get(i) or sc.get_block_definition(i)
+            sc._place_block_make_ghost()
+            g = sc._place_block_ghost
+            if g is not None:
+                g._resolver = (lambda i, t=defn:
+                               t if i == t.id else sc.get_block_definition(i))
+                g.on_definition_changed()
+
+    def _end_block_drag(self, sc) -> None:
+        """Leave the drag's place_block and restore the remembered mode."""
+        st = self._block_drag
+        self._block_drag = None
+        if st is not None and sc is not None:
+            sc.set_mode(st["prev_mode"] or "select", template=st["prev_template"])
+
+    @staticmethod
+    def _project_scene_for(sc):
+        """The scene that owns the block registry (the editor borrows it)."""
+        return getattr(sc, "_block_registry_owner", None) or sc
+
+    def _drop_block(self, event, st) -> None:
+        """Place the dragged block at the snapped drop point (one undo step)."""
+        sc = self.scene()
+        payload = st["payload"]
+        p = sc.get_effective_position(self.mapToScene(event.position().toPoint()))
+        self._end_block_drag(sc)
+        proj = self._project_scene_for(sc)
+        if proj.get_block_definition(payload["id"]) is None:
+            path = payload.get("path")
+            summary = proj.load_blocks_from_files([path]) if path else {}
+            if proj.get_block_definition(payload["id"]) is None:
+                from . import themed_message
+                why = ("a different block already uses this name in the project"
+                       if summary.get("refused") else "the file could not be read")
+                themed_message.themed_info(self, "Load block",
+                                           f"Could not load the block: {why}.")
+                event.ignore()
+                return
+        inst = sc.place_block_instance(payload["id"], (p.x(), p.y()), rotation=0.0)
+        sc.clearSelection()
+        inst.setSelected(True)
+        sc.push_undo_state()
+        event.acceptProposedAction()
+
+    # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────
 
     def dragEnterEvent(self, event):
+        payload = self._block_payload(event)
+        if payload is not None:
+            if not self._block_drop_target_ok():
+                event.ignore()
+                return
+            sc = self.scene()
+            defn, pool, why = self._resolve_block_drag(sc, payload)
+            if why is not None:
+                sc.instructionChanged.emit(why)
+                event.ignore()
+                return
+            self._begin_block_drag(sc, payload, defn, pool)
+            event.acceptProposedAction()
+            return
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile().lower()
@@ -617,6 +752,13 @@ class Model_View(QGraphicsView):
         event.ignore()
 
     def dragMoveEvent(self, event):
+        if self._block_drag is not None:
+            sc = self.scene()
+            p = sc.get_effective_position(self.mapToScene(event.position().toPoint()))
+            sc._move_place_block(None, p)
+            self.viewport().update()
+            event.acceptProposedAction()
+            return
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 if url.toLocalFile().lower().endswith(('.pdf', '.dxf', '.dwg')):
@@ -625,11 +767,17 @@ class Model_View(QGraphicsView):
         event.ignore()
 
     def dragLeaveEvent(self, event):
+        if self._block_drag is not None:
+            self._end_block_drag(self.scene())
         self._drop_highlight = False
         self.viewport().update()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
+        st = self._block_drag
+        if st is not None:
+            self._drop_block(event, st)
+            return
         import os
         self._drop_highlight = False
         self.viewport().update()

@@ -2438,8 +2438,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene.set_mode("opening", template=tmpl)
 
     def _on_block_activated(self, block_id: str) -> None:
-        """Enter place_block mode carrying the activated block id."""
-        self.scene.set_mode("place_block", template=block_id)
+        """Enter place_block in the ACTIVE canvas (plan or Block Editor).
+
+        A block that would contain itself (the editor's block, or one that
+        nests it) is refused with the same footer reason as a drag-drop.
+        """
+        from firepro3d.model_view import Model_View
+        sc = self._active_scene()
+        _defn, _pool, why = Model_View._resolve_block_drag(
+            sc, {"id": block_id, "path": None})
+        if why is not None:
+            sc.instructionChanged.emit(why)
+            return
+        sc.set_mode("place_block", template=block_id)
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""
