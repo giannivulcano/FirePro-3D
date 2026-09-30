@@ -1,7 +1,7 @@
 ---
 status: current           # built + live-smoked (feat/mainwindow-chrome, 2026-09-19)
 last-verified: 2026-09-30  # startup-state amendment (ui/immersive sole owner; geometry blob normal-rect only); prior 2026-09-19
-verified-commit: PENDING   # prior 76757eb
+verified-commit: b643b02   # prior 76757eb
 applies-to:
   - main.py
   - firepro3d/frameless_shell.py
