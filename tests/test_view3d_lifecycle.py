@@ -160,3 +160,51 @@ class TestResetEscapeCleanup:
         assert errors == []
         assert rebuilds.n == 0, "a scene signal reached the closed view"
         assert not v._rebuild_timer.isActive()
+
+
+class TestRebuildFixes:
+
+    def test_rebuild_keeps_the_users_camera(self, real3d):          # I13 / D7
+        ms, v = real3d
+        _wall(ms, 0, 0, 3000, 0)
+        v.rebuild()                               # first build fits
+        cam = v._plotter.camera
+        cam.focal_point = (12345.0, -678.0, 90.0)
+        cam.position = (22345.0, -678.0, 90.0)
+        _wall(ms, 5000, 5000, 9000, 5000)          # geometry centroid moves
+        v.rebuild()
+        assert tuple(round(c, 3) for c in v._plotter.camera.focal_point) == (12345.0, -678.0, 90.0)
+
+    def test_h_cut_survives_rebuild(self, real3d):                  # I15 / D10
+        ms, v = real3d
+        _wall(ms, 0, 0, 3000, 0)
+        v.rebuild()
+        v._section_h_btn.setChecked(True)
+        v._toggle_horizontal_cut()                # enabling seeds the height from Level 2
+        v._h_cut_height_mm = -100.0              # below everything → all cut away
+        v.rebuild()
+        walls = [a for a in v._actors.get("walls", []) if a is not None]
+        assert walls and all(not a.GetVisibility() for a in walls)
+
+    def test_hidden_wall_hides_its_openings(self, real3d):          # I14 / D9
+        from firepro3d.wall_opening import DoorOpening
+        ms, v = real3d
+        w = _wall(ms, 0, 0, 3000, 0)
+        door = DoorOpening(w, offset_along=500.0, width_mm=900.0)
+        w.openings.append(door)
+        v._extract_openings()
+        assert v._actors.get("openings"), "precondition: a visible wall's door renders"
+        w._display_overrides = {"visible": False}
+        v._extract_openings()
+        assert not v._actors.get("openings")
+
+    def test_pipe_pick_refs_align_with_midpoints(self, real3d):     # I16 / D11
+        ms, v = real3d
+        broken = _pipe(ms, 0, 0, 1000, 0)
+        good = _pipe(ms, 0, 3000, 1000, 3000)
+        broken.node1 = None                       # skipped by extraction
+        v._extract_pipes()
+        assert len(v._pipe_refs) == len(v._pipe_midpoints_3d)
+        i = v._pipe_refs.index(good)
+        expect = (v._node_to_3d(good.node1) + v._node_to_3d(good.node2)) / 2.0
+        assert v._pipe_midpoints_3d[i] == pytest.approx(expect)

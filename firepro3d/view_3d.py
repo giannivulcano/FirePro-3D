@@ -649,21 +649,14 @@ class View3D(QWidget):
             self._on_2d_selection_changed()
         finally:
             self._plotter.suppress_rendering = False
+        if self._h_cut_enabled:
+            self._apply_horizontal_cut()      # new actors start visible (I15)
 
-        # Keep rotation center at geometry bounding box centroid
+        # Orbit pivot follows the geometry; the camera stays where the user left
+        # it (I13) — only the first build fits.
         bounds = self._compute_scene_bounds()
         if bounds is not None:
-            center, _ = bounds
-            self._orbit_center = center.copy()
-            cam = self._plotter.camera
-            dist = np.linalg.norm(np.array(cam.position) - np.array(cam.focal_point))
-            direction = np.array(cam.position) - np.array(cam.focal_point)
-            if np.linalg.norm(direction) > 1e-10:
-                direction = direction / np.linalg.norm(direction)
-            else:
-                direction = np.array([1.0, 1.0, 1.0]) / math.sqrt(3)
-            cam.focal_point = tuple(center)
-            cam.position = tuple(center + direction * dist)
+            self._orbit_center = bounds[0].copy()
 
         if self._first_build:
             self._fit_camera()
@@ -730,7 +723,8 @@ class View3D(QWidget):
     def _extract_pipes(self):
         self._clear_actors("pipes")
         pipes = [p for p in self._scene.sprinkler_system.pipes
-                 if self._is_visible(p)]
+                 if self._is_visible(p)
+                 and p.node1 is not None and p.node2 is not None]
         self._pipe_refs = pipes
         if not pipes:
             self._pipe_midpoints_3d = None
@@ -739,8 +733,6 @@ class View3D(QWidget):
         mids = []
         pipe_data = []  # (p1, p2, color_name, radius_mm)
         for p in pipes:
-            if p.node1 is None or p.node2 is None:
-                continue
             p1 = self._node_to_3d(p.node1)
             p2 = self._node_to_3d(p.node2)
             mids.append((p1 + p2) / 2.0)
@@ -964,7 +956,11 @@ class View3D(QWidget):
             return
         lm = self._lm
         for wall in getattr(scene_obj, "_walls", []):
+            if not self._is_visible(wall):
+                continue                      # a hidden wall hides its openings (I14)
             for op in getattr(wall, "openings", []):
+                if not self._is_visible(op):
+                    continue
                 mesh_dicts = op.get_3d_meshes(level_manager=lm)
                 for md in mesh_dicts:
                     verts = np.array(md["vertices"], dtype=np.float32)
