@@ -281,7 +281,8 @@ def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
         nested_b.on_definition_changed = lambda: calls.__setitem__("editor", calls["editor"] + 1)
         wb.editor_scene._draw_lines[0].translate(0.0, 50.0)
         wb.commit_block(b.name, b.library, b.series)
-        assert calls["plan"] >= 1 and calls["editor"] >= 1
+        assert calls["plan"] >= 1
+        assert calls["editor"] >= 1
         assert plan_a.render_ops()[1][2].boundingRect().top() == 50.0
     finally:
         for w in (wa, wb):
