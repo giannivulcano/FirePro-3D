@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
                               QTabWidget, QTabBar, QMenu, QWidget,
                               QComboBox, QDoubleSpinBox, QFormLayout,
-                              QToolButton, QProgressDialog)
+                              QToolButton, QProgressDialog, QStackedWidget)
 from firepro3d.themed_message import (
     themed_info, themed_warn, themed_error, themed_confirm, themed_choice,
     themed_input_choice,
@@ -16,7 +16,7 @@ from firepro3d.themed_message import (
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
-from firepro3d.model_space import Model_Space
+from firepro3d.model_space import Model_Space, NO_VIEW_HINT
 from firepro3d.model_view import Model_View
 from firepro3d.text_item import editing_text_item
 from firepro3d.sprinkler import Sprinkler
@@ -130,9 +130,11 @@ class _CanvasTabBar(QTabBar):
     """Canvas tab bar: installs a custom header-style close dot on every tab
     (tabInserted) so the close affordance matches the header window dots. Emits
     ``tabCloseClicked(index)`` — the owner protects core tabs by removing their
-    button (setTabButton(..., None))."""
+    button (setTabButton(..., None)). Emits ``countChanged(count)`` after any
+    tab insert/remove so the owner can swap in the empty-canvas placeholder."""
 
     tabCloseClicked = pyqtSignal(int)
+    countChanged = pyqtSignal(int)   # after any insert/remove (empty-canvas swap)
 
     def __init__(self, normal, hover, parent=None):
         super().__init__(parent)
@@ -151,6 +153,11 @@ class _CanvasTabBar(QTabBar):
         lay.addWidget(btn)
         btn.clicked.connect(lambda _=False, w=wrap: self._emit_close(w))
         self.setTabButton(index, QTabBar.ButtonPosition.RightSide, wrap)
+        self.countChanged.emit(self.count())
+
+    def tabRemoved(self, index):
+        super().tabRemoved(index)
+        self.countChanged.emit(self.count())
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -275,10 +282,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.central_tabs.setTabBar(_bar)
         _bar.tabCloseClicked.connect(self._on_tab_close_requested)
         self.central_tabs.addTab(self.view_3d, "3D Model")
-        # Protect core tabs from being closed (remove their close dot)
-        for i in range(self.central_tabs.count()):
-            self.central_tabs.tabBar().setTabButton(
-                i, QTabBar.ButtonPosition.RightSide, None)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self._splash_progress(60, "Building ribbon toolbar...")
@@ -338,7 +341,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _cl = QVBoxLayout(_center)
         _cl.setContentsMargins(0, 2, 0, 0)
         _cl.setSpacing(0)
-        _cl.addWidget(self.central_tabs)
+        # Canvas stack: the tab widget, or the empty-canvas placeholder when
+        # every tab is closed (view-3d.md I5).
+        from firepro3d.canvas_placeholder import EmptyCanvasPlaceholder
+        self._canvas_stack = QStackedWidget()
+        self._canvas_stack.addWidget(self.central_tabs)
+        self._empty_canvas = EmptyCanvasPlaceholder()
+        self._canvas_stack.addWidget(self._empty_canvas)
+        _cl.addWidget(self._canvas_stack)
+        _bar.countChanged.connect(self._on_canvas_count_changed)
+        from firepro3d.view3d_tab import View3DTabController
+        self.view3d_tab = View3DTabController(
+            self.central_tabs, self.view_3d, self.settings)
         _cw_lay.addWidget(_center, 1)
         _cw_lay.addWidget(_vline())
         self.setCentralWidget(_canvas_wrap)
@@ -384,6 +398,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.project_browser.activateElevation.connect(self._activate_elevation)
         self.project_browser.activatePlanView.connect(self._activate_plan_view)
         self.project_browser.activateDetailView.connect(self._activate_detail_view)
+        self.project_browser.activate3DView.connect(self.view3d_tab.open)
+        from firepro3d.constants import DEFAULT_LEVEL
+        self._empty_canvas.open3DRequested.connect(self.view3d_tab.open)
+        self._empty_canvas.openPlanRequested.connect(
+            lambda: self._activate_plan_view(
+                self.scene.active_level or DEFAULT_LEVEL))
         self.project_browser.deleteDetailView.connect(self._delete_detail_view)
         self.level_widget.levelsChanged.connect(self.project_browser.refresh_levels)
 
@@ -702,6 +722,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Defer recovery check until after the window is fully shown
         QTimer.singleShot(500, self._check_recovery)
+
+        # Restore the 3D Model tab's last open/closed state (view-3d.md I4).
+        self.view3d_tab.apply_startup_pref()
 
     def _splash_progress(self, value: int, message: str = ""):
         """Update the splash screen progress bar if present."""
@@ -1090,13 +1113,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._update_font_group_context()
 
     def _on_tab_close_requested(self, index: int):
-        """Close a view tab (Plan/Elevation). Core tabs are protected."""
+        """Close a canvas tab. The 3D Model and paper tabs are keep-alive
+        singletons: closing hides them (view-3d.md I1/I2), never deletes."""
         tab_text = self.central_tabs.tabText(index)
-        # Never close the 3D Model tab
-        if tab_text == "3D Model":
+        widget = self.central_tabs.widget(index)
+        if widget is self.view_3d:              # keep-alive singleton (I1/I2)
+            self.view3d_tab.close()
             return
         from firepro3d.block_editor import BlockEditorWidget
-        widget = self.central_tabs.widget(index)
         if isinstance(widget, BlockEditorWidget):
             widget.editor_scene.commit_text_edit()   # end any live inline edit
             # BEFORE is_dirty(): the dirty flag is set only by sceneModified
@@ -1117,13 +1141,34 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             direction = tab_text[len("Elevation: "):].lower()
             self.elevation_manager._views.pop(direction, None)
         # The paper tab is a persistent singleton (self.paper_space_widget,
-        # re-added on demand by _activate_paper_sheet) — like the protected
-        # "3D Model" tab. removeTab reparents it out; deleting it here would
+        # re-added on demand by _activate_paper_sheet) — like the keep-alive
+        # "3D Model" tab. removeTab hides it (it stays parented to the tab
+        # widget's internal stack); deleting it here would
         # destroy the C++ object while self.paper_space_widget still points at
         # it, so the next paper access (indexOf) raises "wrapped C/C++ object
         # ... has been deleted". Only dispose genuinely disposable view tabs.
         if widget is not None and widget is not self.paper_space_widget:
             widget.deleteLater()
+
+    def _on_canvas_count_changed(self, count: int) -> None:
+        """Swap in the empty-canvas placeholder when no tab is open (I5).
+
+        Args:
+            count: The canvas tab bar's tab count after the insert/remove.
+        """
+        if count > 0:
+            self._empty_canvas.set_rail_height(
+                self.central_tabs.tabBar().sizeHint().height())
+            self._canvas_stack.setCurrentWidget(self.central_tabs)
+        else:
+            from firepro3d.constants import DEFAULT_LEVEL
+            self._empty_canvas.set_active_level(
+                self.scene.active_level or DEFAULT_LEVEL)
+            self._canvas_stack.setCurrentWidget(self._empty_canvas)
+            # Disarm BEFORE refusing modes: set_mode("select") is always allowed.
+            if self.scene.mode not in (None, "select"):
+                self.scene.set_mode("select")
+        self.scene.view_available = count > 0
 
     def _close_stale_view_tabs(self):
         """Remove all Plan/Elevation/Detail view tabs left from a prior project.
@@ -3931,6 +3976,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the opened project has no such level (and old Elevation/Detail tabs
         # carry over too).
         self._close_stale_view_tabs()
+        # Re-seat the keep-alive 3D view on the loaded project (I9).
+        self.view_3d.reset_for_project(self.scene.scale_manager)
         # Re-apply level visibility — activate the saved level's plan tab
         # so view_height/view_depth are applied from the loaded PlanView data.
         active = getattr(self.scene, "active_level", None)
@@ -4126,6 +4173,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _settings_template.apply_template_settings(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.
         self._sync_editor_units()
+        # Re-seat the keep-alive 3D view on the new project (I9) — after the
+        # template, which replaces scene.scale_manager.
+        self.view_3d.reset_for_project(self.scene.scale_manager)
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -4227,9 +4277,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Elevation views
         if hasattr(self, "elevation_manager"):
             self.elevation_manager.rebuild_all()
-        # 3D view
-        if hasattr(self, "view_3d") and hasattr(self.view_3d, "rebuild"):
-            self.view_3d.rebuild()
+        # 3D view (coalesced; idles while the 3D tab is hidden — I6)
+        if hasattr(self, "view_3d"):
+            self.view_3d.request_rebuild()
 
     def _on_escape(self):
         """Escape: cancel current chain in pipe mode, else reset mode."""
@@ -4248,16 +4298,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         sc.set_mode("select")
         sc.clearSelection()
-        self.view_3d._on_escape()
+        self.view_3d.cancel_interaction()
 
     def _delete_if_not_editing(self):
         """Delete selected items unless a text item is being edited."""
+        if not self.scene.view_available:
+            self.footer.set_instruction(NO_VIEW_HINT)
+            return
         sc = self._active_scene()
         focus = sc.focusItem()
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
             return  # let the text editor handle Delete
-        # Check 3D-only selection first (plan scene only; editor has no 3D)
-        if sc is self.scene and self.view_3d.get_3d_selected():
+        # The 3D-only pick is deleted only from the 3D tab itself (I7) — a
+        # stale pick must never hijack Delete in a plan.
+        if sc is self.scene and self.central_tabs.currentWidget() is self.view_3d \
+                and self.view_3d.get_3d_selected():
             self.view_3d.delete_selected()
             return
         sc.delete_selected_items()
@@ -4670,6 +4725,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from PyQt6.QtWidgets import QApplication, QLineEdit, QTextEdit, QPlainTextEdit
         fw = QApplication.focusWidget()
         if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
+            return
+        if not self.scene.view_available:       # empty canvas (I5)
+            self.footer.set_instruction(NO_VIEW_HINT)
             return
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
             return
