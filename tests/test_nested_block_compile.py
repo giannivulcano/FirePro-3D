@@ -369,3 +369,78 @@ def test_nested_placeholder_pen_is_cosmetic(qapp):
     sc.register_block_definition(a)
     ph = [op for op in a.render_ops() if op[0].color() == QColor("#c0392b")]
     assert ph and ph[0][0].isCosmetic()
+
+
+# ── Task 13: missing nested definitions warn on load (D12; AC14) ─────────────
+
+def test_project_load_warns_about_missing_nested_blocks(qapp, tmp_path, monkeypatch):
+    proj = Model_Space()
+    a = _line_def("A", extra=[_nested("deadbeef", 0, 0)])
+    proj.register_block_definition(a)
+    proj.place_block_instance(a.id, (0.0, 0.0))
+    path = str(tmp_path / "p.fpd")
+    proj.save_to_file(path)
+    warned = []
+    monkeypatch.setattr("firepro3d.themed_message.themed_warn",
+                        lambda *args, **k: warned.append(args))
+    fresh = Model_Space()
+    fresh.load_from_file(path)
+    texts = [" ".join(map(str, w)) for w in warned]
+    assert any("Missing Nested Blocks" in t and "deadbeef" in t and "used in A" in t
+               for t in texts)
+    assert a.id in fresh._block_definitions      # A still loads
+    assert len(fresh._block_instances) == 1      # ... and its placed instance
+
+
+def test_project_load_without_missing_nested_blocks_does_not_warn(qapp, tmp_path, monkeypatch):
+    proj = Model_Space()
+    b = _line_def("B")
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    proj.register_block_definition(b); proj.register_block_definition(a)
+    path = str(tmp_path / "p.fpd")
+    proj.save_to_file(path)
+    warned = []
+    monkeypatch.setattr("firepro3d.themed_message.themed_warn",
+                        lambda *args, **k: warned.append(args))
+    Model_Space().load_from_file(path)
+    assert not any("Missing Nested" in " ".join(map(str, w)) for w in warned)
+
+
+def test_library_load_summary_lists_missing_nested(qapp, tmp_path):
+    import json
+    a = _line_def("A", extra=[_nested("deadbeef", 0, 0)])
+    path = str(tmp_path / "a.fpdb")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(a.to_dict(), fh)                   # schema 1, no bundle
+    sc = Model_Space()
+    summary = sc.load_blocks_from_files([path])
+    assert a.id in sc._block_definitions
+    assert summary["missing"] == ["deadbeef"]
+
+
+def test_load_summary_text_reports_loops_and_missing(qapp, tmp_path):
+    """The Block Manager's Load-from-Library summary names a looping file's
+    reason and the missing nested blocks (not "name in use")."""
+    import json
+    from firepro3d import block_library
+    from firepro3d.block_manager import _format_load_summary
+    c = _line_def("C"); b = _line_def("B", extra=[_nested(c.id, 0, 0)])
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    looping_c = BlockDefinition.from_dict(c.to_dict())
+    looping_c.primitives.append(_nested(a.id, 0, 0))
+    loop = str(tmp_path / "loop.fpdb")
+    rec = b.to_dict(); rec["schema"] = 2; rec["bundled"] = {c.id: looping_c.to_dict()}
+    with open(loop, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh)
+    orphan = _line_def("Orphan", extra=[_nested("deadbeef", 0, 0)])
+    orphan_path = str(tmp_path / "orphan.fpdb")
+    with open(orphan_path, "w", encoding="utf-8") as fh:
+        json.dump(orphan.to_dict(), fh)
+    sc = Model_Space()
+    sc.register_block_definition(a)
+    summary = sc.load_blocks_from_files([loop, orphan_path])
+    text = _format_load_summary(summary)
+    assert "can't contain itself" in text and "name in use" not in text
+    assert "nested block(s) missing" in text
+    assert block_library.load_failure_message("B", sc.load_blocks_from_files([loop])) \
+        == "Could not load \u201cB\u201d: a block can't contain itself."

@@ -419,6 +419,19 @@ class SceneIOMixin:
             inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
             inst.attributes = dict(bdict.get("attributes", {}))
         self.blockDefinitionsChanged.emit()
+        # Nested definitions the file lacks draw as red placeholders (D12).
+        missing = self._block_registry.missing_nested()
+        if missing:
+            from .themed_message import themed_warn
+            lines = "\n".join(
+                f"  • {mid} (used in "
+                f"{', '.join(sorted(self._block_definitions[u].name for u in users))})"
+                for mid, users in sorted(missing.items()))
+            themed_warn(
+                None, "Missing Nested Blocks",
+                f"{len(missing)} nested block(s) could not be found:\n\n{lines}\n\n"
+                "They are drawn as red placeholders. Load the missing blocks "
+                "from the library to fix them.")
 
         # --- Design-area tiles (now that walls & rooms exist) ---
         for da in self.design_areas:

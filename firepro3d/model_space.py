@@ -1685,7 +1685,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
           - else                     -> embed
         The whole batch is ONE undo state and ONE ``blockDefinitionsChanged``
         emit (guards against N model resets). Returns name lists:
-        ``{loaded, replaced, skipped, refused, failed}``.
+        ``{loaded, replaced, skipped, refused, failed, missing}`` — *missing*
+        is the sorted ids of nested definitions still absent afterwards (they
+        draw as red placeholders, D12).
 
         A schema-2 file's bundled nested definitions are added only when their
         id is absent (the project copy wins, D11). A file that would form a
@@ -1695,7 +1697,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         from . import block_library
         summary = {"loaded": [], "replaced": [], "skipped": [],
-                   "refused": [], "failed": []}
+                   "refused": [], "failed": [], "missing": []}
         changed = False
         for path in paths:
             loaded = block_library.load_block_file_with_bundle(path)
@@ -1704,7 +1706,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 continue
             defn, bundled = loaded
             if self._load_would_cycle(bundled, defn):
-                summary["refused"].append(f"{defn.name} (a block can't contain itself)")
+                summary["refused"].append(
+                    f"{defn.name} ({block_library.LOOP_REASON})")
                 continue
             for dep in bundled:                              # project copy wins
                 if dep.id != defn.id and self.get_block_definition(dep.id) is None:
@@ -1729,6 +1732,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
             changed = True
+        summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:
             self.push_undo_state()
             self.blockDefinitionsChanged.emit()

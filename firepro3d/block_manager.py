@@ -34,10 +34,16 @@ def _format_load_summary(summary: dict) -> str:
         parts.append(f"replaced {len(summary['replaced'])}")
     if summary["skipped"]:
         parts.append(f"skipped {len(summary['skipped'])} (already present)")
-    if summary["refused"]:
-        parts.append(f"refused {len(summary['refused'])} (name in use)")
+    loops = [r for r in summary["refused"] if block_library.LOOP_REASON in r]
+    in_use = len(summary["refused"]) - len(loops)
+    if in_use:
+        parts.append(f"refused {in_use} (name in use)")
+    if loops:
+        parts.append(f"refused {len(loops)} ({block_library.LOOP_REASON})")
     if summary["failed"]:
         parts.append(f"{len(summary['failed'])} unreadable")
+    if summary.get("missing"):
+        parts.append(f"{len(summary['missing'])} nested block(s) missing")
     return " · ".join(parts) if parts else "Nothing to load."
 
 

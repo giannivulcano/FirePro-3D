@@ -18,6 +18,8 @@ from .block_definition import BlockDefinition
 
 _log = logging.getLogger(__name__)
 _INDEX = "index.json"
+# Load-summary refusal reason for a file that would nest a block in itself.
+LOOP_REASON = "a block can't contain itself"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
@@ -294,8 +296,13 @@ def load_failure_message(name: str, summary: dict) -> str:
     Returns:
         ``Could not load “name”: <why>.``
     """
-    why = ("a different block already uses this name in the project"
-           if summary.get("refused") else "the file could not be read")
+    refused = summary.get("refused") or []
+    if any(LOOP_REASON in r for r in refused):
+        why = LOOP_REASON
+    elif refused:
+        why = "a different block already uses this name in the project"
+    else:
+        why = "the file could not be read"
     return f"Could not load “{name}”: {why}."
 
 
