@@ -175,6 +175,45 @@
 - [ ] [type:feature] SBV — Valve element (prerequisite for valve tags) [P3] [subject:Architecture]
   - Details: surfaced by the System Blocks concept (Q7) — no valve element exists anywhere (grep 0 hits). Likely an Architectural-style Feature/fitting on the pipe network with a Mark; needs its own design pass. Valve tags then come free via SB6.
 
+## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
+
+One constraint type per session, in order (spec §12). Every session: §11 guard tests (math / real-scene E2E drag / save-reopen / undo / diagnostics pixel-sampled / ribbon+icon) → full suite → user smoke + approval → flip the spec's §7.3/§12 row to built + stamp `verified-commit` → reconcile smoke deltas → only then the next session. Decisions D1–D20 + B1–B4 are ratified (2026-09-29 grill); do not re-litigate — a session pins only its own catalogue row (ref order, helper fields, degenerate cases) before building.
+
+- [ ] [type:feature] CS1 — Constraint foundation + Horizontal [P2] [subject:CAD]
+  - Details: spec §3/§5/§6/§7/§8/§10, D1–D20. Mockup gates FIRST (before code): (1) whole constraint icon-family contact sheet (15 types + Smart Dimension + Inspect toggles; 48-unit two-token; real loader at 54/27/16 px, light+dark), (2) Constraints property-panel container + canvas glyph/tint look. Build: pure `sketch_model.py` (enum = whole catalogue, REGISTRY, records, file format), `sketch_solver.py` (numpy weighted min-change projection, union-find components + equality substitution, SVD DOF), `sketch_adapters.py` (per-primitive variables/handles/write-back); Qt `constraint_controller.py` (block_editor role only; drag / typed_edit / transform_commit / delete seams; D17 dry-run refusal), `constraint_paint.py` (origin cross + X/Y axes, glyphs, tint). Primitive `uid` on every primitive dict (legacy assigned on load; copies mint new); `"constraints"` key on `BlockDefinition` (additive, no schema bump; inert round-trip of unknown types). D4: origin fixed at scene (0,0) — migrate non-zero `origin` by translating primitives; retire the Set Origin tool + red marker; import/make-from-selection translate the base point to (0,0). Ribbon: Constrain (Smart Dimension button arrives in CS4) + Inspect groups after Modify on the Block Editor page. Horizontal (edge or 2 points). Retire (VC5 whole-repo grep, coupled tests rewritten/retired): `constraints.py`, `constraint_concentric`/`constraint_dimensional` modes + pickers, `SceneTools._solve_constraints` call sites (reroute to controller), `Model_View.drawForeground` §3b (latent AttributeError on non-dimensional constraints), the plan-scene geo2d Constraints group (its buttons armed the plan scene), `_PadlockItem` + `AlignmentConstraint`. Perf test: the §9 bench against the real solver (worst-case one-component + realistic) must meet D18 (drag ≤ 8 ms, commit ≤ 50 ms, open ≤ 200 ms). `block_definition.py`, `block_editor.py`, `geometry_2d.py`, `text_item.py`, `block_instance.py`, `model_space.py`, `scene_tools.py`, `manip_handle.py`, `selection_manipulator.py`, `modify_tools_controller.py`, `selection_readouts.py`, `model_view.py`, `main.py`, property panel, `graphics/Ribbon/`.
+- [ ] [type:feature] CS2 — Vertical + diagnostics (DOF badge, D10 tint toggle, amber redundant / red conflicting, hold-last-good) [P2] [subject:CAD]
+  - Details: spec §7.4, D9/D10. H+V on one line = first conflict guard. Depends CS1.
+- [ ] [type:feature] CS3 — Coincident (point↔point, point↔origin, point-on-curve / point-on-axis) [P2] [subject:CAD]
+  - Details: spec §7.3. The primary way to keep drawn shapes joined (D8: snaps never constrain) — make it one click + two picks. Depends CS2.
+- [ ] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P2] [subject:CAD]
+  - Details: spec D7/D12, §10. Persisted dims reuse `readout_paint` + the readout HUD editor; label placement picks aligned/Δx/Δy; a permanent dim suppresses its transient readout. Depends CS3.
+- [ ] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P2] [subject:CAD]
+  - Details: spec §7.3 (atan2 angle residual, from refs[0] to refs[1] CCW Y-up). Depends CS4.
+- [ ] [type:feature] CS6 — Concentric [P2] [subject:CAD]
+  - Details: spec §7.3 (substituted). Depends CS5.
+- [ ] [type:feature] CS7 — Symmetric (about an edge, X/Y axis, or reference line) [P2] [subject:CAD]
+  - Details: spec D13, §7.3 (2 DOF; entity pairs expand to handle pairs). Mirror stays an unlinked scene tool. Depends CS6.
+- [ ] [type:feature] CS8 — Fix [P3] [subject:CAD]
+  - Details: spec §7.3. Depends CS7.
+- [ ] [type:feature] CS9 — Parallel [P3] [subject:CAD]
+  - Details: spec §7.3 (normalized cross). Depends CS8.
+- [ ] [type:feature] CS10 — Perpendicular [P3] [subject:CAD]
+  - Details: spec §7.3 (normalized dot). Depends CS9.
+- [ ] [type:feature] CS11 — Equal (lengths / radii) [P3] [subject:CAD]
+  - Details: spec §7.3 (unsquared). Depends CS10.
+- [ ] [type:feature] CS12 — Tangent (line–arc/circle, arc–arc) [P3] [subject:CAD]
+  - Details: spec §7.3 (signed distance + `helper.side` / `helper.internal`). Depends CS11.
+- [ ] [type:feature] CS13 — Midpoint [P3] [subject:CAD]
+  - Details: spec §7.3. Depends CS12.
+- [ ] [type:feature] CS14 — Collinear [P3] [subject:CAD]
+  - Details: spec §7.3. Depends CS13.
+- [ ] [type:feature] CS15 — Smart Dimension: point–line distance [P3] [subject:CAD]
+  - Details: spec §7.3 (signed, side in `helper`). Depends CS14. After CS15 the spec `status` → current.
+- [ ] [type:maint] Retire the Align tool (Shift+L, mode `"align"`, `_execute_align`) — redundant with Move + the snap system [P3] [subject:CAD]
+  - Details: user, 2026-09-29 constraint grill (D2). ALIGN *tracking* in the snap system stays — only the Align modify tool goes. The padlock/`AlignmentConstraint` half is retired by CS1; if this runs first, retire both. Whole-repo grep (`"align"` mode, `_press_align`, `_execute_align`, Shift+L shortcut, `tests/test_align_tool.py`, `docs/superpowers/specs/2026-04-30-align-tool-design.md`, `scene-tools.md`). Confirm with the user that nothing else rides on the tool before removal.
+- [ ] [type:bug] Explode drops a closed polyline's closing segment [P3] [subject:CAD]
+  - Details: found reading code in the 2026-09-29 constraint grounding (NOT reproduced yet — run the repro first): `SceneTools.explode_selected_items` loops `range(len(pts)-1)` and ignores `_closed`, so a closed N-vertex polyline explodes to N−1 lines. `scene_tools.py`. ref: scene-tools.md.
+
 ## Underlay Import dialog
 
 - [ ] [type:maint] DRY the Modify pending-state consume [P3] [subject:Code Quality]
@@ -510,8 +549,6 @@
   - Details: 16 tools in `SceneToolsMixin` — offset (line intersection, polyline offset), array (linear/polar, 200-copy preview cap), rotate/scale/mirror (anchor point transforms), join/explode (merge segments, decompose groups), break/break-at-point (segment splitting), fillet/chamfer, stretch (crossing-window selection), trim/extend (to intersections), merge/hatch (polygon merging, fill patterns), constraints (creation and solving). Per-tool workflow, algorithm, edge cases, and mode state machine integration. `scene_tools.py`.
 - [ ] [type:design] Spec session: auto-populate sprinkler placement algorithm [P3] [subject:Architecture]
   - Details: NFPA 13 density/area curve interpolation, polygon decomposition into rectangles (scanline), branch-line direction detection (1/2/3+ pipe logic), `_walk_branch()` algorithm, wall-proximity 2× rule, edge cases (L-shaped rooms, concave rooms, dead-end branches, multiple design areas). `auto_populate_dialog.py`, `design_area.py`.
-- [ ] [type:design] Spec session: parametric constraint system [P2] [subject:Architecture]
-  - Details: extend foundation spec (`docs/specs/parametric-constraint-system.md`) with resolution order design, over-constrained detection, constraint visualization, editing UI, dependency graph, and new constraint types (H/V lock, equal spacing, tangent, parallel, perpendicular, fix/pin). Foundation spec covers existing 3 types + solver + serialization + lifecycle. `constraints.py`.
 - [ ] [type:design] Spec session: annotations & hatch patterns [P3] [subject:Architecture]
   - Details: NoteAnnotation (MText-like word-wrap, bold/italic, alignment), DimensionAnnotation (two-point + offset witness lines), HatchItem (region fill with constraint interaction), SVG hatch pattern loader (24×24 viewBox tiling, seamless rules), built-in Qt brush patterns. `annotations.py`, `hatch_patterns.py`.
 
