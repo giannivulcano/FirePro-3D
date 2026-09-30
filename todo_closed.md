@@ -2,6 +2,26 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## System Blocks — concept design — 2026-09-29
+
+- [x] [type:design] System Blocks — author the app's own 2D annotation graphics (tags, labels, gridlines, markers, symbols) as blocks in a System library, with attributes bound to host-element data [P2] [subject:Architecture] [done:2026-09-29]
+  - Details: user, 2026-09-29. Design/Large run: 1b reuse sweep (3 Explore agents) → grill Q1–Q16 → brainstorm F1–F8 → concept doc `docs/superpowers/specs/2026-09-29-system-blocks-concept-design.md` (`76e835d`, branch `docs/system-blocks-concept`).
+  - **Findings:** **Verdict: build it, with a reassessment checkpoint after the SB3 room-tag slice.** "System Blocks" is two projects.
+    - **(A) Block side.** Bound `@[key]` text and a split static/bound render cache, a read-only System library tier, and annotative sizing via a new `PlanView.scale`. Moderate, mostly generalizing what exists.
+    - **(B) Element side.** A typed parameter registry, Marks, stable uids and hosting. Foundational; only placed tags need the uid/hosting half.
+    - **Intrinsic labels need no ids**, so they go first (SB1–SB4) and placed tags later (SB5–SB7).
+    - **Two kinds:** intrinsic labels (element-owned `BoundLabelItem`) and placed tags (`HostedTagItem`).
+    - **Composite rule:** parametric items stay bespoke but take their fixed sub-graphics from blocks. This resolves the folded reference-graphics blocker.
+    - **Containment C9** gains a host-bound-annotation class (pointer added to C9).
+    - **F6 sizing** stays a proposal pending its probe (first step of SB1c).
+    - **Follow-ups filed:** SB1a, SB1b, SB1c, SB2, SB3, SB4a–g, SB5, SB6, SB7 and the Valve element.
+- [x] [type:design] Redefine reference/annotation graphics (gridlines, elevation markers, section cuts, detail markers, …) as block-backed composites [P3] [subject:Architecture] [done:2026-09-29]
+  - Details: user, 2026-09-21. **Superseded** by the System Blocks concept (folded into that run). Its blocker (parametric + screen-fixed) is resolved by the composite rule (Q9) and view-scale annotative sizing (F6). The conversions are filed as SB4b (plan bubble), SB4c (elevation bubble + datum) and SB4d (elevation-marker head + detail-callout bubble). Section cuts: no section marker exists yet (the section-view subsystem is still a proposal).
+- [x] [type:feature] Block attributes — author text/numeric attributes on a block definition; placed instances carry a reference level; `=[AttributeName]` dimension binding deferred to the constraints subsystem [P2] [subject:Architecture] [done:2026-09-29]
+  - Details: user, 2026-09-23. **Absorbed** into SB1a (instance-entered attribute source, System Blocks concept Q11/F3). The reference level on placement already landed with containment C3. The deferred `=[AttributeName]` dimension-driven geometry stays with the parametric-constraint spec session.
+- [x] [type:feature] Pipe labels adopt the §9.9 true-scale mechanism [P3] [subject:CAD] [done:2026-09-29]
+  - Details: **Superseded** by SB1c (a single annotative override replaces the per-category §9.9 helpers) plus SB4a (the pipe label becomes a System block; per-pipe Label Size retires, Q13). The pipe label colour part was already done 2026-09-03.
+
 ## Snap polish batch (curve accuracy, ALIGN×SNAP one picker, PER-from, move handle-snap, polyline/polygon Ctrl, text snaps) — 2026-09-25
 
 - [x] [type:bug] Snap marker z-order over grip during snapped grip-drag [P3] [subject:UX] [done:2026-09-25]
