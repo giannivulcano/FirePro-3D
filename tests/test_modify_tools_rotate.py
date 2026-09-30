@@ -283,20 +283,31 @@ def test_rotated_text_about_far_pivot_is_rigid_and_persists(qapp, name):
         close_view(view, scene)
 
 
-def _block_instance(scene):
-    from firepro3d.block_instance import BlockInstance
-    inst = BlockInstance(block_id="deadbeef", resolver={}.get)
-    scene.addItem(inst)
-    scene._block_instances.append(inst)
-    return inst
+def _non_rotatable(scene):
+    """A translatable item Rotate cannot turn.
+
+    Block instances used to be the fixture here, but they rotate now (the
+    scene Rotate tool rotates placed blocks), so use a real LineItem whose
+    ``manip_capabilities()`` narrows "rotate" away.
+    """
+    from firepro3d.geometry_2d import LineItem
+
+    class _TranslateOnlyLine(LineItem):
+        def manip_capabilities(self):
+            return {"translate"}
+
+    ln = _TranslateOnlyLine(QPointF(0, 50), QPointF(100, 50))
+    scene.addItem(ln)
+    scene._draw_lines.append(ln)
+    return ln
 
 
 def test_rotate_dims_only_what_it_rotates(qapp):
-    """M1: a selected item Rotate cannot turn (no manip_rotate) is not dimmed."""
+    """M1: a selected item Rotate cannot turn (no "rotate" capability) is not dimmed."""
     view, scene = make_view(scale=1.0)
     try:
         item, _ = add_primitive(scene, "line")
-        inst = _block_instance(scene)
+        inst = _non_rotatable(scene)
         inst.setSelected(True)
         scene._modify_ctl.start("rotate")
         assert item.opacity() == pytest.approx(0.35)      # the rotatable one is
@@ -309,7 +320,7 @@ def test_nothing_to_rotate_pushes_no_undo(qapp):
     """M3: only non-rotatable items selected -> no undo step, status says so."""
     view, scene = make_view(scale=1.0)
     try:
-        inst = _block_instance(scene)
+        inst = _non_rotatable(scene)
         scene.push_undo_state()
         scene.clearSelection()
         inst.setSelected(True)

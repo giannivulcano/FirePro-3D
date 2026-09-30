@@ -337,8 +337,8 @@ Where these disagree with a D-section above, **these win** (verified against `34
 - **Block placement is one click at 0°** (smoke 2). The rotation half of block-system Decision 8
   is **retired**; repeat-until-Esc is kept; `place_block` has no Dynamic-Input HUD (it left
   `_APPLIER_FOR_MODE`; the coordinator's place_block anchor / schema / seed branches are gone).
-  Afterwards a block is rotated through its Rotation property row — the scene Rotate tool cannot
-  turn a `BlockInstance` yet (no `manip_rotate`; known gap).
+  Afterwards a block is rotated with Modify ▸ Rotate (plan and Block Editor —
+  `BlockInstance.manip_rotate`, pre-merge fix) or through its Rotation property row.
 
 ### Divergences from the design
 

@@ -103,6 +103,23 @@ class BlockInstance(QGraphicsObject):
         self._pose_y += dy
         self.update()
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rotate by ``angle_deg`` (Y-up CCW+) about scene ``pivot``.
+
+        The block's own rotation pivot is its insertion point, so turning by
+        ``a2`` about ``pivot`` after ``a1`` about the insertion point equals
+        turning the insertion point about ``pivot`` and rotating by
+        ``a1 + a2`` about it. Rotating about the insertion point itself only
+        changes the rotation. Not normalised (matches ``set_block_rotation``).
+        """
+        from .cad_math import CAD_Math
+        p = CAD_Math.rotate_point(QPointF(self._pose_x, self._pose_y),
+                                  pivot, -angle_deg)
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y = p.x(), p.y()
+        self._pose_rot += float(angle_deg)
+        self.update()
+
     # ── Geometry (pose-baked) ────────────────────────────────────────────
     def _local_path(self) -> QPainterPath:
         ops = self.render_ops()

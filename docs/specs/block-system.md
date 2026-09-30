@@ -221,10 +221,12 @@ level does this block show on?" is an **instance** question, so level scope live
 8. **Placement = one click at 0°** (amended 2026-09-30, smoke 2 — the original rotation step is
    **retired**): a ghost follows the snapped cursor, a click places the instance at 0° on the
    active level (one undo step), and the mode **stays live until Esc** (repeat placement). No
-   Dynamic-Input HUD. Rotation is applied afterwards through the instance's **Rotation**
-   property row. *Known gap (2026-09-30):* the scene Rotate tool does **not** yet turn block
-   instances — `BlockInstance` has no `manip_rotate`, so `item_capabilities` reports translate
-   only and Rotate skips it (raised for follow-up). Drag-and-drop placement follows the same
+   Dynamic-Input HUD. Rotation is applied afterwards with **Modify ▸ Rotate** (clicked rays or
+   the typed angle, in the plan and the Block Editor) or through the instance's **Rotation**
+   property row. `BlockInstance.manip_rotate(angle, pivot)` turns the insertion point about the
+   pivot and adds the angle to the stored rotation (Y-up CCW+, baked into the pose, not
+   normalised); nested blocks follow because they render through the instance pose.
+   Drag-and-drop placement follows the same
    one-drop-at-0° rule (see "Nested blocks" below).
 9. **`scale_mode` enum in schema, `Real-size` the only v1 value** (`Annotative` reserved for v2 with
    paper-space). Instances render at the definition's real size; **no rescale/mirror in plan views**
