@@ -173,6 +173,8 @@
   - Details: nested-blocks G5 re-review. `Model_View` ghost resolver (`sc.get_block_definition(i) or pool.get(i)`) is untested — reverting to bundle-first keeps the drag tests green. Hover-preview only. `tests/test_block_drag_drop.py`.
 - [ ] [type:maint] Optional perf-marker test for the Block Manager Used-in rebuild [P3] [subject:Testing]
   - Details: user-ratified bar 2026-09-29: 300 defs × 50 prims, depth-2, median of 5 ≤ 50 ms (measured 1.4–2.4 ms after `users_map`). No suite guard by design (host noise); consider a `-m perf` test. `block_manager.py`, `block_registry.py`.
+- [ ] [type:maint] Block specs: reconcile pre-existing contradictions found at the nested-blocks Account [P3] [subject:Documentation]
+  - Details: nested-blocks Account 2026-09-30 (record: session scratchpad findings/account.md). (1) model-space-containment-contract.md frontmatter/body say "proposal (unbuilt)" while its ledger says C1/C3 landed and SPEC-INDEX says partial; (2) block-system Decision 10 still says "geometry-immutable (no Editor yet)" vs the built Block Editor section; (3) block-system's by-id edge case names `reload_from_library` (no production caller — see the loader-retire task); (4) the nested-blocks design doc's D-sections read as the original design (the As-built amendments override them — fold them in or mark superseded); (5) block-system's runtime-home bullet restates the snap-point list next to its link (Rule A). Needs a DECISION too: a missing nested definition's red placeholder yields snap points (it compiles as linework) while an orphan top-level instance yields none — pick one behaviour.
 
 ## Underlay Import dialog
 
