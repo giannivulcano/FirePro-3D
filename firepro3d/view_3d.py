@@ -78,6 +78,8 @@ _FLOOR_COLORS = [
     (0.2, 0.8, 0.8, 0.35),
 ]
 
+_HEATMAP_CLEAR = object()   # sentinel: a clear requested while hidden
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -109,6 +111,8 @@ class View3D(QWidget):
 
         # Idle-while-hidden bookkeeping (view-3d.md I6): what to flush on show.
         self._render_pending = False
+        self._sel_pending = False
+        self._pending_heatmap = None     # a result, _HEATMAP_CLEAR, or None
 
         # Entity pick map: list index → QGraphicsItem
         self._node_refs: list[Node] = []
@@ -346,7 +350,7 @@ class View3D(QWidget):
         self._rebuild_timer.timeout.connect(self._do_rebuild)
 
     def _connect_signals(self):
-        self._scene.sceneModified.connect(self._schedule_rebuild)
+        self._scene.sceneModified.connect(self.request_rebuild)
         self._scene.selectionChanged.connect(self._on_2d_selection_changed)
 
     # ── Coordinate mapping ─────────────────────────────────────────────────
@@ -429,7 +433,7 @@ class View3D(QWidget):
             dist = max(max(span) * 1.8, 1000)
             elev, azim = self._camera_to_angles()
             self._set_camera_from_angles(elev, azim, center=center, distance=dist)
-            self._plotter.render()
+            self._render()
             self._sync_viewcube()
 
     def _toggle_projection(self):
@@ -441,7 +445,7 @@ class View3D(QWidget):
         else:
             cam.parallel_projection = True
             self._proj_btn.setText("Perspective")
-        self._plotter.render()
+        self._render()
 
     def _set_view_preset(self, elevation: float, azimuth: float):
         """Set camera to a standard engineering view preset."""
@@ -459,7 +463,7 @@ class View3D(QWidget):
             dist = np.linalg.norm(np.array(self._plotter.camera.position) - center)
         self._set_camera_from_angles(elevation, azimuth, center=center, distance=dist)
         self._sync_viewcube()
-        self._plotter.render()
+        self._render()
 
     # ── Static geometry (axes, grid) ─────────────────────────────────────
 
@@ -518,7 +522,7 @@ class View3D(QWidget):
         self._3d_grid_visible = not self._3d_grid_visible
         if self._grid_actor is not None:
             self._grid_actor.SetVisibility(self._3d_grid_visible)
-        self._plotter.render()
+        self._render()
 
     def _toggle_level_floors(self):
         """Toggle level floor planes visibility."""
@@ -530,7 +534,7 @@ class View3D(QWidget):
             actor.SetVisibility(vis)
         for actor in self._actors.get("floor_labels", []):
             actor.SetVisibility(vis)
-        self._plotter.render()
+        self._render()
 
     # ── ViewCube ──────────────────────────────────────────────────────────
 
@@ -559,11 +563,16 @@ class View3D(QWidget):
 
     # ── Rebuild ────────────────────────────────────────────────────────────
 
-    def _schedule_rebuild(self):
+    def request_rebuild(self) -> None:
+        """Mark the view dirty; rebuild ~100 ms later only while visible (I6).
+
+        The single entry for "the model changed" — the scene's ``sceneModified``
+        and ``MainWindow._refresh_all_views`` both call it, and the coalescing
+        timer turns their pair into one rebuild.
+        """
         self._dirty = True
-        if self.isVisible():
-            if not self._rebuild_timer.isActive():
-                self._rebuild_timer.start()
+        if self.isVisible() and not self._rebuild_timer.isActive():
+            self._rebuild_timer.start()
 
     def _render(self) -> None:
         """Render now if visible, else remember to render on the next show."""
@@ -577,12 +586,22 @@ class View3D(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if self._pending_heatmap is not None:
+            pending, self._pending_heatmap = self._pending_heatmap, None
+            if pending is _HEATMAP_CLEAR:
+                self._clear_heatmap_now()
+            else:
+                self._show_heatmap_now(pending)
         if self._dirty:
-            self._rebuild_timer.start()
+            self._rebuild_timer.start()      # rebuild re-syncs the selection
+        elif self._sel_pending:
+            self._on_2d_selection_changed()
+        elif self._render_pending:
+            self._render()
 
     def _do_rebuild(self):
-        if not self._dirty:
-            return
+        if not self._dirty or not self.isVisible():
+            return                           # stays dirty until shown
         self.rebuild()
 
     @staticmethod
@@ -645,7 +664,7 @@ class View3D(QWidget):
             f"Pipes: {len(self._pipe_refs)}"
         )
         self._info_label.setText(counts)
-        self._plotter.render()
+        self._render()
 
     # ── Extract: Nodes ─────────────────────────────────────────────────────
 
@@ -1052,7 +1071,7 @@ class View3D(QWidget):
             self._apply_horizontal_cut()
         else:
             self._remove_horizontal_cut()
-        self._plotter.render()
+        self._render()
 
     def _apply_horizontal_cut(self):
         """Hide all meshes whose geometry is entirely above the cut plane."""
@@ -1226,7 +1245,7 @@ class View3D(QWidget):
         cam.position = tuple(center + new_offset)
         cam.focal_point = tuple(center)
         cam.up = (0.0, 0.0, 1.0)
-        self._plotter.render()
+        self._render()
 
     # ── Zoom-to-cursor ─────────────────────────────────────────────────────
 
@@ -1280,7 +1299,7 @@ class View3D(QWidget):
         cam.focal_point = tuple(picked + (fp - picked) * factor)
         cam.up = (0.0, 0.0, 1.0)
 
-        self._plotter.render()
+        self._render()
         self._sync_viewcube()
 
     # ── Selection / Picking ────────────────────────────────────────────────
@@ -1323,7 +1342,7 @@ class View3D(QWidget):
             self._clear_actors("highlight")
             self._clear_actors("sel_overlay")
             self._clear_actors("sel_overlay_edges")
-            self._plotter.render()
+            self._render()
             self._scene.clearSelection()
 
     def _nearest_point_entity(self, screen_x: float, screen_y: float):
@@ -1398,21 +1417,7 @@ class View3D(QWidget):
 
         # Escape: cancel orbit, clear selection
         if key == Qt.Key.Key_Escape:
-            # Break out of any stuck orbit state
-            self._click_pos = None
-            self._last_mouse = None
-            self._orbiting = False
-            # Clear ALL 3D highlights explicitly
-            self._clear_actors("highlight")
-            self._clear_actors("sel_overlay")
-            self._clear_actors("sel_overlay_edges")
-            self._plotter.render()
-            # Clear 2D scene selection (also syncs model browser)
-            self._scene.clearSelection()
-            # Forward to radiation selection if active
-            if getattr(self._scene, '_radiation_selecting', False):
-                self._scene._radiation_selecting = False
-                self._scene.radiationCancel.emit()
+            self.cancel_interaction()
             return True
 
         # Radiation selection shortcuts
@@ -1422,16 +1427,13 @@ class View3D(QWidget):
                 return True
         return False
 
-    def _on_escape(self):
-        """Escape shortcut handler — clears orbit state and selection."""
+    def cancel_interaction(self) -> None:
+        """Public Escape (I12): end orbit, drop the 3D pick, clear the 2D
+        selection, and cancel a radiation pick in progress."""
         self._click_pos = None
         self._last_mouse = None
         self._orbiting = False
-        self._3d_selected.clear()
-        self._clear_actors("highlight")
-        self._clear_actors("sel_overlay")
-        self._clear_actors("sel_overlay_edges")
-        self._plotter.render()
+        self.clear_pick()
         self._scene.clearSelection()
         if getattr(self._scene, '_radiation_selecting', False):
             self._scene._radiation_selecting = False
@@ -1476,7 +1478,7 @@ class View3D(QWidget):
             on_hide=lambda: (self._scene._hide_items(selected), self.rebuild()),
             on_show_all=lambda: (self._scene._show_all_hidden(), self.rebuild()),
             on_delete=self.delete_selected,
-            on_deselect=self._on_escape,
+            on_deselect=self.cancel_interaction,
             on_fit=self._fit_camera,
             on_refresh=self.rebuild,
         )
@@ -1517,7 +1519,7 @@ class View3D(QWidget):
                         pass
 
         if not selected_items:
-            self._plotter.render()
+            self._render()
             return
 
         # Highlight radiation overlays for selected entities
@@ -1567,12 +1569,18 @@ class View3D(QWidget):
                 color=COL_SEL_EDGE, line_width=1.5,
             )
 
-        self._plotter.render()
+        self._render()
 
     # ── 2D → 3D Selection Sync ─────────────────────────────────────────────
 
     def _on_2d_selection_changed(self):
         """Highlight selected items in 3D."""
+        if self._plotter is None:
+            return
+        if not self.isVisible():
+            self._sel_pending = True
+            return
+        self._sel_pending = False
         self._clear_actors("highlight")
         try:
             selected = self._scene.selectedItems()
@@ -1581,7 +1589,7 @@ class View3D(QWidget):
 
         if not selected:
             self._highlight_mesh_selection(None)
-            self._plotter.render()
+            self._render()
             return
 
         node_positions = []
@@ -1643,15 +1651,29 @@ class View3D(QWidget):
                     color=COL_SEL_EDGE, line_width=1.5,
                 )
         self._highlight_mesh_selection(mesh_selected)
-        self._plotter.render()
+        self._render()
 
     # ------------------------------------------------------------------
     # Thermal radiation heatmap overlay
     # ------------------------------------------------------------------
 
     def show_radiation_heatmap(self, result):
+        """Overlay the radiation heatmap; deferred to the next show while hidden (I10)."""
+        if not self.isVisible():
+            self._pending_heatmap = result
+            return
+        self._show_heatmap_now(result)
+
+    def clear_radiation_heatmap(self):
+        """Remove the heatmap; deferred to the next show while hidden (I10)."""
+        if not self.isVisible():
+            self._pending_heatmap = _HEATMAP_CLEAR
+            return
+        self._clear_heatmap_now()
+
+    def _show_heatmap_now(self, result):
         """Overlay colour-mapped meshes on receiver surfaces."""
-        self.clear_radiation_heatmap()
+        self._clear_heatmap_now()
         threshold = result.threshold
 
         for entity, flux in result.per_receiver_flux.items():
@@ -1708,9 +1730,9 @@ class View3D(QWidget):
             self._radiation_entity_map[entity] = actor
             self._radiation_orig_colors[entity] = face_colors.copy()
 
-        self._plotter.render()
+        self._render()
 
-    def clear_radiation_heatmap(self):
+    def _clear_heatmap_now(self):
         """Remove all radiation overlay meshes."""
         for actor in self._radiation_meshes:
             try:
@@ -1720,7 +1742,7 @@ class View3D(QWidget):
         self._radiation_meshes.clear()
         self._radiation_entity_map.clear()
         self._radiation_orig_colors.clear()
-        self._plotter.render()
+        self._render()
 
     @staticmethod
     def _flux_to_colors(flux: np.ndarray, threshold: float) -> np.ndarray:

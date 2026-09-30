@@ -79,3 +79,43 @@ class TestOneDeletePath:
         assert pipe not in ms.sprinkler_system.pipes
         assert len(ms._undo_stack) == before + 1, "3D delete must push exactly one undo state"
         assert v.get_3d_selected() == []
+
+
+class _Counter:
+    def __init__(self):
+        self.n = 0
+
+    def wrap(self, fn):
+        def _w(*a, **k):
+            self.n += 1
+            return fn(*a, **k)
+        return _w
+
+
+class TestIdleWhileHidden:
+    """I6: nothing reaches VTK while the view is not visible."""
+
+    def test_hidden_view_never_rebuilds_or_renders(self, real3d):
+        ms, v = real3d
+        _wall(ms, 0, 0, 3000, 0)
+        rebuilds, renders = _Counter(), _Counter()
+        v.rebuild = rebuilds.wrap(v.rebuild)
+        v._plotter.render = renders.wrap(v._plotter.render)
+        v.request_rebuild()
+        ms.sceneModified.emit()
+        ms.selectionChanged.emit()
+        v.cancel_interaction()
+        QTest.qWait(250)
+        assert rebuilds.n == 0 and renders.n == 0
+        assert v._dirty is True
+
+    def test_hidden_heatmap_is_deferred_until_shown(self, real3d):
+        ms, v = real3d
+        applied = _Counter()
+        v._show_heatmap_now = applied.wrap(v._show_heatmap_now)
+        from types import SimpleNamespace
+        result = SimpleNamespace(threshold=1.0, per_receiver_flux={},
+                                 per_receiver_mesh={})
+        v.show_radiation_heatmap(result)
+        assert applied.n == 0
+        assert v._pending_heatmap is result
