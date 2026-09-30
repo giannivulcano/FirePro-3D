@@ -464,3 +464,25 @@ def test_registry_users_map_matches_per_id_users_of(qapp):
         assert um[i] == r.users_of(i), i
     assert um[d.id] == {c.id, b.id, e.id, a.id}
     assert um[x.id] == set() and um[a.id] == set()
+
+
+def test_nested_compile_is_shared_across_instances(qapp, monkeypatch):
+    """200 plan instances of a 2-level nested block share one op list."""
+    sc = Model_Space()
+    c = _line_def("C")
+    b = _line_def("B", extra=[_nested(c.id, 0, 0)])
+    a = _line_def("A", extra=[_nested(b.id, 0, 0)])
+    for d in (c, b, a):
+        sc.register_block_definition(d)
+    calls = {"n": 0}
+    real = BlockDefinition._compile
+
+    def counting(self):
+        calls["n"] += 1
+        return real(self)
+
+    monkeypatch.setattr(BlockDefinition, "_compile", counting)
+    insts = [sc.place_block_instance(a.id, (i * 10.0, 0.0)) for i in range(200)]
+    ops = {id(i.render_ops()) for i in insts}
+    assert len(ops) == 1                         # one shared list
+    assert calls["n"] == 3                       # A, B, C compiled once each
