@@ -1739,6 +1739,43 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             d._instances.remove(inst)
         self.blockInstancesChanged.emit()
 
+    def explode_selected_blocks(self) -> list:
+        """Explode the selected block instances (Block Editor Modify ▸ Explode).
+
+        Block-Editor-only (containment C1). One prompt when any selected
+        block nests others (This level only / Flatten all); non-block items
+        are ignored; one undo step; the results become the selection.
+
+        Returns:
+            The newly created items (empty when nothing was exploded).
+        """
+        from .block_explode import explode_instances, has_nested
+        if self.scene_role != "block_editor":
+            return []
+        insts = [i for i in self.selectedItems() if isinstance(i, BlockInstance)]
+        if not insts:
+            self._show_status("Select a block to explode", 3000)
+            return []
+        flatten = False
+        if has_nested(insts):
+            from . import themed_message
+            parent = self.views()[0] if self.views() else None
+            key = themed_message.themed_choice(
+                parent, "Explode",
+                "This block contains other blocks. Explode those too?",
+                [("Cancel", None, None), ("This level only", "level", None),
+                 ("Flatten all", "all", "primary")])
+            if key is None:
+                return []
+            flatten = key == "all"
+        self.clearSelection()
+        new = explode_instances(self, insts, flatten)
+        for it in new:
+            it.setSelected(True)
+        self.push_undo_state()
+        self.blockInstancesChanged.emit()
+        return new
+
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
 
