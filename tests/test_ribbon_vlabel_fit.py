@@ -1,7 +1,8 @@
 """Bug guard: no ribbon group label may be clipped (todo 2026-09-30).
 
-The live app runs in Arial (theme.apply_app_font); the default test font
-(Segoe UI) happened to make THERMAL RADIATION fit exactly, masking the clip.
+The live app runs in Arial (theme.apply_app_font) under the app stylesheet
+(build_app_qss, whose QWidget font-size overrides setFont); the default test
+environment has neither, which masked both the clip and the label size.
 Ground truth = rendered pixels: the label's ink must not touch either end.
 """
 from __future__ import annotations
@@ -20,8 +21,9 @@ from main import MainWindow
 
 @pytest.fixture(scope="module")
 def arial_window(qapp):
-    old_font = qapp.font()
+    old_font, old_ss = qapp.font(), qapp.styleSheet()
     th.apply_app_font(qapp)
+    qapp.setStyleSheet(th.build_app_qss(th.detect()))
     saved = (snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX)
     win = MainWindow()
     win.resize(1920, 1080)
@@ -31,6 +33,7 @@ def arial_window(qapp):
     win.close()
     win.deleteLater()
     snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX = saved
+    qapp.setStyleSheet(old_ss)
     qapp.setFont(old_font)
 
 
@@ -79,3 +82,15 @@ def test_long_label_wraps_to_two_lines(qapp):
         assert _VLabel("FILE")._lines() == ["FILE"]
     finally:
         qapp.setFont(old_font)
+
+
+def test_group_label_renders_at_the_token_size(arial_window, qapp):
+    """Live-env guard: the label's EFFECTIVE font (what paintEvent draws with)
+    is M.RIBBON_VLABEL_PT — not the app stylesheet's QWidget 9.75pt."""
+    rb = arial_window.ribbon
+    for i in range(rb._tab_bar.count()):
+        page = rb._stack.widget(i)
+        for g in page.findChildren(RibbonGroup):
+            lbl = g.findChild(_VLabel)
+            lbl.ensurePolished()
+            assert lbl.font().pointSizeF() == th.M.RIBBON_VLABEL_PT, lbl.text()

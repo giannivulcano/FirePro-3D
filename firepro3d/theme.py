@@ -96,7 +96,7 @@ class _Metrics:
     LEFT_TAB_W = 22          # browser LeftTabs vertical strip width (mockup-tuned 2026-09-30)
     LEFT_TAB_INSET = 2       # gap between the window/dock left edge and the strip
     LEFT_TAB_GAP = 2         # inter-tab gap (QSS margin-bottom + accent-bar trim)
-    LEFT_TAB_PT = 8          # West tab text
+    LEFT_TAB_PT = 9          # West tab text (smoke bump 8→9, 2026-09-30)
     LEFT_TAB_PAD = (8, 0, 8, 2)   # QSS (top, right, bottom, left) — maps to the VISUAL sides
     # top tab strips (ribbon + canvas) — chrome polish 2026-09-30
     TAB_GAP = 2              # QSS margin-right between top tabs
@@ -110,7 +110,13 @@ class _Metrics:
     RIBBON_GROUP_MARGIN = (4, 2, 7, 0)    # (l, t, r, b); extra right pad clears the separator
     RIBBON_VLABEL_PT = 7.0
     RIBBON_LARGE_ICON = 40
-    RIBBON_LARGE_H = 68
+    # Large-button height is DERIVED (RibbonButton.sizeHint): pad + icon + gap +
+    # a text box RIBBON_BTN_TEXT_LINES lines tall (always reserved, top-aligned).
+    RIBBON_BTN_TEXT_LINES = 2
+    RIBBON_BTN_PAD = 3        # border 1 + QSS padding 2 (build_ribbon_qss RibbonButton)
+    RIBBON_BTN_HPAD = 5       # border 1 + QSS padding 4
+    RIBBON_ICON_TEXT_GAP = 2
+    RIBBON_LARGE_MIN_W = 72
     RIBBON_SMALL_ICON = 18
     RIBBON_SMALL_H = 26
     DOCK_HEADER_H = 33       # dock header rail height (aligns with canvas tab rail)
@@ -868,6 +874,9 @@ RibbonBar QTabBar::tab:selected {{
     background: {t.accent_soft}; border: 1px solid {t.accent};
     border-top-left-radius: 5px; border-top-right-radius: 5px;
     border-bottom: 2px solid {t.accent}; }}
+/* Vertical group label size (ribbon_bar._VLabel; colour = RIBBON_VLABEL_ROLE,
+   painted). Must live in QSS: the app QSS `QWidget {{ font-size }}` beats setFont(). */
+_VLabel {{ font-size: {M.RIBBON_VLABEL_PT}pt; }}
 RibbonButton {{
     background: transparent;
     border: 1px solid transparent;
