@@ -630,7 +630,11 @@ class Model_View(QGraphicsView):
         return payload
 
     def _block_drop_target_ok(self) -> bool:
-        """True when this view's scene accepts block drops (plan / editor)."""
+        """True when this view accepts block drops: a full plan view or the
+        Block Editor. A detail view (``_detail_name`` set by
+        ``DetailViewManager.open_detail``) shares the plan scene but refuses."""
+        if self._detail_name is not None:
+            return False
         sc = self.scene()
         return (sc is not None
                 and getattr(sc, "scene_role", None) in self._BLOCK_DROP_ROLES)

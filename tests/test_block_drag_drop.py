@@ -241,3 +241,35 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         w.editor_scene.set_mode("select")
         main_window.block_editor_manager.close(w)
         QApplication.processEvents()
+
+
+def test_detail_view_refuses_block_drops(qapp, tmp_path):
+    """Detail views share the plan scene but refuse drops (only full plan
+    views and the Block Editor accept)."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.blocks_browser import BlocksBrowser
+    from firepro3d.detail_view import DetailViewManager
+    sc = Model_Space()
+    sc.scale_manager = ScaleManager()
+    b = _line_def("B")
+    sc.register_block_definition(b)
+    tabs = QTabWidget()
+    dm = DetailViewManager(sc, None, sc.scale_manager, tabs)
+    dm.create_detail("Detail 1", QRectF(-500, -500, 1000, 1000))
+    v = dm.open_detail("Detail 1")
+    tabs.resize(900, 700); tabs.show(); QTest.qWaitForWindowExposed(tabs)
+    v.resetTransform(); v.centerOn(0, 0); QApplication.processEvents()
+    br = BlocksBrowser(sc, root=str(tmp_path))
+    mode_before = sc.mode
+    try:
+        assert v._detail_name == "Detail 1"                     # a real detail view
+        assert not _drag(v, _mime_for(br, "B"), [QPointF(0, 0), QPointF(20, 20)],
+                         drop=False)
+        assert sc._place_block_ghost is None
+        assert sc.mode == mode_before
+        _drag(v, _mime_for(br, "B"), [QPointF(20, 20)])
+        assert sc._block_instances == []
+        assert sc.mode == mode_before
+    finally:
+        sc.cleanup(); tabs.close(); tabs.deleteLater(); QApplication.processEvents()
