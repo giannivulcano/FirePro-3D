@@ -461,6 +461,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.feature_browser.featureActivated.connect(self._on_feature_activated)
         self.blocks_browser = BlocksBrowser(self.scene)
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
+        # Refuse (e.g. a cycle) BEFORE an italic leaf is loaded — like a drag.
+        self.blocks_browser.activation_guard = self._block_activation_refusal
 
         from firepro3d.ui_kit import LeftTabs
         self._left_tabs = LeftTabs()
@@ -2443,14 +2445,32 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         A block that would contain itself (the editor's block, or one that
         nests it) is refused with the same footer reason as a drag-drop.
         """
+        if self._block_activation_refusal(block_id) is not None:
+            return
+        self._active_scene().set_mode("place_block", template=block_id)
+
+    def _block_activation_refusal(self, block_id: str,
+                                  path: str | None = None) -> str | None:
+        """Why *block_id* can't be placed into the active canvas (None = ok).
+
+        Same check and footer reason as a canvas drag (``Model_View.
+        _resolve_block_drag``); a library-only leaf is checked from its file
+        (with its bundle) without loading it.
+
+        Args:
+            block_id: The block to place.
+            path: The ``.fpdb`` of a library-only leaf, else None.
+
+        Returns:
+            The refusal reason (already shown in the footer), or None.
+        """
         from firepro3d.model_view import Model_View
         sc = self._active_scene()
         _defn, _pool, why = Model_View._resolve_block_drag(
-            sc, {"id": block_id, "path": None})
+            sc, {"id": block_id, "path": path})
         if why is not None:
             sc.instructionChanged.emit(why)
-            return
-        sc.set_mode("place_block", template=block_id)
+        return why
 
     def _open_block_editor(self):
         """Ribbon: open the Block Editor, seeded with the current selection copy."""

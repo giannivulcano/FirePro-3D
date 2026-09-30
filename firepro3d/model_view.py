@@ -1,3 +1,4 @@
+import logging
 import math
 
 from PyQt6.QtWidgets import (
@@ -11,6 +12,8 @@ from .snap_engine import paint_snap_indicator
 from .text_item import editing_text_item
 
 _DETAIL_BORDER_COLOR = "#4488cc"
+
+_log = logging.getLogger(__name__)
 
 # Sentinel for place_dynamic_input: "reposition, do not re-latch the anchor".
 # Distinct from None, which explicitly clears the anchor back to cursor-relative.
@@ -677,7 +680,7 @@ class Model_View(QGraphicsView):
         prev_tpl = (sc._place_block_id if prev_mode == "place_block"
                     else getattr(sc, "current_template", None))
         self._block_drag = {"prev_mode": prev_mode, "prev_template": prev_tpl,
-                            "payload": payload}
+                            "payload": payload, "name": defn.name}
         sc.set_mode("place_block", template=payload["id"])
         if pool:
             # Library-only leaf: ghost from the temporary, unregistered
@@ -697,6 +700,21 @@ class Model_View(QGraphicsView):
         if st is not None and sc is not None:
             sc.set_mode(st["prev_mode"] or "select", template=st["prev_template"])
 
+    def _abort_block_drag(self, event, stage: str) -> None:
+        """Log the in-flight exception, drop all block-drag state, ignore.
+
+        A Qt drag handler must not raise, and Qt sends no dragLeave after an
+        unaccepted enter — so a raise mid-drag would otherwise strand
+        place_block and route the NEXT (file) drag through the block path.
+        """
+        _log.exception("Block drag %s failed", stage)
+        try:
+            self._end_block_drag(self.scene())
+        except Exception:
+            self._block_drag = None
+            _log.exception("Block drag cleanup failed")
+        event.ignore()
+
     @staticmethod
     def _project_scene_for(sc):
         """The scene that owns the block registry (the editor borrows it)."""
@@ -713,11 +731,10 @@ class Model_View(QGraphicsView):
             path = payload.get("path")
             summary = proj.load_blocks_from_files([path]) if path else {}
             if proj.get_block_definition(payload["id"]) is None:
-                from . import themed_message
-                why = ("a different block already uses this name in the project"
-                       if summary.get("refused") else "the file could not be read")
-                themed_message.themed_info(self, "Load block",
-                                           f"Could not load the block: {why}.")
+                from . import block_library, themed_message
+                themed_message.themed_info(
+                    self, "Load block",
+                    block_library.load_failure_message(st["name"], summary))
                 event.ignore()
                 return
         inst = sc.place_block_instance(payload["id"], (p.x(), p.y()), rotation=0.0)
@@ -731,18 +748,29 @@ class Model_View(QGraphicsView):
     # ─────────────────────────────
 
     def dragEnterEvent(self, event):
+        if self._block_drag is not None:
+            # A previous drag never finished (no leave/drop): end it first.
+            try:
+                self._end_block_drag(self.scene())
+            except Exception:
+                self._block_drag = None
+                _log.exception("Stale block drag cleanup failed")
         payload = self._block_payload(event)
         if payload is not None:
             if not self._block_drop_target_ok():
                 event.ignore()
                 return
             sc = self.scene()
-            defn, pool, why = self._resolve_block_drag(sc, payload)
-            if why is not None:
-                sc.instructionChanged.emit(why)
-                event.ignore()
+            try:
+                defn, pool, why = self._resolve_block_drag(sc, payload)
+                if why is not None:
+                    sc.instructionChanged.emit(why)
+                    event.ignore()
+                    return
+                self._begin_block_drag(sc, payload, defn, pool)
+            except Exception:
+                self._abort_block_drag(event, "enter")
                 return
-            self._begin_block_drag(sc, payload, defn, pool)
             event.acceptProposedAction()
             return
         if event.mimeData().hasUrls():
@@ -758,8 +786,13 @@ class Model_View(QGraphicsView):
     def dragMoveEvent(self, event):
         if self._block_drag is not None:
             sc = self.scene()
-            p = sc.get_effective_position(self.mapToScene(event.position().toPoint()))
-            sc._move_place_block(None, p)
+            try:
+                p = sc.get_effective_position(
+                    self.mapToScene(event.position().toPoint()))
+                sc._move_place_block(None, p)
+            except Exception:
+                self._abort_block_drag(event, "move")
+                return
             self.viewport().update()
             event.acceptProposedAction()
             return
@@ -772,7 +805,11 @@ class Model_View(QGraphicsView):
 
     def dragLeaveEvent(self, event):
         if self._block_drag is not None:
-            self._end_block_drag(self.scene())
+            try:
+                self._end_block_drag(self.scene())
+            except Exception:
+                self._block_drag = None
+                _log.exception("Block drag leave failed")
         self._drop_highlight = False
         self.viewport().update()
         super().dragLeaveEvent(event)
@@ -780,7 +817,10 @@ class Model_View(QGraphicsView):
     def dropEvent(self, event):
         st = self._block_drag
         if st is not None:
-            self._drop_block(event, st)
+            try:
+                self._drop_block(event, st)
+            except Exception:
+                self._abort_block_drag(event, "drop")
             return
         import os
         self._drop_highlight = False

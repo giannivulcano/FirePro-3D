@@ -273,6 +273,25 @@ def load_block_file(path: str) -> BlockDefinition | None:
         return None
 
 
+def load_failure_message(name: str, summary: dict) -> str:
+    """The user message for a library block that failed to load.
+
+    Shared by the Blocks-browser double-click and the canvas drop so both
+    read the same.
+
+    Args:
+        name: The block's display name.
+        summary: ``Model_Space.load_blocks_from_files`` result ({} if no load
+            was attempted).
+
+    Returns:
+        ``Could not load “name”: <why>.``
+    """
+    why = ("a different block already uses this name in the project"
+           if summary.get("refused") else "the file could not be read")
+    return f"Could not load “{name}”: {why}."
+
+
 def load_block_file_with_bundle(path: str):
     """Load a ``.fpdb`` plus the nested definitions it bundles.
 

@@ -66,6 +66,9 @@ class BlocksBrowser(QWidget):
         super().__init__(parent)
         self._scene = scene
         self._lib_root = root
+        # Optional ``(block_id, path | None) -> refusal reason | None`` consulted
+        # before a leaf is loaded/activated; the owner surfaces the reason.
+        self.activation_guard = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -172,13 +175,16 @@ class BlocksBrowser(QWidget):
         if not isinstance(block_id, str) or not block_id:
             return                                   # folder row
         path = item.data(0, _ROLE_PATH)
+        # Refusal (e.g. a block that would contain the edited one) is checked
+        # BEFORE any load, exactly like a canvas drag (nested-blocks D7).
+        guard = self.activation_guard
+        if guard is not None and guard(block_id, path) is not None:
+            return
         if path and block_id not in self._scene._block_definitions:
             summary = self._scene.load_blocks_from_files([path], root=self._lib_root)
             if block_id not in self._scene._block_definitions:
                 from .themed_message import themed_info
-                why = ("a different block already uses this name in the project"
-                       if summary.get("refused") else "the file could not be read")
                 themed_info(self, "Load block",
-                            f"Could not load “{item.text(0)}”: {why}.")
+                            block_library.load_failure_message(item.text(0), summary))
                 return
         self.blockActivated.emit(block_id)

@@ -146,12 +146,22 @@ def test_ghost_follows_during_drag(qapp, tmp_path):
     sc = Model_Space()
     b = _line_def("B")
     sc.register_block_definition(b)
+    target = LineItem(QPointF(-300, 0), QPointF(-100, 0))      # endpoint to snap onto
+    sc.addItem(target)
+    sc._draw_lines.append(target)
     v = _shown(sc)
     br = BlocksBrowser(sc, root=str(tmp_path))
     try:
         _drag(v, _mime_for(br, "B"), [QPointF(0, 0), QPointF(55, -40)], drop=False)
         g = sc._place_block_ghost
         assert g is not None and g.block_pos() == pytest.approx((55.0, -40.0), abs=1.0)
+        # mid-drag near the endpoint: the ghost sits on the SNAPPED point
+        mv = QDragMoveEvent(v.mapFromScene(QPointF(-103, 2)), Qt.DropAction.CopyAction,
+                            _mime_for(br, "B"), Qt.MouseButton.LeftButton,
+                            Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(v.viewport(), mv)
+        assert sc._place_block_ghost is g
+        assert g.block_pos() == (-100.0, 0.0)
         QApplication.sendEvent(v.viewport(), QDragLeaveEvent())
         assert sc._place_block_ghost is None
         assert sc.mode != "place_block"
@@ -200,6 +210,9 @@ def test_italic_leaf_autoloads_on_drop_and_clash_refuses(qapp, tmp_path, monkeyp
     sc = Model_Space()
     v = _shown(sc)
     br = BlocksBrowser(sc, root=str(tmp_path))
+    shown = []   # patched up front: a load regression fails fast, never a modal
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda *a, **k: shown.append(a))
     try:
         assert lib.id not in sc._block_definitions
         # hover: the ghost previews the file's geometry, nothing is loaded
@@ -211,17 +224,18 @@ def test_italic_leaf_autoloads_on_drop_and_clash_refuses(qapp, tmp_path, monkeyp
         _drag(v, _mime_for(br, "LibOnly"), [QPointF(0, 0)])
         assert lib.id in sc._block_definitions
         assert len(sc._block_instances) == 1
+        assert shown == []
         # clash: a DIFFERENT id with the same (library, series, name) in the project
         clash_src = _line_def("Clash")
         block_library.save_to_library(clash_src, root=str(tmp_path))
         sc.register_block_definition(_line_def("Clash"))       # same name, other id
         br.refresh()
-        shown = []
-        monkeypatch.setattr("firepro3d.themed_message.themed_info",
-                            lambda *a, **k: shown.append(a))
         n = len(sc._block_instances)
         _drag(v, _mime_for(br, "Clash", library_only=True), [QPointF(50, 50)])
-        assert len(sc._block_instances) == n and shown
+        assert len(sc._block_instances) == n and len(shown) == 1
+        # the double-click wording, naming the block
+        assert shown[0][2] == ("Could not load “Clash”: a different block "
+                               "already uses this name in the project.")
         assert clash_src.id not in sc._block_definitions
     finally:
         sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
@@ -240,6 +254,7 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
     finally:
         w.editor_scene.set_mode("select")
         main_window.block_editor_manager.close(w)
+        _forget_defs(proj, b)
         QApplication.processEvents()
 
 
@@ -273,3 +288,110 @@ def test_detail_view_refuses_block_drops(qapp, tmp_path):
         assert sc.mode == mode_before
     finally:
         sc.cleanup(); tabs.close(); tabs.deleteLater(); QApplication.processEvents()
+
+
+# ── G3 review guards ───────────────────────────────────────────────────────
+def _forget_defs(proj, *defs):
+    """Drop test definitions from the shared MainWindow scene (singleton hygiene)."""
+    for d in defs:
+        proj._block_definitions.pop(d.id, None)
+    proj.blockDefinitionsChanged.emit()
+
+
+def test_block_enter_that_raises_leaves_no_drag_state(qapp, tmp_path, monkeypatch):
+    """A raise while entering a block drag must not strand place_block / the
+    drag state: the next (file) drag reaches the PDF/DXF import branch."""
+    import os
+    import sys
+    from PyQt6.QtCore import QMimeData, QUrl
+    from firepro3d.blocks_browser import BlocksBrowser
+    escaped = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: escaped.append(a))
+    sc = Model_Space()
+    b = _line_def("B")
+    sc.register_block_definition(b)
+    v = _shown(sc)
+    br = BlocksBrowser(sc, root=str(tmp_path))
+    real_set_mode = sc.set_mode
+    armed = [True]
+
+    def _boom(mode, template=None):
+        real_set_mode(mode, template=template)
+        if mode == "place_block" and armed[0]:
+            armed[0] = False
+            raise RuntimeError("boom")
+    real_set_mode("select")
+    monkeypatch.setattr(sc, "set_mode", _boom)
+    mode_before = sc.mode
+    imports = []
+    v.drop_import_requested.connect(imports.append)
+    try:
+        assert not _drag(v, _mime_for(br, "B"), [QPointF(0, 0)], drop=False)
+        assert escaped == []                     # a Qt handler must not raise
+        assert v._block_drag is None
+        assert sc.mode == mode_before
+        assert sc._place_block_ghost is None
+        pdf = tmp_path / "plan.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n")
+        md = QMimeData()
+        md.setUrls([QUrl.fromLocalFile(str(pdf))])
+        assert _drag(v, md, [QPointF(10, 10), QPointF(30, 30)])
+        assert [os.path.normcase(os.path.normpath(i)) for i in imports] == [
+            os.path.normcase(str(pdf))]
+        assert sc._block_instances == []
+    finally:
+        sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
+
+
+def test_double_click_refuses_a_cycle_in_the_editor(qapp, main_window):
+    proj = main_window.scene
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    a = _line_def("A", extra=[{"type": "block_instance", "block_id": b.id,
+                               "pos": [0, 0], "rotation": 0.0}])
+    proj.register_block_definition(a)
+    w = main_window.block_editor_manager.open_for_definition(b.id)
+    QApplication.processEvents()
+    msgs = []
+    w.editor_scene.instructionChanged.connect(msgs.append)
+    mode_before = w.editor_scene.mode
+    try:
+        main_window._on_block_activated(a.id)
+        assert w.editor_scene.mode == mode_before
+        assert "A contains B \u2014 a block can't contain itself" in msgs
+    finally:
+        main_window.block_editor_manager.close(w)
+        _forget_defs(proj, a, b)
+        QApplication.processEvents()
+
+
+def test_refused_double_click_on_italic_leaf_loads_nothing(qapp, main_window, tmp_path):
+    """Double-click checks the cycle BEFORE loading, exactly like a drag."""
+    from firepro3d import block_library
+    proj = main_window.scene
+    b = _line_def("B")
+    proj.register_block_definition(b)
+    lib_a = _line_def("LibA", extra=[{"type": "block_instance", "block_id": b.id,
+                                      "pos": [0, 0], "rotation": 0.0}])
+    block_library.save_to_library(lib_a, root=str(tmp_path))
+    br = main_window.blocks_browser
+    old_root = br._lib_root
+    br._lib_root = str(tmp_path)
+    br.refresh()
+    w = main_window.block_editor_manager.open_for_definition(b.id)
+    QApplication.processEvents()
+    msgs = []
+    w.editor_scene.instructionChanged.connect(msgs.append)
+    undo_depth = len(proj._undo_stack)
+    try:
+        br._on_item_activated(_leaf(br, "LibA", library_only=True), 0)
+        assert lib_a.id not in proj._block_definitions
+        assert len(proj._undo_stack) == undo_depth
+        assert w.editor_scene.mode != "place_block"
+        assert "LibA contains B \u2014 a block can't contain itself" in msgs
+    finally:
+        main_window.block_editor_manager.close(w)
+        _forget_defs(proj, b, lib_a)
+        br._lib_root = old_root
+        br.refresh()
+        QApplication.processEvents()
