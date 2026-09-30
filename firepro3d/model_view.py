@@ -110,6 +110,9 @@ class Model_View(QGraphicsView):
 
         # One-time flag for initial zoom on first show
         self._first_show = True
+        # A fit requested before the first show (fit_scene_rect) replaces the
+        # first-show default instead of being overwritten by it.
+        self._pending_fit_rect = None
 
         # Accent crosshair cursor (MainWindow flips this on from ui/crosshair).
         self._crosshair_enabled = False
@@ -848,6 +851,10 @@ class Model_View(QGraphicsView):
         super().showEvent(event)
         if self._first_show:
             self._first_show = False
+            if self._pending_fit_rect is not None:
+                rect, self._pending_fit_rect = self._pending_fit_rect, None
+                self._fit_with_margin(rect)
+                return
             # Default view: ~40 m wide, centred on origin
             half_w = 20_000  # 20 m in mm (scene units)
             vp = self.viewport().rect()
@@ -1387,7 +1394,31 @@ class Model_View(QGraphicsView):
             self.setSceneRect(QRectF(-w / 2, -h / 2, w, h))
             self.centerOn(QPointF(0, 0))
             return
-        # Add 5% margin
+        self._fit_with_margin(rect)
+
+    def fit_scene_rect(self, rect: QRectF) -> None:
+        """Frame *rect* (scene coords) with the fit-to-screen 5 % margin.
+
+        Before the view's first show the fit is deferred and consumed by
+        ``showEvent`` in place of the ~40 m first-show default (fitting now
+        would use an unsized viewport and then be overwritten); once shown it
+        applies immediately.
+
+        Args:
+            rect: The scene rect to frame; a null/empty-in-both-axes rect is
+                ignored.
+        """
+        rect = QRectF(rect)
+        if rect.isNull() or (rect.width() <= 0 and rect.height() <= 0):
+            return
+        if self._first_show:
+            self._pending_fit_rect = rect
+            return
+        self._fit_with_margin(rect)
+
+    def _fit_with_margin(self, rect: QRectF) -> None:
+        """fitInView *rect* grown by 5 % of its larger side (fit_to_screen)."""
+        rect = QRectF(rect)
         margin = max(rect.width(), rect.height()) * 0.05
         rect.adjust(-margin, -margin, margin, margin)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)

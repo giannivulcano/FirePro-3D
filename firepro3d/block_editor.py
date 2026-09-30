@@ -400,6 +400,21 @@ class BlockEditorWidget(QWidget):
         sc._undo_pos = -1
         sc.push_undo_state()
         self._mark_clean()   # seeding is not a user edit
+        # Seeding happens only on a fresh open (edit / clone / Create Block
+        # from a selection), so this frames a new tab and never re-zooms a
+        # re-focused one (smoke 1).
+        self.fit_view_to_block()
+
+    def fit_view_to_block(self) -> None:
+        """Frame the view on the block's own geometry (no-op when empty).
+
+        Uses the pen-free bounds of ``gather_primitives()`` (nested blocks via
+        ``geometric_rect()``), not ``itemsBoundingRect()``, which would also
+        take in the origin marker and helper items.
+        """
+        rect = geometry_import.geometric_bounds(self.gather_primitives())
+        if rect is not None:
+            self.view.fit_scene_rect(rect)
 
     def seed_from_definition(self, defn):
         """Seed from an existing BlockDefinition's primitives (edit or clone).

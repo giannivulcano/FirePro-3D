@@ -47,6 +47,25 @@ def _geometric_bbox(item):
     return item.sceneBoundingRect()
 
 
+def geometric_bounds(items) -> QRectF | None:
+    """Union of the items' pen-free geometric bounding rects.
+
+    Args:
+        items: construction-geometry primitives and/or BlockInstances.
+
+    Returns:
+        The union ``QRectF``, or None when *items* is empty.
+    """
+    rects = [_geometric_bbox(it) for it in items]
+    if not rects:
+        return None
+    left = min(r.left() for r in rects)
+    top = min(r.top() for r in rects)
+    right = max(r.right() for r in rects)
+    bottom = max(r.bottom() for r in rects)
+    return QRectF(left, top, right - left, bottom - top)
+
+
 def bbox_top_left(items) -> QPointF:
     """Top-left (min-x, min-y) of the union of the items' geometric bounding rects.
 
