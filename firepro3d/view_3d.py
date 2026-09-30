@@ -107,6 +107,9 @@ class View3D(QWidget):
         self._dirty = True
         self._first_build = True
 
+        # Idle-while-hidden bookkeeping (view-3d.md I6): what to flush on show.
+        self._render_pending = False
+
         # Entity pick map: list index → QGraphicsItem
         self._node_refs: list[Node] = []
         self._pipe_refs: list[Pipe] = []
@@ -561,6 +564,16 @@ class View3D(QWidget):
         if self.isVisible():
             if not self._rebuild_timer.isActive():
                 self._rebuild_timer.start()
+
+    def _render(self) -> None:
+        """Render now if visible, else remember to render on the next show."""
+        if self._plotter is None:
+            return
+        if self.isVisible():
+            self._render_pending = False
+            self._plotter.render()
+        else:
+            self._render_pending = True
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1428,43 +1441,23 @@ class View3D(QWidget):
         """Return items selected via 3D picking (may not be in scene selection)."""
         return list(self._3d_selected)
 
-    def delete_selected(self):
-        """Delete items selected in the 3D view."""
-        items = list(self._3d_selected)
-        if not items:
-            return
+    def clear_pick(self) -> None:
+        """Drop the 3D-only pick and its highlight overlays (I7)."""
         self._3d_selected.clear()
+        if self._plotter is None:
+            return
         self._clear_actors("highlight")
         self._clear_actors("sel_overlay")
         self._clear_actors("sel_overlay_edges")
-        self._plotter.render()
-        # Delete each item directly via scene methods
-        from .roof import RoofItem
-        from .wall import WallSegment
-        from .floor_slab import FloorSlab
-        for item in items:
-            if isinstance(item, WallSegment):
-                for op in list(item.openings):
-                    if op.scene() is self._scene:
-                        self._scene.removeItem(op)
-                item.openings.clear()
-                if item in self._scene._walls:
-                    self._scene._walls.remove(item)
-                self._scene.removeItem(item)
-            elif isinstance(item, FloorSlab):
-                if item in self._scene._floor_slabs:
-                    self._scene._floor_slabs.remove(item)
-                self._scene.removeItem(item)
-            elif isinstance(item, RoofItem):
-                if item in self._scene._roofs:
-                    self._scene._roofs.remove(item)
-                self._scene.removeItem(item)
-            else:
-                # Fallback: try setSelected + scene delete
-                item.setSelected(True)
-                self._scene.delete_selected_items()
-        self._scene.push_undo_state()
-        self.rebuild()
+        self._render()
+
+    def delete_selected(self):
+        """Delete the 3D pick through the scene's single delete path (I8)."""
+        items = list(self._3d_selected)
+        if not items:
+            return
+        self.clear_pick()
+        self._scene.delete_items(items)
 
     def _show_context_menu(self, global_pos):
         """Show right-click context menu in the 3D view."""

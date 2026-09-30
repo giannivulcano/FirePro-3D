@@ -1,0 +1,81 @@
+"""View3D lifecycle guards on a REAL Model_Space (view-3d.md §10).
+
+Unlike tests/test_view_3d.py (fake scene), these drive the real scene so the
+scene-side effects (lists, undo stack, signals) are ground truth.
+"""
+from __future__ import annotations
+
+import sys
+
+import pytest
+
+pv = pytest.importorskip("pyvista")
+pv.OFF_SCREEN = True
+pytest.importorskip("pyvistaqt")
+
+from PyQt6.QtCore import QPointF
+from PyQt6.QtTest import QTest
+
+
+@pytest.fixture()
+def real3d(qapp):
+    """(Model_Space, View3D) with a real LevelManager; the view is never shown."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.view_3d import View3D
+    ms = Model_Space()
+    lm = LevelManager()
+    ms._level_manager = lm
+    v = View3D(ms, lm, ms.scale_manager)
+    yield ms, v
+    v.cleanup()
+    v.deleteLater()
+
+
+def _wall(ms, x1, y1, x2, y2):
+    from firepro3d.wall import WallSegment
+    w = WallSegment(QPointF(x1, y1), QPointF(x2, y2))
+    ms.addItem(w)
+    ms._walls.append(w)
+    return w
+
+
+def _slab(ms):
+    from firepro3d.floor_slab import FloorSlab
+    s = FloorSlab(points=[QPointF(0, 0), QPointF(2000, 0),
+                          QPointF(2000, 2000), QPointF(0, 2000)])
+    ms.addItem(s)
+    ms._floor_slabs.append(s)
+    return s
+
+
+def _roof(ms):
+    from firepro3d.roof import RoofItem
+    r = RoofItem(points=[QPointF(0, 0), QPointF(2000, 0), QPointF(2000, 2000)])
+    ms.addItem(r)
+    ms._roofs.append(r)
+    return r
+
+
+def _pipe(ms, x1=0, y1=0, x2=1000, y2=0):
+    n1 = ms.add_node(x1, y1)
+    n2 = ms.add_node(x2, y2)
+    return ms.add_pipe(n1, n2)
+
+
+class TestOneDeletePath:
+    """I8 / D13: delete from 3D = the scene's delete path, ONE undo step."""
+
+    def test_3d_delete_of_mixed_items_is_one_undo_step(self, real3d):
+        ms, v = real3d
+        wall, slab, roof, pipe = _wall(ms, 0, 0, 3000, 0), _slab(ms), _roof(ms), _pipe(ms)
+        ms.push_undo_state()
+        before = len(ms._undo_stack)
+        v._3d_selected = [wall, slab, roof, pipe]
+        v.delete_selected()
+        assert wall not in ms._walls
+        assert slab not in ms._floor_slabs
+        assert roof not in ms._roofs
+        assert pipe not in ms.sprinkler_system.pipes
+        assert len(ms._undo_stack) == before + 1, "3D delete must push exactly one undo state"
+        assert v.get_3d_selected() == []

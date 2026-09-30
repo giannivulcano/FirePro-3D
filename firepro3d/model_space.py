@@ -934,9 +934,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._remove_item_from_lists(item)
 
     def delete_selected_items(self):
-        if not self.selectedItems():
+        """Delete the current scene selection (one undo step)."""
+        self.delete_items(self.selectedItems())
+
+    def delete_items(self, items):
+        """Delete *items* through the single bulk-delete path — one undo step.
+
+        The explicit-list form lets callers that track their own pick (the 3D
+        view, view-3d.md I8) delete items whose ``setSelected`` would not stick
+        (e.g. off-level walls hidden in the plan) without mirroring
+        ``_bulk_delete``.
+
+        Args:
+            items: Scene items to delete; an empty iterable is a no-op.
+        """
+        selected = list(items)
+        if not selected:
             return
-        selected = list(self.selectedItems())
         selected_set = set(selected)
 
         # Suppress scene updates during bulk deletion
