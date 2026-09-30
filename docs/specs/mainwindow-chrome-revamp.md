@@ -1,7 +1,7 @@
 ---
 status: current           # built + live-smoked (feat/mainwindow-chrome, 2026-09-19)
-last-verified: 2026-09-30  # startup-state amendment (ui/immersive sole owner; geometry blob normal-rect only); prior 2026-09-19
-verified-commit: b643b02   # prior 76757eb
+last-verified: 2026-09-30  # chrome polish (header separators visible, mono glyph, tokenized rail metrics); prior same-day startup-state amendment; prior 2026-09-19
+verified-commit: 416584c   # chrome polish; prior b643b02; prior 76757eb
 applies-to:
   - main.py
   - firepro3d/frameless_shell.py
@@ -46,6 +46,7 @@ The MainWindow is the last major surface still on ad-hoc chrome: raw-hex status 
 
 ### Header rail (custom, via `setMenuWidget`)
 Order L→R (approved v3): app **icon** → **"FirePro 3D"** (Title role) → **"(v…)"** (`APP_VERSION`, muted) → `│` → **Save / Undo / Redo** → `│` → **project name** + dirty **●** → *(stretch)* → **min / restore / close** dots (`_WinDot`).
+- **As-built amendment — chrome polish (2026-09-30, mockup-gated):** (1) the two `│` dividers are `header_rail._vsep()` QFrames with a **fixed height** `M.HEADER_SEP_H` in the `theme.HEADER_SEP_ROLE` (muted) colour — the original width-only frames laid out **0 px tall** and never rendered (guard `test_header_separators_are_visible`); (2) the app icon is the two-token mono glyph `graphics/Ribbon/app_glyph_icon.svg` (ink hexagon + accent flame) via `themed_icon`, replacing the full-colour wordmark `Logo.png` that read as a grey blob at rail size; (3) rail metrics are `theme.M` tokens (`HEADER_TITLE_FS`, `HEADER_ACTION_ICON`/`_BTN`, `HEADER_SEP_H`); `HEADER_H`/`HEADER_MARGIN`/`HEADER_ICON`/gaps are **shared with the house dialog shell** (`frameless_shell._build_titlebar`) by user choice — changing them re-sizes every dialog titlebar.
 - **Project name:** filename-only (no extension), **middle-elided** with full-path tooltip; dirty **●** in the accent token; `setWindowTitle` mirrored so taskbar/alt-tab stay meaningful under frameless.
 - **Enabled-state:** Undo/Redo gated on the **active tab's** stack (greyed at bounds) — paper tabs use `QUndoStack.canUndo/canRedo`; other tabs need `can_undo()`/`can_redo()` helpers derived from the model scene's `_undo_stack`/`_undo_pos`. Save is **always-enabled**; dirtiness shows via the **●** (a new model-scene dirty flag set on `push_undo_state`/cleared on save).
 - **Tooltips with shortcuts:** "Save [Ctrl+S]", "Undo [Ctrl+Z]", "Redo [Ctrl+Y]".

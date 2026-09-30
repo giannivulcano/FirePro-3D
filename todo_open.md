@@ -57,8 +57,6 @@
   - Details: the deferred larger vision from `Downloads/Ribbon Text Group — Spec.md` (seed): named `TextStyle` bundles (font/height/width-factor/B-I-U) + per-entity overrides + the launcher/style-manager dialog + SHX fonts (FontSelect already has a font-source seam). ref: text-annotation-system D1/D2.
 - [ ] [type:feature] Extend the ribbon Text/Frame groups to model/Block-Editor text (undo-routed) [P2] [subject:UX]
   - Details: the ribbon Text/Frame groups are paper-scoped (`_font_group_targets` returns targets only on a `PaperSpaceWidget`; only `paper_scene.selectionChanged` drives `_update_font_group_context`). Wire model/Block-Editor selection + route model-text commits through the scene undo snapshot. Overlaps the "Absorb Modify→Text into the entity-aware Font group" item. ref: text-annotation-system D6. `main.py`.
-- [ ] [type:maint] Tokenize the ribbon `_VLabel` group-label font size (literal `6.5pt`) [P3] [subject:UX]
-  - Details: user, 2026-09-22 audit — the vertical ribbon group label colour IS tokenized (`text_secondary`) but the size is a hardcoded `setPointSizeF(6.5)`. Lift to a `theme.M` metric. (User chose to leave the colour grey, not accent-green.) `firepro3d/ribbon_bar.py`.
 - [ ] [type:feature] Paper text inline edit parity with the model primitive [P2] [subject:UX]
   - Details: 2026-09-22 grill decision — the model-surface primitive sets the edit contract (spec text-annotation-system § "Inline edit (model surface) — AS-BUILT": commit-always exits, editor owns every key but Ctrl+S, single undo step, empty-deletes, text-wins-over-centre-grip, self-painted caret). Paper text keeps its older behaviour (dashed #88aaff edit frame, `_on_edit_finished`, `commit_place_text`, paper QUndoStack). Bring paper onto the same contract (likely a paper-side `TextEditController` sharing the predicate + funnel). `firepro3d/paper_space.py`, `firepro3d/text_item.py`.
 - [ ] [type:bug] A real Content change in the property panel mid-inline-edit wipes the live typing and double-pushes undo [P3] [subject:UX]
@@ -248,16 +246,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## MainWindow chrome polish (2026-09-30 user batch)
 
-- [ ] [type:feature] "|" separators between tabs in the canvas TopTabs and browser LeftTabs (mockup-gated) [P2] [subject:UX]
-  - Details: user, 2026-09-30 — mock up first. `firepro3d/ui_kit.py` (TopTabs/LeftTabs), `firepro3d/theme.py` (`_tab_language_qss`). ref: mainwindow-chrome-revamp-stage2, ui-design-system.
-- [ ] [type:feature] Header rail polish: bolder/larger text, "|" separators (App name | Save/Undo/Redo | File name), project-icon review (mockup-gated) [P2] [subject:UX]
-  - Details: user, 2026-09-30. `firepro3d/header_rail.py`, `firepro3d/graphics/`. ref: mainwindow-chrome-revamp, icon-style-guide.
 - [ ] [type:feature] 3D Model canvas tab is closable and reopenable from the Project Browser [P2] [subject:UX]
   - Details: user, 2026-09-30 — the 3D tab can't be closed today; add a 3D Model entry to the project browser that (re)opens it. `main.py`, project browser, 3D view (orphan — forge on first touch). ref: view-relationships.
-- [ ] [type:bug] Ribbon vertical group label is clipped at the bottom [P2] [subject:UX]
-  - Details: user, 2026-09-30. `firepro3d/ribbon_bar.py` (`_VLabel`), `theme.build_ribbon_qss`. ref: ribbon-bar.
-- [ ] [type:feature] Ribbon proportions: smaller vertical group-label text + ribbon icon sizing review (mockup-gated) [P2] [subject:UX]
-  - Details: user, 2026-09-30 — "label text (vertical) too big", "icons" (user unsure what's off — show icon-size variants on a slider in the mockup). Folds the "Tokenize the ribbon `_VLabel` group-label font size" maint item. `firepro3d/ribbon_bar.py`, `firepro3d/theme.py`. ref: ribbon-bar, icon-style-guide.
 - [ ] [type:feature] Block Editor ribbon tab always available; Block group moves off Architecture to its left edge (small icons: Manager, New → opens editor tab, Open) + logical reorganization [P2] [subject:UX]
   - Details: user, 2026-09-30 — integrate with the current Block Editor tab contents; reorganize its buttons logically. Interacts with the constraint-system ribbon groups (Constrain/Inspect after Modify, CS1) and the Block-Editor-tab close-button focus bug. `main.py`, `firepro3d/ribbon_bar.py`, `firepro3d/block_editor.py`, `firepro3d/block_manager.py`. ref: ribbon-bar, block-editor spec.
 - [ ] [type:bug] Widget `setFont()` sizes silently overridden by the app QSS — Selector + sprinkler tables [P3] [subject:UX]

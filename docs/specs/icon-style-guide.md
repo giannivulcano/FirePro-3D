@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-19
-verified-commit: 0a7b44a
+last-verified: 2026-09-30  # chrome polish: render-size ref de-restated (was stale 54/27), app_glyph_icon stroke deviation; prior 2026-09-19
+verified-commit: 416584c   # prior 0a7b44a
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
@@ -44,7 +44,7 @@ Out of scope: SNAP toolbar icon conventions (owned by `specs/snap-toolbar.md §7
 ## 3. Canvas
 
 - Every icon uses `viewBox="0 0 48 48"` — all geometry coordinates are authored in this 48-unit space.
-- Rendered sizes: **54×54 px** (large `RibbonButton`) and **27×27 px** (small `RibbonSmallButton`). These are owned by `specs/ribbon-bar.md §3.1` — do not restate them here.
+- Rendered sizes are owned by `specs/ribbon-bar.md §3.1` (`theme.M.RIBBON_LARGE_ICON` / `RIBBON_SMALL_ICON`) — do not restate them here. *(2026-09-30: this line previously quoted 54/27 px, which had drifted from the code — the Rule A failure it now avoids.)*
 - Avoid geometry within 2 units of the canvas edge so strokes are not clipped at small render sizes.
 
 ## 4. Two-Token Colour Rule (the Core Contract)
@@ -101,7 +101,8 @@ Recolouring is performed by `svg_utils.svg_recolor(svg_text, color_map)`:
 
 - Stroke width: **2 px at the 48-unit canvas** (i.e. `stroke-width="2"`).
 - Caps and joins: `stroke-linecap="round"` and `stroke-linejoin="round"`.
-- Prefer **stroked glyphs over filled shapes** where both are readable. Stroked glyphs stay crisp at the 27×27 small-button render size; heavy fills tend to blob.
+- Prefer **stroked glyphs over filled shapes** where both are readable. Stroked glyphs stay crisp at the small-button render size; heavy fills tend to blob.
+- **Deviation — `app_glyph_icon.svg`** (header-rail identity glyph, chrome polish 2026-09-30): hexagon outline at `stroke-width="3"` — the mockup-approved identity weight at the `M.HEADER_ICON` render size. Still two-token + 48-unit (guarded in `test_icon_theming._CHROME_ICONS`).
 - When a fill is needed (e.g. arrowhead, solid dot), use a filled path with `stroke="none"` rather than a filled-and-stroked shape at the same colour (avoids double-draw artefacts at small sizes).
 
 ### 5.1 2D-geometry icon family (40-unit legacy canvas, 2026-09-16)

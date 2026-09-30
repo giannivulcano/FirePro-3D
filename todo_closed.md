@@ -2,6 +2,24 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## MainWindow chrome polish (2026-09-30 user batch)
+
+- [x] [type:maint] Tokenize the ribbon `_VLabel` group-label font size (literal `6.5pt`) [P3] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-22 audit — the vertical ribbon group label colour IS tokenized (`text_secondary`) but the size is a hardcoded `setPointSizeF(6.5)`. Lift to a `theme.M` metric. (User chose to leave the colour grey, not accent-green.) `firepro3d/ribbon_bar.py`.
+  - Folded into the ribbon-proportions item: M.RIBBON_VLABEL_PT via build_ribbon_qss. feat/chrome-polish.
+- [x] [type:feature] "|" separators between tabs in the canvas TopTabs and browser LeftTabs (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — mock up first. `firepro3d/ui_kit.py` (TopTabs/LeftTabs), `firepro3d/theme.py` (`_tab_language_qss`). ref: mainwindow-chrome-revamp-stage2, ui-design-system.
+  - Build: ui_kit.paint_tab_separators (accent, hidden beside selected/hovered) on ribbon (_RibbonTabBar) + canvas + West strips; ribbon+canvas tabs share one 26px height (close dot 15px box); dock rails 27px aligned to the canvas divider; LeftTabs 22px/9pt. feat/chrome-polish.
+- [x] [type:feature] Header rail polish: bolder/larger text, "|" separators (App name | Save/Undo/Redo | File name), project-icon review (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30. `firepro3d/header_rail.py`, `firepro3d/graphics/`. ref: mainwindow-chrome-revamp, icon-style-guide.
+  - Build: separators were 0px tall (width-only QFrame) — fixed height M.HEADER_SEP_H, muted; mono two-token app_glyph_icon.svg replaces Logo.png; rail metrics tokenized; HEADER_* shared with the dialog shell (user choice, 34px). feat/chrome-polish.
+- [x] [type:bug] Ribbon vertical group label is clipped at the bottom [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30. `firepro3d/ribbon_bar.py` (`_VLabel`), `theme.build_ribbon_qss`. ref: ribbon-bar.
+  - Repro: THERMAL RADIATION 96px Arial text in an 86px strip (test font Segoe UI masked it). Fix: wrap to two balanced lines; guard renders the real ribbon in Arial under the app QSS (RED with fix reverted). feat/chrome-polish.
+- [x] [type:feature] Ribbon proportions: smaller vertical group-label text + ribbon icon sizing review (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — "label text (vertical) too big", "icons" (user unsure what's off — show icon-size variants on a slider in the mockup). Folds the "Tokenize the ribbon `_VLabel` group-label font size" maint item. `firepro3d/ribbon_bar.py`, `firepro3d/theme.py`. ref: ribbon-bar, icon-style-guide.
+  - Build: label size now QSS-owned (app QSS QWidget font-size beat setFont — label had always rendered 9.75pt); 7pt accent; icons 40/18; large buttons reserve a 2-line top-aligned caption box (self-painted). Folded the _VLabel tokenize maint item. feat/chrome-polish.
+
 ## MainWindow startup window state — 2026-09-30
 
 - [x] [type:bug] MainWindow opens in a stuck restored state — not draggable/resizable until a header double-click, which jumps it to centre [P1] [subject:UX] [done:2026-09-30]
