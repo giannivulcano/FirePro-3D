@@ -230,3 +230,95 @@ def test_explode_button_enabled_only_with_a_block_selected(qapp, main_window):
         main_window.block_editor_manager.close(w)
         _forget_defs(proj, b)
         QApplication.processEvents()
+
+
+def test_right_click_menus_offer_edit_block_and_explode_in_editor(qapp):
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _proj_and_editor(b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        from firepro3d.entity_context_menu import build_entity_context_menu
+        m = build_entity_context_menu([inst], inst, scene=es,
+                                      on_edit_block=lambda: None, on_explode=lambda: None)
+        labels = [a.text() for a in m.actions()]
+        assert "Edit Block" in labels and "Explode" in labels
+        assert es._find_entity_at(QPointF(50, 0)) is inst       # entity path reaches blocks
+        inst.setSelected(True)
+        gm = w.view._build_plan_context_menu(es, [inst], "select")
+        acts = {a.text(): a for a in gm.actions()}
+        assert {"Edit Block", "Explode"} <= set(acts)
+        asked = []
+        es.blockEditRequested.connect(asked.append)
+        acts["Edit Block"].trigger()
+        assert asked == [b.id]
+        acts["Explode"].trigger()
+        assert es._block_instances == [] and inst.scene() is None
+    finally:
+        es.cleanup()
+
+
+def test_entity_menu_actions_explode_and_request_edit(qapp, monkeypatch):
+    """The scene's own entity menu (the path a right-click on a block takes)
+    carries working Edit Block / Explode actions."""
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _proj_and_editor(b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        inst.setSelected(True)
+        menus = []
+        from PyQt6.QtWidgets import QMenu
+        monkeypatch.setattr(QMenu, "exec", lambda self, *a: menus.append(self))
+        es._show_entity_context_menu(inst, None)
+        acts = {a.text(): a for a in menus[0].actions()}
+        asked = []
+        es.blockEditRequested.connect(asked.append)
+        acts["Edit Block"].trigger()
+        assert asked == [b.id]
+        acts["Explode"].trigger()
+        assert es._block_instances == [] and inst.scene() is None
+    finally:
+        es.cleanup()
+
+
+def test_plan_scene_menus_do_not_offer_explode(qapp):
+    sc = Model_Space()
+    b = _line_def("B", (0, 0), (100, 0))
+    sc.register_block_definition(b)
+    inst = sc.place_block_instance(b.id, (0.0, 0.0))
+    inst.setSelected(True)
+    from firepro3d.model_view import Model_View
+    v = Model_View(sc)
+    gm = v._build_plan_context_menu(sc, [inst], "select")
+    assert "Explode" not in {a.text() for a in gm.actions()}
+    assert "Edit Block" not in {a.text() for a in gm.actions()}
+    assert sc._find_entity_at(QPointF(50, 0)) is None     # plan entity path unchanged
+    sc.explode_selected_blocks()
+    assert sc._block_instances == [inst]                  # C1: never explodes on a plan
+    sc.cleanup()
+
+
+def test_real_right_click_on_a_nested_block_offers_edit_block_and_explode(qapp, monkeypatch):
+    """Real event path: a context-menu event on the editor viewport over a
+    line-only block (zero-area shape) reaches the entity menu with both
+    actions and selects the block."""
+    from PyQt6.QtGui import QContextMenuEvent
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QMenu
+    b = _line_def("B", (0, 0), (100, 0))
+    proj, w, es = _proj_and_editor(b)
+    try:
+        inst = es.place_block_instance(b.id, (0.0, 0.0))
+        w.resize(800, 600); w.show(); QTest.qWaitForWindowExposed(w)
+        w.view.resetTransform(); w.view.centerOn(0, 0); QApplication.processEvents()
+        menus = []
+        monkeypatch.setattr(QMenu, "exec", lambda self, *a: menus.append(self))
+        vp = w.view.viewport()
+        pt = w.view.mapFromScene(QPointF(50, 0))
+        QApplication.sendEvent(vp, QContextMenuEvent(
+            QContextMenuEvent.Reason.Mouse, pt, vp.mapToGlobal(pt)))
+        QApplication.processEvents()
+        assert menus and {"Edit Block", "Explode"} <= {a.text() for a in menus[-1].actions()}
+        assert inst.isSelected()
+    finally:
+        w.hide()
+        es.cleanup()

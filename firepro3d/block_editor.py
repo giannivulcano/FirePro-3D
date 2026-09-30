@@ -741,8 +741,34 @@ class BlockEditorManager:
     def _created(self, w: BlockEditorWidget) -> BlockEditorWidget:
         """Wire the save hook, then invoke the shell adoption hook (if any)."""
         w.saved.connect(self._on_saved)   # bound method (harness Invariant 6)
+        # Edit Block on a nested instance (right-click / double-click, D10).
+        w.editor_scene.blockEditRequested.connect(self.edit_definition)
         if self.on_open is not None:
             self.on_open(w)
+        return w
+
+    def edit_definition(self, block_id: str) -> BlockEditorWidget | None:
+        """Open *block_id* for editing, seeded from its definition.
+
+        Focuses an already-open editor for the id unchanged (never a
+        duplicate tab, never a re-seed); a freshly opened editor is seeded
+        from the project definition. ``open_for_definition`` alone opens an
+        empty editor (its callers seed), so the nested-block Edit Block
+        route (``blockEditRequested``) goes through here.
+
+        Args:
+            block_id: The project definition to edit.
+
+        Returns:
+            The editor widget, or None when the id does not resolve.
+        """
+        defn = self._project_scene.get_block_definition(block_id)
+        if defn is None:
+            return None
+        fresh = block_id not in self._open
+        w = self.open_for_definition(block_id)
+        if fresh:
+            w.seed_from_definition(defn)
         return w
 
     def open_new(self, *, title: str = "New") -> BlockEditorWidget:

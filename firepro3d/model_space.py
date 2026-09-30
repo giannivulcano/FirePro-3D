@@ -176,6 +176,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
     originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
+    blockEditRequested = pyqtSignal(str)     # Block Editor: open a nested block's definition
 
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
@@ -6505,6 +6506,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # editing, selects the word under the cursor.
         if self._text_edit_ctl.handle_double_click(event):
             return
+        # ── Block Editor: double-click a nested block → edit it (D10) ──
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.scene_role == "block_editor"
+                and self.mode in (None, "select")):
+            hit = self._find_entity_at(event.scenePos())
+            if isinstance(hit, BlockInstance):
+                self.blockEditRequested.emit(hit.block_id)
+                event.accept()
+                return
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "pipe"
@@ -6627,9 +6637,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 item = item.parentItem()
             if isinstance(item, ENTITY_TYPES):
                 return item
+            # Nested blocks are entities in the Block Editor only (D10): the
+            # plan keeps its generic menu (Explode is editor-only, C1).
+            if self.scene_role == "block_editor" and isinstance(item, BlockInstance):
+                return item
             # DetailMarker (avoid import — check by class name)
             if type(item).__name__ == "DetailMarker":
                 return item
+        return self._nested_block_near(pos)
+
+    def _nested_block_near(self, pos):
+        """The Block Editor's nested block under *pos* within the HALO aperture.
+
+        A block's ``shape()`` is its bare posed path, so a point on a
+        line-only block is not "inside" it for ``items(pos)``; the HALO
+        aperture pick (the same one that highlights and click-selects it)
+        resolves it instead. Plan scenes return None (D10 / C1).
+        """
+        if self.scene_role != "block_editor":
+            return None
+        from . import halo_selection
+        views = sorted(self.views(), key=lambda v: not v.isVisible())
+        for v in views[:1]:
+            a = halo_selection.HALO_APERTURE_PX / max(v.transform().m11(), 1e-9)
+            for c in self.halo_candidates_at(pos, a, v.viewportTransform()):
+                if isinstance(c, BlockInstance):
+                    return c
         return None
 
     def _show_entity_context_menu(self, target, screen_pos):
@@ -6638,6 +6671,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .room import Room
 
         selected = self.selectedItems()
+        nested_block = (self.scene_role == "block_editor"
+                        and isinstance(target, BlockInstance))
         menu = build_entity_context_menu(
             selected,
             target,
@@ -6661,6 +6696,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             on_offset_gridline=(
                 (lambda: self._start_gridline_replicate(target, "offset"))
                 if isinstance(target, GridlineItem) else None
+            ),
+            on_edit_block=(
+                (lambda: self.blockEditRequested.emit(target.block_id))
+                if nested_block else None
+            ),
+            on_explode=(
+                (lambda: self.explode_selected_blocks())
+                if nested_block else None
             ),
         )
         menu.exec(screen_pos)

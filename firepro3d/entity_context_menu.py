@@ -54,6 +54,8 @@ def build_entity_context_menu(
     on_auto_populate_room=None,
     on_array_gridline=None,
     on_offset_gridline=None,
+    on_edit_block=None,
+    on_explode=None,
 ) -> QMenu:
     """Build and return a QMenu with standard entity actions.
 
@@ -71,9 +73,21 @@ def build_entity_context_menu(
         "Array Gridlines…" action (shown only when target is a GridlineItem).
     on_offset_gridline : callable or None
         "Offset Gridline…" action (shown only when target is a GridlineItem).
+    on_edit_block : callable or None
+        "Edit Block" action (Block Editor, nested block — nested-blocks D10).
+    on_explode : callable or None
+        "Explode" action (Block Editor only — containment C1).
     """
     menu = QMenu()
     has_sel = bool(selected) or target is not None
+
+    # ── Nested block (Block Editor) ──
+    if on_edit_block is not None:
+        menu.addAction("Edit Block").triggered.connect(on_edit_block)
+    if on_explode is not None:
+        menu.addAction("Explode").triggered.connect(on_explode)
+    if on_edit_block is not None or on_explode is not None:
+        menu.addSeparator()
 
     # ── Copy ──
     if on_copy is not None:
