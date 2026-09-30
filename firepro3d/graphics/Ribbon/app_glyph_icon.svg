@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- FirePro3D identity glyph (header rail, chrome polish 2026-09-30):
+       hex outline = ink sentinel, flame = accent sentinel (two-token, §4.1).
+       Stroke 3 is the mockup-approved identity weight (deviation from §4's 2). -->
+  <path d="M24 4 L41 13.8 L41 34.2 L24 44 L7 34.2 L7 13.8 Z" fill="none" stroke="#1A1A1A" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M24 13 C27 19 32 22 32 29 A8 8 0 0 1 16 29 C16 25 18 23 20 21 C20 25 22 27 24 27 C22 22 22 17 24 13 Z" fill="#004CFF" stroke="none"/>
+</svg>

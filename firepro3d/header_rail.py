@@ -14,16 +14,13 @@ docs/specs/mainwindow-chrome-revamp.md.
 """
 from __future__ import annotations
 
-import os
-
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QFrame, QToolButton,
 )
-from PyQt6.QtGui import QIcon, QPixmap, QFontMetrics
+from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
-from .theme import detect, M
-from .assets import asset_path
+from .theme import detect, M, HEADER_SEP_ROLE
 from .icons import themed_icon
 from .frameless_shell import _WinDot
 
@@ -36,17 +33,19 @@ def _theme_variant() -> str:
 
 def _vsep() -> QFrame:
     f = QFrame()
-    f.setFixedWidth(M.SEAM)
-    f.setStyleSheet(f"background:{detect().line}; border:none;")
+    # Fixed HEIGHT too: a width-only QFrame lays out 0 px tall in the rail's
+    # AlignVCenter HBox and never shows (the pre-2026-09-30 invisible dividers).
+    f.setFixedSize(M.SEAM, M.HEADER_SEP_H)
+    f.setStyleSheet(f"background:{getattr(detect(), HEADER_SEP_ROLE)}; border:none;")
     return f
 
 
 def _action_button(icon_name: str, tip: str) -> QToolButton:
-    """A 26px flat header action button (Save/Undo/Redo)."""
+    """A flat header action button (Save/Undo/Redo), ``M.HEADER_ACTION_*``."""
     b = QToolButton()
     b.setAutoRaise(True)
-    b.setFixedSize(26, 26)
-    b.setIconSize(QSize(17, 17))
+    b.setFixedSize(M.HEADER_ACTION_BTN, M.HEADER_ACTION_BTN)
+    b.setIconSize(QSize(M.HEADER_ACTION_ICON, M.HEADER_ACTION_ICON))
     b.setToolTip(tip)
     b.setIcon(themed_icon(icon_name, _theme_variant()))
     b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -89,20 +88,19 @@ class HeaderRail(QWidget):
         root.setSpacing(0)
         _vc = Qt.AlignmentFlag.AlignVCenter
 
-        # ── Identity: app icon + name + version ──────────────────────────────
+        # ── Identity: app glyph + name + version ─────────────────────────────
+        # Two-token mono glyph (ink hex + accent flame) — the full-colour
+        # wordmark Logo.png read as a grey blob at rail size (2026-09-30).
         self._icon = QLabel()
-        _logo = asset_path("Program Icon", "Logo.png")
-        if os.path.isfile(_logo):
-            self._icon.setPixmap(QPixmap(_logo).scaled(
-                M.HEADER_ICON, M.HEADER_ICON,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation))
+        self._icon.setPixmap(themed_icon("app_glyph_icon.svg", _theme_variant())
+                             .pixmap(M.HEADER_ICON, M.HEADER_ICON))
         root.addWidget(self._icon, 0, _vc)
         root.addSpacing(M.HEADER_ICON_GAP)
 
         self._title = QLabel("FirePro 3D")
         self._title.setProperty("role", "title")
-        self._title.setStyleSheet(f"color:{t.text_primary}; font-weight:600;")
+        self._title.setStyleSheet(
+            f"color:{t.text_primary}; font-weight:600; font-size:{M.HEADER_TITLE_FS}px;")
         root.addWidget(self._title, 0, _vc)
         if app_version:
             ver = QLabel(f"(v{app_version})")
@@ -130,7 +128,7 @@ class HeaderRail(QWidget):
 
         # ── Project name + unsaved ● dot ─────────────────────────────────────
         self._project = QLabel("")
-        self._project.setStyleSheet(f"color:{t.muted};")
+        self._project.setStyleSheet(f"color:{t.muted}; font-size:{M.HEADER_TITLE_FS}px;")
         root.addWidget(self._project, 0, _vc)
         self._dirty = QLabel("●")   # ●
         self._dirty.setStyleSheet(f"color:{t.accent};")

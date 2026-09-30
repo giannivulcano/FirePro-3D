@@ -57,3 +57,41 @@ def test_header_double_click_requests_maximize(qapp):
     h.maximizeRequested.connect(lambda: fired.append(1))
     h.mouseDoubleClickEvent(_mouse(QEvent.Type.MouseButtonDblClick))
     assert fired == [1]
+
+
+def test_header_separators_are_visible(qapp):
+    """The two section dividers render HEADER_SEP_H tall in the muted role.
+
+    Guard: pre-2026-09-30 they were width-only QFrames that laid out 0 px tall.
+    """
+    from PyQt6.QtWidgets import QFrame
+    from PyQt6.QtGui import QColor
+    from firepro3d import theme as th
+    h = HeaderRail(app_version="9.9")
+    h.resize(900, th.M.HEADER_H)
+    h.show()
+    qapp.processEvents()
+    seps = [f for f in h.findChildren(QFrame) if f.width() == th.M.SEAM]
+    assert len(seps) == 2
+    img = h.grab().toImage()
+    want = QColor(getattr(th.detect(), th.HEADER_SEP_ROLE))
+    for s in seps:
+        x = s.geometry().x()
+        hits = sum(1 for y in range(h.height())
+                   if img.pixelColor(x, y).name() == want.name())
+        assert hits >= th.M.HEADER_SEP_H - 1
+
+
+def test_header_logo_is_the_themed_glyph(qapp):
+    from PyQt6.QtGui import QColor
+    from firepro3d import theme as th
+    h = HeaderRail(app_version="9.9")
+    pm = h._icon.pixmap()
+    assert pm is not None and not pm.isNull()
+    assert pm.width() == th.M.HEADER_ICON
+    img = pm.toImage()
+    acc = QColor(th.detect().accent)
+    assert any(abs(img.pixelColor(x, y).green() - acc.green()) < 30
+               and abs(img.pixelColor(x, y).red() - acc.red()) < 30
+               and img.pixelColor(x, y).alpha() > 200
+               for x in range(img.width()) for y in range(img.height()))
