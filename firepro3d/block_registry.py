@@ -105,6 +105,20 @@ class BlockRegistry:
                     stack.append(child)
         return seen
 
+    def bundle_for(self, block_id: str) -> dict:
+        """Serialized copies of every definition *block_id* nests (transitively).
+
+        The ``bundled`` map a schema-2 ``.fpdb`` carries (D11).
+
+        Args:
+            block_id: The definition being saved to the library.
+
+        Returns:
+            ``{id: definition.to_dict()}``; empty when nothing is nested.
+        """
+        return {i: self._store[i].to_dict() for i in sorted(self.closure(block_id))
+                if i in self._store and i != block_id}
+
     def users_of(self, block_id: str) -> set[str]:
         """Definitions that nest *block_id* directly or transitively.
 

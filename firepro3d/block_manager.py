@@ -692,7 +692,9 @@ class BlockManagerDialog(HouseDialog):
         if defn is None:
             return
         try:
-            block_library.save_to_library(defn, root=self._lib_root, overwrite=overwrite)
+            block_library.save_to_library(
+                defn, root=self._lib_root, overwrite=overwrite,
+                bundled=self.scene.block_registry.bundle_for(defn.id))
             self.model.refresh()  # force table cell repaint (status col)
         except block_library.BlockNameCollision as exc:
             choice = themed_choice(

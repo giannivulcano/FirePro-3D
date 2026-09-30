@@ -1621,17 +1621,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def reload_block_definition(self, block_id: str, root: str | None = None) -> bool:
         """Pull the library copy of *block_id* into the embedded registry.
 
-        Fetches the on-disk `.fpdb` copy, swaps it in (backref rebuild + repaint),
-        pushes an undo state, and emits ``blockDefinitionsChanged``. Returns False
-        when the block is not in the library. ``root`` overrides the library root.
+        Fetches the on-disk `.fpdb` copy, adds any nested definition its bundle
+        carries that the project lacks (the project copy wins, D11), swaps it
+        in (backref rebuild + repaint), pushes an undo state, and emits
+        ``blockDefinitionsChanged``. Returns False when the block is not in the
+        library, is unreadable, or the reload would form a nesting cycle.
+        ``root`` overrides the library root.
         """
+        import os
         from . import block_library
         current = self._block_definitions.get(block_id)
         if current is None:
             return False
-        lib_def = block_library.reload_from_library(current, root=root)
-        if lib_def is None:
+        found = block_library._find_by_id(block_id, root)
+        if found is None:
             return False
+        library, series, filename, _meta = found
+        path = os.path.join(block_library._series_dir(root, library, series), filename)
+        loaded = block_library.load_block_file_with_bundle(path)
+        if loaded is None:
+            return False
+        lib_def, bundled = loaded
+        if self._load_would_cycle(bundled, lib_def):
+            return False
+        for dep in bundled:                              # project copy wins
+            if dep.id != block_id and self.get_block_definition(dep.id) is None:
+                self._block_registry.add(dep)
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -1648,16 +1663,30 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         The whole batch is ONE undo state and ONE ``blockDefinitionsChanged``
         emit (guards against N model resets). Returns name lists:
         ``{loaded, replaced, skipped, refused, failed}``.
+
+        A schema-2 file's bundled nested definitions are added only when their
+        id is absent (the project copy wins, D11). A file that would form a
+        nesting cycle over the project ∪ its bundle is refused with the reason
+        ``"<name> (a block can't contain itself)"``; the rest of the batch
+        still loads.
         """
         from . import block_library
         summary = {"loaded": [], "replaced": [], "skipped": [],
                    "refused": [], "failed": []}
         changed = False
         for path in paths:
-            defn = block_library.load_block_file(path)
-            if defn is None:
+            loaded = block_library.load_block_file_with_bundle(path)
+            if loaded is None:
                 summary["failed"].append(path)
                 continue
+            defn, bundled = loaded
+            if self._load_would_cycle(bundled, defn):
+                summary["refused"].append(f"{defn.name} (a block can't contain itself)")
+                continue
+            for dep in bundled:                              # project copy wins
+                if dep.id != defn.id and self.get_block_definition(dep.id) is None:
+                    self._block_registry.add(dep)
+                    changed = True
             existing = self._block_definitions.get(defn.id)
             if existing is not None:
                 if existing.version == defn.version:
@@ -1681,6 +1710,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.push_undo_state()
             self.blockDefinitionsChanged.emit()
         return summary
+
+    def _load_would_cycle(self, bundled, defn) -> bool:
+        """True if loading *defn* with its *bundled* definitions forms a cycle.
+
+        The walk runs over the project store merged with the file: bundled
+        copies only fill ids the project lacks (the project copy wins), while
+        *defn* itself is the copy that would be embedded or swapped in.
+
+        Args:
+            bundled: The file's bundled ``BlockDefinition`` list.
+            defn: The file's own ``BlockDefinition``.
+        """
+        pool = {d.id: d for d in [*bundled, defn]}
+        merged = {**{d.id: d for d in bundled}, **self._block_definitions,
+                  defn.id: defn}
+        return any(i in self._block_registry.closure(i, merged) for i in pool)
 
     def set_block_metadata(self, block_id: str, name: str, library: str,
                            series: str) -> bool:

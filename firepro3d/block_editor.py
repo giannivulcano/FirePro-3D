@@ -711,13 +711,14 @@ class BlockEditorWidget(QWidget):
         """
         from . import block_library
         from .themed_message import themed_confirm
+        bundled = self._project_scene.block_registry.bundle_for(defn.id)
         try:
-            block_library.save_to_library(defn, overwrite=overwrite)
+            block_library.save_to_library(defn, overwrite=overwrite, bundled=bundled)
         except block_library.BlockNameCollision as e:
             if themed_confirm(parent, "Overwrite block?",
                               f"A different block '{e.existing_name}' occupies that "
                               f"file. Overwrite it?"):
-                block_library.save_to_library(defn, overwrite=True)
+                block_library.save_to_library(defn, overwrite=True, bundled=bundled)
 
 
 class BlockEditorManager:

@@ -153,7 +153,7 @@ def _read_index(series_dir: str) -> dict:
 
 
 def save_to_library(definition: BlockDefinition, root: str | None = None,
-                    *, overwrite: bool = False) -> str:
+                    *, overwrite: bool = False, bundled: dict | None = None) -> str:
     """Write *definition* to the tree + update the Series index; returns the path.
 
     Keyed on ``definition.id`` (the frozen identity), not the folder location:
@@ -167,6 +167,9 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     Args:
         overwrite: proceed past a cross-``id`` filename collision (clobber the
             other block's ``.fpdb`` + index entry). Confirmed by the caller.
+        bundled: ``{id: to_dict}`` of the definitions *definition* nests
+            (``BlockRegistry.bundle_for``). Non-empty → the file is written as
+            schema 2 with a ``bundled`` map (D11); empty/None → schema 1.
     """
     series_dir = _series_dir(root, definition.library, definition.series)
     filename = sanitize(definition.name) + ".fpdb"
@@ -189,7 +192,11 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
             delete_from_library(old_lib, old_series, old_fname, root)
 
     # (c) Write the .fpdb + refresh the Series index.
-    _atomic_write_json(path, definition.to_dict())
+    rec = definition.to_dict()
+    if bundled:
+        rec["schema"] = 2
+        rec["bundled"] = dict(bundled)
+    _atomic_write_json(path, rec)
     index = _read_index(series_dir)
     index[filename] = {"id": definition.id, "name": definition.name,
                        "version": definition.version, "thumbnail": None}
@@ -295,8 +302,9 @@ def load_failure_message(name: str, summary: dict) -> str:
 def load_block_file_with_bundle(path: str):
     """Load a ``.fpdb`` plus the nested definitions it bundles.
 
-    Interim shim (nested-blocks Task 7): bundles arrive with the schema-2 save
-    (Task 11), which replaces this body; until then the bundle is empty.
+    Schema-1 files carry no bundle (empty list); schema-2 files carry a
+    ``bundled`` ``{id: to_dict}`` map of every transitively nested
+    definition (D11).
 
     Args:
         path: The ``.fpdb`` file path.
@@ -304,8 +312,18 @@ def load_block_file_with_bundle(path: str):
     Returns:
         ``(definition, [bundled definitions])``, or None if unreadable.
     """
-    d = load_block_file(path)
-    return (d, []) if d is not None else None
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        defn = BlockDefinition.from_dict(data)
+        bundled = [BlockDefinition.from_dict(v)
+                   for v in (data.get("bundled") or {}).values()]
+        return defn, bundled
+    except Exception as exc:
+        _log.warning("Unreadable block .fpdb %s: %s", path, exc)
+        return None
 
 
 def source_status(definition: BlockDefinition, root: str | None = None) -> str:
