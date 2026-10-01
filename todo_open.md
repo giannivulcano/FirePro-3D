@@ -280,8 +280,6 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## MainWindow chrome polish (2026-09-30 user batch)
 
-- [ ] [type:bug] Widget `setFont()` sizes silently overridden by the app QSS — Selector + sprinkler tables [P3] [subject:UX]
-  - Details: filed 2026-09-30 from the chrome-polish smoke audit. `build_app_qss`'s `QWidget { font-size: 9.75pt }` (and `QDialog[houseDialog="true"] QComboBox`) beats a widget's `setFont()` SIZE (bold/family survive; a setFont made after polish survives until the next `app.setStyleSheet`, e.g. theme switch `main.py` `_apply_theme`). (1) `ui_kit.Selector` (painted QComboBox, intended 11px) is correct in the Properties panel (`_form_container` QSS) but renders 13px elsewhere — confirmed in `BlockSaveDialog` library/series selectors (`CreatableSelector`). (2) `sprinkler_db.py` + `auto_populate_dialog.py` QTableWidgets (8.5pt) are correct on first build but drop to 9.75pt if the app QSS is re-applied while open. Fix pattern (as done for `_VLabel`/`dock_header`/Levels header in feat/chrome-polish): size in the widget's own QSS or a scoped rule; guard under the real app QSS + one re-apply. Full site list: the audit (100 `setFont` hits; 12 on widgets). `firepro3d/ui_kit.py`, `firepro3d/sprinkler_db.py`, `firepro3d/auto_populate_dialog.py`. ref: ui-design-system, architecture/theming.
 
 ## Block Editor ribbon follow-ups (from the always-available tab build, 2026-09-30)
 
