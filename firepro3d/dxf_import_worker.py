@@ -581,6 +581,24 @@ class DxfImportWorker(QThread):
                 return {"kind": "spline", "layer": layer, "color": color,
                         "control_points": cps, "degree": entity.dxf.degree,
                         "knots": knots, "weights": weights, "closed": closed}
+            if entity.closed:
+                # DD7: a closed periodic SPLINE flattens from the periodic
+                # curve (the editable / preview curve), not ezdxf's full-knot-
+                # range flattening, which draws a stray tail. Curve-derived:
+                # never "straight" (the axis picker ignores it, DD2).
+                from PyQt6.QtCore import QPointF
+                from .geometry_2d import periodic_spline_polyline
+                loop = periodic_spline_polyline(
+                    [QPointF(p[0], p[1]) for p in entity.control_points],
+                    entity.dxf.degree,
+                    list(entity.knots) if entity.knots else None,
+                    list(entity.weights) if entity.weights else None, 0.5)
+                if loop:
+                    return {
+                        "kind": "path_points", "layer": layer, "color": color,
+                        "points": [(q.x(), -q.y()) for q in loop],
+                        "closed": True,
+                    }
             pts = list(entity.flattening(0.5))
             if not pts:
                 return None

@@ -2659,6 +2659,96 @@ def periodic_control_points(control_points: list[QPointF], degree: int,
     return [QPointF(p) for p in control_points[:-3]]
 
 
+def _periodic_bezier_spans(control_points: list[QPointF]) -> list[tuple]:
+    """The ``n`` cubic Bézier spans ``(b0, b1, b2, b3)`` of a periodic uniform
+    cubic (DD7 formulas, see ``_periodic_bezier_path``). Each span's ``b0`` is
+    the previous span's ``b3`` object and the last ``b3`` evaluates span 0's
+    ``b0`` in the same order, so the seam is bit-exact. Needs >= 3 points."""
+    pts = control_points
+    n = len(pts)
+    p0, p1, p2 = pts[0], pts[1 % n], pts[2 % n]
+    b0 = QPointF((p0.x() + 4 * p1.x() + p2.x()) / 6,
+                 (p0.y() + 4 * p1.y() + p2.y()) / 6)
+    spans = []
+    for i in range(n):
+        p1, p2, p3 = pts[(i + 1) % n], pts[(i + 2) % n], pts[(i + 3) % n]
+        b1 = QPointF((2 * p1.x() + p2.x()) / 3, (2 * p1.y() + p2.y()) / 3)
+        b2 = QPointF((p1.x() + 2 * p2.x()) / 3, (p1.y() + 2 * p2.y()) / 3)
+        b3 = QPointF((p1.x() + 4 * p2.x() + p3.x()) / 6,
+                     (p1.y() + 4 * p2.y() + p3.y()) / 6)
+        spans.append((b0, b1, b2, b3))
+        b0 = b3
+    return spans
+
+
+def periodic_spline_polyline(control_points: list[QPointF], degree: int,
+                             knots: list[float] | None,
+                             weights: list[float] | None,
+                             distance: float = 0.5,
+                             segments: int = 4) -> list[QPointF] | None:
+    """DD7 flattening of a closed periodic DXF SPLINE (underlay import).
+
+    Same mapping as ``periodic_control_points`` and the same curve as the
+    editable / preview path (``_periodic_bezier_spans``), flattened like
+    ezdxf's ``flattening(distance, segments)``: each span is cut into
+    ``segments`` pieces, each piece subdivided until its control points lie
+    within ``distance`` of its chord.
+
+    Returns:
+        The closed loop's vertices WITHOUT a seam duplicate, or None when the
+        SPLINE is not in the DD7 periodic form (caller keeps its own path).
+    """
+    uniq = periodic_control_points(control_points, degree, knots, weights)
+    if uniq is None:
+        return None
+
+    def _pt(b, t):
+        u = 1.0 - t
+        c0, c1, c2, c3 = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+        return (c0 * b[0][0] + c1 * b[1][0] + c2 * b[2][0] + c3 * b[3][0],
+                c0 * b[0][1] + c1 * b[1][1] + c2 * b[2][1] + c3 * b[3][1])
+
+    def _flat(b):
+        (x0, y0), (x3, y3) = b[0], b[3]
+        dx, dy = x3 - x0, y3 - y0
+        L = math.hypot(dx, dy)
+        for x, y in (b[1], b[2]):
+            d = (math.hypot(x - x0, y - y0) if L < 1e-12
+                 else abs((x - x0) * dy - (y - y0) * dx) / L)
+            if d > distance:
+                return False
+        return True
+
+    def _sub(b, t0, t1):
+        """Bézier control points of the piece [t0, t1] (blossoming)."""
+        def _blossom(a, c, e):
+            q = list(b)
+            for t in (a, c, e):
+                q = [((1 - t) * q[k][0] + t * q[k + 1][0],
+                      (1 - t) * q[k][1] + t * q[k + 1][1]) for k in range(len(q) - 1)]
+            return q[0]
+        return (_blossom(t0, t0, t0), _blossom(t0, t0, t1),
+                _blossom(t0, t1, t1), _blossom(t1, t1, t1))
+
+    out: list[QPointF] = []
+
+    def _emit(b, t0, t1, depth=0):
+        piece = _sub(b, t0, t1)
+        if depth >= 16 or _flat(piece):
+            out.append(QPointF(*_pt(b, t0)))
+            return
+        tm = (t0 + t1) / 2
+        _emit(b, t0, tm, depth + 1)
+        _emit(b, tm, t1, depth + 1)
+
+    seg = max(1, int(segments))
+    for span in _periodic_bezier_spans(uniq):
+        b = tuple((p.x(), p.y()) for p in span)
+        for k in range(seg):
+            _emit(b, k / seg, (k + 1) / seg)
+    return out
+
+
 def _periodic_bezier_path(control_points: list[QPointF]) -> QPainterPath:
     """Smooth closed (periodic) uniform cubic B-spline as exact cubic Béziers.
 
@@ -2671,17 +2761,9 @@ def _periodic_bezier_path(control_points: list[QPointF]) -> QPainterPath:
     mm. Needs >= 3 control points (callers guarantee it).
     """
     path = QPainterPath()
-    pts = control_points
-    n = len(pts)
-    for i in range(n):
-        p0, p1, p2, p3 = pts[i], pts[(i + 1) % n], pts[(i + 2) % n], pts[(i + 3) % n]
-        b1 = QPointF((2 * p1.x() + p2.x()) / 3, (2 * p1.y() + p2.y()) / 3)
-        b2 = QPointF((p1.x() + 2 * p2.x()) / 3, (p1.y() + 2 * p2.y()) / 3)
-        b3 = QPointF((p1.x() + 4 * p2.x() + p3.x()) / 6,
-                     (p1.y() + 4 * p2.y() + p3.y()) / 6)
-        if i == 0:
-            path.moveTo(QPointF((p0.x() + 4 * p1.x() + p2.x()) / 6,
-                                (p0.y() + 4 * p1.y() + p2.y()) / 6))
+    spans = _periodic_bezier_spans(control_points)
+    path.moveTo(spans[0][0])
+    for _b0, b1, b2, b3 in spans:
         path.cubicTo(b1, b2, b3)
     path.closeSubpath()
     return path

@@ -19,21 +19,21 @@ from firepro3d.geometry_2d import SplineItem
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]          # DXF Y-up
 
 
-def _worker():
+def _worker(preserve_curves=True):
     w = DxfImportWorker.__new__(DxfImportWorker)           # sync path
     w._layer_colors = {}
-    w._preserve_curves = True
+    w._preserve_curves = preserve_curves
     return w
 
 
-def _read_back(tmp_path, build):
+def _read_back(tmp_path, build, preserve_curves=True):
     doc = ezdxf.new()
     build(doc.modelspace())
     fp = tmp_path / "spline.dxf"
     doc.saveas(fp)
     ents = [e for e in ezdxf.readfile(fp).modelspace() if e.dxftype() == "SPLINE"]
     assert len(ents) == 1
-    return _worker()._extract_geometry(ents[0])
+    return _worker(preserve_curves)._extract_geometry(ents[0])
 
 
 def _closed_periodic(msp):
@@ -112,3 +112,45 @@ def test_import_preview_path_draws_the_periodic_curve(tmp_path):
     p0, p1 = path.pointAtPercent(0.0), path.pointAtPercent(1.0)
     assert math.hypot(p1.x() - p0.x(), p1.y() - p0.y()) < 1e-6          # [RED]
     assert _hull_ok(path)                                                # [RED]
+
+
+def _seg_dist(x, y, a, b):
+    ax, ay, bx, by = a[0], a[1], b[0], b[1]
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+    return math.hypot(x - (ax + t * dx), y - (ay + t * dy))
+
+
+def _dist_to_loop(x, y, loop):
+    return min(_seg_dist(x, y, a, b) for a, b in zip(loop, loop[1:] + loop[:1]))
+
+
+def test_underlay_flattening_draws_the_periodic_curve(qapp, tmp_path):
+    """Underlay / model-space import (preserve_curves False): the closed
+    periodic SPLINE is flattened from the periodic curve — a closed loop inside
+    the control hull matching the editable curve (review I1)."""
+    g = _read_back(tmp_path, _closed_periodic, preserve_curves=False)
+    assert g["kind"] == "path_points"
+    assert g["closed"] is True and "straight" not in g                  # [RED]
+    loop = [tuple(p) for p in g["points"]]
+    assert len(loop) >= 16 and loop[0] != loop[-1]   # no seam duplicate
+    xs, ys = [p[0] for p in loop], [p[1] for p in loop]
+    assert min(xs) >= -1e-6 and max(xs) <= 100 + 1e-6                   # [RED]
+    assert min(ys) >= -100 - 1e-6 and max(ys) <= 1e-6                   # no tail
+    # the same curve as the editable (Block import) path, within the 0.5
+    # flattening tolerance, both ways
+    s = _import([_read_back(tmp_path, _closed_periodic)])
+    curve = [s.path().pointAtPercent(i / 400) for i in range(401)]
+    assert max(_dist_to_loop(q.x(), q.y(), loop) for q in curve) <= 0.5
+    poly = [(q.x(), q.y()) for q in curve]
+    assert max(_dist_to_loop(x, y, poly) for x, y in loop) <= 0.05
+
+
+def test_underlay_flattening_of_an_open_spline_is_unchanged(tmp_path):
+    def _open(msp):
+        msp.add_open_spline([(0, 0), (10, 20), (30, -20), (40, 0)], degree=3)
+    g = _read_back(tmp_path, _open, preserve_curves=False)
+    assert g["kind"] == "path_points" and g["closed"] is False
+    assert "straight" not in g
+    assert g["points"][0] == (0.0, 0.0) and g["points"][-1] == (40.0, 0.0)
