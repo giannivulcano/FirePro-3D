@@ -49,10 +49,11 @@ def test_registry_has_expected_keys(main_window):
 
 
 def test_contextual_index_after_base_tabs(main_window):
-    # 5 base tabs after the containment contract dissolved Create (C7) → the
-    # contextual insert slot is 5, derived from the live tab count so it can't
-    # drift. Must equal the actual base-tab count.
-    assert main_window._contextual_index == 5
+    # 6 base tabs (Create dissolved by C7; the Block Editor page became a
+    # permanent base tab, 2026-09-30) → the contextual insert slot is 6,
+    # derived from the live tab count so it can't drift. Must equal the
+    # actual base-tab count.
+    assert main_window._contextual_index == 6
     assert main_window._contextual_index == main_window.ribbon._tab_bar.count()
 
 
@@ -327,7 +328,7 @@ def test_title_updates_on_element_switch_within_family(main_window, qapp, clean_
 
 def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene):
     """Selecting only items that _family_key_for maps to None must NOT insert
-    any contextual tab — the tab count stays at the 5-tab base roster and the
+    any contextual tab — the tab count stays at the 6-tab base roster and the
     active tab is unchanged."""
     from PyQt6.QtWidgets import QGraphicsRectItem
     mw = main_window
@@ -339,8 +340,8 @@ def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene
         r.setSelected(True)
         qapp.processEvents()
         titles = _titles(mw)
-        assert mw.ribbon._tab_bar.count() == 5, (
-            f"Expected 5 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
+        assert mw.ribbon._tab_bar.count() == 6, (
+            f"Expected 6 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
         )
         assert mw.ribbon._tab_bar.currentIndex() == 2, (
             f"Expected active tab 2 to be unchanged; got {mw.ribbon._tab_bar.currentIndex()}"
