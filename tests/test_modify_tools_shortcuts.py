@@ -22,6 +22,7 @@ from main import MainWindow
 EXPECTED = {
     "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste", "Shift+D": "duplicate",
     "Shift+M": "move", "Shift+R": "rotate", "Shift+O": "offset", "Shift+A": "array",
+    "Shift+F": "flip", "Shift+I": "mirror",
     "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
 }
 
@@ -169,4 +170,51 @@ def test_shift_m_does_nothing_on_a_paper_tab(main_window, qapp):
         plan.set_mode(None)
         plan.removeItem(line)
         main_window.central_tabs.setCurrentIndex(prev)
+        qapp.processEvents()
+
+
+@pytest.mark.parametrize("seq,tool", [("Shift+F", "flip"), ("Shift+I", "mirror")])
+def test_flip_mirror_keys_drive_the_block_editor_scene(main_window, qapp, seq, tool):
+    """P1 M2: a real Block Editor tab is current -> the QShortcut enters the
+    tool on the EDITOR scene (never the hidden plan scene)."""
+    main_window.scene.clearSelection()
+    main_window._open_block_editor()
+    qapp.processEvents()
+    ed = main_window._active_editor_widget()
+    try:
+        assert ed is not None
+        editor = ed.editor_scene
+        line = LineItem(QPointF(0, 0), QPointF(100, 0))
+        editor.addItem(line); editor._draw_lines.append(line)
+        line.setSelected(True)
+        _shortcut(main_window, seq).activated.emit()
+        assert editor.mode == tool                                        # [RED]
+        assert main_window.scene.mode != tool
+        editor.set_mode(None)
+    finally:
+        if ed is not None:
+            ed._modified = False
+            main_window.block_editor_manager.close(ed)
+            qapp.processEvents()
+
+
+@pytest.mark.parametrize("seq", ["Shift+F", "Shift+I"])
+def test_flip_mirror_keys_refused_while_line_edit_focused(main_window, monkeypatch,
+                                                          qapp, seq):
+    from PyQt6.QtWidgets import QApplication, QLineEdit
+    calls = []
+    scene = main_window._active_scene()
+    monkeypatch.setattr(scene._modify_ctl, "start", lambda tool: calls.append(tool))
+    le = QLineEdit(main_window)
+    try:
+        le.show()
+        main_window.activateWindow()
+        le.setFocus()
+        qapp.processEvents()
+        assert QApplication.focusWidget() is le         # precondition
+        _shortcut(main_window, seq).activated.emit()
+        assert calls == []
+    finally:
+        le.hide()
+        le.deleteLater()
         qapp.processEvents()

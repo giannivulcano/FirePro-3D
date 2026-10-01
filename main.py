@@ -675,6 +675,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste",
             "Shift+D": "duplicate", "Shift+M": "move", "Shift+R": "rotate",
             "Shift+O": "offset", "Shift+A": "array",
+            "Shift+F": "flip", "Shift+I": "mirror",
             "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
         }
         for _seq, _tool in _TOOL_KEYS.items():
@@ -3306,7 +3307,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def build_modify_group(self, page, scene_getter, mode_registry=None,
                            *, explode: bool = False) -> dict:
-        """Modify group (scene-tools.md D1): Move · Rotate · Offset · Array.
+        """Modify group (scene-tools.md D1; P1 DD11): Move · Rotate · Flip · Mirror · Offset · Array.
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
@@ -3317,12 +3318,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 (nested-blocks D10; containment C1).
 
         Returns:
-            ``{label: button}`` for the four buttons (five with *explode*).
+            ``{label: button}`` for the six buttons (seven with *explode*).
         """
         g = page.add_group("Modify")
         spec = (
             ("Move", "move_icon.svg", "move", "Move — base point, then destination (Shift+M)"),
             ("Rotate", "rotate_icon.svg", "rotate", "Rotate — pivot, start ray, end ray; type an angle (Shift+R)"),
+            ("Flip", "flip_icon.svg", "flip", "Flip — pick a straight edge as the mirror axis; flips the selection in place (Shift+F)"),
+            ("Mirror", "mirror_icon.svg", "mirror", "Mirror — pick a straight edge as the mirror axis; adds mirrored copies (Shift+I)"),
             ("Offset", "offset_icon.svg", "offset", "Offset — pick an object, cursor sets side + distance (Shift+O)"),
             ("Array", "array_icon.svg", "array", "Array — base point, cursor sets direction + spacing (Shift+A)"),
         )
@@ -3339,7 +3342,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     # Buttons that need a selection (scene-tools.md D1/D3 select-first).
     _MODIFY_NEEDS_SELECTION = ("Copy", "Cut", "Duplicate", "Delete",
-                               "Move", "Rotate", "Array")
+                               "Move", "Rotate", "Flip", "Mirror", "Array")
 
     def _refresh_modify_buttons(self) -> None:
         """Enable/disable the Block Editor Edit/Modify buttons (D1).

@@ -96,6 +96,7 @@ def test_tooltips_show_shift_keys(main_window):
     main_window.build_edit_group(page, main_window._active_scene)
     b = _buttons(page)
     for label, key in (("Move", "Shift+M"), ("Rotate", "Shift+R"),
+                       ("Flip", "Shift+F"), ("Mirror", "Shift+I"),
                        ("Offset", "Shift+O"), ("Array", "Shift+A"),
                        ("Copy", "Shift+C"), ("Cut", "Shift+X"),
                        ("Paste", "Shift+V"), ("Duplicate", "Shift+D")):
@@ -125,7 +126,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         assert ed is not None
         btns = main_window._be_modify_buttons
         edit = {"Copy", "Cut", "Paste", "Duplicate", "Delete"}
-        modify = {"Move", "Rotate", "Offset", "Array", "Explode"}
+        modify = {"Move", "Rotate", "Flip", "Mirror", "Offset", "Array", "Explode"}
         assert set(btns) == edit | modify
         for label, b in btns.items():
             assert _group_title(b) == ("EDIT" if label in edit else "MODIFY"), label
@@ -136,7 +137,8 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         assert editor is ed.editor_scene and editor is not main_window.scene
         editor.clearSelection()
         qapp.processEvents()
-        for label in ("Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"):
+        for label in ("Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate",
+                      "Flip", "Mirror", "Array"):
             assert not btns[label].isEnabled(), label
         # Paste follows the clipboard payload (D5 / I1), refreshed on change.
         from PyQt6.QtWidgets import QApplication
@@ -264,5 +266,54 @@ def test_refused_start_leaves_the_button_unchecked(main_window, qapp):
         b.click()
         assert editor.mode in (None, "select")
         assert not b.isChecked()
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def _reading_order(btns, labels):
+    """Labels sorted by on-screen position: column (left edge of the button's
+    column widget), then top-to-bottom inside it — the ribbon's reading order."""
+    from PyQt6.QtCore import QPoint
+
+    def key(label):
+        b = btns[label]
+        win = b.window()
+        return (b.parentWidget().mapTo(win, QPoint(0, 0)).x(),
+                b.mapTo(win, QPoint(0, 0)).y())
+    return sorted(labels, key=key)
+
+
+MODIFY_ORDER = ["Move", "Rotate", "Flip", "Mirror", "Offset", "Array", "Explode"]
+
+
+def test_modify_group_reading_order(main_window, qapp):
+    """DD11: Move · Rotate · (Scale, Slice 6) · Flip · Mirror · Offset · Array · Explode."""
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        btns = main_window._be_modify_buttons
+        assert _reading_order(btns, MODIFY_ORDER) == MODIFY_ORDER         # [RED]
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_flip_mirror_buttons_tooltip_light_and_enter_their_modes(main_window, qapp):
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        btns = main_window._be_modify_buttons
+        reg = main_window._block_mode_buttons
+        for label, key, mode in (("Flip", "Shift+F", "flip"),
+                                 ("Mirror", "Shift+I", "mirror")):
+            b = btns[label]
+            assert key in b.toolTip(), label
+            assert b.isCheckable() and reg[mode] is b
+            assert not b.icon().isNull()
+            assert b.isEnabled()
+            b.click()
+            assert editor.mode == mode and b.isChecked()                  # [RED]
+            editor.set_mode(None)
+            assert not b.isChecked()
+            line.setSelected(True)
     finally:
         _close_editor(main_window, ed, qapp)
