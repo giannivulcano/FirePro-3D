@@ -567,6 +567,19 @@ class Model_View(QGraphicsView):
             paint_ghost(painter, gpaths, th.detect())
             painter.restore()
 
+        # ── 8a. Flip / Mirror axis (P1 DD3): infinite accent dash-dot axis +
+        # HALO glow on the single source segment; the reflected ghost (8)
+        # paints on top of it.
+        axis = getattr(scene, "_mirror_axis", None)
+        if axis is not None:
+            from .transform_ghost import paint_axis
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_axis(painter, axis.p1, axis.p2,
+                       self.mapToScene(self.viewport().rect()).boundingRect(),
+                       th.detect())
+            painter.restore()
+
         # ── 8. Move/paste ghost (D11: HALO glow + 1 px accent trace) ──
         mghost = getattr(scene, "_move_ghost", None)
         if mghost:
