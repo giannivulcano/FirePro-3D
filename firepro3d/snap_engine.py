@@ -154,7 +154,7 @@ SNAP_COLORS: dict[str, str] = {
     "nearest":       "#ffffff",   # white   – cross marker
     "perpendicular": "#ff00ff",   # magenta – right-angle marker
     "tangent":       "#88ff00",   # lime    – tangent marker
-    "origin":        "#ff4f6e",   # red-family – circle-plus marker (DD6; not a toggle)
+    "origin":        "#e8325a",   # red-family – circle-plus marker (DD6; not a toggle)
 }
 
 SNAP_MARKERS: dict[str, str] = {
