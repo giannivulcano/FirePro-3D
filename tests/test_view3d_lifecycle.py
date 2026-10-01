@@ -309,3 +309,19 @@ class TestNoViewRefusal:
         ms.view_available = True
         ms.set_mode("pipe")
         assert ms.mode == "pipe"
+
+
+class TestCanvasColour:
+    """The 3D canvas paints the same token as the plan canvas (``surface``) —
+    user request at the 2026-09-30 smoke."""
+
+    def test_3d_background_is_the_surface_token(self, real3d):
+        from collections import Counter
+        from PyQt6.QtGui import QColor
+        from firepro3d import theme as th
+        ms, v = real3d
+        _show(v)
+        img = v._plotter.screenshot(return_img=True)
+        common = Counter(map(tuple, img.reshape(-1, img.shape[2])[:, :3])).most_common(1)[0][0]
+        want = QColor(th.detect().surface)
+        assert common == pytest.approx((want.red(), want.green(), want.blue()), abs=1)

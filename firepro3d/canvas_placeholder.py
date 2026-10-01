@@ -15,7 +15,8 @@ from .theme import M
 
 
 class EmptyCanvasPlaceholder(QWidget):
-    """Message + quick buttons over an empty canvas rail and ground pane.
+    """Message + quick buttons over an empty canvas rail and surface pane
+    (the plan canvas colour).
 
     Signals:
         open3DRequested: the "3D Model" button was clicked.
@@ -48,7 +49,7 @@ class EmptyCanvasPlaceholder(QWidget):
         pane = QWidget()
         pane.setObjectName("emptyCanvasPane")
         pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        pane.setStyleSheet(f"#emptyCanvasPane {{ background: {t.ground}; }}")
+        pane.setStyleSheet(f"#emptyCanvasPane {{ background: {t.surface}; }}")
         root.addWidget(pane, 1)
         pl = QVBoxLayout(pane)
         pl.setContentsMargins(0, 0, 0, 0)

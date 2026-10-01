@@ -69,3 +69,16 @@ def test_rail_height_follows_setter(live_env):
         assert p._rail.height() == 31
     finally:
         p.close()
+
+
+def test_pane_paints_the_plan_canvas_surface_token(live_env):
+    """The empty pane matches the plan canvas colour (``surface``) — user
+    request at the 2026-09-30 smoke; the live plan viewport samples surface."""
+    th = live_env
+    p = _placeholder(th)
+    try:
+        img = p.grab().toImage()
+        got = img.pixelColor(5, img.height() - 5).name()
+        assert got == th.detect().surface.lower()
+    finally:
+        p.close()

@@ -298,7 +298,9 @@ class View3D(QWidget):
 
         # PyVista plotter (replaces vispy SceneCanvas)
         self._plotter = QtInteractor(self)
-        self._plotter.set_background(color=(0.12, 0.12, 0.14))
+        # Same token as the plan canvas viewport (surface) so every canvas tab
+        # reads as one surface.
+        self._plotter.set_background(color=detect().surface)
         self._plotter.enable_depth_peeling(10)  # correct transparency
         layout.addWidget(self._plotter)
 
