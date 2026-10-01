@@ -12,7 +12,10 @@ Covers:
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
+
 import pytest
+from PyQt6 import sip
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsScene, QGraphicsView, QGraphicsRectItem,
@@ -73,17 +76,42 @@ class _StubScene(QGraphicsScene):
         pass
 
 
-@pytest.fixture
-def scene(qapp):
-    """Provide a stub scene with an attached view (needed for scale-aware helpers)."""
+@contextmanager
+def stub_scene_session(qapp):
+    """Yield a ``_StubScene`` with an attached view; destroy both on exit.
+
+    The ``scene`` fixture's body, as a context manager so the teardown
+    contract is directly testable (see ``TestStubSceneTeardown``).
+    """
     sc = _StubScene()
     view = QGraphicsView(sc)
     # resize is enough to establish a valid transform — no need to show()
     view.resize(800, 600)
     qapp.processEvents()
     sc._test_view = view  # prevent GC from detaching the view
-    yield sc
-    view.close()
+    try:
+        yield sc
+    finally:
+        view.close()
+        # Destroy the C++ scene + view NOW. ``sc`` is only kept alive by a
+        # reference cycle (sc._tools = SceneTools(sc) -> ._scene = sc), and
+        # items a test adds queue posted events on it (_q_polishItems,
+        # index/update). Left to the cyclic GC, the next test's
+        # processEvents() dispatches those events into this garbage scene; a
+        # GC that fires inside the resulting Python virtual (itemChange /
+        # shape) frees the scene under Qt -> "wrapped C/C++ object has been
+        # deleted" -> PyQt qFatal -> silent 0xC0000409 (exit 127).
+        # ~QObject purges the queued events, so deleting here closes that.
+        for obj in (view, sc):
+            if not sip.isdeleted(obj):
+                sip.delete(obj)
+
+
+@pytest.fixture
+def scene(qapp):
+    """Provide a stub scene with an attached view (needed for scale-aware helpers)."""
+    with stub_scene_session(qapp) as sc:
+        yield sc
 
 
 
@@ -1002,3 +1030,72 @@ class TestMakeOffsetItem:
         assert isinstance(result, ArcItem)
         assert abs(result._radius - 60.0) < 1e-3
         assert abs(result._span_deg - 180.0) < 1e-3
+
+
+# =========================================================================
+# FIXTURE TEARDOWN CONTRACT (native-crash guard)
+# =========================================================================
+
+# A previous test's scene left as cyclic garbage with queued events, then the
+# next fixture's processEvents() pump with a GC firing inside the Python
+# virtual Qt dispatches into (the allocation-triggered GC made deterministic).
+_GARBAGE_SCENE_SCRIPT = """
+import gc
+from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QApplication
+app = QApplication.instance() or QApplication([])
+from tests.test_scene_tools import stub_scene_session
+from firepro3d.geometry_2d import LineItem
+
+armed = [False]
+_ic, _shape = LineItem.itemChange, LineItem.shape
+def itemChange(self, change, value):
+    if armed[0]:
+        gc.collect()
+    return _ic(self, change, value)
+def shape(self):
+    if armed[0]:
+        gc.collect()
+    return _shape(self)
+LineItem.itemChange, LineItem.shape = itemChange, shape
+
+def previous_test():                         # its locals die on return
+    with stub_scene_session(app) as sc:
+        sc.addItem(LineItem(QPointF(0, 0), QPointF(100, 0)))
+        sc.addItem(LineItem(QPointF(0, 50), QPointF(100, 50)))
+
+gc.disable()
+previous_test()
+armed[0] = True
+with stub_scene_session(app):                # next fixture's pump
+    pass
+print("survived")
+"""
+
+
+class TestStubSceneTeardown:
+    """The ``scene`` fixture must destroy its scene + view at teardown."""
+
+    def test_session_exit_deletes_scene_view_and_items(self, qapp):
+        with stub_scene_session(qapp) as sc:
+            view = sc._test_view
+            ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+            sc.addItem(ln)
+        assert sip.isdeleted(sc)
+        assert sip.isdeleted(view)
+        assert sip.isdeleted(ln)
+
+    def test_next_pump_survives_gc_inside_dispatched_virtual(self):
+        """Without the teardown delete this child aborts with exit 127
+        (0xC0000409): the garbage scene's queued _q_polishItems calls
+        LineItem.itemChange, the GC in it frees the scene under Qt."""
+        import os
+        import subprocess
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = dict(os.environ, PYTHONPATH=root)
+        r = subprocess.run([sys.executable, "-c", _GARBAGE_SCENE_SCRIPT],
+                           cwd=root, env=env, capture_output=True, text=True,
+                           timeout=120)
+        assert r.returncode == 0, (r.returncode, r.stderr[-2000:])
+        assert "survived" in r.stdout
