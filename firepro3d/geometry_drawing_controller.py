@@ -1696,6 +1696,7 @@ class GeometryDrawingController:
             s._spline_preview = prev
         else:
             s._spline_preview._control_points = list(s._spline_points)
+            s._spline_preview._closed = False     # a new point re-opens the cue
             s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
             s._spline_preview._knots = None       # force auto clamped-uniform recompute
             s._spline_preview._regenerate()
@@ -1738,12 +1739,21 @@ class GeometryDrawingController:
         Shared by the mouse press and the ``line`` HUD applier."""
         s = self._scene
         s._spline_points.append(QPointF(pt))
+        self.hide_close_ring()                # a typed (HUD) point re-opens the cue
         self._refresh_spline_preview()
         self._update_spline_ref_poly()
         s.instructionChanged.emit(
             "Click next control point (Enter/double-click to finish, Delete to undo)")
 
     def _press_draw_spline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        s = self._scene
+        pts = s._spline_points
+        # DD8: >= 3 points and a click within 8 px of point 1 closes the spline
+        # as a smooth periodic curve (no Ctrl constraint here: tip == cursor).
+        if len(pts) >= 3 and close_hit(pts[0], snapped, snapped,
+                                       s._active_view_scale()):
+            self._finish_draw_spline(closed=True)
+            return
         self._add_spline_control_point(snapped)
 
     def _apply_spline_dynamic_input(self, geometry) -> bool:
@@ -1758,9 +1768,22 @@ class GeometryDrawingController:
             s.update_preview_node(snapped)
             return
         s.preview_node.hide()
+        first = s._spline_points[0]
+        if (len(s._spline_points) >= 3 and s._spline_preview is not None
+                and close_hit(first, snapped, snapped, s._active_view_scale())):
+            # DD8 close cue: ring on point 1, preview = the smooth closed curve.
+            self.show_close_ring(first)
+            s._spline_preview._control_points = list(s._spline_points)
+            s._spline_preview._closed = True
+            s._spline_preview._regenerate()
+            self._update_spline_ref_poly(first)
+            s.publish_placement_state(s._spline_points[-1], first)
+            return
+        self.hide_close_ring()
         if s._spline_preview is not None:
             pts = list(s._spline_points) + [QPointF(snapped)]
             s._spline_preview._control_points = pts
+            s._spline_preview._closed = False
             s._spline_preview._degree = max(1, min(3, len(pts) - 1))
             s._spline_preview._knots = None
             s._spline_preview._regenerate()
@@ -1768,9 +1791,13 @@ class GeometryDrawingController:
         # Publish so the DynamicInputHud reads Length/Angle from the last node.
         s.publish_placement_state(s._spline_points[-1], snapped)
 
-    def _finish_draw_spline(self):
+    def _finish_draw_spline(self, closed: bool = False):
+        """Commit the control points as one SplineItem. *closed* (the
+        click-near-first gesture, DD8) makes it periodic. Enter and
+        double-click finish open."""
         s = self._scene
         pts = list(s._spline_points)
+        self.hide_close_ring()
         self._cancel_spline_preview()
         self._clear_spline_ref_poly()
         if len(pts) < 2:
@@ -1779,7 +1806,7 @@ class GeometryDrawingController:
         from .geometry_2d import SplineItem
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
-        item = SplineItem(pts, 3, None, None, _c, _lw)
+        item = SplineItem(pts, 3, None, None, _c, _lw, closed=closed)
         s.addItem(item)
         s._draw_splines.append(item)
         s.clearSelection()            # only the just-placed item stays selected
@@ -1797,12 +1824,14 @@ class GeometryDrawingController:
         if not s._spline_points:
             return
         s._spline_points.pop()
+        self.hide_close_ring()
         if not s._spline_points:
             self._cancel_spline_preview()
             self._clear_spline_ref_poly()
             return
         if s._spline_preview is not None:
             s._spline_preview._control_points = list(s._spline_points)
+            s._spline_preview._closed = False   # M3: never closed below 3 points
             s._spline_preview._degree = max(1, min(3, len(s._spline_points) - 1))
             s._spline_preview._knots = None
             s._spline_preview._regenerate()
