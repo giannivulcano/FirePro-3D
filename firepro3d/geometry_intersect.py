@@ -153,7 +153,8 @@ def _angle_in_arc(angle_deg: float, start_deg: float, span_deg: float) -> bool:
     """Check whether angle_deg lies within the arc from start_deg over span_deg.
 
     span_deg may be positive (counter-clockwise) or negative (clockwise).
-    All angles in degrees.
+    All angles in degrees, all in the same frame — for scene arcs that is
+    the Y-up ``ArcItem`` convention (``arc_math.yup_angle``).
     """
     angle = _normalize_angle(angle_deg)
     start = _normalize_angle(start_deg)
@@ -189,6 +190,12 @@ def line_arc_intersections(p1: QPointF, p2: QPointF,
     (counter-clockwise positive, clockwise negative).
     Only returns points that lie both on the segment AND the arc's
     angular range.
+
+    Convention: ``start_deg`` / ``span_deg`` are **Y-up** degrees (the
+    ``ArcItem`` convention, ``arc_math.yup_angle``), while *p1*, *p2*,
+    *center* and the returned points are Qt **Y-down** scene coordinates.
+    Never pass an angle computed with a raw ``atan2(dy, dx)`` on scene
+    coordinates — that selects the mirrored half of the arc.
     """
     # Get all segment-circle intersections first
     circle_hits = line_circle_intersections(p1, p2, center, radius)

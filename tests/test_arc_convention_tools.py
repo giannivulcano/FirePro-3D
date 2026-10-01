@@ -149,6 +149,29 @@ def test_two_point_break_on_circle_removes_the_picked_quadrant(qapp):
         close_view(view, scene)
 
 
+def test_two_point_break_on_circle_first_point_off_the_horizontal(qapp):
+    # The FIRST break point sits off the horizontal axis through the centre
+    # (where Y-up and Y-down angles agree), so a Y-down revert of the first
+    # point's angle alone is visible; the guard above covers the second.
+    # Quadrant points are used because they are exact snap targets — an
+    # arbitrary on-circle click is moved by the live snap (tangent) first.
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, CircleItem(QPointF(0, 0), R), "_draw_circles")
+        p0 = _baseline(scene)
+        scene.set_mode("break")
+        click(view, _vis(90))                      # pick the circle
+        click(view, _vis(90))                      # first break point (top)
+        click(view, _vis(180))                     # second break point (left)
+        assert scene._draw_circles == [] and len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _ends_match(arc, _vis(90), _vis(180))                    # [RED]
+        assert _covers(arc, _vis(315)) and not _covers(arc, _vis(135))  # 180..450 kept
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
 # ── Trim ────────────────────────────────────────────────────────────────────
 
 def test_trim_arc_removes_the_clicked_piece(qapp):
@@ -209,6 +232,38 @@ def test_fillet_arc_ends_on_the_tangent_points(qapp):
         assert scene._undo_pos == p0 + 1
         scene.undo()
         assert scene._draw_arcs == []
+    finally:
+        close_view(view, scene)
+
+
+def test_fillet_rotated_corner_ends_on_the_tangent_points(qapp):
+    # The L corner rotated 30 deg: neither tangent point sits on an axis
+    # through the fillet centre, so a Y-down revert of EITHER arc angle
+    # (start or end) moves the painted arc off its tangent points.
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        corner = QPointF(0, 0)
+        _add(scene, LineItem(_vis(30), corner), "_draw_lines")
+        _add(scene, LineItem(_vis(120), corner), "_draw_lines")
+        p0 = _baseline(scene)
+        scene.set_mode("fillet")
+        scene._fillet_radius = 10.0
+        click(view, _vis(30, r=60.0))              # first line (interior)
+        click(view, _vis(120, r=60.0))             # second line (interior)
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        # 90 deg corner, r = 10 -> tangent points 10 mm along each line.
+        tp1, tp2 = _vis(30, r=10.0), _vis(120, r=10.0)
+        assert _ends_match(arc, tp1, tp2)                               # [RED]
+        # Bulge toward the corner: the arc passes the point r from the
+        # centre on the corner side, not the diametrically opposite one.
+        cx, cy = tp1.x() + tp2.x(), tp1.y() + tp2.y()
+        d = math.hypot(cx, cy)
+        ux, uy = -cx / d, -cy / d                  # centre -> corner
+        assert _covers(arc, (cx + 10.0 * ux, cy + 10.0 * uy))
+        assert not _covers(arc, (cx - 10.0 * ux, cy - 10.0 * uy))
+        assert scene._undo_pos == p0 + 1
     finally:
         close_view(view, scene)
 
