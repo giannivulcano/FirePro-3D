@@ -24,6 +24,63 @@ _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
 
 
+def library_only_entries(scene, root: str | None = None
+                         ) -> list[tuple[str, str, str, str, str]]:
+    """Library blocks NOT already in the project.
+
+    The "Library" half of the Blocks browser tree and of the Block Editor's
+    Open picker (one implementation, two callers).
+
+    Args:
+        scene: The project ``Model_Space`` (its ``_block_definitions`` registry).
+        root: Block-library root override (None = the configured library).
+
+    Returns:
+        ``(library, series, name, block_id, path)`` tuples — on-disk index
+        entries whose id is not a project definition.
+    """
+    seen = set(scene._block_definitions)
+    out = []
+    for e in block_library.list_library(root):
+        if e.get("id") in seen:
+            continue
+        out.append((e["library"], e["series"], e.get("name") or e["filename"],
+                    e.get("id", ""), block_library.entry_path(e, root)))
+    return out
+
+
+def ensure_block_loaded(scene, block_id: str, path: str | None, name: str,
+                        root: str | None = None, parent=None) -> bool:
+    """Make *block_id* a project definition, loading it from *path* if needed.
+
+    A library-only block is loaded as one undoable batch via
+    ``Model_Space.load_blocks_from_files``; on a failed load the shared
+    load-failure message is shown (parented to *parent*).
+
+    Args:
+        scene: The project ``Model_Space``.
+        block_id: The block's id.
+        path: The library ``.fpdb`` path (None/empty for a project block).
+        name: The block's display name (for the failure message).
+        root: Block-library root override (None = the configured library).
+        parent: Parent widget for the failure message.
+
+    Returns:
+        True when the id resolves in the project afterwards.
+    """
+    if block_id in scene._block_definitions:
+        return True
+    if not path:
+        return False
+    summary = scene.load_blocks_from_files([path], root=root)
+    if block_id in scene._block_definitions:
+        return True
+    from .themed_message import themed_info
+    themed_info(parent, "Load block",
+                block_library.load_failure_message(name, summary))
+    return False
+
+
 class _BlocksTree(QTreeWidget):
     """Tree whose block leaves drag out as ``MIME_BLOCK`` (folders don't).
 
@@ -107,17 +164,13 @@ class BlocksBrowser(QWidget):
             node = tree.setdefault(lib, {})
             for ser in series:
                 node.setdefault(ser, [])
-        seen: set = set()
         for b in registry.values():
             tree.setdefault(b.library, {}).setdefault(b.series, []).append(
                 (b.name, b.id, None))
-            seen.add(b.id)
-        for e in block_library.list_library(self._lib_root):
-            if e.get("id") in seen:
-                continue
-            path = block_library.entry_path(e, self._lib_root)
-            tree.setdefault(e["library"], {}).setdefault(e["series"], []).append(
-                (e.get("name") or e["filename"], e.get("id", ""), path))
+        for lib, ser, name, block_id, path in library_only_entries(
+                self._scene, self._lib_root):
+            tree.setdefault(lib, {}).setdefault(ser, []).append(
+                (name, block_id, path))
         return tree
 
     def _collapsed_paths(self) -> set:
@@ -180,11 +233,7 @@ class BlocksBrowser(QWidget):
         guard = self.activation_guard
         if guard is not None and guard(block_id, path) is not None:
             return
-        if path and block_id not in self._scene._block_definitions:
-            summary = self._scene.load_blocks_from_files([path], root=self._lib_root)
-            if block_id not in self._scene._block_definitions:
-                from .themed_message import themed_info
-                themed_info(self, "Load block",
-                            block_library.load_failure_message(item.text(0), summary))
-                return
+        if path and not ensure_block_loaded(self._scene, block_id, path,
+                                            item.text(0), self._lib_root, self):
+            return
         self.blockActivated.emit(block_id)
