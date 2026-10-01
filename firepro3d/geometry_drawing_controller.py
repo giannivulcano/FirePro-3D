@@ -31,7 +31,31 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     ArcItem, RegularPolygonItem,
                                     rect_side_ghost, rect_signed_depth,
                                     rect_from_side_and_depth, apply_rect_ghost)
-from .constants import SELECTION_OUTLINE_COLOR
+from .constants import SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX
+
+
+def close_hit(first: QPointF, tip: QPointF, cursor: QPointF,
+              view_scale: float) -> bool:
+    """The shared close-near-first test (2d-geometry.md §4, DD8).
+
+    Spline, polyline, floor-polygon and roof placement close (and roof
+    vertex-pop fires) when EITHER the committed point *tip* (Ctrl-constrained;
+    equal to *cursor* when unconstrained) OR the snapped *cursor* lies within
+    ``CLOSE_HIT_PX`` screen pixels of *first*. The wall loop close (tip only,
+    15 px) is a separate rule.
+
+    Args:
+        first: The target vertex (vertex 0; any vertex for roof pop), scene mm.
+        tip: The point a click would commit.
+        cursor: The snapped cursor.
+        view_scale: Active view zoom, px per scene mm (``m11``).
+
+    Returns:
+        True when either point is within tolerance of *first*.
+    """
+    tol = CLOSE_HIT_PX / max(view_scale, 1e-6)
+    return (math.hypot(tip.x() - first.x(), tip.y() - first.y()) <= tol
+            or math.hypot(cursor.x() - first.x(), cursor.y() - first.y()) <= tol)
 
 
 class GeometryDrawingController:
@@ -59,7 +83,7 @@ class GeometryDrawingController:
             if s._polyline_active in s._polylines:
                 s._polylines.remove(s._polyline_active)
             s._polyline_active = None
-        self._hide_polyline_close_indicator()
+        self.hide_close_ring()
         # Cancel in-progress draw geometry
         if new_mode not in ("draw_line", "draw_gridline"):
             s._draw_line_anchor = None
@@ -486,8 +510,6 @@ class GeometryDrawingController:
     # ── Polyline (the dual-concern Delete-pop helper
     #    _delete_or_pop_polyline_vertex stays scene-side — it also handles floor) ─
 
-    _POLYLINE_CLOSE_RING_PX = 14  # half-side of the bounding square, screen px
-
     def _preview_from_polyline(self, tip) -> None:
         """Extend the active polyline's rubber-band to ``tip`` (already resolved).
 
@@ -499,13 +521,16 @@ class GeometryDrawingController:
             return
         self._scene._polyline_active.update_preview(tip)
 
-    def _show_polyline_close_indicator(self, pt) -> None:
-        """Show (lazily-create) the hollow ring on *pt* signalling close-cue.
+    def show_close_ring(self, pt) -> None:
+        """Show (lazily create) the close-cue ring on vertex *pt* (DD8).
 
+        Shared by every ``close_hit`` caller (spline, polyline, floor, roof).
         A fixed screen-size QGraphicsEllipseItem with ItemIgnoresTransformations
-        (stays 14 px regardless of zoom), coloured with ``SELECTION_OUTLINE_COLOR``.
+        (``CLOSE_RING_PX`` regardless of zoom), coloured with
+        ``SELECTION_OUTLINE_COLOR``. Stored on the scene as
+        ``_polyline_close_indicator`` (historic name).
         """
-        r = self._POLYLINE_CLOSE_RING_PX
+        r = CLOSE_RING_PX
         if self._scene._polyline_close_indicator is None:
             ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
             pen = QPen(QColor(SELECTION_OUTLINE_COLOR), 2)
@@ -523,8 +548,8 @@ class GeometryDrawingController:
         self._scene._polyline_close_indicator.setPos(pt)
         self._scene._polyline_close_indicator.show()
 
-    def _hide_polyline_close_indicator(self) -> None:
-        """Hide the close-cue ring (keeps the item alive for reuse)."""
+    def hide_close_ring(self) -> None:
+        """Hide the shared close-cue ring (keeps the item alive for reuse)."""
         if self._scene._polyline_close_indicator is not None:
             self._scene._polyline_close_indicator.hide()
 
@@ -537,25 +562,22 @@ class GeometryDrawingController:
         if self._scene._polyline_active is not None:
             pl = self._scene._polyline_active
             pts = pl._points
-            if len(pts) >= 3:
-                scale = self._scene._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
-                    self._scene.update_preview_node(pts[0])
-                    self._show_polyline_close_indicator(pts[0])
-                    self._preview_from_polyline(pts[0])
-                    # Keep the HUD readout live on the closing segment.
-                    self._scene.publish_placement_state(
-                        self._scene._polyline_active.last_point(), pts[0])
-                    return
-            self._hide_polyline_close_indicator()
             tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and len(self._scene._polyline_active._points) >= 1):
-                tip = self._scene._constrain_angle(
-                    self._scene._polyline_active.last_point(), snapped
-                )
+                    and len(pts) >= 1):
+                tip = self._scene._constrain_angle(pl.last_point(), snapped)
+            # Either-point close cue (2d-geometry.md §4): the constrained tip
+            # OR the snapped cursor near vertex 0.
+            if len(pts) >= 3 and close_hit(pts[0], tip, snapped,
+                                           self._scene._active_view_scale()):
+                self._scene.update_preview_node(pts[0])
+                self.show_close_ring(pts[0])
+                self._preview_from_polyline(pts[0])
+                # Keep the HUD readout live on the closing segment.
+                self._scene.publish_placement_state(pl.last_point(), pts[0])
+                return
+            self.hide_close_ring()
             self._preview_from_polyline(tip)
             # Publishing here — after the Ctrl constraint — is what keeps the
             # readout and the HUD's seed from disagreeing with the preview.
@@ -580,17 +602,24 @@ class GeometryDrawingController:
             self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
             pts = self._scene._polyline_active._points
-            # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
+            # Subsequent clicks commit the tip (Ctrl angle-constrained if held).
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and len(pts) >= 1):
+                tip = self._scene._constrain_angle(
+                    self._scene._polyline_active.last_point(), snapped
+                )
+            # Close-on-start: ≥3 vertices and the tip OR the cursor near pts[0]
+            # (2d-geometry.md §4 either-point rule).
             if len(pts) >= 3:
-                scale = self._scene._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                if d0 <= tol:
+                if close_hit(pts[0], tip, snapped,
+                             self._scene._active_view_scale()):
                     pl = self._scene._polyline_active
                     pl.close()
                     pl.finalize()
                     self._scene._polyline_active = None
-                    self._hide_polyline_close_indicator()
+                    self.hide_close_ring()
                     self._scene.clearSelection()  # only the just-placed item stays selected
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
@@ -599,14 +628,6 @@ class GeometryDrawingController:
                     self._scene.instructionChanged.emit("Pick first point")
                     self._scene._end_placement_switch(pl)
                     return
-            # Subsequent clicks — append vertex (apply Ctrl constraint if held)
-            tip = snapped
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and len(self._scene._polyline_active._points) >= 1):
-                tip = self._scene._constrain_angle(
-                    self._scene._polyline_active.last_point(), snapped
-                )
             self._commit_polyline_at(tip)
         # don't let super() deselect items mid-draw
 

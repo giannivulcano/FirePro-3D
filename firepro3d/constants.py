@@ -304,6 +304,10 @@ TRANSFORM_GHOST_DIM_OPACITY = 0.35      # originals' opacity multiplier during a
 TRANSFORM_GHOST_TRACE_WIDTH_PX = 1.0    # solid accent trace over the HALO glow
 TRANSFORM_GHOST_TRACE_ALPHA = 255
 
+# ── Close-near-first placement (2d-geometry.md §4; scene-tools P1 DD8) ──────
+CLOSE_HIT_PX = 8.0      # vertex-0 close / roof vertex-pop tolerance (screen px)
+CLOSE_RING_PX = 14      # close-cue ring half-size (screen px, ItemIgnoresTransformations)
+
 # ── Selection dimension readouts (2d-geometry.md §8, selection-mode.md §15) ──
 # Signed-off mockup 2026-09-24 (FPD Design/dim-readouts) + grill Q12.
 SELDIM_FONT_PX = 10              # label text px (theme.FONT_VALUE / Consolas)

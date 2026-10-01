@@ -69,7 +69,7 @@ from .underlay_controller import UnderlayController
 from .pipe_network_controller import PipeNetworkController
 from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
-from .geometry_drawing_controller import GeometryDrawingController
+from .geometry_drawing_controller import GeometryDrawingController, close_hit
 from .wall_placement_controller import WallPlacementController
 from .modify_tools_controller import ModifyToolsController
 from .feature_placement_controller import FeaturePlacementController
@@ -239,7 +239,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Construction geometry (Sprint C)
         self._polylines: list[PolylineItem] = []
         self._polyline_active: "PolylineItem | None" = None   # in-progress polyline
-        self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # close-cue ring
+        self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # shared close-cue ring (DD8: spline/polyline/floor/roof)
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
         self._reference_lines: list[ReferenceLineItem] = []
@@ -4045,8 +4045,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _preview_from_polyline(self, tip) -> None:  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._preview_from_polyline(tip)
 
-    def _hide_polyline_close_indicator(self) -> None:  # shell (slice 8); _show_ moved (internal-only)
-        return self._geom_ctl._hide_polyline_close_indicator()
+    def _hide_close_ring(self) -> None:  # shell → GeometryDrawingController.hide_close_ring (DD8)
+        return self._geom_ctl.hide_close_ring()
 
     def _move_polyline(self, event, snapped):  # shell → GeometryDrawingController (slice 8)
         return self._geom_ctl._move_polyline(event, snapped)
@@ -4648,7 +4648,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         pl.finalize()
         self._polyline_active = None
-        self._hide_polyline_close_indicator()
+        self._hide_close_ring()
         self.clearSelection()  # only the just-placed item stays selected
         placed = pl
         if len(pl._points) == 2:
@@ -5615,12 +5615,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if pl in self._polylines:
                 self._polylines.remove(pl)
             self._polyline_active = None
-            self._hide_polyline_close_indicator()
+            self._hide_close_ring()
             self.instructionChanged.emit("Pick first point")
         else:
             pl._points.pop()
             pl._rebuild_path()
-            self._hide_polyline_close_indicator()
+            self._hide_close_ring()
         for v in self.views(): v.viewport().update()
         return True
 
