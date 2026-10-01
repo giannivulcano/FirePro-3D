@@ -727,6 +727,9 @@ Shipped on `feat/ui-ribbon-cleanup` (Medium tier: grill→plan→inline TDD buil
 ### P3 — Nice-to-Have
 
 - [x] Spec session: construction geometry system — **SUPERSEDED 2026-08-24 by the governing spec `docs/specs/2d-geometry.md`** (forged during the 2D-geometry polish cluster; covers the item models incl. `RegularPolygonItem`, placement workflows, closed-polyline model, snap contribution, dual-path serialization, display). `ConstructionLine` was retired 2026-08-22. [type:Backlog] [P3] [subject:Architecture] [done:2026-08-24]
+- [x] [type:design] Spec session: scene tools (geometry editing) [P2] [subject:Architecture] — ABSORBED 2026-09-25 into "Scene tools → contextual ribbon for 2D Geometry" [done:2026-10-01]
+  - Details: 16 tools in `SceneToolsMixin` — offset (line intersection, polyline offset), array (linear/polar, 200-copy preview cap), rotate/scale/mirror (anchor point transforms), join/explode (merge segments, decompose groups), break/break-at-point (segment splitting), fillet/chamfer, stretch (crossing-window selection), trim/extend (to intersections), merge/hatch (polygon merging, fill patterns), constraints (creation and solving). Per-tool workflow, algorithm, edge cases, and mode state machine integration. `scene_tools.py`.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
 
 ## Hydraulic Solver Follow-Ups (from `docs/specs/hydraulic-solver-and-reporting.md` §12)
 
@@ -1043,3 +1046,24 @@ Shipped on `main` (Small tier: /todo:audit Census → /todo F1–F4 batch → gr
 - [x] [type:maint] Retire the `preferences_dialog.py` re-export shim [P3] [subject:Code Quality] [done:2026-09-26]
   - Details: `preferences_dialog.py` is a thin shim re-exporting from `firepro3d.settings.panes` for back-compat (used by `underlay_import_dialog.py:2522` + several tests). Migrate those importers to `firepro3d.settings.panes` and delete the shim. `preferences_dialog.py`, `underlay_import_dialog.py`, `tests/`.
   - Done 2026-09-26 (batch A dead-code sweep): underlay_import_dialog + 10 test files repointed to `settings.panes` (redundant shim QSettings monkeypatches dropped); shim-reexport test retired; spec applies-to/refs updated
+
+## Gridline Revit-aligned UX re-architecture
+
+- [x] [type:feature] Move / copy-paste polish: context-menu Move entry + multi-copy paste [P3] [subject:UX] — ABSORBED 2026-09-25 into "Scene tools → contextual ribbon for 2D Geometry" [done:2026-10-01]
+  - Details: user, 2026-08-14 smoke — add a right-click (entity + canvas) context-menu entry for Move (parity with Ctrl+M; matches the Array/Offset menu pattern); consider a copy/paste menu entry too. Also: paste currently exits after one placement — evaluate AutoCAD-style multi-copy (stay live until Esc) and richer ghost fidelity for non-gridline entities. Move-menu point superseded by the transform-tools unification below. `model_space.py`, `model_view.py`, `entity_context_menu.py`.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
+- [x] [type:feature] Transform tools: single-key shortcuts + unified right-click across all geometry [P1] [subject:UX] — ABSORBED 2026-09-25 into "Scene tools → contextual ribbon for 2D Geometry" [done:2026-10-01]
+  - Details: user, 2026-08-20 smoke — a cohesive pass over Move/Array/Offset: (1) single-key shortcuts A=Array, O=Offset, M=Move; (2) add Move to the gridline right-click menu; (3) relabel the gridline entries — drop the "Gridlines" word, show the shortcut: `Array (A)`, `Offset (O)`, `Move (M)`; (4) expand these three right-click entries to all drawn geometry (line, rect, circle, polyline, arc, …), not just gridlines; (5) rewire the Transform ribbon group (`main.py` ~1690) onto the same unified actions. Grill first — two implementations to reconcile: the on-canvas gridline-specific replicate (`gridline_array`/`gridline_offset` via `GridlineItem.offset_copy`/`array_copies`) vs the general-geometry ribbon tools (`array_dialog.py`, `offset`/`offset_side` mode). "Expand to all geometry" means deciding which becomes the one tool (likely generalize the on-canvas replicate to any item exposing `translate`). `entity_context_menu.py`, `model_view.py`, `model_space.py`, `main.py`, `array_dialog.py`.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
+
+## Placement-UX overhaul
+
+- [x] [type:bug] Suspected: trim/break/fillet on ArcItem mix Y-down atan2 with the arc's Y-up angles [P3] [subject:CAD] — SUPERSEDED 2026-09-25 by "Arc angle convention" (proven) [done:2026-10-01]
+  - Details: flagged (unproven) in the 2026-09-24 arc-grip + seam reviews — `scene_tools.py` trim-arc computes click/trim angles without the Y negation and compares them to `_start_deg` (Y-up); break/fillet reportedly the same. Reproduce with a real arc before fixing (prove-then-file). `scene_tools.py`, `geometry_intersect.py`.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
+- [x] [type:bug] Suspected: arc mirror keeps start_deg and negates span (wrong for any axis) [P3] [subject:CAD] — SUPERSEDED 2026-09-25 by "Arc angle convention" (proven) [done:2026-10-01]
+  - Details: seam review 2026-09-24 — `scene_tools.py` mirror builds `ArcItem(..., start, -span)`; ArcItem now normalises negative spans to CCW, which preserves (not fixes) the mirrored result. Correct mirror reflects the centre and maps start/end angles through the axis. Repro first. `scene_tools.py`.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
+- [x] [type:feature] Rotate transform in the modification schema (replaces the retired rotate knob) [P2] [subject:UX] — ABSORBED 2026-09-25 into "Scene tools → contextual ribbon for 2D Geometry" [done:2026-10-01]
+  - Details: user, 2026-09-23 grill — the knob was removed app-wide with NO replacement in that batch (explicit: "will be added later"). Post-placement rotation is unavailable except existing property fields (polygon/ellipse/block Rotation, gridline Angle). Build it on the retained per-item `manip_rotate(angle, pivot)`; decide revive-vs-replace for the unreachable legacy `rotate` mode (`scene_tools._apply_rotate`, per-type isinstance). Coordinate with "Transform tools: single-key shortcuts + unified right-click". ref: selection-manipulator.
+  - Closed 2026-10-01 (housekeeping, scene-tools P1 /todo batch): already absorbed/superseded per the line's own marker; the work lives under the absorbing task's line.
