@@ -1234,12 +1234,14 @@ class ModifyToolsController:
     # _array_variant / _array_memory are never cleared (per canvas tab).
 
     # HUD fields remembered per variant after a typed commit: (field, param).
-    # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim.
+    # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim
+    # and never remembered — Polar Total is the cursor sweep (user decision
+    # 2026-10-01, review I1): a typed Total commits as typed, nothing more.
     ARRAY_SCHEMA_FOR_VARIANT = {"linear": "array_linear", "grid": "array_grid",
                                 "polar": "array_polar"}
     _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),),
                             "grid": (("Cols", "cols"), ("Rows", "rows")),
-                            "polar": (("Count", "count"), ("Total", "total_deg"))}
+                            "polar": (("Count", "count"),)}
     _ARRAY_STEP2 = {
         "linear": "Pick spacing + direction (or type Angle / Spacing / Count)",
         "grid": "Pick the first cell's far corner (or type the grid)",

@@ -395,3 +395,46 @@ def test_polar_skips_nodes_with_a_count(qapp):
         assert msgs[-1].endswith("(1 skipped)")
     finally:
         close_view(view, scene)
+
+
+def _mid_angles(lines, r=125.0):
+    """Y-up headings (deg, [0, 360)) of the line midpoints at radius *r*."""
+    out = []
+    for l in lines:
+        m = l.grip_points()[1]
+        assert math.hypot(m.x(), m.y()) == pytest.approx(r, abs=0.01)
+        out.append(round(math.degrees(math.atan2(-m.y(), m.x())) % 360.0, 2))
+    return sorted(out)
+
+
+def test_polar_total_is_the_sweep_never_a_remembered_typed_total(qapp):
+    """Review I1 (user decision 2026-10-01): a typed Total commits as typed
+    but is NOT remembered — the next Polar fills the default 360° until the
+    cursor sweeps, then the ghost and the commit follow the sweep. Count is
+    still remembered."""
+    view, scene = _view(scale=1.0)
+    try:
+        _add_line(scene, (100, 0), (150, 0))
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0))
+        _type(scene, Count="5", Total="120")
+        assert _mid_angles(scene._draw_lines) == [0.0, 30.0, 60.0, 90.0, 120.0]
+        # Run 2: centre, then commit on the centre itself (no sweep yet).
+        scene.clearSelection(); scene._draw_lines[0].setSelected(True)
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); click(view, QPointF(0, 0))
+        new = scene._draw_lines[5:]
+        assert _mid_angles(new) == [72.0, 144.0, 216.0, 288.0]          # [RED]
+        # Run 3: a 90° CCW sweep sets Total — ghost and commit follow it.
+        from firepro3d.transform_ghost import ghost_base_paths
+        scene.clearSelection(); scene._draw_lines[0].setSelected(True)
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(0, -200))
+        ghost = _ghost_centres(scene._move_ghost)
+        click(view, QPointF(0, -200))
+        new = scene._draw_lines[9:]
+        assert _mid_angles(new) == [22.5, 45.0, 67.5, 90.0]
+        assert _ghost_centres(ghost_base_paths(new)) == ghost
+    finally:
+        close_view(view, scene)
