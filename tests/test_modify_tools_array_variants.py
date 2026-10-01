@@ -63,3 +63,102 @@ def test_typed_count_prefills_the_next_array(qapp):
         assert item.isSelected()
     finally:
         close_view(view, scene)
+
+
+def _assert_points(points, expected, tol=0.01):
+    """Scene points match *expected* (order-free; float-noise-safe sort)."""
+    key = lambda p: (round(p[0], 3), round(p[1], 3))
+    got = sorted(((p.x(), p.y()) for p in points), key=key)
+    exp = sorted(expected, key=key)
+    assert len(got) == len(exp), (got, exp)
+    for (gx, gy), (ex, ey) in zip(got, exp):
+        assert gx == pytest.approx(ex, abs=tol), (got, exp)
+        assert gy == pytest.approx(ey, abs=tol), (got, exp)
+
+
+def _tab_angle(scene, text):
+    """Real HUD keys: type Angle, Tab (field commit), Esc (back to cursor)."""
+    assert scene.begin_dynamic_input() is True
+    hud = scene.dynamic_input
+    hud.editor("Angle").setText(text)
+    QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Tab)
+    QTest.keyClick(hud.editor("Spacing"), Qt.Key.Key_Escape)
+    assert not scene.is_input_mode()
+
+
+def test_typed_angle_30_places_copies_along_30_degrees_yup(qapp):
+    """M1: Linear with a typed Angle 30° puts copy k at base + k·sp·(cos30,
+    −sin30) in SCENE (Y-down) coordinates — up and to the right on screen."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")          # centre (0,0)
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))      # aim +X
+        _type(scene, Angle="30", Spacing="150", Count="3")
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(150 * k * COS30, -150 * k * SIN30) for k in range(3)])
+        assert scene._undo_pos == p0 + 1
+        assert item.isSelected()
+        scene.undo()
+        assert len(getattr(scene, attr)) == 1
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_angle_locks_direction_cursor_sets_spacing_only(qapp):
+    """DD5: after Angle 30 + Tab, Esc hands back the cursor — which now sets
+    only the spacing: the projection of base->cursor onto the 30° line."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        move(view, QPointF(300, -40)); click(view, QPointF(300, -40))
+        sp = 300 * COS30 + 40 * SIN30          # (300,-40)·(cos30, -sin30)
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(sp * k * COS30, -sp * k * SIN30) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_zero_angle_releases_the_lock(qapp):
+    """DD5: 0 releases the lock — the cursor aims (direction + spacing) again."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        move(view, QPointF(300, -40))
+        sp = 300 * COS30 + 40 * SIN30
+        # Locked: the ghost copies sit on the 30° line.
+        _assert_points([p.boundingRect().center() for p in scene._move_ghost],  # [RED]
+                       [(sp * k * COS30, -sp * k * SIN30) for k in (1, 2)])
+        _tab_angle(scene, "0")
+        move(view, QPointF(300, -40)); click(view, QPointF(300, -40))
+        _assert_points([c._center for c in getattr(scene, attr)],
+                       [(300 * k, -40 * k) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_angle_lock_carries_to_the_next_array(qapp):
+    """DD5 session memory: a typed Angle starts the next Array locked (and
+    the typed Count pre-fills it)."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _type(scene, Angle="30", Spacing="100", Count="2")
+        assert len(getattr(scene, attr)) == 2
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(300, -40))
+        click(view, QPointF(300, -40))
+        sp = 300 * COS30 + 40 * SIN30
+        _assert_points([c._center for c in getattr(scene, attr)[2:]],  # [RED]
+                       [(sp * COS30, -sp * SIN30)])
+    finally:
+        close_view(view, scene)

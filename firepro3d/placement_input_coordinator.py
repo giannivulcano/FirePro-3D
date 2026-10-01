@@ -275,7 +275,7 @@ class PlacementInputCoordinator:
         elif schema.name == "array_linear":
             # D10 / DD5: typed fields re-ghost every copy (a dict, not a
             # point — like ``rotation`` above).
-            self._scene._modify_ctl.preview_array(resolved)
+            self._scene._modify_ctl.preview_array(resolved, typed=True)
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.

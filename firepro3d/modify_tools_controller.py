@@ -1209,17 +1209,73 @@ class ModifyToolsController:
     _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),)}
     ARRAY_LINEAR_REFUSED = "Array needs a direction, Spacing > 0 and Count ≥ 2"
 
+    @staticmethod
+    def _unit(deg: float) -> QPointF:
+        """Scene unit vector of a Y-up CCW+ heading (scene Y is down)."""
+        r = math.radians(deg)
+        return QPointF(math.cos(r), -math.sin(r))
+
+    def array_seed_angle(self) -> float:
+        """The Angle the HUD shows: the lock, else the live Linear aim, else 0."""
+        s = self._scene
+        if s._array_angle_locked is not None:
+            return s._array_angle_locked
+        if s._array_variant == "linear" and s._array_dir is not None:
+            return self._heading(QPointF(0.0, 0.0), s._array_dir)
+        return 0.0
+
+    def note_typed_angle(self, angle) -> None:
+        """Lock or release the array direction from a committed HUD Angle (DD5).
+
+        The HUD never reports an empty field — a blank ``DimensionEdit``
+        keeps its seeded value — so typed-vs-untouched is decided against the
+        seed: 0 releases the lock; a value equal to the unlocked seed is the
+        untouched readout and changes nothing; any other value locks.
+
+        Args:
+            angle: The resolved ``angle`` param, or None (Polar has none).
+        """
+        s = self._scene
+        if angle is None:
+            return
+        angle = float(angle)
+        if abs(angle) < 1e-9:
+            s._array_angle_locked = None
+            return
+        if (s._array_angle_locked is None
+                and abs(self._norm(angle - self.array_seed_angle())) < 1e-6):
+            return
+        s._array_angle_locked = angle
+        if s._array_variant == "linear":
+            s._array_dir = self._unit(angle)
+
+    def _array_linear_dir(self):
+        """Linear copy direction: the locked heading, else the cursor aim."""
+        s = self._scene
+        if s._array_angle_locked is not None:
+            return self._unit(s._array_angle_locked)
+        return s._array_dir
+
     def _aim_array(self, snapped: QPointF) -> None:
         """Update the live aim from the base -> *snapped* ray.
 
-        Linear: direction + spacing from the ray. A zero-length ray keeps the
-        previous aim.
+        Linear unlocked: direction + spacing from the ray. Linear locked: the
+        spacing is the ray's projection onto the locked direction (≤ 0 keeps
+        the previous spacing — the direction never flips). A zero-length ray
+        keeps the previous aim.
         """
         s = self._scene
         dx = snapped.x() - s._array_base.x()
         dy = snapped.y() - s._array_base.y()
         length = math.hypot(dx, dy)
         if length <= 1e-9:
+            return
+        if s._array_angle_locked is not None:
+            u = self._unit(s._array_angle_locked)
+            s._array_dir = u
+            proj = dx * u.x() + dy * u.y()
+            if proj > 1e-9:
+                s._array_spacing = proj
             return
         s._array_dir = QPointF(dx / length, dy / length)
         s._array_spacing = length
@@ -1229,7 +1285,8 @@ class ModifyToolsController:
         plus the remembered (typed or default) counts of the variant."""
         s = self._scene
         mem = s._array_memory[s._array_variant]
-        return {"spacing": s._array_spacing, "count": int(mem["Count"])}
+        return {"angle": self.array_seed_angle(), "spacing": s._array_spacing,
+                "count": int(mem["Count"])}
 
     def array_seed_values(self, schema_name: str) -> dict:
         """HUD seeds for an array schema: the live aim + remembered counts.
@@ -1241,7 +1298,8 @@ class ModifyToolsController:
             Values keyed by field name (scene units).
         """
         p = self._array_live_params()
-        return {"Spacing": p["spacing"], "Count": max(2, p["count"])}
+        return {"Angle": p["angle"], "Spacing": p["spacing"],
+                "Count": max(2, p["count"])}
 
     def _array_transforms(self, p: dict):
         """Per-copy transforms of the current variant, or the refusal reason.
@@ -1256,9 +1314,8 @@ class ModifyToolsController:
         Returns:
             ``(transforms, None)`` or ``(None, reason)``.
         """
-        s = self._scene
         n, sp = int(p["count"]), float(p["spacing"])
-        d = s._array_dir
+        d = self._array_linear_dir()
         if n < 2 or sp <= 0 or d is None:
             return None, self.ARRAY_LINEAR_REFUSED
         return [QTransform.fromTranslate(d.x() * sp * k, d.y() * sp * k)
@@ -1273,7 +1330,7 @@ class ModifyToolsController:
                 self._transformable(s._selected_items))
             s._move_ghost = []
             s.instructionChanged.emit(
-                "Pick spacing + direction (or type Spacing / Count)")
+                "Pick spacing + direction (or type Angle / Spacing / Count)")
             return
         self._aim_array(snapped)
         self.commit_array()
@@ -1297,7 +1354,8 @@ class ModifyToolsController:
         p = self._array_live_params()
         return f"Spacing: {self._fmt_len(p['spacing'])}  Count: {p['count']}"
 
-    def preview_array(self, params: dict | None = None) -> None:
+    def preview_array(self, params: dict | None = None,
+                      typed: bool = False) -> None:
         """Rebuild the ghost: one transformed copy of the base paths per copy.
 
         D11: every copy the commit would create is ghosted (no cap) — and
@@ -1305,8 +1363,12 @@ class ModifyToolsController:
 
         Args:
             params: HUD-resolved params (Tab field-commit), else the live aim.
+            typed: True on a HUD field-commit — a typed Angle locks /
+                releases the direction first (DD5).
         """
         s = self._scene
+        if typed and params is not None:
+            self.note_typed_angle(params.get("angle"))
         p = params if params is not None else self._array_live_params()
         transforms, _why = self._array_transforms(p)
         s._move_ghost = ([t.map(path) for t in transforms
@@ -1364,7 +1426,8 @@ class ModifyToolsController:
         """Typed HUD commit for the current array variant (DD5 router).
 
         On success the variant's non-cursor fields are remembered for the
-        next Array on this canvas.
+        next Array on this canvas. A typed Angle locks / releases the
+        direction first (it stays locked for the next Array).
 
         Args:
             params: The active array schema's resolver output.
@@ -1373,6 +1436,7 @@ class ModifyToolsController:
             The commit verdict (False keeps the HUD open, flagged).
         """
         s = self._scene
+        self.note_typed_angle(params.get("angle"))
         v = s._array_variant
         if not self.commit_array(params):
             return False
