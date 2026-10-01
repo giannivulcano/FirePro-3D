@@ -151,3 +151,67 @@ def test_open_disabled_until_leaf_and_double_click_accepts(env):
         assert dlg.chosen_id() == proj.id
     finally:
         dlg.close()
+
+
+# ── empty state (review Minor 2) ─────────────────────────────────────────────
+
+def _assert_empty_shown(dlg, text):
+    from firepro3d import theme as th
+    from firepro3d.block_open_dialog import BlockOpenDialog  # noqa: F401
+    lbl = dlg._empty_lbl
+    assert lbl.isVisible() and not dlg._tree.isVisible()
+    assert lbl.text() == text
+    assert lbl.font().pointSizeF() == th.M.BLOCK_OPEN_EMPTY_PT
+    assert lbl.palette().color(lbl.foregroundRole()).name().lower() == \
+        th.detect().muted.lower()
+
+
+def test_empty_state_when_there_are_no_blocks(qapp, live_env, tmp_path):
+    from firepro3d.block_open_dialog import BlockOpenDialog, EMPTY_NO_BLOCKS
+    from firepro3d.model_space import Model_Space
+    dlg = BlockOpenDialog(Model_Space(), None, root=str(tmp_path / "empty_lib"))
+    dlg.show()
+    QTest.qWaitForWindowExposed(dlg)
+    try:
+        _assert_empty_shown(dlg, EMPTY_NO_BLOCKS)
+        assert not dlg._open_btn.isEnabled()
+    finally:
+        dlg.close()
+
+
+def test_empty_state_when_search_matches_nothing(env):
+    from firepro3d.block_open_dialog import EMPTY_NO_MATCH
+    dlg = _dialog(env)
+    try:
+        assert dlg._tree.isVisible() and not dlg._empty_lbl.isVisible()
+        QTest.keyClicks(dlg._search, "zzz-nothing")
+        _assert_empty_shown(dlg, EMPTY_NO_MATCH)
+        dlg._search.clear()
+        assert dlg._tree.isVisible() and not dlg._empty_lbl.isVisible()
+    finally:
+        dlg.close()
+
+
+# ── failed library load (review Minor 3c) ────────────────────────────────────
+
+def test_failed_library_load_does_not_accept(env, monkeypatch):
+    from firepro3d.blocks_browser import _ROLE_PATH
+    scene, _proj, lib_only, _root = env
+    msgs = []
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda parent, title, text: msgs.append((parent, title, text)))
+    dlg = _dialog(env)
+    try:
+        leaf = _find_leaf(dlg, "Valve Tag")
+        with open(leaf.data(0, _ROLE_PATH), "w", encoding="utf-8") as fh:
+            fh.write("{ not json")                       # corrupt .fpdb
+        dlg._tree.setCurrentItem(leaf)
+        QTest.mouseClick(dlg._open_btn, Qt.MouseButton.LeftButton)
+        assert dlg.result() != dlg.DialogCode.Accepted
+        assert dlg.isVisible()
+        assert dlg.chosen_id() is None
+        assert lib_only.id not in scene._block_definitions
+        assert len(msgs) == 1 and msgs[0][0] is dlg and msgs[0][1] == "Load block"
+        assert "Valve Tag" in msgs[0][2]
+    finally:
+        dlg.close()

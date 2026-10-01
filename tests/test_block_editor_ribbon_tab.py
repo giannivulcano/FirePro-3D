@@ -335,3 +335,84 @@ def test_plan_selection_with_editor_current_inserts_no_contextual_tab(mw, qapp):
     finally:
         _remove_pipe(mw, pipe)
         qapp.processEvents()
+
+
+# ── review Minor 1: a plan mode never lights a disabled page button ──────────
+
+def test_plan_mode_does_not_check_disabled_block_editor_button(mw, qapp):
+    move = mw._be_modify_buttons["Move"]
+    assert not move.isEnabled()
+    pipe = _add_plan_pipe(mw)
+    try:
+        pipe.setSelected(True)
+        mw.scene.set_mode("move")
+        qapp.processEvents()
+        assert mw.scene.mode == "move"
+        assert not move.isChecked()
+        assert not any(b.isChecked() for b in mw._block_mode_buttons.values())
+    finally:
+        mw.scene.set_mode("select")
+        _remove_pipe(mw, pipe)
+        qapp.processEvents()
+    # Inside an editor the same key still lights (parity with #217 sync).
+    ed = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    mw._sync_mode_buttons("move")
+    assert move.isChecked()
+    mw._sync_mode_buttons("select")
+    assert not move.isChecked()
+
+
+# ── review Minor 3a: plan contextual tab on entry ────────────────────────────
+
+def test_entering_editor_drops_plan_contextual_and_leaving_restores_its_base(mw, qapp):
+    mw.ribbon._tab_bar.setCurrentIndex(2)                 # Sprinkler Systems
+    qapp.processEvents()
+    pipe = _add_plan_pipe(mw)
+    try:
+        pipe.setSelected(True)
+        qapp.processEvents()
+        assert any(t.startswith("Modify") for t in _titles(mw)), _titles(mw)
+        mw.block_editor_manager.open_new()
+        qapp.processEvents()
+        assert not any(t.startswith("Modify") for t in _titles(mw)), _titles(mw)
+        assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == PAGE
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+        assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == "Sprinkler Systems"
+        assert _titles(mw)[-1] == PAGE
+    finally:
+        _remove_pipe(mw, pipe)
+        qapp.processEvents()
+
+
+# ── review Minor 3b: closing the last editor onto an empty canvas ────────────
+# (Kept LAST: it closes every canvas tab; the finally re-opens the plan.)
+
+def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    mw.ribbon._tab_bar.setCurrentIndex(1)                 # Architecture
+    qapp.processEvents()
+    ed = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == PAGE
+    try:
+        for i in range(mw.central_tabs.count() - 1, -1, -1):
+            if not isinstance(mw.central_tabs.widget(i), BlockEditorWidget):
+                mw._on_tab_close_requested(i)
+                qapp.processEvents()
+        assert [mw.central_tabs.widget(i) for i in range(mw.central_tabs.count())] == [ed]
+        mw._on_tab_close_requested(mw.central_tabs.indexOf(ed))
+        qapp.processEvents()
+        assert mw.central_tabs.count() == 0
+        tb = mw.ribbon._tab_bar
+        assert 0 <= tb.currentIndex() < tb.count()
+        assert _titles(mw)[tb.currentIndex()] == "Architecture"
+        assert mw.ribbon._stack.currentWidget() is _page(mw, "Architecture")
+        QApplication.clipboard().setText("probe-empty-canvas")
+        qapp.processEvents()
+        mw._refresh_modify_buttons()
+        _assert_no_editor_state(mw)
+    finally:
+        mw._activate_plan_view("Level 1")
+        qapp.processEvents()

@@ -12,15 +12,16 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import (QDialogButtonBox, QFrame, QLineEdit, QTreeWidget,
-                             QTreeWidgetItem)
+from PyQt6.QtWidgets import (QDialogButtonBox, QFrame, QLabel, QLineEdit,
+                             QStackedWidget, QTreeWidget, QTreeWidgetItem)
 
 from .blocks_browser import (_ROLE_ID, _ROLE_PATH, ensure_block_loaded,
                              library_only_entries)
 from .house_dialog import HouseDialog
 from .theme import M
 
-_NO_PICK_TIP = "Select a block in the list to open it"
+EMPTY_NO_BLOCKS = "No blocks yet — create one with New"
+EMPTY_NO_MATCH = "No blocks match"
 
 
 class BlockOpenDialog(HouseDialog):
@@ -56,12 +57,26 @@ class BlockOpenDialog(HouseDialog):
         self._tree.setFrameShape(QFrame.Shape.NoFrame)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
-        self._tree.setMinimumHeight(M.BLOCK_OPEN_LIST_H)
         from .ui_kit import browser_tree_qss
         self._tree.setStyleSheet(browser_tree_qss())
-        lay.addWidget(self._tree, 1)
+
+        # Empty state shares the list area (stack page 1): no blocks at all,
+        # or a search that matches nothing.
+        from .theme import detect
+        t = detect()
+        self._empty_lbl = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+        self._empty_lbl.setWordWrap(True)
+        self._empty_lbl.setStyleSheet(
+            f"color: {t.muted}; font-size: {M.BLOCK_OPEN_EMPTY_PT}pt;"
+            f" background: {t.surface};")
+        self._list_stack = QStackedWidget()
+        self._list_stack.setMinimumHeight(M.BLOCK_OPEN_LIST_H)
+        self._list_stack.addWidget(self._tree)
+        self._list_stack.addWidget(self._empty_lbl)
+        lay.addWidget(self._list_stack, 1)
 
         self._populate()
+        self._sync_empty_state()
 
         btns = self.set_footer_buttons(primary=("Open", self._accept_choice))
         self._open_btn = btns["primary"]
@@ -148,7 +163,22 @@ class BlockOpenDialog(HouseDialog):
 
         for i in range(self._tree.topLevelItemCount()):
             walk(self._tree.topLevelItem(i))
+        self._sync_empty_state()
         self._sync_open_enabled()
+
+    def _sync_empty_state(self) -> None:
+        """Show the muted empty message in place of the list when there is
+        nothing to pick (no blocks at all, or no search match)."""
+        roots = [self._tree.topLevelItem(i)
+                 for i in range(self._tree.topLevelItemCount())]
+        if not roots:
+            self._empty_lbl.setText(EMPTY_NO_BLOCKS)
+            self._list_stack.setCurrentWidget(self._empty_lbl)
+        elif all(r.isHidden() for r in roots):
+            self._empty_lbl.setText(EMPTY_NO_MATCH)
+            self._list_stack.setCurrentWidget(self._empty_lbl)
+        else:
+            self._list_stack.setCurrentWidget(self._tree)
 
     # ── choice ────────────────────────────────────────────────────────────
 

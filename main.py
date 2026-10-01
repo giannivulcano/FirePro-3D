@@ -2601,11 +2601,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pattern.
         """
         from PyQt6 import sip
-        registries = [self._mode_buttons, getattr(self, "_block_mode_buttons", {})]
-        # The mode's button(s) across both registries (a shared mode has one in
-        # each) stay checked.
+        block_reg = getattr(self, "_block_mode_buttons", {})
+        registries = [self._mode_buttons, block_reg]
+        # The permanent Block Editor page's buttons are lit only while an
+        # editor tab is current: a same-key plan mode ("move", …) must not
+        # check a disabled editor-only button (_set_block_editor_context
+        # re-syncs on entry).
+        live = [self._mode_buttons]
+        if getattr(self, "_block_ribbon_active", False):
+            live.append(block_reg)
+        # The mode's button(s) across the live registries (a shared mode has
+        # one in each) stay checked.
         active_ids: set[int] = set()
-        for reg in registries:
+        for reg in live:
             b = reg.get(mode)
             if b is not None and not sip.isdeleted(b):
                 active_ids.add(id(b))
@@ -4983,6 +4991,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if active:
             self._connect_modify_refresh(self._active_scene())
             self._refresh_modify_buttons()
+        # Re-sync the mode buttons for the (new) active scene: lights the
+        # editor's running tool on entry, clears the page's buttons on leave.
+        self._sync_mode_buttons(getattr(self._active_scene(), "mode", None))
 
     def _show_block_editor_ribbon(self):
         """An editor tab became current: switch to the Block Editor page and
