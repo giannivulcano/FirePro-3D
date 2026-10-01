@@ -2620,6 +2620,45 @@ def _is_bezier_chain(n: int, degree: int, knots, weights) -> bool:
                for i in range(0, len(interior), 3))
 
 
+_PERIODIC_WRAP_EPS = 1e-6   # wrapped DXF control points coincide within this
+
+
+def periodic_control_points(control_points: list[QPointF], degree: int,
+                            knots: list[float] | None,
+                            weights: list[float] | None) -> list[QPointF] | None:
+    """DD7 DXF mapping: the unique control points of a closed uniform cubic.
+
+    A closed DXF SPLINE in the periodic form — degree 3, wrapped control points
+    (the last 3 repeat the first 3), a uniform knot vector of ``n + 4`` knots,
+    absent or uniform weights — maps to ``SplineItem(unique, closed=True)``.
+
+    Args:
+        control_points: The SPLINE's control points as stored (wrapped).
+        degree: The SPLINE degree.
+        knots: The stored knot vector (required — a periodic SPLINE has one).
+        weights: The stored weights, or None / empty.
+
+    Returns:
+        The ``n - 3`` unique control points, or None when the SPLINE is not in
+        that form (the caller keeps today's verbatim path).
+    """
+    n = len(control_points)
+    if int(degree) != 3 or n < 6 or not knots or len(knots) != n + 4:
+        return None
+    for a, b in zip(control_points[:3], control_points[-3:]):
+        if (abs(a.x() - b.x()) > _PERIODIC_WRAP_EPS
+                or abs(a.y() - b.y()) > _PERIODIC_WRAP_EPS):
+            return None
+    steps = [k1 - k0 for k0, k1 in zip(knots, knots[1:])]
+    h = steps[0]
+    if h <= 0 or any(abs(st - h) > 1e-9 * max(1.0, abs(h)) for st in steps):
+        return None
+    if weights and any(abs(w - weights[0]) > 1e-12 * max(1.0, abs(weights[0]))
+                       for w in weights):
+        return None
+    return [QPointF(p) for p in control_points[:-3]]
+
+
 def _periodic_bezier_path(control_points: list[QPointF]) -> QPainterPath:
     """Smooth closed (periodic) uniform cubic B-spline as exact cubic Béziers.
 

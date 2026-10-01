@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
 
-from .geometry_2d import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
+from .geometry_2d import (LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem,
+                          SplineItem, periodic_control_points)
 
 
 def _geometric_bbox(item):
@@ -93,7 +94,8 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0, *,
 
     Handles ``line`` -> LineItem, ``circle`` -> CircleItem, ``path_points`` ->
     PolylineItem (closed flag honoured), ``arc`` -> ArcItem, ``ellipse_full`` ->
-    EllipseItem, ``spline`` -> SplineItem. Coordinates are multiplied by
+    EllipseItem, ``spline`` -> SplineItem (a closed periodic DXF SPLINE -> a
+    periodic one, DD7). Coordinates are multiplied by
     *import_scale* (``real_mm / source_units``); spline knots and weights are
     parametric and are not scaled. Unsupported kinds (``text``, ``unknown``)
     are skipped and counted, never raised.
@@ -160,8 +162,14 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0, *,
                 continue
             try:
                 cps = [QPointF(px * s, py * s) for px, py in pts]
-                it = SplineItem(cps, int(g.get("degree", 3)),
-                                g.get("knots"), g.get("weights"), color, lw)
+                uniq = (periodic_control_points(cps, int(g.get("degree", 3)),
+                                                g.get("knots"), g.get("weights"))
+                        if g.get("closed") else None)
+                if uniq is not None:          # DD7: closed DXF SPLINE -> periodic
+                    it = SplineItem(uniq, 3, None, None, color, lw, closed=True)
+                else:
+                    it = SplineItem(cps, int(g.get("degree", 3)),
+                                    g.get("knots"), g.get("weights"), color, lw)
             except (KeyError, TypeError):
                 skipped += 1
         elif kind == "arc":
