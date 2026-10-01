@@ -2,6 +2,8 @@
 import math
 from PyQt6.QtCore import QPointF
 
+from .arc_math import yup_angle
+
 EPS = 1e-9
 
 
@@ -193,9 +195,8 @@ def line_arc_intersections(p1: QPointF, p2: QPointF,
 
     results = []
     for pt in circle_hits:
-        # Compute the angle of this point relative to the arc centre
-        angle = math.degrees(math.atan2(pt.y() - center.y(),
-                                        pt.x() - center.x()))
+        # Y-up angle (the ArcItem convention) of this point about the centre
+        angle = yup_angle(center, pt)
         if _angle_in_arc(angle, start_deg, span_deg):
             results.append(pt)
 
