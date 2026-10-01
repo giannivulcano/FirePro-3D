@@ -14,7 +14,10 @@ import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
 _main_module.View3D = View3D
 from firepro3d import snap_engine
+from firepro3d.modify_tools_controller import ModifyToolsController
 from main import MainWindow
+from tests._modify_tools_helpers import ignore_os_mouse
+from tests._snap_polish_helpers import click
 
 
 @pytest.fixture(scope="module")
@@ -208,13 +211,16 @@ def test_copy_click_enters_copy_base_on_the_editor_scene(main_window, qapp):
 
 def test_modal_buttons_light_with_their_mode_and_clear_on_exit(main_window, qapp):
     """I-3 (spec I1): modal Edit/Modify buttons are in _block_mode_buttons —
-    lit while their tool runs, cleared on exit; Cut/Delete stay plain."""
+    lit while their tool runs, cleared on exit; Delete stays plain, Cut lights
+    its own button (DD10)."""
     ed = None
     try:
         ed, editor, line = _open_editor_with_line(main_window, qapp)
         btns = main_window._be_modify_buttons
         reg = main_window._block_mode_buttons
-        for label, modes in (("Copy", ("copy_base",)), ("Paste", ("paste",)),
+        for label, modes in (("Copy", ("copy_base",)),
+                             ("Cut", (ModifyToolsController.CUT_BUTTON_KEY,)),
+                             ("Paste", ("paste",)),
                              ("Duplicate", ("duplicate",)), ("Move", ("move",)),
                              ("Rotate", ("rotate",)),
                              ("Offset", ("offset", "offset_side")),
@@ -222,7 +228,7 @@ def test_modal_buttons_light_with_their_mode_and_clear_on_exit(main_window, qapp
             assert btns[label].isCheckable(), label
             for m in modes:
                 assert reg[m] is btns[label], (label, m)
-        assert not btns["Cut"].isCheckable() and not btns["Delete"].isCheckable()
+        assert not btns["Delete"].isCheckable()
 
         btns["Move"].click()
         assert editor.mode == "move"
@@ -316,5 +322,43 @@ def test_flip_mirror_buttons_tooltip_light_and_enter_their_modes(main_window, qa
             editor.set_mode(None)
             assert not b.isChecked()
             line.setSelected(True)
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_cut_lights_its_own_button_and_untoggle_cancels(main_window, qapp):
+    """DD10 / M8: during Cut the Cut button is lit and Copy is not; clicking
+    the lit Cut cancels (nothing cut, no undo step); a committed Cut unlights
+    it; Copy lights only Copy."""
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        ignore_os_mouse(ed.view)
+        editor.push_undo_state()            # baseline holds the line (undo target)
+        line.setSelected(True)
+        btns = main_window._be_modify_buttons
+        p0 = editor._undo_pos
+        btns["Cut"].click()
+        assert editor.mode == "copy_base"
+        assert btns["Cut"].isChecked()                              # [RED]
+        assert not btns["Copy"].isChecked()
+        btns["Cut"].click()                                         # un-toggle
+        assert editor.mode in (None, "select")
+        assert not btns["Cut"].isChecked()
+        assert line.scene() is editor and editor._undo_pos == p0    # nothing cut
+        # A real Cut commit: base click on the editor view removes the line.
+        line.setSelected(True)
+        btns["Cut"].click()
+        assert btns["Cut"].isChecked()
+        click(ed.view, QPointF(100, 0))
+        assert line.scene() is None and editor._undo_pos == p0 + 1
+        assert not btns["Cut"].isChecked() and not btns["Copy"].isChecked()
+        editor.undo()
+        line = editor._draw_lines[0]
+        line.setSelected(True)
+        btns["Copy"].click()
+        assert btns["Copy"].isChecked() and not btns["Cut"].isChecked()
+        editor.set_mode(None)
+        assert not btns["Copy"].isChecked()
     finally:
         _close_editor(main_window, ed, qapp)

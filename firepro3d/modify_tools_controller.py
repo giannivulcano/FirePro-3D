@@ -38,8 +38,10 @@ class ModifyToolsController:
                   "flip": "flip", "mirror": "mirror", "scale": "scale"}
     _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array",
                      "flip", "mirror", "scale"}
-    # Tools whose ribbon button is a plain (non-modal) button.
-    _PLAIN_TOOLS = frozenset({"cut"})
+    # Cut shares Copy's ``copy_base`` mode (``_copy_is_cut`` tells them
+    # apart), so its modal button is registered under this pseudo-mode key
+    # and ``button_key`` resolves which button a live copy_base lights (DD10).
+    CUT_BUTTON_KEY = "copy_base:cut"
     # Extra modes a tool passes through after its entry mode.
     _TOOL_EXTRA_MODES = {"offset": ("offset_side",)}
     # Modes an Undo / Redo must cancel first: their transient state (base
@@ -50,17 +52,41 @@ class ModifyToolsController:
 
     @classmethod
     def tool_modes(cls, tool: str):
-        """Scene mode(s) that mean *tool* is running (lights its button).
+        """Ribbon-registry key(s) that mean *tool* is running (light its button).
+
+        A key is the scene mode the tool enters plus any extra modes it
+        passes through — except Cut, keyed by :attr:`CUT_BUTTON_KEY` because
+        it shares Copy's ``copy_base`` mode (DD10).
 
         Args:
             tool: A ``_TOOL_MODE`` key.
 
         Returns:
-            A tuple of mode names, or None for a plain (non-modal) tool.
+            A tuple of registry keys, or None for an unknown tool.
         """
-        if tool in cls._PLAIN_TOOLS or tool not in cls._TOOL_MODE:
+        if tool not in cls._TOOL_MODE:
             return None
+        if tool == "cut":
+            return (cls.CUT_BUTTON_KEY,)
         return (cls._TOOL_MODE[tool],) + cls._TOOL_EXTRA_MODES.get(tool, ())
+
+    @classmethod
+    def button_key(cls, mode, scene):
+        """The ribbon-registry / badge key a live *mode* on *scene* means.
+
+        ``copy_base`` entered by Cut (``scene._copy_is_cut``) is Cut's key;
+        every other mode is its own key.
+
+        Args:
+            mode: The mode ``modeChanged`` just carried ('' for None).
+            scene: The emitting scene (None tolerated).
+
+        Returns:
+            The key.
+        """
+        if mode == "copy_base" and getattr(scene, "_copy_is_cut", False):
+            return cls.CUT_BUTTON_KEY
+        return mode
 
     def __init__(self, scene):
         self._scene = scene

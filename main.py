@@ -17,6 +17,7 @@ from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcu
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
 from firepro3d.model_space import Model_Space, NO_VIEW_HINT
+from firepro3d.modify_tools_controller import ModifyToolsController
 from firepro3d.model_view import Model_View
 from firepro3d.text_item import editing_text_item
 from firepro3d.sprinkler import Sprinkler
@@ -2614,9 +2615,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             live.append(block_reg)
         # The mode's button(s) across the live registries (a shared mode has
         # one in each) stay checked.
+        # Cut and Copy share ``copy_base``: the emitting scene's
+        # ``_copy_is_cut`` picks which of the two buttons lights (DD10).
+        key = ModifyToolsController.button_key(mode, self._mode_signal_scene())
         active_ids: set[int] = set()
         for reg in live:
-            b = reg.get(mode)
+            b = reg.get(key)
             if b is not None and not sip.isdeleted(b):
                 active_ids.add(id(b))
         for reg in registries:
@@ -3242,12 +3246,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """One Edit/Modify tool button routed through ``_modify_ctl.start``.
 
         With *mode_registry* (the Block Editor page's ``_block_mode_buttons``)
-        a modal tool's button is checkable and registered under its mode
-        key(s), so ``_sync_mode_buttons`` lights it while the tool runs and
-        clears it on exit. Clicking the lit button cancels the tool; a
-        refused ``start()`` (e.g. no selection) leaves it unchecked.
+        a modal tool's button (every Edit/Modify tool, Cut included — DD10)
+        is checkable and registered under its key(s)
+        (``ModifyToolsController.tool_modes``), so ``_sync_mode_buttons``
+        lights it while the tool runs and clears it on exit. Clicking the lit
+        button cancels the tool; a refused ``start()`` (e.g. no selection)
+        leaves it unchecked.
         """
-        from firepro3d.modify_tools_controller import ModifyToolsController
         modes = ModifyToolsController.tool_modes(tool)
         if mode_registry is None or modes is None:
             b = g.add_small_button(label, self._modify_icon(icon),
@@ -4764,6 +4769,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if isinstance(w, BlockEditorWidget):
             return w.editor_scene
         return self.scene
+
+    def _mode_signal_scene(self):
+        """The scene whose ``modeChanged`` is being handled, else the active one.
+
+        ``modeChanged`` carries only the mode string; Cut vs Copy (both
+        ``copy_base``) is told apart by that scene's ``_copy_is_cut``
+        (DD10). Direct calls (no signal sender) fall back to the active scene.
+        """
+        src = self.sender()
+        return src if hasattr(src, "_copy_is_cut") else self._active_scene()
 
     def _start_modify_tool(self, tool: str) -> None:
         """Route a Modify/Edit tool to the active scene (scene-tools.md D2/D3).
