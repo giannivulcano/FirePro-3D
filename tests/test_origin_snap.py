@@ -300,3 +300,19 @@ def test_pinned_red_marker_is_a_handle_snap_target(qapp):
         assert marker is not None and marker.snap_type == "origin"
     finally:
         _close_editor(w, project)
+
+
+# ── M4: the glyph ───────────────────────────────────────────────────────────
+
+def test_origin_glyph_is_an_upright_circle_plus_in_its_colour(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        move(view, QPointF(4, 3))
+        assert scene._snap_result is not None
+        col = SNAP_COLORS["origin"]                                      # [RED] KeyError
+        assert _count_colour(view, QPointF(0, 0), col) >= 10
+        # upright plus: the horizontal arm fills the centre rows (a rotated
+        # glyph would leave only the centre pixel there)
+        assert _count_colour(view, QPointF(0, 0), col, half=4, rows=(-1, 0)) >= 8
+    finally:
+        close_view(view, scene)

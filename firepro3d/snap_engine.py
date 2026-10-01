@@ -154,6 +154,7 @@ SNAP_COLORS: dict[str, str] = {
     "nearest":       "#ffffff",   # white   – cross marker
     "perpendicular": "#ff00ff",   # magenta – right-angle marker
     "tangent":       "#88ff00",   # lime    – tangent marker
+    "origin":        "#ff4f6e",   # red-family – circle-plus marker (DD6; not a toggle)
 }
 
 SNAP_MARKERS: dict[str, str] = {
@@ -165,6 +166,13 @@ SNAP_MARKERS: dict[str, str] = {
     "nearest":       "cross",
     "perpendicular": "right_angle",
     "tangent":       "tangent_circle",
+}
+
+# Glyphs for snap kinds that are NOT per-type toggles. SNAP_MARKERS keys are
+# the footer/osnap toggle keys (footer_rail._OSNAP, osnap toolbar) and must
+# stay exactly those eight; the origin kind is gated by F3 only (DD6).
+_NON_TOGGLE_MARKERS: dict[str, str] = {
+    "origin": "circle_plus",     # ⊕ — rotation-invariant
 }
 
 
@@ -388,11 +396,14 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     # the snapped geometry's local tangent (§9.2); an axis-aligned tangent
     # keeps the crisp, non-antialiased pixel-grid rendering.
     color  = QColor(SNAP_COLORS.get(snap_type, "#ffffff"))
-    marker = SNAP_MARKERS.get(snap_type, "square")
+    marker = (SNAP_MARKERS.get(snap_type)
+              or _NON_TOGGLE_MARKERS.get(snap_type, "square"))
     vp     = view.mapFromScene(point)
     x, y   = vp.x(), vp.y()
     s      = 6   # half-size in screen pixels
-    tan = snap_tangent_deg(snap_result)
+    # The origin glyph is rotation-invariant (exempt from the §9.2
+    # tangent-orientation rule): it marks a point, not a curve.
+    tan = None if snap_type == "origin" else snap_tangent_deg(snap_result)
     angle = 0.0
     if tan is not None:
         # A segment's heading is only defined mod 180° (a→b vs b→a): fold it
@@ -449,6 +460,11 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
         painter.drawRect(-s, -s, 2 * s, 2 * s)
         painter.drawLine(-s, -s, s, s)
         painter.drawLine(s, -s, -s, s)
+    elif marker == "circle_plus":
+        # Origin: ⊕ (circle + upright plus), never rotated
+        painter.drawEllipse(-s, -s, 2 * s, 2 * s)
+        painter.drawLine(-s, 0, s, 0)
+        painter.drawLine(0, -s, 0, s)
 
     painter.restore()
 
