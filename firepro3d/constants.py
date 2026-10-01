@@ -337,3 +337,8 @@ ARRAY_DEFAULT_MEMORY = {
     "grid": {"Cols": 3, "Rows": 3},
     "polar": {"Count": 4, "Total": 360.0},
 }
+# Array ghost (review I2, user bar 2026-10-01: <= ~16 ms per repaint for a
+# 50 x 50 grid): above this many ghost paths (copies x traced items) the
+# preview drops the HALO glow and paints one merged 1 px trace
+# (transform_ghost.LiteGhostPath); the commit itself stays uncapped (D11).
+ARRAY_GHOST_FULL_MAX = 200

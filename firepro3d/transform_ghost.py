@@ -47,8 +47,21 @@ def ghost_base_paths(items) -> list:
     return out
 
 
+class LiteGhostPath(QPainterPath):
+    """A ghost path :func:`paint_ghost` draws as the 1 px trace only.
+
+    The simplified ghost of a large array (review I2): the HALO glow's four
+    wide antialiased strokes per path dominate the repaint (A/B bench,
+    2026-10-01: 2499 line copies 240 ms with the glow, ~5 ms as one merged
+    trace), so above ``ARRAY_GHOST_FULL_MAX`` paths the copies are merged
+    into one of these. It covers exactly the same geometry.
+    """
+
+
 def paint_ghost(painter, paths, theme) -> None:
     """Paint each scene-coord path: HALO (defaults) then a 1 px solid trace.
+
+    A :class:`LiteGhostPath` gets the trace only (no HALO glow).
 
     Args:
         painter: Active QPainter in scene coordinates.
@@ -59,7 +72,8 @@ def paint_ghost(painter, paths, theme) -> None:
         return
     pen = _trace_pen(theme)
     for path in paths:
-        paint_halo_path(painter, path, theme)
+        if not isinstance(path, LiteGhostPath):
+            paint_halo_path(painter, path, theme)
     painter.save()
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(pen)

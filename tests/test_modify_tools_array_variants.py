@@ -11,7 +11,7 @@ over the test window cannot inject moves.
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtTest import QTest
 
 from tests._modify_tools_helpers import add_primitive, ignore_os_mouse
@@ -517,5 +517,95 @@ def test_polar_centre_pick_refused_when_nothing_can_rotate(qapp):
         assert msgs[-1] == scene._modify_ctl.ARRAY_POLAR_NOTHING
         QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # -> Linear
         assert scene.active_schema().name == "array_linear"
+    finally:
+        close_view(view, scene)
+
+
+def _big_grid(view, scene, cols, rows, base, corner):
+    """2D array of the selection with remembered Cols x Rows, aimed by a
+    real base click + cursor move at the first cell's far *corner*."""
+    scene._array_memory["grid"] = {"Cols": cols, "Rows": rows}
+    assert scene._modify_ctl.start("array")
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                    # 2D
+    click(view, base); move(view, corner)
+
+
+def test_big_array_ghost_is_simplified_but_covers_the_commit(qapp):
+    """Review I2: above ARRAY_GHOST_FULL_MAX ghost paths the preview is one
+    merged trace-only path (no HALO glow) — and it still covers exactly the
+    extent of what the click creates (the commit is uncapped)."""
+    from firepro3d.constants import ARRAY_GHOST_FULL_MAX
+    from firepro3d.transform_ghost import LiteGhostPath, ghost_base_paths
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "line")              # (0,0)-(100,0)
+        _big_grid(view, scene, 15, 15, QPointF(0, 0), QPointF(120, -60))
+        assert 15 * 15 - 1 > ARRAY_GHOST_FULL_MAX
+        ghost = scene._move_ghost
+        assert len(ghost) == 1 and isinstance(ghost[0], LiteGhostPath)  # [RED]
+        extent = ghost[0].boundingRect()
+        click(view, QPointF(120, -60))
+        copies = getattr(scene, attr)[1:]
+        assert len(copies) == 15 * 15 - 1
+        union = QRectF()
+        for p in ghost_base_paths(copies):
+            union = union.united(p.boundingRect())
+        for a, b in ((extent.left(), union.left()), (extent.top(), union.top()),
+                     (extent.right(), union.right()),
+                     (extent.bottom(), union.bottom())):
+            assert a == pytest.approx(b, abs=0.01)
+        assert extent.left() == pytest.approx(0.0, abs=0.01)
+        assert extent.right() == pytest.approx(14 * 120 + 100, abs=0.01)
+        assert extent.top() == pytest.approx(-14 * 60, abs=0.01)
+    finally:
+        close_view(view, scene)
+
+
+def test_small_array_ghost_keeps_the_full_halo_paths(qapp):
+    """At or below ARRAY_GHOST_FULL_MAX the ghost stays one HALO path per
+    copy (the D11 style)."""
+    from firepro3d.transform_ghost import LiteGhostPath
+    view, scene = _view(scale=1.0)
+    try:
+        add_primitive(scene, "line")
+        _big_grid(view, scene, 3, 3, QPointF(0, 0), QPointF(120, -60))
+        assert len(scene._move_ghost) == 8
+        assert not any(isinstance(p, LiteGhostPath) for p in scene._move_ghost)
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.perf
+def test_50x50_grid_ghost_repaint_is_interactive(qapp):
+    """Review I2 user bar (2026-10-01): median viewport repaint <= 16 ms with
+    the ghost of a 50 x 50 2D array of a simple line on screen (the reviewer
+    measured ~950 ms per repaint before the simplified ghost)."""
+    import statistics
+    import time
+    view, scene = _view(scale=0.012)
+    try:
+        add_primitive(scene, "line")
+        # 49 cells of 1300 x 800 mm fit the 800 x 600 view at 0.012. A cell
+        # is then ~16 px, inside the snap aperture of the base point, so
+        # SNAP is off (F3) for the corner pick.
+        scene.toggle_snap(False)
+        view.centerOn(QPointF(31850, -19600))
+        base = QPointF(20000, -10000)
+        _big_grid(view, scene, 50, 50, base,
+                  QPointF(base.x() + 1300, base.y() - 800))
+        assert scene._array_spacing == pytest.approx(1300, abs=100)  # 1 px ~ 83 mm
+        assert scene._array_row_spacing == pytest.approx(800, abs=100)
+        vp = view.viewport()
+        t0 = time.perf_counter()
+        vp.repaint()                                          # first paint
+        first = (time.perf_counter() - t0) * 1000.0
+        times = []
+        for _ in range(9):
+            t0 = time.perf_counter()
+            vp.repaint()
+            times.append((time.perf_counter() - t0) * 1000.0)
+        med = statistics.median(times)
+        print(f"median ghost repaint {med:.1f} ms (first {first:.1f} ms)")
+        assert med <= 16.0, f"median ghost repaint {med:.1f} ms"         # [RED]
     finally:
         close_view(view, scene)

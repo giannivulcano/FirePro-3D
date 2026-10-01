@@ -18,6 +18,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
 from .cad_math import CAD_Math
+from .constants import ARRAY_GHOST_FULL_MAX
 from .gridline import GridlineItem
 from .handle_snap import HandleSnapSession
 from .scale_manager import ScaleManager
@@ -1548,9 +1549,19 @@ class ModifyToolsController:
             self.note_typed_angle(params.get("angle"))
         p = params if params is not None else self._array_live_params()
         transforms, _why = self._array_transforms(p)
-        s._move_ghost = ([t.map(path) for t in transforms
-                          for path in s._move_ghost_base]
-                         if transforms else [])
+        base = s._move_ghost_base
+        if transforms and len(transforms) * len(base) > ARRAY_GHOST_FULL_MAX:
+            # Review I2: a big array previews as one merged 1 px trace (no
+            # HALO glow) — same geometry, a fraction of the paint cost.
+            from .transform_ghost import LiteGhostPath
+            lite = LiteGhostPath()
+            for t in transforms:
+                for path in base:
+                    lite.addPath(t.map(path))
+            s._move_ghost = [lite]
+        else:
+            s._move_ghost = ([t.map(path) for t in transforms for path in base]
+                             if transforms else [])
         for v in s.views():
             v.viewport().update()
 
