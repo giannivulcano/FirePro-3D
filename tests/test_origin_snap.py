@@ -483,3 +483,27 @@ def test_phase4_skips_pipes_when_skip_pipes(qapp):
         assert res is None or res.snap_type != "intersection"            # [RED]
     finally:
         close_view(view, scene)
+
+
+# ── RR-1: a cursor foot never decides the origin's adopted source ──────────
+
+def test_line_through_origin_gives_a_stable_origin_source(qapp):
+    """A line passing THROUGH (0,0) (no endpoint / midpoint there): its
+    cursor-dependent ``nearest`` foot lands exactly on the origin only for
+    some sub-pixel cursor x. The origin result must not flip between carrying
+    the line (dashed trace painted in the origin colour) and not."""
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene.addItem(LineItem(QPointF(-50, 0), QPointF(150, 0)))
+        col = SNAP_COLORS["origin"]
+        seen = []
+        for x in (0.5, 0.0):
+            move(view, QPointF(300, 300))          # release any snap hold: a fresh approach
+            move(view, QPointF(x, 3))
+            res = scene._snap_result
+            assert res is not None and res.snap_type == "origin"
+            trace = _count_colour(view, QPointF(90, 0), col, half=40, rows=(0,))
+            seen.append((res.source_item is None, trace > 0))
+        assert seen[0] == seen[1], seen                                  # [RED]
+    finally:
+        close_view(view, scene)

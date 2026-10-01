@@ -709,8 +709,12 @@ class _SnapCtx:
         cutoff = self.aperture_px if aperture_px is None else aperture_px
         if d_px > cutoff:
             return  # hard pixel aperture — zoom-invariant grab radius
+        # Cursor feet (weak types) are excluded: a ``nearest`` foot lands on
+        # the origin only at some sub-pixel cursor positions, which would
+        # flip the adopted source frame to frame (RR-1).
         if (self.origin_pts and snap_type != "origin"
-                and snap_type not in ALIGN_SNAP_TYPES):
+                and snap_type not in ALIGN_SNAP_TYPES
+                and snap_type not in self.weak_types):
             self._note_origin_coincident(snap_type, pt, src_item, src_item2,
                                          source_lines, name)
         if snap_type == "endpoint":
