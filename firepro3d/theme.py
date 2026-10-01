@@ -165,6 +165,7 @@ class _Metrics:
     # stay consistent. Change here → all panels update. (docs/specs/ui-design-system.md)
     PROP_FIELD_H = 24           # selector / stepper / input height
     PROP_FIELD_FS = 11          # field + row-label font (px)
+    DENSE_TABLE_PT = 8.5        # dense data tables (sprinkler DB / auto-populate) — set via the table's own QSS, never setFont
     PROP_HEADER_FS = 10         # section-header font (px)
     PROP_CONTENT_FS = 13        # content text-box font (px)
     PROP_ROW_GAP = 5            # vertical spacing between rows

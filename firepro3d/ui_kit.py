@@ -870,9 +870,10 @@ class Selector(QComboBox):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
-        f = self.font()
-        f.setPixelSize(M.PROP_FIELD_FS)
-        self.setFont(f)
+        # Size lives in the widget's OWN QSS: setFont() loses to the app QSS
+        # ``QWidget { font-size }`` (13 px everywhere outside the property
+        # panel's field rule — ui-design-system.md).
+        self.setStyleSheet(f"QComboBox {{ font-size: {M.PROP_FIELD_FS}px; }}")
         t = _detect()
         self.view().setStyleSheet(
             f"QAbstractItemView {{ background: {t.surface2}; color: {t.ink};"

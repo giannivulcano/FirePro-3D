@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
 )
 from .themed_message import themed_confirm, themed_info
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from .theme import M
 
 from .app_data import app_data_dir
 
@@ -422,9 +422,9 @@ class SprinklerManagerDialog(QDialog):
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         t.setAlternatingRowColors(True)
-        f = QFont()
-        f.setPointSizeF(8.5)
-        t.setFont(f)
+        # Own-QSS size: setFont() is reset by the next app.setStyleSheet
+        # (theme switch) to the app QSS QWidget font-size.
+        t.setStyleSheet(f"QTableWidget {{ font-size: {M.DENSE_TABLE_PT}pt; }}")
         return t
 
     def _populate_table(self, table: QTableWidget, records: list[SprinklerRecord]):

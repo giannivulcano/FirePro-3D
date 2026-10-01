@@ -28,7 +28,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSettings, QByteArray
 
 from .constants import HAZARD_CLASSES
-from .theme import detect
+from .theme import detect, M
 from .nfpa_curves import (DENSITY_AREA_CURVES, HAZARD_ABBREV,
                           interpolate_density as _interpolate_density,
                           interpolate_area as _interpolate_area)
@@ -1249,9 +1249,10 @@ class AutoPopulateDialog(QDialog):
         self._spr_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._spr_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._spr_table.setAlternatingRowColors(True)
-        f = QFont()
-        f.setPointSizeF(8.5)
-        self._spr_table.setFont(f)
+        # Own-QSS size: setFont() is reset by the next app.setStyleSheet
+        # (theme switch) to the app QSS QWidget font-size.
+        self._spr_table.setStyleSheet(
+            f"QTableWidget {{ font-size: {M.DENSE_TABLE_PT}pt; }}")
         self._spr_table.currentCellChanged.connect(self._on_sprinkler_selected)
         spr_lay.addWidget(self._spr_table)
         splitter.addWidget(g_spr)
