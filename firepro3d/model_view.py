@@ -101,6 +101,8 @@ class Model_View(QGraphicsView):
             "duplicate":              _C.SizeAllCursor,
             "offset":                 _C.PointingHandCursor,
             "offset_side":            _C.PointingHandCursor,
+            "flip":                   _C.PointingHandCursor,
+            "mirror":                 _C.PointingHandCursor,
         }
 
         # Accept drag-drop for PDF/DXF import
@@ -129,7 +131,7 @@ class Model_View(QGraphicsView):
         without the set.
         """
         if mode in (None, "select", "move", "paste", "copy_base", "duplicate",
-                    "rotate", "array"):
+                    "rotate", "array", "flip", "mirror"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:

@@ -23,7 +23,8 @@ from .handle_snap import HandleSnapSession
 from .sprinkler import Sprinkler
 
 # Tools whose originals are dimmed while they run (D11; paste has no originals).
-DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array"})
+DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array",
+                                "flip", "mirror"})
 
 
 class ModifyToolsController:
@@ -32,8 +33,10 @@ class ModifyToolsController:
     # tool name -> scene mode entered by start()
     _TOOL_MODE = {"copy": "copy_base", "cut": "copy_base", "paste": "paste",
                   "duplicate": "duplicate", "move": "move", "rotate": "rotate",
-                  "offset": "offset", "array": "array"}
-    _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array"}
+                  "offset": "offset", "array": "array",
+                  "flip": "flip", "mirror": "mirror"}
+    _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array",
+                     "flip", "mirror"}
     # Tools whose ribbon button is a plain (non-modal) button.
     _PLAIN_TOOLS = frozenset({"cut"})
     # Extra modes a tool passes through after its entry mode.
@@ -42,7 +45,7 @@ class ModifyToolsController:
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
                                       "rotate", "offset", "offset_side",
-                                      "array"})
+                                      "array", "flip", "mirror"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -86,6 +89,11 @@ class ModifyToolsController:
             return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
+        if tool in ("flip", "mirror") and not self._reflectable(sel):
+            # DD4: text and block instances carry no manip_reflect.
+            s._show_status(
+                f"Nothing to {tool} — text and blocks are skipped", 3000)
+            return False
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
@@ -94,10 +102,17 @@ class ModifyToolsController:
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
             from .transform_ghost import dim_items
             # Dim exactly what the tool acts on: Rotate turns only the
-            # rotatable subset, so nothing it leaves alone looks "in flight".
+            # rotatable subset, Flip / Mirror only the reflectable one, so
+            # nothing a tool leaves alone looks "in flight".
             acted = (self._rotatable(sel) if tool == "rotate"
+                     else self._reflectable(sel) if tool in ("flip", "mirror")
                      else self._transformable(sel))
             s._ghost_dimmed = dim_items(acted)
+        if tool in ("flip", "mirror") and s.mode == tool:
+            # DD3: the acted-on silhouettes, mirrored per hovered axis.
+            s._move_ghost_base = self._shape_paths_for_move(
+                self._reflectable(sel))
+            s._move_ghost = []
         return True
 
     @staticmethod
@@ -469,6 +484,10 @@ class ModifyToolsController:
             s._array_base = None
             s._array_dir = None
             s._array_spacing = 0.0
+        if new_mode not in ("flip", "mirror"):
+            # The axis paints in drawForeground; set_mode repaints every view
+            # (detail views share the scene) right after this clear().
+            s._mirror_axis = None
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_dist = 0.0
@@ -876,6 +895,127 @@ class ModifyToolsController:
     def apply_rotate_by(self, params: dict) -> bool:
         """Typed relative angle (``rotate_by``): commit about the pivot."""
         return self.commit_rotate(float(params["delta_deg"]))
+
+    # ── Flip / Mirror (P1 batch DD4) ────────────────────────────────────────
+    # Select-first; ONE axis step: every move picks the nearest existing
+    # straight segment (axis_picker.pick_axis; cursor SNAP + ALIGN are off in
+    # get_effective_position — snapping-engine §3); click / Enter commits.
+    # Flip reflects the originals in place; Mirror reflects copies. No HUD.
+
+    NO_AXIS_HINT = "Pick a straight edge or reference line"
+
+    def _reflectable(self, items) -> list:
+        """The transformable *items* with a per-item ``manip_reflect`` (DD1).
+
+        Text and block instances define none, so they are skipped.
+        """
+        return [it for it in self._transformable(items)
+                if hasattr(it, "manip_reflect")]
+
+    def _axis_tolerance(self) -> float:
+        """Axis pick radius (scene units): the snap aperture in px at the
+        ACTIVE view's zoom — ``_active_view_scale``, never ``views()[0]``."""
+        from . import snap_engine
+        return snap_engine.px_to_scene(snap_engine.SNAP_TOLERANCE_PX,
+                                       self._scene._active_view_scale())
+
+    @staticmethod
+    def _same_axis(a, b) -> bool:
+        """Whether two ``AxisPick``s (or None) are the same segment."""
+        if a is None or b is None:
+            return a is b
+        return (a.source is b.source and a.p1 == b.p1 and a.p2 == b.p2)
+
+    def aim_axis(self, point):
+        """Pick the axis under *point*; store it scene-side; rebuild the ghost.
+
+        Args:
+            point: The raw cursor (scene).
+
+        Returns:
+            The ``AxisPick`` (painted by ``Model_View`` block 8a), or None —
+            then no axis and no ghost are shown.
+        """
+        from .axis_picker import pick_axis
+        from .transform_ghost import reflect_transform
+        s = self._scene
+        axis = pick_axis(s, QPointF(point), self._axis_tolerance())
+        if self._same_axis(axis, s._mirror_axis):
+            return s._mirror_axis
+        s._mirror_axis = axis
+        if axis is None:
+            s._move_ghost = []
+        else:
+            t = reflect_transform(axis.p1, axis.p2)
+            s._move_ghost = [t.map(p) for p in s._move_ghost_base]
+        # MinimalViewportUpdate: the axis spans the whole view and lives in
+        # drawForeground, so every view (detail views share the scene) is
+        # repainted on each axis change — here, not only by the caller's
+        # mouseMoveEvent sweep, because a click can change it too.
+        for v in s.views():
+            v.viewport().update()
+        return axis
+
+    def move_reflect(self, event, snapped):
+        """Flip / Mirror cursor: detect the axis under the (raw) cursor."""
+        s = self._scene
+        s.preview_pipe.hide()
+        s.preview_node.hide()
+        self.aim_axis(snapped)
+
+    def press_reflect(self, event, pos, snapped, *_):
+        """Flip / Mirror click: commit on the axis under the click."""
+        if self.aim_axis(snapped) is None:
+            self._scene._show_status(self.NO_AXIS_HINT, 3000)
+            return
+        self.commit_reflect()
+
+    def commit_reflect(self) -> bool:
+        """Reflect across the hovered axis: Flip in place, Mirror as copies.
+
+        One undo step; returns to Select with the originals (Flip) or the
+        copies (Mirror) selected (D3). Text / blocks are skipped with a count.
+
+        Returns:
+            True when something was reflected; False with no axis (status
+            hint, the tool stays live) or nothing reflectable (no undo step).
+        """
+        s = self._scene
+        axis = s._mirror_axis
+        if axis is None:
+            s._show_status(self.NO_AXIS_HINT, 3000)
+            return False
+        mirror = s.mode == "mirror"
+        p1, p2 = QPointF(axis.p1), QPointF(axis.p2)
+        items = [it for it in (s._selected_items or []) if it.scene() is s]
+        targets = self._reflectable(items)
+        if mirror:
+            result = []
+            for it in targets:
+                copy = s._add_from_dict(it.to_dict())
+                if copy is not None:
+                    copy.manip_reflect(p1, p2)
+                    result.append(copy)
+        else:
+            for it in targets:
+                it.manip_reflect(p1, p2)
+            result = list(targets)
+            tools = getattr(s, "_tools", None)
+            if tools is not None and result:
+                tools._solve_constraints()
+        if result:
+            s.push_undo_state()
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s._selected_items = []
+        s.set_mode(None)
+        s.clearSelection()
+        self._reselect(result if mirror else items)
+        skipped = len(items) - len(targets)
+        msg = f"{'Mirrored' if mirror else 'Flipped'} {len(result)} item(s)"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+        return bool(result)
 
     # ── Array (D10) ─────────────────────────────────────────────────────────
     # Linear only: base point, then the cursor sets direction + spacing; the

@@ -451,8 +451,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._scale_base: "QPointF | None" = None
         self._scale_preview_line = None
         self._scale_factor: float = 1.0
-        self._mirror_p1: "QPointF | None" = None
-        self._mirror_preview_line = None
+        # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
+        # the hovered axis_picker.AxisPick painted by Model_View, or None.
+        self._mirror_axis = None
         # Break / Break at Point
         self._break_target = None
         self._break_highlight = None
@@ -1202,7 +1203,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
-                        "copy_base", "duplicate", "array",
+                        "copy_base", "duplicate", "array", "flip", "mirror",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -1378,9 +1379,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if mode != "scale":
             self._scale_base = None
             _remove_preview("_scale_preview_line")
-        if mode != "mirror":
-            self._mirror_p1 = None
-            _remove_preview("_mirror_preview_line")
         if mode != "break":
             self._break_target = None
             self._break_p1 = None
@@ -1456,7 +1454,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "rotate":          "Pick pivot point",
             "array":           "Pick base point",
             "scale":           "Pick base point",
-            "mirror":          "Pick first axis point",
+            "flip":            "Pick mirror axis",
+            "mirror":          "Pick mirror axis",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
             "fillet":          "Click first object",
@@ -2203,6 +2202,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.halo_clear():
             for v in self.views():
                 v.viewport().update()
+        # A Flip / Mirror axis holds its source item, which dies here too
+        # (the tool is normally cancelled first — CANCEL_ON_UNDO_MODES).
+        if self._mirror_axis is not None:
+            self._mirror_axis = None
+            for v in self.views():
+                v.viewport().update()
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -2727,6 +2732,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # snap, via _move_handle_snap. The base click itself (node_start_pos
         # still None) snaps normally below: it is user-chosen geometry.
         if self.mode in ("move", "duplicate") and self.node_start_pos is not None:
+            self._snap_result = None
+            self._align_result = None
+            self._align_track_ray = None
+            return QPointF(scene_pos)
+        # Flip / Mirror (P1 DD4): the axis step picks an existing straight
+        # segment through axis_picker, so cursor SNAP and ALIGN are off — no
+        # snap glyph (snapping-engine §3: no contextual snap-by-tool).
+        if self.mode in ("flip", "mirror"):
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -3957,7 +3970,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "array":                    "_move_array",
-        "mirror":                   "_move_mirror",
+        "flip":                     "_move_reflect",
+        "mirror":                   "_move_reflect",
         "stretch":                  "_move_stretch",
         "wall":                     "_move_wall_router",
         "floor":                    "_move_floor_router",
@@ -4144,22 +4158,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _move_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
         return self._modify_ctl.move_array(*args, **kwargs)
 
-    def _move_mirror(self, event, snapped):
-        if self._mirror_p1 is None:
-            return
-        self.preview_node.hide()
-        self.preview_pipe.hide()
-        if self._mirror_preview_line is None:
-            self._mirror_preview_line = QGraphicsLineItem()
-            p = QPen(QColor("#ff00ff"), 0); p.setCosmetic(True)
-            p.setStyle(Qt.PenStyle.DashDotLine)
-            self._mirror_preview_line.setPen(p)
-            self._mirror_preview_line.setZValue(200)
-            self.addItem(self._mirror_preview_line)
-        self._mirror_preview_line.setLine(
-            self._mirror_p1.x(), self._mirror_p1.y(),
-            snapped.x(), snapped.y())
-        self._mirror_preview_line.show()
+    def _move_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
+        return self._modify_ctl.move_reflect(*args, **kwargs)
 
     def _move_stretch(self, event, snapped):
         if self._stretch_base is None:
@@ -4507,7 +4507,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # resolves a cursor point through ``get_effective_position`` and places
     # there.  Deliberately EXCLUDES:
     #   • ``select`` / ``None``            — no point placed
-    #   • object-pick transforms/modifies  — scale, mirror, break,
+    #   • object-pick transforms/modifies  — flip, mirror, break,
     #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
     #     merge_points, offset(_side), align, the two constraint pickers, room
     #     (click-inside-region), place_import (ghost drag, no snap point)
@@ -4560,7 +4560,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "rotate":                   "_press_rotate",
         "array":                    "_press_array",
         "scale":                    "_press_scale",
-        "mirror":                   "_press_mirror",
+        "flip":                     "_press_reflect",
+        "mirror":                   "_press_reflect",
         "break":                    "_press_break",
         "break_at_point":           "_press_break_at_point",
         "fillet":                   "_press_fillet",
@@ -4604,12 +4605,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         *result* is ``"accepted"``/``"rejected"`` for legacy Yes/No dialogs,
         or ``"riser"``/``"match"``/``"template"`` for elevation-mismatch dialogs.
         """
-        if action_id == "mirror_delete" and result == "accepted":
-            for item in list(self._selected_items or self.selectedItems()):
-                self._delete_single_item(item)
-            self.push_undo_state()
-
-        elif action_id == "elev_mismatch_start":
+        if action_id == "elev_mismatch_start":
             self._pipe_ctl.resume_elev_mismatch("start", result)
         elif action_id == "elev_mismatch_end":
             self._pipe_ctl.resume_elev_mismatch("end", result)
@@ -5407,20 +5403,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit(
                 "Base point set — scale factor entry not available yet (Esc to cancel)")
 
-    # ── Mirror ────────────────────────────────────────────────────────
-    def _press_mirror(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._mirror_p1 is None:
-            self._mirror_p1 = snapped
-            self.instructionChanged.emit("Pick second axis point")
-        else:
-            self._tools._apply_mirror(self._mirror_p1, snapped)
-            self.confirmRequested.emit(
-                "mirror_delete", "Mirror", "Delete original objects?")
-            # If user accepts, complete_confirmation() deletes originals
-            # Push undo regardless — mirror already applied
-            self.push_undo_state()
-            self._selected_items = []
-            self.set_mode(None)
+    # ── Flip / Mirror (P1 DD4) ────────────────────────────────────────
+    def _press_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
+        return self._modify_ctl.press_reflect(*args, **kwargs)
 
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -7119,6 +7104,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # same helper a click uses (D9 step 4; the typed path is the HUD).
             if self.mode == "offset_side":
                 self._modify_ctl.commit_offset()
+                return
+            # Flip / Mirror: Enter commits on the hovered axis like a click
+            # (P1 DD4); no axis -> commit_reflect's refusal hint.
+            if self.mode in ("flip", "mirror"):
+                self._modify_ctl.commit_reflect()
                 return
             # Array: Enter commits at the cursor's aim/spacing with the
             # default total, like a click (D10); no aim -> commit_array's

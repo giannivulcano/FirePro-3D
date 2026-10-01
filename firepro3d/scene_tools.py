@@ -188,6 +188,8 @@ class SceneTools:
 
     # Rotate lives in ModifyToolsController.commit_rotate (scene-tools.md D8:
     # per-item manip_rotate; the legacy rect->polyline _apply_rotate is retired).
+    # Flip / Mirror live in ModifyToolsController.commit_reflect (P1 DD4:
+    # per-item manip_reflect; the legacy _apply_mirror is retired).
 
     def _apply_scale(self, base: QPointF, factor: float, items: list = None):
         """Scale *items* relative to *base* by *factor*."""
@@ -229,76 +231,6 @@ class SceneTools:
                 item._center = sp(item._center, base, factor)
                 item._radius *= factor
                 item._rebuild_path()
-
-    def _apply_mirror(self, axis_p1: QPointF, axis_p2: QPointF):
-        """Create mirrored copies of selected items across the axis line."""
-        items = self._scene._selected_items or self._scene.selectedItems()
-        mp = CAD_Math.mirror_point
-        new_items = []
-        for item in items:
-            if isinstance(item, Node):
-                new_pos = mp(item.scenePos(), axis_p1, axis_p2)
-                node = self._scene.add_node(new_pos.x(), new_pos.y())
-                if item.has_sprinkler():
-                    self._scene.add_sprinkler(node, None)
-                new_items.append(node)
-            elif isinstance(item, LineItem):
-                p1 = mp(item._pt1, axis_p1, axis_p2)
-                p2 = mp(item._pt2, axis_p1, axis_p2)
-                ln = LineItem(p1, p2, color=item.pen().color().name(),
-                              lineweight=item.pen().widthF())
-                self._scene.addItem(ln)
-                self._scene._draw_lines.append(ln)
-                new_items.append(ln)
-            elif isinstance(item, PolylineItem):
-                pts = [mp(p, axis_p1, axis_p2) for p in item._points]
-                pl = PolylineItem(pts[0], color=item.pen().color().name(),
-                                  lineweight=item.pen().widthF())
-                for pt in pts[1:]:
-                    pl.append_point(pt)
-                pl.finalize()
-                self._scene.addItem(pl)
-                self._scene._polylines.append(pl)
-                new_items.append(pl)
-            elif isinstance(item, CircleItem):
-                c = mp(item._center, axis_p1, axis_p2)
-                ci = CircleItem(c, item._radius, color=item.pen().color().name(),
-                                lineweight=item.pen().widthF())
-                self._scene.addItem(ci)
-                self._scene._draw_circles.append(ci)
-                new_items.append(ci)
-            elif isinstance(item, RectangleItem):
-                # A mirrored rect is still a rect: same w/h, centred on the
-                # mirrored centre, with its side direction reflected across
-                # the axis.  Rebuilt about a centre-following pivot (the
-                # resolved footprint is identical for any pivot choice).
-                g = item.grip_points()
-                c = mp(g[8], axis_p1, axis_p2)
-                d = mp(g[2], axis_p1, axis_p2) - mp(g[0], axis_p1, axis_p2)
-                w, h = item.rect().width(), item.rect().height()
-                ri = RectangleItem(QPointF(c.x() - w / 2, c.y() - h / 2),
-                                   QPointF(c.x() + w / 2, c.y() + h / 2),
-                                   color=item.pen().color().name(),
-                                   lineweight=item.pen().widthF())
-                # Y-up CCW angle of the mirrored TL->TR side.  A centred rect
-                # is 180-deg symmetric, so fold to [0, 180) and leave an
-                # axis-aligned result at angle 0 (no redundant rotation).
-                ang = math.degrees(math.atan2(-d.y(), d.x())) % 180.0
-                if min(ang, 180.0 - ang) > 1e-9:
-                    ri.set_angle(ang)
-                self._scene.addItem(ri)
-                self._scene._draw_rects.append(ri)
-                new_items.append(ri)
-            elif isinstance(item, ArcItem):
-                c = mp(item._center, axis_p1, axis_p2)
-                # Mirror reverses arc direction
-                ai = ArcItem(c, item._radius, item._start_deg,
-                             -item._span_deg, color=item.pen().color().name(),
-                             lineweight=item.pen().widthF())
-                self._scene.addItem(ai)
-                self._scene._draw_arcs.append(ai)
-                new_items.append(ai)
-        return new_items
 
     # -------------------------------------------------------------------------
     # GEOMETRY OPERATIONS (Join / Explode)

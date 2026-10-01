@@ -87,15 +87,15 @@ def test_block_compile_keeps_rotated_rect_footprint(qapp, pivot):
 # ── 2. scene_tools transforms ────────────────────────────────────────────────
 
 def test_mirror_rotated_rect(scene):
+    """P1 DD4/DD1: ``SceneTools._apply_mirror`` is retired — Flip / Mirror
+    reflect through the per-item ``RectangleItem.manip_reflect``; the rotated
+    footprint mirrors exactly (corner set)."""
     r = _rect30()
     scene.addItem(r)
-    scene._draw_rects.append(r)
-    scene._selected_items = [r]
     a1, a2 = QPointF(300, -50), QPointF(320, 400)
     expected = [CAD_Math.mirror_point(c, a1, a2) for c in _corners(r)]
-    new = scene._tools._apply_mirror(a1, a2)
-    assert len(new) == 1
-    assert _same_point_set(_corners(new[0]), expected)
+    r.manip_reflect(a1, a2)
+    assert _same_point_set(_corners(r), expected)
 
 
 def test_scale_rotated_rect(scene):
