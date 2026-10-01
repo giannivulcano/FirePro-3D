@@ -4187,15 +4187,27 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_floor(self, event, snapped):
         if self._floor_active is None:
+            self._geom_ctl.hide_close_ring()
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
         else:
             self.preview_node.hide()
-            # Rubber-band line from last vertex to cursor
+            # Rubber-band line from last vertex to the tip (Ctrl-constrained)
             last_pt = self._floor_active.last_point()
+            tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                snapped = self._constrain_angle(last_pt, snapped)
+                tip = self._constrain_angle(last_pt, snapped)
+            # Either-point close cue (2d-geometry.md §4, DD8): ring on vertex 0
+            # and the rubber band closes onto it.
+            pts = self._floor_active._points
+            if len(pts) >= 3 and close_hit(pts[0], tip, snapped,
+                                           self._active_view_scale()):
+                tip = QPointF(pts[0])
+                self._geom_ctl.show_close_ring(pts[0])
+            else:
+                self._geom_ctl.hide_close_ring()
+            snapped = tip
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
@@ -4245,14 +4257,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _move_roof(self, event, snapped):
         sm = self.scale_manager
         if self._roof_active is None:
+            self._geom_ctl.hide_close_ring()
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
         else:
             self.preview_node.hide()
             last_pt = self._roof_active.last_point()
+            tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                snapped = self._constrain_angle(last_pt, snapped)
+                tip = self._constrain_angle(last_pt, snapped)
+            # Either-point close cue (2d-geometry.md §4, DD8).
+            pts = self._roof_active._points
+            if len(pts) >= 3 and close_hit(pts[0], tip, snapped,
+                                           self._active_view_scale()):
+                tip = QPointF(pts[0])
+                self._geom_ctl.show_close_ring(pts[0])
+            else:
+                self._geom_ctl.hide_close_ring()
+            snapped = tip
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
             pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
@@ -5604,6 +5627,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             else:
                 fa._points.pop()
                 fa._rebuild_path()
+            self._hide_close_ring()   # DD8 cue no longer matches the vertex list
             for v in self.views(): v.viewport().update()
             return True
         pl = self._polyline_active
@@ -6035,18 +6059,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             pts = self._floor_active._points
             # Ctrl angle-constrains the committed vertex against the last one
-            # (Fold D); the close-near-first test stays on the raw ``snapped``
-            # (polyline precedent).
+            # (Fold D); close-near-first fires on the tip OR the raw
+            # ``snapped`` (2d-geometry.md §4 either-point rule, DD8).
             tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 tip = self._constrain_angle(self._floor_active.last_point(), snapped)
             # Close-near-first: ≥3 points and click within snap tolerance of first vertex.
             if len(pts) >= 3:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                if d0 <= tol:
+                if close_hit(pts[0], tip, snapped, self._active_view_scale()):
+                    self._geom_ctl.hide_close_ring()
                     slab = self._floor_active
                     slab.close_polygon()
                     apply_category_defaults(slab)
@@ -6280,17 +6302,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             pts = self._roof_active._points
             # Ctrl angle-constrains the committed vertex against the last one
-            # (Fold D); close-near-first / vertex-pop tests stay on the raw
-            # ``snapped`` (polyline precedent).
+            # (Fold D); close-near-first / vertex-pop fire on the tip OR the
+            # raw ``snapped`` (2d-geometry.md §4 either-point rule, DD8).
             tip = snapped
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 tip = self._constrain_angle(self._roof_active.last_point(), snapped)
             if len(pts) >= 3:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                if d0 <= tol:
+                if close_hit(pts[0], tip, snapped, self._active_view_scale()):
+                    self._geom_ctl.hide_close_ring()
                     self._roof_active.close_polygon()
                     self.preview_pipe.hide()
 
@@ -6341,10 +6361,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     return
             if len(pts) >= 2:
                 scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
-                    dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
-                    if dv <= tol:
+                    if close_hit(pts[vi], tip, snapped, scale):
                         pts.pop(vi)
                         self._roof_active._rebuild_path()
                         for v in self.views(): v.viewport().update()
@@ -7127,6 +7145,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:
                 if len(self._floor_active._points) >= 3:
+                    self._hide_close_ring()   # DD8 cue may be up at Enter
                     self._floor_active.close_polygon()
                     apply_category_defaults(self._floor_active)
                     self._floor_active.setSelected(True)
@@ -7137,6 +7156,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Close an in-progress roof polygon
             elif self.mode == "roof" and self._roof_active is not None:
                 if len(self._roof_active._points) >= 3:
+                    self._hide_close_ring()   # DD8 cue may be up at Enter
                     self._roof_active.close_polygon()
                     self.preview_pipe.hide()
 

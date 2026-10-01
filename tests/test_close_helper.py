@@ -133,6 +133,31 @@ def test_floor_closes_on_the_cursor_with_ctrl_held(qapp):
         close_view(view, scene)
 
 
+def _key(view, key):
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtWidgets import QApplication
+    for et in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(view.viewport(), QKeyEvent(
+            et, key, Qt.KeyboardModifier.NoModifier))
+    QApplication.processEvents()
+
+
+def test_floor_enter_with_the_ring_up_closes_and_hides_it(qapp):
+    """Enter keeps floor mode (no mode switch tears the ring down), so the
+    close path itself must hide the cue."""
+    view, scene = _view(role="plan", mode="floor")
+    try:
+        _floor(view, scene, TIP_ONLY_VERTS)
+        move(view, CURSOR_ON_V0)
+        assert scene._polyline_close_indicator.isVisible()
+        _key(view, Qt.Key.Key_Return)
+        assert scene._floor_active is None and len(scene._floor_slabs) == 1
+        assert not scene._polyline_close_indicator.isVisible()
+    finally:
+        close_view(view, scene)
+
+
 # ── roof polygon (plan scene; RoofDialog stubbed: it is modal) ───────────────
 
 class _AcceptRoofDialog:
