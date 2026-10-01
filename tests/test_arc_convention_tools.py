@@ -73,3 +73,77 @@ def test_line_arc_intersection_lies_on_the_painted_arc(qapp):
     assert len(pts) == 1
     assert _near(pts[0], (50.0, -86.6025), 1e-3)                        # [RED]
     assert _covers(arc, pts[0])                    # ...on the PAINTED arc
+
+
+# ── Break at point ──────────────────────────────────────────────────────────
+
+def test_break_at_point_splits_arc_at_the_clicked_visual_angle(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        arc = _add(scene, ArcItem(QPointF(0, 0), R, 0.0, 90.0), "_draw_arcs")
+        p0 = _baseline(scene)
+        scene.set_mode("break_at_point")
+        click(view, _vis(45))                      # pick the arc
+        click(view, _vis(45))                      # break point (arc midpoint)
+        arcs = list(scene._draw_arcs)
+        assert arc not in arcs and len(arcs) == 2                       # [RED]
+        a, b = sorted(arcs, key=lambda x: -_painted(x, 0.5).x())
+        assert _ends_match(a, _vis(0), _vis(45))
+        assert _ends_match(b, _vis(45), _vis(90))
+        assert scene._undo_pos == p0 + 1
+        scene.undo()
+        arcs = list(scene._draw_arcs)
+        assert len(arcs) == 1 and _ends_match(arcs[0], _vis(0), _vis(90))
+    finally:
+        close_view(view, scene)
+
+
+def test_break_at_point_off_the_arc_leaves_it_whole(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        arc = _add(scene, ArcItem(QPointF(0, 0), R, 0.0, 90.0), "_draw_arcs")
+        _baseline(scene)
+        scene.set_mode("break_at_point")
+        click(view, _vis(45))                      # pick the arc
+        click(view, _vis(-45))                     # NOT on the painted arc
+        assert scene._draw_arcs == [arc]                                # [RED]
+        assert _ends_match(arc, _vis(0), _vis(90))
+    finally:
+        close_view(view, scene)
+
+
+def test_break_at_point_on_circle_opens_the_gap_at_the_click(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, CircleItem(QPointF(0, 0), R), "_draw_circles")
+        _baseline(scene)
+        scene.set_mode("break_at_point")
+        click(view, _vis(90))
+        click(view, _vis(90))                      # visual top
+        assert scene._draw_circles == [] and len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _near(_painted(arc, 0.0), _vis(90), 1.0)                 # [RED]
+        assert _near(_painted(arc, 1.0), _vis(90), 1.0)
+        assert _covers(arc, _vis(270)) and not _covers(arc, _vis(90))   # far side kept
+    finally:
+        close_view(view, scene)
+
+
+# ── Break (two points) ──────────────────────────────────────────────────────
+
+def test_two_point_break_on_circle_removes_the_picked_quadrant(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, CircleItem(QPointF(0, 0), R), "_draw_circles")
+        p0 = _baseline(scene)
+        scene.set_mode("break")
+        click(view, _vis(0))                       # pick the circle
+        click(view, _vis(0))                       # first break point
+        click(view, _vis(90))                      # second break point
+        assert scene._draw_circles == [] and len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _ends_match(arc, _vis(0), _vis(90))                      # [RED]
+        assert _covers(arc, _vis(225)) and not _covers(arc, _vis(45))   # 90..360 kept
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)

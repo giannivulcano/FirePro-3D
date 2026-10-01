@@ -453,17 +453,39 @@ class TestBreakAtPoint:
         assert abs(arc._span_deg - 359.0) < 1e-3
 
     def test_arc_break_produces_two_arcs(self, scene):
+        # ArcItem(0, 180) is painted over the VISUAL top (scene y < 0).
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
         scene._draw_arcs.append(arc)
 
-        # Break at 90 degrees (top of arc)
-        bp = QPointF(50.0 * math.cos(math.radians(90)),
-                     50.0 * math.sin(math.radians(90)))
+        # Break at visual 90 deg = the top of the painted arc = scene (0, -50).
+        # (The pre-DD9 version broke at (0, +50) — OFF the arc — and passed
+        # only because the break used a Y-down angle; scene-tools.md DV7.)
+        bp = QPointF(0.0, -50.0)
         scene._tools._break_at_point(arc, bp)
 
         assert arc not in scene._draw_arcs
         assert len(scene._draw_arcs) == 2
+
+        def ends(a):
+            p = a.path()
+            s, e = a.mapToScene(p.pointAtPercent(0.0)), a.mapToScene(p.pointAtPercent(1.0))
+            return sorted([(round(s.x(), 3), round(s.y(), 3)),
+                           (round(e.x(), 3), round(e.y(), 3))])
+
+        assert sorted(ends(a) for a in scene._draw_arcs) == [
+            [(-50.0, 0.0), (0.0, -50.0)],
+            [(0.0, -50.0), (50.0, 0.0)],
+        ]
+
+    def test_arc_break_off_the_arc_is_a_no_op(self, scene):
+        arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
+        scene.addItem(arc)
+        scene._draw_arcs.append(arc)
+
+        scene._tools._break_at_point(arc, QPointF(0.0, 50.0))   # visual bottom
+
+        assert scene._draw_arcs == [arc]
 
 
 class TestBreakItem:

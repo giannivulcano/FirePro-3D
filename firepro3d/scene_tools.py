@@ -36,6 +36,7 @@ from .node import Node
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 from . import tool_geometry
+from .arc_math import yup_angle
 from .tool_geometry import extract_edges  # re-exported for existing importers
 
 
@@ -428,8 +429,8 @@ class SceneTools:
                 self._scene._draw_lines.append(ln)
         elif isinstance(item, CircleItem):
             # Convert to arc, removing segment between the two angles
-            a1 = math.degrees(math.atan2(bp1.y()-item._center.y(), bp1.x()-item._center.x()))
-            a2 = math.degrees(math.atan2(bp2.y()-item._center.y(), bp2.x()-item._center.x()))
+            a1 = yup_angle(item._center, bp1)
+            a2 = yup_angle(item._center, bp2)
             span = (a1 - a2) % 360
             arc = ArcItem(QPointF(item._center), item._radius, a2, span,
                           color=item.pen().color().name(),
@@ -459,7 +460,7 @@ class SceneTools:
                 self._scene.addItem(ln)
                 self._scene._draw_lines.append(ln)
         elif isinstance(item, CircleItem):
-            a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
+            a = yup_angle(item._center, bp)
             arc = ArcItem(QPointF(item._center), item._radius,
                           a + 0.5, 359.0,
                           color=item.pen().color().name(),
@@ -471,7 +472,7 @@ class SceneTools:
             self._scene.addItem(arc)
             self._scene._draw_arcs.append(arc)
         elif isinstance(item, ArcItem):
-            a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
+            a = yup_angle(item._center, bp)
             # Normalize to arc range
             rel = (a - item._start_deg) % 360
             if rel > abs(item._span_deg):
