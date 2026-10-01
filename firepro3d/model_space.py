@@ -449,6 +449,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._array_base: "QPointF | None" = None
         self._array_dir: "QPointF | None" = None
         self._array_spacing: float = 0.0
+        self._array_row_spacing: float = 0.0     # 2D: signed row pitch (mm)
         # Session-sticky per canvas tab (never cleared by clear()): the ←/→
         # variant and the last typed non-cursor HUD fields per variant.
         self._array_variant: str = "linear"
@@ -3159,7 +3160,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "duplicate": "displacement",
         "rotate": "rotate_by",
         "scale": "scale_factor",
-        "array": "array_linear",
+        # array is intentionally absent — active_schema follows its ←/→
+        # variant (array_linear / array_grid / array_polar, P1 DD5) like
+        # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
         "offset_side": "offset_distance",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",

@@ -82,6 +82,14 @@ class PlacementInputCoordinator:
                 ("Floor (Polygon)", "Pick first boundary point",
                  lambda s: s._set_floor_primitive("polygon")),
             ],
+            # Array (scene-tools.md D10 + P1 DD5): one mode, the variant
+            # sets ``_array_variant`` (Polar joins in Task 7.5).
+            "array": [
+                ("Linear Array", "Pick base point",
+                 lambda s: setattr(s, "_array_variant", "linear")),
+                ("2D Array", "Pick base point",
+                 lambda s: setattr(s, "_array_variant", "grid")),
+            ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
 
@@ -107,6 +115,9 @@ class PlacementInputCoordinator:
         if s.mode == "floor":
             return (s._floor_active is None
                     and s._floor_rect_anchor is None)
+        if s.mode == "array":
+            # Base (Polar: centre) not picked yet.
+            return s._array_base is None
         return False
 
     def _apply_current_variant(self) -> None:
@@ -272,7 +283,7 @@ class PlacementInputCoordinator:
             # point schemas.)
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
-        elif schema.name == "array_linear":
+        elif schema.name in self._scene._modify_ctl.ARRAY_SCHEMA_FOR_VARIANT.values():
             # D10 / DD5: typed fields re-ghost every copy (a dict, not a
             # point — like ``rotation`` above).
             self._scene._modify_ctl.preview_array(resolved, typed=True)
@@ -722,6 +733,10 @@ class PlacementInputCoordinator:
             return self._wall_schema_for_primitive()
         if self._scene.mode == "floor":
             return self._floor_schema_for_primitive()
+        if self._scene.mode == "array":
+            # P1 DD5: the HUD follows the ←/→ variant.
+            ctl = self._scene._modify_ctl
+            return SCHEMAS[ctl.ARRAY_SCHEMA_FOR_VARIANT[self._scene._array_variant]]
         key = self._scene._SCHEMA_FOR_MODE.get(self._scene.mode)
         return SCHEMAS.get(key) if key else None
 
@@ -1075,7 +1090,7 @@ class PlacementInputCoordinator:
                 span += 360.0
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
-        if schema.name == "array_linear":
+        if schema.name in self._scene._modify_ctl.ARRAY_SCHEMA_FOR_VARIANT.values():
             # D10 / DD5: the live aim + the remembered counts (one home:
             # the controller). Must precede the gridline replicate fallback
             # below (gridline state).

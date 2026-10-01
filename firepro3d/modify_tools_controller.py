@@ -500,6 +500,7 @@ class ModifyToolsController:
             s._array_base = None
             s._array_dir = None
             s._array_spacing = 0.0
+            s._array_row_spacing = 0.0
         if new_mode not in ("flip", "mirror"):
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
@@ -1206,8 +1207,16 @@ class ModifyToolsController:
 
     # HUD fields remembered per variant after a typed commit: (field, param).
     # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim.
-    _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),)}
+    ARRAY_SCHEMA_FOR_VARIANT = {"linear": "array_linear", "grid": "array_grid"}
+    _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),),
+                            "grid": (("Cols", "cols"), ("Rows", "rows"))}
+    _ARRAY_STEP2 = {
+        "linear": "Pick spacing + direction (or type Angle / Spacing / Count)",
+        "grid": "Pick the first cell's far corner (or type the grid)",
+    }
     ARRAY_LINEAR_REFUSED = "Array needs a direction, Spacing > 0 and Count ≥ 2"
+    ARRAY_GRID_REFUSED = ("2D array needs Cols × Rows ≥ 2 and a non-zero "
+                          "spacing along every axis with more than one")
 
     @staticmethod
     def _unit(deg: float) -> QPointF:
@@ -1256,19 +1265,31 @@ class ModifyToolsController:
             return self._unit(s._array_angle_locked)
         return s._array_dir
 
+    def _array_grid_axes(self):
+        """2D axes in scene coords: û along the lock (else +X) and v̂ = û
+        turned +90° CCW in Y-up, i.e. scene ``(û.y, −û.x)`` — rows go UP."""
+        u = self._unit(self._scene._array_angle_locked or 0.0)
+        return u, QPointF(u.y(), -u.x())
+
     def _aim_array(self, snapped: QPointF) -> None:
         """Update the live aim from the base -> *snapped* ray.
 
         Linear unlocked: direction + spacing from the ray. Linear locked: the
         spacing is the ray's projection onto the locked direction (≤ 0 keeps
         the previous spacing — the direction never flips). A zero-length ray
-        keeps the previous aim.
+        keeps the previous aim. 2D: the cursor is the first cell's diagonal
+        corner — signed projections onto the column / row axes.
         """
         s = self._scene
         dx = snapped.x() - s._array_base.x()
         dy = snapped.y() - s._array_base.y()
         length = math.hypot(dx, dy)
         if length <= 1e-9:
+            return
+        if s._array_variant == "grid":
+            u, v = self._array_grid_axes()
+            s._array_spacing = dx * u.x() + dy * u.y()
+            s._array_row_spacing = dx * v.x() + dy * v.y()
             return
         if s._array_angle_locked is not None:
             u = self._unit(s._array_angle_locked)
@@ -1284,7 +1305,13 @@ class ModifyToolsController:
         """Resolver-shaped params of a click / Enter commit: the cursor aim
         plus the remembered (typed or default) counts of the variant."""
         s = self._scene
-        mem = s._array_memory[s._array_variant]
+        v = s._array_variant
+        mem = s._array_memory[v]
+        if v == "grid":
+            return {"angle": self.array_seed_angle(),
+                    "col_spacing": s._array_spacing, "cols": int(mem["Cols"]),
+                    "row_spacing": s._array_row_spacing,
+                    "rows": int(mem["Rows"])}
         return {"angle": self.array_seed_angle(), "spacing": s._array_spacing,
                 "count": int(mem["Count"])}
 
@@ -1298,6 +1325,10 @@ class ModifyToolsController:
             Values keyed by field name (scene units).
         """
         p = self._array_live_params()
+        if schema_name == "array_grid":
+            return {"Angle": p["angle"], "ColSpacing": p["col_spacing"],
+                    "Cols": p["cols"], "RowSpacing": p["row_spacing"],
+                    "Rows": p["rows"]}
         return {"Angle": p["angle"], "Spacing": p["spacing"],
                 "Count": max(2, p["count"])}
 
@@ -1314,6 +1345,19 @@ class ModifyToolsController:
         Returns:
             ``(transforms, None)`` or ``(None, reason)``.
         """
+        if self._scene._array_variant == "grid":
+            cols, rows = int(p["cols"]), int(p["rows"])
+            csp, rsp = float(p["col_spacing"]), float(p["row_spacing"])
+            if (cols < 1 or rows < 1 or cols * rows < 2
+                    or (cols > 1 and abs(csp) < 1e-9)
+                    or (rows > 1 and abs(rsp) < 1e-9)):
+                return None, self.ARRAY_GRID_REFUSED
+            u, v = self._array_grid_axes()
+            return [QTransform.fromTranslate(
+                        c * csp * u.x() + r * rsp * v.x(),
+                        c * csp * u.y() + r * rsp * v.y())
+                    for r in range(rows) for c in range(cols)
+                    if (r, c) != (0, 0)], None
         n, sp = int(p["count"]), float(p["spacing"])
         d = self._array_linear_dir()
         if n < 2 or sp <= 0 or d is None:
@@ -1329,8 +1373,7 @@ class ModifyToolsController:
             s._move_ghost_base = self._shape_paths_for_move(
                 self._transformable(s._selected_items))
             s._move_ghost = []
-            s.instructionChanged.emit(
-                "Pick spacing + direction (or type Angle / Spacing / Count)")
+            s.instructionChanged.emit(self._ARRAY_STEP2[s._array_variant])
             return
         self._aim_array(snapped)
         self.commit_array()
@@ -1352,6 +1395,10 @@ class ModifyToolsController:
     def _array_readout(self) -> str:
         """Status-bar readout of what a click would commit now."""
         p = self._array_live_params()
+        if self._scene._array_variant == "grid":
+            return (f"Cols: {p['cols']} × Rows: {p['rows']}  "
+                    f"Col: {self._fmt_len(p['col_spacing'])}  "
+                    f"Row: {self._fmt_len(p['row_spacing'])}")
         return f"Spacing: {self._fmt_len(p['spacing'])}  Count: {p['count']}"
 
     def preview_array(self, params: dict | None = None,

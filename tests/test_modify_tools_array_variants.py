@@ -162,3 +162,122 @@ def test_typed_angle_lock_carries_to_the_next_array(qapp):
                        [(sp * COS30, -sp * SIN30)])
     finally:
         close_view(view, scene)
+
+
+def _ghost_centres(paths):
+    return sorted((round(p.boundingRect().center().x(), 1),
+                   round(p.boundingRect().center().y(), 1)) for p in paths)
+
+
+def test_arrow_cycles_array_variants_only_before_the_base_pick(qapp):
+    """M1: ←/→ cycles the Array variant at step 0 only (real key events)."""
+    view, scene = _view(scale=1.0)
+    try:
+        add_primitive(scene, "circle")
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        assert scene._modify_ctl.start("array")
+        assert seen[-1].startswith("Linear Array (←/→ to change)")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+        assert seen[-1].startswith("2D Array (←/→ to change)")          # [RED]
+        assert scene.active_schema().name == "array_grid"
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Left)
+        assert seen[-1].startswith("Linear Array (←/→ to change)")
+        assert scene.active_schema().name == "array_linear"
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # 2D again
+        click(view, QPointF(0, 0))                                       # base pick
+        n = len(seen)
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # refused now
+        assert scene.active_schema().name == "array_grid"
+        assert all("(←/→ to change)" not in m for m in seen[n:])
+    finally:
+        close_view(view, scene)
+
+
+def test_grid_3x4_places_12_items_rows_go_up(qapp):
+    """M1: 2D 3 × 4 places 12 items incl. the original; columns along +X,
+    rows along +90° CCW (Y-up) — UP the screen, i.e. scene −Y."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("array")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # 2D
+        click(view, QPointF(0, 0)); move(view, QPointF(120, -60))
+        _type(scene, ColSpacing="100", Cols="3", RowSpacing="50", Rows="4")
+        _assert_points([c._center for c in getattr(scene, attr)],       # [RED]
+                       [(100 * c, -50 * r) for r in range(4) for c in range(3)])
+        assert scene._undo_pos == p0 + 1
+        assert item.isSelected()
+        scene.undo()
+        assert len(getattr(scene, attr)) == 1
+    finally:
+        close_view(view, scene)
+
+
+def test_grid_angle_30_rows_are_ccw_of_columns_in_yup(qapp):
+    """DD5 handedness on scene coordinates: Angle 30° puts columns along
+    (cos30, −sin30) and rows along (−sin30, −cos30) — 120° in Y-up."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+        click(view, QPointF(0, 0)); move(view, QPointF(120, -60))
+        _type(scene, Angle="30", ColSpacing="100", Cols="2",
+              RowSpacing="50", Rows="2")
+        u = (100 * COS30, -100 * SIN30)
+        v = (-50 * SIN30, -50 * COS30)
+        _assert_points([c._center for c in getattr(scene, attr)],       # [RED]
+                       [(0.0, 0.0), u, v, (u[0] + v[0], u[1] + v[1])])
+    finally:
+        close_view(view, scene)
+
+
+def test_grid_cursor_is_the_first_cells_far_corner(qapp):
+    """DD5: the cursor is the first cell's diagonal corner (Cols × Rows from
+    memory, default 3 × 3); the ghost is exactly what the click creates."""
+    from firepro3d.transform_ghost import ghost_base_paths
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+        click(view, QPointF(0, 0)); move(view, QPointF(120, -60))
+        ghost = _ghost_centres(scene._move_ghost)
+        click(view, QPointF(120, -60))
+        lst = getattr(scene, attr)
+        _assert_points([c._center for c in lst],                        # [RED]
+                       [(120 * c, -60 * r) for r in range(3) for c in range(3)])
+        assert _ghost_centres(ghost_base_paths(lst[1:])) == ghost
+    finally:
+        close_view(view, scene)
+
+
+def test_variant_and_typed_values_prefill_the_next_array(qapp):
+    """M1: the variant + typed Cols/Rows pre-fill the next Array on the same
+    canvas (session memory, per scene)."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # 2D
+        click(view, QPointF(0, 0)); move(view, QPointF(120, -60))
+        _type(scene, ColSpacing="100", Cols="3", RowSpacing="50", Rows="4")
+        assert len(getattr(scene, attr)) == 12
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        assert scene._modify_ctl.start("array")
+        assert seen[-1].startswith("2D Array (←/→ to change)")          # [RED]
+        click(view, QPointF(0, 0))
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        assert hud.editor("Cols").text() == "3"
+        assert hud.editor("Rows").text() == "4"
+        QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Escape)          # back to cursor
+        move(view, QPointF(200, -100)); click(view, QPointF(200, -100))
+        _assert_points([c._center for c in getattr(scene, attr)[12:]],
+                       [(200 * c, -100 * r) for r in range(4) for c in range(3)
+                        if (r, c) != (0, 0)])
+    finally:
+        close_view(view, scene)
