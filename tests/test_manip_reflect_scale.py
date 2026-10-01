@@ -193,3 +193,24 @@ def test_scale_keeps_arc_angles_on_screen(scene):
     a, b = path.pointAtPercent(0.0), path.pointAtPercent(1.0)
     assert (round(a.x(), 2), round(a.y(), 2)) == (600.0, 0.0)        # [RED]
     assert (round(b.x(), 2), round(b.y(), 2)) == (400.0, -200.0)
+
+
+# ── Capability boundary (selection-manipulator: "scale" iff manip_scale) ────
+
+@pytest.mark.parametrize("name", GEOM)
+def test_new_methods_do_not_make_primitives_box_resizable(scene, name):
+    """``manip_scale_about`` must not be ``manip_scale``: the manipulator's
+    rigid resize handles would replace the parametric grips."""
+    from firepro3d.selection_manipulator import item_capabilities
+    item = _make(scene, name)
+    assert hasattr(item, "manip_reflect") and hasattr(item, "manip_scale_about")
+    assert "scale" not in item_capabilities(item)
+
+
+def test_text_and_blocks_have_no_reflect_or_scale_about():
+    """DD1: Flip / Mirror / Scale skip text and block instances by capability."""
+    from firepro3d.block_instance import BlockInstance
+    from firepro3d.text_item import TextItem
+    for cls in (TextItem, BlockInstance):
+        assert not hasattr(cls, "manip_reflect"), cls
+        assert not hasattr(cls, "manip_scale_about"), cls
