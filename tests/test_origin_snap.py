@@ -127,3 +127,176 @@ def test_no_intersection_on_the_origin_cross_arms(qapp):
         assert res is None or res.snap_type != "intersection"            # [RED]
     finally:
         close_view(view, scene)
+
+
+# ── M4: handle snap to the origin ──────────────────────────────────────────
+
+def test_handle_drag_endpoint_snaps_to_origin(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        a = _selected_line(scene, (100, 100), (200, 100))
+        # grab the interior (150,100); raw drop puts a.p1 at (4,3) = 5 px from (0,0)
+        marker = _drag_peek(view, QPointF(150, 100), QPointF(54, 3))
+        assert _at(a.grip_points()[0], 0.0, 0.0)                         # [RED]
+        assert marker is not None and marker.snap_type == "origin"
+    finally:
+        close_view(view, scene)
+
+
+def test_duplicate_destination_handle_snaps_to_origin(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _selected_line(scene, (100, 100), (200, 100))
+        scene._modify_ctl.start("duplicate")
+        click(view, QPointF(150, 100))             # base = midpoint
+        move(view, QPointF(54, 3))                 # copy's p1 raw at (4,3)
+        click(view, QPointF(54, 3))
+        firsts = sorted((round(l.grip_points()[0].x(), 3), round(l.grip_points()[0].y(), 3))
+                        for l in scene._draw_lines)
+        assert firsts == [(0.0, 0.0), (100.0, 100.0)]                    # [RED]
+    finally:
+        close_view(view, scene)
+
+
+# ── M4: cursor snap to the origin with the intersection toggle OFF ─────────
+
+def test_paste_base_snaps_to_origin_with_intersection_off(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        a = _selected_line(scene, (100, 100), (200, 100))
+        scene._snap_engine.snap_intersection = False
+        scene._modify_ctl.start("copy")
+        click(view, QPointF(100, 100))             # copied base = a.p1
+        scene.clearSelection()
+        assert scene._modify_ctl.start("paste")
+        move(view, QPointF(4, 3))
+        marker = scene._snap_result
+        click(view, QPointF(4, 3))
+        pasted = [l for l in scene._draw_lines if l is not a]
+        assert len(pasted) == 1
+        assert _at(pasted[0].grip_points()[0], 0.0, 0.0)                 # [RED]
+        assert marker is not None and marker.snap_type == "origin"
+    finally:
+        close_view(view, scene)
+
+
+def test_duplicate_base_click_snaps_to_origin_with_intersection_off(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _selected_line(scene, (100, 100), (200, 100))
+        scene._snap_engine.snap_intersection = False
+        scene._modify_ctl.start("duplicate")
+        move(view, QPointF(4, 3))
+        click(view, QPointF(4, 3))                 # the base pick
+        assert scene.node_start_pos is not None
+        assert _at(scene.node_start_pos, 0.0, 0.0)                       # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_origin_is_gated_by_f3_only(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        eng = scene._snap_engine
+        for attr in ("snap_endpoint", "snap_midpoint", "snap_intersection",
+                     "snap_center", "snap_quadrant", "snap_nearest",
+                     "snap_perpendicular", "snap_tangent"):
+            setattr(eng, attr, False)              # every per-type toggle off
+        move(view, QPointF(4, 3))
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"             # [RED]
+        assert _at(res.point, 0.0, 0.0)
+        scene.toggle_snap(False)                   # F3 off
+        move(view, QPointF(5, 3))
+        assert scene._snap_result is None
+    finally:
+        close_view(view, scene)
+
+
+def test_origin_outranks_a_closer_endpoint(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene.addItem(LineItem(QPointF(4, -4), QPointF(104, -104)))
+        move(view, QPointF(3, -2))                 # endpoint 2.2 px, origin 3.6 px
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"             # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_plan_scene_origin_is_its_own_kind(qapp):
+    # The plan scene refuses 2D-geometry modes (containment C1); Pipe placement
+    # cursor-snaps through the same get_effective_position -> find().
+    view, scene = make_view(role="plan", scale=1.0, mode="pipe")
+    try:
+        move(view, QPointF(4, 3))
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"             # [RED] (was "intersection")
+        assert _at(res.point, 0.0, 0.0)
+    finally:
+        close_view(view, scene)
+
+
+# ── M4: the Block Editor red insertion marker ──────────────────────────────
+
+def _block_editor(origin: QPointF):
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.model_space import Model_Space
+    from firepro3d.scale_manager import ScaleManager
+
+    project = Model_Space()
+    project._level_manager = LevelManager()
+    project.scale_manager = ScaleManager()
+    w = BlockEditorWidget(project)
+    sc = w.editor_scene
+    sc._level_manager = LevelManager()
+    sc.scale_manager = ScaleManager()
+    w.set_origin_point(origin)
+    w.resize(800, 600)
+    w.show()
+    QTest.qWaitForWindowExposed(w)
+    v = w.view
+    v.resetTransform()
+    v.centerOn(0, 0)
+    v.setFocus()
+    QApplication.processEvents()
+    sc.set_mode("select")
+    return w, v, sc, project
+
+
+def _close_editor(w, project):
+    w.editor_scene.cleanup()
+    project.cleanup()
+    w.close()
+    w.deleteLater()
+    QApplication.processEvents()
+
+
+def test_pinned_red_marker_is_a_cursor_snap_target(qapp):
+    w, v, sc, project = _block_editor(QPointF(300, 200))
+    try:
+        a = _selected_line(sc, (100, 100), (200, 100))
+        sc._modify_ctl.start("copy")
+        click(v, QPointF(100, 100))                # copied base = a.p1
+        sc.clearSelection()
+        assert sc._modify_ctl.start("paste")
+        move(v, QPointF(304, 203))
+        click(v, QPointF(304, 203))
+        pasted = [l for l in sc._draw_lines if l is not a]
+        assert len(pasted) == 1
+        assert _at(pasted[0].grip_points()[0], 300.0, 200.0)             # [RED]
+    finally:
+        _close_editor(w, project)
+
+
+def test_pinned_red_marker_is_a_handle_snap_target(qapp):
+    w, v, sc, project = _block_editor(QPointF(300, 200))
+    try:
+        a = _selected_line(sc, (100, 100), (200, 100))
+        # raw drop puts a.p1 at (304,203)
+        marker = _drag_peek(v, QPointF(150, 100), QPointF(354, 203))
+        assert _at(a.grip_points()[0], 300.0, 200.0)                     # [RED]
+        assert marker is not None and marker.snap_type == "origin"
+    finally:
+        _close_editor(w, project)

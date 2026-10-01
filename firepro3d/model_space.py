@@ -552,6 +552,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.init_preview_node()
         self.init_preview_pipe()
         self._suppress_preview_node = False  # True while the crosshair owns the cursor
+        # Block Editor red insertion marker, registered by BlockEditorWidget
+        # so the snap engine can offer its position as ``origin`` (DD6).
+        self._block_origin_marker_item = None
         self.draw_origin()
         self.push_undo_state()   # initial empty state
         # Dirty tracking (chrome header ●). The seed push above is not a user
@@ -898,9 +901,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             item.setFlag(item.GraphicsItemFlag.ItemIgnoresTransformations, True)
             item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             item.setZValue(Z_BELOW_GEOMETRY)
-            item.setData(0, "origin")  # tag so snap engine skips it
+            item.setData(0, "origin")  # never snap geometry itself (DD6)
         self.addItem(h_line)
         self.addItem(v_line)
+        # Its position is the ``origin`` snap target (SnapEngine._origin_points).
+        self._origin_cross_items = (h_line, v_line)
 
     # -------------------------------------------------------------------------
     # DELETE

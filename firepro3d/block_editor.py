@@ -362,6 +362,8 @@ class BlockEditorWidget(QWidget):
         item.setData(0, "block_origin_marker")
         self.editor_scene.addItem(item)
         self._origin_marker = item
+        # Snap target (``origin`` kind, DD6) — SnapEngine._origin_points.
+        self.editor_scene._block_origin_marker_item = item
 
     def _add_primitive(self, item):
         """Add a construction primitive to the editor scene + its tracking list."""

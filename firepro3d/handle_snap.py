@@ -26,7 +26,7 @@ from .pipe import Pipe
 from .snap_engine import OsnapResult, SNAP_PRIORITY
 from .underlay_snap_index import UnderlaySnapIndex
 
-HANDLE_TYPES = frozenset({"endpoint", "midpoint", "center", "quadrant"})
+HANDLE_TYPES = frozenset({"endpoint", "midpoint", "center", "quadrant", "origin"})
 # A target within this scene distance of a handle's OWN rest point is that
 # handle's current position (a connected line, a wall join, …) — snapping to it
 # would pin the handle at rest, so no move shorter than the aperture could land.
@@ -207,6 +207,12 @@ class HandleSnapSession:
                     # Inlined _key (hot loop: every visible target point).
                     grid.setdefault((floor(px / c), floor(py / c)), []).append(
                         (kind, p, item, name))
+        # The origin points (DD6): fixed positions, not item geometry.
+        for p in engine._origin_points(self._scene):
+            px, py = p.x(), p.y()
+            if x0 <= px <= x1 and y0 <= py <= y1:
+                grid.setdefault((floor(px / c), floor(py / c)), []).append(
+                    ("origin", p, None, None))
 
     def _is_moving(self, item) -> bool:
         """Whether *item* or any ancestor is in the moving set.

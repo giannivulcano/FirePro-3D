@@ -455,7 +455,8 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
 
 # Priority ordering — lower value = higher priority (endpoint wins over nearest)
 SNAP_PRIORITY: dict[str, int] = {
-    "intersection":  0,       # highest priority — always wins within band
+    "origin":       -1,       # the (0,0) cross / block insertion marker (DD6)
+    "intersection":  0,       # highest real-geometry priority
     "endpoint":      1,
     "midpoint":      2,
     "center":        3,
@@ -808,6 +809,12 @@ class SnapEngine:
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
 
+        # Origin (DD6) — the (0,0) cross + the Block Editor insertion
+        # marker, own kind ``origin`` (priority -1). Gated by F3 only
+        # (``self.enabled``, checked above), never by a per-type toggle.
+        for p in self._origin_points(scene):
+            ctx.check("origin", p, None)
+
         # Phase 2 — Gridline-to-gridline intersections
         gl_items = [gl for gl in getattr(scene, "_gridlines", [])
                      if gl.isVisible() and (exclude is None or gl is not exclude)
@@ -956,6 +963,37 @@ class SnapEngine:
                                                        ctx.from_point,
                                                        ctx.search_tol):
                 ctx.check(snap_type, pt, item)
+
+    @staticmethod
+    def _origin_points(scene: QGraphicsScene) -> list[QPointF]:
+        """Scene positions offered as the ``origin`` snap kind (DD6).
+
+        The (0,0) origin cross (``Model_Space.draw_origin`` registers its two
+        lines as ``scene._origin_cross_items``) and the Block Editor red
+        insertion marker (``scene._block_origin_marker_item``), each only
+        while it is in this scene and visible. Deduped. O(1): read from the
+        registered references, never a scene walk.
+
+        Args:
+            scene: Any scene; one without the attributes yields [].
+
+        Returns:
+            Scene points (0, 1 or 2 of them).
+        """
+        from PyQt6 import sip
+        cands = list(getattr(scene, "_origin_cross_items", None) or ())
+        marker = getattr(scene, "_block_origin_marker_item", None)
+        if marker is not None:
+            cands.append(marker)
+        pts: list[QPointF] = []
+        for it in cands:
+            if sip.isdeleted(it) or it.scene() is not scene or not it.isVisible():
+                continue
+            p = it.scenePos()
+            if not any(abs(p.x() - q.x()) < 1e-9 and abs(p.y() - q.y()) < 1e-9
+                       for q in pts):
+                pts.append(QPointF(p))
+        return pts
 
     def _check_gridline_intersections(self, ctx: "_SnapCtx",
                                        gl_items: list):
