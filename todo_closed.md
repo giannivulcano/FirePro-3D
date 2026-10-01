@@ -19,6 +19,9 @@
 - [x] [type:feature] Ribbon proportions: smaller vertical group-label text + ribbon icon sizing review (mockup-gated) [P2] [subject:UX] [done:2026-09-30]
   - Details: user, 2026-09-30 — "label text (vertical) too big", "icons" (user unsure what's off — show icon-size variants on a slider in the mockup). Folds the "Tokenize the ribbon `_VLabel` group-label font size" maint item. `firepro3d/ribbon_bar.py`, `firepro3d/theme.py`. ref: ribbon-bar, icon-style-guide.
   - Build: label size now QSS-owned (app QSS QWidget font-size beat setFont — label had always rendered 9.75pt); 7pt accent; icons 40/18; large buttons reserve a 2-line top-aligned caption box (self-painted). Folded the _VLabel tokenize maint item. feat/chrome-polish.
+- [x] [type:feature] 3D Model canvas tab is closable and reopenable from the Project Browser [P2] [subject:UX] [done:2026-09-30]
+  - Details: user, 2026-09-30 — the 3D tab can't be closed today; add a 3D Model entry to the project browser that (re)opens it. `main.py`, project browser, 3D view (orphan — forge on first touch). ref: view-relationships.
+  - Built 2026-09-30 on `feat/3d-tab-closable` (merged to main). Orphan gate forged `docs/specs/view-3d.md` (as-intended §10 ratified in an FP4 grill + smoke additions). Close = hide (keep-alive View3D), reopen leftmost from a top-level `3D Model` browser leaf, `ui/view3d_open` QSettings pref, idle-while-hidden 3D view, empty-canvas placeholder (mockup-gated; surface pane at smoke), no-view tool/Delete/radiation refusals, project reseat + heatmap clear, ledger fixes D1/D5-D11/D13. VC6: 5805 passed -m 'not perf' + 5 perf; user smoke 13/13 + colour pass.
 
 ## MainWindow startup window state — 2026-09-30
 

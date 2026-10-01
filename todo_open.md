@@ -280,12 +280,31 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## MainWindow chrome polish (2026-09-30 user batch)
 
-- [ ] [type:feature] 3D Model canvas tab is closable and reopenable from the Project Browser [P2] [subject:UX]
-  - Details: user, 2026-09-30 — the 3D tab can't be closed today; add a 3D Model entry to the project browser that (re)opens it. `main.py`, project browser, 3D view (orphan — forge on first touch). ref: view-relationships.
 - [ ] [type:feature] Block Editor ribbon tab always available; Block group moves off Architecture to its left edge (small icons: Manager, New → opens editor tab, Open) + logical reorganization [P2] [subject:UX]
   - Details: user, 2026-09-30 — integrate with the current Block Editor tab contents; reorganize its buttons logically. Interacts with the constraint-system ribbon groups (Constrain/Inspect after Modify, CS1) and the Block-Editor-tab close-button focus bug. `main.py`, `firepro3d/ribbon_bar.py`, `firepro3d/block_editor.py`, `firepro3d/block_manager.py`. ref: ribbon-bar, block-editor spec.
 - [ ] [type:bug] Widget `setFont()` sizes silently overridden by the app QSS — Selector + sprinkler tables [P3] [subject:UX]
   - Details: filed 2026-09-30 from the chrome-polish smoke audit. `build_app_qss`'s `QWidget { font-size: 9.75pt }` (and `QDialog[houseDialog="true"] QComboBox`) beats a widget's `setFont()` SIZE (bold/family survive; a setFont made after polish survives until the next `app.setStyleSheet`, e.g. theme switch `main.py` `_apply_theme`). (1) `ui_kit.Selector` (painted QComboBox, intended 11px) is correct in the Properties panel (`_form_container` QSS) but renders 13px elsewhere — confirmed in `BlockSaveDialog` library/series selectors (`CreatableSelector`). (2) `sprinkler_db.py` + `auto_populate_dialog.py` QTableWidgets (8.5pt) are correct on first build but drop to 9.75pt if the app QSS is re-applied while open. Fix pattern (as done for `_VLabel`/`dock_header`/Levels header in feat/chrome-polish): size in the widget's own QSS or a scoped rule; guard under the real app QSS + one re-apply. Full site list: the audit (100 `setFont` hits; 12 on widgets). `firepro3d/ui_kit.py`, `firepro3d/sprinkler_db.py`, `firepro3d/auto_populate_dialog.py`. ref: ui-design-system, architecture/theming.
+
+## 3D view follow-ups (from the closable 3D tab build, 2026-09-30)
+
+- [ ] [type:bug] MainWindow close with a plan item selected crashes the test process (exit 127) [P2] [subject:Testing]
+  - Details: found 2026-09-30 (closable-3D-tab Task 10), proven pre-existing at `7233649` in a worktree (1/3 plain runs exit 127; hooked run shows the RuntimeError). At `MainWindow.close()` the scene's destruction emits `selectionChanged` → `_on_selection_changed_contextual` → `self.scene.selectedItems()` → "wrapped C/C++ object of type Model_Space has been deleted" inside a Qt slot. Workaround in `tests/test_view3d_tab_mainwindow.py` fixture (clear selection before close). Fix in production: disconnect/guard the contextual slot on teardown (`sip.isdeleted`). Likely one cause of the "native GL degradation" crashes; related to the module-singleton fixture item in this file. `main.py`. ref: test-harness.
+- [ ] [type:bug] Checkable draw/tool buttons stay lit when `set_mode` refuses on an empty canvas [P3] [subject:UX]
+  - Details: 2026-09-30 — `Model_Space.set_mode` refuses non-select modes while `view_available` is False (view-3d.md I5), but checkable ribbon buttons that set themselves checked before calling it can stay highlighted. Radiation (F6) already calls `_sync_mode_buttons` after refusing; generalize (e.g. re-sync mode buttons on refusal). `main.py`, `firepro3d/model_space.py`. ref: view-3d, ribbon-bar.
+- [ ] [type:bug] Radiation report dock keeps the previous project's results after New/Open [P3] [subject:Analysis]
+  - Details: 2026-09-30 — the 3D heatmap is now cleared by `View3D.reset_for_project` (view-3d.md I9), but `MainWindow.radiation_report` / `radiation_dock` and `_radiation_*` state are not reset on `new_file` / `_apply_loaded_file`. `main.py` (`_clear_radiation`). ref: view-3d; thermal radiation is an orphan subsystem (forge on first touch).
+- [ ] [type:bug] Plan tools arm on the hidden plan scene while the 3D / Paper / Block-Editor tab is current — verify [P3] [subject:UX]
+  - Details: 2026-09-30 grill + seam review — ribbon plan tools call `self.scene.set_mode` regardless of the current tab (Modify tools refuse on Paper only). A Block-Editor-only canvas counts as "a view open" (user-ratified, view-3d.md I5), so it is covered by this item. Repro first, then decide refuse vs auto-open plan. `main.py`. ref: view-3d, scene-tools.
+- [ ] [type:feature] Save the 3D camera per project in the `.fpd` [P3] [subject:3D]
+  - Details: 2026-09-30 grill (view-3d.md I9) — today new/open re-fits the camera; persisting position/focal/up/projection per project was deferred. `firepro3d/view_3d.py`, `firepro3d/scene_io.py`. ref: view-3d, scene-io.
+- [ ] [type:design] Unify 3D pick with the scene selection [P3] [subject:3D]
+  - Details: 2026-09-30 grill (view-3d.md I8) — 3D keeps a private `_3d_selected` list next to the scene selection (Delete routes through `Model_Space.delete_items`). Design a single selection model (2D⇄3D highlight, one property panel, selectionChanged loop handling). ref: view-3d, selection-mode (Leg C 3D).
+- [ ] [type:maint] Extract canvas-tab management out of `main.py` [P3] [subject:Architecture]
+  - Details: 2026-09-30 (closable-3D-tab approach C, deferred) — plan/detail/elevation/paper/Block-Editor/3D tab open-close-activate logic + the empty-canvas stack live inline in `main.py` (over the 1000-line tripwire). `View3DTabController` is the pattern to generalize. ref: view-3d, mainwindow-chrome-revamp-stage2.
+- [ ] [type:maint] View3D hygiene ledger D14/D16 [P3] [subject:3D]
+  - Details: from view-3d.md §9 — D14: Fit All / Ortho / Refresh toolbar buttons lack tooltips; colours/tolerances are module constants not tokens; theme read once; unused imports/constants. D16: line-fallback pipe width uses the first pipe's diameter; water supply always at Z=0; floor planes sized to nodes only. `firepro3d/view_3d.py`. ref: view-3d.
+- [ ] [type:maint] Stale docstring in `tests/test_view_3d.py` TestCleanup [P4] [subject:Testing]
+  - Details: 2026-09-30 — `test_rebuild_after_cleanup_is_noop`'s docstring still says the debounced refresh slot calls `view_3d.rebuild()`; since the closable-3D-tab build `_refresh_all_views` no longer touches 3D (View3D rebuilds via its own `sceneModified` → `request_rebuild`). Reword; keep the guard. ref: view-3d.
 
 ## Accent-colour / status-chrome unification
 
