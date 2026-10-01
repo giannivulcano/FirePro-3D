@@ -2620,14 +2620,45 @@ def _is_bezier_chain(n: int, degree: int, knots, weights) -> bool:
                for i in range(0, len(interior), 3))
 
 
+def _periodic_bezier_path(control_points: list[QPointF]) -> QPainterPath:
+    """Smooth closed (periodic) uniform cubic B-spline as exact cubic Béziers.
+
+    DD7 (scene-tools P1 batch): span *i* uses control points ``i..i+3``
+    (wrapped) — ``b0 = (p0+4p1+p2)/6``, ``b1 = (2p1+p2)/3``,
+    ``b2 = (p1+2p2)/3``, ``b3 = (p1+4p2+p3)/6`` — drawn natively with
+    ``cubicTo`` and closed. Evaluating only the valid knot domain (not the full
+    range ezdxf flattens) is what keeps the seam closed with a continuous
+    tangent. P4-verified against ``ezdxf.math.closed_uniform_bspline`` to 4e-14
+    mm. Needs >= 3 control points (callers guarantee it).
+    """
+    path = QPainterPath()
+    pts = control_points
+    n = len(pts)
+    for i in range(n):
+        p0, p1, p2, p3 = pts[i], pts[(i + 1) % n], pts[(i + 2) % n], pts[(i + 3) % n]
+        b1 = QPointF((2 * p1.x() + p2.x()) / 3, (2 * p1.y() + p2.y()) / 3)
+        b2 = QPointF((p1.x() + 2 * p2.x()) / 3, (p1.y() + 2 * p2.y()) / 3)
+        b3 = QPointF((p1.x() + 4 * p2.x() + p3.x()) / 6,
+                     (p1.y() + 4 * p2.y() + p3.y()) / 6)
+        if i == 0:
+            path.moveTo(QPointF((p0.x() + 4 * p1.x() + p2.x()) / 6,
+                                (p0.y() + 4 * p1.y() + p2.y()) / 6))
+        path.cubicTo(b1, b2, b3)
+    path.closeSubpath()
+    return path
+
+
 def _bspline_path(control_points: list[QPointF], degree: int,
                   knots: list[float] | None,
-                  weights: list[float] | None) -> QPainterPath:
+                  weights: list[float] | None,
+                  closed: bool = False) -> QPainterPath:
     """Build a QPainterPath tessellating a NURBS/B-spline via ezdxf.math.BSpline.
 
     ezdxf is a pure evaluator here (no DXF I/O) — respects the read-only-DXF
     rule.  ``order = degree + 1``; a curve with fewer control points than
     ``degree+1`` auto-lowers by clamping the order to the control-point count.
+    ``closed`` (>= 3 control points) draws the smooth periodic uniform cubic
+    instead (DD7, ``_periodic_bezier_path``); degree/knots/weights are ignored.
     """
     path = QPainterPath()
     n = len(control_points)
@@ -2636,6 +2667,8 @@ def _bspline_path(control_points: list[QPointF], degree: int,
     if n == 1:
         path.moveTo(control_points[0])
         return path
+    if closed and n >= 3:
+        return _periodic_bezier_path(control_points)
     if _is_bezier_chain(n, degree, knots, weights):
         # Piecewise-Bézier form (e.g. PDF-imported curves): each span IS a
         # cubic Bézier, so Qt draws it exactly and natively — ~100x faster
@@ -2676,22 +2709,34 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     vector + optional weights) so an imported spline round-trips exactly.
     Authored splines are the constrained subset: cubic (degree lowers under 4
     control points), auto clamped-uniform knots, non-rational.
+    ``closed=True`` makes it a smooth periodic closed uniform cubic (DD7); a
+    legacy closed spline (first == last control point) stays the clamped,
+    kinked form.
     """
 
     def __init__(self, control_points: list[QPointF], degree: int = 3,
                  knots: list[float] | None = None,
                  weights: list[float] | None = None,
-                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0,
+                 *, closed: bool = False):
         super().__init__()
         self._control_points = [QPointF(p) for p in control_points]
         n = len(self._control_points)
-        self._degree = max(1, min(int(degree), max(n - 1, 1)))
-        # ezdxf's BSpline rejects order 1 (a single control point), so a
-        # degenerate 0/1-point spline gets no auto knot vector — _bspline_path
-        # handles n < 2 via its own early return (moveTo / empty path).
-        self._knots = (list(knots) if knots
-                       else (_auto_knots(n, self._degree) if n >= 2 else None))
-        self._weights = list(weights) if weights else None
+        # DD7: a smooth periodic closed spline — valid only with >= 3 control
+        # points; always a uniform non-rational cubic (no knots / weights).
+        self._closed = bool(closed) and n >= 3
+        if self._closed:
+            self._degree = 3
+            self._knots = None
+            self._weights = None
+        else:
+            self._degree = max(1, min(int(degree), max(n - 1, 1)))
+            # ezdxf's BSpline rejects order 1 (a single control point), so a
+            # degenerate 0/1-point spline gets no auto knot vector —
+            # _bspline_path handles n < 2 via its own early return.
+            self._knots = (list(knots) if knots
+                           else (_auto_knots(n, self._degree) if n >= 2 else None))
+            self._weights = list(weights) if weights else None
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -2707,12 +2752,21 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def _regenerate(self):
         self.setPath(_bspline_path(self._control_points, self._degree,
-                                   self._knots, self._weights))
+                                   self._knots, self._weights,
+                                   closed=self._closed))
         self.update()
 
     def is_closed(self) -> bool:
+        """Periodic (DD7) or the legacy coincident-end (kinked) closed form."""
+        if self._closed:
+            return True
         cps = self._control_points
         return len(cps) >= 3 and cps[0] == cps[-1]
+
+    def is_periodic(self) -> bool:
+        """True for a smooth periodic closed spline (DD7) — not the legacy
+        coincident-end form (snap emits no endpoints for it)."""
+        return self._closed
 
     def get_closed_path(self) -> QPainterPath | None:
         if not self.is_closed():
@@ -2798,6 +2852,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "color":          self.pen().color().name(),
             "lineweight":     self.pen().widthF(),
         }
+        if self._closed:
+            d["closed"] = True          # DD7: written only when set
         return self._geom2d_to_dict(d)
 
     @classmethod
@@ -2805,7 +2861,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         cps = [QPointF(x, y) for x, y in data["control_points"]]
         obj = cls(cps, data.get("degree", 3),
                   data.get("knots"), data.get("weights"),
-                  data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+                  data.get("color", "#ffffff"), data.get("lineweight", 1.0),
+                  closed=bool(data.get("closed", False)))
         obj._geom2d_from_dict(data)
         obj._regenerate()
         return obj
@@ -2838,7 +2895,10 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 ref.setCosmetic(True)
                 painter.setPen(ref)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                for a, b in zip(self._control_points, self._control_points[1:]):
+                legs = list(zip(self._control_points, self._control_points[1:]))
+                if self._closed:        # periodic: the guide is a loop
+                    legs.append((self._control_points[-1], self._control_points[0]))
+                for a, b in legs:
                     painter.drawLine(a, b)
 
     def shape(self) -> QPainterPath:
