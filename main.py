@@ -3267,8 +3267,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         Args:
             page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
-            scene_getter: Zero-arg callable returning the scene to act on
-                (resolved at click time, so it follows the active tab).
+            scene_getter: Zero-arg callable returning the scene Copy/Cut/
+                Paste/Duplicate act on (resolved at click time, so it follows
+                the active tab). Delete ignores it and goes through
+                ``_delete_if_not_editing`` (the one Delete chokepoint —
+                view-3d.md I5).
             mode_registry: Optional ``{mode: button}`` dict; when given, the
                 modal buttons are checkable and registered there (I1).
 

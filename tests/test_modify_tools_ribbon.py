@@ -65,7 +65,7 @@ def test_modify_group_builder_has_four_tools(main_window):
     assert {"Move", "Rotate", "Offset", "Array"} <= names
 
 
-def test_edit_group_buttons_route_to_scene_getter(main_window, monkeypatch):
+def test_edit_group_buttons_route_to_their_entry_points(main_window, monkeypatch):
     from firepro3d.ribbon_bar import RibbonPage
 
     class _Ctl:
@@ -74,7 +74,6 @@ def test_edit_group_buttons_route_to_scene_getter(main_window, monkeypatch):
 
     class _FakeScene:
         def __init__(self): self._modify_ctl = _Ctl()
-        def delete_selected_items(self): self._modify_ctl.calls.append("delete")
 
     fake = _FakeScene()
     # Delete routes through MainWindow's one Delete chokepoint (text-edit
