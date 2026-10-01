@@ -35,6 +35,7 @@ class TestRegistry:
             "line", "circle", "polygon",
             "displacement", "distance", "offset_distance", "spacing_count",
             "array_linear", "arc_span", "arc_radius", "rotation", "rotate_by", "track",
+            "scale_factor",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
@@ -69,6 +70,7 @@ class TestRegistry:
             "Spacing": 500.0, "Count": 3.0,
             "Span": 90.0, "ArcLength": 0.0,
             "Width": 120.0, "Height": 140.0,
+            "Factor": 2.0,
             "W": 120.0, "H": 140.0,
         }
         for name, schema in SCHEMAS.items():
@@ -94,7 +96,7 @@ class TestRegistry:
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
-                        "rotation", "rotate_by", "array_linear",
+                        "rotation", "rotate_by", "array_linear", "scale_factor",
                         "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
@@ -120,6 +122,27 @@ class TestRegistry:
         assert s.is_placement is False and s.needs_anchor is True
         assert s.resolve(None, {"Spacing": 250.0, "Count": 3.6}) == {
             "spacing": 250.0, "count": 4}
+
+    def test_scale_factor_is_one_unitless_anchored_factor(self):
+        """P1 DD4: one unitless ``Factor`` field (strictly > 0) after the base."""
+        s = SCHEMAS["scale_factor"]
+        assert [f.name for f in s.fields] == ["Factor"]
+        assert s.fields[0].kind is FieldKind.FACTOR
+        assert s.fields[0].minimum == 0.0
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Factor": 0.5}) == {"factor": 0.5}
+
+    def test_factor_editor_keeps_decimals(self, qapp):
+        """A typed 0.25 stays 0.25 (a COUNT editor would round it to 0)."""
+        from firepro3d.dynamic_input import DynamicInputHud
+        from firepro3d.scale_manager import ScaleManager
+        hud = DynamicInputHud(SCHEMAS["scale_factor"], ScaleManager())
+        ed = hud.editor("Factor")
+        ed.setText("0.25")
+        assert ed.try_commit() is True
+        assert ed.value_mm() == pytest.approx(0.25)
+        ed.setText("0")
+        assert ed.try_commit() is False          # <= 0 refused (strict minimum)
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False

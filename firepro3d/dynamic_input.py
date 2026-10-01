@@ -32,15 +32,17 @@ from .scale_manager import ScaleManager
 class FieldKind(Enum):
     """How a field is formatted, parsed and validated.
 
-    Four kinds map to four ``DimensionEdit`` configurations — not four
+    Five kinds map to five ``DimensionEdit`` configurations — not five
     widgets.  ``SPAN`` is an unsigned sweep magnitude (0–360°), distinct from
     ``ANGLE`` (a heading normalised to (-180, 180]): an arc that sweeps 270°
-    must read 270°, not −90°.
+    must read 270°, not −90°.  ``FACTOR`` is a unitless decimal ratio (the
+    Scale tool's factor) — unlike ``COUNT`` it is never rounded.
     """
     DIMENSION = auto()
     ANGLE = auto()
     COUNT = auto()
     SPAN = auto()
+    FACTOR = auto()
 
 
 @dataclass(frozen=True)
@@ -299,6 +301,15 @@ def resolve_array_linear(anchor, values: dict) -> dict:
     return resolve_spacing_count(anchor, values)
 
 
+def resolve_scale_factor(anchor, values: dict) -> dict:
+    """Return the Scale tool's uniform factor (P1 DD4).
+
+    A transform: the base point lives in scene state. The field's strict
+    ``minimum`` (> 0) already refuses zero / negatives; the applier re-checks.
+    """
+    return {"factor": values["Factor"]}
+
+
 # ── Track (ALIGN distance-along-path) ───────────────────────────────────────
 
 def resolve_track(anchor: QPointF, values: dict) -> QPointF:
@@ -472,6 +483,15 @@ SCHEMAS: dict[str, Schema] = {
         # shut until it exists — like ``move`` and ``rotation``.
         needs_anchor=True,
     ),
+    # Scale tool (P1 DD4): one unitless factor, strictly > 0, typed after the
+    # base point (anchored like ``rotate_by``).
+    "scale_factor": Schema(
+        name="scale_factor",
+        fields=(FieldSpec("Factor", "F", FieldKind.FACTOR, minimum=0.0),),
+        resolve=resolve_scale_factor,
+        returns_point=False,
+        needs_anchor=True,
+    ),
     # ── Selection-manipulator transforms ─────────────────────────────────
     # The manipulator's live readout + typed-input surface.  Like ``move``
     # these are anchored transforms (needs_anchor): the base point is the
@@ -556,6 +576,27 @@ def _parse_count(text: str) -> float | None:
         return float(round(float(str(text).strip())))
     except (TypeError, ValueError):
         return None
+
+
+def _format_factor(value: float) -> str:
+    """Format a FACTOR (unitless ratio): up to 4 decimals, zeros trimmed
+    (``2`` -> ``"2"``, ``0.5`` -> ``"0.5"``, ``1/3`` -> ``"0.3333"``)."""
+    text = f"{value:.4f}".rstrip("0").rstrip(".")
+    return text if text not in ("", "-0") else "0"
+
+
+def _parse_factor(text: str) -> float | None:
+    """Parse a unitless ratio; a trailing ``x`` / ``×`` is tolerated (``2x``).
+
+    Returns:
+        The finite float, or None so ``DimensionEdit`` reverts.
+    """
+    t = str(text).strip().rstrip("xX×").strip()
+    try:
+        v = float(t)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
 
 
 # ── Field sizing (decision S2) ────────────────────────────────────────────
@@ -816,6 +857,12 @@ class DynamicInputHud(QWidget):
             editor = DimensionEdit(
                 None, initial_mm=0.0, parent=self,
                 parser=_parse_count, formatter=_format_count,
+                minimum=spec.minimum,
+            )
+        elif spec.kind is FieldKind.FACTOR:
+            editor = DimensionEdit(
+                None, initial_mm=1.0, parent=self,
+                parser=_parse_factor, formatter=_format_factor,
                 minimum=spec.minimum,
             )
         else:
