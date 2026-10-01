@@ -280,10 +280,21 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## MainWindow chrome polish (2026-09-30 user batch)
 
-- [ ] [type:feature] Block Editor ribbon tab always available; Block group moves off Architecture to its left edge (small icons: Manager, New → opens editor tab, Open) + logical reorganization [P2] [subject:UX]
-  - Details: user, 2026-09-30 — integrate with the current Block Editor tab contents; reorganize its buttons logically. Interacts with the constraint-system ribbon groups (Constrain/Inspect after Modify, CS1) and the Block-Editor-tab close-button focus bug. `main.py`, `firepro3d/ribbon_bar.py`, `firepro3d/block_editor.py`, `firepro3d/block_manager.py`. ref: ribbon-bar, block-editor spec.
 - [ ] [type:bug] Widget `setFont()` sizes silently overridden by the app QSS — Selector + sprinkler tables [P3] [subject:UX]
   - Details: filed 2026-09-30 from the chrome-polish smoke audit. `build_app_qss`'s `QWidget { font-size: 9.75pt }` (and `QDialog[houseDialog="true"] QComboBox`) beats a widget's `setFont()` SIZE (bold/family survive; a setFont made after polish survives until the next `app.setStyleSheet`, e.g. theme switch `main.py` `_apply_theme`). (1) `ui_kit.Selector` (painted QComboBox, intended 11px) is correct in the Properties panel (`_form_container` QSS) but renders 13px elsewhere — confirmed in `BlockSaveDialog` library/series selectors (`CreatableSelector`). (2) `sprinkler_db.py` + `auto_populate_dialog.py` QTableWidgets (8.5pt) are correct on first build but drop to 9.75pt if the app QSS is re-applied while open. Fix pattern (as done for `_VLabel`/`dock_header`/Levels header in feat/chrome-polish): size in the widget's own QSS or a scoped rule; guard under the real app QSS + one re-apply. Full site list: the audit (100 `setFont` hits; 12 on widgets). `firepro3d/ui_kit.py`, `firepro3d/sprinkler_db.py`, `firepro3d/auto_populate_dialog.py`. ref: ui-design-system, architecture/theming.
+
+## Block Editor ribbon follow-ups (from the always-available tab build, 2026-09-30)
+
+- [ ] [type:feature] Dedicated ribbon icons for Open / Save / Save As / Set Origin / Import (Block Editor tab) [P3] [subject:UX]
+  - Details: 2026-09-30 mockup gate — Save + Save As borrow the Create-Block icon, Set Origin borrows Insert, Import borrows Manager, Open uses Manager's. Author 48-unit two-token icons via the icon-style-guide method (mockup-gated contact sheet); Set Origin is retired by CS1, so skip it if CS1 lands first. `firepro3d/graphics/Ribbon/`, `main.py` `_init_block_editor_tab`. ref: icon-style-guide, ribbon-bar.
+- [ ] [type:bug] Leaving a Block Editor tab doesn't restore the plan-selection contextual tab [P3] [subject:UX]
+  - Details: pre-existing (same in the old contextual-page code), noted by the 2026-09-30 review: entering an editor removes a showing "Modify | <Element>" tab; after leaving, the plan selection is still active but the contextual tab only returns on the next selection change. Re-run `_on_selection_changed_contextual` in `_hide_block_editor_ribbon`. `main.py`. ref: ribbon-bar §3.8.
+- [ ] [type:bug] `tests/test_opening_ribbon.py` crashes the test process (exit 127) every run — pre-existing [P2] [subject:Testing]
+  - Details: found 2026-09-30 (Block Editor ribbon build), proven at `a0a4547` in a worktree (orchestrator re-proved). Native/slot crash with no traceback; check for the close-time `selectionChanged` family (see the 3D-view follow-ups) or a raise inside a Qt slot (run with an excepthook). `tests/test_opening_ribbon.py`. ref: test-harness.
+- [ ] [type:bug] `tests/test_underlay_manager_dialog.py` segfaults intermittently (exit 139) — pre-existing [P3] [subject:Testing]
+  - Details: found 2026-09-30, segfaulted at base `a0a4547`; on HEAD crashed once then passed 14/14. Same native teardown family as `test_grip_object_limit.py`. ref: test-harness.
+- [ ] [type:maint] `BlockOpenDialog` / Blocks browser tree indentation literal → `theme.M` token [P4] [subject:UX]
+  - Details: 2026-09-30 review minor — `setIndentation(16)` is duplicated in `block_open_dialog.py` and `blocks_browser.py`; one `M` token (browser trees share `ui_kit.browser_tree_qss()`). ref: ui-design-system.
 
 ## 3D view follow-ups (from the closable 3D tab build, 2026-09-30)
 
