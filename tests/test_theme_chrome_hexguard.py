@@ -16,7 +16,7 @@ GUARDED = [
     # UI design-system: base + kit + migrated dialogs (ui-design-system.md)
     "house_dialog.py", "ui_kit.py", "themed_message.py", "frameless_shell.py",
     "colour_picker.py",
-    "underlay_manager.py", "block_manager.py",
+    "underlay_manager.py", "block_manager.py", "block_open_dialog.py",
     # Settings dialogs (settings-dialog.md §4.6 — token-clean on HouseDialog)
     "settings/panes.py", "settings/system_settings_dialog.py",
     "settings/project_settings_dialog.py",

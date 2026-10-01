@@ -15,7 +15,9 @@ GUARDED = ["house_dialog.py", "ui_kit.py", "themed_message.py",
            # Chrome revamp: header + footer rails read layout from theme.M.
            "header_rail.py", "footer_rail.py",
            # Empty-canvas placeholder (view-3d.md §10 I5).
-           "canvas_placeholder.py"]
+           "canvas_placeholder.py",
+           # Block Editor Open… picker (house dialog; block-system.md).
+           "block_open_dialog.py"]
 
 _CALL = re.compile(r"set(?:ContentsMargins|FixedHeight|FixedWidth|Spacing)\s*\(([^)]*)\)")
 _NUMERIC = re.compile(r"\b\d+\b")

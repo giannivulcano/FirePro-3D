@@ -192,6 +192,10 @@ class _Metrics:
     COLOUR_SEC_GAP = 12         # space above each palette section label
     COLOUR_PREVIEW_H = 40       # New/Current preview chip height
 
+    # Block Editor Open… picker (block_open_dialog.py — mockup values 2026-09-30)
+    BLOCK_OPEN_MIN_W = 430      # dialog minimum width
+    BLOCK_OPEN_LIST_H = 260     # block tree minimum height
+
 
 M = _Metrics()
 
