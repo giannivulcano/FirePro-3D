@@ -520,9 +520,13 @@ class ModifyToolsController:
         from .transform_ghost import restore_items
         restore_items(getattr(s, "_ghost_dimmed", None))
         s._ghost_dimmed = []
-        if new_mode not in ("paste", "move", "duplicate"):
-            s._move_ghost = []
-            s._move_ghost_base = []
+        # Every tool that paints into the shared ghost (Move / Duplicate /
+        # Paste, Rotate, Flip / Mirror, Scale, Array, Offset) builds it AFTER
+        # its set_mode — base click, begin_paste, begin_move_from, start() —
+        # so no mode change ever hands a ghost on: a kept one is the previous
+        # tool's silhouette painted under the next tool (seam review I-1).
+        s._move_ghost = []
+        s._move_ghost_base = []
         if new_mode != "paste":
             s._paste_payload = None
         if new_mode != "rotate":
@@ -967,9 +971,11 @@ class ModifyToolsController:
         return [it for it in self._transformable(items)
                 if hasattr(it, "manip_reflect")]
 
-    def _axis_tolerance(self) -> float:
-        """Axis pick radius (scene units): the snap aperture in px at the
-        ACTIVE view's zoom — ``_active_view_scale``, never ``views()[0]``."""
+    def _pick_tolerance(self) -> float:
+        """Pick radius (scene units) for the transform tools' own picks — the
+        Flip / Mirror axis and Scale's "reference = base" refusal: the snap
+        aperture in px at the ACTIVE view's zoom (``_active_view_scale``,
+        never ``views()[0]``)."""
         from . import snap_engine
         return snap_engine.px_to_scene(snap_engine.SNAP_TOLERANCE_PX,
                                        self._scene._active_view_scale())
@@ -1011,7 +1017,7 @@ class ModifyToolsController:
         s = self._scene
         # pick_axis only returns live, visible segments, so a stale axis
         # (its source removed) never survives an aim.
-        axis = pick_axis(s, QPointF(point), self._axis_tolerance())
+        axis = pick_axis(s, QPointF(point), self._pick_tolerance())
         if self._same_axis(axis, s._mirror_axis):
             return s._mirror_axis
         s._mirror_axis = axis
@@ -1137,7 +1143,7 @@ class ModifyToolsController:
             # against — cursor jitter would swing it wildly.
             if (math.hypot(snapped.x() - s._scale_base.x(),
                            snapped.y() - s._scale_base.y())
-                    <= self._axis_tolerance()):
+                    <= self._pick_tolerance()):
                 s._show_status(self.SCALE_REF_HINT, 3000)
                 return
             s._scale_ref = QPointF(snapped)
