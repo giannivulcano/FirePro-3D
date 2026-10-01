@@ -19,6 +19,7 @@ from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
 
 from .constants import (HALO_TRACE_COLOR, TRANSFORM_GHOST_DIM_OPACITY,
                         TRANSFORM_GHOST_TRACE_ALPHA, TRANSFORM_GHOST_TRACE_WIDTH_PX)
+from .geometry_2d import _degenerate_axis
 from .halo import halo_scene_path, paint_halo_path
 
 # Opacity match tolerance for restore (qreal round-trip noise only).
@@ -97,16 +98,18 @@ def reflect_transform(p1, p2) -> QTransform:
 
     ``x' = p1 + R·(x − p1)`` with ``R = [[a, b], [b, −a]]``,
     ``a = (dx² − dy²)/n²``, ``b = 2·dx·dy/n²`` — the same map as
-    ``CAD_Math.mirror_point``. Identity for a degenerate axis.
+    ``CAD_Math.mirror_point``. Identity for a degenerate axis — the commit
+    path's own test (``geometry_2d._degenerate_axis``), so the ghost never
+    shows a reflection ``manip_reflect`` would then skip.
 
     Args:
         p1: A point on the axis (scene).
         p2: A second point on the axis (scene).
     """
+    if _degenerate_axis(p1, p2):
+        return QTransform()
     dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
     n2 = dx * dx + dy * dy
-    if n2 < 1e-18:
-        return QTransform()
     a = (dx * dx - dy * dy) / n2
     b = 2.0 * dx * dy / n2
     px, py = p1.x(), p1.y()
@@ -134,14 +137,19 @@ def paint_axis(painter, p1, p2, view_rect, theme) -> None:
         view_rect: The view's visible scene rect (the axis spans past it).
         theme: Theme providing ``color(token)``.
     """
+    if _degenerate_axis(p1, p2):
+        return
     dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
     n = math.hypot(dx, dy)
-    if n < 1e-9:
-        return
     ux, uy = dx / n, dy / n
     c = view_rect.center()
     reach = (math.hypot(view_rect.width(), view_rect.height())
              + math.hypot(c.x() - p1.x(), c.y() - p1.y()))
+    # Glow first, crisp dash-dot axis on top (the paint_ghost order).
+    seg = QPainterPath()
+    seg.moveTo(p1)
+    seg.lineTo(p2)
+    paint_halo_path(painter, seg, theme)
     pen = _trace_pen(theme)
     pen.setStyle(Qt.PenStyle.DashDotLine)
     painter.save()
@@ -150,10 +158,6 @@ def paint_axis(painter, p1, p2, view_rect, theme) -> None:
     painter.drawLine(QPointF(p1.x() - ux * reach, p1.y() - uy * reach),
                      QPointF(p1.x() + ux * reach, p1.y() + uy * reach))
     painter.restore()
-    seg = QPainterPath()
-    seg.moveTo(p1)
-    seg.lineTo(p2)
-    paint_halo_path(painter, seg, theme)
 
 
 def dim_items(items) -> list:

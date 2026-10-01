@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from .arc_math import yup_angle
 from .geometry_2d import (LineItem, PolylineItem, RectangleItem,
-                          RegularPolygonItem)
+                          RegularPolygonItem, _degenerate_axis)
 from .gridline import GridlineItem
 from .snap_engine import _is_underlay_group
 from .wall import WallSegment
@@ -30,7 +30,6 @@ _STRAIGHT_2D = (LineItem, PolylineItem, RectangleItem, RegularPolygonItem)
 # Generic path items keep only their LineTo elements; keys are rounded so the
 # generator's mapped points and the re-walked ones compare equal.
 _KEY_DIGITS = 6
-_EPS_LEN = 1e-9
 
 
 @dataclass
@@ -91,11 +90,16 @@ def _straight_keys(item) -> set:
 
 
 def _seg_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
-    """Distance from *p* to the finite segment a-b (inf when degenerate)."""
+    """Distance from *p* to the finite segment a-b (inf when degenerate).
+
+    "Degenerate" is the commit path's own test
+    (``geometry_2d._degenerate_axis``), so the picker never offers an axis
+    that ``manip_reflect`` would then ignore.
+    """
+    if _degenerate_axis(a, b):
+        return float("inf")
     dx, dy = b.x() - a.x(), b.y() - a.y()
     l2 = dx * dx + dy * dy
-    if l2 < _EPS_LEN * _EPS_LEN:
-        return float("inf")
     t = ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / l2
     t = max(0.0, min(1.0, t))
     fx, fy = a.x() + t * dx - p.x(), a.y() + t * dy - p.y()
