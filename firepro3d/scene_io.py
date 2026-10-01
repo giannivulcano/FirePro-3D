@@ -558,6 +558,9 @@ class SceneIOMixin:
         if self._level_manager:
             self._level_manager.reset()
         self.clear()
+        # self.clear() deleted the shared close-cue ring too (DD8); drop the
+        # dead wrapper so show_close_ring lazily recreates it.
+        self._polyline_close_indicator = None
         # self.clear() deleted the selection manipulator (a scene item);
         # recreate it so the frame + press routing survive a load/new reset.
         if hasattr(self, "_create_manipulator"):

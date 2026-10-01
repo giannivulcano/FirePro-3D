@@ -531,7 +531,7 @@ class GeometryDrawingController:
         ``_polyline_close_indicator`` (historic name).
         """
         r = CLOSE_RING_PX
-        if self._scene._polyline_close_indicator is None:
+        if self._live_close_ring() is None:
             ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
             pen = QPen(QColor(SELECTION_OUTLINE_COLOR), 2)
             pen.setCosmetic(True)
@@ -550,8 +550,25 @@ class GeometryDrawingController:
 
     def hide_close_ring(self) -> None:
         """Hide the shared close-cue ring (keeps the item alive for reuse)."""
-        if self._scene._polyline_close_indicator is not None:
-            self._scene._polyline_close_indicator.hide()
+        ring = self._live_close_ring()
+        if ring is not None:
+            ring.hide()
+
+    def _live_close_ring(self):
+        """The scene's close ring if it is still a live item of this scene.
+
+        ``scene.clear()`` (New / Open) deletes the ring under the stored
+        wrapper; a dead or foreign ring is dropped (attribute reset to None)
+        so ``show_close_ring`` recreates it instead of raising RuntimeError.
+        """
+        from PyQt6 import sip
+        ring = self._scene._polyline_close_indicator
+        if ring is None:
+            return None
+        if sip.isdeleted(ring) or ring.scene() is not self._scene:
+            self._scene._polyline_close_indicator = None
+            return None
+        return ring
 
     def _move_polyline(self, event, snapped):
         if self._scene._polyline_active is None:

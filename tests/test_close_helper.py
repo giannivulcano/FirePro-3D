@@ -158,6 +158,59 @@ def test_floor_enter_with_the_ring_up_closes_and_hides_it(qapp):
         close_view(view, scene)
 
 
+# ── ring survives a scene reset (New / Open → _clear_scene) ─────────────────
+
+def _capture_hook(monkeypatch):
+    """Record exceptions escaping Qt virtuals (PyQt aborts on them otherwise)."""
+    import sys
+    caught = []
+    monkeypatch.setattr(sys, "excepthook",
+                        lambda et, ev, tb: caught.append((et, ev)))
+    return caught
+
+
+def _ring_up_then_reset(view, scene, draw):
+    draw(view, scene, CURSOR_ONLY_VERTS)
+    move(view, CURSOR_ON_V0)
+    assert scene._polyline_close_indicator.isVisible()
+    scene._clear_scene()          # the real New / Open reset (scene.clear())
+
+
+def test_ring_survives_clear_scene_then_shows_on_a_floor(qapp, monkeypatch):
+    """Plan scene (2D polylines are block-editor only): floor ring, reset,
+    floor ring again."""
+    caught = _capture_hook(monkeypatch)
+    view, scene = _view(role="plan", mode="floor")
+    try:
+        _ring_up_then_reset(view, scene, _floor)
+        scene.set_mode("floor")
+        _floor(view, scene, TIP_ONLY_VERTS)
+        move(view, CURSOR_ON_V0)
+        ring = scene._polyline_close_indicator
+        assert caught == []                                              # [RED]
+        assert ring is not None and ring.scene() is scene and ring.isVisible()
+        assert math.hypot(ring.pos().x(), ring.pos().y()) < 0.5
+    finally:
+        close_view(view, scene)
+
+
+def test_ring_survives_clear_scene_then_shows_on_a_spline(qapp, monkeypatch):
+    caught = _capture_hook(monkeypatch)
+    view, scene = _view()                          # block_editor
+    try:
+        _ring_up_then_reset(view, scene, _polyline)
+        scene.set_mode("draw_spline")
+        for p in [(200, 200), (1000, 200), (1000, -600)]:
+            click(view, QPointF(*p))
+        move(view, QPointF(204, 196))
+        ring = scene._polyline_close_indicator
+        assert caught == []                                              # [RED]
+        assert ring is not None and ring.scene() is scene and ring.isVisible()
+        assert math.hypot(ring.pos().x() - 200, ring.pos().y() - 200) < 0.5
+    finally:
+        close_view(view, scene)
+
+
 # ── roof polygon (plan scene; RoofDialog stubbed: it is modal) ───────────────
 
 class _AcceptRoofDialog:
