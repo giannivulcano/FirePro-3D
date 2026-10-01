@@ -331,3 +331,155 @@ def test_align_dwell_on_origin_tracks_its_axes(qapp):
         assert _at(res.point, 300.0, 0.0, 0.5)
     finally:
         close_view(view, scene)
+
+
+# ── I-1: real geometry coinciding with the origin keeps its source ─────────
+# (user decision 2026-10-01: the origin kind/glyph still wins, but the result
+# carries the coincident real candidate's source item / name, so ALIGN keeps
+# the Extension / Perpendicular rays it had before the origin kind existed.)
+
+_R2 = math.sqrt(0.5)
+
+
+def test_line_end_on_origin_keeps_its_extension_ray(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene.addItem(LineItem(QPointF(0, 0), QPointF(100, -100)))
+        dwell(view, QPointF(1, 1))                 # rest on the origin (= the line's end)
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"
+        move(view, QPointF(-200, 203))             # beside the line's extension
+        res = scene._align_result
+        assert res is not None and res.snap_type == "align_path"         # [RED]
+        assert _at(res.point, -201.5, 201.5, 0.5)
+    finally:
+        close_view(view, scene)
+
+
+def test_placement_armed_on_origin_line_end_gets_its_perpendicular_ray(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene.addItem(LineItem(QPointF(0, 0), QPointF(100, -100)))
+        click(view, QPointF(1, 1))                 # arm the first point on the origin
+        s = scene._mode_placement_anchor()
+        assert s is not None and _at(s, 0.0, 0.0)
+        # 300 mm out along the line's normal (_R2, _R2), 3 mm off it along the line
+        target = QPointF(300 * _R2, 300 * _R2)
+        move(view, QPointF(target.x() + 3 * _R2, target.y() - 3 * _R2))
+        res = scene._align_result
+        assert res is not None and res.snap_type in ("align_path", "align_intersection")  # [RED]
+        assert _at(res.point, target.x(), target.y(), 0.5)
+    finally:
+        close_view(view, scene)
+
+
+def test_wall_face_corner_on_origin_keeps_the_wall_extension_ray(qapp):
+    from firepro3d.wall import WallSegment
+
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        # 200 mm wall along (0.6, -0.8): its face-left-corner-A lands on (0,0)
+        w = WallSegment(QPointF(-80, -60), QPointF(520, -860), thickness_mm=200.0)
+        scene.addItem(w)
+        assert _at(w.snap_quad_points()[0], 0.0, 0.0)
+        move(view, QPointF(4, 3))
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"
+        assert res.name is not None and res.name.startswith("face-")    # [RED]
+        # ...yet the glyph stays an outlined ⊕: the arms are painted, the
+        # quadrant interior (3 px diagonal) is not (a filled face disc would be)
+        col = SNAP_COLORS["origin"]
+        assert _count_colour(view, QPointF(0, 0), col, half=4, rows=(-1, 0)) >= 8
+        assert _count_colour(view, QPointF(-3, -3), col, half=0) == 0
+        dwell(view, QPointF(1, 1))                 # acquire the origin (= the face corner)
+        move(view, QPointF(-180 + 3 * 0.8, 240 + 3 * 0.6))   # beside the face's extension
+        res = scene._align_result
+        assert res is not None and res.snap_type == "align_path"
+        assert _at(res.point, -180.0, 240.0, 0.5)
+    finally:
+        close_view(view, scene)
+
+
+# ── I-2: each source-less origin point has its own ALIGN identity ──────────
+
+def test_block_editor_dwell_acquires_both_origin_points(qapp):
+    w, v, sc, project = _block_editor(QPointF(300, 200))
+    try:
+        sc._snap_engine.snap_intersection = False
+        sc.set_mode("draw_line")
+        dwell(v, QPointF(1, 1))                    # acquire the (0,0) cross
+        move(v, QPointF(150, 100))                 # away from both
+        dwell(v, QPointF(301, 201))                # acquire the red marker
+        acq = sorted(tuple(round(c, 3) for c in a.point)
+                     for a in sc._align_controller.acquired if a.point is not None)
+        assert acq == [(0.0, 0.0), (300.0, 200.0)]                       # [RED]
+    finally:
+        _close_editor(w, project)
+
+
+# ── M-4: origin edge cases + the phase-4 skip_pipes rule ───────────────────
+
+def test_hidden_origin_cross_is_not_offered(qapp):
+    """Paper rendering hides the cross while it plots: no origin then."""
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene._snap_engine.snap_intersection = False
+        for it in scene._origin_cross_items:
+            it.setVisible(False)
+        move(view, QPointF(4, 3))
+        res = scene._snap_result
+        assert res is None or res.snap_type != "origin"                  # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_origin_is_offered_after_a_new_load_reset(qapp):
+    """scene_io._clear_scene deletes the old cross (scene.clear) and redraws
+    it: the deleted items are dropped and the new ones registered."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        scene._clear_scene()
+        scene.set_mode("draw_line")
+        move(view, QPointF(4, 3))
+        res = scene._snap_result
+        assert res is not None and res.snap_type == "origin"
+        assert _at(res.point, 0.0, 0.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_design_area_center_pick_never_returns_the_origin(qapp):
+    """Parity guard: the design-area sprinkler pick calls find() with
+    only_types={"center"} (sprinkler_workflow_controller); the origin kind
+    obeys that whitelist like every other kind."""
+    view, scene = make_view(role="plan", scale=1.0, mode=None)
+    try:
+        res = scene._snap_engine.find(QPointF(4, 3), scene, view.transform(),
+                                      only_types={"center"})
+        assert res is None
+    finally:
+        close_view(view, scene)
+
+
+def test_phase4_skips_pipes_when_skip_pipes(qapp):
+    """DD6: phase 4 (intersections) now applies the shared rule, so with
+    skip_pipes a pipe no longer intersects a line (it did before)."""
+    from firepro3d.node import Node
+    from firepro3d.pipe import Pipe
+
+    view, scene = make_view(role="plan", scale=1.0, mode=None)
+    try:
+        n1, n2 = Node(1000, 1000, z=0.0), Node(1100, 1000, z=0.0)
+        scene.addItem(n1)
+        scene.addItem(n2)
+        scene.addItem(Pipe(n1, n2))
+        scene.addItem(LineItem(QPointF(1050, 950), QPointF(1050, 1050)))
+        eng = scene._snap_engine
+        cur = QPointF(1052, 1002)
+        res = eng.find(cur, scene, view.transform())
+        assert res is not None and res.snap_type == "intersection"       # control
+        eng.skip_pipes = True
+        res = eng.find(cur, scene, view.transform())
+        assert res is None or res.snap_type != "intersection"            # [RED]
+    finally:
+        close_view(view, scene)

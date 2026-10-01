@@ -2948,12 +2948,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Parallel ray; ``None`` for point-only sources.  ``source_id`` is a
         stable identity for the source item so re-hover-release and self-
         exclusion key off it (``id(source_item)`` when present, else the snap
-        type — a scene-stable fallback for synthetic intersections).
+        type + the snapped point rounded to 1 µm — so two source-less snaps at
+        different points, e.g. the Block Editor's (0,0) cross and its red
+        insertion marker, are distinct acquisitions, DD6 / I-2).
         """
         if res is None:
             return None
         src = getattr(res, "source_item", None)
-        source_id = id(src) if src is not None else hash(res.snap_type)
+        source_id = (id(src) if src is not None else
+                     hash((res.snap_type, round(res.point.x(), 3),
+                           round(res.point.y(), 3))))
         return {
             "point": (res.point.x(), res.point.y()),
             "snap_type": res.snap_type,

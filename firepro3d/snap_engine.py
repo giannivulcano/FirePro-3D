@@ -401,9 +401,10 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     vp     = view.mapFromScene(point)
     x, y   = vp.x(), vp.y()
     s      = 6   # half-size in screen pixels
-    # The origin glyph is rotation-invariant (exempt from the §9.2
-    # tangent-orientation rule): it marks a point, not a curve.
-    tan = None if snap_type == "origin" else snap_tangent_deg(snap_result)
+    # Non-toggle glyphs (the origin ⊕) are rotation-invariant (exempt from
+    # the §9.2 tangent-orientation rule): they mark a point, not a curve.
+    _fixed_glyph = snap_type in _NON_TOGGLE_MARKERS
+    tan = None if _fixed_glyph else snap_tangent_deg(snap_result)
     angle = 0.0
     if tan is not None:
         # A segment's heading is only defined mod 180° (a→b vs b→a): fold it
@@ -426,7 +427,9 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
     # (§8.2 of the snap engine spec, amended: *filled* = face / secondary,
     # *outlined* = centerline / default).
     _name = getattr(snap_result, "name", None)
-    if _name is not None and _name.startswith("face-"):
+    # An origin adopting a coincident wall face's name (I-1) stays an
+    # outlined ⊕ — a filled disc would hide its plus.
+    if _name is not None and _name.startswith("face-") and not _fixed_glyph:
         painter.setBrush(QBrush(color))
     else:
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -499,6 +502,9 @@ _UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
 # the Block Editor insertion marker. Their POSITIONS are offered as the
 # ``origin`` kind by SnapEngine._origin_points (DD6).
 _NON_TARGET_TAGS = frozenset({"origin", "block_origin_marker"})
+# Scene distance (mm) within which a real snap candidate counts as lying ON an
+# origin point, so the winning ``origin`` result adopts its source (I-1).
+_ORIGIN_COINCIDE_EPS = 1e-6
 
 
 def _is_underlay_group(item) -> bool:
@@ -594,7 +600,8 @@ class _SnapCtx:
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
                  "endpoint_candidates", "underlay_geoms", "only_types",
-                 "weak_types", "from_point", "search_tol", "strong_best")
+                 "weak_types", "from_point", "search_tol", "strong_best",
+                 "origin_pts", "origin_src")
 
     def __init__(self, cursor: QPointF, scale: float,
                  aperture_px: float, priority_band_px: float,
@@ -634,6 +641,53 @@ class _SnapCtx:
         # an ALIGN crossing can then displace the foot; this keeps the real
         # snap recoverable so real SNAP > align_intersection holds (I2).
         self.strong_best: "tuple[float, int, OsnapResult] | None" = None
+        # Origin points offered this find() (DD6) and, per point index, the
+        # real candidate coinciding with it that the band ranking would have
+        # picked there (lowest priority; first seen on a tie), as
+        # (prio, source_item, source_item2, source_lines, name). The origin
+        # kind still wins, but adopts that candidate's source so ALIGN keeps
+        # its direction / Extension / Perpendicular rays (I-1).
+        self.origin_pts: list[QPointF] = []
+        self.origin_src: dict[int, tuple] = {}
+
+    def _note_origin_coincident(self, snap_type: str, pt: QPointF,
+                                src_item, src_item2, source_lines, name) -> None:
+        """Record a real candidate lying on an origin point (see origin_src)."""
+        for i, o in enumerate(self.origin_pts):
+            if (abs(pt.x() - o.x()) <= _ORIGIN_COINCIDE_EPS
+                    and abs(pt.y() - o.y()) <= _ORIGIN_COINCIDE_EPS):
+                prio = SNAP_PRIORITY.get(snap_type, 6)
+                cur = self.origin_src.get(i)
+                if cur is None or prio < cur[0]:
+                    self.origin_src[i] = (prio, src_item, src_item2,
+                                          source_lines, name)
+                return
+
+    def _with_origin_source(self, res: "OsnapResult | None") -> "OsnapResult | None":
+        """*res* with its coincident real candidate's source adopted, if any."""
+        if (res is None or res.snap_type != "origin"
+                or res.source_item is not None):
+            return res
+        for i, o in enumerate(self.origin_pts):
+            if (i in self.origin_src
+                    and abs(res.point.x() - o.x()) <= _ORIGIN_COINCIDE_EPS
+                    and abs(res.point.y() - o.y()) <= _ORIGIN_COINCIDE_EPS):
+                _p, s1, s2, lines, name = self.origin_src[i]
+                return OsnapResult(point=res.point, snap_type="origin",
+                                   source_item=s1, source_item2=s2,
+                                   source_lines=lines, name=name)
+        return res
+
+    def adopt_origin_sources(self) -> None:
+        """Give an origin-kind best / strong-best its coincident source (I-1)."""
+        if not self.origin_src:
+            return
+        old = self.best_result
+        self.best_result = self._with_origin_source(old)
+        if self.strong_best is not None:
+            d, p, r = self.strong_best
+            r2 = self.best_result if r is old else self._with_origin_source(r)
+            self.strong_best = (d, p, r2)
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
@@ -655,6 +709,10 @@ class _SnapCtx:
         cutoff = self.aperture_px if aperture_px is None else aperture_px
         if d_px > cutoff:
             return  # hard pixel aperture — zoom-invariant grab radius
+        if (self.origin_pts and snap_type != "origin"
+                and snap_type not in ALIGN_SNAP_TYPES):
+            self._note_origin_coincident(snap_type, pt, src_item, src_item2,
+                                         source_lines, name)
         if snap_type == "endpoint":
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
@@ -821,6 +879,9 @@ class SnapEngine:
                        aperture_px=aperture_px, priority_band_px=priority_band_px,
                        only_types=only_types, from_point=from_point,
                        search_tol=search_tol)
+        # Known up front so every phase can note a real candidate lying on
+        # an origin point (its source is adopted below — I-1).
+        ctx.origin_pts = self._origin_points(scene)
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
@@ -828,7 +889,7 @@ class SnapEngine:
         # Origin (DD6) — the (0,0) cross + the Block Editor insertion
         # marker, own kind ``origin`` (priority -1). Gated by F3 only
         # (``self.enabled``, checked above), never by a per-type toggle.
-        for p in self._origin_points(scene):
+        for p in ctx.origin_pts:
             ctx.check("origin", p, None)
 
         # Phase 2 — Gridline-to-gridline intersections
@@ -882,6 +943,9 @@ class SnapEngine:
                           source_lines=[_ray_line(ray)],
                           aperture_px=align_aperture)
 
+        # A winning origin keeps its kind / glyph but carries the coincident
+        # real geometry's source (direction, wall face name) — I-1.
+        ctx.adopt_origin_sources()
         best = ctx.best_result
         if held is None:
             return best
