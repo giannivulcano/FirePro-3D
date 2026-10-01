@@ -22,7 +22,7 @@ from main import MainWindow
 EXPECTED = {
     "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste", "Shift+D": "duplicate",
     "Shift+M": "move", "Shift+R": "rotate", "Shift+O": "offset", "Shift+A": "array",
-    "Shift+F": "flip", "Shift+I": "mirror",
+    "Shift+F": "flip", "Shift+I": "mirror", "Shift+S": "scale",
     "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
 }
 
@@ -173,7 +173,7 @@ def test_shift_m_does_nothing_on_a_paper_tab(main_window, qapp):
         qapp.processEvents()
 
 
-@pytest.mark.parametrize("seq,tool", [("Shift+F", "flip"), ("Shift+I", "mirror")])
+@pytest.mark.parametrize("seq,tool", [("Shift+F", "flip"), ("Shift+I", "mirror"), ("Shift+S", "scale")])
 def test_flip_mirror_keys_drive_the_block_editor_scene(main_window, qapp, seq, tool):
     """P1 M2: a real Block Editor tab is current -> the QShortcut enters the
     tool on the EDITOR scene (never the hidden plan scene)."""
@@ -198,7 +198,7 @@ def test_flip_mirror_keys_drive_the_block_editor_scene(main_window, qapp, seq, t
             qapp.processEvents()
 
 
-@pytest.mark.parametrize("seq", ["Shift+F", "Shift+I"])
+@pytest.mark.parametrize("seq", ["Shift+F", "Shift+I", "Shift+S"])
 def test_flip_mirror_keys_refused_while_line_edit_focused(main_window, monkeypatch,
                                                           qapp, seq):
     from PyQt6.QtWidgets import QApplication, QLineEdit

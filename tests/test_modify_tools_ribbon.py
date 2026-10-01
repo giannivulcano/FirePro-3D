@@ -126,7 +126,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         assert ed is not None
         btns = main_window._be_modify_buttons
         edit = {"Copy", "Cut", "Paste", "Duplicate", "Delete"}
-        modify = {"Move", "Rotate", "Flip", "Mirror", "Offset", "Array", "Explode"}
+        modify = {"Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"}
         assert set(btns) == edit | modify
         for label, b in btns.items():
             assert _group_title(b) == ("EDIT" if label in edit else "MODIFY"), label
@@ -138,7 +138,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         editor.clearSelection()
         qapp.processEvents()
         for label in ("Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate",
-                      "Flip", "Mirror", "Array"):
+                      "Scale", "Flip", "Mirror", "Array"):
             assert not btns[label].isEnabled(), label
         # Paste follows the clipboard payload (D5 / I1), refreshed on change.
         from PyQt6.QtWidgets import QApplication
@@ -283,11 +283,11 @@ def _reading_order(btns, labels):
     return sorted(labels, key=key)
 
 
-MODIFY_ORDER = ["Move", "Rotate", "Flip", "Mirror", "Offset", "Array", "Explode"]
+MODIFY_ORDER = ["Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"]
 
 
 def test_modify_group_reading_order(main_window, qapp):
-    """DD11: Move · Rotate · (Scale, Slice 6) · Flip · Mirror · Offset · Array · Explode."""
+    """DD11: Move · Rotate · Scale · Flip · Mirror · Offset · Array · Explode."""
     ed = None
     try:
         ed, editor, line = _open_editor_with_line(main_window, qapp)
@@ -303,7 +303,8 @@ def test_flip_mirror_buttons_tooltip_light_and_enter_their_modes(main_window, qa
         ed, editor, line = _open_editor_with_line(main_window, qapp)
         btns = main_window._be_modify_buttons
         reg = main_window._block_mode_buttons
-        for label, key, mode in (("Flip", "Shift+F", "flip"),
+        for label, key, mode in (("Scale", "Shift+S", "scale"),
+                                 ("Flip", "Shift+F", "flip"),
                                  ("Mirror", "Shift+I", "mirror")):
             b = btns[label]
             assert key in b.toolTip(), label
