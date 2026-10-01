@@ -20,6 +20,7 @@ from PyQt6.QtGui import QPainterPath
 from .cad_math import CAD_Math
 from .gridline import GridlineItem
 from .handle_snap import HandleSnapSession
+from .scale_manager import ScaleManager
 from .sprinkler import Sprinkler
 
 # Tools whose originals are dimmed while they run (D11; paste has no originals).
@@ -1063,6 +1064,7 @@ class ModifyToolsController:
 
     SCALE_REF_HINT = "Reference point must differ from the base point"
     SCALE_FACTOR_HINT = "Scale factor must be greater than 0"
+    SCALE_NOOP_HINT = "Scale factor is 1 — nothing changed"
 
     def _scalable(self, items) -> list:
         """The transformable *items* with a per-item ``manip_scale_about``
@@ -1094,8 +1096,12 @@ class ModifyToolsController:
             s.instructionChanged.emit("Pick reference point (or type a factor)")
             return
         if s._scale_ref is None:
-            if (abs(snapped.x() - s._scale_base.x()) < 1e-9
-                    and abs(snapped.y() - s._scale_base.y()) < 1e-9):
+            # Within the pick aperture (screen px at the active view's zoom)
+            # of the base, |ref - base| is too short to measure a factor
+            # against — cursor jitter would swing it wildly.
+            if (math.hypot(snapped.x() - s._scale_base.x(),
+                           snapped.y() - s._scale_base.y())
+                    <= self._axis_tolerance()):
                 s._show_status(self.SCALE_REF_HINT, 3000)
                 return
             s._scale_ref = QPointF(snapped)
@@ -1117,7 +1123,7 @@ class ModifyToolsController:
             return
         f = self.scale_factor_to(snapped)
         self.preview_scale(f)
-        s._show_status(f"Factor: {f:.4g}", timeout=0)
+        s._show_status(f"Factor: {ScaleManager.format_factor(f)}", timeout=0)
 
     def preview_scale(self, factor: float) -> None:
         """Rebuild the ghost as the base silhouette scaled about the base."""
@@ -1141,7 +1147,8 @@ class ModifyToolsController:
 
         Returns:
             True when something scaled; False when refused (no base, or factor
-            <= 0 — status hint, the tool stays live) or nothing scalable.
+            <= 0 — status hint, the tool stays live), nothing scalable, or
+            a factor of 1 (a no-op: the tool ends, no undo step).
         """
         s = self._scene
         base = s._scale_base
@@ -1152,7 +1159,10 @@ class ModifyToolsController:
             s._show_status(self.SCALE_FACTOR_HINT, 3000)
             return False
         items = [it for it in (s._selected_items or []) if it.scene() is s]
-        targets = self._scalable(items)
+        noop = abs(factor - 1.0) <= 1e-9
+        # Factor 1 changes nothing: end the tool like a commit, but push no
+        # undo step (P1 DD4 review M4).
+        targets = [] if noop else self._scalable(items)
         for it in targets:
             it.manip_scale_about(QPointF(base), factor)
         if targets:
@@ -1166,15 +1176,25 @@ class ModifyToolsController:
         s._selected_items = []
         s.set_mode(None)
         self._reselect(items)
+        if noop:
+            s._show_status(self.SCALE_NOOP_HINT, 3000)
+            return False
         skipped = len(items) - len(targets)
-        msg = f"Scaled {len(targets)} item(s) by {factor:g}"
+        msg = (f"Scaled {len(targets)} item(s) by "
+               f"{ScaleManager.format_factor(factor)}")
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return bool(targets)
 
     def apply_scale_factor(self, params: dict) -> bool:
-        """Typed Factor (``scale_factor``): commit about the base; a False
-        return keeps the HUD open with a red field (``reject_commit``)."""
-        return self.commit_scale(float(params["factor"]))
+        """Typed Factor (``scale_factor``): commit about the base.
+
+        Returns:
+            True when the tool ended (scaled, or a factor-1 no-op); False
+            when refused and still live, which keeps the HUD open with a red
+            field (``reject_commit``).
+        """
+        self.commit_scale(float(params["factor"]))
+        return self._scene.mode != "scale"
 
     # ── Array (D10) ─────────────────────────────────────────────────────────
     # Linear only: base point, then the cursor sets direction + spacing; the

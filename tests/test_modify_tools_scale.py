@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.cad_math import CAD_Math
 from firepro3d.halo import halo_scene_path
+from firepro3d.scale_manager import ScaleManager
 from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
                                          ignore_os_mouse)
 from tests._snap_polish_helpers import click, close_view, move
@@ -339,5 +340,156 @@ def test_undo_mid_scale_drops_the_state_and_the_ghost(qapp):
         assert scene._scale_base is None and scene._scale_ref is None     # [RED]
         assert not scene._move_ghost
         assert _px(view, _grab(view, scene), on_ghost) == bg
+    finally:
+        close_view(view, scene)
+
+
+# ── Slice-6 review round 2: one factor text, pixel ref tolerance, factor-1
+#    no-op, live HUD value, real keystrokes ──────────────────────────────────
+
+def _factor_text(scene):
+    return scene.dynamic_input.editor("Factor").text()
+
+
+def test_live_hud_shows_the_cursor_factor(qapp):
+    """The passive HUD reads |cursor - base| / |ref - base| as the cursor
+    moves (the _transform_seed_values scale branch), not a frozen 1."""
+    view, scene = make_view(scale=1.0)
+    try:
+        add_primitive(scene, "line")
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))
+        click(view, QPointF(100, 0))                      # reference = 100
+        seen = []
+        for x in (150.0, 137.0, 300.0):
+            move(view, QPointF(x, 0))
+            hud = scene.dynamic_input
+            assert hud is not None and hud.isVisible() and not hud.is_engaged()
+            seen.append(_factor_text(scene))
+        assert seen == ["1.5", "1.37", "3"]                               # [RED]
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
+
+
+def test_real_keystrokes_type_the_factor(qapp):
+    """A digit on the canvas engages the HUD; ".5" + Return in the Factor
+    field scales by 0.5 — real key events, not the HUD's private accept."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        p0 = scene._undo_pos
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))                        # base
+        move(view, QPointF(40, 30))
+        QTest.keyClick(view.viewport(), Qt.Key.Key_0)     # engages, seeds "0"
+        ed = scene.dynamic_input.editor("Factor")
+        assert QApplication.focusWidget() is ed and ed.text() == "0"
+        QTest.keyClicks(ed, ".5")
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+        assert grips(item) == [(0.0, 0.0), (25.0, 0.0), (50.0, 0.0)]      # [RED]
+        assert scene._undo_pos == p0 + 1
+        assert scene.mode in (None, "select")
+    finally:
+        close_view(view, scene)
+
+
+def test_status_and_commit_show_the_hud_factor_text(qapp):
+    """One formatter (ScaleManager.format_factor) for the HUD, the live
+    status and the commit message: 61.75 / 7 reads "8.8214" in all three
+    (``:.4g`` would print "8.821")."""
+    view, scene = make_view(scale=4.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        msgs = _capture_status(scene)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))
+        click(view, QPointF(7, 0))                        # reference = 7
+        move(view, QPointF(61.75, 0))
+        hud_text = _factor_text(scene)
+        assert hud_text == "8.8214"
+        assert msgs[-1] == f"Factor: {hud_text}"                          # [RED]
+        click(view, QPointF(61.75, 0))
+        assert f"Scaled 1 item(s) by {hud_text}" in msgs
+    finally:
+        close_view(view, scene)
+
+
+def test_commit_message_never_uses_scientific_notation(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        add_primitive(scene, "line")
+        msgs = _capture_status(scene)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))
+        _type_factor(scene, "0.00002")
+        assert "Scaled 1 item(s) by 0.00002" in msgs                      # [RED]
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("scale,base,near,far", [
+    (1.0, (300.0, -200.0), (308.0, -200.0), (340.0, -200.0)),     # 8 px / 40 px
+    (0.25, (400.0, -400.0), (440.0, -400.0), (600.0, -400.0)),    # 10 px / 50 px
+])
+def test_reference_within_the_pick_aperture_of_the_base_is_refused(
+        qapp, scale, base, near, far):
+    """|ref - base| inside the snap aperture (screen px, zoom-aware) cannot
+    measure a factor; a reference beyond it is taken. SNAP and ALIGN are
+    off (F3 / F11) — with them on, ALIGN's base-point glyph pulls a near
+    click exactly onto the base, which hides the raw near-miss."""
+    view, scene = make_view(scale=scale)
+    try:
+        add_primitive(scene, "line")
+        scene.toggle_snap(False)
+        scene.set_align_enabled(False)
+        msgs = _capture_status(scene)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(*base))
+        move(view, QPointF(*near))
+        click(view, QPointF(*near))
+        assert "Reference point must differ from the base point" in msgs  # [RED]
+        assert scene._scale_ref is None and scene.mode == "scale"
+        move(view, QPointF(*far))
+        click(view, QPointF(*far))
+        assert scene._scale_ref is not None
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_factor_one_is_a_no_op_without_an_undo_step(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        msgs = _capture_status(scene)
+        p0, n0 = scene._undo_pos, len(scene._undo_stack)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))
+        _type_factor(scene, "1")
+        assert grips(item) == LINE0
+        assert (scene._undo_pos, len(scene._undo_stack)) == (p0, n0)      # [RED]
+        assert "Scale factor is 1 — nothing changed" in msgs
+        assert scene.mode in (None, "select") and item.isSelected()
+        assert scene.dynamic_input is None or not scene.dynamic_input.isVisible()
+    finally:
+        close_view(view, scene)
+
+
+def test_cursor_at_the_reference_distance_is_a_no_op(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        msgs = _capture_status(scene)
+        p0, n0 = scene._undo_pos, len(scene._undo_stack)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))
+        click(view, QPointF(100, 0))
+        move(view, QPointF(100, 0))
+        click(view, QPointF(100, 0))                      # factor exactly 1
+        assert grips(item) == LINE0
+        assert (scene._undo_pos, len(scene._undo_stack)) == (p0, n0)      # [RED]
+        assert "Scale factor is 1 — nothing changed" in msgs
+        assert scene.mode in (None, "select") and item.isSelected()
     finally:
         close_view(view, scene)
