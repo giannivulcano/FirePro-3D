@@ -71,6 +71,13 @@ class ModifyToolsController:
             True if a mode was entered.
         """
         s = self._scene
+        if not getattr(s, "view_available", True):
+            # Empty canvas (view-3d.md I5) — the ONE refusal home for every
+            # Edit/Modify entry (ribbon + shortcuts). Refuse before any tool
+            # state is touched: paste/offset mutate state after set_mode.
+            from .model_space import NO_VIEW_HINT
+            s.instructionChanged.emit(NO_VIEW_HINT)
+            return False
         sel = list(s.selectedItems())
         if tool in self._SELECT_FIRST and not sel:
             s._show_status("Select items first", 3000)

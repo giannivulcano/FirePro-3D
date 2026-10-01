@@ -128,6 +128,15 @@ class _Metrics:
     RIBBON_SMALL_H = 26
     DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
     DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
+    # empty-canvas placeholder (canvas_placeholder.py — mockup-approved 2026-09-30)
+    EMPTY_CANVAS_TITLE_PT = 13        # "No views open", bold, ink — own QSS
+    EMPTY_CANVAS_HINT_PT = 9          # hint line, muted — own QSS
+    EMPTY_CANVAS_GAP_HINT = 6         # title → hint
+    EMPTY_CANVAS_GAP_BUTTONS = 18     # hint → buttons
+    EMPTY_CANVAS_BTN_GAP = 8
+    EMPTY_CANVAS_BTN_MIN_W = 120
+    EMPTY_CANVAS_CENTRE_PCT = 45      # block sits at 45 % of the pane height
+    EMPTY_CANVAS_DIVIDER_H = 1        # rail → pane divider (line_strong)
     # footer
     FOOTER_MARGIN = (14, 9, 14, 9)
     FOOTER_BTN_GAP = 8

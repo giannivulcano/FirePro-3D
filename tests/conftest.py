@@ -318,8 +318,9 @@ def stub_view3d():
     Yields the stub CLASS so tests can ``isinstance(win.view_3d, stub_view3d)``.
     ``test_view_3d.py`` does NOT use this fixture — it keeps real-View3D coverage
     via ``pv.OFF_SCREEN = True``. The stub satisfies the full interface MainWindow
-    calls: cleanup/rebuild/get_3d_selected/delete_selected/show_radiation_heatmap/
-    clear_radiation_heatmap/_on_escape + the entitySelected signal.
+    calls: cleanup/rebuild/request_rebuild/get_3d_selected/delete_selected/
+    show_radiation_heatmap/clear_radiation_heatmap/cancel_interaction/clear_pick/
+    reset_for_project + the entitySelected signal.
     """
     import main as _main
     from PyQt6.QtWidgets import QWidget
@@ -350,7 +351,16 @@ def stub_view3d():
         def clear_radiation_heatmap(self):
             pass
 
-        def _on_escape(self):
+        def cancel_interaction(self):
+            pass
+
+        def request_rebuild(self):
+            pass
+
+        def clear_pick(self):
+            pass
+
+        def reset_for_project(self, scale_manager):
             pass
 
     had_prev = hasattr(_main, "View3D")

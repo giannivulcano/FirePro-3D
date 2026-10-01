@@ -529,9 +529,9 @@ class TestDirtyFlag:
         # Note: __init__ sets _dirty = True
         assert view3d._dirty is True
 
-    def test_schedule_rebuild_sets_dirty(self, view3d):
+    def test_request_rebuild_sets_dirty(self, view3d):
         view3d._dirty = False
-        view3d._schedule_rebuild()
+        view3d.request_rebuild()
         assert view3d._dirty is True
 
     def test_rebuild_clears_dirty(self, view3d):

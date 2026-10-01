@@ -1,11 +1,11 @@
 ---
 status: current
-last-verified: 2026-09-19
-verified-commit: 2330ae8
+last-verified: 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
+verified-commit: f1d8151   # prior 2330ae8
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
-source-tasks: ["/todo 2026-08-05 orphan gate — forged before multi-sheet management touched the sheet tree"]
+source-tasks: ["/todo 2026-08-05 orphan gate — forged before multi-sheet management touched the sheet tree", "todo_open.md — 3D Model canvas tab is closable and reopenable from the Project Browser (2026-09-30)"]
 ---
 
 > **Chrome note (2026-09-19, Stage-2 revamp).** The dock host is a custom
@@ -15,11 +15,11 @@ source-tasks: ["/todo 2026-08-05 orphan gate — forged before multi-sheet manag
 
 # Project Browser — Design Spec
 
-**Adjacent specs:** `paper-space.md` (sheet tree consumer contract, drag-to-sheet placement), `view-relationships.md` (view taxonomy; §"tree widgets, not graphical views"), `titleblock-template-system.md` (none directly — sheets only).
+**Adjacent specs:** `paper-space.md` (sheet tree consumer contract, drag-to-sheet placement), `view-relationships.md` (view taxonomy; §"tree widgets, not graphical views"), `view-3d.md` (the `3D Model` leaf's behaviour — §10 I3), `titleblock-template-system.md` (none directly — sheets only).
 
 ## Goal
 
-A Revit-style dockable **Project Browser** tree that is the navigation hub for every named view in the project — plan views (levels), elevations, detail views, and paper-space sheets — and the drag source for placing model views onto sheets.
+A Revit-style dockable **Project Browser** tree that is the navigation hub for every named view in the project — the 3D Model view, plan views (levels), elevations, detail views, and paper-space sheets — and the drag source for placing model views onto sheets.
 
 ## Motivation
 
@@ -28,8 +28,8 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 ## Architecture & Constraints
 
 - **One widget, signal-driven.** `ProjectBrowser(QWidget)` embeds a private `_ProjectTree(QTreeWidget)`. It never touches scenes, managers, or `MainWindow` directly — every user gesture becomes a `pyqtSignal` that `MainWindow` wires in `__init__` (main.py). Data flows *in* through explicit refresh methods, *out* through signals only.
-- **Tree item identity via data roles**, not text: `_ROLE_TYPE` (`"model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation" | "detail"`) and `_ROLE_NAME` (the view/sheet name). `_ROLE_VIEW` is declared but unused.
-- **Drag-only drag/drop.** The tree is a drag *source* (`DragOnly`); drops land on `PaperScene` (paper-space spec §6.1). `_ProjectTree.mimeData` serializes the first draggable item as JSON under the custom MIME type `application/x-firepro3d-view` with keys `view_type` (`"plan" | "elevation" | "detail"`) and `view_name`. Plan names are prefixed at the drag boundary (`"Plan: {level}"`) because that is the `ViewResolver` key format; elevation/detail names pass through raw.
+- **Tree item identity via data roles**, not text: `_ROLE_TYPE` (`"view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation" | "detail"`) and `_ROLE_NAME` (the view/sheet name; unset on the `view3d` leaf). `_ROLE_VIEW` is declared but unused.
+- **Drag-out + guarded internal drop.** The tree is a drag *source* for view items; drops of views land on `PaperScene` (paper-space spec §6.1). The tree's own drop mode is `DragDrop` with `IgnoreAction` default, used only for the guarded internal sheet reorder (D7). `_ProjectTree.mimeData` serializes the first draggable item as JSON under the custom MIME type `application/x-firepro3d-view` with keys `view_type` (`"plan" | "elevation" | "detail"`) and `view_name`. Plan names are prefixed at the drag boundary (`"Plan: {level}"`) because that is the `ViewResolver` key format; elevation/detail names pass through raw.
 - **Refresh, don't mutate.** Sub-trees rebuild wholesale (`takeChildren()` + repopulate): `refresh_levels()` (from the injected `level_manager`), `refresh_details(names)`, `set_sheets(names)`. There is no incremental item editing API.
 - **Theming** via `theme.detect()` tokens (`architecture/theming.md` — Rule A: token values live there).
 
@@ -46,6 +46,7 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 ### Tree structure
 
 ```
+  3D Model                (view3d)    ← top-level leaf, first row; not draggable
 ▼ 2D Model                (model_root)
     ▼ Plans               (ms_stub)   ← one child per Level (plan)
     ▼ Elevations          (ms_stub)   ← N/S/E/W (elevation)
@@ -57,9 +58,12 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 
 ### Signals (all wired in main.py `MainWindow.__init__`)
 
+Re-verified against `main.py` at `f1d8151` (every row: connect site + handler).
+
 | Signal | Args | Emitted on | MainWindow handler |
 |---|---|---|---|
-| `activateModelSpace` | — | activating `model_root` / any `ms_stub` | activate plan view of active level |
+| `activate3DView` | — | activating the `view3d` leaf / its context-"Open" | `View3DTabController.open` (`self.view3d_tab.open` — reinsert leftmost + current; idempotent; `view-3d.md §10 I3`) |
+| `activateModelSpace` | — | activating `model_root` / any `ms_stub` | lambda → `_activate_plan_view(scene.active_level)` |
 | `activatePlanView` | level name | activating a plan item | `_activate_plan_view` |
 | `activateElevation` | direction | activating an elevation item | `_activate_elevation` |
 | `activateDetailView` | detail name | activating / context-"Open" on a detail | `_activate_detail_view` |
@@ -77,13 +81,14 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 - `refresh_levels()` — rebuild Plans from `level_manager.levels`; tooltip shows elevation via the injected `ScaleManager` (`levelsChanged` from level widget + level dialog).
 - `refresh_details(names)` — rebuild Details (`MainWindow` after detail-view changes).
 - `set_sheets([(number, display), …])` — rebuild Paper Space children from the authoritative list (`MainWindow._push_sheet_list` on every load/sheet-op/`_on_paper_modified`). The whole rebuild is signal-blocked and preserves the selected sheet row by number (D1 resolved 2026-08-07).
-- `set_level_manager(lm)` / `set_scale_manager(sm)` — swap injected managers (project load).
+- `set_level_manager(lm)` / `set_scale_manager(sm)` — swap injected managers. **No caller in `main.py`** at `f1d8151`: the browser keeps the construction-time managers across project new/open (see divergence D8).
 - `set_placed_views(set)` — record which views are placed on sheets for italic styling (see divergence D3).
 
 ### Context menus
 
-- `paper_root` / `sheet` → **New Drawing** (prompts `QInputDialog` with auto-generated `Layout {n}` default, appends a tree item locally, emits `createPaperSheet`).
+- `paper_root` / `sheet` → **New Drawing** (emits parameterless `createPaperSheet` — instant create, no dialog, no local append; D2). `sheet` adds **Open** (`activatePaperSheet(number)`) and **Delete** (`deletePaperSheet(number)`).
 - `detail` → **Open** / **Delete**.
+- `view3d` → **Open** (`activate3DView`).
 - All other roles → no menu.
 
 ## Divergences (classifications grilled 2026-08-05; D1/D2/D3/D5/D7 **resolved by the multi-sheet build, 2026-08-07**)
@@ -95,6 +100,7 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 - **D5 — RESOLVED.** `activatePaperSheet` carries the sheet **number** (identity) and `_activate_paper_sheet(number)` switches sheets by it.
 - **D6 — drag supports only the first selected item** (`break` in `mimeData`). **Intended** (grilled): multi-view drop has no designed drop-layout semantics; each placement needs individual position/scale.
 - **D7 — RESOLVED.** Internal sheet drag-reorder via guarded `dropEvent` (`application/x-firepro3d-sheet` mime; accepts only sheet-row/paper-root targets; `IgnoreAction` — Qt never moves the item; emits `sheetDropped` → order computed → `sheetOrderChanged`), coexisting with drag-out for view items. UX polish note: the drop cursor shows over non-sheet rows even though the drop is rejected (follow-up filed).
+- **D8 — stale `ScaleManager` (recorded 2026-09-30 at Account, pre-existing; follow-up to be filed).** `MainWindow` constructs the browser with `scene.scale_manager` and never calls `set_scale_manager`, but `scene_io` replaces `scene.scale_manager` on project load/new — so the level-tooltip elevation (`format_length`) uses the construction-time manager's units afterwards. The twin of `view-3d.md` D1 (fixed there by `reset_for_project`). `set_level_manager` likewise has no caller (the scene's level manager is not replaced on load, so that one is harmless).
 
 ## Multi-sheet design deltas [designed 2026-08-06; as-built 2026-08-07]
 
@@ -109,9 +115,10 @@ Bound by `paper-space.md §19` (sheet semantics live there — Rule A). Browser-
 
 - [x] Spec documents the as-built tree structure, roles, signals, refresh API, drag payload, and context menus (verified against `project_browser.py` @ 91a1d38).
 - [x] All known gaps recorded as divergences D1–D7 rather than silently specced as intended behavior.
-- [x] Multi-sheet task resolved D1/D2/D3/D5/D7 (2026-08-07); D4/D6 remain intended/latent.
+- [x] Multi-sheet task resolved D1/D2/D3/D5/D7 (2026-08-07); D4/D6 remain intended/latent; D8 recorded 2026-09-30 (open).
+- [x] Closable-3D-tab build (2026-09-30, `f1d8151`): top-level `3D Model` leaf (role `view3d`) above `2D Model`, not draggable, `activate3DView` on activation + context-menu Open (guards: `tests/test_project_browser_3d.py`).
 
 ## Verification Checklist
 
-- [ ] On next touch: re-verify signal wiring table against `main.py` and stamp `last-verified` / `verified-commit`.
+- [x] Signal wiring table re-verified against `main.py` and stamped (2026-09-30, `f1d8151`). Re-verify on next touch.
 - [ ] Rule A: theming tokens, ViewResolver name formats, and sheet-tree feature targets stay owned by `architecture/theming.md`, `paper-space.md` — this spec links, never restates values.

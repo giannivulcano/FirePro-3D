@@ -88,6 +88,10 @@ _LOOSE_AUTHORING_MODES = frozenset({
     "text", "dimension",
 })
 
+# Status hint shown when an authoring/modify mode is refused because the
+# canvas shows no view (view-3d.md §10 I5).
+NO_VIEW_HINT = "Open a view from the Project Browser"
+
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
@@ -210,6 +214,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
+        self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -934,9 +939,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._remove_item_from_lists(item)
 
     def delete_selected_items(self):
-        if not self.selectedItems():
+        """Delete the current scene selection (one undo step)."""
+        self.delete_items(self.selectedItems())
+
+    def delete_items(self, items):
+        """Delete *items* through the single bulk-delete path — one undo step.
+
+        The explicit-list form lets callers that track their own pick (the 3D
+        view, view-3d.md I8) delete items whose ``setSelected`` would not stick
+        (e.g. off-level walls hidden in the plan) without mirroring
+        ``_bulk_delete``.
+
+        Args:
+            items: Scene items to delete; an empty iterable is a no-op.
+        """
+        selected = list(items)
+        if not selected:
             return
-        selected = list(self.selectedItems())
         selected_set = set(selected)
 
         # Suppress scene updates during bulk deletion
@@ -1102,6 +1121,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def set_mode(self, mode, template=None):
         self._text_edit_ctl.commit()     # a tool switch ends any inline edit
+        if not self.view_available and mode not in (None, "select"):
+            # Empty canvas (view-3d.md I5): no view to author in.
+            self.instructionChanged.emit(NO_VIEW_HINT)
+            return
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).

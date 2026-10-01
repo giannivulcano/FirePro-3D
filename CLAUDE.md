@@ -55,7 +55,7 @@ Docs exist to keep the AI grounded in the *intended* architecture — they are a
 - **Two layers.** `docs/architecture/` = cross-subsystem ripple map (orientation). `docs/design/` governing specs (currently `docs/specs/`) = per-subsystem contracts/invariants.
 - **Rule A — one fact, one home.** Architecture *links* to specs; never restate an owned fact (Z-order → `docs/specs/view-relationships.md §7.3` + `constants.py`; signatures, enums, defaults). Never cite line/LOC counts.
 - **Grounding:** before editing a subsystem, load its governing spec via the index → `docs/specs/SPEC-INDEX.md`.
-- **Orphans (no spec yet — forge on first touch):** thermal radiation, 3D view, `.fpd` scene-I/O.
+- **Orphans (no spec yet — forge on first touch):** thermal radiation (see the index's Orphans section).
 - **Enforcement:** the `/todo` skill clips the leash on — **Ground** (load specs, Phase 1b), **Forge** (blocking spec-creation + grill for ungoverned code), **Account** (re-audit + stamp specs at wrap-up). Full multi-agent doc audit → milestone-level.
 
 > Note (2026-06-23): the curated docs were swept for the 2026-06-22 audit's drift findings in the Section-A drift-fix pass — the **layer system is removed** (`user_layer` gone; `DEFAULT_USER_LAYER` renamed to `DEFAULT_ANNOTATION_GROUP`), ezdxf is **import-only**, and PyVista/VTK (not `vispy`) drives 3D. Remaining doc-reorg work (directory moves, frontmatter backfill) is tracked in `DOCS-REVIEW.md`.

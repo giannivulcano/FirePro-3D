@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-09-29  # Invariant 8 perf marker; prior 2026-09-28
-verified-commit: ae6ff19   # Invariant 8 perf marker; prior d34aeb0
+last-verified: 2026-09-30  # closable 3D tab: stub_view3d surface, real-View3D test files, MainWindow-teardown selection family; prior 2026-09-29
+verified-commit: f1d8151   # closable 3D tab; prior ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -39,7 +39,9 @@ SEH bug #371).
   `shown_model_view` `show()`s + exposes + focuses the view (Invariant 4).
 - **`tiny_png_b64`** — shared title-block image fixture.
 - **`stub_view3d`** (opt-in) — windowless `_StubView3D` injected into `main.View3D`
-  (#367). See Invariant 3.
+  (#367). Mirrors the MainWindow→View3D surface owned by `view-3d.md §4`
+  (2026-09-30: `cancel_interaction`, `request_rebuild`, `clear_pick`,
+  `reset_for_project` added; `_on_escape` retired). See Invariant 3.
 
 ## Invariants
 
@@ -74,8 +76,13 @@ SEH bug #371).
 
 3. **View3D stub (#367).** MainWindow-heavy tests may use the opt-in `stub_view3d`
    fixture to run windowless with no VTK plotter. `QT_QPA_PLATFORM=offscreen` is NOT
-   viable (VTK native-crashes without a GL surface). Real-View3D coverage lives only
-   in `test_view_3d.py` (`pv.OFF_SCREEN=True`).
+   viable (VTK native-crashes without a GL surface). Real-View3D unit coverage uses
+   `pv.OFF_SCREEN=True` (`test_view_3d.py` over a fake scene,
+   `test_view3d_lifecycle.py` over a real `Model_Space`);
+   `test_view3d_tab_mainwindow.py` drives a real MainWindow + real View3D in a
+   shown, exposed window (visibility-gated behaviour needs `isVisible()`). The
+   file list is owned by `view-3d.md §8`. Any new MainWindow→View3D call must be
+   added to the stub in the same commit (`view-3d.md §4` owns the surface).
 
 4. **Posted events need shown views.** Tests exercising focus / event-dispatch /
    render must `show()` + expose the view (see `shown_model_view`) and post real
@@ -138,4 +145,16 @@ SEH bug #371).
   (Invariant 2).
 - **VTK-MainWindow native-child-window** — View3D forces native sibling windows;
   MainWindow suites can `qFatal` / abort on teardown. Mitigated by `stub_view3d`
-  (Invariant 3) and `view_3d.cleanup()` on close.
+  (Invariant 3) and `view_3d.cleanup()` on close (which, since 2026-09-30, also
+  stops the rebuild timer and disconnects View3D's scene slots — `view-3d.md` I11).
+- **MainWindow-teardown selection emit** (found 2026-09-30, closable-3D-tab
+  build; pre-existing — filed as a bug, not fixed). If a plan item is still
+  selected when a real MainWindow `close()`s, the scene's destruction emits
+  `selectionChanged` into `MainWindow._on_selection_changed_contextual`, which
+  reads the half-destroyed scene → `RuntimeError` from a Qt slot → process exit
+  127. The same race was first noted in the Stage-One chrome spike
+  (`mainwindow-chrome-revamp.md`). **Fixture workaround:** call
+  `scene.clearSelection()` before `close()` (as in
+  `tests/test_view3d_tab_mainwindow.py`'s window fixture). Remove the
+  workaround when the bug is fixed (disconnect selection slots in
+  `closeEvent`, or guard the slot).
