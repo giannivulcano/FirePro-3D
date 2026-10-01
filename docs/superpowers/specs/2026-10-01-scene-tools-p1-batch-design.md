@@ -347,6 +347,35 @@ buttons use temporary icons until approved.
 - [ ] VC9 seam review before smoke; smoke → fixes → one full suite
       (`-m "not perf"`, then `-m perf` alone), honest exit codes.
 
+## Plan-review amendments (user-ratified 2026-10-01)
+
+Recorded when the plan (`docs/superpowers/plans/2026-10-01-scene-tools-p1-batch.md`,
+local — plans are gitignored) was approved:
+
+- **Slice-0 verdicts** (run at `012c181`): DXF closed-SPLINE → periodic mapping
+  holds (and today's import draws a stray tail — fixed by DD7); `FieldKind.COUNT`
+  rounds decimals → Scale adds **`FieldKind.FACTOR`**; ALIGN acquires snapped
+  points generically → no ALIGN change for `origin`.
+- **DD9 count is 13 live sites**: the 14th (`_apply_mirror` arc branch) is
+  retired with `_apply_mirror` in slice 5, not patched.
+- **DD5 accepted departures**: Angle `0` is the release value, so Linear cannot
+  be *locked* to 0° (cursor / ALIGN reach horizontal); a blank Angle keeps the
+  current value (the HUD never reports an empty field); only non-cursor fields
+  are remembered (counts, Total, Angle lock — spacings come from the live aim).
+  Defaults Linear 3, 2D 3 × 3, Polar 4 @ 360°; Polar start ray = centre →
+  selection centre, CCW sweep, zero sweep = 360°; Nodes excluded from Polar
+  (zero-offset paste merges them); 2D spacings signed; badge reads ARRAY for
+  every variant.
+- **DD1**: a reflected Rect angle is folded into [0°, 180°).
+- **DD2**: the picker adds a closed polyline's closing edge (the engine's
+  segment iterator omits it — snap follow-up filed).
+- **DD6**: `origin` is not a `SNAP_MARKERS` key (that would add a ninth footer
+  toggle); its glyph lives in a separate non-toggle map.
+- **DD7**: the DXF mapping also runs in `dwg_converter.py` (import preview).
+- **DD8**: the shared ring keeps the scene attribute `_polyline_close_indicator`
+  and stays on vertex 0.
+- **DD11**: the live small-button icon size is 18 px — the gate renders 18 and 27 px.
+
 ## Build order (slices; each green before the next)
 
 0. Probes: DXF closed-spline fixture → mapping; `FieldKind.COUNT` accepts
