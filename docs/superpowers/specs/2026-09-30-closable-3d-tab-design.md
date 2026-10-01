@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: current
 last-verified: 2026-09-30
-verified-commit: dedd21e
+verified-commit: f1d8151
 applies-to:
   - firepro3d/view_3d.py
   - firepro3d/view3d_tab.py (new)
@@ -65,16 +65,16 @@ fixes the stale-pick wrong-item delete (D8) that closing would otherwise worsen.
 ### DD1 — View3D public API (I6, I9, I11–I16)
 | Member | Behaviour |
 |---|---|
-| `request_rebuild()` | Public name for today's `_schedule_rebuild` (mark dirty; start the 100 ms coalescing timer only if visible). The `sceneModified` connection and `MainWindow._refresh_all_views` both call it — the timer's `isActive()` coalesces them, so a visible edit rebuilds **once** (D2). `rebuild()` stays for the explicit Refresh button. |
+| `request_rebuild()` | Public name for today's `_schedule_rebuild` (mark dirty; start the 100 ms coalescing timer only if visible). **As built, its only model-change caller is View3D's own `sceneModified` connection** — `MainWindow._refresh_all_views` does **not** call it (its 200 ms debounce would fire after the first rebuild and rebuild a visible view twice per edit), so a visible edit rebuilds **once** (D2). `rebuild()` stays for the explicit Refresh button. |
 | `_render()` | The only way View3D renders: renders if `isVisible()`, else sets `_render_pending`. Every direct `self._plotter.render()` routes through it (D3). |
-| hidden-state deferral | While hidden, `_on_2d_selection_changed` sets `_sel_pending` and returns; heatmap show/clear store `_pending_heatmap` (a result or a clear sentinel) and return. `showEvent` flushes in one order: dirty → rebuild (which re-syncs selection and re-applies heatmap/H-Cut); else pending selection → sync; else pending heatmap → apply; else `_render_pending` → render. |
-| `reset_for_project(scale_manager)` | `_sm = scale_manager`; `_first_build = True` (next rebuild re-fits); `clear_pick()`; mark dirty via `request_rebuild()` (I9, D1). |
+| hidden-state deferral | While hidden, `_on_2d_selection_changed` sets `_sel_pending` and returns; heatmap show/clear store `_pending_heatmap` (a result or a clear sentinel) and return. `showEvent` flushes in one order: dirty → rebuild (which re-syncs selection and re-applies heatmap/H-Cut); else pending selection → sync; else pending heatmap → apply; else `_render_pending` → render. *(As built: differs — see As-built deviations.)* |
+| `reset_for_project(scale_manager)` | `_sm = scale_manager`; `_first_build = True` (next rebuild re-fits); `clear_pick()`; mark dirty via `request_rebuild()` (I9, D1). *(As built: differs — see As-built deviations.)* |
 | `clear_pick()` | Clears `_3d_selected` + highlight/overlay actors (render via `_render()`). |
 | `cancel_interaction()` | Public Escape (today's `_on_escape` body, render via `_render()`); `_on_key_press` Esc calls it so the two Escapes stop diverging (I12, D6). |
 | `cleanup()` | Stops `_rebuild_timer`, disconnects its two scene connections (`sceneModified`, `selectionChanged`), then closes the plotter; idempotent (I11, D5). |
-| `rebuild()` | No focal re-centre after the first build (I13, D7); re-applies H-Cut when `_h_cut_enabled` (I15, D10); re-applies a live heatmap if one is set. |
+| `rebuild()` | No focal re-centre after the first build (I13, D7); re-applies H-Cut when `_h_cut_enabled` (I15, D10); re-applies a live heatmap if one is set. *(As built: differs — see As-built deviations.)* |
 | extraction fixes | `_extract_openings` skips hidden openings and openings whose host wall is hidden (I14, D9); `_extract_pipes` builds `_pipe_refs` and `_pipe_midpoints_3d` in the same filtered loop so indices align (I16, D11). |
-| `delete_selected()` | Routes through the scene: select exactly the picked items in the scene, then one `delete_selected_items()` call — one undo step, 2D rules (I8, D13). *(P4: the plan's first probes confirm `delete_selected_items` handles walls/slabs/roofs and pushes exactly one undo state.)* |
+| `delete_selected()` | Routes through the scene: select exactly the picked items in the scene, then one `delete_selected_items()` call — one undo step, 2D rules (I8, D13). *(P4: the plan's first probes confirm `delete_selected_items` handles walls/slabs/roofs and pushes exactly one undo state.)* *(As built: differs — see As-built deviations.)* |
 
 ### DD2 — `view3d_tab.View3DTabController` (I1–I4, I7)
 Owns the 3D tab's presence in `central_tabs`; built by `MainWindow` with
@@ -102,14 +102,14 @@ Owns the 3D tab's presence in `central_tabs`; built by `MainWindow` with
   `countChanged` (0 → placeholder) and sets `scene.view_available = count > 0`.
 - **`canvas_placeholder.EmptyCanvasPlaceholder(QWidget)`** — signals
   `open3DRequested`, `openPlanRequested`; `set_active_level(name)` updates the
-  plan button text (`Plan: <level>`), called on activeLevelChanged and on load.
+  plan button text (`Plan: <level>`), called on activeLevelChanged and on load. *(As built: differs — see As-built deviations.)*
   Visual (mockup-approved):
   - an empty **26 px rail row** (surface) + **1 px `line_strong` divider**, so the
     dock-header dividers keep landing on the canvas divider row (the live
     probe showed `#centralTabs`' bar collapses 26 → 0 px with no tabs); the rail
     height is taken from the canvas tab bar's measured height, and a guard
     pins them equal;
-  - below it the `ground` pane with a centred block at **45 %** of pane height:
+  - below it the `ground` pane *(As built: differs — see As-built deviations.)* with a centred block at **45 %** of pane height:
     title **"No views open"** 13 pt bold `ink`; hint **"Open a view from the
     Project Browser"** 9 pt `muted`; gaps title→hint **6 px**, hint→buttons
     **18 px**;
@@ -119,7 +119,7 @@ Owns the 3D tab's presence in `central_tabs`; built by `MainWindow` with
 - **Refusal:** `Model_Space.view_available` (default `True`, so Block-Editor
   scenes are untouched). `set_mode` refuses any mode other than `None`/`"select"`
   when it is `False`, emitting `instructionChanged("Open a view from the Project
-  Browser")` (footer status). `MainWindow._start_modify_tool` and
+  Browser")` (footer status). *(As built: differs — see As-built deviations.)* `MainWindow._start_modify_tool` and
   `_delete_if_not_editing` return early with the same hint when the stack shows
   the placeholder. Undo/redo, save/open, settings, managers stay live.
 
@@ -134,10 +134,10 @@ to `View3DTabController.open`. Idempotent under the known double-fire of
 ### DD5 — MainWindow routing (I7, I9, I10)
 - `_delete_if_not_editing`: use the 3D pick only when
   `central_tabs.currentWidget() is self.view_3d` (I7).
-- `open_file` / `new_file`: after `_close_stale_view_tabs()`, call
+- `open_file` / `new_file` *(As built: differs — see As-built deviations.)*: after `_close_stale_view_tabs()`, call
   `view_3d.reset_for_project(self.scene.scale_manager)` (I9).
-- `_on_escape` → `view_3d.cancel_interaction()`; `_refresh_all_views` →
-  `view_3d.request_rebuild()`.
+- `_on_escape` → `view_3d.cancel_interaction()`; `_refresh_all_views` no
+  longer touches the 3D view (as built — see As-built deviations).
 - Radiation: unchanged call to `show_radiation_heatmap` — DD1's deferral makes
   it land silently while closed (I10).
 
@@ -170,6 +170,43 @@ to `View3DTabController.open`. Idempotent under the known double-fire of
   DD1 makes them the only path.
 - `Model_Space.authoring_allowed` (containment C1) is the existing mode gate
   next to which the no-view refusal sits in `set_mode`.
+
+## As-built deviations (verified at `f1d8151`; `view-3d.md` §1–§8 is the as-built record)
+- **Rebuild trigger.** `_refresh_all_views` dropped its 3D call entirely instead
+  of calling `request_rebuild()` (a second request after the first rebuild
+  would rebuild twice); `sceneModified` → `request_rebuild` is the sole path.
+- **Show flush.** `showEvent` defers `_flush_pending` with
+  `QTimer.singleShot(0, …)`. Order: pending heatmap show/clear first, then dirty
+  → rebuild (re-syncs selection), else pending selection, else pending render.
+  The rebuild does not re-apply the heatmap: the overlay actors live outside
+  `_actors` and survive it.
+- **`reset_for_project`** also calls `clear_radiation_heatmap()` (the old
+  project's overlay is keyed by its entities). It runs at three sites, not
+  after `_close_stale_view_tabs()`: at startup after the template apply, in
+  `new_file` after the template apply (which replaces `scene.scale_manager`),
+  and in `_apply_loaded_file` (File→Open and crash recovery).
+- **`delete_selected`** calls a new `Model_Space.delete_items(items)`
+  (explicit-list bulk delete, one undo step; `delete_selected_items()`
+  delegates to it). It does not select-then-delete, because `setSelected` does
+  not stick for some picked items.
+- **Empty-canvas pane is `surface`**, not the mockup's `ground`. The user
+  changed it at the 2026-09-30 smoke to match the live plan canvas. The 3D
+  plotter background moved to `surface` too (`view-3d.md` I17).
+- **Plan-button label** refreshes when the canvas becomes empty and on
+  `levelsChanged` (level widget + Levels dialog), not on "activeLevelChanged
+  / load". An active-level change opens that plan, so it leaves the empty
+  canvas.
+- **Refusal homes.** Modify-tool refusal lives in `ModifyToolsController.start`
+  (the one home for ribbon and shortcuts), not `_start_modify_tool`.
+  `_delete_if_not_editing` keys on `scene.view_available`, not on the stack.
+  The ribbon Delete now routes through `_delete_if_not_editing`.
+- **Added at build (user-ratified, `view-3d.md` I5a/I5b).** Thermal-radiation
+  start is refused on an empty canvas, and closing the last tab cancels a
+  pick in progress. On the empty-canvas swap MainWindow disarms to `select`
+  before clearing `view_available`. A canvas whose only tab is a Block Editor
+  counts as a view.
+- **Rebuild camera.** Only `_orbit_center` follows the geometry; the first build
+  (and the first after `reset_for_project`) fits.
 
 ## Follow-ups (filed at Phase 6)
 - Per-project 3D camera save in the `.fpd` [feature].

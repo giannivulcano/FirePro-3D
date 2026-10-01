@@ -129,8 +129,8 @@ class _TabCloseButton(QToolButton):
 class _CanvasTabBar(QTabBar):
     """Canvas tab bar: installs a custom header-style close dot on every tab
     (tabInserted) so the close affordance matches the header window dots. Emits
-    ``tabCloseClicked(index)`` — the owner protects core tabs by removing their
-    button (setTabButton(..., None)). Emits ``countChanged(count)`` after any
+    ``tabCloseClicked(index)`` — every tab is closable; the owner keeps the
+    keep-alive singletons (3D, paper) alive on close. Emits ``countChanged(count)`` after any
     tab insert/remove so the owner can swap in the empty-canvas placeholder."""
 
     tabCloseClicked = pyqtSignal(int)

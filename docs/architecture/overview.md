@@ -178,7 +178,7 @@ Model_Space maintains an undo stack (`_undo_stack`, `UNDO_MAX` entries) of scene
 - **Level system** (`level_manager.py`) -- filters entity visibility when switching plan tabs
 - **Analysis** (`hydraulic_solver.py`, `thermal_radiation_solver.py`) -- reads the piping network from SprinklerSystem
 - **I/O** (`scene_io.py`) -- serializes all entities, managers, and settings to versioned JSON (currently version 9)
-- **3D view** (`view_3d.py`) -- reads entity data from Model_Space to build 3D meshes (orphan — no governing spec yet)
+- **3D view** (`view_3d.py`) -- reads entity data from Model_Space to build 3D meshes; closable keep-alive canvas tab → [`view-3d.md`](../specs/view-3d.md)
 - **Sprinkler design** (`design_area.py`, `water_supply.py`) -- design areas and the water-supply node feed the hydraulic solver → [`sprinkler-system-components.md`](../specs/sprinkler-system-components.md)
 - **Gridlines** (`gridline.py`) -- `GridlineItem` + bubbles, snap and ALIGN participation → [`grid-system.md`](../specs/grid-system.md)
 - **Detail views** (`detail_view.py`) -- `DetailMarker` / `DetailViewManager`, a clipped second view on the same scene → [`view-relationships.md`](../specs/view-relationships.md)
