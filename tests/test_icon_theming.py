@@ -27,11 +27,13 @@ _GEOM2D_ICONS = [
     "spline_icon.svg",    # authored on-contract 2026-09-07 (spline primitive)
 ]
 # Modify/Edit tool icons (scene-tools.md D12) — 40-unit 2D-geo family (§5.1),
-# approved mockup 2026-09-25. White-centred accent rings permitted.
+# approved mockup 2026-09-25; Flip / Mirror / Scale approved at the
+# scene-tools P1 gate (DD11). White-centred accent rings permitted.
 _MODIFY_ICONS = [
     "copy_icon.svg", "cut_icon.svg", "paste_icon.svg", "duplicate_icon.svg",
     "delete_icon.svg", "move_icon.svg", "rotate_icon.svg", "offset_icon.svg",
     "array_icon.svg", "explode_icon.svg",
+    "scale_icon.svg", "flip_icon.svg", "mirror_icon.svg",
 ]
 
 

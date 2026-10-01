@@ -439,3 +439,32 @@ def test_badge_reads_the_tool_name_for_real_tool_runs(main_window, qapp):
             editor.set_mode(None)
     finally:
         _close_editor(main_window, ed, qapp)
+
+
+def test_flip_mirror_scale_buttons_carry_their_approved_icons(main_window, qapp):
+    """DD11: the Modify buttons show the approved art. Ground truth is the
+    authored SVG rendered through the real loader, compared pixel-for-pixel
+    with what the live button holds."""
+    from PyQt6.QtCore import QSize
+    from firepro3d import icons, theme as th
+    ed = None
+    try:
+        main_window.scene.clearSelection()
+        main_window._open_block_editor()
+        qapp.processEvents()
+        ed = main_window._active_editor_widget()
+        btns = main_window._be_modify_buttons
+        variant = icons.DARK if th.detect().name == icons.DARK else icons.LIGHT
+        sz = QSize(th.M.RIBBON_SMALL_ICON, th.M.RIBBON_SMALL_ICON)
+        images = {}
+        for label, fn in (("Scale", "scale_icon.svg"), ("Flip", "flip_icon.svg"),
+                          ("Mirror", "mirror_icon.svg")):
+            got = btns[label].icon().pixmap(sz).toImage()
+            want = icons.themed_icon(fn, variant).pixmap(sz).toImage()
+            assert got == want, label                                    # [RED]
+            assert btns[label].toolTip(), label                          # tooltip present
+            images[label] = got
+        # the three glyphs are distinguishable (content, not shape — VC2)
+        assert images["Flip"] != images["Mirror"] != images["Scale"] != images["Flip"]
+    finally:
+        _close_editor(main_window, ed, qapp)
