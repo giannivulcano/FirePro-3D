@@ -2490,7 +2490,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constraint_concentric": "Concentric",
         "constraint_dimensional": "Dimensional",
         # Thermal radiation (literal set_mode callers, main.py)
-        "radiation_emitter": "Emitters", "radiation_receiver": "Receivers",
+        "radiation_emitter": "Radiation", "radiation_receiver": "Radiation",
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
