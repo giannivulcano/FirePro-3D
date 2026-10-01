@@ -576,9 +576,11 @@ class View3D(QWidget):
     def request_rebuild(self) -> None:
         """Mark the view dirty; rebuild ~100 ms later only while visible (I6).
 
-        The single entry for "the model changed" — the scene's ``sceneModified``
-        and ``MainWindow._refresh_all_views`` both call it, and the coalescing
-        timer turns their pair into one rebuild.
+        The single entry for "the model changed": the scene's ``sceneModified``
+        is its only model-change caller (MainWindow's debounced
+        ``_refresh_all_views`` deliberately does NOT call it — a second request
+        after the first rebuild would rebuild a visible view twice per edit).
+        Repeat requests within the 100 ms window coalesce into one rebuild.
         """
         self._dirty = True
         if self.isVisible() and not self._rebuild_timer.isActive():

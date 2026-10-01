@@ -77,6 +77,10 @@ def test_edit_group_buttons_route_to_scene_getter(main_window, monkeypatch):
         def delete_selected_items(self): self._modify_ctl.calls.append("delete")
 
     fake = _FakeScene()
+    # Delete routes through MainWindow's one Delete chokepoint (text-edit
+    # guard, empty-canvas refusal — view-3d.md I5), not the scene_getter.
+    monkeypatch.setattr(main_window, "_delete_if_not_editing",
+                        lambda: fake._modify_ctl.calls.append("delete"))
     page = RibbonPage()
     main_window.build_edit_group(page, lambda: fake)
     b = _buttons(page)

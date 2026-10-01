@@ -281,7 +281,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _bar = _CanvasTabBar(_n_icon, _h_icon)
         self.central_tabs.setTabBar(_bar)
         _bar.tabCloseClicked.connect(self._on_tab_close_requested)
-        self.central_tabs.addTab(self.view_3d, "3D Model")
+        from firepro3d.view3d_tab import TAB_TITLE as _TAB_3D
+        self.central_tabs.addTab(self.view_3d, _TAB_3D)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self._splash_progress(60, "Building ribbon toolbar...")
@@ -702,6 +703,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the CEL DXF/PDF fallback was removed, so without this the startup
         # paper view would be blank even when the .fpdt links a template.
         self._push_titleblock_template()
+        # _clear_scene + the template replaced scene.scale_manager after View3D
+        # was built — seat the live one (I9).
+        self.view_3d.reset_for_project(self.scene.scale_manager)
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -722,6 +726,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Defer recovery check until after the window is fully shown
         QTimer.singleShot(500, self._check_recovery)
+
+        # Keep the empty-canvas plan button's level label live (I5).
+        # (An active-level change opens that plan, so it leaves the empty canvas.)
+        self.level_widget.levelsChanged.connect(self._refresh_empty_canvas_level)
 
         # Restore the 3D Model tab's last open/closed state (view-3d.md I4).
         self.view3d_tab.apply_startup_pref()
@@ -1161,14 +1169,27 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self.central_tabs.tabBar().sizeHint().height())
             self._canvas_stack.setCurrentWidget(self.central_tabs)
         else:
-            from firepro3d.constants import DEFAULT_LEVEL
-            self._empty_canvas.set_active_level(
-                self.scene.active_level or DEFAULT_LEVEL)
             self._canvas_stack.setCurrentWidget(self._empty_canvas)
+            self._refresh_empty_canvas_level()
             # Disarm BEFORE refusing modes: set_mode("select") is always allowed.
+            # A radiation pick in progress ends too (no view to pick in).
+            if getattr(self.scene, "_radiation_selecting", False):
+                self._radiation_on_cancel()
             if self.scene.mode not in (None, "select"):
                 self.scene.set_mode("select")
         self.scene.view_available = count > 0
+
+    def _refresh_empty_canvas_level(self, *_args) -> None:
+        """Keep the placeholder's Plan button naming the level it opens (I5).
+
+        No-op unless the empty-canvas placeholder is showing.
+        """
+        stack = getattr(self, "_canvas_stack", None)
+        if stack is None or stack.currentWidget() is not self._empty_canvas:
+            return
+        from firepro3d.constants import DEFAULT_LEVEL
+        self._empty_canvas.set_active_level(
+            self.scene.active_level or DEFAULT_LEVEL)
 
     def _close_stale_view_tabs(self):
         """Remove all Plan/Elevation/Detail view tabs left from a prior project.
@@ -3266,7 +3287,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             buttons[label] = self._add_modify_tool_button(
                 g, label, icon, tool, tip, scene_getter, mode_registry)
         b = g.add_small_button("Delete", self._modify_icon("delete_icon.svg"),
-                               lambda: scene_getter().delete_selected_items())
+                               self._delete_if_not_editing)   # one Delete chokepoint
         b.setToolTip("Delete selected items (Del)")
         buttons["Delete"] = b
         return buttons
@@ -3805,6 +3826,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         dlg.levelsChanged.connect(self.update_property_manager)
         dlg.levelsChanged.connect(self.project_browser.refresh_levels)
         dlg.levelsChanged.connect(self.elevation_manager.rebuild_all)
+        dlg.levelsChanged.connect(self._refresh_empty_canvas_level)
         dlg.duplicateLevel.connect(self.scene.duplicate_level_entities)
         dlg.exec()
 
@@ -4277,9 +4299,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Elevation views
         if hasattr(self, "elevation_manager"):
             self.elevation_manager.rebuild_all()
-        # 3D view (coalesced; idles while the 3D tab is hidden — I6)
-        if hasattr(self, "view_3d"):
-            self.view_3d.request_rebuild()
+        # The 3D view is NOT refreshed here: it listens to sceneModified itself
+        # (View3D.request_rebuild), which is this debounce's only trigger —
+        # a second request would rebuild a visible view twice per edit (I6).
 
     def _on_escape(self):
         """Escape: cancel current chain in pipe mode, else reset mode."""
@@ -4459,6 +4481,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _radiation_step1_start(self):
         """Begin two-step radiation surface selection."""
+        if not self.scene.view_available:       # no view to pick in (I5)
+            self.footer.set_instruction(NO_VIEW_HINT)
+            self._sync_mode_buttons(self.scene.mode)   # un-light the F6 button
+            return
         self.scene.clearSelection()
         self.scene._radiation_selecting = True
         self._radiation_step = 1
@@ -4726,11 +4752,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         fw = QApplication.focusWidget()
         if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
             return
-        if not self.scene.view_available:       # empty canvas (I5)
-            self.footer.set_instruction(NO_VIEW_HINT)
-            return
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
             return
+        # The empty-canvas refusal (I5) lives in ModifyToolsController.start.
         self._active_scene()._modify_ctl.start(tool)
 
     def _text_edit_scenes(self) -> list:
