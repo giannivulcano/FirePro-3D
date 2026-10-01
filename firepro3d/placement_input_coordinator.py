@@ -273,10 +273,9 @@ class PlacementInputCoordinator:
             if self._scene.mode == "polygon":
                 self._scene._preview_polygon_rotation(resolved["angle_deg"])
         elif schema.name == "array_linear":
-            # D10: a typed Spacing / Count re-ghosts every copy along the aim
-            # (a dict, not a point — like ``rotation`` above).
-            self._scene._modify_ctl.preview_array(resolved["spacing"],
-                                                  resolved["count"])
+            # D10 / DD5: typed fields re-ghost every copy (a dict, not a
+            # point — like ``rotation`` above).
+            self._scene._modify_ctl.preview_array(resolved)
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -1077,11 +1076,10 @@ class PlacementInputCoordinator:
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
         if schema.name == "array_linear":
-            # D10: the live cursor spacing + the click-commit total. Must
-            # precede the gridline replicate fallback below (gridline state).
-            s = self._scene
-            return {"Spacing": s._array_spacing,
-                    "Count": max(2, int(s._array_count_default))}
+            # D10 / DD5: the live aim + the remembered counts (one home:
+            # the controller). Must precede the gridline replicate fallback
+            # below (gridline state).
+            return self._scene._modify_ctl.array_seed_values(schema.name)
         if schema.name == "offset_distance":
             # D9: the live cursor distance (or the sticky last distance before
             # the first move). Must precede the gridline replicate fallback

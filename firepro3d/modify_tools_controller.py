@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QPainterPath
+from PyQt6.QtGui import QPainterPath, QTransform
 
 from .cad_math import CAD_Math
 from .gridline import GridlineItem
@@ -1196,23 +1196,73 @@ class ModifyToolsController:
         self.commit_scale(float(params["factor"]))
         return self._scene.mode != "scale"
 
-    # ── Array (D10) ─────────────────────────────────────────────────────────
-    # Linear only: base point, then the cursor sets direction + spacing; the
-    # HUD types Spacing + Count (TOTAL incl. the original). Copies are
-    # independent (not associative); one undo step.
+    # ── Array (D10 + P1 DD5) ────────────────────────────────────────────────
+    # Base point, then the cursor aims and a click / Enter commits; the HUD
+    # types the variant's fields. Counts are TOTALS incl. the original. Copies
+    # are independent (not associative); one undo step; back to Select with
+    # the ORIGINAL selection. Transient scene state (_array_base, _array_dir,
+    # _array_spacing) is cleared on leaving the mode; the session-sticky
+    # _array_variant / _array_memory are never cleared (per canvas tab).
+
+    # HUD fields remembered per variant after a typed commit: (field, param).
+    # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim.
+    _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),)}
+    ARRAY_LINEAR_REFUSED = "Array needs a direction, Spacing > 0 and Count ≥ 2"
 
     def _aim_array(self, snapped: QPointF) -> None:
-        """Set the array direction + spacing from the base -> *snapped* ray.
+        """Update the live aim from the base -> *snapped* ray.
 
-        A zero-length ray keeps the previous direction/spacing.
+        Linear: direction + spacing from the ray. A zero-length ray keeps the
+        previous aim.
         """
         s = self._scene
         dx = snapped.x() - s._array_base.x()
         dy = snapped.y() - s._array_base.y()
         length = math.hypot(dx, dy)
-        if length > 1e-9:
-            s._array_dir = QPointF(dx / length, dy / length)
-            s._array_spacing = length
+        if length <= 1e-9:
+            return
+        s._array_dir = QPointF(dx / length, dy / length)
+        s._array_spacing = length
+
+    def _array_live_params(self) -> dict:
+        """Resolver-shaped params of a click / Enter commit: the cursor aim
+        plus the remembered (typed or default) counts of the variant."""
+        s = self._scene
+        mem = s._array_memory[s._array_variant]
+        return {"spacing": s._array_spacing, "count": int(mem["Count"])}
+
+    def array_seed_values(self, schema_name: str) -> dict:
+        """HUD seeds for an array schema: the live aim + remembered counts.
+
+        Args:
+            schema_name: The active array schema's name.
+
+        Returns:
+            Values keyed by field name (scene units).
+        """
+        p = self._array_live_params()
+        return {"Spacing": p["spacing"], "Count": max(2, p["count"])}
+
+    def _array_transforms(self, p: dict):
+        """Per-copy transforms of the current variant, or the refusal reason.
+
+        The one formula the ghost and the commit share (D11): the ghost maps
+        the cached base paths through each transform; the commit pastes each
+        copy at the transform's offset.
+
+        Args:
+            p: Resolver-shaped params (HUD-typed or the live aim).
+
+        Returns:
+            ``(transforms, None)`` or ``(None, reason)``.
+        """
+        s = self._scene
+        n, sp = int(p["count"]), float(p["spacing"])
+        d = s._array_dir
+        if n < 2 or sp <= 0 or d is None:
+            return None, self.ARRAY_LINEAR_REFUSED
+        return [QTransform.fromTranslate(d.x() * sp * k, d.y() * sp * k)
+                for k in range(1, n)], None
 
     def press_array(self, event, pos, snapped, *_):
         """Array click: the base point, then the next click commits."""
@@ -1226,7 +1276,7 @@ class ModifyToolsController:
                 "Pick spacing + direction (or type Spacing / Count)")
             return
         self._aim_array(snapped)
-        self.commit_array(s._array_spacing, s._array_count_default)
+        self.commit_array()
 
     def move_array(self, event, snapped):
         """Array cursor: aim from the base; the ghost shows every copy."""
@@ -1237,65 +1287,60 @@ class ModifyToolsController:
             return
         s.preview_node.hide()
         self._aim_array(snapped)
-        self.preview_array(s._array_spacing, s._array_count_default)
-        # Feed the HUD its live Spacing seed (_transform_seed_values).
+        self.preview_array()
+        # Feed the HUD its live seeds (_transform_seed_values).
         s.publish_placement_state(s._array_base, snapped)
-        s._show_status(
-            f"Spacing: {self._fmt_len(s._array_spacing)}  "
-            f"Count: {s._array_count_default}", timeout=0)
+        s._show_status(self._array_readout(), timeout=0)
 
-    def preview_array(self, spacing: float, count: int) -> None:
-        """Rebuild the ghost as ``count - 1`` translated copies of the base.
+    def _array_readout(self) -> str:
+        """Status-bar readout of what a click would commit now."""
+        p = self._array_live_params()
+        return f"Spacing: {self._fmt_len(p['spacing'])}  Count: {p['count']}"
+
+    def preview_array(self, params: dict | None = None) -> None:
+        """Rebuild the ghost: one transformed copy of the base paths per copy.
 
         D11: every copy the commit would create is ghosted (no cap) — and
-        nothing is ghosted that the commit would refuse: with no aim yet
-        (``_array_dir`` None) the ghost is empty, since the cursor sets the
-        direction (D10) and ``commit_array`` refuses without one.
+        nothing the commit would refuse (no aim yet, Spacing 0, Count < 2).
+
+        Args:
+            params: HUD-resolved params (Tab field-commit), else the live aim.
         """
         s = self._scene
-        d = s._array_dir
-        count = int(count)
-        if d is None:
-            s._move_ghost = []
-            for v in s.views():
-                v.viewport().update()
-            return
-        s._move_ghost = [p.translated(d.x() * spacing * k, d.y() * spacing * k)
-                         for k in range(1, count) for p in s._move_ghost_base]
+        p = params if params is not None else self._array_live_params()
+        transforms, _why = self._array_transforms(p)
+        s._move_ghost = ([t.map(path) for t in transforms
+                          for path in s._move_ghost_base]
+                         if transforms else [])
         for v in s.views():
             v.viewport().update()
 
-    def commit_array(self, spacing: float, count: int) -> bool:
-        """Create ``count - 1`` copies of the selection along the direction.
+    def commit_array(self, params: dict | None = None) -> bool:
+        """Create the current variant's copies of the selection; one undo step.
 
         Copies go through the same serialiser + ``paste_items(data=)`` path
         as Duplicate (every selectable kind; the OS clipboard is never
-        touched). One undo step; returns to Select with the ORIGINAL
-        selection selected (D10).
+        touched). Returns to Select with the ORIGINAL selection (D10).
 
         Args:
-            spacing: Distance between consecutive copies (mm).
-            count: TOTAL count including the original.
+            params: HUD-resolved params, else the live aim + remembered counts.
 
         Returns:
-            True when copies were created; False when refused (no direction,
-            spacing <= 0 or count < 2 — the tool stays live) or when nothing
-            could be copied (no undo step, back to Select).
+            True when copies were created; False when refused (the tool stays
+            live) or when nothing could be copied (no undo step, Select).
         """
         s = self._scene
-        count = int(count)
-        if count < 2 or spacing <= 0 or s._array_dir is None:
-            s._show_status("Array needs a direction, Spacing > 0 and Count ≥ 2",
-                           3000)
+        p = params if params is not None else self._array_live_params()
+        transforms, why = self._array_transforms(p)
+        if transforms is None:
+            s._show_status(why, 3000)
             return False
         src = [it for it in (s._selected_items or []) if it.scene() is s]
         records = s._clipboard_item_dicts(src)
-        d = s._array_dir
         created = []
-        for k in range(1, count):
-            created += s.paste_items(
-                QPointF(d.x() * spacing * k, d.y() * spacing * k),
-                data=records) or []
+        for t in transforms:
+            created += s.paste_items(QPointF(t.dx(), t.dy()),
+                                     data=records) or []
         if created:
             s.push_undo_state()
         s._move_ghost = []
@@ -1311,12 +1356,30 @@ class ModifyToolsController:
         if not created:
             s._show_status("Nothing arrayed", 3000)
             return False
-        s._show_status(f"Arrayed {len(created)} item(s) ({count} total)")
+        s._show_status(f"Arrayed {len(created)} item(s) "
+                       f"({len(transforms) + 1} total)")
         return True
 
-    def apply_array_linear(self, params: dict) -> bool:
-        """Typed Spacing + Count (``array_linear``): commit along the aim."""
-        return self.commit_array(float(params["spacing"]), int(params["count"]))
+    def apply_array(self, params: dict) -> bool:
+        """Typed HUD commit for the current array variant (DD5 router).
+
+        On success the variant's non-cursor fields are remembered for the
+        next Array on this canvas.
+
+        Args:
+            params: The active array schema's resolver output.
+
+        Returns:
+            The commit verdict (False keeps the HUD open, flagged).
+        """
+        s = self._scene
+        v = s._array_variant
+        if not self.commit_array(params):
+            return False
+        mem = s._array_memory[v]
+        for field, key in self._ARRAY_MEMORY_FIELDS[v]:
+            mem[field] = params[key]
+        return True
 
     # ── Ghost silhouettes ───────────────────────────────────────────────────
 

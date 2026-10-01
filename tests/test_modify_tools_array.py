@@ -69,8 +69,8 @@ def test_array_click_commits_cursor_spacing(qapp):
         scene._modify_ctl.start("array")
         click(view, QPointF(0, 0)); move(view, QPointF(0, -150)); click(view, QPointF(0, -150))
         lst = getattr(scene, attr)
-        assert len(lst) == scene._array_count_default       # [RED]
-        assert scene._array_count_default == 3
+        assert len(lst) == scene._array_memory["linear"]["Count"]   # [RED]
+        assert scene._array_memory["linear"]["Count"] == 3
         for k in range(1, 3):
             assert lst[k]._center.x() == pytest.approx(0.0, abs=0.5)
             assert lst[k]._center.y() == pytest.approx(-150.0 * k, abs=0.5)
@@ -89,7 +89,7 @@ def test_array_ghost_is_count_minus_one_translated_copies(qapp):
         click(view, QPointF(0, 0)); move(view, QPointF(0, -120))
         base = scene._move_ghost_base
         assert base
-        n = scene._array_count_default
+        n = scene._array_memory["linear"]["Count"]
         assert len(scene._move_ghost) == (n - 1) * len(base)            # [RED]
         tops = sorted(round(p.boundingRect().center().y())
                       for p in scene._move_ghost)
@@ -258,7 +258,7 @@ def test_ghost_matches_the_committed_copies(qapp, name):
         assert ghost
         click(view, QPointF(90, -160))
         copies = getattr(scene, attr)[1:]
-        assert len(copies) == scene._array_count_default - 1
+        assert len(copies) == scene._array_memory["linear"]["Count"] - 1
         assert _rects(ghost_base_paths(copies)) == ghost                # [RED]
     finally:
         close_view(view, scene)
@@ -296,7 +296,7 @@ def test_enter_commits_at_the_cursor_aim(qapp):
         click(view, QPointF(0, 0)); move(view, QPointF(0, -150))
         QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
         lst = getattr(scene, attr)
-        assert len(lst) == scene._array_count_default                   # [RED]
+        assert len(lst) == scene._array_memory["linear"]["Count"]                   # [RED]
         assert [round(l.line().p1().y()) for l in lst] == [0, -150, -300]
         assert scene._undo_pos == p0 + 1
         assert scene.mode in (None, "select")

@@ -46,7 +46,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM)
+                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -442,12 +442,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._rotate_pivot: "QPointF | None" = None
         self._rotate_start_deg: "float | None" = None
         self._rotate_ray = None
-        # Array (scene-tools.md D10; behaviour in ModifyToolsController):
-        # base point, unit direction, cursor spacing (mm), click-commit total.
+        # Array (scene-tools.md D10 + P1 DD5; behaviour in
+        # ModifyToolsController). Transient — cleared by
+        # ModifyToolsController.clear() on leaving "array": base point
+        # (Polar: centre), unit direction, cursor spacing (mm).
         self._array_base: "QPointF | None" = None
         self._array_dir: "QPointF | None" = None
         self._array_spacing: float = 0.0
-        self._array_count_default: int = 3      # TOTAL incl. the original
+        # Session-sticky per canvas tab (never cleared by clear()): the ←/→
+        # variant and the last typed non-cursor HUD fields per variant.
+        self._array_variant: str = "linear"
+        self._array_memory: dict = {v: dict(f) for v, f
+                                    in ARRAY_DEFAULT_MEMORY.items()}
         # Scale (P1 DD4; behaviour in ModifyToolsController): base point and
         # reference point (|ref - base| = 1x); both None outside the tool.
         self._scale_base: "QPointF | None" = None
@@ -3189,7 +3195,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "duplicate": "_apply_move_displacement",
         "rotate": "_apply_rotate_by",
         "scale": "_apply_scale_factor",
-        "array": "_apply_array_linear",
+        "array": "_apply_array_dynamic_input",
         "offset_side": "_apply_offset_distance",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
@@ -5412,12 +5418,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
         return self._modify_ctl.apply_rotate_by(*args, **kwargs)
 
-    # ── Linear Array (D10) ────────────────────────────────────────────
+    # ── Array (D10 + P1 DD5) ──────────────────────────────────────────
     def _press_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
         return self._modify_ctl.press_array(*args, **kwargs)
 
-    def _apply_array_linear(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
-        return self._modify_ctl.apply_array_linear(*args, **kwargs)
+    def _apply_array_dynamic_input(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD5 router)
+        return self._modify_ctl.apply_array(*args, **kwargs)
 
     # ── Scale (P1 DD4) ────────────────────────────────────────────────
     def _press_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
@@ -7131,12 +7137,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode in ("flip", "mirror"):
                 self._modify_ctl.commit_reflect()
                 return
-            # Array: Enter commits at the cursor's aim/spacing with the
-            # default total, like a click (D10); no aim -> commit_array's
-            # refusal status. The typed path is the HUD.
+            # Array: Enter commits at the cursor's aim with the remembered
+            # counts, like a click (D10 / DD5); a refused aim posts
+            # commit_array's reason. The typed path is the HUD.
             if self.mode == "array":
-                self._modify_ctl.commit_array(self._array_spacing,
-                                              self._array_count_default)
+                self._modify_ctl.commit_array()
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:

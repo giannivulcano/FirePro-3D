@@ -327,3 +327,11 @@ SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,
 
 # ── Modify tools (scene-tools.md) ──────────────────────────────────────────
 CLIPBOARD_FORMAT_VERSION = 1  # scene-tools.md I1 clipboard payload version
+# Array tool (scene-tools.md D10 + P1 DD5): first-use HUD values per
+# variant — counts are TOTALS incl. the original; polar Total in degrees.
+# Copied per scene into Model_Space._array_memory (session-sticky).
+ARRAY_DEFAULT_MEMORY = {
+    "linear": {"Count": 3},
+    "grid": {"Cols": 3, "Rows": 3},
+    "polar": {"Count": 4, "Total": 360.0},
+}
