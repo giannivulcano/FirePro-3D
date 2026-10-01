@@ -438,3 +438,84 @@ def test_polar_total_is_the_sweep_never_a_remembered_typed_total(qapp):
         assert _ghost_centres(ghost_base_paths(new)) == ghost
     finally:
         close_view(view, scene)
+
+
+def _add_wall(scene, p1, p2):
+    from firepro3d.wall import WallSegment
+    w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    return w
+
+
+def test_wall_only_selection_refuses_array_up_front(qapp):
+    """Review I3: paste_items cannot re-create a wall, so a wall-only
+    selection is refused when Array starts (accurate reason), not at the
+    commit with "Nothing arrayed"."""
+    view, scene = _view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        w = _add_wall(scene, (1000, 0), (2000, 0))
+        scene.push_undo_state()
+        scene.clearSelection(); w.setSelected(True)
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("array") is False                # [RED]
+        assert scene.mode != "array"
+        assert msgs[-1] == scene._modify_ctl.ARRAY_NOTHING_COPYABLE
+        assert len(scene._walls) == 1 and scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_ghost_and_skip_count_leave_out_walls(qapp):
+    """Review I3: a wall in a mixed selection is neither ghosted nor counted
+    as arrayed — the ghost is exactly the commit and "(1 skipped)" is
+    honest."""
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.transform_ghost import ghost_base_paths
+    view, scene = _view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        w = _add_wall(scene, (1000, 0), (2000, 0))
+        gl = GridlineItem(QPointF(100, -50), QPointF(100, 50), label="P1")
+        scene._register_gridline(gl)
+        scene.push_undo_state()
+        before = list(scene._gridlines)
+        scene.clearSelection(); w.setSelected(True); gl.setSelected(True)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0))
+        assert len(scene._move_ghost_base) == 1                          # [RED]
+        move(view, QPointF(0, -1500))                                    # 90° CCW
+        ghost = _ghost_centres(scene._move_ghost)
+        click(view, QPointF(0, -1500))
+        new = [g for g in scene._gridlines if all(g is not b for b in before)]
+        assert len(new) == 3 and len(scene._walls) == 1
+        assert _ghost_centres(ghost_base_paths(new)) == ghost
+        assert msgs[-1].endswith("(1 skipped)")
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_centre_pick_refused_when_nothing_can_rotate(qapp):
+    """Review S3: Polar with nothing rotatable (a Node) refuses the centre
+    pick with the reason; the tool stays live at step 0 (no base, ←/→ still
+    cycles)."""
+    view, scene = _view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        node = scene.add_node(300.0, 300.0)
+        scene.push_undo_state()
+        scene.clearSelection(); node.setSelected(True)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0))
+        assert scene._array_base is None                                 # [RED]
+        assert scene.mode == "array"
+        assert msgs[-1] == scene._modify_ctl.ARRAY_POLAR_NOTHING
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)                # -> Linear
+        assert scene.active_schema().name == "array_linear"
+    finally:
+        close_view(view, scene)

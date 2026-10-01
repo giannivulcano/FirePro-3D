@@ -123,6 +123,11 @@ class ModifyToolsController:
             # manip_scale_about (text, blocks, pipes, walls, gridlines… don't).
             s._show_status(self.nothing_to_hint(tool), 3000)
             return False
+        if tool == "array" and not self._array_copyable(sel):
+            # Review I3: paste_items can't re-create walls, rooms, floors,
+            # roofs or design areas — refuse up front, not "Nothing arrayed".
+            s._show_status(self.ARRAY_NOTHING_COPYABLE, 3000)
+            return False
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
@@ -136,6 +141,7 @@ class ModifyToolsController:
             acted = (self._rotatable(sel) if tool == "rotate"
                      else self._reflectable(sel) if tool in ("flip", "mirror")
                      else self._scalable(sel) if tool == "scale"
+                     else self._array_copyable(sel) if tool == "array"
                      else self._transformable(sel))
             s._ghost_dimmed = dim_items(acted)
         if tool in ("flip", "mirror") and s.mode == tool:
@@ -1252,6 +1258,8 @@ class ModifyToolsController:
                           "spacing along every axis with more than one")
     ARRAY_POLAR_REFUSED = "Polar array needs Count ≥ 2 and 0° < Total ≤ 360°"
     ARRAY_POLAR_NOTHING = "Nothing to array — no selected item can rotate"
+    ARRAY_NOTHING_COPYABLE = ("Nothing to array — the selection has nothing "
+                              "Array can copy (e.g. walls, rooms, floors, roofs)")
 
     @staticmethod
     def _unit(deg: float) -> QPointF:
@@ -1314,18 +1322,42 @@ class ModifyToolsController:
             return 360.0 / count
         return total_deg / (count - 1)
 
+    def _array_copyable(self, items) -> list:
+        """The transformable *items* a paste can re-create (review I3).
+
+        Array copies through ``paste_items``, which has no branch for walls,
+        rooms, floors, roofs or design areas; those are left out so the
+        ghost, the dim and the "(k skipped)" count match what is created.
+        """
+        s = self._scene
+        return [it for it in self._transformable(items)
+                if all(s._paste_accepts(r)
+                       for r in s._clipboard_item_dicts([it]) or [{}])]
+
     def _array_targets(self, items) -> list:
         """What the current variant arrays (and ghosts).
 
-        Linear / 2D: every transformable item (the D11 dim set). Polar:
-        Rotate's rule (``manip_rotate``) minus Nodes — a zero-offset node
-        paste lands on its own original and dedupes (``add_node``).
+        Linear / 2D: every copyable item (:meth:`_array_copyable`). Polar:
+        the copyable items Rotate can turn (``manip_rotate``) minus Nodes —
+        a zero-offset node paste lands on its own original and dedupes
+        (``add_node``).
         """
         from .node import Node
+        copyable = self._array_copyable(items)
         if self._scene._array_variant == "polar":
-            return [it for it in self._rotatable(items)
+            return [it for it in self._rotatable(copyable)
                     if not isinstance(it, Node)]
-        return self._transformable(items)
+        return copyable
+
+    def _array_refusal(self, targets) -> "str | None":
+        """Why the base / centre pick is refused for *targets*, or None."""
+        if targets:
+            return None
+        s = self._scene
+        if (s._array_variant == "polar"
+                and self._array_copyable(s._selected_items or [])):
+            return self.ARRAY_POLAR_NOTHING
+        return self.ARRAY_NOTHING_COPYABLE
 
     def _aim_array(self, snapped: QPointF) -> None:
         """Update the live aim from the base -> *snapped* ray.
@@ -1449,9 +1481,15 @@ class ModifyToolsController:
         click commits."""
         s = self._scene
         if s._array_base is None:
+            targets = self._array_targets(s._selected_items or [])
+            why = self._array_refusal(targets)
+            if why is not None:
+                # Refused at the pick (review I3 / S3): the tool stays live
+                # at step 0, so ←/→ can still pick another variant.
+                s._show_status(why, 3000)
+                return
             s._array_base = QPointF(snapped)
-            s._move_ghost_base = self._shape_paths_for_move(
-                self._array_targets(s._selected_items or []))
+            s._move_ghost_base = self._shape_paths_for_move(targets)
             s._move_ghost = []
             if s._array_variant == "polar":
                 # Start ray: centre -> centre of what is arrayed (0° when they
@@ -1541,7 +1579,10 @@ class ModifyToolsController:
             return False
         v = s._array_variant
         src = [it for it in (s._selected_items or []) if it.scene() is s]
-        copy_src = self._array_targets(src) if v == "polar" else src
+        # The ghost's own targets (review I3): what paste_items can create,
+        # and for Polar what can also turn.
+        copy_src = self._array_targets(src)
+        why_empty = self._array_refusal(copy_src)  # before _selected_items clears
         records = s._clipboard_item_dicts(copy_src)
         created = []
         if v == "polar":
@@ -1576,11 +1617,14 @@ class ModifyToolsController:
             if it.scene() is s:
                 it.setSelected(True)
         if not created:
-            s._show_status(self.ARRAY_POLAR_NOTHING
-                           if v == "polar" and not copy_src
-                           else "Nothing arrayed", 3000)
+            s._show_status(why_empty or "Nothing arrayed", 3000)
             return False
-        skipped = len(src) - len(copy_src)
+        # A selected Sprinkler is arrayed through its Node (_transformable).
+        covered = {id(it) for it in copy_src}
+        skipped = sum(
+            1 for it in src
+            if id(it.node if isinstance(it, Sprinkler) and it.node is not None
+                  else it) not in covered)
         msg = f"Arrayed {len(created)} item(s) ({len(transforms) + 1} total)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return True

@@ -7365,6 +7365,27 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._show_status(f"Copied {n} item(s)" if n is not None
                           else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
 
+    def _paste_accepts(self, obj: dict) -> bool:
+        """Whether :meth:`paste_items` has a branch for record *obj*.
+
+        The one type gate of ``paste_items`` (it skips anything else), so a
+        caller can tell up front what a paste would create — Array keeps
+        walls, rooms, floors, roofs and design areas out of its targets with
+        it (scene-tools P1 DD5 review I3).
+
+        Args:
+            obj: A clipboard record (``_clipboard_item_dicts`` output).
+
+        Returns:
+            True for 2D geometry / text, node, block-instance and gridline
+            records.
+        """
+        obj_type = obj.get("type", "")
+        return (obj_type in self._GEOM_TYPE_REGISTRY
+                or obj_type in ("node", "block_instance")
+                # Gridline: to_dict() emits no "type" key.
+                or (not obj_type and "origin" in obj and "angle" in obj))
+
     def paste_items(self, offset, data=None):
         """Add clipboard records translated by *offset*.
 
@@ -7384,6 +7405,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             data = self.clipboard_data() or []
         new_items = []
         for obj in data:
+            if not self._paste_accepts(obj):
+                continue                      # no branch for this record type
             obj_type = obj.get("type", "")
             if obj_type in self._GEOM_TYPE_REGISTRY:
                 item = self._add_from_dict(obj)
