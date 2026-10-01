@@ -295,6 +295,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: found 2026-09-30, segfaulted at base `a0a4547`; on HEAD crashed once then passed 14/14. Same native teardown family as `test_grip_object_limit.py`. ref: test-harness.
 - [ ] [type:maint] `BlockOpenDialog` / Blocks browser tree indentation literal → `theme.M` token [P4] [subject:UX]
   - Details: 2026-09-30 review minor — `setIndentation(16)` is duplicated in `block_open_dialog.py` and `blocks_browser.py`; one `M` token (browser trees share `ui_kit.browser_tree_qss()`). ref: ui-design-system.
+- [ ] [type:maint] Spec hygiene from the Block Editor ribbon Account [P4] [subject:Docs]
+  - Details: 2026-09-30 Account findings, pre-existing: parametric-constraint-system.md D15 cites icon-style-guide §7 for "no greyed placeholders" but §7 is the no-shipped-placeholder_icon.svg rule (and the plan geo2d contextual tab ships disabled constraint placeholders D15 doesn't record); ribbon-bar.md D7 still says one ribbon test exists and its §5 acceptance criterion omits `_block_mode_buttons`; model-space-containment-contract.md `status: proposal` is stale. ref: parametric-constraint-system, ribbon-bar, model-space-containment-contract.
 
 ## 3D view follow-ups (from the closable 3D tab build, 2026-09-30)
 

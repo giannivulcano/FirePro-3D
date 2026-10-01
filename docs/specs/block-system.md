@@ -1,18 +1,19 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
-last-verified: 2026-09-30  # nested-blocks account (feat/nested-blocks); prior 2026-09-28
-verified-commit: 345f1b7   # nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-09-30  # Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 44325e5   # Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
   - firepro3d/block_library.py      # new — .fpdb I/O, per-folder index, divergence
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
-  - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser)
+  - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser) + module helpers library_only_entries / ensure_block_loaded (shared with the Open picker, 2026-09-30)
+  - firepro3d/block_open_dialog.py  # 2026-09-30 — BlockOpenDialog, the Block Editor tab's Open… picker
   - firepro3d/app_data.py           # new — shared _app_data_dir() helper (GENERALIZE)
   - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition + set_origin mode (v2)
   - firepro3d/scene_io.py           # .fpd embed of definitions + instances
-  - firepro3d/main.py               # Blocks ribbon group + browser dock; Create/Quick Block + Block Editor contextual ribbon + active-scene routing (v2)
+  - firepro3d/main.py               # browser dock; Block Editor ribbon tab (permanent base tab since 2026-09-30 — Block group New/Open/Manager/Insert + editor-only groups; wiring owned by ribbon-bar.md) + active-scene routing (v2)
   - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + bbox_top_left
   - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
   - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
@@ -529,7 +530,7 @@ project registry — **disconnected from all model views**.
   + repaint-all + metadata update); optional delete of `source_items` + one instance at `origin`;
   **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
   same core.
-- **Entry points:** Create Block button (blank | seeded-with-selection-**copy** → new `id`); Manager →
+- **Entry points:** Create Block button — since 2026-09-30 the Block Editor tab's **New** (blank | seeded-with-selection-**copy** → new `id`; `_open_block_editor`); Block Editor tab **Open…** (`BlockOpenDialog`, see "Open picker" below → `edit_definition`); Manager →
   Create new (blank); Manager → Create new based off selected (clone geometry + `attributes`, new
   `id`); Manager → **Open in Editor** (same `id`, edit-in-place); right-click **Edit Block** on a
   block instance (plan *or* Block Editor) and double-click on a nested instance (Block Editor only)
@@ -537,8 +538,20 @@ project registry — **disconnected from all model views**.
   (focus an open tab unchanged, else open + seed). **Quick Block is retired**
   (`model-space-containment-contract.md` C7): under C1's placement-only Model Space there is no loose
   *model* geometry to consume-and-bake, so the separate Quick Block button and its `MakeBlockDialog`
-  instant-bake path are gone. The Create/Insert Block + Block Manager entry commands live in the
-  Architecture "Block" ribbon group (the Create tab is dissolved).
+  instant-bake path are gone. The block entry commands (New / Open / Manager / Insert) live in the
+  **Block** group of the permanent **Block Editor** ribbon tab (*as-built 2026-09-30* — they moved
+  there from the C7 Architecture "Block" group, which no longer exists; wiring owned by
+  `ribbon-bar.md` §3.4).
+- **Open picker (2026-09-30)** — `block_open_dialog.BlockOpenDialog` (a `HouseDialog`; metrics
+  `theme.M.BLOCK_OPEN_*`): a search box over a tree of **Project** (the project's definitions) then
+  **Library** ▸ library ▸ series holding **library-only** blocks (on-disk entries whose `id` is not
+  in the project — `blocks_browser.library_only_entries`, the same catalog the Blocks browser uses);
+  empty roots are omitted; empty states "No blocks yet — create one with New" / "No blocks match".
+  **Open** (or activating a leaf) on a library-only block first loads it into the project via
+  `blocks_browser.ensure_block_loaded` (one undoable `load_blocks_from_files` batch; a failed load
+  shows the shared load-failure message and the dialog stays open); the caller then runs
+  `block_editor_manager.edit_definition(chosen_id)`. Guards: `tests/test_block_open_dialog.py`,
+  `tests/test_block_editor_ribbon_tab.py`.
 - **Seeded create is non-destructive:** the editor works on a **copy**; the model is touched only at
   Save via a "replace source with an instance?" prompt (default yes), atomically in the one commit
   undo (source items passed as `source_items`).
@@ -564,6 +577,10 @@ project registry — **disconnected from all model views**.
   definition-local (render-ops already origin-relative). Folds in `todo_open.md:60`.
 - **Restricted "Block Editor" ribbon context** while an editor tab is active (2D geometry +
   modify/transform + constraints + editor verbs only); property panel reused; no level chrome.
+  *As-built 2026-09-30:* realised as the permanent **Block Editor** base tab whose editor-only groups
+  (Definition / 2D Geometry / Edit / Modify) are enabled only while a Block Editor canvas tab is
+  current, and disabled (with an explanatory tooltip) otherwise; the Block group
+  stays live. Mechanism owned by `ribbon-bar.md` §3.4 (Rule A).
 
 ### Save, import placement & library (2026-09-23, block polish)
 
@@ -602,7 +619,12 @@ project registry — **disconnected from all model views**.
   indexed `.fpdb`, merged with the project registry (a library entry whose `id` is in the project
   lists once, as project). Library-only leaves are italic/dimmed; double-click loads them via
   `load_blocks_from_files` then emits `blockActivated` (a refused/unreadable load reports and does
-  not place). *Since 2026-09-30:* leaves also drag out, activation places into the **active**
+  not place). *Since 2026-09-30 (behaviour unchanged):* the catalog and the loader are module
+  helpers shared with the Open picker — `library_only_entries(scene, root)` (the
+  `(library, series, name, block_id, path)` tuples of library entries not in the project) and
+  `ensure_block_loaded(scene, block_id, path, name, root, parent)` (True when the id resolves in the
+  project afterwards; loads a library-only block as one undoable batch, else shows the shared
+  load-failure message). *Since 2026-09-30:* leaves also drag out, activation places into the **active**
   canvas, and a cycle refusal is checked **before** any load — see "Nested blocks" below. Bold folder rows + sibling-browser tree chrome; collapsed folders survive refresh;
   refreshes on `blockDefinitionsChanged`, the library change listener, and `showEvent`. (DD-12 still
   holds: the Manager's Load stays a browse-anywhere file dialog.)

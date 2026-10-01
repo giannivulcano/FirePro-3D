@@ -1098,7 +1098,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.update_property_manager()
             self._refresh_snap_align_indicators()
             return
-        # Leaving a Block Editor tab: tear down its contextual ribbon.
+        # Leaving a Block Editor tab: grey the editor-only ribbon buttons and
+        # restore the ribbon tab that was current before entering.
         self._hide_block_editor_ribbon()
         self._refresh_snap_align_indicators()
         tab_text = self.central_tabs.tabText(index)
@@ -4852,7 +4853,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except Exception:
             pass
 
-    # ── Block Editor contextual ribbon ──────────────────────────────────────
+    # ── Block Editor ribbon tab (permanent base tab) ────────────────────────
     def _active_editor_widget(self):
         """The current Block Editor tab widget, or None."""
         from firepro3d.block_editor import BlockEditorWidget
@@ -4898,7 +4899,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         gb = page.add_group("Block")
         b = gb.add_large_button("New", _I("make_block_icon.svg"),
                                 self._open_block_editor)
-        b.setToolTip("New block — opens an empty Block Editor tab")
+        b.setToolTip("New block — opens a new Block Editor tab")
         b = gb.add_large_button("Open", _I("block_manager_icon.svg"),
                                 self._open_block_from_picker)
         b.setToolTip("Open a project or library block in the Block Editor")

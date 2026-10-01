@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment (per-vertex miter, splines on the control polygon) BUILT 2026-09-29 on feature/offset-chord-translate; D10 change request pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
-last-verified: 2026-09-30  # nested-blocks account (block Explode reachable in the Block Editor, D13/D14 deltas, block rotate step retired); prior 2026-09-29 D9 amendment: guards + user smoke on feature/offset-chord-translate
-verified-commit: 345f1b7   # feat/nested-blocks (account); prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-09-30  # Block Editor ribbon tab account (permanent tab replaces _build_block_editor_context; Edit/Modify disabled with no editor tab; view-3d I5 refusal linked); prior 2026-09-30 nested-blocks account (block Explode reachable in the Block Editor, D13/D14 deltas, block rotate step retired); prior 2026-09-29 D9 amendment: guards + user smoke on feature/offset-chord-translate
+verified-commit: 44325e5   # feat/block-editor-ribbon-tab (account); prior 345f1b7 feat/nested-blocks (account); prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -456,7 +456,7 @@ Constraints owned elsewhere (linked, not restated): rotation sense →
 `project_rotation_conventions_yup_vs_qt`; length display/parse →
 `units-and-formatting.md`; HUD engine → `dynamic_input.SCHEMAS` +
 `model-space-architecture.md`; handles-only move snap → `snapping-engine.md`;
-ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
+ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §3.8 (contextual tabs); C1 →
 `model-space-containment-contract.md`; per-item transform protocol →
 `selection-manipulator.md`.
 
@@ -468,6 +468,11 @@ ribbon page / contextual model → `ribbon-bar.md` §3.8; C1 →
   routed through the **active scene** (never hard-wired to the plan). The plan
   geo2d tab is moot under C1 (D13); architecture tabs + plan block instances
   reuse the builder in milestone 2.
+  *As-built 2026-09-30:* the Block Editor page is now a **permanent base tab**
+  (`MainWindow._init_block_editor_tab`, built once) rather than a contextual page;
+  its Edit + Modify groups are additionally disabled whenever no Block Editor
+  canvas tab is current (`_set_block_editor_context` / `_refresh_modify_buttons`).
+  Page mechanism owned by `ribbon-bar.md` §3.4 (Rule A).
 - **D2 Shortcuts.** Window-level, active-scene-routed, not firing while a text
   field / the HUD has focus: **Shift+C** Copy · **Shift+X** Cut · **Shift+V**
   Paste · **Shift+D** Duplicate · **Shift+M** Move · **Shift+R** Rotate ·
@@ -732,6 +737,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - `firepro3d/modify_tools_controller.py` — `ModifyToolsController`
   (`scene._modify_ctl`, owns no state): Copy/Cut/Paste/Duplicate/Move/Rotate/
   Offset/linear Array press/move/preview/commit + `start` / `clear` (D1–D11).
+  `start` also refuses every Edit/Modify entry while the canvas shows no view
+  (owned by `view-3d.md` I5 — Rule A).
 - `firepro3d/transform_ghost.py` — ghost base paths (`ghost_base_paths`),
   `paint_ghost`, dim/restore of the originals (D11).
 - `firepro3d/scene_tools.py` — `SceneTools` (composed `scene._tools`):
@@ -751,7 +758,9 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - `firepro3d/model_view.py` — `_TOOL_SHORTCUTS` (draw tools only), Tab →
   `begin_dynamic_input`, stretch crossing band, plan context menu.
 - `main.py` — `_build_contextual_edit_group`, `_build_geo2d_context`,
-  `_build_block_editor_context`, window `QShortcut`s (Ctrl+C/V/D, Shift+A).
+  `_init_block_editor_tab` (the permanent Block Editor tab, built once — replaced
+  `_build_block_editor_context` 2026-09-30) + `_set_block_editor_context`,
+  window `QShortcut`s (Ctrl+C/V/D, Shift+A).
 - `firepro3d/dynamic_input.py` — HUD schemas.
 - `firepro3d/geometry_2d.py`, `firepro3d/text_item.py` — per-item protocol.
 
@@ -781,7 +790,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
   that transform.
 - `ribbon-bar.md` §3.8 describes the geo2d builder as "Placement + Fill +
   Edit" (2026-08-22) in one bullet and "Edit → Constraints → Graphic Override"
-  (2026-09-16) a paragraph later; the code matches the latter.
+  (2026-09-16) a paragraph later; the code matches the latter. *(Resolved
+  2026-09-30: the registry bullet now states the 2026-09-16 order.)*
 - `main.py` `_MODE_INSTRUCTIONS` and `Model_Space.set_mode` `_initial_steps`
   carry duplicate, diverging instruction strings for the same modes (e.g.
   offset "Tab for exact distance", which is false today).

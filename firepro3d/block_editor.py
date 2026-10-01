@@ -277,9 +277,10 @@ class BlockEditorWidget(QWidget):
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        # Editor verbs (Save / Set Origin / Import / Edit Attributes) live in the
-        # contextual "Block Editor" ribbon, built by MainWindow when this tab is
-        # active — not on a widget strip (see main._build_block_editor_context).
+        # Editor verbs (Save / Set Origin / Import / Edit Attributes) live on the
+        # permanent "Block Editor" ribbon tab, enabled by MainWindow while this
+        # tab is current — not on a widget strip (see
+        # MainWindow._init_block_editor_tab).
         lay.addWidget(self.view)
         self._dirty = False
         self._origin = None          # QPointF | None ; None => auto bbox_top_left

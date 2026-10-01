@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-09-30  # chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 416584c   # chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-09-30  # Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 44325e5   # Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -14,6 +14,7 @@ applies-to:
   - firepro3d/underlay_import_dialog.py
   - firepro3d/block_manager.py
   - firepro3d/block_editor.py       # BlockSaveDialog chrome (HouseDialog + CreatableSelector); behaviour → block-system.md
+  - firepro3d/block_open_dialog.py  # BlockOpenDialog chrome (HouseDialog, theme.M.BLOCK_OPEN_* tokens; in the hexguard + metrics-drift guard lists, 2026-09-30); behaviour → block-system.md
 source-tasks:
   - "todo_open.md:69 (FramelessShellMixin governing spec — this closes the orphan)"
   - "todo_open.md:265 (chrome hexguard — partial: new files only)"
