@@ -340,3 +340,90 @@ def test_real_pdf_underlay_only_pure_line_records_are_axes(plan):
     assert _ends(pick) == {(3000.0, 0.0), (4000.0, 0.0)}
     pick = pick_axis(plan, QPointF(6500, -998), TOL)            # rect edge
     assert pick is not None and _ends(pick) == {(6000.0, -1000.0), (7000.0, -1000.0)}
+
+
+# ── RR-1 perf: a large straight underlay record (user bar 2026-10-01) ──────
+
+def _big_underlay_geoms():
+    """50k records: 40k lines + 10k 5-point straight polylines + one closed
+    20k-vertex straight contour (a site contour / building outline)."""
+    import math
+    import random
+    rnd = random.Random(1)
+    geoms = []
+    for _ in range(40000):
+        x, y = rnd.uniform(0, 100000), rnd.uniform(0, 100000)
+        geoms.append({"kind": "line", "layer": "L", "x1": x, "y1": y,
+                      "x2": x + rnd.uniform(-300, 300),
+                      "y2": y + rnd.uniform(-300, 300)})
+    for _ in range(10000):
+        x, y = rnd.uniform(0, 100000), rnd.uniform(0, 100000)
+        geoms.append({"kind": "path_points", "layer": "P", "closed": False,
+                      "straight": True,
+                      "points": [(x + 200 * k, y + (50 if k % 2 else 0))
+                                 for k in range(5)]})
+    n, r, cx, cy = 20000, 20000.0, 50000.0, 50000.0
+    contour = [(cx + r * math.cos(2 * math.pi * k / n),
+                cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    geoms.append({"kind": "path_points", "layer": "C", "closed": True,
+                  "straight": True, "points": contour})
+    return geoms, contour
+
+
+@pytest.mark.perf
+def test_pick_axis_on_a_huge_straight_underlay_record_is_interactive(plan):
+    """Median ``pick_axis`` per hover with the cursor ON a 20k-vertex straight
+    contour inside a 50k-record underlay: <= 8 ms (user bar, 2026-10-01)."""
+    import statistics
+    import time
+    geoms, contour = _big_underlay_geoms()
+    grp = _build_like_import(plan, geoms)
+    step = len(contour) // 20
+    cursors = []
+    for k in range(0, len(contour), step):
+        (ax, ay), (bx, by) = contour[k], contour[(k + 1) % len(contour)]
+        cursors.append(QPointF((ax + bx) / 2, (ay + by) / 2))
+    for c in cursors:                                   # every hover hits it
+        pick = pick_axis(plan, c, 15.0)
+        assert pick is not None and pick.source is grp
+    times = []
+    for _ in range(5):
+        for c in cursors:
+            t0 = time.perf_counter()
+            pick_axis(plan, c, 15.0)
+            times.append((time.perf_counter() - t0) * 1000.0)
+    med = statistics.median(times)
+    assert med <= 8.0, f"median pick_axis {med:.2f} ms"                 # [RED]
+
+
+# ── RR-2: bulged polyline spans are arcs in the source ─────────────────────
+
+def _bulge_entities():
+    import ezdxf
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    # Door swing: quarter arc as a 2-vertex LWPOLYLINE, bulge tan(90/4).
+    msp.add_lwpolyline([(0, 0, 0, 0, 0.41421356), (-1000, 1000, 0, 0, 0)],
+                       format="xyseb")
+    # Old-style heavy POLYLINE with one bulged span.
+    heavy = msp.add_polyline2d([(3000, 0), (4000, 0), (4000, 1000)])
+    heavy.vertices[1].dxf.bulge = 0.5
+    # Straight heavy POLYLINE, and an OPEN LWPOLYLINE whose only bulge sits
+    # on its last vertex (it shapes no span) — both straight.
+    msp.add_polyline2d([(6000, 0), (7000, 0)])
+    msp.add_lwpolyline([(9000, 0, 0, 0, 0), (10000, 0, 0, 0, 0.7)],
+                       format="xyseb")
+    return list(msp)
+
+
+def test_bulged_polyline_spans_are_never_an_axis(plan):
+    geoms = _extract(_bulge_entities())
+    assert [g.get("straight") for g in geoms] == [None, None, True, True]  # [RED]
+    grp = _build_like_import(plan, geoms)
+    assert pick_axis(plan, QPointF(-500, -500), TOL) is None      # swing chord
+    assert pick_axis(plan, QPointF(3500, 2), TOL) is None         # heavy, bulged
+    for cursor, ends in ((QPointF(6500, 2), {(6000.0, 0.0), (7000.0, 0.0)}),
+                         (QPointF(9500, 2), {(9000.0, 0.0), (10000.0, 0.0)})):
+        pick = pick_axis(plan, cursor, TOL)
+        assert pick is not None and pick.source is grp
+        assert _ends(pick) == ends

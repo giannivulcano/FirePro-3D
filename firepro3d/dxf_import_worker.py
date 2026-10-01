@@ -543,23 +543,32 @@ class DxfImportWorker(QThread):
 
         elif etype in ("LWPOLYLINE", "POLYLINE"):
             if hasattr(entity, "get_points"):
-                pts = list(entity.get_points())
+                pts = list(entity.get_points())          # "xyseb"
+                bulges = [pt[4] for pt in pts]
             else:
                 # POLYLINE (3D) uses .vertices instead of .get_points()
-                pts = [(v.dxf.location.x, v.dxf.location.y)
-                       for v in entity.vertices]
+                verts = list(entity.vertices)
+                pts = [(v.dxf.location.x, v.dxf.location.y) for v in verts]
+                bulges = [v.dxf.get("bulge", 0.0) for v in verts]
             if len(pts) < 2:
                 return None
             closed = bool(hasattr(entity.dxf, "flags") and entity.dxf.flags & 1)
-            # "straight": every span is drawn as a straight chord (bulges are
-            # not rendered), unlike the flattened ARC / partial-ELLIPSE /
-            # SPLINE records above and below, which never carry the key. The
-            # Flip / Mirror axis picker accepts only straight records (DD2).
-            return {
+            rec = {
                 "kind": "path_points", "layer": layer, "color": color,
                 "points": [(pt[0], -pt[1]) for pt in pts],
-                "closed": closed, "straight": True,
+                "closed": closed,
             }
+            # "straight": every span is a true straight segment — no bulge on
+            # any span (a vertex's bulge shapes the span it STARTS; the last
+            # vertex's only matters when closed). A bulged span is an arc in
+            # the source (e.g. a door swing) even though the underlay draws
+            # its chord. Flattened ARC / partial-ELLIPSE / SPLINE records
+            # never carry the key; the Flip / Mirror axis picker accepts only
+            # straight records (DD2, review RR-2).
+            span_bulges = bulges if closed else bulges[:-1]
+            if not any(span_bulges):
+                rec["straight"] = True
+            return rec
 
         elif etype == "SPLINE":
             if getattr(self, "_preserve_curves", False):

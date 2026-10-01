@@ -64,21 +64,38 @@ def _is_axis_source(item) -> bool:
     return isinstance(item, (_STRAIGHT_2D, GridlineItem, WallSegment))
 
 
-def _record_segments(g: dict):
-    """Local ``(a, b)`` point pairs of a straight underlay record, or none.
+def _record_spans(g: dict, lx1: float, ly1: float, lx2: float,
+                  ly2: float) -> list:
+    """Local ``(a, b)`` spans of a straight underlay record that meet a rect.
 
     ``line`` records are straight by kind; ``path_points`` records only when
     tagged ``"straight": True`` (closed ones include their closing edge).
+    A span whose local bounding box misses ``[lx1, lx2] x [ly1, ly2]`` is
+    dropped here, before any mapping — one huge straight record (a
+    20k-vertex site contour) is walked once per hover with plain float
+    compares only (review RR-1; the snap generator's local-reject idiom).
     """
     kind = g.get("kind")
     if kind == "line":
-        yield (g["x1"], g["y1"]), (g["x2"], g["y2"])
+        pts = [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
     elif kind == "path_points" and g.get("straight") is True:
         pts = g.get("points", [])
-        for k in range(len(pts) - 1):
-            yield pts[k], pts[k + 1]
         if g.get("closed") and len(pts) >= 3:
-            yield pts[-1], pts[0]
+            pts = list(pts) + [pts[0]]
+    else:
+        return []
+    out = []
+    it = iter(pts)
+    try:
+        ax, ay = next(it)
+    except StopIteration:
+        return out
+    for bx, by in it:
+        if not ((ax < lx1 and bx < lx1) or (ax > lx2 and bx > lx2)
+                or (ay < ly1 and by < ly1) or (ay > ly2 and by > ly2)):
+            out.append(((ax, ay), (bx, by)))
+        ax, ay = bx, by
+    return out
 
 
 def _underlay_groups(scene, rect: QRectF):
@@ -102,8 +119,10 @@ def _underlay_segments(scene, rect: QRectF):
         if not ok:
             continue
         lr = inv.mapRect(rect)
+        lx1, ly1 = lr.x(), lr.y()
+        lx2, ly2 = lx1 + lr.width(), ly1 + lr.height()
         for g in grp.data(4).query(lr.x(), lr.y(), lr.width(), lr.height()):
-            for a, b in _record_segments(g):
+            for a, b in _record_spans(g, lx1, ly1, lx2, ly2):
                 yield (xf.map(QPointF(a[0], a[1])), xf.map(QPointF(b[0], b[1])),
                        grp)
 
