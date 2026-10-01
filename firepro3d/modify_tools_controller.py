@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
 from .cad_math import CAD_Math
@@ -501,6 +501,8 @@ class ModifyToolsController:
             s._array_dir = None
             s._array_spacing = 0.0
             s._array_row_spacing = 0.0
+            s._array_total = None
+            s._array_start_deg = None
         if new_mode not in ("flip", "mirror"):
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
@@ -1207,16 +1209,21 @@ class ModifyToolsController:
 
     # HUD fields remembered per variant after a typed commit: (field, param).
     # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim.
-    ARRAY_SCHEMA_FOR_VARIANT = {"linear": "array_linear", "grid": "array_grid"}
+    ARRAY_SCHEMA_FOR_VARIANT = {"linear": "array_linear", "grid": "array_grid",
+                                "polar": "array_polar"}
     _ARRAY_MEMORY_FIELDS = {"linear": (("Count", "count"),),
-                            "grid": (("Cols", "cols"), ("Rows", "rows"))}
+                            "grid": (("Cols", "cols"), ("Rows", "rows")),
+                            "polar": (("Count", "count"), ("Total", "total_deg"))}
     _ARRAY_STEP2 = {
         "linear": "Pick spacing + direction (or type Angle / Spacing / Count)",
         "grid": "Pick the first cell's far corner (or type the grid)",
+        "polar": "Sweep the fill angle (or type Count / Total)",
     }
     ARRAY_LINEAR_REFUSED = "Array needs a direction, Spacing > 0 and Count ≥ 2"
     ARRAY_GRID_REFUSED = ("2D array needs Cols × Rows ≥ 2 and a non-zero "
                           "spacing along every axis with more than one")
+    ARRAY_POLAR_REFUSED = "Polar array needs Count ≥ 2 and 0° < Total ≤ 360°"
+    ARRAY_POLAR_NOTHING = "Nothing to array — no selected item can rotate"
 
     @staticmethod
     def _unit(deg: float) -> QPointF:
@@ -1271,6 +1278,27 @@ class ModifyToolsController:
         u = self._unit(self._scene._array_angle_locked or 0.0)
         return u, QPointF(u.y(), -u.x())
 
+    @staticmethod
+    def polar_step(total_deg: float, count: int) -> float:
+        """Polar pitch: a full 360° fills evenly (no copy lands on the
+        original); a partial fill puts the last copy at ``total_deg``."""
+        if abs(total_deg - 360.0) < 1e-9:
+            return 360.0 / count
+        return total_deg / (count - 1)
+
+    def _array_targets(self, items) -> list:
+        """What the current variant arrays (and ghosts).
+
+        Linear / 2D: every transformable item (the D11 dim set). Polar:
+        Rotate's rule (``manip_rotate``) minus Nodes — a zero-offset node
+        paste lands on its own original and dedupes (``add_node``).
+        """
+        from .node import Node
+        if self._scene._array_variant == "polar":
+            return [it for it in self._rotatable(items)
+                    if not isinstance(it, Node)]
+        return self._transformable(items)
+
     def _aim_array(self, snapped: QPointF) -> None:
         """Update the live aim from the base -> *snapped* ray.
 
@@ -1278,7 +1306,9 @@ class ModifyToolsController:
         spacing is the ray's projection onto the locked direction (≤ 0 keeps
         the previous spacing — the direction never flips). A zero-length ray
         keeps the previous aim. 2D: the cursor is the first cell's diagonal
-        corner — signed projections onto the column / row axes.
+        corner — signed projections onto the column / row axes. Polar: the
+        CCW sweep from the start ray sets Total; on the start ray it is a
+        full 360°.
         """
         s = self._scene
         dx = snapped.x() - s._array_base.x()
@@ -1290,6 +1320,11 @@ class ModifyToolsController:
             u, v = self._array_grid_axes()
             s._array_spacing = dx * u.x() + dy * u.y()
             s._array_row_spacing = dx * v.x() + dy * v.y()
+            return
+        if s._array_variant == "polar":
+            sweep = (self._heading(s._array_base, snapped)
+                     - (s._array_start_deg or 0.0)) % 360.0
+            s._array_total = sweep if sweep > 1e-9 else 360.0
             return
         if s._array_angle_locked is not None:
             u = self._unit(s._array_angle_locked)
@@ -1307,6 +1342,10 @@ class ModifyToolsController:
         s = self._scene
         v = s._array_variant
         mem = s._array_memory[v]
+        if v == "polar":
+            total = (s._array_total if s._array_total is not None
+                     else float(mem["Total"]))
+            return {"count": int(mem["Count"]), "total_deg": total}
         if v == "grid":
             return {"angle": self.array_seed_angle(),
                     "col_spacing": s._array_spacing, "cols": int(mem["Cols"]),
@@ -1325,6 +1364,8 @@ class ModifyToolsController:
             Values keyed by field name (scene units).
         """
         p = self._array_live_params()
+        if schema_name == "array_polar":
+            return {"Count": max(2, p["count"]), "Total": p["total_deg"]}
         if schema_name == "array_grid":
             return {"Angle": p["angle"], "ColSpacing": p["col_spacing"],
                     "Cols": p["cols"], "RowSpacing": p["row_spacing"],
@@ -1345,6 +1386,16 @@ class ModifyToolsController:
         Returns:
             ``(transforms, None)`` or ``(None, reason)``.
         """
+        if self._scene._array_variant == "polar":
+            n, total = int(p["count"]), float(p["total_deg"])
+            if n < 2 or not 0.0 < total <= 360.0 + 1e-9:
+                return None, self.ARRAY_POLAR_REFUSED
+            c = self._scene._array_base
+            step = self.polar_step(total, n)
+            # QTransform.rotate is visually CW in the Y-down scene, so the
+            # Y-up CCW+ pose maps to rotate(-deg) — preview_rotate's sign.
+            return [QTransform().translate(c.x(), c.y()).rotate(-k * step)
+                    .translate(-c.x(), -c.y()) for k in range(1, n)], None
         if self._scene._array_variant == "grid":
             cols, rows = int(p["cols"]), int(p["rows"])
             csp, rsp = float(p["col_spacing"]), float(p["row_spacing"])
@@ -1366,13 +1417,23 @@ class ModifyToolsController:
                 for k in range(1, n)], None
 
     def press_array(self, event, pos, snapped, *_):
-        """Array click: the base point, then the next click commits."""
+        """Array click: the base point (Polar: the centre), then the next
+        click commits."""
         s = self._scene
         if s._array_base is None:
             s._array_base = QPointF(snapped)
             s._move_ghost_base = self._shape_paths_for_move(
-                self._transformable(s._selected_items))
+                self._array_targets(s._selected_items or []))
             s._move_ghost = []
+            if s._array_variant == "polar":
+                # Start ray: centre -> centre of what is arrayed (0° when they
+                # coincide); the cursor's CCW sweep from it is Total.
+                box = QRectF()
+                for path in s._move_ghost_base:
+                    box = box.united(path.boundingRect())
+                c = box.center()
+                far = math.hypot(c.x() - snapped.x(), c.y() - snapped.y()) > 1e-9
+                s._array_start_deg = self._heading(snapped, c) if far else 0.0
             s.instructionChanged.emit(self._ARRAY_STEP2[s._array_variant])
             return
         self._aim_array(snapped)
@@ -1395,6 +1456,9 @@ class ModifyToolsController:
     def _array_readout(self) -> str:
         """Status-bar readout of what a click would commit now."""
         p = self._array_live_params()
+        if self._scene._array_variant == "polar":
+            return (f"Count: {p['count']}  "
+                    f"Total: {ScaleManager.format_span(p['total_deg'])}")
         if self._scene._array_variant == "grid":
             return (f"Cols: {p['cols']} × Rows: {p['rows']}  "
                     f"Col: {self._fmt_len(p['col_spacing'])}  "
@@ -1428,8 +1492,11 @@ class ModifyToolsController:
         """Create the current variant's copies of the selection; one undo step.
 
         Copies go through the same serialiser + ``paste_items(data=)`` path
-        as Duplicate (every selectable kind; the OS clipboard is never
-        touched). Returns to Select with the ORIGINAL selection (D10).
+        as Duplicate (the OS clipboard is never touched). Linear / 2D paste
+        each copy at its offset; Polar pastes in place and turns each copy
+        through its own ``manip_rotate`` about the centre (Rotate's loop),
+        skipping what cannot rotate (counted in the status). Returns to
+        Select with the ORIGINAL selection (D10).
 
         Args:
             params: HUD-resolved params, else the live aim + remembered counts.
@@ -1444,12 +1511,30 @@ class ModifyToolsController:
         if transforms is None:
             s._show_status(why, 3000)
             return False
+        v = s._array_variant
         src = [it for it in (s._selected_items or []) if it.scene() is s]
-        records = s._clipboard_item_dicts(src)
+        copy_src = self._array_targets(src) if v == "polar" else src
+        records = s._clipboard_item_dicts(copy_src)
         created = []
-        for t in transforms:
-            created += s.paste_items(QPointF(t.dx(), t.dy()),
-                                     data=records) or []
+        if v == "polar":
+            centre = QPointF(s._array_base)
+            step = self.polar_step(float(p["total_deg"]), int(p["count"]))
+            for k in range(1, int(p["count"])):
+                new = s.paste_items(QPointF(0, 0), data=records) or []
+                for it in self._rotatable(new):
+                    it.manip_rotate(k * step, QPointF(centre))
+                for it in new:
+                    fitting = getattr(it, "fitting", None)
+                    if fitting is not None:
+                        fitting.update()
+                created += new
+            tools = getattr(s, "_tools", None)
+            if tools is not None and created:
+                tools._solve_constraints()
+        else:
+            for t in transforms:
+                created += s.paste_items(QPointF(t.dx(), t.dy()),
+                                         data=records) or []
         if created:
             s.push_undo_state()
         s._move_ghost = []
@@ -1463,10 +1548,13 @@ class ModifyToolsController:
             if it.scene() is s:
                 it.setSelected(True)
         if not created:
-            s._show_status("Nothing arrayed", 3000)
+            s._show_status(self.ARRAY_POLAR_NOTHING
+                           if v == "polar" and not copy_src
+                           else "Nothing arrayed", 3000)
             return False
-        s._show_status(f"Arrayed {len(created)} item(s) "
-                       f"({len(transforms) + 1} total)")
+        skipped = len(src) - len(copy_src)
+        msg = f"Arrayed {len(created)} item(s) ({len(transforms) + 1} total)"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return True
 
     def apply_array(self, params: dict) -> bool:

@@ -450,6 +450,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._array_dir: "QPointF | None" = None
         self._array_spacing: float = 0.0
         self._array_row_spacing: float = 0.0     # 2D: signed row pitch (mm)
+        self._array_total: "float | None" = None      # Polar: swept fill (deg)
+        self._array_start_deg: "float | None" = None  # Polar: start-ray heading
         # Session-sticky per canvas tab (never cleared by clear()): the ←/→
         # variant and the last typed non-cursor HUD fields per variant.
         self._array_variant: str = "linear"

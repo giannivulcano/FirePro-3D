@@ -281,3 +281,117 @@ def test_variant_and_typed_values_prefill_the_next_array(qapp):
                         if (r, c) != (0, 0)])
     finally:
         close_view(view, scene)
+
+
+def _add_line(scene, p1, p2):
+    from firepro3d.geometry_2d import LineItem
+    ln = LineItem(QPointF(*p1), QPointF(*p2))
+    scene.addItem(ln); scene._draw_lines.append(ln)
+    scene.push_undo_state()
+    scene.clearSelection(); ln.setSelected(True)
+    return ln
+
+
+def _polar(view):
+    """Linear -> 2D -> Polar with two real → presses."""
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+
+
+def test_arrow_cycle_reaches_polar_and_wraps(qapp):
+    view, scene = _view(scale=1.0)
+    try:
+        add_primitive(scene, "circle")
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        assert seen[-1].startswith("Polar Array (←/→ to change)")       # [RED]
+        assert scene.active_schema().name == "array_polar"
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)
+        assert seen[-1].startswith("Linear Array (←/→ to change)")
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_8_at_360_places_8_items_at_45_degree_steps_each_rotated(qapp):
+    """M1: Polar 8 @ 360° = 8 items incl. the original at 45° steps about the
+    centre, each copy TURNED (its own manip_rotate), CCW in Y-up."""
+    view, scene = _view(scale=1.0)
+    try:
+        ln = _add_line(scene, (100, 0), (150, 0))
+        p0 = scene._undo_pos
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0))                                       # centre
+        _type(scene, Count="8", Total="360")
+        lines = scene._draw_lines
+        assert len(lines) == 8                                           # [RED]
+        rad = [math.radians(45 * k) for k in range(8)]
+        _assert_points([l.grip_points()[0] for l in lines],
+                       [(100 * math.cos(a), -100 * math.sin(a)) for a in rad])
+        _assert_points([l.grip_points()[2] for l in lines],
+                       [(150 * math.cos(a), -150 * math.sin(a)) for a in rad])
+        for l in lines:          # turned, not just moved: p1 -> p2 is radial
+            p1, p2 = l.grip_points()[0], l.grip_points()[2]
+            a = math.atan2(-p1.y(), p1.x())
+            assert p2.x() - p1.x() == pytest.approx(50 * math.cos(a), abs=0.01)
+            assert p2.y() - p1.y() == pytest.approx(-50 * math.sin(a), abs=0.01)
+        assert scene._undo_pos == p0 + 1
+        assert ln.isSelected()
+        scene.undo()
+        assert len(scene._draw_lines) == 1
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_cursor_sweep_sets_total_ccw_and_ghost_matches(qapp):
+    """DD5: the cursor's CCW sweep from the start ray (centre -> selection)
+    sets Total — 90° here, so the default Count 4 lands at 30/60/90° (Y-up,
+    i.e. UP the screen); the ghost is exactly what the click creates."""
+    from firepro3d.transform_ghost import ghost_base_paths
+    view, scene = _view(scale=1.0)
+    try:
+        _add_line(scene, (100, 0), (150, 0))
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0)); move(view, QPointF(0, -200))       # 90° CCW
+        ghost = _ghost_centres(scene._move_ghost)
+        click(view, QPointF(0, -200))
+        lines = scene._draw_lines
+        assert len(lines) == 4                                           # [RED]
+        _assert_points([l.grip_points()[1] for l in lines],              # midpoints
+                       [(125 * math.cos(math.radians(a)),
+                         -125 * math.sin(math.radians(a))) for a in (0, 30, 60, 90)])
+        assert _ghost_centres(ghost_base_paths(lines[1:])) == ghost
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_skips_nodes_with_a_count(qapp):
+    """DD5: Polar arrays what Rotate can turn; a Node (a zero-offset node paste
+    merges onto its original) is skipped and counted in the status."""
+    from firepro3d.gridline import GridlineItem
+    view, scene = _view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        node = scene.add_node(300.0, 300.0)
+        gl = GridlineItem(QPointF(100, -50), QPointF(100, 50), label="P1")
+        scene._register_gridline(gl)
+        scene.push_undo_state()
+        n_nodes = len(scene.sprinkler_system.nodes)
+        before = list(scene._gridlines)
+        scene.clearSelection(); node.setSelected(True); gl.setSelected(True)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0))
+        _type(scene, Count="4", Total="360")
+        new = [g for g in scene._gridlines if all(g is not b for b in before)]
+        assert len(new) == 3                                             # [RED]
+        assert len(scene.sprinkler_system.nodes) == n_nodes
+        _assert_points([gl.grip_points()[0]] + [g.grip_points()[0] for g in new],
+                       [(100, -50), (-50, -100), (-100, 50), (50, 100)])
+        assert msgs[-1].endswith("(1 skipped)")
+    finally:
+        close_view(view, scene)

@@ -83,12 +83,14 @@ class PlacementInputCoordinator:
                  lambda s: s._set_floor_primitive("polygon")),
             ],
             # Array (scene-tools.md D10 + P1 DD5): one mode, the variant
-            # sets ``_array_variant`` (Polar joins in Task 7.5).
+            # sets ``_array_variant``.
             "array": [
                 ("Linear Array", "Pick base point",
                  lambda s: setattr(s, "_array_variant", "linear")),
                 ("2D Array", "Pick base point",
                  lambda s: setattr(s, "_array_variant", "grid")),
+                ("Polar Array", "Pick centre point",
+                 lambda s: setattr(s, "_array_variant", "polar")),
             ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
