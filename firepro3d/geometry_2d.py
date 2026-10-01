@@ -476,6 +476,14 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                         for p in self._points]
         self._rebuild_path()
 
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror of every vertex across the infinite line p1-p2 (DD1).
+
+        Closed flag and fill are untouched (the item is edited in place)."""
+        from .cad_math import CAD_Math
+        self._points = [CAD_Math.mirror_point(p, p1, p2) for p in self._points]
+        self._rebuild_path()
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -742,6 +750,15 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         from .cad_math import CAD_Math
         self._pt1 = CAD_Math.rotate_point(self._pt1, pivot, -angle_deg)
         self._pt2 = CAD_Math.rotate_point(self._pt2, pivot, -angle_deg)
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror of both endpoints across the infinite line p1-p2 (DD1).
+        Inherited by ``ReferenceLineItem`` (type, printed flag and the dashed
+        reference pen are kept: the item is edited in place)."""
+        from .cad_math import CAD_Math
+        self._pt1 = CAD_Math.mirror_point(self._pt1, p1, p2)
+        self._pt2 = CAD_Math.mirror_point(self._pt2, p1, p2)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
@@ -1331,6 +1348,40 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                        None if self._pivot is None else o)
         self.translate(new_o.x() - o.x(), new_o.y() - o.y())
 
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (DD1): still a rect.
+
+        With θ = the axis' Y-up heading, reflecting a rect drawn at ``_angle``
+        about its origin ``o`` equals rotating by ``2θ − _angle`` about the
+        mirrored origin ``o'`` a local rect flipped top-for-bottom about ``o``
+        (Refl_θ·Rot(α) = Rot(2θ−α)·Refl_0). A rect is 180°-symmetric, so a
+        heading ≥ 180 is folded by 180 with a left-for-right flip instead
+        (Rot(180)·Refl_0 = Refl_vertical) — an axis-aligned rect mirrored
+        across an axis-aligned line stays at angle 0. The pivot semantics are
+        kept (centre-following stays None; an explicit pivot moves to o').
+        """
+        from .arc_math import _norm360, yup_angle
+        from .cad_math import CAD_Math
+        theta = yup_angle(p1, p2)
+        o = self._rotation_origin()
+        new_o = CAD_Math.mirror_point(o, p1, p2)
+        r = self.rect()
+        ang = _norm360(2.0 * theta - self._angle)
+        if ang >= 180.0 - 1e-9:
+            ang = max(0.0, ang - 180.0)
+            new = QRectF(new_o.x() - (r.right() - o.x()),
+                         new_o.y() + (r.top() - o.y()),
+                         r.width(), r.height())
+        else:
+            new = QRectF(new_o.x() + (r.left() - o.x()),
+                         new_o.y() - (r.bottom() - o.y()),
+                         r.width(), r.height())
+        if ang < 1e-9:
+            ang = 0.0
+        self.prepareGeometryChange()
+        self.setRect(new)
+        self.set_angle(ang, None if self._pivot is None else new_o)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CircleItem  — circle defined by centre + edge point
@@ -1472,6 +1523,14 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         circle shape is rotation-invariant so the radius is unchanged."""
         from .cad_math import CAD_Math
         self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (DD1): the centre moves;
+        a circle is mirror-symmetric so the radius is unchanged."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.mirror_point(self._center, p1, p2)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
@@ -1802,6 +1861,20 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._start_deg = (self._start_deg + angle_deg) % 360.0
         self._rebuild_path()
 
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (DD1, Y-up angles).
+
+        A reflection reverses orientation, so the old END becomes the new
+        START: start' = 2θ − (start + span), span kept (θ = the axis' Y-up
+        heading via ``arc_math.yup_angle``)."""
+        from .arc_math import _norm360, yup_angle
+        from .cad_math import CAD_Math
+        theta = yup_angle(p1, p2)
+        self._center = CAD_Math.mirror_point(self._center, p1, p2)
+        self._start_deg = _norm360(2.0 * theta
+                                   - (self._start_deg + self._span_deg))
+        self._rebuild_path()
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -2090,6 +2163,18 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
         self._regenerate()
 
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (DD1, Y-up angles):
+        rotation' = 2θ − rotation. A vertex at heading a maps to 2θ − a; the
+        circumscribed half-step offset 180/n contributes 2·180/n = one full
+        step, so the vertex SET is identical for both shapes."""
+        from .arc_math import _norm360, yup_angle
+        from .cad_math import CAD_Math
+        theta = yup_angle(p1, p2)
+        self._center = CAD_Math.mirror_point(self._center, p1, p2)
+        self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
+        self._regenerate()
+
     def to_dict(self) -> dict:
         d = {
             "type":        "polygon",
@@ -2309,6 +2394,16 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         from .cad_math import CAD_Math
         self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
         self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
+        self._regenerate()
+
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (DD1, Y-up angles):
+        the major-axis heading maps to 2θ − rotation; rx / ry are kept."""
+        from .arc_math import _norm360, yup_angle
+        from .cad_math import CAD_Math
+        theta = yup_angle(p1, p2)
+        self._center = CAD_Math.mirror_point(self._center, p1, p2)
+        self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
 
     def get_properties(self) -> dict:
@@ -2563,6 +2658,16 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         from .cad_math import CAD_Math
         self._control_points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror of the control points across the line p1-p2 (DD1).
+
+        Only the control points change: degree, knots, weights and any closed
+        flag (Slice 8 ``_closed``) are left exactly as they are."""
+        from .cad_math import CAD_Math
+        self._control_points = [CAD_Math.mirror_point(p, p1, p2)
                                 for p in self._control_points]
         self._regenerate()
 
