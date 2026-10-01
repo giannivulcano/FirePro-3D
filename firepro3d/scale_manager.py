@@ -16,7 +16,7 @@ Calibration workflow:
 from __future__ import annotations
 import math
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
@@ -390,6 +390,65 @@ class ScaleManager:
             return float(m.group(1))
         except (TypeError, ValueError):
             return None
+
+    # A unitless ratio (Scale tool factor): the shared §3.1 number grammar,
+    # unsigned (a factor is a magnitude; ``-0.5`` is not a number here), with
+    # an optional trailing ``x`` / ``×`` ("2x").
+    _FACTOR_RE = re.compile(rf"^\s*({_NUM})\s*[xX×]?\s*$")
+
+    @staticmethod
+    def format_factor(value: float) -> str:
+        """Format a unitless ratio (the Scale tool's factor).
+
+        One formatter for every place a factor is shown (HUD field, live
+        status, commit message). Values >= 1 keep up to 4 decimals; values
+        below 1 keep 4 *significant* digits, so a tiny positive factor never
+        collapses to ``"0"`` (which Enter would refuse). Never scientific
+        notation (``parse_factor`` refuses it, §3.1). Trailing zeros trimmed.
+        Non-finite input renders ``"1"`` (the identity) rather than ``"nan"``;
+        it reaches Qt paint paths, like :meth:`format_span`.
+
+        Args:
+            value: The factor.
+
+        Returns:
+            E.g. ``"2"``, ``"0.5"``, ``"0.3333"``, ``"0.00002"``, ``"12345.6"``.
+        """
+        v = float(value)
+        if not math.isfinite(v):
+            return "1"
+        if v == 0.0:
+            return "0"
+        mag = abs(v)
+        decimals = 4 if mag >= 1.0 else 4 - floor(math.log10(mag)) - 1
+        # Enough precision for any finite float at any decimals used here
+        # (the default 28 digits would raise on a huge factor).
+        with localcontext() as ctx:
+            ctx.prec = 400
+            q = Decimal(repr(v)).quantize(Decimal(1).scaleb(-decimals),
+                                          rounding=ROUND_HALF_UP)
+            s = f"{q:f}"
+        if "." in s:
+            s = s.rstrip("0").rstrip(".")
+        return "0" if s in ("", "-0", "-") else s
+
+    @staticmethod
+    def parse_factor(text: str) -> float | None:
+        """Parse a unitless ratio per the shared §3.1 grammar (``_NUM``).
+
+        Unsigned; a trailing ``x`` / ``×`` is tolerated (``"2x"``).
+        Scientific notation, ``_`` separators, ``nan`` / ``inf`` and signs
+        are refused.
+
+        Returns:
+            The factor, or None when unparseable so ``DimensionEdit`` reverts.
+        """
+        if not text:
+            return None
+        m = ScaleManager._FACTOR_RE.match(str(text))
+        if not m:
+            return None
+        return float(m.group(1))
 
     @staticmethod
     def parse_dimension(text: str, fallback_unit: str = "mm") -> float | None:

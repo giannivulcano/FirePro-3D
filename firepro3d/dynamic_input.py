@@ -579,24 +579,13 @@ def _parse_count(text: str) -> float | None:
 
 
 def _format_factor(value: float) -> str:
-    """Format a FACTOR (unitless ratio): up to 4 decimals, zeros trimmed
-    (``2`` -> ``"2"``, ``0.5`` -> ``"0.5"``, ``1/3`` -> ``"0.3333"``)."""
-    text = f"{value:.4f}".rstrip("0").rstrip(".")
-    return text if text not in ("", "-0") else "0"
+    """Shell → :meth:`ScaleManager.format_factor` (the one home)."""
+    return ScaleManager.format_factor(value)
 
 
 def _parse_factor(text: str) -> float | None:
-    """Parse a unitless ratio; a trailing ``x`` / ``×`` is tolerated (``2x``).
-
-    Returns:
-        The finite float, or None so ``DimensionEdit`` reverts.
-    """
-    t = str(text).strip().rstrip("xX×").strip()
-    try:
-        v = float(t)
-    except (TypeError, ValueError):
-        return None
-    return v if math.isfinite(v) else None
+    """Shell → :meth:`ScaleManager.parse_factor` (the one home)."""
+    return ScaleManager.parse_factor(text)
 
 
 # ── Field sizing (decision S2) ────────────────────────────────────────────

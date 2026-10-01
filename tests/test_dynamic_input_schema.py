@@ -144,6 +144,31 @@ class TestRegistry:
         ed.setText("0")
         assert ed.try_commit() is False          # <= 0 refused (strict minimum)
 
+    @pytest.mark.parametrize("text", ["1e3", "1_000", "nan", "inf", "-0.5"])
+    def test_factor_editor_refuses_outside_the_number_grammar(self, qapp, text):
+        """units-and-formatting.md §3.1: a typo like ``1e3`` reverts — it
+        must never commit a x1000 scale."""
+        from firepro3d.dynamic_input import DynamicInputHud
+        from firepro3d.scale_manager import ScaleManager
+        hud = DynamicInputHud(SCHEMAS["scale_factor"], ScaleManager())
+        ed = hud.editor("Factor")
+        ed.setText("0.5")
+        assert ed.try_commit() is True
+        ed.setText(text)
+        assert ed.try_commit() is False                                  # [RED]
+        assert ed.value_mm() == pytest.approx(0.5)
+
+    @pytest.mark.parametrize("text,value", [("0.5", 0.5), ("2", 2.0),
+                                            ("1.25", 1.25)])
+    def test_factor_editor_accepts_plain_decimals(self, qapp, text, value):
+        from firepro3d.dynamic_input import DynamicInputHud
+        from firepro3d.scale_manager import ScaleManager
+        hud = DynamicInputHud(SCHEMAS["scale_factor"], ScaleManager())
+        ed = hud.editor("Factor")
+        ed.setText(text)
+        assert ed.try_commit() is True
+        assert ed.value_mm() == pytest.approx(value)
+
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
         assert SCHEMAS["spacing_count"].requires_anchor is False
