@@ -165,30 +165,8 @@ class TestEntityContextMenu:
     """Tests for the entity path (_show_entity_context_menu via build_entity_context_menu)."""
 
     def _capture_entity_menu(self, ms, target):
-        """Call _show_entity_context_menu and intercept the menu before exec.
-
-        We monkey-patch QMenu.exec on the returned menu to prevent blocking.
-        The menu is captured via the patched on_fill callback.
-        """
-        from firepro3d.entity_context_menu import build_entity_context_menu
-        # Call the builder directly (same as _show_entity_context_menu does internally)
-        from firepro3d.room import Room
-        selected = ms.selectedItems()
-
-        menu = build_entity_context_menu(
-            selected,
-            target,
-            scene=ms,
-            on_copy=ms.copy_selected_items,
-            on_hide=lambda: ms._hide_items(
-                [target] + [i for i in selected if i is not target]
-            ),
-            on_hide_all_type=lambda t=type(target): ms._hide_all_of_type(t),
-            on_show_all=ms._show_all_hidden,
-            on_delete=ms.delete_selected_items,
-            on_properties=lambda: None,
-        )
-        return menu
+        """Build the entity menu through the production builder (no exec)."""
+        return ms._build_entity_context_menu(target)
 
     def test_fill_submenu_present_for_fillable_target(self, qapp):
         """Entity-path menu contains a Fill submenu when the target is fillable."""

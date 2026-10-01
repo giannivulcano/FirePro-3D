@@ -48,6 +48,7 @@ def build_entity_context_menu(
     on_delete=None,
     on_properties=None,
     on_copy=None,
+    on_cut=None,
     on_deselect=None,
     on_fit=None,
     on_refresh=None,
@@ -69,6 +70,9 @@ def build_entity_context_menu(
         The model scene (for hide/show operations).
     on_* : callable or None
         Callbacks for each action.  Pass ``None`` to omit the action.
+    on_copy, on_cut : callable or None
+        Copy / Cut — both start the modify tool's base-point pick
+        (scene-tools.md D4, P1 DD10).
     on_array_gridline : callable or None
         "Array Gridlines…" action (shown only when target is a GridlineItem).
     on_offset_gridline : callable or None
@@ -94,6 +98,12 @@ def build_entity_context_menu(
         act = menu.addAction("Copy")
         act.setEnabled(has_sel)
         act.triggered.connect(on_copy)
+
+    # ── Cut (beside Copy; same base-point flow, then removes) ──
+    if on_cut is not None:
+        act = menu.addAction("Cut")
+        act.setEnabled(has_sel)
+        act.triggered.connect(on_cut)
 
     # ── Hide / Show ──
     if on_hide is not None:

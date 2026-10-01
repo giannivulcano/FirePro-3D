@@ -6723,6 +6723,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _show_entity_context_menu(self, target, screen_pos):
         """Build and show the right-click context menu for scene entities."""
+        self._build_entity_context_menu(target).exec(screen_pos)
+
+    def _build_entity_context_menu(self, target):
+        """Build (no exec) the entity right-click menu — split out so tests
+        drive the production wiring (the plan view's
+        ``_build_plan_context_menu`` precedent).
+
+        Args:
+            target: The right-clicked item (may be None).
+
+        Returns:
+            The populated ``QMenu``.
+        """
         from .entity_context_menu import build_entity_context_menu
         from .room import Room
 
@@ -6731,11 +6744,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Explode is Block-Editor-only (containment C1); Edit Block is offered
         # on the plan too (smoke 1) and opens the block's editor tab.
         nested_block = self.scene_role == "block_editor" and is_block
-        menu = build_entity_context_menu(
+        return build_entity_context_menu(
             selected,
             target,
             scene=self,
-            on_copy=self.copy_selected_items,
+            # DD10: Copy / Cut start the base-point pick (scene-tools.md D4).
+            on_copy=lambda: self._modify_ctl.start("copy"),
+            on_cut=lambda: self._modify_ctl.start("cut"),
             on_hide=lambda: self._hide_items(
                 [target] + [i for i in selected if i is not target]
             ),
@@ -6764,7 +6779,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if nested_block else None
             ),
         )
-        menu.exec(screen_pos)
 
     def set_sprinkler_db(self, db):
         """Inject the shared SprinklerDatabase (called by MainWindow)."""
@@ -7341,7 +7355,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return data
 
     def copy_selected_items(self):
-        """Immediate copy (context menu / copy-to-level): versioned payload
+        """Immediate copy (copy-to-level / internal callers): versioned payload
         with base = the selection's bounding-box centre (scene-tools.md D4)."""
         items = list(self.selectedItems())
         rect = QRectF()

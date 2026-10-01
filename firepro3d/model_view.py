@@ -1640,8 +1640,12 @@ class Model_View(QGraphicsView):
             menu.addSeparator()
             delete_act = menu.addAction("Delete")
             delete_act.triggered.connect(scene.delete_selected_items)
+            # DD10: Copy / Cut start the base-point pick (scene-tools.md D4),
+            # like Duplicate below — not an immediate bbox-centre copy.
             copy_act = menu.addAction("Copy")
-            copy_act.triggered.connect(scene.copy_selected_items)
+            copy_act.triggered.connect(lambda: scene._modify_ctl.start("copy"))
+            cut_act = menu.addAction("Cut")
+            cut_act.triggered.connect(lambda: scene._modify_ctl.start("cut"))
             dup_act = menu.addAction("Duplicate")
             dup_act.triggered.connect(lambda: scene._modify_ctl.start("duplicate"))
             menu.addSeparator()
