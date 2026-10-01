@@ -68,6 +68,17 @@ def _dicts_close(a, b, tol: float = 1e-9) -> bool:
     return a == b
 
 
+def _degenerate_axis(p1: QPointF, p2: QPointF) -> bool:
+    """True when the mirror axis p1-p2 has (near-)zero length (DD1).
+
+    ``CAD_Math.mirror_point`` treats such an axis as identity, but the
+    per-item orientation terms (Rect / Arc / Polygon / Ellipse) would still
+    flip, half-applying the reflection — so every ``manip_reflect`` is a
+    no-op instead. Same 1e-12 length² threshold as ``mirror_point``."""
+    dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+    return dx * dx + dy * dy < 1e-12
+
+
 class Geometry2DMixin:
     """Shared level-plane placement + fill for 2D draw geometry.
 
@@ -480,6 +491,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Baked mirror of every vertex across the infinite line p1-p2 (DD1).
 
         Closed flag and fill are untouched (the item is edited in place)."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .cad_math import CAD_Math
         self._points = [CAD_Math.mirror_point(p, p1, p2) for p in self._points]
         self._rebuild_path()
@@ -766,6 +779,8 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         """Baked mirror of both endpoints across the infinite line p1-p2 (DD1).
         Inherited by ``ReferenceLineItem`` (type, printed flag and the dashed
         reference pen are kept: the item is edited in place)."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .cad_math import CAD_Math
         self._pt1 = CAD_Math.mirror_point(self._pt1, p1, p2)
         self._pt2 = CAD_Math.mirror_point(self._pt2, p1, p2)
@@ -1378,6 +1393,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         across an axis-aligned line stays at angle 0. The pivot semantics are
         kept (centre-following stays None; an explicit pivot moves to o').
         """
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .arc_math import _norm360, yup_angle
         from .cad_math import CAD_Math
         theta = yup_angle(p1, p2)
@@ -1564,6 +1581,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
         """Baked mirror across the infinite line p1-p2 (DD1): the centre moves;
         a circle is mirror-symmetric so the radius is unchanged."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .cad_math import CAD_Math
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
@@ -1909,6 +1928,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         A reflection reverses orientation, so the old END becomes the new
         START: start' = 2θ − (start + span), span kept (θ = the axis' Y-up
         heading via ``arc_math.yup_angle``)."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .arc_math import _norm360, yup_angle
         from .cad_math import CAD_Math
         theta = yup_angle(p1, p2)
@@ -2217,6 +2238,8 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         rotation' = 2θ − rotation. A vertex at heading a maps to 2θ − a; the
         circumscribed half-step offset 180/n contributes 2·180/n = one full
         step, so the vertex SET is identical for both shapes."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .arc_math import _norm360, yup_angle
         from .cad_math import CAD_Math
         theta = yup_angle(p1, p2)
@@ -2455,6 +2478,8 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
         """Baked mirror across the infinite line p1-p2 (DD1, Y-up angles):
         the major-axis heading maps to 2θ − rotation; rx / ry are kept."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .arc_math import _norm360, yup_angle
         from .cad_math import CAD_Math
         theta = yup_angle(p1, p2)
@@ -2731,6 +2756,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
         Only the control points change: degree, knots, weights and any closed
         flag (Slice 8 ``_closed``) are left exactly as they are."""
+        if _degenerate_axis(p1, p2):
+            return              # zero-length axis: no-op, never half-applied
         from .cad_math import CAD_Math
         self._control_points = [CAD_Math.mirror_point(p, p1, p2)
                                 for p in self._control_points]

@@ -214,3 +214,77 @@ def test_text_and_blocks_have_no_reflect_or_scale_about():
     for cls in (TextItem, BlockInstance):
         assert not hasattr(cls, "manip_reflect"), cls
         assert not hasattr(cls, "manip_scale_about"), cls
+
+
+# ── Review fix round (I-1 handedness, I-2 degenerate axis, round-trip) ──────
+
+def _ellipse_17():
+    from firepro3d.geometry_2d import EllipseItem
+    return EllipseItem(QPointF(30, -20), 80.0, 40.0, rotation_deg=17.0)
+
+
+def _polygon_17(inscribed):
+    from firepro3d.geometry_2d import RegularPolygonItem
+    return RegularPolygonItem(QPointF(-25, 40), sides=5, radius_mm=50.0,
+                              rotation_deg=17.0, inscribed=inscribed)
+
+
+# Rotated fixtures: with rotation 0, ``2θ − rot`` and ``2θ + rot`` coincide,
+# so the handedness of the orientation term is only observable off zero.
+ROTATED = {
+    "ellipse_rot17": _ellipse_17,
+    "polygon_inscribed_rot17": lambda: _polygon_17(True),
+    "polygon_circumscribed_rot17": lambda: _polygon_17(False),
+}
+
+
+def _make_any(scene, name):
+    item = ROTATED[name]() if name in ROTATED else PRIMITIVES[name][0]()
+    scene.addItem(item)
+    return item
+
+
+@pytest.mark.parametrize("name", list(ROTATED))
+def test_rotated_ellipse_and_polygon_reflect_with_correct_handedness(scene, name):
+    """I-1: a 17°-rotated ellipse / pentagon (inscribed and circumscribed)
+    mirrored across the skew axis paints the point-wise mirror image."""
+    item = _make_any(scene, name)
+    p1, p2 = AXES["skew"]
+    before = _dense(halo_scene_path(item))
+    item.manip_reflect(QPointF(p1), QPointF(p2))
+    _assert_same_outline(
+        [CAD_Math.mirror_point(p, p1, p2) for p in before], item)    # [RED]
+
+
+@pytest.mark.parametrize("axis", [
+    (QPointF(37, -12), QPointF(37, -12)),
+    (QPointF(37, -12), QPointF(37 + 1e-7, -12)),
+], ids=["coincident", "sub_tolerance"])
+@pytest.mark.parametrize("name", GEOM + list(ROTATED))
+def test_degenerate_axis_reflect_is_a_no_op(scene, name, axis):
+    """I-2: a zero-length axis must not half-apply the reflection (the point
+    map is identity but the orientation terms would still flip)."""
+    item = _make_any(scene, name)
+    before = _dense(halo_scene_path(item))
+    d0 = item.to_dict()
+    item.manip_reflect(QPointF(axis[0]), QPointF(axis[1]))
+    _assert_same_outline(before, item)                               # [RED]
+    assert item.to_dict() == d0
+
+
+@pytest.mark.parametrize("op", ["reflect", "scale"])
+@pytest.mark.parametrize("name", GEOM + list(ROTATED))
+def test_transformed_item_round_trips_through_dict(scene, name, op):
+    """A reflected / scaled item rebuilt via ``to_dict`` → ``from_dict``
+    paints the same geometry (no unpersisted transient state)."""
+    item = _make_any(scene, name)
+    if op == "reflect":
+        p1, p2 = AXES["skew"]
+        item.manip_reflect(QPointF(p1), QPointF(p2))
+    else:
+        item.manip_scale_about(QPointF(50, 80), 1.5)
+    painted = _dense(halo_scene_path(item))
+    clone = type(item).from_dict(item.to_dict())
+    scene.addItem(clone)
+    assert type(clone) is type(item)
+    _assert_same_outline(painted, clone)
