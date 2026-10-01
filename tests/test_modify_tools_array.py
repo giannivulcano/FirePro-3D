@@ -7,8 +7,18 @@ the ORIGINAL selection selected.
 import pytest
 from PyQt6.QtCore import QPointF
 
-from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
-from tests._snap_polish_helpers import click, close_view, make_view, move
+from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
+                                         ignore_os_mouse)
+from tests._snap_polish_helpers import click, close_view, move
+from tests._snap_polish_helpers import make_view as _make_view
+
+
+def make_view(**kw):
+    """A shown Model_View deaf to the real OS mouse — a live cursor over the
+    window used to re-aim the array (Slice 7 review S2: 3 of 8 runs)."""
+    view, scene = _make_view(**kw)
+    ignore_os_mouse(view)
+    return view, scene
 
 
 @pytest.mark.parametrize("name", list(PRIMITIVES))

@@ -403,7 +403,7 @@ def _mid_angles(lines, r=125.0):
     for l in lines:
         m = l.grip_points()[1]
         assert math.hypot(m.x(), m.y()) == pytest.approx(r, abs=0.01)
-        out.append(round(math.degrees(math.atan2(-m.y(), m.x())) % 360.0, 2))
+        out.append(round(math.degrees(math.atan2(-m.y(), m.x())), 2) % 360.0)
     return sorted(out)
 
 
@@ -554,6 +554,11 @@ def test_big_array_ghost_is_simplified_but_covers_the_commit(qapp):
                      (extent.right(), union.right()),
                      (extent.bottom(), union.bottom())):
             assert a == pytest.approx(b, abs=0.01)
+        # Every committed copy is in the merged ghost (not just the extent).
+        sub = sorted((round(poly.boundingRect().center().x(), 1),
+                      round(poly.boundingRect().center().y(), 1))
+                     for poly in ghost[0].toSubpathPolygons())
+        assert sub == _ghost_centres(ghost_base_paths(copies))
         assert extent.left() == pytest.approx(0.0, abs=0.01)
         assert extent.right() == pytest.approx(14 * 120 + 100, abs=0.01)
         assert extent.top() == pytest.approx(-14 * 60, abs=0.01)
@@ -607,5 +612,115 @@ def test_50x50_grid_ghost_repaint_is_interactive(qapp):
         med = statistics.median(times)
         print(f"median ghost repaint {med:.1f} ms (first {first:.1f} ms)")
         assert med <= 16.0, f"median ghost repaint {med:.1f} ms"         # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_start_ray_points_at_the_selection_off_the_zero_ray(qapp):
+    """Review I4: the sweep starts on the ray centre -> selection centre.
+    The line sits at 270° (Y-up) from the centre; a 90° CCW sweep to 0°
+    makes Total 90, so the default Count 4 lands at 300 / 330 / 0°."""
+    view, scene = _view(scale=1.0)
+    try:
+        _add_line(scene, (0, 100), (0, 150))                  # 270° (scene +Y)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))         # 0°
+        click(view, QPointF(200, 0))
+        assert _mid_angles(scene._draw_lines) == [0.0, 270.0, 300.0, 330.0]  # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_locked_projection_at_or_behind_the_base_keeps_the_spacing(qapp):
+    """Review I4 / C-8: with the Angle locked, a cursor whose projection on
+    the locked direction is <= 0 keeps the previous spacing (the direction
+    never flips, the spacing is never the projection's magnitude)."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        move(view, QPointF(300, -40))
+        sp = 300 * COS30 + 40 * SIN30
+        move(view, QPointF(-100, 0)); click(view, QPointF(-100, 0))     # behind
+        _assert_points([c._center for c in getattr(scene, attr)],       # [RED]
+                       [(sp * k * COS30, -sp * k * SIN30) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_angle_equal_to_the_live_aim_does_not_lock(qapp):
+    """Review I4: an Angle equal to the live (unlocked) aim is the readout,
+    not a lock — the cursor keeps aiming direction + spacing."""
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, -200))      # 45°
+        _tab_angle(scene, "45")
+        move(view, QPointF(0, -300)); click(view, QPointF(0, -300))
+        _assert_points([c._center for c in getattr(scene, attr)],       # [RED]
+                       [(0.0, -300.0 * k) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_ghost_matches_the_commit_full_rects_of_a_rotated_rect(qapp):
+    """Review S1: ghost == commit on FULL bounding rects of an asymmetric
+    item (a rotated rectangle) — a ghost that moved copies without turning
+    them would differ in size, not just position."""
+    from firepro3d.transform_ghost import ghost_base_paths
+    view, scene = _view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "rect_rotated")
+        scene._array_memory["polar"]["Count"] = 3
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        centre = QPointF(-300, 0)
+        click(view, centre)
+        start = scene._array_start_deg
+        a = math.radians(start + 100.0)                       # 100° CCW sweep
+        cur = QPointF(centre.x() + 400 * math.cos(a), centre.y() - 400 * math.sin(a))
+        move(view, cur)
+        assert scene._array_total == pytest.approx(100.0, abs=0.5)
+
+        def rects(paths):
+            return sorted(tuple(round(v, 1) for v in (
+                p.boundingRect().left(), p.boundingRect().top(),
+                p.boundingRect().right(), p.boundingRect().bottom()))
+                for p in paths)
+
+        ghost = rects(scene._move_ghost)
+        click(view, cur)
+        copies = getattr(scene, attr)[1:]
+        assert len(copies) == 2
+        assert rects(ghost_base_paths(copies)) == ghost
+        base = rects(ghost_base_paths([item]))[0]
+        for r in ghost:          # turned: no copy keeps the original's size
+            assert (round(r[2] - r[0], 1), round(r[3] - r[1], 1)) != (
+                round(base[2] - base[0], 1), round(base[3] - base[1], 1))
+    finally:
+        close_view(view, scene)
+
+
+def test_status_readout_shows_an_active_angle_lock(qapp):
+    """Review S4: a session-sticky Angle lock is visible in the readout."""
+    from firepro3d.scale_manager import ScaleManager
+    view, scene = _view(scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        assert "(locked)" not in msgs[-1]
+        _tab_angle(scene, "30")
+        move(view, QPointF(300, -40))
+        assert f"Angle: {ScaleManager.format_angle(30.0)} (locked)" in msgs[-1]  # [RED]
+        _tab_angle(scene, "0")
+        move(view, QPointF(300, -40))
+        assert "(locked)" not in msgs[-1]
     finally:
         close_view(view, scene)

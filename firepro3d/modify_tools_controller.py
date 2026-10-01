@@ -1293,6 +1293,9 @@ class ModifyToolsController:
             return
         angle = float(angle)
         if abs(angle) < 1e-9:
+            # 0 releases the lock — and so does any multiple of 360 (360,
+            # -360, 720 …), which ScaleManager.parse_angle normalises to 0
+            # (review S5).
             s._array_angle_locked = None
             return
         if (s._array_angle_locked is None
@@ -1522,15 +1525,21 @@ class ModifyToolsController:
 
     def _array_readout(self) -> str:
         """Status-bar readout of what a click would commit now."""
+        s = self._scene
         p = self._array_live_params()
-        if self._scene._array_variant == "polar":
+        if s._array_variant == "polar":
             return (f"Count: {p['count']}  "
                     f"Total: {ScaleManager.format_span(p['total_deg'])}")
-        if self._scene._array_variant == "grid":
+        # Review S4: the session-sticky Angle lock is always visible.
+        lock = ("" if s._array_angle_locked is None else
+                f"  Angle: {ScaleManager.format_angle(s._array_angle_locked)}"
+                " (locked)")
+        if s._array_variant == "grid":
             return (f"Cols: {p['cols']} × Rows: {p['rows']}  "
                     f"Col: {self._fmt_len(p['col_spacing'])}  "
-                    f"Row: {self._fmt_len(p['row_spacing'])}")
-        return f"Spacing: {self._fmt_len(p['spacing'])}  Count: {p['count']}"
+                    f"Row: {self._fmt_len(p['row_spacing'])}" + lock)
+        return (f"Spacing: {self._fmt_len(p['spacing'])}  Count: {p['count']}"
+                + lock)
 
     def preview_array(self, params: dict | None = None,
                       typed: bool = False) -> None:
