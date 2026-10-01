@@ -483,6 +483,7 @@ def _spline_copy(src, cps):
     new._degree = src._degree
     new._knots = list(src._knots) if src._knots else None
     new._weights = list(src._weights) if src._weights else None
+    new._closed = src._closed          # DD7: a periodic source stays periodic
     new._regenerate()
     return new
 

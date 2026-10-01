@@ -1651,7 +1651,9 @@ class SnapEngine:
         #    control points / endpoints, not the tessellated bezier vertices) ─
         elif isinstance(item, SplineItem):
             cps = item.grip_points()   # control points, scene coords
-            if self.snap_endpoint and cps:
+            # DD7: a periodic (smooth closed) spline has no end points; its
+            # nearest / perpendicular / intersection snaps come from the path.
+            if self.snap_endpoint and cps and not item.is_periodic():
                 for c in cps:
                     pts.append(("endpoint", c, None))
 
