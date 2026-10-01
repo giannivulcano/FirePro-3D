@@ -33,6 +33,7 @@ from .geometry_2d import (
 from .geometry_2d import _AXIS_MIN as _ELLIPSE_AXIS_MIN
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
+from .arc_math import yup_angle
 
 
 def extract_edges(item) -> list[tuple[QPointF, QPointF]]:
@@ -639,8 +640,8 @@ def compute_fillet(item1, item2, radius):
     tp1 = CAD_Math.point_on_line_nearest(center, item1._pt1, item1._pt2)
     tp2 = CAD_Math.point_on_line_nearest(center, item2._pt1, item2._pt2)
     # Arc angles
-    sa = math.degrees(math.atan2(tp1.y()-center.y(), tp1.x()-center.x()))
-    ea = math.degrees(math.atan2(tp2.y()-center.y(), tp2.x()-center.x()))
+    sa = yup_angle(center, tp1)
+    ea = yup_angle(center, tp2)
     span = (ea - sa) % 360
     if span > 180:
         span -= 360
@@ -781,8 +782,7 @@ def compute_extend_intersections(item, grip_idx, boundary):
             elif bseg[0] == "arc":
                 pts = gi.line_circle_intersections_unbounded(p1, p2, bseg[1], bseg[2])
                 for pt in pts:
-                    angle = math.degrees(math.atan2(
-                        pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
+                    angle = yup_angle(bseg[1], pt) % 360
                     if gi._angle_in_arc(angle, bseg[3], bseg[4]):
                         raw_results.append(pt)
 
@@ -817,8 +817,7 @@ def compute_extend_intersections(item, grip_idx, boundary):
                 pts = gi.line_circle_intersections_unbounded(
                     neighbor, extend_pt, bseg[1], bseg[2])
                 for pt in pts:
-                    angle = math.degrees(math.atan2(
-                        pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
+                    angle = yup_angle(bseg[1], pt) % 360
                     if gi._angle_in_arc(angle, bseg[3], bseg[4]):
                         raw_results.append(pt)
 

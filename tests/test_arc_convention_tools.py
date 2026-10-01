@@ -185,3 +185,63 @@ def test_trim_circle_keeps_the_unclicked_side(qapp):
         assert _covers(arc, _vis(270)) and not _covers(arc, _vis(90))
     finally:
         close_view(view, scene)
+
+
+# ── Fillet ──────────────────────────────────────────────────────────────────
+
+def test_fillet_arc_ends_on_the_tangent_points(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, LineItem(QPointF(100, 0), QPointF(0, 0)), "_draw_lines")
+        _add(scene, LineItem(QPointF(0, -100), QPointF(0, 0)), "_draw_lines")
+        p0 = _baseline(scene)
+        scene.set_mode("fillet")
+        scene._fillet_radius = 10.0
+        click(view, QPointF(60, 0))                # first line (interior)
+        click(view, QPointF(0, -60))               # second line (interior)
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        # tangent points (10,0) / (0,-10); bulge toward the corner
+        assert _ends_match(arc, (10.0, 0.0), (0.0, -10.0))              # [RED]
+        k = 10.0 - 10.0 / math.sqrt(2.0)
+        assert _covers(arc, (k, -k)) and not _covers(arc, (k, -20.0 + k))
+        assert scene._undo_pos == p0 + 1
+        scene.undo()
+        assert scene._draw_arcs == []
+    finally:
+        close_view(view, scene)
+
+
+# ── Extend ──────────────────────────────────────────────────────────────────
+
+def test_extend_line_stops_on_the_painted_arc(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, ArcItem(QPointF(0, 0), R, 0.0, 180.0), "_draw_arcs")
+        ln = _add(scene, LineItem(QPointF(50, -300), QPointF(50, -200)), "_draw_lines")
+        p0 = _baseline(scene)
+        scene.set_mode("extend")
+        click(view, _vis(150))                     # boundary = the arc
+        click(view, QPointF(50, -200))             # the line end to extend
+        assert _near(ln.grip_points()[2], (50.0, -86.6025), 1e-3)       # [RED]
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
+def test_extend_polyline_stops_on_the_painted_arc(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, ArcItem(QPointF(0, 0), R, 0.0, 180.0), "_draw_arcs")
+        pl = PolylineItem(QPointF(50, -300))
+        pl.append_point(QPointF(50, -200))
+        pl.finalize()
+        _add(scene, pl, "_polylines")
+        _baseline(scene)
+        scene.set_mode("extend")
+        click(view, _vis(150))                     # boundary = the arc
+        click(view, QPointF(50, -200))             # the polyline end to extend
+        assert _near(_painted(pl, 1.0), (50.0, -86.6025), 1e-3)         # [RED]
+    finally:
+        close_view(view, scene)
