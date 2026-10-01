@@ -34,7 +34,8 @@ class TestRegistry:
         assert set(SCHEMAS) == {
             "line", "circle", "polygon",
             "displacement", "distance", "offset_distance", "spacing_count",
-            "array_linear", "arc_span", "arc_radius", "rotation", "rotate_by", "track",
+            "array_linear", "array_grid", "array_polar",
+            "arc_span", "arc_radius", "rotation", "rotate_by", "track",
             "scale_factor",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
@@ -68,6 +69,8 @@ class TestRegistry:
             "dX": 70.0, "dY": 80.0,
             "Distance": 90.0,
             "Spacing": 500.0, "Count": 3.0,
+            "ColSpacing": 150.0, "Cols": 3.0, "RowSpacing": -75.0, "Rows": 2.0,
+            "Total": 360.0,
             "Span": 90.0, "ArcLength": 0.0,
             "Width": 120.0, "Height": 140.0,
             "Factor": 2.0,
@@ -96,7 +99,8 @@ class TestRegistry:
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "circle",
                         "polygon", "displacement", "arc_span", "arc_radius",
-                        "rotation", "rotate_by", "array_linear", "scale_factor",
+                        "rotation", "rotate_by", "array_linear",
+                        "array_grid", "array_polar", "scale_factor",
                         "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
@@ -111,17 +115,49 @@ class TestRegistry:
         # The absolute-heading ``rotation`` schema is untouched.
         assert SCHEMAS["rotation"].resolve(None, {"Angle": 30.0}) == {"angle_deg": 30.0}
 
-    def test_array_linear_is_spacing_plus_total_count(self):
-        """scene-tools.md D10: Spacing (> 0) + Count = TOTAL incl. original."""
+    def test_array_linear_is_angle_spacing_total_count(self):
+        """scene-tools.md D10 + P1 DD5: Angle (heading, locks the direction),
+        Spacing (> 0) + Count = TOTAL incl. original."""
         s = SCHEMAS["array_linear"]
-        assert [f.name for f in s.fields] == ["Spacing", "Count"]
-        assert s.fields[0].kind is FieldKind.DIMENSION
-        assert s.fields[0].minimum == 0.0
-        assert s.fields[1].kind is FieldKind.COUNT
-        assert s.fields[1].minimum == 1.0   # strict > 1 -> total >= 2
+        assert [f.name for f in s.fields] == ["Angle", "Spacing", "Count"]
+        assert s.fields[0].kind is FieldKind.ANGLE
+        assert s.fields[0].minimum is None
+        assert s.fields[1].kind is FieldKind.DIMENSION
+        assert s.fields[1].minimum == 0.0
+        assert s.fields[2].kind is FieldKind.COUNT
+        assert s.fields[2].minimum == 1.0   # strict > 1 -> total >= 2
         assert s.is_placement is False and s.needs_anchor is True
-        assert s.resolve(None, {"Spacing": 250.0, "Count": 3.6}) == {
-            "spacing": 250.0, "count": 4}
+        assert s.resolve(None, {"Angle": 30.0, "Spacing": 250.0, "Count": 3.6}) == {
+            "angle": 30.0, "spacing": 250.0, "count": 4}
+
+    def test_array_grid_is_angle_signed_spacings_and_total_cols_rows(self):
+        """DD5 2D: Angle · Col spacing · Cols · Row spacing · Rows (totals)."""
+        s = SCHEMAS["array_grid"]
+        assert [f.name for f in s.fields] == [
+            "Angle", "ColSpacing", "Cols", "RowSpacing", "Rows"]
+        assert [f.kind for f in s.fields] == [
+            FieldKind.ANGLE, FieldKind.DIMENSION, FieldKind.COUNT,
+            FieldKind.DIMENSION, FieldKind.COUNT]
+        # Spacings are signed (the diagonal corner may lie in any quadrant).
+        assert s.fields[1].minimum is None and s.fields[3].minimum is None
+        assert s.fields[2].minimum == 0.0 and s.fields[4].minimum == 0.0
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Angle": 15.0, "ColSpacing": 100.0, "Cols": 2.6,
+                                "RowSpacing": -40.0, "Rows": 0.2}) == {
+            "angle": 15.0, "col_spacing": 100.0, "cols": 3,
+            "row_spacing": -40.0, "rows": 1}
+
+    def test_array_polar_is_total_count_and_span_total(self):
+        """DD5 Polar: Count (TOTAL, >= 2) · Total as an unsigned SPAN."""
+        s = SCHEMAS["array_polar"]
+        assert [f.name for f in s.fields] == ["Count", "Total"]
+        assert s.fields[0].kind is FieldKind.COUNT
+        assert s.fields[0].minimum == 1.0
+        assert s.fields[1].kind is FieldKind.SPAN
+        assert s.fields[1].minimum == 0.0
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Count": 7.6, "Total": 360.0}) == {
+            "count": 8, "total_deg": 360.0}
 
     def test_scale_factor_is_one_unitless_anchored_factor(self):
         """P1 DD4: one unitless ``Factor`` field (strictly > 0) after the base."""

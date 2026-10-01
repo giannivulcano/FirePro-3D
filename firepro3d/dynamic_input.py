@@ -291,14 +291,43 @@ def resolve_spacing_count(anchor, values: dict) -> dict:
 
 
 def resolve_array_linear(anchor, values: dict) -> dict:
-    """Return a linear array's spacing (mm) and TOTAL count (scene-tools D10).
+    """Return a linear array's angle, spacing (mm) and TOTAL count.
 
-    Count includes the original, so ``4`` means three copies.  Coerced the
-    same way as :func:`resolve_spacing_count` (rounded, floored at one); the
-    field's ``minimum`` already refuses a total below two, and the commit
-    path re-checks it.
+    scene-tools.md D10 + P1 DD5: ``Angle`` is the Y-up CCW+ heading a typed
+    value locks the direction to (the controller decides typed vs seeded);
+    Count includes the original, so ``4`` means three copies.  Count is
+    coerced like :func:`resolve_spacing_count` (rounded, floored at one);
+    the field's ``minimum`` refuses a total below two and the commit
+    re-checks it.
     """
-    return resolve_spacing_count(anchor, values)
+    out = resolve_spacing_count(anchor, values)
+    out["angle"] = values["Angle"]
+    return out
+
+
+def resolve_array_grid(anchor, values: dict) -> dict:
+    """Return a 2D array: column-axis angle, signed spacings, TOTAL cols/rows.
+
+    Columns run along ``Angle`` (Y-up CCW+), rows along ``Angle + 90°``
+    (P1 DD5).  Spacings are signed — the cursor's diagonal corner may lie in
+    any quadrant of the axes.  Cols / Rows include the original column / row
+    and are rounded and floored at one, like :func:`resolve_spacing_count`.
+    """
+    return {"angle": values["Angle"],
+            "col_spacing": values["ColSpacing"],
+            "cols": max(1, int(round(values["Cols"]))),
+            "row_spacing": values["RowSpacing"],
+            "rows": max(1, int(round(values["Rows"])))}
+
+
+def resolve_array_polar(anchor, values: dict) -> dict:
+    """Return a polar array's TOTAL count and CCW fill angle (degrees).
+
+    Count includes the original; ``Total`` is an unsigned sweep (``SPAN``).
+    360° fills the circle evenly; the applier refuses Total > 360°.
+    """
+    return {"count": max(1, int(round(values["Count"]))),
+            "total_deg": values["Total"]}
 
 
 def resolve_scale_factor(anchor, values: dict) -> dict:
@@ -423,6 +452,9 @@ SCHEMAS: dict[str, Schema] = {
     "array_linear": Schema(
         name="array_linear",
         fields=(
+            # Y-up CCW+ heading. A typed value locks the direction (P1 DD5);
+            # 0 releases the lock.
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
             FieldSpec("Spacing", "Sp", FieldKind.DIMENSION, minimum=0.0),
             # TOTAL incl. the original; minimum is strict (> 1) -> total >= 2.
             FieldSpec("Count", "N", FieldKind.COUNT, minimum=1.0),
@@ -432,6 +464,34 @@ SCHEMAS: dict[str, Schema] = {
         # Anchored transform: the base point is armed first (D10), so the HUD
         # stays shut until it exists — like ``move`` and ``rotate_by``.
         needs_anchor=True,
+    ),
+    # 2D array (P1 DD5): columns along Angle, rows along Angle + 90° (CCW).
+    "array_grid": Schema(
+        name="array_grid",
+        fields=(
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
+            # Signed: the diagonal corner may lie in any quadrant.
+            FieldSpec("ColSpacing", "Col", FieldKind.DIMENSION),
+            # TOTALS incl. the original column / row (strict > 0 -> >= 1).
+            FieldSpec("Cols", "Cols", FieldKind.COUNT, minimum=0.0),
+            FieldSpec("RowSpacing", "Row", FieldKind.DIMENSION),
+            FieldSpec("Rows", "Rows", FieldKind.COUNT, minimum=0.0),
+        ),
+        resolve=resolve_array_grid,
+        returns_point=False,
+        needs_anchor=True,          # base point first, like array_linear
+    ),
+    # Polar array (P1 DD5): centre first; Count TOTAL, Total = CCW fill.
+    "array_polar": Schema(
+        name="array_polar",
+        fields=(
+            FieldSpec("Count", "N", FieldKind.COUNT, minimum=1.0),
+            # Unsigned sweep; > 360 parses and is refused by the applier.
+            FieldSpec("Total", "Total", FieldKind.SPAN, minimum=0.0),
+        ),
+        resolve=resolve_array_polar,
+        returns_point=False,
+        needs_anchor=True,          # the centre is the anchor
     ),
     "arc_span": Schema(
         name="arc_span",
