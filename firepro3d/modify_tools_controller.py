@@ -24,7 +24,7 @@ from .sprinkler import Sprinkler
 
 # Tools whose originals are dimmed while they run (D11; paste has no originals).
 DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array",
-                                "flip", "mirror"})
+                                "flip", "mirror", "scale"})
 
 
 class ModifyToolsController:
@@ -34,9 +34,9 @@ class ModifyToolsController:
     _TOOL_MODE = {"copy": "copy_base", "cut": "copy_base", "paste": "paste",
                   "duplicate": "duplicate", "move": "move", "rotate": "rotate",
                   "offset": "offset", "array": "array",
-                  "flip": "flip", "mirror": "mirror"}
+                  "flip": "flip", "mirror": "mirror", "scale": "scale"}
     _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array",
-                     "flip", "mirror"}
+                     "flip", "mirror", "scale"}
     # Tools whose ribbon button is a plain (non-modal) button.
     _PLAIN_TOOLS = frozenset({"cut"})
     # Extra modes a tool passes through after its entry mode.
@@ -45,7 +45,7 @@ class ModifyToolsController:
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
                                       "rotate", "offset", "offset_side",
-                                      "array", "flip", "mirror"})
+                                      "array", "flip", "mirror", "scale"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -94,6 +94,11 @@ class ModifyToolsController:
             s._show_status(
                 f"Nothing to {tool} — text and blocks are skipped", 3000)
             return False
+        if tool == "scale" and not self._scalable(sel):
+            # DD4: text and block instances carry no manip_scale_about.
+            s._show_status("Nothing to scale — text and blocks are skipped",
+                           3000)
+            return False
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
@@ -106,6 +111,7 @@ class ModifyToolsController:
             # nothing a tool leaves alone looks "in flight".
             acted = (self._rotatable(sel) if tool == "rotate"
                      else self._reflectable(sel) if tool in ("flip", "mirror")
+                     else self._scalable(sel) if tool == "scale"
                      else self._transformable(sel))
             s._ghost_dimmed = dim_items(acted)
         if tool in ("flip", "mirror") and s.mode == tool:
@@ -488,6 +494,9 @@ class ModifyToolsController:
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
             s._mirror_axis = None
+        if new_mode != "scale":
+            s._scale_base = None
+            s._scale_ref = None
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_dist = 0.0
@@ -1016,6 +1025,126 @@ class ModifyToolsController:
         msg = f"{'Mirrored' if mirror else 'Flipped'} {len(result)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return bool(result)
+
+    # ── Scale (P1 batch DD4) ────────────────────────────────────────────────
+    # Uniform, in place: base (SNAP + ALIGN) -> reference point (= 1x) -> the
+    # cursor distance from the base sets the factor (live ghost) -> click; or
+    # type Factor (``scale_factor`` HUD) once the base is set.
+
+    SCALE_REF_HINT = "Reference point must differ from the base point"
+    SCALE_FACTOR_HINT = "Scale factor must be greater than 0"
+
+    def _scalable(self, items) -> list:
+        """The transformable *items* with a per-item ``manip_scale_about``
+        (DD1); text and block instances define none and are skipped."""
+        return [it for it in self._transformable(items)
+                if hasattr(it, "manip_scale_about")]
+
+    def scale_factor_to(self, point) -> float:
+        """Live factor for *point*: |point − base| / |ref − base| (1.0 until
+        the reference is picked). The one formula the ghost, the status
+        readout and the HUD seed share."""
+        s = self._scene
+        base, ref = s._scale_base, s._scale_ref
+        if base is None or ref is None or point is None:
+            return 1.0
+        d_ref = math.hypot(ref.x() - base.x(), ref.y() - base.y())
+        if d_ref < 1e-9:
+            return 1.0
+        return math.hypot(point.x() - base.x(), point.y() - base.y()) / d_ref
+
+    def press_scale(self, event, pos, snapped, *_):
+        """Scale click: base, then reference (≠ base), then the commit."""
+        s = self._scene
+        if s._scale_base is None:
+            s._scale_base = QPointF(snapped)
+            s._move_ghost_base = self._shape_paths_for_move(
+                self._scalable(s._selected_items))
+            s._move_ghost = []
+            s.instructionChanged.emit("Pick reference point (or type a factor)")
+            return
+        if s._scale_ref is None:
+            if (abs(snapped.x() - s._scale_base.x()) < 1e-9
+                    and abs(snapped.y() - s._scale_base.y()) < 1e-9):
+                s._show_status(self.SCALE_REF_HINT, 3000)
+                return
+            s._scale_ref = QPointF(snapped)
+            s.instructionChanged.emit("Pick new size (or type a factor)")
+            return
+        self.commit_scale(self.scale_factor_to(snapped))
+
+    def move_scale(self, event, snapped):
+        """Scale cursor: after the reference, the ghost scales live."""
+        s = self._scene
+        s.preview_pipe.hide()
+        if s._scale_base is None:
+            s.update_preview_node(snapped)
+            return
+        s.preview_node.hide()
+        # Feed the HUD its live Factor seed (_transform_seed_values).
+        s.publish_placement_state(s._scale_base, snapped)
+        if s._scale_ref is None:
+            return
+        f = self.scale_factor_to(snapped)
+        self.preview_scale(f)
+        s._show_status(f"Factor: {f:.4g}", timeout=0)
+
+    def preview_scale(self, factor: float) -> None:
+        """Rebuild the ghost as the base silhouette scaled about the base."""
+        from .transform_ghost import scale_transform
+        s = self._scene
+        if s._scale_base is None:
+            return
+        t = scale_transform(s._scale_base, factor)
+        s._move_ghost = [t.map(p) for p in s._move_ghost_base]
+        for v in s.views():
+            v.viewport().update()
+
+    def commit_scale(self, factor: float) -> bool:
+        """Scale the selection by *factor* about the base (one undo step).
+
+        Returns to Select with the originals selected (D3); text / blocks are
+        skipped with a count.
+
+        Args:
+            factor: The uniform factor (strictly > 0).
+
+        Returns:
+            True when something scaled; False when refused (no base, or factor
+            <= 0 — status hint, the tool stays live) or nothing scalable.
+        """
+        s = self._scene
+        base = s._scale_base
+        if base is None:
+            return False
+        factor = float(factor)
+        if not math.isfinite(factor) or factor <= 0.0:
+            s._show_status(self.SCALE_FACTOR_HINT, 3000)
+            return False
+        items = [it for it in (s._selected_items or []) if it.scene() is s]
+        targets = self._scalable(items)
+        for it in targets:
+            it.manip_scale_about(QPointF(base), factor)
+        if targets:
+            tools = getattr(s, "_tools", None)
+            if tools is not None:
+                tools._solve_constraints()
+            s.push_undo_state()
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s._selected_items = []
+        s.set_mode(None)
+        self._reselect(items)
+        skipped = len(items) - len(targets)
+        msg = f"Scaled {len(targets)} item(s) by {factor:g}"
+        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+        return bool(targets)
+
+    def apply_scale_factor(self, params: dict) -> bool:
+        """Typed Factor (``scale_factor``): commit about the base; a False
+        return keeps the HUD open with a red field (``reject_commit``)."""
+        return self.commit_scale(float(params["factor"]))
 
     # ── Array (D10) ─────────────────────────────────────────────────────────
     # Linear only: base point, then the cursor sets direction + spacing; the

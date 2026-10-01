@@ -448,9 +448,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._array_dir: "QPointF | None" = None
         self._array_spacing: float = 0.0
         self._array_count_default: int = 3      # TOTAL incl. the original
+        # Scale (P1 DD4; behaviour in ModifyToolsController): base point and
+        # reference point (|ref - base| = 1x); both None outside the tool.
         self._scale_base: "QPointF | None" = None
-        self._scale_preview_line = None
-        self._scale_factor: float = 1.0
+        self._scale_ref: "QPointF | None" = None
         # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
         # the hovered axis_picker.AxisPick painted by Model_View, or None.
         self._mirror_axis = None
@@ -1376,9 +1377,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 setattr(self, attr, None)
 
         # Rotate's transients are reset by self._modify_ctl.clear(mode) above.
-        if mode != "scale":
-            self._scale_base = None
-            _remove_preview("_scale_preview_line")
         if mode != "break":
             self._break_target = None
             self._break_p1 = None
@@ -3152,6 +3150,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
+        "scale": "scale_factor",
         "array": "array_linear",
         "offset_side": "offset_distance",
         "gridline_offset": "distance",
@@ -3189,6 +3188,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "_apply_paste_displacement",
         "duplicate": "_apply_move_displacement",
         "rotate": "_apply_rotate_by",
+        "scale": "_apply_scale_factor",
         "array": "_apply_array_linear",
         "offset_side": "_apply_offset_distance",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
@@ -3969,6 +3969,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
+        "scale":                    "_move_scale",
         "array":                    "_move_array",
         "flip":                     "_move_reflect",
         "mirror":                   "_move_reflect",
@@ -4515,6 +4516,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # moved item; they stay armed here and the press path swaps the sentinel for
     # the real self-exclude item. ``rotate`` picks its pivot and rays with
     # SNAP + ALIGN (scene-tools.md D8), so it is armed too.
+    # ``scale`` picks its base / reference / size the same way (P1 DD4).
     # Single-placement modes (user, 2026-09-16): place ONE item, then return to
     # Select with the item selected (so its manipulator frame shows) — instead of
     # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
@@ -4533,7 +4535,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
-        "move", "paste", "copy_base", "duplicate", "rotate", "array",
+        "move", "paste", "copy_base", "duplicate", "rotate", "array", "scale",
     })
 
     _PRESS_DISPATCH = {
@@ -5394,14 +5396,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _apply_array_linear(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
         return self._modify_ctl.apply_array_linear(*args, **kwargs)
 
-    # ── Interactive Scale ─────────────────────────────────────────────
-    def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._scale_base is None:
-            self._scale_base = snapped
-            # No factor entry yet (the dead numeric-input dialog is retired,
-            # D15; Scale has no HUD schema) — don't promise a Tab.
-            self.instructionChanged.emit(
-                "Base point set — scale factor entry not available yet (Esc to cancel)")
+    # ── Scale (P1 DD4) ────────────────────────────────────────────────
+    def _press_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
+        return self._modify_ctl.press_scale(*args, **kwargs)
+
+    def _move_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
+        return self._modify_ctl.move_scale(*args, **kwargs)
+
+    def _apply_scale_factor(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
+        return self._modify_ctl.apply_scale_factor(*args, **kwargs)
 
     # ── Flip / Mirror (P1 DD4) ────────────────────────────────────────
     def _press_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)

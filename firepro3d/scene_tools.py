@@ -33,7 +33,6 @@ from .geometry_2d import (
 )
 from .node import Node
 
-from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 from . import tool_geometry
 from .arc_math import yup_angle
@@ -190,47 +189,8 @@ class SceneTools:
     # per-item manip_rotate; the legacy rect->polyline _apply_rotate is retired).
     # Flip / Mirror live in ModifyToolsController.commit_reflect (P1 DD4:
     # per-item manip_reflect; the legacy _apply_mirror is retired).
-
-    def _apply_scale(self, base: QPointF, factor: float, items: list = None):
-        """Scale *items* relative to *base* by *factor*."""
-        if items is None:
-            items = self._scene._selected_items or self._scene.selectedItems()
-        sp = CAD_Math.scale_point
-        for item in items:
-            if isinstance(item, Node):
-                new_pos = sp(item.scenePos(), base, factor)
-                item.setPos(new_pos)
-                item.fitting.update()
-            elif isinstance(item, LineItem):
-                item._pt1 = sp(item._pt1, base, factor)
-                item._pt2 = sp(item._pt2, base, factor)
-                item.setLine(item._pt1.x(), item._pt1.y(),
-                             item._pt2.x(), item._pt2.y())
-            elif isinstance(item, PolylineItem):
-                item._points = [sp(p, base, factor) for p in item._points]
-                item._rebuild_path()
-            elif isinstance(item, CircleItem):
-                item._center = sp(item._center, base, factor)
-                item._radius *= factor
-                r = item._radius
-                item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
-            elif isinstance(item, RectangleItem):
-                # Uniform scale commutes with the data rotation: scale the
-                # rotation origin about ``base`` (-> o'), then scale the local
-                # rect about the OLD origin and re-seat it on o'.
-                o = item._rotation_origin()
-                o2 = sp(o, base, factor)
-                rect = item.rect()
-                tl = rect.topLeft() - o
-                br = rect.bottomRight() - o
-                item.prepareGeometryChange()
-                item.setRect(QRectF(o2 + tl * factor, o2 + br * factor).normalized())
-                if item._pivot is not None:
-                    item._pivot = QPointF(o2)
-            elif isinstance(item, ArcItem):
-                item._center = sp(item._center, base, factor)
-                item._radius *= factor
-                item._rebuild_path()
+    # Scale lives in ModifyToolsController.commit_scale (P1 DD4: per-item
+    # manip_scale_about; the legacy _apply_scale is retired).
 
     # -------------------------------------------------------------------------
     # GEOMETRY OPERATIONS (Join / Explode)

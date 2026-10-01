@@ -654,6 +654,11 @@ class PlacementInputCoordinator:
             # D10: the base point anchors the ALIGN origin and the HUD.
             a = self._scene._array_base
             return QPointF(a) if a is not None else None
+        if self._scene.mode == "scale":
+            # P1 DD4: the base point anchors the ALIGN origin and the
+            # scale_factor HUD (which stays shut until it exists).
+            a = self._scene._scale_base
+            return QPointF(a) if a is not None else None
         if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
             # move / paste / duplicate mode (set_mode's cleanup relies on the
@@ -1042,6 +1047,11 @@ class PlacementInputCoordinator:
             # D8: the live relative sweep (0 until the start ray is picked) —
             # the same value the ghost and the status readout show.
             return {"Angle": self._scene._modify_ctl.rotate_delta_to(
+                self.get_resolved_point())}
+        if schema.name == "scale_factor":
+            # P1 DD4: the live factor (1.0 until the reference is picked) —
+            # the same value the ghost and the status readout show.
+            return {"Factor": self._scene._modify_ctl.scale_factor_to(
                 self.get_resolved_point())}
         if schema.name == "arc_radius":
             # End Points step 3: the live radius of the arc the resolved point

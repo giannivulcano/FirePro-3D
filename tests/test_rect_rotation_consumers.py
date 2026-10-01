@@ -99,11 +99,13 @@ def test_mirror_rotated_rect(scene):
 
 
 def test_scale_rotated_rect(scene):
+    """P1 DD4/DD1: ``SceneTools._apply_scale`` is retired — Scale goes through
+    the per-item ``RectangleItem.manip_scale_about`` (explicit pivot)."""
     r = _rect30(QPointF(0, 0))
     scene.addItem(r)
     base = QPointF(50, 80)
     expected = [CAD_Math.scale_point(c, base, 1.5) for c in _corners(r)]
-    scene._tools._apply_scale(base, 1.5, items=[r])
+    r.manip_scale_about(base, 1.5)
     assert _same_point_set(_corners(r), expected)
 
 
@@ -112,7 +114,7 @@ def test_scale_rotated_rect_centre_pivot(scene):
     scene.addItem(r)
     base = QPointF(-40, 10)
     expected = [CAD_Math.scale_point(c, base, 0.5) for c in _corners(r)]
-    scene._tools._apply_scale(base, 0.5, items=[r])
+    r.manip_scale_about(base, 0.5)
     assert _same_point_set(_corners(r), expected)
 
 
