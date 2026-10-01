@@ -3,33 +3,38 @@
 ``pick_axis`` returns the nearest *straight* scene segment under the cursor —
 2D-geometry edges (line / reference line / polyline incl. a closed polyline's
 closing edge / rectangle / regular polygon), gridlines, wall faces and
-underlay geometry — or None. Curves (arc, circle, ellipse, spline and curve
-elements of generic path items) never qualify. Pure: reads the scene, holds no
-state. Segments come from ``SnapEngine._iter_geometry_segments`` — the one
-home for per-type segment extraction (phase 4 + ALIGN) — so the picker sees
-exactly the geometry the snap engine sees, but it is NOT a snap
+straight underlay records — or None. Curves (arc, circle, ellipse, spline)
+never qualify. Pure: reads the scene, holds no state. Scene-item segments come
+from ``SnapEngine._iter_geometry_segments`` — the one home for per-type
+segment extraction (phase 4 + ALIGN) — but the picker is NOT a snap
 (``snapping-engine.md`` §3: no contextual snap-by-tool).
+
+Underlays: import flattens DXF ARC / partial ELLIPSE / SPLINE and PDF Béziers
+into ``path_points`` chords that look straight, so the generator's underlay
+segments are not trusted. Instead the picker queries each underlay group's
+``UnderlaySnapIndex`` (``data(4)``) itself and accepts only ``line`` records
+and ``path_points`` records the importer tagged ``"straight": True``
+(LWPOLYLINE / POLYLINE / SOLID; PDF records built purely from ``l`` / ``re``
+/ ``qu``). A legacy cached record without the key is never an axis. Un-indexed
+underlay children (no real import path produces them) are rejected outright.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QPainterPath
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtWidgets import QGraphicsItem
 
 from .arc_math import yup_angle
 from .geometry_2d import (LineItem, PolylineItem, RectangleItem,
                           RegularPolygonItem, _degenerate_axis)
 from .gridline import GridlineItem
 from .snap_engine import _is_underlay_group
+from .underlay_snap_index import UnderlaySnapIndex
 from .wall import WallSegment
 
 # Straight-edged 2D primitives (LineItem covers ReferenceLineItem).
 _STRAIGHT_2D = (LineItem, PolylineItem, RectangleItem, RegularPolygonItem)
-# Generic path items keep only their LineTo elements; keys are rounded so the
-# generator's mapped points and the re-walked ones compare equal.
-_KEY_DIGITS = 6
 
 
 @dataclass
@@ -51,42 +56,56 @@ class AxisPick:
 
 
 def _is_axis_source(item) -> bool:
-    """Whether *item* may supply an axis segment (the DD2 whitelist)."""
-    if isinstance(item, (_STRAIGHT_2D, GridlineItem, WallSegment)):
-        return True
-    if _is_underlay_group(item):
-        return True
-    parent = item.parentItem()
-    return parent is not None and _is_underlay_group(parent)
+    """Whether a scene item may supply an axis segment (the DD2 whitelist).
 
-
-def _needs_straight_check(item) -> bool:
-    """A generic path item (e.g. an un-indexed underlay child) may mix curves."""
-    return (isinstance(item, QGraphicsPathItem)
-            and not isinstance(item, (_STRAIGHT_2D, WallSegment)))
-
-
-def _key(p: QPointF) -> tuple:
-    return (round(p.x(), _KEY_DIGITS), round(p.y(), _KEY_DIGITS))
-
-
-def _straight_keys(item) -> set:
-    """``{(key(a), key(b))}`` for every LineTo segment of a generic path item.
-
-    Mirrors the generator's element walk (same 511-element cap): a segment is
-    straight iff its END element is a ``LineToElement``.
+    Underlay groups and their children are excluded here: underlay segments
+    come only from :func:`_underlay_segments` (straight-tagged records).
     """
-    path = item.path()
-    out = set()
-    n = path.elementCount()
-    for j in range(min(n - 1, 511)):
-        e2 = path.elementAt(j + 1)
-        if e2.type != QPainterPath.ElementType.LineToElement:
+    return isinstance(item, (_STRAIGHT_2D, GridlineItem, WallSegment))
+
+
+def _record_segments(g: dict):
+    """Local ``(a, b)`` point pairs of a straight underlay record, or none.
+
+    ``line`` records are straight by kind; ``path_points`` records only when
+    tagged ``"straight": True`` (closed ones include their closing edge).
+    """
+    kind = g.get("kind")
+    if kind == "line":
+        yield (g["x1"], g["y1"]), (g["x2"], g["y2"])
+    elif kind == "path_points" and g.get("straight") is True:
+        pts = g.get("points", [])
+        for k in range(len(pts) - 1):
+            yield pts[k], pts[k + 1]
+        if g.get("closed") and len(pts) >= 3:
+            yield pts[-1], pts[0]
+
+
+def _underlay_groups(scene, rect: QRectF):
+    """Visible, index-backed underlay groups whose bounds meet *rect*."""
+    seen: set[int] = set()
+    mode = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+    for item in scene.items(rect, mode):
+        grp = item if _is_underlay_group(item) else item.parentItem()
+        if grp is None or not _is_underlay_group(grp) or id(grp) in seen:
             continue
-        e1 = path.elementAt(j)
-        out.add((_key(item.mapToScene(QPointF(e1.x, e1.y))),
-                 _key(item.mapToScene(QPointF(e2.x, e2.y)))))
-    return out
+        seen.add(id(grp))
+        if grp.isVisible() and isinstance(grp.data(4), UnderlaySnapIndex):
+            yield grp
+
+
+def _underlay_segments(scene, rect: QRectF):
+    """``(a, b, group)`` scene segments of straight underlay records near *rect*."""
+    for grp in _underlay_groups(scene, rect):
+        xf = grp.sceneTransform()
+        inv, ok = xf.inverted()
+        if not ok:
+            continue
+        lr = inv.mapRect(rect)
+        for g in grp.data(4).query(lr.x(), lr.y(), lr.width(), lr.height()):
+            for a, b in _record_segments(g):
+                yield (xf.map(QPointF(a[0], a[1])), xf.map(QPointF(b[0], b[1])),
+                       grp)
 
 
 def _seg_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
@@ -130,7 +149,6 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
                    priority_band_px=0.0)
     best: "AxisPick | None" = None
     best_d = tol
-    straight: dict[int, set] = {}
     closed_done: set[int] = set()
 
     def consider(a: QPointF, b: QPointF, src) -> None:
@@ -147,12 +165,6 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
         a, b, src, _pk = rec
         if id(src) in skip or not src.isVisible() or not _is_axis_source(src):
             continue
-        if _needs_straight_check(src):
-            keys = straight.get(id(src))
-            if keys is None:
-                keys = straight[id(src)] = _straight_keys(src)
-            if (_key(a), _key(b)) not in keys:
-                continue
         consider(a, b, src)
         # The generator walks a polyline's vertex chain only; a closed
         # polyline's closing edge is an edge too (DD2: the selection's own
@@ -162,4 +174,7 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
             closed_done.add(id(src))
             pts = src._points
             consider(src.mapToScene(pts[-1]), src.mapToScene(pts[0]), src)
+    for a, b, grp in _underlay_segments(scene, rect):
+        if id(grp) not in skip:
+            consider(a, b, grp)
     return best

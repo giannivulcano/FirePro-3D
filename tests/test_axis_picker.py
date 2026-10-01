@@ -13,6 +13,7 @@ from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QGraphicsItemGroup, QGraphicsPathItem
 
 from firepro3d.axis_picker import pick_axis
+from firepro3d.dwg_converter import append_geom_to_path
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                                    PolylineItem, RectangleItem,
                                    ReferenceLineItem, RegularPolygonItem,
@@ -170,12 +171,172 @@ def test_indexed_underlay_segment_is_an_axis(plan):
     assert _ends(pick) == {(3000.0, 0.0), (3100.0, 0.0)}
 
 
-def test_unindexed_underlay_keeps_lines_drops_curves(plan):
+def test_unindexed_underlay_child_is_never_an_axis(plan):
+    """No real import path builds an underlay group without a snap index, and
+    a flattened curve's chords cannot be told apart in a bare QPainterPath,
+    so an un-indexed underlay child is rejected outright (I1, 2026-10-01)."""
     path = QPainterPath()
-    path.moveTo(4000, 0)
-    path.lineTo(4100, 0)
-    path.arcTo(QRectF(4000, -100, 200, 200), 180, -180)
-    _, child = _underlay_group(plan, path)
-    pick = pick_axis(plan, QPointF(4050, 3), TOL)
-    assert pick is not None and pick.source is child
-    assert pick_axis(plan, QPointF(4100, -98), TOL) is None          # [RED]
+    append_geom_to_path(path, {"kind": "line", "x1": 4000, "y1": 0,
+                               "x2": 4100, "y2": 0})
+    _underlay_group(plan, path)
+    assert pick_axis(plan, QPointF(4050, 3), TOL) is None
+
+
+# ── Real DXF import path (I1, user decision 2026-10-01) ────────────────────
+# ezdxf entities -> DxfImportWorker._extract_geometry (the underlay mode:
+# curves flattened into path_points chords) -> the real batched builder
+# (append_geom_to_path) + _attach_snap_index (UnderlaySnapIndex). Curve
+# chords are never an axis; LINE and straight LWPOLYLINE spans are. DXF is
+# Y-up, the scene Y-down: DXF (x, y) lands at scene (x*s, -y*s).
+
+def _dxf_entities():
+    import ezdxf
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    msp.add_arc(center=(0, 0), radius=1000, start_angle=0, end_angle=180)
+    msp.add_ellipse(center=(0, 3000), major_axis=(800, 0), ratio=0.5,
+                    start_param=0.0, end_param=3.141592653589793)
+    msp.add_lwpolyline([(3000, 0), (4000, 0), (4000, 500)])
+    msp.add_lwpolyline([(6000, 0), (7000, 0), (7000, 1000), (6000, 1000)],
+                       close=True)
+    msp.add_line((9000, 0), (10000, 0))
+    return list(msp)
+
+
+def _extract(entities):
+    from firepro3d.dxf_import_worker import DxfImportWorker
+    w = DxfImportWorker.__new__(DxfImportWorker)   # sync path, as the tests do
+    w._layer_colors = {}
+    w._preserve_curves = False                     # underlay import mode
+    return [w._extract_geometry(e) for e in entities]
+
+
+def _record(**kw):
+    from firepro3d.underlay import Underlay
+    kw.setdefault("type", "dxf")
+    kw.setdefault("path", "x.dxf")
+    return Underlay(**kw)
+
+
+def _build_like_import(scene, geoms):
+    """The _on_dxf_finished build sequence (underlay_controller)."""
+    rec = _record()
+    group, _layers = scene._build_batched_underlay_group(geoms, rec)
+    group.setData(0, "DXF Underlay")
+    scene._attach_snap_index(group, geoms, rec)
+    return group
+
+
+def _curve_cursors(s=1.0):
+    # 1 mm inside the arc at its top and at 45 deg; 1 mm inside the ellipse top.
+    return [QPointF(0, -999 * s), QPointF(706.4 * s, -706.4 * s),
+            QPointF(0, -3399 * s)]
+
+
+def _assert_straight_axes(scene, grp, s=1.0):
+    for cursor, ends in (
+            (QPointF(3500 * s, 2), {(3000 * s, 0.0), (4000 * s, 0.0)}),
+            (QPointF(4000 * s + 2, -250 * s), {(4000 * s, 0.0), (4000 * s, -500 * s)}),
+            # the CLOSED LWPOLYLINE's closing edge
+            (QPointF(6000 * s + 2, -500 * s), {(6000 * s, -1000 * s), (6000 * s, 0.0)}),
+            (QPointF(9500 * s, 2), {(9000 * s, 0.0), (10000 * s, 0.0)})):
+        pick = pick_axis(scene, cursor, TOL)
+        assert pick is not None and pick.source is grp, cursor
+        assert _ends(pick) == {(round(x, 2), round(y, 2)) for x, y in ends}
+
+
+def test_real_dxf_underlay_curves_are_never_an_axis(plan):
+    grp = _build_like_import(plan, _extract(_dxf_entities()))
+    for cursor in _curve_cursors():
+        assert pick_axis(plan, cursor, TOL) is None, cursor          # [RED]
+    _assert_straight_axes(plan, grp)
+
+
+def test_curve_chords_stay_cursor_snap_geometry(plan):
+    """Only the picker rejects curve chords — the snap generator still emits
+    them for the group (cursor snap behaviour unchanged)."""
+    from firepro3d.snap_engine import _SnapCtx
+    grp = _build_like_import(plan, _extract(_dxf_entities()))
+    c = _curve_cursors()[0]
+    rect = QRectF(c.x() - TOL, c.y() - TOL, 2 * TOL, 2 * TOL)
+    ctx = _SnapCtx(cursor=c, scale=1.0, aperture_px=0.0, priority_band_px=0.0)
+    segs = [r for k, r in plan._snap_engine._iter_geometry_segments(
+        plan, rect, None, [], None, ctx) if k == "seg" and r[2] is grp]
+    assert segs
+
+
+def test_straight_tag_survives_cache_round_trip_and_import_transform(plan, tmp_path):
+    """Save -> load through the REAL cache + _load_underlay_from_cache path,
+    with a non-unit import scale so apply_import_transform runs."""
+    from firepro3d.underlay_cache import cache_dir_for_project, write_cache
+    geoms = _extract(_dxf_entities())
+    project = tmp_path / "proj.fpd"
+    plan._project_path = str(project)
+    rec = _record(import_scale=2.0)
+    write_cache(cache_dir_for_project(str(project)), rec.cache_key(), geoms,
+                source_mtime=123.0)
+    assert plan._load_underlay_from_cache(rec, 123.0)
+    grp = plan._underlay_ctl.items[-1][1]
+    assert any(g.get("straight") is True for g in grp.data(4)._geom_list)
+    for cursor in _curve_cursors(2.0):
+        assert pick_axis(plan, cursor, TOL) is None, cursor
+    _assert_straight_axes(plan, grp, 2.0)
+
+
+def test_legacy_cache_record_without_key_is_not_an_axis(plan, tmp_path):
+    """A cache written before the tag existed: its path_points (straight or
+    not) are never an axis; its LINE records still are."""
+    from firepro3d.underlay_cache import cache_dir_for_project, write_cache
+    legacy = [{k: v for k, v in g.items() if k != "straight"}
+              for g in _extract(_dxf_entities())]
+    project = tmp_path / "proj.fpd"
+    plan._project_path = str(project)
+    rec = _record()
+    write_cache(cache_dir_for_project(str(project)), rec.cache_key(), legacy,
+                source_mtime=123.0)
+    assert plan._load_underlay_from_cache(rec, 123.0)
+    grp = plan._underlay_ctl.items[-1][1]
+    assert pick_axis(plan, QPointF(3500, 2), TOL) is None       # legacy LWPOLYLINE
+    pick = pick_axis(plan, QPointF(9500, 2), TOL)               # legacy LINE
+    assert pick is not None and pick.source is grp
+    assert _ends(pick) == {(9000.0, 0.0), (10000.0, 0.0)}
+
+
+# ── Real PDF import path (underlay mode: Béziers flattened) ─────────────────
+
+def _pdf_geoms():
+    import fitz
+    from firepro3d.pdf_import_worker import PdfImportWorker
+    w = PdfImportWorker.__new__(PdfImportWorker)
+    w._cancelled = False
+    w._flatten_tol = 0.1
+    w._preserve_curves = False
+    P = fitz.Point
+    k = 0.5522847498 * 1000                       # quarter circle r=1000 at (0,0)
+    curve_then_line = [("c", P(1000, 0), P(1000, -k), P(k, -1000), P(0, -1000)),
+                       ("l", P(0, -1000), P(-2000, -1000))]
+    lines_only = [("l", P(3000, 0), P(4000, 0)), ("l", P(4000, 0), P(4000, -500))]
+    rect = [("re", fitz.Rect(6000, -1000, 7000, 0))]
+    geoms = []
+    for items in (curve_then_line, lines_only, rect):
+        geoms += w._extract_path({"items": items, "closePath": False,
+                                  "width": 1.0})
+    return geoms
+
+
+def test_real_pdf_underlay_only_pure_line_records_are_axes(plan):
+    geoms = _pdf_geoms()
+    assert [g.get("straight") for g in geoms] == [None, True, True]
+    rec = _record(type="pdf", path="x.pdf")
+    group, _ = plan._build_batched_underlay_group(geoms, rec)
+    group.setData(0, "PDF Underlay")
+    plan._attach_snap_index(group, geoms, rec)
+    # The flattened Bézier's chords are never an axis; the "l" span sharing
+    # its record is dropped with it (one record, no per-span tag).
+    assert pick_axis(plan, QPointF(706.4, -706.4), TOL) is None
+    assert pick_axis(plan, QPointF(-1000, -998), TOL) is None
+    pick = pick_axis(plan, QPointF(3500, 2), TOL)
+    assert pick is not None and pick.source is group
+    assert _ends(pick) == {(3000.0, 0.0), (4000.0, 0.0)}
+    pick = pick_axis(plan, QPointF(6500, -998), TOL)            # rect edge
+    assert pick is not None and _ends(pick) == {(6000.0, -1000.0), (7000.0, -1000.0)}

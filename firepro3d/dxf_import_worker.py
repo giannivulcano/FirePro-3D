@@ -551,10 +551,14 @@ class DxfImportWorker(QThread):
             if len(pts) < 2:
                 return None
             closed = bool(hasattr(entity.dxf, "flags") and entity.dxf.flags & 1)
+            # "straight": every span is drawn as a straight chord (bulges are
+            # not rendered), unlike the flattened ARC / partial-ELLIPSE /
+            # SPLINE records above and below, which never carry the key. The
+            # Flip / Mirror axis picker accepts only straight records (DD2).
             return {
                 "kind": "path_points", "layer": layer, "color": color,
                 "points": [(pt[0], -pt[1]) for pt in pts],
-                "closed": closed,
+                "closed": closed, "straight": True,
             }
 
         elif etype == "SPLINE":
@@ -673,7 +677,7 @@ class DxfImportWorker(QThread):
                 return {
                     "kind": "path_points", "layer": layer, "color": color,
                     "points": [(p.x, -p.y) for p in pts],
-                    "closed": True,
+                    "closed": True, "straight": True,
                 }
             except Exception:
                 return None

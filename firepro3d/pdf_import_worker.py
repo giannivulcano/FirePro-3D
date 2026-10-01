@@ -249,7 +249,7 @@ def _piece_geom(segs: list, closed: bool, layer: str) -> dict:
     if not any(sg[0] == "c" for sg in segs):
         return {"kind": "path_points", "layer": layer,
                 "points": [segs[0][1]] + [sg[-1] for sg in segs],
-                "closed": closed}
+                "closed": closed, "straight": True}
     return _spline_geom(segs, closed, layer)
 
 
@@ -435,6 +435,18 @@ class PdfImportWorker(QThread):
         # Track points for building a single path_points from connected segments
         current_points: list[tuple[float, float]] = []
         is_closed = bool(path.get("closePath", False))
+        # Whether a flattened Bezier went into current_points. Only records
+        # built purely from "l" items (and every "re"/"qu" record) carry
+        # "straight": True -- the Flip / Mirror axis picker accepts only those
+        # (scene-tools P1 DD2: a curve's chord is never an axis).
+        curved = False
+
+        def _flush_current() -> None:
+            rec = {"kind": "path_points", "layer": layer,
+                   "points": list(current_points), "closed": is_closed}
+            if not curved:
+                rec["straight"] = True
+            results.append(rec)
 
         for item in items:
             kind = item[0]
@@ -453,12 +465,9 @@ class PdfImportWorker(QThread):
                 # Rectangle: ("re", Rect(x0,y0,x1,y1), ...)
                 # Flush any current path first
                 if len(current_points) >= 2:
-                    results.append({
-                        "kind": "path_points", "layer": layer,
-                        "points": list(current_points),
-                        "closed": is_closed,
-                    })
+                    _flush_current()
                     current_points = []
+                    curved = False
 
                 rect = item[1]
                 x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
@@ -467,18 +476,15 @@ class PdfImportWorker(QThread):
                     "points": [
                         (x0, y0), (x1, y0), (x1, y1), (x0, y1),
                     ],
-                    "closed": True,
+                    "closed": True, "straight": True,
                 })
 
             elif kind == "qu":
                 # Quad: ("qu", Quad)
                 if len(current_points) >= 2:
-                    results.append({
-                        "kind": "path_points", "layer": layer,
-                        "points": list(current_points),
-                        "closed": is_closed,
-                    })
+                    _flush_current()
                     current_points = []
+                    curved = False
 
                 quad = item[1]
                 results.append({
@@ -489,7 +495,7 @@ class PdfImportWorker(QThread):
                         (quad.lr.x, quad.lr.y),
                         (quad.ll.x, quad.ll.y),
                     ],
-                    "closed": True,
+                    "closed": True, "straight": True,
                 })
 
             elif kind == "c":
@@ -500,6 +506,7 @@ class PdfImportWorker(QThread):
                     (p2.x, p2.y), (p3.x, p3.y),
                     tol=getattr(self, "_flatten_tol", None) or PDF_BEZIER_FLATTEN_TOL,
                 )
+                curved = True
                 if not current_points:
                     current_points.extend(pts)
                 else:
@@ -508,11 +515,7 @@ class PdfImportWorker(QThread):
 
         # Flush remaining points
         if len(current_points) >= 2:
-            results.append({
-                "kind": "path_points", "layer": layer,
-                "points": list(current_points),
-                "closed": is_closed,
-            })
+            _flush_current()
 
         # Carry the PDF stroke width (points) onto every geom from this path,
         # so the underlay builder can preserve the source line-width hierarchy.
@@ -555,7 +558,7 @@ class PdfImportWorker(QThread):
                 results.append({"kind": "path_points", "layer": layer,
                                 "points": [(r.x0, r.y0), (r.x1, r.y0),
                                            (r.x1, r.y1), (r.x0, r.y1)],
-                                "closed": True})
+                                "closed": True, "straight": True})
                 continue
             elif kind == "qu":
                 flush()
@@ -563,7 +566,7 @@ class PdfImportWorker(QThread):
                 results.append({"kind": "path_points", "layer": layer,
                                 "points": [(q.ul.x, q.ul.y), (q.ur.x, q.ur.y),
                                            (q.lr.x, q.lr.y), (q.ll.x, q.ll.y)],
-                                "closed": True})
+                                "closed": True, "straight": True})
                 continue
             else:
                 continue
