@@ -484,6 +484,16 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._points = [CAD_Math.mirror_point(p, p1, p2) for p in self._points]
         self._rebuild_path()
 
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale of every vertex about ``base`` (DD1).
+
+        Not ``manip_scale``: that name makes the manipulator treat the item
+        as box-resizable (``item_capabilities``)."""
+        from .cad_math import CAD_Math
+        self._points = [CAD_Math.scale_point(p, base, factor)
+                        for p in self._points]
+        self._rebuild_path()
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -759,6 +769,14 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         from .cad_math import CAD_Math
         self._pt1 = CAD_Math.mirror_point(self._pt1, p1, p2)
         self._pt2 = CAD_Math.mirror_point(self._pt2, p1, p2)
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale of both endpoints about ``base`` (DD1).
+        Not ``manip_scale`` (see ``item_capabilities``)."""
+        from .cad_math import CAD_Math
+        self._pt1 = CAD_Math.scale_point(self._pt1, base, factor)
+        self._pt2 = CAD_Math.scale_point(self._pt2, base, factor)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
@@ -1382,6 +1400,23 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         self.setRect(new)
         self.set_angle(ang, None if self._pivot is None else new_o)
 
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about ``base`` (DD1): a uniform scale commutes
+        with the data rotation, so the origin ``o`` maps to ``o'`` and the
+        local rect is scaled about ``o`` then re-seated on ``o'``; the angle
+        and the pivot semantics are kept. Not ``manip_scale`` (a rect must
+        never become box-resizable — test_rect_grips_unified)."""
+        from .cad_math import CAD_Math
+        o = self._rotation_origin()
+        new_o = CAD_Math.scale_point(o, base, factor)
+        r = self.rect()
+        new = QRectF(new_o.x() + (r.left() - o.x()) * factor,
+                     new_o.y() + (r.top() - o.y()) * factor,
+                     r.width() * factor, r.height() * factor)
+        self.prepareGeometryChange()
+        self.setRect(new)
+        self.set_angle(self._angle, None if self._pivot is None else new_o)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CircleItem  — circle defined by centre + edge point
@@ -1533,6 +1568,13 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
+        factor through ``set_radius`` (its 1 mm floor applies)."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.scale_point(self._center, base, factor)
+        self.set_radius(self._radius * factor)
 
     def manip_handles(self):
         """U3: expose parametric grips as live-apply GripHandles (center +
@@ -1875,6 +1917,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                                    - (self._start_deg + self._span_deg))
         self._rebuild_path()
 
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
+        factor (``set_radius`` floor), angles unchanged."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.scale_point(self._center, base, factor)
+        self.set_radius(self._radius * factor)
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -2175,6 +2224,13 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
 
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about ``base`` (DD1): centre scaled, the
+        defining radius × factor; sides / rotation / inscribed kept."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.scale_point(self._center, base, factor)
+        self.set_radius(self._radius_mm * factor)
+
     def to_dict(self) -> dict:
         d = {
             "type":        "polygon",
@@ -2404,6 +2460,15 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         theta = yup_angle(p1, p2)
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
+        self._regenerate()
+
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about ``base`` (DD1): centre scaled, rx / ry ×
+        factor (``_AXIS_MIN`` floor), rotation unchanged."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.scale_point(self._center, base, factor)
+        self._rx = max(self._rx * factor, _AXIS_MIN)
+        self._ry = max(self._ry * factor, _AXIS_MIN)
         self._regenerate()
 
     def get_properties(self) -> dict:
@@ -2668,6 +2733,14 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         flag (Slice 8 ``_closed``) are left exactly as they are."""
         from .cad_math import CAD_Math
         self._control_points = [CAD_Math.mirror_point(p, p1, p2)
+                                for p in self._control_points]
+        self._regenerate()
+
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale of the control points about ``base`` (DD1);
+        degree / knots / weights / closed flag untouched."""
+        from .cad_math import CAD_Math
+        self._control_points = [CAD_Math.scale_point(p, base, factor)
                                 for p in self._control_points]
         self._regenerate()
 

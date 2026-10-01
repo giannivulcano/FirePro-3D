@@ -146,3 +146,50 @@ def test_reference_line_stays_a_reference_line(scene):
     assert rl.to_dict()["type"] == "reference_line"
     assert [(round(p.x(), 6), round(p.y(), 6)) for p in rl.grip_points()] == [
         (0.0, 100.0), (50.0, 100.0), (100.0, 100.0)]
+
+
+# ── manip_scale_about ───────────────────────────────────────────────────────
+
+SCALES = {"grow": (QPointF(50, 80), 1.5), "shrink": (QPointF(-40, 10), 0.5)}
+
+
+@pytest.mark.parametrize("case", list(SCALES))
+@pytest.mark.parametrize("name", GEOM)
+def test_scale_outline_is_the_uniform_image(scene, name, case):
+    item = _make(scene, name)
+    base, f = SCALES[case]
+    before = _dense(halo_scene_path(item))
+    cls, lw, d0 = type(item), item.pen().widthF(), item.to_dict()
+    item.manip_scale_about(QPointF(base), f)
+    _assert_same_outline(
+        [CAD_Math.scale_point(p, base, f) for p in before], item)    # [RED]
+    assert type(item) is cls
+    assert item.pen().widthF() == lw             # lineweights never scale
+    d1 = item.to_dict()
+    assert d1["type"] == d0["type"]
+    assert d1.get("closed") == d0.get("closed")
+
+
+@pytest.mark.parametrize("pivot", [None, QPointF(0, 0)])
+def test_rotated_rect_scales_about_base_any_pivot(scene, pivot):
+    r = RectangleItem(QPointF(0, 0), QPointF(100, -50))
+    r.set_angle(30.0, pivot)
+    scene.addItem(r)
+    base = QPointF(50, 80)
+    before = _dense(halo_scene_path(r))
+    r.manip_scale_about(QPointF(base), 1.5)
+    _assert_same_outline([CAD_Math.scale_point(p, base, 1.5) for p in before], r)  # [RED]
+    assert r._angle == pytest.approx(30.0)
+    assert (r._pivot is None) == (pivot is None)
+
+
+def test_scale_keeps_arc_angles_on_screen(scene):
+    """Scaling never turns an arc: its painted ends keep their Y-up headings
+    about the (scaled) centre."""
+    arc = ArcItem(QPointF(200, 0), 100.0, 0.0, 90.0)
+    scene.addItem(arc)
+    arc.manip_scale_about(QPointF(0, 0), 2.0)
+    path = arc.mapToScene(arc.path())
+    a, b = path.pointAtPercent(0.0), path.pointAtPercent(1.0)
+    assert (round(a.x(), 2), round(a.y(), 2)) == (600.0, 0.0)        # [RED]
+    assert (round(b.x(), 2), round(b.y(), 2)) == (400.0, -200.0)
