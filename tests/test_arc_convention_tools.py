@@ -147,3 +147,41 @@ def test_two_point_break_on_circle_removes_the_picked_quadrant(qapp):
         assert scene._undo_pos == p0 + 1
     finally:
         close_view(view, scene)
+
+
+# ── Trim ────────────────────────────────────────────────────────────────────
+
+def test_trim_arc_removes_the_clicked_piece(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        arc = _add(scene, ArcItem(QPointF(0, 0), R, 0.0, 180.0), "_draw_arcs")
+        _add(scene, LineItem(QPointF(50, -200), QPointF(50, 200)), "_draw_lines")
+        p0 = _baseline(scene)
+        scene.set_mode("trim")
+        click(view, QPointF(50, 150))              # cutting edge (off the arc)
+        click(view, _vis(20))                      # the piece to remove
+        assert _ends_match(arc, _vis(60), _vis(180))                    # [RED]
+        assert _covers(arc, _vis(120)) and not _covers(arc, _vis(20))
+        assert scene._undo_pos == p0 + 1
+        scene.undo()
+        arcs = list(scene._draw_arcs)
+        assert len(arcs) == 1 and _ends_match(arcs[0], _vis(0), _vis(180))
+    finally:
+        close_view(view, scene)
+
+
+def test_trim_circle_keeps_the_unclicked_side(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, CircleItem(QPointF(0, 0), R), "_draw_circles")
+        _add(scene, LineItem(QPointF(-200, -50), QPointF(200, -50)), "_draw_lines")
+        _baseline(scene)
+        scene.set_mode("trim")
+        click(view, QPointF(150, -50))             # cutting edge (outside the circle)
+        click(view, _vis(90))                      # visual top = the piece to remove
+        assert scene._draw_circles == [] and len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _ends_match(arc, _vis(30), _vis(150))                    # [RED]
+        assert _covers(arc, _vis(270)) and not _covers(arc, _vis(90))
+    finally:
+        close_view(view, scene)

@@ -767,8 +767,7 @@ class SceneTools:
                 # Compute angle of each intersection point
                 int_angles = []
                 for ipt in intersections:
-                    angle = math.degrees(math.atan2(
-                        ipt.y() - center.y(), ipt.x() - center.x()))
+                    angle = yup_angle(center, ipt)
                     int_angles.append(angle % 360)
 
                 if len(int_angles) < 2:
@@ -776,8 +775,7 @@ class SceneTools:
                         "Need at least two intersections to trim a circle")
                     return
 
-                click_angle = math.degrees(math.atan2(
-                    pos.y() - center.y(), pos.x() - center.x())) % 360
+                click_angle = yup_angle(center, pos) % 360
 
                 if len(int_angles) > 2:
                     # Multiple intersections: find the bracketing pair that
@@ -840,15 +838,13 @@ class SceneTools:
                 center = item._center
                 int_angles = []
                 for ipt in intersections:
-                    angle = math.degrees(math.atan2(
-                        ipt.y() - center.y(), ipt.x() - center.x())) % 360
+                    angle = yup_angle(center, ipt) % 360
                     int_angles.append(angle)
 
                 if not int_angles:
                     return
                 trim_angle = int_angles[0]
-                click_angle = math.degrees(math.atan2(
-                    pos.y() - center.y(), pos.x() - center.x())) % 360
+                click_angle = yup_angle(center, pos) % 360
 
                 start = item._start_deg % 360
                 span = item._span_deg
