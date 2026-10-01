@@ -1,7 +1,7 @@
 """Primitive factories + undo helpers for the modify-tool guards (scene-tools.md I4)."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QObject, QPointF
 
 from firepro3d.geometry_2d import (
     ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
@@ -59,3 +59,28 @@ def add_primitive(scene, name):
 
 def grips(item):
     return [(round(p.x(), 3), round(p.y(), 3)) for p in item.grip_points()]
+
+
+class _OsMouseBlocker(QObject):
+    """Viewport event filter dropping OS (spontaneous) mouse input.
+
+    A shown test window can sit under the user's real cursor; every real
+    mouse move over it reaches the scene between a test's posted events and
+    its assertions and re-aims hover-driven state (Flip / Mirror axis, Scale
+    ghost) at the real cursor. The tests' own events go through
+    ``QApplication.sendEvent`` (``spontaneous() is False``) and still pass.
+    """
+
+    _TYPES = frozenset({QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+                        QEvent.Type.MouseButtonRelease,
+                        QEvent.Type.MouseButtonDblClick, QEvent.Type.Wheel})
+
+    def eventFilter(self, obj, ev):  # noqa: N802 (Qt naming)
+        return ev.spontaneous() and ev.type() in self._TYPES
+
+
+def ignore_os_mouse(view):
+    """Make *view*'s viewport deaf to the real mouse (see _OsMouseBlocker)."""
+    vp = view.viewport()
+    vp.installEventFilter(_OsMouseBlocker(vp))   # parented: lives with vp
+    return view

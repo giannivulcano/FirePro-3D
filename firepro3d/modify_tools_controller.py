@@ -89,15 +89,12 @@ class ModifyToolsController:
             return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
-        if tool in ("flip", "mirror") and not self._reflectable(sel):
-            # DD4: text and block instances carry no manip_reflect.
-            s._show_status(
-                f"Nothing to {tool} — text and blocks are skipped", 3000)
-            return False
-        if tool == "scale" and not self._scalable(sel):
-            # DD4: text and block instances carry no manip_scale_about.
-            s._show_status("Nothing to scale — text and blocks are skipped",
-                           3000)
+        capable = {"flip": self._reflectable, "mirror": self._reflectable,
+                   "scale": self._scalable}.get(tool)
+        if capable is not None and not capable(sel):
+            # DD4: only 2D drafting geometry carries manip_reflect /
+            # manip_scale_about (text, blocks, pipes, walls, gridlines… don't).
+            s._show_status(self.nothing_to_hint(tool), 3000)
             return False
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
@@ -118,8 +115,20 @@ class ModifyToolsController:
             # DD3: the acted-on silhouettes, mirrored per hovered axis.
             s._move_ghost_base = self._shape_paths_for_move(
                 self._reflectable(sel))
-            s._move_ghost = []
+            # Re-entry (Shift+F twice, Flip <-> Mirror) keeps the hovered
+            # axis (clear() spares it), so its ghost is rebuilt here — the
+            # next aim at the same segment is a no-op.
+            if not self._axis_live(s._mirror_axis):
+                s._mirror_axis = None
+            s._move_ghost = self._reflected_ghost(s._mirror_axis)
         return True
+
+    _PAST = {"flip": "flipped", "mirror": "mirrored", "scale": "scaled"}
+
+    def nothing_to_hint(self, tool: str) -> str:
+        """Refusal status when no selected item can take *tool* (DD4)."""
+        return (f"Nothing to {tool} — only 2D drafting geometry can be "
+                f"{self._PAST[tool]}")
 
     @staticmethod
     def _transformable(items) -> list:
@@ -928,6 +937,22 @@ class ModifyToolsController:
         return snap_engine.px_to_scene(snap_engine.SNAP_TOLERANCE_PX,
                                        self._scene._active_view_scale())
 
+    def _axis_live(self, axis) -> bool:
+        """Whether *axis*'s source segment still exists: its item is alive,
+        in this scene and visible (what ``pick_axis`` would accept)."""
+        from PyQt6 import sip
+        src = getattr(axis, "source", None)
+        return (src is not None and not sip.isdeleted(src)
+                and src.scene() is self._scene and src.isVisible())
+
+    def _reflected_ghost(self, axis) -> list:
+        """The ghost base reflected across *axis* ([] without an axis)."""
+        from .transform_ghost import reflect_transform
+        if axis is None:
+            return []
+        t = reflect_transform(axis.p1, axis.p2)
+        return [t.map(p) for p in self._scene._move_ghost_base]
+
     @staticmethod
     def _same_axis(a, b) -> bool:
         """Whether two ``AxisPick``s (or None) are the same segment."""
@@ -946,17 +971,14 @@ class ModifyToolsController:
             then no axis and no ghost are shown.
         """
         from .axis_picker import pick_axis
-        from .transform_ghost import reflect_transform
         s = self._scene
+        # pick_axis only returns live, visible segments, so a stale axis
+        # (its source removed) never survives an aim.
         axis = pick_axis(s, QPointF(point), self._axis_tolerance())
         if self._same_axis(axis, s._mirror_axis):
             return s._mirror_axis
         s._mirror_axis = axis
-        if axis is None:
-            s._move_ghost = []
-        else:
-            t = reflect_transform(axis.p1, axis.p2)
-            s._move_ghost = [t.map(p) for p in s._move_ghost_base]
+        s._move_ghost = self._reflected_ghost(axis)
         # MinimalViewportUpdate: the axis spans the whole view and lives in
         # drawForeground, so every view (detail views share the scene) is
         # repainted on each axis change — here, not only by the caller's
@@ -991,6 +1013,13 @@ class ModifyToolsController:
         """
         s = self._scene
         axis = s._mirror_axis
+        if axis is not None and not self._axis_live(axis):
+            # The source segment was removed (or hidden) since the last aim:
+            # never reflect across a vanished edge — drop the stale axis.
+            s._mirror_axis = axis = None
+            s._move_ghost = []
+            for v in s.views():
+                v.viewport().update()
         if axis is None:
             s._show_status(self.NO_AXIS_HINT, 3000)
             return False
@@ -1021,7 +1050,8 @@ class ModifyToolsController:
         s.set_mode(None)
         s.clearSelection()
         self._reselect(result if mirror else items)
-        skipped = len(items) - len(targets)
+        # Non-reflectable items AND Mirror copies that failed to rebuild.
+        skipped = len(items) - len(result)
         msg = f"{'Mirrored' if mirror else 'Flipped'} {len(result)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return bool(result)

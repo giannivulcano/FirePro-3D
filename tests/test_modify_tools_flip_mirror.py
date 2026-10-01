@@ -19,8 +19,10 @@ from PyQt6.QtWidgets import QApplication
 from firepro3d.cad_math import CAD_Math
 from firepro3d.geometry_2d import CircleItem, ReferenceLineItem
 from firepro3d.halo import halo_scene_path
-from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
-from tests._snap_polish_helpers import click, close_view, make_view, move
+from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
+                                         ignore_os_mouse)
+from tests._snap_polish_helpers import click, close_view, move
+from tests._snap_polish_helpers import make_view as _make_view
 from tests.test_manip_reflect_scale import _assert_same_outline, _dense
 
 GEOM = [n for n in PRIMITIVES if not n.startswith("text")]
@@ -28,6 +30,19 @@ AXIS_X = 200.0
 HOVER = QPointF(AXIS_X + 2.0, 250.0)     # on the axis line, far from every item
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]          # factory line grips
 LINE_FLIPPED = [(400.0, 0.0), (350.0, 0.0), (300.0, 0.0)]
+
+
+def make_view(**kw):
+    """The shared shown view, deaf to the real mouse: hover-driven axis state
+    must come only from the test's own events (the flake was a real cursor
+    moving over the window and re-aiming the axis mid-test)."""
+    view, scene = _make_view(**kw)
+    return ignore_os_mouse(view), scene
+
+
+def _nothing_to(tool):
+    past = {"flip": "flipped", "mirror": "mirrored"}[tool]
+    return f"Nothing to {tool} — only 2D drafting geometry can be {past}"
 
 
 def _axis_line(scene, x=AXIS_X):
@@ -229,7 +244,7 @@ def test_text_only_selection_is_refused(qapp, tool):
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start(tool) is False                     # [RED]
         assert scene.mode in (None, "select")
-        assert f"Nothing to {tool} — text and blocks are skipped" in msgs
+        assert _nothing_to(tool) in msgs
     finally:
         close_view(view, scene)
 
@@ -357,7 +372,7 @@ def test_block_only_selection_is_refused(qapp, tool):
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start(tool) is False                     # [RED]
         assert scene.mode in (None, "select")
-        assert f"Nothing to {tool} — text and blocks are skipped" in msgs
+        assert _nothing_to(tool) in msgs
     finally:
         close_view(view, scene)
 
@@ -380,7 +395,9 @@ def _axis_pixels(view, img, bg):
 @pytest.mark.parametrize("tool", ["flip", "mirror"])
 def test_undo_mid_pick_drops_the_axis(qapp, tool):
     """The AxisPick holds its source item, which an undo restore replaces —
-    after Ctrl+Z mid-pick no axis survives and none is painted."""
+    after Ctrl+Z mid-pick no axis survives and none is painted. Gated by
+    CANCEL_ON_UNDO_MODES (undo ends the tool first); ``_restore_network``'s
+    own axis reset is a backstop this test does not isolate."""
     view, scene = make_view(scale=1.0)
     try:
         _short_axis(scene)
@@ -391,8 +408,8 @@ def test_undo_mid_pick_drops_the_axis(qapp, tool):
         bg = _px(view, _grab(view), QPointF(300, -200))
         assert _axis_pixels(view, _grab(view), bg) >= 60  # precondition: painted
         scene.undo()
-        assert scene._mirror_axis is None                                 # [RED]
-        assert scene.mode in (None, "select")
+        assert scene._mirror_axis is None
+        assert scene.mode in (None, "select")                             # [RED]
         assert _axis_pixels(view, _grab(view), bg) == 0
     finally:
         close_view(view, scene)
@@ -430,6 +447,7 @@ def test_every_view_repaints_the_axis_band(qapp, tool):
     view, scene = make_view(scale=1.0)
     other = Model_View(scene)
     try:
+        ignore_os_mouse(other)
         other.resize(400, 300)
         other.show()
         QTest.qWaitForWindowExposed(other)
@@ -454,4 +472,139 @@ def test_every_view_repaints_the_axis_band(qapp, tool):
     finally:
         other.close()
         other.deleteLater()
+        close_view(view, scene)
+
+
+# ── Slice-5 review fixes (F1, F3, F4) ───────────────────────────────────────
+
+@pytest.mark.parametrize("first,second", [("flip", "flip"), ("flip", "mirror"),
+                                          ("mirror", "flip")])
+def test_reentry_over_the_same_axis_keeps_the_ghost(qapp, first, second):
+    """F1: re-entering Flip / Mirror (Shift+F twice, Flip <-> Mirror, the
+    other ribbon button) while hovering an axis keeps that axis AND repaints
+    its reflected ghost — no move needed — and Enter commits on it."""
+    view, scene = make_view(scale=1.0)
+    try:
+        _short_axis(scene)
+        item, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
+        scene._modify_ctl.start(first)
+        move(view, QPointF(AXIS_X + 2.0, 0.0))
+        bg = _px(view, _grab(view), QPointF(300, -200))
+        assert _px(view, _grab(view), QPointF(350, 0)) != bg  # precondition
+        assert scene._modify_ctl.start(second) is True    # no move after this
+        assert scene.mode == second
+        assert scene._mirror_axis is not None
+        assert _px(view, _grab(view), QPointF(350, 0)) != bg              # [RED]
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        reflected = [ln for ln in scene._draw_lines if grips(ln) == LINE_FLIPPED]
+        assert len(reflected) == 1
+        assert (grips(item) == LINE_FLIPPED) == (second == "flip")
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("tool", ["flip", "mirror"])
+def test_axis_whose_source_was_removed_never_commits(qapp, tool):
+    """F3: the hovered axis's source is deleted mid-pick (no move after):
+    Enter reflects nothing, the stale axis is dropped and the tool stays live
+    with the refusal hint."""
+    view, scene = make_view(scale=1.0)
+    try:
+        _short_axis(scene)
+        rl = scene._reference_lines[-1]
+        item, _ = add_primitive(scene, "line")
+        p0 = scene._undo_pos
+        msgs = _capture_status(scene)
+        scene._modify_ctl.start(tool)
+        move(view, QPointF(AXIS_X + 2.0, 0.0))
+        assert scene._mirror_axis is not None and scene._mirror_axis.source is rl
+        scene._delete_single_item(rl)
+        assert rl.scene() is None                          # precondition
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert grips(item) == LINE0 and len(scene._draw_lines) == 1       # [RED]
+        assert scene._mirror_axis is None
+        assert scene.mode == tool
+        assert "Pick a straight edge or reference line" in msgs
+        assert scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
+def test_mirror_copy_that_fails_to_rebuild_counts_as_skipped(qapp, monkeypatch):
+    """F4: a copy whose ``from_dict`` fails is reported in the skipped count,
+    never silently dropped."""
+    view, scene = make_view(scale=1.0)
+    try:
+        _axis_line(scene)
+        c = CircleItem(QPointF(0, -150), 30.0)
+        scene.addItem(c)
+        scene._draw_circles.append(c)
+        line, _ = add_primitive(scene, "line")
+        c.setSelected(True)                               # line + circle
+
+        def _boom(cls, d):
+            raise ValueError("corrupt record")
+        monkeypatch.setattr(CircleItem, "from_dict", classmethod(_boom))
+        msgs = _capture_status(scene)
+        scene._modify_ctl.start("mirror")
+        _hover_and_click(view)
+        assert len(scene._draw_lines) == 2 and len(scene._draw_circles) == 1
+        assert "Mirrored 1 item(s) (1 skipped)" in msgs                   # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_os_mouse_input_cannot_reaim_the_axis(qapp):
+    """Flake root cause (review round 2026-10-01): a real cursor moving over
+    the shown test window delivered spontaneous MouseMoves between a test's
+    hover and its assertion, re-aiming the axis at the real cursor. A
+    window-system move (``QTest.mouseMove`` on the QWindow: spontaneous, the
+    real cursor stays put) reproduces it; the harness view ignores it."""
+    from PyQt6.QtCore import QEvent, QObject
+    view, scene = make_view(scale=1.0)
+    seen = []
+
+    class _Spy(QObject):
+        def eventFilter(self, obj, ev):
+            if (obj is view.viewport() and ev.type() == QEvent.Type.MouseMove
+                    and ev.spontaneous()):
+                seen.append(ev.position().toPoint())
+            return False
+    spy = _Spy()
+    QApplication.instance().installEventFilter(spy)
+    try:
+        _axis_line(scene)
+        add_primitive(scene, "line")
+        scene._modify_ctl.start("flip")
+        move(view, HOVER)
+        assert scene._mirror_axis is not None
+        win = view.window()
+        at = view.viewport().mapTo(win, view.mapFromScene(QPointF(-300.0, 250.0)))
+        QTest.mouseMove(win.windowHandle(), at)
+        QApplication.processEvents()
+        assert seen                                       # the OS move arrived
+        assert scene._mirror_axis is not None                             # [RED]
+    finally:
+        QApplication.instance().removeEventFilter(spy)
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("tool", ["flip", "mirror", "scale"])
+def test_node_only_plan_selection_gets_the_accurate_refusal(qapp, tool):
+    """F6 / Slice-6 I3: on a plan scene the usual non-geometry selection is a
+    sprinkler node (not text or a block) — the one shared refusal names what
+    CAN be transformed, for Flip, Mirror and Scale alike."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        node = scene.add_node(-150.0, -150.0)
+        scene.clearSelection()
+        node.setSelected(True)
+        assert scene.selectedItems() == [node]            # precondition
+        msgs = _capture_status(scene)
+        assert scene._modify_ctl.start(tool) is False
+        assert scene.mode in (None, "select")
+        past = {"flip": "flipped", "mirror": "mirrored", "scale": "scaled"}[tool]
+        assert msgs == [f"Nothing to {tool} — only 2D drafting geometry can be {past}"]  # [RED]
+        assert not any("text and blocks" in m for m in msgs)
+    finally:
         close_view(view, scene)

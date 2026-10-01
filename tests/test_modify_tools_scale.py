@@ -16,12 +16,23 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.cad_math import CAD_Math
 from firepro3d.halo import halo_scene_path
-from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
-from tests._snap_polish_helpers import click, close_view, make_view, move
+from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
+                                         ignore_os_mouse)
+from tests._snap_polish_helpers import click, close_view, move
+from tests._snap_polish_helpers import make_view as _make_view
 from tests.test_manip_reflect_scale import _assert_same_outline, _dense
 
 GEOM = [n for n in PRIMITIVES if not n.startswith("text")]
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]
+NOTHING_TO_SCALE = "Nothing to scale — only 2D drafting geometry can be scaled"
+
+
+def make_view(**kw):
+    """The shared shown view, deaf to the real mouse: the live ghost / factor
+    must come only from the test's own events, never a real cursor moving
+    over the window."""
+    view, scene = _make_view(**kw)
+    return ignore_os_mouse(view), scene
 
 
 def _type_factor(scene, text):
@@ -194,7 +205,7 @@ def test_text_only_selection_is_refused(qapp):
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start("scale") is False                  # [RED]
         assert scene.mode in (None, "select")
-        assert "Nothing to scale — text and blocks are skipped" in msgs
+        assert NOTHING_TO_SCALE in msgs
     finally:
         close_view(view, scene)
 
@@ -304,7 +315,7 @@ def test_block_only_selection_is_refused(qapp):
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start("scale") is False                  # [RED]
         assert scene.mode in (None, "select")
-        assert "Nothing to scale — text and blocks are skipped" in msgs
+        assert NOTHING_TO_SCALE in msgs
     finally:
         close_view(view, scene)
 
