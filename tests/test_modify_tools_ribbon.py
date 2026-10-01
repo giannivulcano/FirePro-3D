@@ -362,3 +362,80 @@ def test_cut_lights_its_own_button_and_untoggle_cancels(main_window, qapp):
         assert not btns["Copy"].isChecked()
     finally:
         _close_editor(main_window, ed, qapp)
+
+
+# Modes a scene emits through a literal ``set_mode`` outside the dispatch
+# tables: thermal radiation (main.py) and the Annotate/Block-Editor Dimension
+# button. (``wall_rect`` / ``floor_rect`` fold into wall / floor before
+# ``modeChanged``; ``pan`` / ``pick_point`` are the underlay preview view's own
+# modes, not a Model_Space's.)
+_LITERAL_MODES = ("radiation_emitter", "radiation_receiver", "dimension")
+
+
+def _dispatched_modes():
+    """Every mode a scene enters through the dispatch / tool registries."""
+    from firepro3d.model_space import Model_Space
+    mtc = ModifyToolsController
+    modes = (set(Model_Space._PRESS_DISPATCH) | set(Model_Space._MOVE_DISPATCH)
+             | set(Model_Space._PREVIEW_DISPATCH) | set(mtc._TOOL_MODE.values())
+             | set(_LITERAL_MODES))
+    for extra in mtc._TOOL_EXTRA_MODES.values():
+        modes |= set(extra)
+    return sorted("" if m is None else m for m in modes)
+
+
+def test_badge_has_a_friendly_label_for_every_dispatched_mode(main_window, qapp):
+    """DD10 / M8: a real modeChanged emission for every dispatched mode puts
+    that mode's friendly tool name on the footer badge."""
+    sc = main_window.scene
+    badge = main_window.footer.mode_badge
+    try:
+        missing = []
+        for m in _dispatched_modes():
+            sc.modeChanged.emit(m)
+            label = MainWindow._MODE_LABELS.get(m)
+            if label is None:
+                missing.append(m)
+                continue
+            assert badge.text() == label.upper(), m
+        assert missing == []                                          # [RED]
+        for m, shown in (("copy_base", "COPY"), ("offset_side", "OFFSET"),
+                         ("draw_line", "LINE"), ("gridline_array", "ARRAY GRIDLINES"),
+                         ("flip", "FLIP"), ("mirror", "MIRROR"), ("scale", "SCALE"),
+                         ("array", "ARRAY"), ("", "SELECT")):
+            sc.modeChanged.emit(m)
+            assert badge.text() == shown, m
+    finally:
+        sc.modeChanged.emit(sc.mode or "")
+
+
+def test_badge_reads_the_tool_name_for_real_tool_runs(main_window, qapp):
+    """M8: real tool runs on the editor scene — Cut reads CUT (not COPY BASE),
+    Copy COPY, Offset OFFSET in both of its modes, Array ARRAY, Scale / Flip /
+    Mirror their own names."""
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        btns = main_window._be_modify_buttons
+        badge = main_window.footer.mode_badge
+        btns["Cut"].click()
+        assert badge.text() == "CUT"                                  # [RED]
+        editor.set_mode(None)
+        assert badge.text() == "SELECT"
+        line.setSelected(True)
+        btns["Copy"].click()
+        assert badge.text() == "COPY"
+        editor.set_mode(None)
+        editor._modify_ctl.start("offset")
+        assert badge.text() == "OFFSET"
+        editor.set_mode("offset_side")
+        assert badge.text() == "OFFSET"
+        editor.set_mode(None)
+        for tool, shown in (("array", "ARRAY"), ("scale", "SCALE"),
+                            ("flip", "FLIP"), ("mirror", "MIRROR")):
+            line.setSelected(True)
+            assert editor._modify_ctl.start(tool), tool
+            assert badge.text() == shown, tool
+            editor.set_mode(None)
+    finally:
+        _close_editor(main_window, ed, qapp)

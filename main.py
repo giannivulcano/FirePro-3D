@@ -2454,6 +2454,45 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "radiation_receiver": "Select RECEIVING surfaces, then press Enter",
     }
 
+    # Footer badge names (P1 DD10): the friendly TOOL name for every mode a
+    # scene can emit — never an internal step name ("COPY BASE", "OFFSET
+    # SIDE"). Keyed by ModifyToolsController.button_key(mode, scene), so
+    # Cut's copy_base reads CUT. Guarded: every dispatched mode has an entry
+    # (tests/test_modify_tools_ribbon.py).
+    _MODE_LABELS = {
+        "": "Select", "select": "Select",
+        # Plan / network / sheets
+        "pipe": "Pipe", "sprinkler": "Sprinkler",
+        "water_supply": "Water Supply", "design_area": "Design Area",
+        "set_scale": "Set Scale", "set_origin": "Set Origin",
+        "place_import": "Place Import", "place_block": "Place Block",
+        "draw_gridline": "Gridline", "gridline_array": "Array Gridlines",
+        "gridline_offset": "Offset Gridline", "detail": "Detail View",
+        # Architecture
+        "wall": "Wall", "floor": "Floor", "roof": "Roof", "roof_rect": "Roof",
+        "room": "Room", "room_manual": "Room", "opening": "Opening",
+        "door": "Door", "window": "Window",
+        # 2D geometry + text + annotation
+        "draw_line": "Line", "draw_rectangle": "Rectangle",
+        "draw_circle": "Circle", "draw_ellipse": "Ellipse", "draw_arc": "Arc",
+        "draw_spline": "Spline", "polyline": "Polyline", "polygon": "Polygon",
+        "text": "Text", "dimension": "Dimension",
+        # Edit / Modify (scene-tools.md)
+        "copy_base": "Copy", ModifyToolsController.CUT_BUTTON_KEY: "Cut",
+        "paste": "Paste", "duplicate": "Duplicate", "move": "Move",
+        "rotate": "Rotate", "scale": "Scale", "flip": "Flip",
+        "mirror": "Mirror", "offset": "Offset", "offset_side": "Offset",
+        "array": "Array", "stretch": "Stretch", "align": "Align",
+        "trim": "Trim", "trim_pick": "Trim", "extend": "Extend",
+        "extend_pick": "Extend", "break": "Break",
+        "break_at_point": "Break at Point", "fillet": "Fillet",
+        "chamfer": "Chamfer", "merge_points": "Merge Points",
+        "constraint_concentric": "Concentric",
+        "constraint_dimensional": "Dimensional",
+        # Thermal radiation (literal set_mode callers, main.py)
+        "radiation_emitter": "Emitters", "radiation_receiver": "Receivers",
+    }
+
     def _update_snap_indicator(self, enabled: bool) -> None:
         """Reflect SNAP master state on the footer pill (+ dims the osnap bar)."""
         self.footer.set_snap_on(enabled)
@@ -2483,8 +2522,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _update_mode_label(self, mode: str):
         text = self._MODE_INSTRUCTIONS.get(mode, mode.replace("_", " ").title())
         self.footer.set_instruction(text)
-        # Update the prominent mode name badge.
-        pretty = mode.replace("_", " ").title() if mode else "Select"
+        # The prominent badge: the friendly tool name (DD10) — Cut's
+        # copy_base resolves to Cut via the emitting scene.
+        key = ModifyToolsController.button_key(mode, self._mode_signal_scene())
+        pretty = self._MODE_LABELS.get(key)
+        if pretty is None:      # unlabelled mode: legacy title-case fallback
+            pretty = mode.replace("_", " ").title() if mode else "Select"
         self.footer.set_mode(pretty)
 
     def _last_feature_for(self, type_: str) -> str:
