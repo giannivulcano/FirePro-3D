@@ -1,7 +1,7 @@
 ---
 status: proposal          # designed + grilled 2026-09-29, unbuilt. The prototype this file used to describe (constraints.py: Concentric/Dimensional/Alignment + iterative solver) is RETIRED by Session 1 (§12) — see §2 "As-built (to be retired)".
-last-verified: 2026-09-29
-verified-commit: 2e511cd  # as-built §2 claims checked against this HEAD (feat/nested-blocks)
+last-verified: 2026-09-30  # ribbon-surface wording re-pointed at the permanent Block Editor tab (feat/block-editor-ribbon-tab); §2 as-built files unchanged since 2e511cd (git diff empty for constraints.py / geometry_2d.py / the geo2d constraints group); prior 2026-09-29
+verified-commit: 44325e5  # prior 2e511cd — as-built §2 claims checked against that HEAD (feat/nested-blocks)
 applies-to:
   - firepro3d/constraints.py            # as-built prototype — retired in Session 1
   - firepro3d/sketch_model.py           # proposal — created in Session 1 (pure: enum, REGISTRY, records, file format)
@@ -13,7 +13,7 @@ related:
   - block-system.md                     # definition schema gains "constraints" + primitive "uid"; origin fixed at (0,0)
   - 2d-geometry.md                      # primitive storage, typed setters (the D6 anchor laws)
   - selection-mode.md                   # §15 selection readouts — persisted dims reuse readout_paint + DimSpec
-  - ribbon-bar.md                       # Block Editor contextual page: Constrain + Inspect groups
+  - ribbon-bar.md                       # Block Editor tab (permanent base tab since 2026-09-30): Constrain + Inspect groups
   - icon-style-guide.md                 # 48-unit two-token icon contract
   - model-space-containment-contract.md # C1/C8: loose geometry + constraints never in the plan scene
   - units-and-formatting.md             # dim display through ScaleManager formatters
@@ -56,7 +56,7 @@ Every row below was ratified by the user at a human gate (P5). "Ref-spec" = the 
 | D12 | **Selection-first** constraint buttons (enabled only when the selection is valid for that type); with nothing selected a button enters a pick mode. **One Smart Dimension tool** (tool-first) infers the dim kind from the picks + label placement. | — |
 | D13 | **"Mirror" = the Symmetric constraint only.** Mirror stays an unlinked copy tool in the scene/Modify tools; no linked "Mirror Entities". | Ref-spec had Symmetric as Tier 2; promoted. |
 | D14 | **One constraint type per session**, in the §12 order; Session 1 = foundation + Horizontal and retires the old system. | Replaces ref-spec §12 phasing. |
-| D15 | **Ribbon:** two new groups on the Block Editor contextual page **after Modify** — **Constrain** (large Smart Dimension + small buttons stacked 3/column in build order) and **Inspect**. **No greyed placeholders** — each session adds its own button. | Ref-spec wanted greyed Tier-2 buttons; forbidden by `icon-style-guide.md` §7. |
+| D15 | **Ribbon:** two new groups on the Block Editor tab **after Modify** — **Constrain** (large Smart Dimension + small buttons stacked 3/column in build order) and **Inspect**. **No greyed placeholders** — each session adds its own button. *(2026-09-30: the Block Editor page is now a permanent base tab — `ribbon-bar.md` §3.4 — not a contextual page; its Definition group's disabled **Edit Attributes** button is an explicit user-ratified exception to this rule. The rule still binds the Constrain / Inspect groups.)* | Ref-spec wanted greyed Tier-2 buttons; forbidden by `icon-style-guide.md` §7. |
 | D16 | **Icons:** 48-unit on-contract (two-token); **one symbol SVG per constraint** used at ribbon (54/27 px), canvas glyph (~16 px, boxed) and panel list; whole family designed up-front as a mockup-gated contact sheet in Session 1. | — |
 | D17 | **Operations on constrained geometry:** §8 table. Move/Rotate/Scale of **grounded** geometry is **refused** (SolidWorks model). | New. |
 | D18 | **Bars** on a 200-primitive / 300-constraint block: drag re-solve ≤ 8 ms/mouse-move; add-constraint/commit (solve + diagnostics) ≤ 50 ms; open (load + first solve) ≤ 200 ms; residual ≤ 1e-6 mm linear, 1e-9 rad angular; a driving dim never displays a value different from what was typed. | New. |
@@ -288,7 +288,7 @@ Consequence: component partitioning **and** equality substitution are Session-1 
 
 ## 10. User interface
 
-- **Ribbon (D15):** Block Editor contextual page = Block | 2D Geometry | Edit | Modify | **Constrain** | **Inspect**. Constrain: large Smart Dimension + one small button per *built* type, stacked 3/column in §12 order; a button enables iff the current selection matches its REGISTRY arity/handle kinds, else (nothing selected) enters a pick mode (D12). Inspect: Show Constraints (toggle), Constraint Status (tint toggle), DOF badge, Delete Constraints (on selection). Every button carries a tooltip.
+- **Ribbon (D15):** Block Editor tab = Block | Definition | 2D Geometry | Edit | Modify | **Constrain** | **Inspect** (as-built groups through Modify, and their editor-only enable state, owned by `ribbon-bar.md` §3.4). Constrain: large Smart Dimension + one small button per *built* type, stacked 3/column in §12 order; a button enables iff the current selection matches its REGISTRY arity/handle kinds, else (nothing selected) enters a pick mode (D12). Inspect: Show Constraints (toggle), Constraint Status (tint toggle), DOF badge, Delete Constraints (on selection). Every button carries a tooltip.
 - **Smart Dimension (D12):** tool-first; one line → length; two points → distance with aligned / Δx / Δy chosen by label placement; circle → diameter; arc → radius; two lines → angle; point + line → point-line distance. Plus D7's lock glyph on transient readouts.
 - **Canvas (D10/D11):** origin cross + non-printing X/Y axes (pickable targets); boxed ~16 px constraint glyphs beside their geometry (screen-constant, non-printing); persisted dims via `readout_paint`; state colours + tint. **Pick order:** grips > dim labels > glyphs > origin/axes > HALO geometry. Hover a glyph → its targets glow; click selects it; Delete removes it.
 - **Property panel:** a **Constraints** container for the selected entity/constraint — rows: icon, type name, targets, value (editable for dims), Driving/Reference, Suppress, Delete; sketch DOF shown.

@@ -142,6 +142,11 @@ the unification target is governed by `reference-graphic-model.md`.
 - **Block *entry* commands → Architecture tab, new "Block" group**: Create Block
   (opens a Block Editor document), Insert Block, Block Manager. Architecture
   becomes: Building Features · Architectural Features · Datums · **Block** · Underlay.
+  *As-built 2026-09-30 (user-ratified, `feat/block-editor-ribbon-tab`):* the entry
+  commands moved again — to the **Block** group of a permanent **Block Editor**
+  base tab (New / Open / Manager / Insert); Architecture no longer has a Block
+  group. The invariant (entry verbs are model-safe; authoring stays in the Block
+  Editor context) is unchanged; ribbon mechanics owned by `ribbon-bar.md` §3.4.
 - **Underlay ribbon group → Architecture** (UI co-location; **tentative**,
   pending the C4 design session — it may return to Manage).
 - **Quick Block is retired** — its premise (bake a selection of loose *model*
@@ -270,7 +275,7 @@ tasks**, not part of this design-only deliverable.
 | D2 | C2 Feature composes Blocks | Block & Feature are disjoint sibling libraries (`.fpdb`/`.fpdf`) | Feature-system build (Phase B/C) adopts composed Blocks — **deferred** |
 | D3 | C3 level on the instance | ✅ **Landed 2026-09-18** (`feat/containment-c3`) — the 8 non-text primitives + `GeometryTemplate` + `TextItem` are definition-local/level-less (no `level`/`_level_offset_mm`/`z_range_mm`/`Z_CAT_CONSTRUCTION`); `BlockInstance` carries `level` + `_level_offset_mm` + `z_range_mm()`, is filtered by `LevelManager`, exposes Level/Offset/Rotation rows, and round-trips both serialization paths. Dead primitive-level readers deleted across level_manager/view_3d/elevation_scene/scene_tools/tool_geometry | ~~primitives level-less + level moved to the instance~~ |
 | D4 | C5 Text = 9th primitive, unified | ✅ **Landed** — one `TextItem` on `TextAnnotationData` replaces `NoteAnnotation` + `TextAnnotationItem`; compiles to outlined glyphs in `render_ops` | ~~Text primitive added + data model unified~~ |
-| D5 | C7 ribbon topology | ✅ **Landed 2026-09-18** (commit 8c887aa) — Create dissolved (5-tab roster); Architecture Block group; Underlay→Architecture; Quick/Text-Block retired; Text in the Block-Editor palette | ~~ribbon rework lands~~ |
+| D5 | C7 ribbon topology | ✅ **Landed 2026-09-18** (commit 8c887aa) — Create dissolved (5-tab roster); Architecture Block group; Underlay→Architecture; Quick/Text-Block retired; Text in the Block-Editor palette. *(2026-09-30: Block group relocated to the permanent Block Editor base tab — 6-tab roster; see C7 as-built note.)* | ~~ribbon rework lands~~ |
 | D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints are read-but-discarded on the **`.fpd` file path** (`scene_io` save omits + load discards, one info log); legacy load blocks (incl. hatch migration) deleted. *(The undo path `_capture_network`/`_restore_network` deliberately retains these — it is the shared undo mechanism the Block-Editor `scene_role` depends on; clean-drop is a file-persistence boundary, not an undo boundary.)* | ~~legacy load paths deleted~~ |
 
 ## Deferred work (filed as follow-up tasks)

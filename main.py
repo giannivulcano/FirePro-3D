@@ -1098,7 +1098,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.update_property_manager()
             self._refresh_snap_align_indicators()
             return
-        # Leaving a Block Editor tab: tear down its contextual ribbon.
+        # Leaving a Block Editor tab: grey the editor-only ribbon buttons and
+        # restore the ribbon tab that was current before entering.
         self._hide_block_editor_ribbon()
         self._refresh_snap_align_indicators()
         tab_text = self.central_tabs.tabText(index)
@@ -1453,21 +1454,25 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build the five base workflow ribbon tabs and wire every button.
+        """Build the six base workflow ribbon tabs and wire every button.
 
         Tabs:
           1. Manage             — file I/O, import, preferences, undo/redo,
                                   display manager
           2. Architecture       — walls/floors/roofs/rooms, datums (levels,
-                                  gridlines), blocks, underlay
+                                  gridlines), underlay
           3. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
           4. Analyze            — thermal radiation
           5. Draft              — annotate, font, page, plot
+          6. Block Editor       — block entry (New / Open / Manager / Insert)
+                                  + the editor-only Definition / 2D Geometry /
+                                  Edit / Modify groups (live only while a
+                                  Block Editor tab is current)
 
         The permanent "Create" tab was dissolved by the containment contract
         (C7): the model is placement-only, so loose 2D-geometry authoring lives
-        only in the Block-Editor and Paper contexts, and block *entry* commands
-        moved to the Architecture "Block" group.
+        only in the Block-Editor and Paper contexts. Block *entry* commands
+        live in the Block Editor tab's Block group (always enabled).
 
         Must be called *after* all dock widgets are created.
         """
@@ -1505,12 +1510,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
         self._init_analyze_tab(_I, _btn)
         self._init_draft_tab(_I, _btn, _mode_btn)
+        self._init_block_editor_tab(_I)
 
         # Build the contextual-tab registry (catalog only; no tab inserted yet).
+        # AFTER every base tab (incl. Block Editor): the insert slot derives
+        # from the live tab count.
         self._init_contextual_tabs()
 
         # Contextual Edit-tab handler (real logic added in a later task).
         self.scene.selectionChanged.connect(self._on_selection_changed_contextual)
+
+        # No editor tab is current at startup: editor-only groups disabled.
+        self._set_block_editor_context(False)
 
     # ── Per-tab ribbon helpers ───────────────────────────────────────────────
 
@@ -1637,18 +1648,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _mode_btn(g_datum, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip(
             "Draw gridlines on canvas (2-click) (G)")
 
-        # --- Block (block *entry* commands; contract C7) ---
-        # Only entry/placement verbs live in the model surface — authoring of
-        # loose 2D geometry happens in the Block Editor (the dissolved Create
-        # tab). Quick Block + Text Block are retired (C7); Text is a primitive
-        # authored in the Block Editor / Paper contexts (C5).
-        g_blocks = build_page.add_group("Block")
-        _btn(g_blocks, "Create\nBlock", _I("make_block_icon.svg"),
-             self._open_block_editor, tip="Author a block in the Block Editor")
-        _btn(g_blocks, "Insert\nBlock", _I("insert_block_icon.svg"),
-             self._focus_blocks_browser, tip="Pick a block to place from the Blocks browser")
-        _btn(g_blocks, "Block\nManager", _I("block_manager_icon.svg"),
-             self._open_block_manager, tip="Manage blocks")
+        # (The Block group moved to the permanent Block Editor tab's left edge —
+        # _init_block_editor_tab. Quick Block + Text Block stay retired (C7).)
 
         # --- Underlay (moved from Manage to Architecture; contract C7, shipped) ---
         g_ul = build_page.add_group("Underlay")
@@ -2601,11 +2602,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pattern.
         """
         from PyQt6 import sip
-        registries = [self._mode_buttons, getattr(self, "_block_mode_buttons", {})]
-        # The mode's button(s) across both registries (a shared mode has one in
-        # each) stay checked.
+        block_reg = getattr(self, "_block_mode_buttons", {})
+        registries = [self._mode_buttons, block_reg]
+        # The permanent Block Editor page's buttons are lit only while an
+        # editor tab is current: a same-key plan mode ("move", …) must not
+        # check a disabled editor-only button (_set_block_editor_context
+        # re-syncs on entry).
+        live = [self._mode_buttons]
+        if getattr(self, "_block_ribbon_active", False):
+            live.append(block_reg)
+        # The mode's button(s) across the live registries (a shared mode has
+        # one in each) stay checked.
         active_ids: set[int] = set()
-        for reg in registries:
+        for reg in live:
             b = reg.get(mode)
             if b is not None and not sip.isdeleted(b):
                 active_ids.add(id(b))
@@ -3340,10 +3349,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         (``clipboard_payload()``, scene-tools.md D5).
         Explode is enabled only while at least one block instance is
         selected (nested-blocks D10).
+
+        With no Block Editor tab current the buttons stay disabled (the
+        permanent page's no-editor state, ``_set_block_editor_context``) —
+        this refresh also fires from the clipboard and editor-scene
+        selections while a plan tab is current.
         """
         from PyQt6 import sip
         from firepro3d.block_instance import BlockInstance
         buttons = getattr(self, "_be_modify_buttons", None) or {}
+        if not getattr(self, "_block_ribbon_active", False):
+            for b in buttons.values():
+                if not sip.isdeleted(b):
+                    b.setEnabled(False)
+            return
         scene = self._active_scene()
         try:
             selected = scene.selectedItems()
@@ -3738,8 +3757,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         None → contextual transition so that contextual → contextual switches
         (e.g. wall → pipe) never overwrite the original base-tab position.
         """
-        # While the Block Editor ribbon owns the contextual slot, plan-scene
-        # selection must not fight it for that slot.
+        # While a Block Editor tab is current the ribbon belongs to the editor:
+        # plan-scene selection must not pop a contextual tab over it.
         if getattr(self, "_block_ribbon_active", False):
             return
         items = self.scene.selectedItems()
@@ -4834,7 +4853,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except Exception:
             pass
 
-    # ── Block Editor contextual ribbon ──────────────────────────────────────
+    # ── Block Editor ribbon tab (permanent base tab) ────────────────────────
     def _active_editor_widget(self):
         """The current Block Editor tab widget, or None."""
         from firepro3d.block_editor import BlockEditorWidget
@@ -4849,89 +4868,81 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.view
         return self.view
 
-    def _show_block_editor_ribbon(self):
-        """Insert + activate the contextual 'Block Editor' ribbon page."""
-        if getattr(self, "_block_ribbon_active", False):
-            self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
-            # Switching between editor tabs keeps the page: follow the new
-            # editor scene's selection (scene-tools.md D1 enable state).
-            self._connect_modify_refresh(self._active_scene())
-            self._refresh_modify_buttons()
-            return
-        # Clear any selection-driven contextual page first (shared slot).
-        if self._active_contextual_key is not None:
-            self.ribbon.remove_page(self._contextual_index)
-            self._active_contextual_key = None
-            self._active_contextual_title = None
-        else:
-            self._pre_contextual_tab = self.ribbon._tab_bar.currentIndex()
-        page = self.ribbon.insert_page("Block Editor", self._contextual_index,
-                                       contextual=True)
-        self._build_block_editor_context(page)
-        self._block_ribbon_active = True
-        self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
+    # The "no editor" tooltip every editor-only Block Editor button shows while
+    # no Block Editor tab is current (ribbon-bar.md §3.8).
+    _BE_NO_EDITOR_TIP = "Open or create a block to edit"
 
-    def _hide_block_editor_ribbon(self):
-        """Remove the contextual 'Block Editor' ribbon page (leaving an editor tab)."""
-        if not getattr(self, "_block_ribbon_active", False):
-            return
-        self.ribbon.remove_page(self._contextual_index)
-        self._block_ribbon_active = False
-        try:
-            self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
-        except Exception:
-            pass
+    def _init_block_editor_tab(self, _I):
+        """Build Tab 6: Block Editor — permanent, built once (layout A).
 
-    def _build_block_editor_context(self, page):
-        """Populate the Block Editor ribbon: 2D drawing tools + block verbs.
-
-        Draw-mode buttons dispatch through ``_active_scene()`` (the editor scene).
-        Block verbs are small buttons (stack 3-high); Set Origin / Import / Edit
-        Attributes are placeholders wired in BE3 / BE4 / a later slice.
+        Groups: **Block** (New / Open large, Manager / Insert small — always
+        enabled) · **Definition** · **2D Geometry** · **Edit** · **Modify**
+        (editor-only: enabled only while a Block Editor tab is current, see
+        :meth:`_set_block_editor_context`). Draw-mode buttons dispatch through
+        ``_active_scene()`` (the editor scene); their registry is
+        ``_block_mode_buttons`` (#217 — kept apart from ``_mode_buttons``).
         """
-        from firepro3d.icons import themed_icon, LIGHT, DARK
-        from firepro3d import theme as _th
-        _theme = DARK if _th.detect().name == DARK else LIGHT
-        _I = lambda name: themed_icon(name, _theme)
+        page = self.ribbon.add_page("Block Editor")
+        self._be_page = page
+        self._be_page_index = self.ribbon._stack.indexOf(page)
+        # Restored on leaving an editor tab (None = stay on the page).
+        self._pre_block_editor_tab = None
+        # (button, real tooltip) of every editor-only button.
+        self._be_editor_only: list = []
 
+        def _editor_only(b, tip):
+            b.setToolTip(tip)
+            self._be_editor_only.append((b, tip))
+            return b
+
+        # --- Block (entry verbs; always live) ---
         gb = page.add_group("Block")
-        self._be_save_btn = gb.add_small_button(
-            "Save\nBlock", _I("make_block_icon.svg"), self._be_save)
-        self._be_save_btn.setToolTip(
+        b = gb.add_large_button("New", _I("make_block_icon.svg"),
+                                self._open_block_editor)
+        b.setToolTip("New block — opens a new Block Editor tab")
+        b = gb.add_large_button("Open", _I("block_manager_icon.svg"),
+                                self._open_block_from_picker)
+        b.setToolTip("Open a project or library block in the Block Editor")
+        b = gb.add_small_button("Manager", _I("block_manager_icon.svg"),
+                                self._open_block_manager)
+        b.setToolTip("Block Manager")
+        b = gb.add_small_button("Insert", _I("insert_block_icon.svg"),
+                                self._focus_blocks_browser)
+        b.setToolTip("Pick a block to place from the Blocks browser")
+
+        # --- Definition (editor-only) ---
+        gd = page.add_group("Definition")
+        self._be_save_btn = _editor_only(
+            gd.add_small_button("Save", _I("make_block_icon.svg"), self._be_save),
             "Save Block (Ctrl+S) — update this block in the project (and its "
             "library copy, if any). First save asks for name/library.")
-        self._be_save_as_btn = gb.add_small_button(
-            "Save\nAs", _I("make_block_icon.svg"), self._be_save_as)
-        self._be_save_as_btn.setToolTip(
+        self._be_save_as_btn = _editor_only(
+            gd.add_small_button("Save As", _I("make_block_icon.svg"),
+                                self._be_save_as),
             "Save Block As (Ctrl+Shift+S) — save this geometry as a NEW block; "
             "the original is left unchanged")
-        self._be_origin_btn = gb.add_small_button(
-            "Set\nOrigin", _I("insert_block_icon.svg"), self._be_set_origin)
-        self._be_origin_btn.setToolTip("Set the block insertion origin (click to pick, snapped)")
-        self._be_import_btn = gb.add_small_button(
-            "Import", _I("block_manager_icon.svg"), self._be_import)
-        self._be_import_btn.setToolTip("Import DXF/DWG/PDF geometry into the editor")
-        self._be_attr_btn = gb.add_small_button(
-            "Edit\nAttributes", _I("block_manager_icon.svg"), self._be_edit_attributes)
-        self._be_attr_btn.setToolTip("Edit block attributes (coming soon)")
-        self._be_attr_btn.setEnabled(False)     # wired later
+        self._be_import_btn = _editor_only(
+            gd.add_small_button("Import", _I("block_manager_icon.svg"),
+                                self._be_import),
+            "Import DXF/DWG/PDF geometry into the editor")
+        self._be_origin_btn = _editor_only(
+            gd.add_small_button("Set Origin", _I("insert_block_icon.svg"),
+                                self._be_set_origin),
+            "Set the block insertion origin (click to pick, snapped)")
+        # Placeholder (user exception to D15): permanently disabled until wired.
+        self._be_attr_btn = _editor_only(
+            gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
+                                self._be_edit_attributes),
+            "Edit block attributes (coming soon)")
 
+        # --- 2D Geometry (editor-only) ---
         g = page.add_group("2D Geometry")
-
-        # Block Editor mode buttons live in their OWN registry, NOT the main
-        # ribbon's _mode_buttons — registering into the shared dict overwrote the
-        # Create-tab buttons for the same modes (draw_rectangle/…), and when this
-        # contextual page was torn down those Create-tab entries were gone, so
-        # _sync_mode_buttons could never un-check them (they stuck lit — #217).
-        # Rebuilt fresh each time this contextual page is (re)built.
-        self._block_mode_buttons = {}
 
         def _mode(label, icon, mode, tip):
             cb = lambda: self._active_scene().set_mode(mode)
             b = g.add_small_button(label, _I(icon), cb, checkable=True)
-            b.setToolTip(tip)
             self._block_mode_buttons[mode] = b
-            return b
+            return _editor_only(b, tip)
 
         _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
@@ -4952,15 +4963,83 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
 
-        # Edit + Modify (scene-tools.md D1) — always visible after 2D Geometry.
+        # --- Edit + Modify (scene-tools.md D1; editor-only) ---
         self._be_modify_buttons = {
             **self.build_edit_group(page, self._active_scene,
                                     self._block_mode_buttons),
             **self.build_modify_group(page, self._active_scene,
                                       self._block_mode_buttons, explode=True),
         }
-        self._connect_modify_refresh(self._active_scene())
-        self._refresh_modify_buttons()
+        for b in self._be_modify_buttons.values():
+            _editor_only(b, b.toolTip())
+
+    def _set_block_editor_context(self, active: bool) -> None:
+        """Enable/disable the Block Editor tab's editor-only groups.
+
+        *active* = a Block Editor tab is current. Inactive: every Definition /
+        2D Geometry / Edit / Modify button is disabled and tooltipped
+        ``_BE_NO_EDITOR_TIP`` (the Block group stays live). Active: real
+        tooltips back, buttons enabled (Edit Attributes stays a disabled
+        placeholder), then Edit/Modify narrowed by ``_refresh_modify_buttons``
+        against the editor scene's selection.
+        """
+        from PyQt6 import sip
+        for b, tip in getattr(self, "_be_editor_only", ()):
+            if sip.isdeleted(b):
+                continue
+            b.setToolTip(tip if active else self._BE_NO_EDITOR_TIP)
+            b.setEnabled(active and b is not self._be_attr_btn)
+        if active:
+            self._connect_modify_refresh(self._active_scene())
+            self._refresh_modify_buttons()
+        # Re-sync the mode buttons for the (new) active scene: lights the
+        # editor's running tool on entry, clears the page's buttons on leave.
+        self._sync_mode_buttons(getattr(self._active_scene(), "mode", None))
+
+    def _show_block_editor_ribbon(self):
+        """An editor tab became current: switch to the Block Editor page and
+        enable its editor-only groups."""
+        entering = not getattr(self, "_block_ribbon_active", False)
+        if entering:
+            # A plan-selection contextual page can't coexist with the editor
+            # (its selection belongs to another scene): drop it, restoring to
+            # the base tab it was opened from.
+            pre = self.ribbon._tab_bar.currentIndex()
+            if self._active_contextual_key is not None:
+                self.ribbon.remove_page(self._contextual_index)
+                self._active_contextual_key = None
+                self._active_contextual_title = None
+                pre = self._pre_contextual_tab
+            self._pre_block_editor_tab = (
+                None if pre == self._be_page_index else pre)
+        self._block_ribbon_active = True
+        self.ribbon._tab_bar.setCurrentIndex(self._be_page_index)
+        self._set_block_editor_context(True)
+
+    def _hide_block_editor_ribbon(self):
+        """Leaving an editor tab: disable the editor-only groups and, if the
+        ribbon is still on the Block Editor page, restore the prior tab."""
+        if not getattr(self, "_block_ribbon_active", False):
+            return
+        self._block_ribbon_active = False
+        self._set_block_editor_context(False)
+        pre = self._pre_block_editor_tab
+        self._pre_block_editor_tab = None
+        if (pre is not None
+                and self.ribbon._tab_bar.currentIndex() == self._be_page_index):
+            self.ribbon._tab_bar.setCurrentIndex(pre)
+
+    def _open_block_from_picker(self):
+        """Ribbon Open…: pick a project or library block, edit it.
+
+        A library-only pick is loaded into the project by the dialog before
+        it accepts (``blocks_browser.ensure_block_loaded``).
+        """
+        self._commit_text_edits()
+        from firepro3d import block_open_dialog
+        dlg = block_open_dialog.BlockOpenDialog(self.scene, self)
+        if dlg.exec() and dlg.chosen_id():
+            self.block_editor_manager.edit_definition(dlg.chosen_id())
 
     def _be_save(self):
         w = self._active_editor_widget()
