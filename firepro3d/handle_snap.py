@@ -27,7 +27,6 @@ from .snap_engine import OsnapResult, SNAP_PRIORITY
 from .underlay_snap_index import UnderlaySnapIndex
 
 HANDLE_TYPES = frozenset({"endpoint", "midpoint", "center", "quadrant"})
-_UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
 # A target within this scene distance of a handle's OWN rest point is that
 # handle's current position (a connected line, a wall join, …) — snapping to it
 # would pin the handle at rest, so no move shorter than the aperture could land.
@@ -42,23 +41,8 @@ class HandleSnapResult(OsnapResult):
     """
 
 
-def _tag(item) -> object:
-    """The item's ``data(0)`` type tag.
-
-    Args:
-        item: Any scene item.
-
-    Returns:
-        The tag (e.g. ``"DXF Underlay"``, ``"origin"``) or None. Unbound call:
-        TextItem shadows ``QGraphicsItem.data`` with its TextAnnotationData
-        property, so ``item.data(0)`` would raise.
-    """
-    return QGraphicsItem.data(item, 0)
-
-
-def _is_underlay_group(item) -> bool:
-    """Whether *item* is a tagged DXF/PDF underlay group."""
-    return isinstance(item, QGraphicsItemGroup) and _tag(item) in _UNDERLAY_TAGS
+# One home for the underlay-group test and the eligibility rule: snap_engine (DD6).
+_is_underlay_group = _se._is_underlay_group
 
 
 class HandleSnapSession:
@@ -208,17 +192,14 @@ class HandleSnapSession:
         for item in items:
             if item in skip:
                 continue
-            if not item.isVisible() or (self._exclude_moving
-                                        and self._is_moving(item)):
+            if self._exclude_moving and self._is_moving(item):
                 continue
-            if item.zValue() > 150 or _tag(item) == "origin":
+            if not _se.is_snap_target(item, skip_pipes=engine.skip_pipes):
                 continue
-            if isinstance(item, Pipe):
-                if engine.skip_pipes:
-                    continue
-                if (getattr(item, "node1", None) in moving_nodes
-                        or getattr(item, "node2", None) in moving_nodes):
-                    continue
+            if isinstance(item, Pipe) and (
+                    getattr(item, "node1", None) in moving_nodes
+                    or getattr(item, "node2", None) in moving_nodes):
+                continue
             for kind, p, name in engine._collect(item):
                 px, py = p.x(), p.y()
                 if (kind in HANDLE_TYPES

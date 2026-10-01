@@ -477,6 +477,55 @@ ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
 # Cursor-foot snap types an in-aperture ALIGN crossing beats outright (S5).
 _WEAK_SNAP_TYPES: frozenset[str] = frozenset({"nearest"})
 
+_UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
+# Items that are never snap geometry themselves: the (0,0) origin cross and
+# the Block Editor insertion marker. Their POSITIONS are offered as the
+# ``origin`` kind by SnapEngine._origin_points (DD6).
+_NON_TARGET_TAGS = frozenset({"origin", "block_origin_marker"})
+
+
+def _is_underlay_group(item) -> bool:
+    """Whether *item* is a tagged DXF/PDF underlay group.
+
+    Unbound ``QGraphicsItem.data``: TextItem shadows ``data`` with its
+    TextAnnotationData property, so ``item.data(0)`` would raise.
+    """
+    return (isinstance(item, QGraphicsItemGroup)
+            and QGraphicsItem.data(item, 0) in _UNDERLAY_TAGS)
+
+
+def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
+    """The one snap-target eligibility rule (snapping-engine DD6).
+
+    Shared by ``find()`` phase 1, phase 4 (and ALIGN path x geometry, which
+    reuses phase 4's extractor) and ``HandleSnapSession``. Each caller keeps
+    only its own rules on top (``exclude`` / ``item_filter`` / underlay-index
+    routing; the moving set, moving-node pipes, self-rest). Children of an
+    underlay group are routed by the caller BEFORE this check.
+
+    Args:
+        item: A scene item.
+        skip_pipes: The engine's ``skip_pipes`` (design-area mode).
+
+    Returns:
+        False for a hidden item, a child of a non-underlay parent (gridline
+        bubbles/labels, sprinkler & fitting symbols, ...), an item above
+        z 150, the origin cross / block origin marker, or a pipe when
+        *skip_pipes*; True otherwise.
+    """
+    if not item.isVisible():
+        return False
+    parent = item.parentItem()
+    if parent is not None and not _is_underlay_group(parent):
+        return False
+    if item.zValue() > 150:
+        return False
+    if QGraphicsItem.data(item, 0) in _NON_TARGET_TAGS:
+        return False
+    if skip_pipes and isinstance(item, Pipe):
+        return False
+    return True
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OsnapResult
@@ -856,8 +905,6 @@ class SnapEngine:
                            exclude: QGraphicsItem | None,
                            item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
-        _underlay_tags = ("DXF Underlay", "PDF Underlay")
-
         _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
         _items = scene.items(search_rect, _bbox)
 
@@ -868,42 +915,32 @@ class SnapEngine:
                 continue
 
             parent = item.parentItem()
-            if parent is not None:
-                if (isinstance(parent, QGraphicsItemGroup)
-                        and parent.data(0) in _underlay_tags):
-                    if isinstance(parent.data(4), UnderlaySnapIndex):
-                        # Lazy snap index — query once per group
-                        gid = id(parent)
-                        if gid not in _queried_underlays:
-                            _queried_underlays.add(gid)
-                            self._query_underlay_snaps(
-                                ctx, parent, search_rect)
-                    else:
-                        # No snap index (import dialog) — process
-                        # invisible child items directly
-                        if item_filter is not None and not item_filter(item):
-                            continue
-                        for snap_type, scene_pt, name in self._collect(
-                                item):
-                            ctx.check(snap_type, scene_pt, item, name)
-                        for snap_type, pt in self._geometric_snaps(
-                                ctx.cursor, item, ctx.from_point,
-                                ctx.search_tol):
-                            ctx.check(snap_type, pt, item)
+            if parent is not None and _is_underlay_group(parent):
+                if isinstance(parent.data(4), UnderlaySnapIndex):
+                    # Lazy snap index — query once per group
+                    gid = id(parent)
+                    if gid not in _queried_underlays:
+                        _queried_underlays.add(gid)
+                        self._query_underlay_snaps(ctx, parent, search_rect)
+                    continue
+                # No snap index (import dialog) — process the
+                # invisible child items directly
+                if item_filter is not None and not item_filter(item):
+                    continue
+                for snap_type, scene_pt, name in self._collect(item):
+                    ctx.check(snap_type, scene_pt, item, name)
+                for snap_type, pt in self._geometric_snaps(
+                        ctx.cursor, item, ctx.from_point, ctx.search_tol):
+                    ctx.check(snap_type, pt, item)
                 continue
 
-            if item.zValue() > 150:
-                continue
-            # Unbound call: TextItem shadows QGraphicsItem.data with its
-            # TextAnnotationData property, so item.data(0) would raise (S6).
-            if QGraphicsItem.data(item, 0) == "origin":
-                continue
-            if self.skip_pipes and isinstance(item, Pipe):
+            # Shared eligibility (DD6): hidden, children of non-underlay
+            # parents, z > 150, the origin cross / marker, pipes (skip_pipes).
+            if not is_snap_target(item, skip_pipes=self.skip_pipes):
                 continue
 
             # Underlay group itself — query its snap index
-            if (isinstance(item, QGraphicsItemGroup)
-                    and item.data(0) in _underlay_tags):
+            if _is_underlay_group(item):
                 gid = id(item)
                 if gid not in _queried_underlays:
                     _queried_underlays.add(gid)
@@ -1073,20 +1110,19 @@ class SnapEngine:
             for item in scene.items(search_rect, _bbox):
                 if exclude is not None and item is exclude:
                     continue
-                if item.zValue() > 150:
-                    continue
                 parent = item.parentItem()
-                if parent is not None:
-                    if (isinstance(parent, QGraphicsItemGroup)
-                            and parent.data(0) in _underlay_tags):
-                        if isinstance(parent.data(4), UnderlaySnapIndex):
-                            continue  # segments from index below
-                        if item_filter is not None and not item_filter(item):
-                            continue
-                        yield item  # no index — process directly
+                if parent is not None and _is_underlay_group(parent):
+                    if item.zValue() > 150:
+                        continue
+                    if isinstance(parent.data(4), UnderlaySnapIndex):
+                        continue  # segments from index below
+                    if item_filter is not None and not item_filter(item):
+                        continue
+                    yield item  # no index — process directly
                     continue
-                if (isinstance(item, QGraphicsItemGroup)
-                        and item.data(0) in _underlay_tags):
+                if not is_snap_target(item, skip_pipes=self.skip_pipes):
+                    continue
+                if _is_underlay_group(item):
                     continue
                 if item_filter is not None and not item_filter(item):
                     continue

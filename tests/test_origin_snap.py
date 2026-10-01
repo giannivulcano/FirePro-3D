@@ -1,0 +1,129 @@
+"""DD6 guards — shared snap eligibility + the ``origin`` snap kind (Slice 2).
+
+Real path: shown Model_View over a real Model_Space (or a real
+BlockEditorWidget for the red insertion marker), posted mouse events through
+the scene dispatch (cursor snap via get_effective_position -> find(); handle
+snap via the manipulator / Move-Duplicate destination -> HandleSnapSession).
+Ground truth: where the geometry actually lands (grip points) and the
+published snap marker / painted glyph pixels.
+"""
+from __future__ import annotations
+
+import math
+
+from PyQt6.QtCore import QEvent, QPointF
+from PyQt6.QtGui import QColor
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QGraphicsRectItem
+
+from firepro3d.geometry_2d import LineItem
+from firepro3d.snap_engine import SNAP_COLORS
+from tests._snap_polish_helpers import (
+    click, close_view, drag, dwell, make_view, move, post,
+)
+
+
+def _at(p: QPointF, x: float, y: float, tol: float = 0.01) -> bool:
+    return math.hypot(p.x() - x, p.y() - y) <= tol
+
+
+def _selected_line(scene, p1, p2):
+    a = LineItem(QPointF(*p1), QPointF(*p2))
+    scene.addItem(a)
+    scene._draw_lines.append(a)
+    scene.clearSelection()
+    a.setSelected(True)
+    QApplication.processEvents()
+    return a
+
+
+def _drag_peek(view, start: QPointF, end: QPointF, steps: int = 6):
+    """Real press / moves / release; returns the scene's published snap
+    marker as it stood on the last move, before the release."""
+    post(view, QEvent.Type.MouseButtonPress, start)
+    view._snap_polish_pressed = True
+    try:
+        for i in range(1, steps + 1):
+            t = i / steps
+            move(view, QPointF(start.x() + (end.x() - start.x()) * t,
+                               start.y() + (end.y() - start.y()) * t))
+        marker = view.scene()._snap_result
+    finally:
+        view._snap_polish_pressed = False
+    post(view, QEvent.Type.MouseButtonRelease, end)
+    return marker
+
+
+def _count_colour(view, scene_pt, hexcol, half=9, rows=None):
+    """Pixels of exactly *hexcol* in a box around *scene_pt* (device px).
+
+    Same sampling as tests/test_align_snap_glyphs.py::_count_colour; *rows*
+    optionally limits the box to the given row offsets (device px)."""
+    img = view.viewport().grab().toImage()
+    dpr = img.devicePixelRatio()
+    vp = view.viewportTransform().map(scene_pt)
+    want = QColor(hexcol).rgb()
+    cx, cy = int(round(vp.x() * dpr)), int(round(vp.y() * dpr))
+    h = int(math.ceil(half * dpr))
+    ys = (range(cy - h, cy + h + 1) if rows is None
+          else [cy + int(round(r * dpr)) for r in rows])
+    n = 0
+    for x in range(cx - h, cx + h + 1):
+        for y in ys:
+            if 0 <= x < img.width() and 0 <= y < img.height() and img.pixel(x, y) == want:
+                n += 1
+    return n
+
+
+# ── M7: shared eligibility ──────────────────────────────────────────────────
+
+def test_child_of_a_plain_parent_is_not_a_handle_snap_target(qapp):
+    """find() never snapped to children of non-underlay parents; the handle
+    snap now follows the same rule (D-a)."""
+    view, scene = make_view(scale=1.0)
+    try:
+        parent = QGraphicsRectItem(0, 0, 1, 1)
+        parent.setPos(500, 500)                    # its own corners are far away
+        scene.addItem(parent)
+        child = LineItem(QPointF(-300, -490), QPointF(-200, -490))   # scene (200,10)-(300,10)
+        child.setParentItem(parent)
+        a = _selected_line(scene, (0, 0), (100, 0))
+        drag(view, QPointF(25, 0), QPointF(123, 8))   # raw: a.p2 at (198,8), 2.8 px from (200,10)
+        assert _at(a.grip_points()[2], 198.0, 8.0)                       # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_gridline_bubble_is_not_a_handle_snap_target(qapp):
+    """Parity guard (passes before and after): a bubble (child of the
+    gridline, z 500) never offered a handle-snap point."""
+    from firepro3d.gridline import GridlineItem
+
+    view, scene = make_view(scale=0.25)
+    try:
+        gl = GridlineItem(QPointF(-100, -150), QPointF(-100, 150))
+        scene.addItem(gl)
+        scene._gridlines.append(gl)
+        b = gl.bubble1.scenePos()                  # (-100, -1150)
+        a = _selected_line(scene, (300, -1000), (400, -1000))
+        dx, dy = (b.x() + 8) - 300, (b.y() + 8) - (-1000)
+        drag(view, QPointF(350, -1000), QPointF(350 + dx, -1000 + dy))
+        p1 = a.grip_points()[0]
+        # raw landing (device-px quantised at m11 0.25 -> within 4 mm), never the bubble centre
+        assert _at(p1, b.x() + 8, b.y() + 8, tol=4.0)
+        assert math.hypot(p1.x() - b.x(), p1.y() - b.y()) > 5.0
+    finally:
+        close_view(view, scene)
+
+
+def test_no_intersection_on_the_origin_cross_arms(qapp):
+    """The cross is decoration: a line crossing its +-10 mm arm is not an
+    intersection target (the old accidental phase-4 hit)."""
+    view, scene = make_view(scale=4.0, mode="draw_line")
+    try:
+        scene.addItem(LineItem(QPointF(5, -50), QPointF(5, 50)))
+        move(view, QPointF(5.5, 0.5))              # (0,0) is 22 px away: outside the aperture
+        res = scene._snap_result
+        assert res is None or res.snap_type != "intersection"            # [RED]
+    finally:
+        close_view(view, scene)
