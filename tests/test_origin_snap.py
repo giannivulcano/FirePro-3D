@@ -316,3 +316,18 @@ def test_origin_glyph_is_an_upright_circle_plus_in_its_colour(qapp):
         assert _count_colour(view, QPointF(0, 0), col, half=4, rows=(-1, 0)) >= 8
     finally:
         close_view(view, scene)
+
+
+# ── M4: ALIGN acquires the origin like any snapped point (slice-0 probe c) ─
+
+def test_align_dwell_on_origin_tracks_its_axes(qapp):
+    view, scene = make_view(scale=1.0, mode="draw_line")
+    try:
+        scene._snap_engine.snap_intersection = False   # no accidental cross hit
+        dwell(view, QPointF(1, 1))                 # rest on the origin snap
+        move(view, QPointF(300, 4))                # near the origin's H ray
+        res = scene._align_result
+        assert res is not None and res.snap_type == "align_path"         # [RED]
+        assert _at(res.point, 300.0, 0.0, 0.5)
+    finally:
+        close_view(view, scene)
