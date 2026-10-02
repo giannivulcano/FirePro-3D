@@ -493,7 +493,7 @@ class SelectionReadoutController:
             # edit's values are goals; the rest re-solves when the context
             # exits — BEFORE the undo push below snapshots.
             ctl = getattr(self._scene, "constraint_ctl", None)
-            with (ctl.edit([s.item]) if ctl is not None
+            with (ctl.edit([s.item], typed=True) if ctl is not None
                   else contextlib.nullcontext()):
                 s.spec.apply(v)
         except Exception:                      # never half-apply into undo

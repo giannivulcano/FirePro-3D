@@ -272,9 +272,10 @@ def test_e2e_typed_length_readout_keeps_horizontal_and_the_typed_length(
     _type_length(view, sc, t, "200")
     (lt,) = [x for x in sc._draw_lines if x._uid == t._uid]
     (lf,) = [x for x in sc._draw_lines if x._uid == f._uid]
-    # D6: the typed anchor/value are strong preferences, not locks, so the
-    # length lands within the W_EDIT trade-off, not exactly.
-    assert lt.line().length() == pytest.approx(200.0, abs=0.5)
-    assert (lt._pt1.x(), lt._pt1.y()) == pytest.approx((0.0, 100.0), abs=1e-3)
-    assert lt._pt2.y() == pytest.approx(260.0, abs=0.5)            # p2 moved up
+    # D31: a TYPED value is honoured exactly -- the typed edit's changed
+    # variables are pinned (W_PIN) and the follower yields; the D6 anchor
+    # (p1, unchanged) keeps W_EDIT.
+    assert lt.line().length() == pytest.approx(200.0, abs=1e-6)
+    assert (lt._pt1.x(), lt._pt1.y()) == pytest.approx((0.0, 100.0), abs=1e-6)
+    assert lt._pt2.y() == pytest.approx(260.0, abs=1e-6)           # p2 moved up
     assert lf._pt1.y() == pytest.approx(lt._pt2.y(), abs=1e-6)      # follower held

@@ -36,6 +36,7 @@ _PARTICIPATING = ("_draw_lines", "_reference_lines", "_draw_rects", "_draw_circl
 _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
+TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 
 
 def _safe_ref_uids(c) -> set | None:
@@ -396,7 +397,8 @@ class ConstraintController:
         return out
 
     # ── solve + write-back (one write per item, §3) ──────────────────────
-    def _solve(self, *, edited=(), pin=None, ctx=None, focus=None) -> bool:
+    def _solve(self, *, edited=(), pin=None, ctx=None, focus=None,
+               typed=None) -> bool:
         """One solve + write-back.
 
         Args:
@@ -407,6 +409,9 @@ class ConstraintController:
                 refreshed) — the D18 8 ms drag bar depends on it.
             focus: Uids whose components must be solved (a new or re-enabled
                 constraint's items). ``None`` = no focus given.
+            typed: ``{uid: [local var index]}`` -- a TYPED edit's changed
+                variables (D31): pinned at ``W_PIN`` and required to land
+                within ``TYPED_TOL`` of the typed value, else the solve fails.
 
         Only the components holding *edited* / *focus* variables are solved
         (§7.2 components). With neither given, every component is; with a
@@ -432,6 +437,11 @@ class ConstraintController:
             if slot is not None:
                 it, ad, off = slot
                 weights[off:off + ad.nvars(it)] *= W_EDIT
+        for u, ks in (typed or {}).items():          # D31: typed = exact
+            slot = slots.get(u)
+            if slot is not None:
+                for k in ks:
+                    weights[slot[2] + k] *= W_PIN
         if pin is not None:
             item, grip = pin
             slot = slots.get(getattr(item, "_uid", None))
@@ -447,6 +457,11 @@ class ConstraintController:
         x = self._solve_x(sys_, slots, weights, active)
         if x is None:
             return False
+        for u, ks in (typed or {}).items():
+            slot = slots.get(u)
+            if slot is not None and any(
+                    abs(x[slot[2] + k] - sys_.x[slot[2] + k]) > TYPED_TOL for k in ks):
+                return False                    # the typed value can't be honoured
         self._write(slots, sys_.x, x)
         return True
 
@@ -531,11 +546,15 @@ class ConstraintController:
 
     # ── edit seams (§8) ──────────────────────────────────────────────────
     @contextlib.contextmanager
-    def edit(self, items):
+    def edit(self, items, *, typed: bool = False):
         """Wrap a typed / panel / transform mutation of *items*.
 
         The mutated items' new values become ``W_EDIT`` goals and the rest
-        re-solves on exit — callers push undo AFTER the context exits. An
+        re-solves on exit. *typed* (D31 -- the readout and property-panel
+        seams only; transforms are not typed): the variables the edit CHANGED
+        are pinned at ``W_PIN`` and honoured exactly, the edited item's
+        unchanged variables keep ``W_EDIT`` (D6 anchors), other geometry
+        yields; if nothing can yield it is a conflict. The rest re-solves on exit — callers push undo AFTER the context exits. An
         empty *items* (e.g. Scale by 1) or untouched items is a pure no-op.
         On failure the WHOLE edit is rolled back (D10) — every adapter-backed
         item in *items*, constrained or not, plus every constrained item — and
@@ -547,9 +566,27 @@ class ConstraintController:
             return
         snap = self._snapshot(items)
         yield
-        if not self._solve(edited=items):
+        pins = self._typed_pins(items, snap) if typed else None
+        if not self._solve(edited=items, typed=pins):
             self._restore(snap)
             self._report_conflict(reassert=True)
+
+    @staticmethod
+    def _typed_pins(items, snap) -> dict:
+        """D31: ``{uid: [local index]}`` of each edited item's variables that
+        changed (> 1e-12) against the pre-edit snapshot."""
+        pins = {}
+        for it in items:
+            ad = adapter_for(it)
+            u = getattr(it, "_uid", None)
+            if ad is None or u not in snap:
+                continue
+            old = snap[u][1]
+            ks = [k for k, (a, b) in enumerate(zip(old, ad.read(it)))
+                  if abs(float(b) - float(a)) > 1e-12]
+            if ks:
+                pins[u] = ks
+        return pins
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None

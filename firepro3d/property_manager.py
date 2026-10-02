@@ -742,7 +742,8 @@ class PropertyManager(QWidget):
                 seen_ctl.add(id(sc))
                 defer.enter_context(ctl.edit(
                     [u for u in self._targets
-                     if callable(getattr(u, "scene", None)) and u.scene() is sc]))
+                     if callable(getattr(u, "scene", None)) and u.scene() is sc],
+                    typed=True))         # D31: a typed panel value is exact
         try:
             with defer:
                 for t in self._targets:

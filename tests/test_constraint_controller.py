@@ -757,6 +757,79 @@ def test_the_same_handle_twice_is_refused_whatever_the_extra_keys(qapp):
     assert ctl.constraints == []
 
 
+def _typed_follower(sc):
+    """A 3-4-5 line (length 100) whose p2 is Horizontal to a follower's p1."""
+    from firepro3d.scale_manager import ScaleManager
+    sc.scale_manager = ScaleManager()
+    t = _line(sc, (0, 100), (60, 180))
+    f = _line(sc, (300, 180), (400, 180))
+    sc.constraint_ctl.add("horizontal", [{"uid": t._uid, "h": "p2"},
+                                         {"uid": f._uid, "h": "p1"}])
+    return t, f
+
+
+def test_panel_typed_length_is_honoured_exactly(qapp):
+    """D31 (panel seam): a typed Length lands EXACTLY; the follower yields;
+    the anchor p1 (unchanged by the typed setter) stays put."""
+    from firepro3d.property_manager import PropertyManager
+    sc = _scene()
+    t, f = _typed_follower(sc)
+    sc.push_undo_state()
+    pm = PropertyManager()
+    try:
+        pm.show_properties([t])
+        msgs = _status(sc)
+        pm._apply_property("Length", 200.0)
+        assert t.line().length() == pytest.approx(200.0, abs=1e-6)      # [RED]
+        assert (t._pt1.x(), t._pt1.y()) == pytest.approx((0.0, 100.0), abs=1e-6)
+        assert (t._pt2.x(), t._pt2.y()) == pytest.approx((120.0, 260.0), abs=1e-6)
+        assert f._pt1.y() == pytest.approx(t._pt2.y(), abs=1e-6)       # follower yields
+        assert msgs == [] or all(m != "Over-constrained: the change was not applied"
+                                 for m in msgs)
+    finally:
+        pm.deleteLater()
+
+
+def test_transform_edit_is_not_typed_and_keeps_w_edit(qapp):
+    """D31 boundary: transforms stay W_EDIT (not typed) -- a Rotate of a
+    Horizontal line still re-levels to the mean (both ends yield)."""
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 0))
+    sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    t1, t2 = _rotated_twin_ys((0, 0), (100, 0), 30.0)
+    with sc.constraint_ctl.edit([ln]):
+        ln.manip_rotate(30.0, QPointF(0, 0))
+    mean = (t1.y() + t2.y()) / 2.0
+    assert ln._pt1.y() == pytest.approx(mean, abs=1e-6)
+    assert ln._pt2.y() == pytest.approx(mean, abs=1e-6)
+
+
+def test_a_typed_edit_that_cannot_be_met_holds_and_reports(qapp):
+    """D31 + D10: a line whose p2 is Horizontal to the origin (y fixed at 0).
+    A typed Length moves p2 off y = 0 along the line; nothing can yield
+    (p2's y is grounded, p1 cannot move p2), so the typed value cannot be
+    honoured -> conflict: the line holds and the status says so."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.scale_manager import ScaleManager
+    sc = _scene()
+    sc.scale_manager = ScaleManager()
+    t = _line(sc, (0, 100), (60, 0))
+    sc.constraint_ctl.add("horizontal", [{"uid": t._uid, "h": "p2"}, {"ref": "origin"}])
+    g0 = _grips(t)
+    sc.push_undo_state()
+    pm = PropertyManager()
+    try:
+        pm.show_properties([t])
+        msgs = _status(sc)
+        pm._apply_property("Length", 200.0)
+        QApplication.processEvents()
+        assert _grips(t) == g0                                           # [RED]
+        assert msgs and msgs[-1] == CONFLICT_STATUS
+    finally:
+        pm.deleteLater()
+
+
 def test_focus_on_nothing_solves_nothing(qapp):
     """M2: a solve focused on items that carry no solver variables is a
     no-op, not a whole-sketch solve (which would re-report a held conflict)."""
