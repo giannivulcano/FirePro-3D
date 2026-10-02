@@ -1,13 +1,14 @@
 ---
-status: partial           # Session 1 (foundation + Horizontal) BUILT 2026-10-02 on feat/cs1-constraint-foundation; Sessions 2–15 (§12) unbuilt. The legacy prototype (constraints.py) is RETIRED (§2).
-last-verified: 2026-10-02  # CS1 Account: D28–D35 ratified build rulings added (D32 amends D11/§10, D33 amends §5.1/§5.3, D34 amends D22); §2 → retired-prototype history; §3/§5/§6.3/§7/§8/§9/§10/§12 reconciled to the shipped code (tolerances, translate-first pass, live body drag, measured perf); applies-to = shipped modules; prior 2026-10-01 (CS1 Phase 2/3 deltas D21–D27, §2 re-derived at 406747b); prior 2026-09-30; prior 2026-09-29
-verified-commit: 2a22ba9  # CS1 close (feat/cs1-constraint-foundation); prior 44325e5; prior 2e511cd (feat/nested-blocks)
+status: partial           # Sessions 1 (foundation + Horizontal) and 2 (Vertical + diagnostics) BUILT; Sessions 3-15 (§12) unbuilt. The legacy prototype (constraints.py) is RETIRED (§2).
+last-verified: 2026-10-02  # CS2 Account: D36-D42 + the CS2 P4 ruling added; §5.1 (D36), §7.1, §7.3 Vertical pinned + BUILT, §7.4 built (attribution order, red = admission), §8 copy, §9 measured, §10 ribbon/panel/canvas, §11 #5, §12 row 2, AC; prior 2026-10-02 CS1 Account (D28-D35); prior 2026-10-01; prior 2026-09-30; prior 2026-09-29
+verified-commit: 7853334  # CS2 close (feat/cs2-vertical-diagnostics); prior 2a22ba9 (CS1); prior 44325e5
 applies-to:
   - firepro3d/sketch_model.py           # pure: ConstraintType enum (whole catalogue), REGISTRY, Constraint record, icon_for, remap_for_copy
   - firepro3d/sketch_solver.py          # pure numpy: NumpySolver (the v1 SketchSolver), System/Row/PointExpr, structure cache, BUILDERS
   - firepro3d/sketch_adapters.py        # per-primitive variable adapters, §5.3 grip map, D28/D34 weights, D29 collapse rules, write-back tolerances
   - firepro3d/constraint_controller.py  # Qt shell: composed into every Model_Space, active only in the block_editor role; every edit seam, pick mode, panel rows
-  - firepro3d/constraint_paint.py       # canvas: X/Y axes, boxed glyphs (D32 visibility), target glow, pick markers, glyph pick
+  - firepro3d/constraint_paint.py       # canvas: X/Y axes, boxed glyphs (D32 visibility; CS2 warn/danger borders), D39 state tint, target glow, pick markers, glyph pick
+  - firepro3d/block_properties_info.py  # D40: the nothing-selected Block Editor panel view (name, counts, Status badge)
 related:
   - block-system.md                     # definition schema "constraints" + primitive "uid"; origin fixed at (0,0); D23 scaffolding; D24 Create Block base
   - 2d-geometry.md                      # primitive storage, typed setters (the D6 anchor laws), size floors
@@ -22,6 +23,7 @@ related:
 source-tasks:
   - todo_open.md "Spec session: parametric constraint system" [type:design] (this spec)
   - todo_closed.md "CS1 — Constraint foundation + Horizontal" (2026-10-02)
+  - todo_closed.md "CS2 — Vertical + diagnostics" (2026-10-02)
   - reference input: "D:/Custom Code/FPD Design/constraint-system-spec.md" (external draft; critiqued, not adopted wholesale — §4)
 ---
 
@@ -54,7 +56,7 @@ Every row below was ratified by the user at a human gate (P5). "Ref-spec" = the 
 | D7 | **A dimensional constraint is a persisted readout:** same painter/style as the selection readouts, always visible in the editor (never on instances/prints). Created by the Smart Dimension tool **or** by clicking a lock glyph beside a transient readout ("promote"). Driving by default; **Driving/Reference is one boolean**. A permanent dim suppresses the duplicate transient readout. | Ref-spec §8's "annotation engine" does not exist (persistent dimensions were deleted under C1/C8); replaced by the readout layer. |
 | D8 | **Snaps never create constraints. No snap journal.** | Drops ref-spec §10's journal. |
 | D9 | **Admit + flag:** a redundant or conflicting constraint is added and shown amber/red (not refused at the gate). | Same as ref-spec §7.5. |
-| D10 | **State display:** glyphs + dims coloured by state (amber redundant, red conflicting); **DOF badge**; geometry **tint** by state (under-defined = ~~the theme **accent** token~~ the `constraint_free` token — **amended by D26**; fully defined = ink; conflicting = red) behind an Inspect toggle, default on, editor only. During a conflict the geometry **holds its last good solution** (no least-squares compromise). | Adds hold-last-good. |
+| D10 | **State display:** glyphs + dims coloured by state (amber redundant, red conflicting); **DOF badge**; geometry **tint** by state (under-defined = ~~the theme **accent** token~~ the `constraint_free` token — **amended by D26**; fully defined = ink; conflicting = red) behind an Inspect toggle, default on, editor only (**built CS2 — D39**). During a conflict the geometry **holds its last good solution** (no least-squares compromise); the conflicting constraint then sits out (D37). | Adds hold-last-good. |
 | D11 | **SolidWorks is the behaviour reference:** boxed relation glyphs beside geometry (~~toggle, default on~~ — **amended by D32**: shown for the selection; Show Constraints is a show-all override, default off), hover a glyph → its targets glow, click → select, Delete removes it; selecting an entity lists its constraints in the property panel. SolidWorks constraint catalogue + names are the baseline. | — |
 | D12 | **Selection-first** constraint buttons (enabled only when the selection is valid for that type); with nothing selected a button enters a pick mode. **One Smart Dimension tool** (tool-first) infers the dim kind from the picks + label placement. | — |
 | D13 | **"Mirror" = the Symmetric constraint only.** Mirror stays an unlinked copy tool in the scene/Modify tools; no linked "Mirror Entities". | Ref-spec had Symmetric as Tier 2; promoted. |
@@ -94,6 +96,20 @@ Session-1 delta decisions (2026-10-01/02 `/todo` CS1 run — Phase 2 FP1 questio
 | D33 | **Polygon handles (amends §5.1/§5.3):** a regular polygon exposes `center`, vertex handles `v0..v(n-1)` and edge handles `s0..s(n-1)` (`s<i>` = `v<i>`→`v<i+1>`, closing edge included), all **derived** from its centre / R / rotation. Grip 0 → `center`, grip i (1..n) → `v<i-1>`. |
 | D34 | **Solver preference: translate, then resize, then rotate (amends D22's pure least-change).** Base goal weights: positions 1, size variables `W_SIZE` (1e3), angles `ANG_SCALE²` (D28). Mechanism: a **translate-first pass** (every size + angle variable made `W_PIN`-stiffer) runs first and is taken when it honours the edit within `HONOUR_TOL` (1e-6), or moves the edit at most `HONOUR_RATIO` (1.1×) as far as the plain weighted solve does; otherwise the plain weighted solve (with its D29 retry) wins. If the plain solve fails, a pass that only "solved" by undoing the edit is a conflict too. |
 | D35 | **Live drag of constrained selections.** A selection-manipulator **body drag** or **box resize** of a selection that touches an active constraint applies **live**: the real geometry is transformed and solved every frame (hold last good on a conflicting frame), Esc restores the pre-gesture state, release commits **one** undo step. Unconstrained selections keep the held-transform preview (bake on release). The **Move tool** stays commit-only (ghost; the solve runs on the destination click). **Undo/redo is refused** while any manipulator drag is in progress. |
+
+Session-2 delta decisions (2026-10-02 `/todo` CS2 run — Phase 2 FP1 questions, the mockup gate, the P4 probe fork; each ratified by the user at that gate):
+
+| # | Decision |
+|---|---|
+| D36 | **An edge collapsed to zero length is a collapse (extends D29).** A solve that shrinks a line / reference line / polyline segment from longer than `DEGEN_EPS` to at most `DEGEN_EPS` is a conflict (an already-degenerate segment never counts). H + V on one line is therefore a conflict, not a point. Consequence (least-change, no line rotation variable): H or V applied to an *exactly* perpendicular line can only collapse it, so it is a conflict too — a line-rotating alternative is filed. |
+| D37 | **A red constraint sits out of solving** (like Suppressed) so the rest of the sketch stays editable. A **structural** commit (add / delete / suppress / unsuppress, or a delete that cascaded constraints) re-checks red constraints in list order and re-admits + applies any now satisfiable; a **geometry** edit (drag, typed, transform) never re-checks — a released drag never makes a red constraint jump in (refinement approved with the CS2 plan). |
+| D38 | **Red = the constraint whose admission broke solvability** (add, re-enable) — never the earlier ones. Red is derived state, never saved: `load` re-derives it in list order (satisfiable after a solve, group by group); undo restore and paste re-derive it as "not satisfied by the committed geometry" (CS2 review I-1 — reproduces the live red set without solving). |
+| D39 | **Constraint Status tint** (Inspect toggle, default ON, editor only): every adapter-backed primitive is tinted by state — free `constraint_free`, fully defined `ink`, conflicting `danger`; selected items never; splines and (gate option b) text never. Drawn as a foreground re-stroke of the item's HALO trace at its own width (min 1 px) + `CONSTRAINT_TINT_EXTRA_PX` to cover the anti-aliased fringe. **Reference lines stay looking like reference lines** (user, 2026-10-02 smoke): a dashed item's tint copies its dash pattern scaled by item/tint width, so the dashes keep their px lengths and stay in step. |
+| D40 | **Nothing selected in the Block Editor → the block view** (`BlockPropertiesInfo`): header, Name, Primitives, Constraints (read-only) and the sketch **Status** badge (`Under-defined · N DOF` / `Fully defined` / `Over-constrained`; an empty sketch reads under-defined, 0 DOF). Block attributes join this view with SB1a. The DOF badge lives here, not on the canvas or ribbon. |
+| D41 | **The element Constraints footer is the element's own state** (`Fully defined` / `Under-defined · N DOF` / `Conflicting`) as a `StatusBadge`; the sketch DOF lives only in the block view. A non-participating item (spline) has no state footer. |
+| D42 | **Vertical follows D30 like Horizontal** (kept for rotations ≡ 0 mod 180° and H/V mirror axes, dropped otherwise — no H↔V swap). A redundant add is admitted (D9), shown amber, and posts "Redundant constraint: already implied by others". |
+
+**CS2 P4 ruling (user, 2026-10-02):** per-entity DOF uses the **economy-SVD row-space basis** (`rank(I − Q_Sᵀ Q_S)`), never the full null-space basis; ordered Gram–Schmidt runs only on rank-deficient components. The rect-heavy one-component diagnostics cost (~170 ms) is folded into the open D18 rect-heavy perf task.
 
 ## 2. Retired prototype (history)
 
@@ -185,6 +201,8 @@ Only items referenced by at least one active constraint become solver variables.
 | Nested block instance `block_instance` | x y | `ins` (interior frozen — D2) |
 | Spline `draw_spline` | — | **excluded in v1** (no adapter; a record naming a spline still saves, §6.4) |
 
+**Collapse (D29 + D36):** sizes per D29; a line / reference line / polyline segment (closing one included) the solve shrinks to zero length is a collapse too (`_LineAdapter` / `_PolylineAdapter.collapses`).
+
 Rotation of text/instances is not a variable in v1. Variable classes for D28/D34 weighting: sizes = rect w/h, circle/arc r, polygon R, ellipse rx/ry; angles = rect θ, arc θs/θe, polygon/ellipse rot; everything else is a position.
 
 ### 5.2 Polyline vertex identity
@@ -252,10 +270,10 @@ Opening a definition whose `origin ≠ (0,0)` translates its seeded primitives b
 ```python
 class NumpySolver:                                   # the v1 SketchSolver (duck-typed)
     def solve(self, system, goals, weights, active=None) -> SolveResult   # x, converged, max_residual
-    def diagnose(self, system) -> Diagnostics                              # nvars, rank, dof, conflicts
+    def diagnose(self, system) -> Diagnostics      # nvars, rank, dof, conflicts, redundant, dof_of(idx)
 ```
 
-`system` = a `System` (variable vector `x`, equality `aliases` / `fixes`, residual `rows`) for one sketch; `goals`/`weights` are full-space per-variable arrays (§7.2); `active` restricts the solve to the components holding those variables. `Diagnostics.conflicts` lists contradictory fixes only; per-entity defined, redundant and conflicting constraint ids arrive with CS2 (§7.4). Swapping the engine later is a module replacement.
+`system` = a `System` (variable vector `x`, equality `aliases` / `fixes`, residual `rows`) for one sketch; `goals`/`weights` are full-space per-variable arrays (§7.2); `active` restricts the solve to the components holding those variables. `Diagnostics.conflicts` lists contradictory fixes only (attributed in fix-list order — the controller's red set, not this list, decides which constraint is red, D38); `Diagnostics.redundant` and `dof_of` are §7.4 (CS2). `System.cid_rank` (cid → admission order) drives the redundancy attribution. Swapping the engine later is a module replacement.
 
 ### 7.2 Algorithm — weighted minimum-change projection
 
@@ -286,7 +304,7 @@ Damped Gauss–Newton iterations starting from the goals until `F` meets the D18
 | Type | Refs (order) | DOF | Residual |
 |---|---|---|---|
 | Horizontal **— BUILT CS1 (2026-10-02, `2a22ba9`)** | edge, or 2 points | 1 | `y_b − y_a` (substituted) |
-| Vertical | edge, or 2 points | 1 | `x_b − x_a` (substituted) |
+| Vertical **— BUILT CS2 (2026-10-02, `7853334`)** | edge, or 2 points | 1 | `x_b − x_a` (substituted) |
 | Coincident | point, point \| origin | 2 | `p − q` (substituted when both raw) |
 | Point-on-curve | point, edge/curve/axis | 1 | line: signed `cross(p−a, d)/‖d‖`; circle/arc: `‖p−c‖ − r` |
 | Concentric | curve, curve \| point | 2 | `c₁ − c₂` (substituted) |
@@ -308,12 +326,15 @@ Each session pins its row (argument meaning, helper fields, degenerate cases) be
 
 **Pinned — Horizontal (Session 1, 2026-10-01; BUILT 2026-10-02):** `refs` = `[edge]` (`edge` / `s<i>` / a rectangle or polygon edge) **or** `[point, point]` (any two §5.3 point handles, or one point + `{"ref":"origin"}` ⇒ the point lies on the X axis); order is not significant (the residual is symmetric). `helper` = `{}`, `value` = `null`. Raw-variable cases (line / reference line / polyline points, text / instance `ins`, circle / arc / polygon / ellipse `center`, origin) are **substituted** (`y_b := y_a`, origin ⇒ `y := 0`); handles derived through other variables (rectangle points/edges via θ, arc `start`/`end` via θ, polygon vertices/edges, D33) add a **row**. Applying it is a D22/D34 least-change solve. Degenerate: a zero-length edge is accepted (trivially satisfied); two refs naming the same handle are refused at the pick (status "Pick a different point") and are invalid in a stored record (§6.3).
 
+**Pinned — Vertical (Session 2, 2026-10-02; BUILT 2026-10-02):** the Horizontal pin with X for Y — `refs` = `[edge]` **or** `[point, point]` (one point + `{"ref":"origin"}` ⇒ the point lies on the **Y** axis); order not significant; `helper` = `{}`, `value` = `null`. Raw-variable cases are substituted (`x_b := x_a`, origin ⇒ `x := 0`); derived handles add a row `x_b − x_a`. Horizontal and Vertical share one builder (`sketch_solver._axis_equal`). Degenerate: a zero-length edge is accepted (trivially satisfied, D36 never counts it); same-handle refs are refused / invalid as for Horizontal. Copies follow D30/D42.
+
 ### 7.4 Diagnostics (on commit, not per drag frame)
 
-- **DOF** per component = variables − rank(J) (SVD, relative tolerance); substituted variables counted; the sketch DOF is the sum. **Fully defined** ⇔ DOF = 0 — which includes grounding, because the origin/axes are constants. **Built CS1:** the sketch DOF (all participating items' variables minus what the active constraints remove) is shown in the Constraints panel footer.
-- **Per-entity defined (D10 tint):** an entity is fully defined iff its variables have ~zero components across J's **null-space basis** (same SVD). *(CS2.)*
-- **Redundant (amber):** removing the constraint's rows does not reduce rank, and its residual is satisfied. *(CS2.)*
-- **Conflicting (red):** the solve cannot reach tolerance; the constraints whose rows lie in the dependent set with non-zero residual are marked red. Geometry holds last good. *(Hold-last-good + the conflict status are built in CS1; the red marking is CS2.)*
+- **DOF** per component = variables − rank(J) (SVD, relative tolerance); substituted variables counted; the sketch DOF = all participating items' variables minus what the active constraints remove. **Fully defined** ⇔ DOF = 0 — which includes grounding, because the origin/axes are constants. Shown in the D40 block view (**built CS2**).
+- **Per-entity defined (D39 tint, D41 footer) — built CS2:** an entity's remaining DOF = `rank(I − Q_Sᵀ Q_S)` over its columns S, Q = the economy-SVD row-space basis (equivalently the null-space projection); fixed variables count 0, a rowless component's columns 1 each. Fully defined ⇔ 0.
+- **Redundant (amber) — built CS2:** a constraint all of whose equalities were already implied (aliases / fixes replayed through union-find in `cid_rank` order) **and** all of whose rows are dependent on earlier rows (ordered Gram–Schmidt, only on rank-deficient components, count reconciled with the SVD rank) and satisfied. Equalities are attributed before rows (they are substituted first), so a later equality that makes two earlier rows identical marks the later *row* amber — attribution is "newest" within each class, not across them.
+- **Conflicting (red) — built CS2:** red is decided by **admission** (D37/D38), not by the dependent-set analysis: the constraint whose add / re-enable / list-order load made the system unsolvable (incl. D29/D36 collapse) is red, sits out of solving, and holds last good. Status "Over-constrained: the change was not applied".
+- **Cache:** the controller's `SketchDiag` is keyed on (commit generation, constraint ids/enabled, red ids, participating item uids) and is never recomputed per drag frame.
 
 ## 8. Operations on constrained geometry (D17)
 
@@ -327,12 +348,12 @@ Every Block Editor edit routes through one `ConstraintController` seam; with no 
 | Selection-manipulator body drag / box resize | Constrained selection → **live** per D35 (real geometry + solve per frame, hold last good, Esc restores, one undo step on release); unconstrained → held-transform preview, baked on release through `edit()`. |
 | Move tool / Rotate / Scale / Flip / Align | Commit-only: the Move tool shows a ghost and solves on the destination click (`move_items` inside `edit()`); Rotate, Scale, in-place Flip and Align apply inside `edit()` — the moved items are `W_EDIT` goals, the rest re-solves, a conflict rolls the whole commit back. **Refusal of grounded selections is not built:** with Horizontal as the only type a selection can never be fully defined (X stays free), so the refusal, its dry-run seam and its E2E guard land with the first session that can ground a selection (CS3 Coincident-to-origin). |
 | Copy / Paste / Duplicate / Array | New uids; constraints **internal** to the copied set are copied and remapped onto the copies; constraints to anything outside (including origin/axes) are dropped. Polar Array copies follow D30 (each copy's rotation). |
-| Mirror (scene tool, D13) | As Copy, filtered by D30 (Horizontal kept only for a horizontal / vertical axis). In-place Flip is an `edit()` transform (above). |
+| Mirror (scene tool, D13) | As Copy, filtered by D30/D42 (Horizontal / Vertical kept only for a horizontal / vertical axis). In-place Flip is an `edit()` transform (above). A copied constraint the copied geometry does not satisfy (a source's red one) is red on the copy (D38). |
 | Offset | New geometry, no constraints. |
 | Block Explode (Block Editor) | The exploded nested instances' constraints (on their `ins`) cascade-delete in the explode's undo step; status "N constraint(s) removed". |
 | Trim / Extend / Break / Fillet / Join / geometry Explode | Intended: the consumed entities' constraints are dropped, results start free, status "N constraints removed"; smart remapping deferred. *(Not reachable in the Block Editor — no ribbon button or shortcut; Join / geometry Explode / Break currently remove items without the cascade — filed, to be wired when exposed.)* |
 | Block Save → instances | Frozen (D2); compile unchanged. Save writes every solvable record whose refs resolve plus every inert record verbatim. |
-| Undo / redo | The constraint list is captured in every undo snapshot (`"constraints"`) and restored after the items are rebuilt (records re-validated, §6.3). Undo / redo are **refused while any manipulator gesture is in progress** — grip drags included, not only D35 (`selection-manipulator.md` "Undo & domains"). |
+| Undo / redo | The constraint list is captured in every undo snapshot (`"constraints"`) and restored after the items are rebuilt (records re-validated, §6.3; red re-derived per D38). Undo / redo are **refused while any manipulator gesture is in progress** — grip drags included, not only D35 (`selection-manipulator.md` "Undo & domains"). |
 
 Known divergence (filed): when an `edit()` rolls back a conflicting modify-tool commit, the tool still pushes an (unchanged) undo step.
 
@@ -349,19 +370,20 @@ Known divergence (filed): when an `edit()` rolls back a conflicting modify-tool 
 | Controller grip-drag frame (real scene) | ~3–4 ms | ≤ 8 ms ✓ |
 | Constrained D35 body-drag frame (modest sketch) | ~2.8 ms | ≤ 8 ms ✓ |
 | Commit (solve + diagnose) / open (load + first solve), synthetic block | ~4–7 ms / ~7–10 ms | ≤ 50 / ≤ 200 ms ✓ |
-| **Rect-heavy worst case** (one component: 100 rects + 100 lines, 299 Horizontal) | grip-drag frame **~19 ms**, D35 body-drag frame **~57 ms** | ≤ 8 ms ✗ — **OPEN** |
+| **Rect-heavy worst case** (one component: 100 rects + 100 lines, 299 Horizontal) | grip-drag frame **~19–20 ms**, D35 body-drag frame **~57–92 ms**; CS2 commit diagnostics **~170 ms** | ≤ 8 / ≤ 50 ms ✗ — **OPEN** |
+| CS2 commit (solve + diagnose incl. row basis / redundancy), D18 bench compositions | realistic ~5–13 ms, worst one-component ~14 ms, 150-row chain ~20–44 ms (host-dependent) | ≤ 50 ms ✓ |
 
-The rect-heavy case is a strict-xfail bench tracked by the P1 follow-up "D18 rect-heavy drag perf" in `todo_open.md` (vectorised derived rows, skip the D34 second solve when no size/angle variable moves, no full-snapshot rewrite per D35 frame), to land before CS3. **The D18 acceptance criterion stays PARTIAL until it does.**
+The rect-heavy case is a strict-xfail bench (drag frames, and since CS2 its diagnostics — `test_d18_rect_heavy_cs2_diagnostics`) tracked by the P1 follow-up "D18 rect-heavy drag perf" in `todo_open.md` (vectorised derived rows, skip the D34 second solve when no size/angle variable moves, no full-snapshot rewrite per D35 frame), to land before CS3. **The D18 acceptance criterion stays PARTIAL until it does.**
 
 ## 10. User interface
 
-- **Ribbon (D15):** Block Editor tab = Block | Definition | 2D Geometry | Edit | Modify | **Constrain** | **Inspect** (as-built groups through Modify, and their editor-only enable state, owned by `ribbon-bar.md` §3.4). **Built CS1:** Constrain = **Horizontal** (small, checkable); Inspect = **Show Constraints** (checkable toggle — the D32 show-all override, default off) + **Delete Constraints** (the selected constraint, or every constraint on the selected geometry). A Constrain button with a valid selection adds at once (selection-first, D21); with nothing selected it enters pick mode (D12/D21); any other selection disables the button. **Later:** the large Smart Dimension button (CS4), the Constraint Status tint toggle and the DOF badge (CS2), one small button per type in §12 order stacked 3/column — never a greyed placeholder. Every button carries a tooltip.
+- **Ribbon (D15):** Block Editor tab = Block | Definition | 2D Geometry | Edit | Modify | **Constrain** | **Inspect** (as-built groups through Modify, and their editor-only enable state, owned by `ribbon-bar.md` §3.4). **Built CS1/CS2:** Constrain = **Horizontal**, **Vertical** (small, checkable); Inspect = **Show Constraints** (checkable toggle — the D32 show-all override, default off) + **Constraint Status** (checkable — the D39 tint, default on) + **Delete Constraints** (the selected constraint, or every constraint on the selected geometry). A Constrain button with a valid selection adds at once (selection-first, D21); with nothing selected it enters pick mode (D12/D21); any other selection disables the button. **Later:** the large Smart Dimension button (CS4), one small button per type in §12 order stacked 3/column — never a greyed placeholder. (The DOF badge is the D40 panel badge, not a ribbon widget.) Every button carries a tooltip.
 - **Smart Dimension (D12, CS4+):** tool-first; one line → length; two points → distance with aligned / Δx / Δy chosen by label placement; circle → diameter; arc → radius; two lines → angle; point + line → point-line distance. Plus D7's lock glyph on transient readouts.
-- **Canvas (D10/D11/D32):** origin cross (`Model_Space.draw_origin`) + non-printing X/Y axes; boxed 16 px constraint glyphs beside their geometry (screen-constant, non-printing), shown per **D32** (selected geometry's constraints + the selected constraint; Show Constraints = show all; none in pick mode). Hover a glyph → its targets glow; click selects it (item selection clears); Delete removes it; Esc deselects it. **Pick order:** grips > dim labels > glyphs > origin/axes > HALO geometry. Persisted dims (CS4) and state colours + tint (CS2) later.
-- **Property panel:** a **Constraints** section for a single selected entity (its constraints) or a selected constraint (`ConstraintAdapter`) — rows of icon, type name, targets, Suppress, Delete (inert rows: Delete only), hover = target glow, click = select; footer "Sketch DOF N". Built on `ui_kit.ActionRowList` with rows from `ConstraintController.panel_rows()`; the panel mechanics are owned by `property-panel.md`. Dim values + Driving/Reference arrive with CS4.
-- **Status bar:** "Over-constrained: the change was not applied", "Invalid constraint", "Pick a different point", pick progress, and "N constraint(s) removed".
+- **Canvas (D10/D11/D32):** origin cross (`Model_Space.draw_origin`) + non-printing X/Y axes; boxed 16 px constraint glyphs beside their geometry (screen-constant, non-printing), shown per **D32** (selected geometry's constraints + the selected constraint; Show Constraints = show all; none in pick mode). Hover a glyph → its targets glow; click selects it (item selection clears); Delete removes it; Esc deselects it. **Pick order:** grips > dim labels > glyphs > origin/axes > HALO geometry. **CS2:** glyph borders `danger` (red) / `warn` (redundant) at `CONSTRAINT_STATE_BORDER_W`; the D39 tint. Persisted dims (CS4) later.
+- **Property panel:** a **Constraints** section for a single selected entity (its constraints) or a selected constraint (`ConstraintAdapter`) — rows of icon, type name, targets, Suppress, Delete (inert rows: Delete only), hover = target glow, click = select; row text coloured `warn` / `danger` by state (CS2); footer = the element's own state badge (D41). With nothing selected the panel shows the D40 block view (`block_properties_info.py`, property type `"status"` → `ui_kit.StatusBadge`). Built on `ui_kit.ActionRowList` with rows from `ConstraintController.panel_rows()`; the panel mechanics are owned by `property-panel.md`. Dim values + Driving/Reference arrive with CS4.
+- **Status bar:** "Over-constrained: the change was not applied", "Invalid constraint", "Redundant constraint: already implied by others" (D42), "Pick a different point", pick progress, and "N constraint(s) removed".
 - **Icons (D16/D25):** `firepro3d/graphics/Ribbon/constraint_<type>_icon.svg`, the **40-unit** §5.1 two-token family, one symbol per type reused for ribbon/glyph/panel via `sketch_model.icon_for` (unknown types → the neutral Show Constraints glyph); guarded by `_CONSTRAINT_ICONS` in `tests/test_icon_theming.py`. The whole approved family (16 icons) is committed in Session 1; each type's button still ships only with its session (D15).
-- **Pick mode (D21)** and the canvas/panel metrics (D27); tint colours (D26).
+- **Pick mode (D21)** and the canvas/panel metrics (D27); tint colours (D26). **CS2 mockup gate (2026-10-02, served + live-rendered under the app QSS):** badge dot 10 px / gap 6 px (`STATUS_BADGE_*`), defined dot = `ink`, row text in state colour, glyph state border 1.6 px, tint = item width (min 1 px), text not tinted, block instances by HALO outline; the badge's own background is transparent (a styled QWidget otherwise paints a sunken strip).
 - **Mockup gates (Session 1, before code): both PASSED 2026-10-01.** (1) Icon-family contact sheet rendered through the real loader at the live ribbon large/small sizes + the 16 px glyph, light + dark, plus a live `RibbonBar.grab()` beside the shipped Modify icons → grammar B + eight redraws (D25). (2) Interactive canvas + panel mock (pick mode, glyph hover/select/Delete, tint candidates, panel rows) → D26/D27.
 
 ## 11. Per-session done contract (D20)
@@ -372,7 +394,7 @@ The rect-heavy case is a strict-xfail bench tracked by the P1 follow-up "D18 rec
 2. **End-to-end on a real Block Editor scene:** build geometry, select, click the real ribbon button, drag a grip with posted events on a shown view; assert the observable geometry (e.g. Horizontal: `p1.y == p2.y` after a drag that tried to tilt it). Shown RED with the type's residual reverted.
 3. **Persistence:** save block → close editor → reopen: constraint, glyph and geometry return; a placed instance renders the solved (frozen) geometry.
 4. **Undo/redo** of add, delete, and a solver-driven edit.
-5. **Diagnostics:** a redundant case goes amber; a conflicting case goes red and holds last good — pixel-sampled in both themes. *(From CS2; CS1 guards hold-last-good + the conflict status.)*
+5. **Diagnostics:** a redundant case goes amber; a conflicting case goes red and holds last good — pixel-sampled in both themes. *(Built CS2: `test_glyph_border_red_and_amber`, `test_tint_*`, `test_e2e_h_plus_v_conflict_red_and_held_line`.)*
 6. **Ribbon:** the button enables only on a valid selection; the icon passes `test_icon_theming.py`.
 
 **Session done:** full suite green (VC6) → user smoke from a checklist with exact commands → user approval → this spec's catalogue row flipped to built + `verified-commit` stamped → smoke-found spec deltas reconciled → next session.
@@ -382,7 +404,7 @@ The rect-heavy case is a strict-xfail bench tracked by the P1 follow-up "D18 rec
 | # | Session | Also delivers |
 |---|---|---|
 | 1 | **Foundation + Horizontal — BUILT 2026-10-02** (`feat/cs1-constraint-foundation`, closed at `2a22ba9`; user smoke passed) | `sketch_model` / `sketch_solver` / `sketch_adapters` / `constraint_controller` / `constraint_paint`; primitive `uid`s; `constraints` in `BlockDefinition`; §6.5 origin migration + Set Origin/red-marker retirement; D23 reference lines persist; D24 bbox-centre base; X/Y axes drawn; D32 glyph paint; Constraints panel section; Constrain (Horizontal) + Inspect (Show / Delete Constraints) groups; every §8 seam incl. D35 live drag; retired `constraints.py`, the constraint modes, `drawForeground` §3b, the geo2d Constraints group, the Align padlock / `AlignmentConstraint` (coupled tests rewritten/retired, VC5); D18 perf tests; both mockup gates; build rulings D28–D35. **Open from CS1:** rect-heavy D18 worst case (§9), D17 grounded refusal (→ CS3). |
-| 2 | **Vertical + diagnostics** | DOF badge, tint, amber/red (H+V on one line = first conflict test). |
+| 2 | **Vertical + diagnostics — BUILT 2026-10-02** (`feat/cs2-vertical-diagnostics`, closed at `7853334`; user smoke passed) | Vertical; §7.4 diagnostics (row basis, ordered redundancy); D36 edge collapse; D37/D38 red set; D39 tint + Constraint Status; D40 block view + D41 element footer (`StatusBadge`, panel `"status"` type); D42 copy rule + redundant status; amber/red glyphs. **Open from CS2:** rect-heavy diagnostics cost (→ the D18 task); H/V on an exactly perpendicular line is a conflict (line-rotating alternative filed). |
 | 3 | **Coincident** | point↔point, point↔origin, point-on-curve / point-on-axis; the D17 grounded-selection refusal. |
 | 4 | **Smart Dimension: linear** | length, aligned, Δx, Δy; lock-a-readout promotion; Driving/Reference. |
 | 5 | **Smart Dimension: radius / diameter / angle** | |
@@ -403,16 +425,16 @@ The rect-heavy case is a strict-xfail bench tracked by the P1 follow-up "D18 rec
 - [x] Constraints are authored only in the Block Editor; the plan scene never holds or solves them (C1/C8 preserved). *(CS1: the controller is inert outside the `block_editor` role; `constrain_*` modes are refused there.)*
 - [x] Constraints persist in the block definition across Save / close / reopen and app restart; instances render solved geometry and never re-solve.
 - [x] Drag, typed readout, property-panel and modify-tool edits all honour constraints; with no constraints, behaviour equals today's. *(CS1: every reachable seam, incl. D35 live drag; Trim/Extend/Break/Join remain unreachable.)*
-- [ ] DOF badge, fully-defined state (grounding counted), per-entity tint, amber redundant and red conflicting states are correct; conflicts hold last-good geometry. *(Partial: hold-last-good + conflict status + panel sketch DOF built; badge, tint, amber/red → CS2.)*
+- [x] DOF badge, fully-defined state (grounding counted), per-entity tint, amber redundant and red conflicting states are correct; conflicts hold last-good geometry. *(CS2: D37–D41; the badge is the D40 panel badge.)*
 - [ ] D17 operation rules hold, including refusal of Move/Rotate/Scale on grounded selections. *(Partial: delete cascade, copy/mirror/array (D30), explode cascade built; grounded refusal → CS3.)*
-- [ ] D18 performance bars met on the synthetic 200/300 block (both worst-case and realistic compositions). *(Partial: realistic + one-component chain met; rect-heavy worst case open — §9.)*
+- [ ] D18 performance bars met on the synthetic 200/300 block (both worst-case and realistic compositions). *(Partial: realistic + one-component chain met incl. CS2 diagnostics; rect-heavy worst case open — drag and, since CS2, diagnostics — §9.)*
 - [x] Unknown/unbuilt constraint records round-trip untouched. *(Also invalid and unreadable records — §6.3/§6.4.)*
 - [x] Every shipped constraint has an approved 40-unit two-token icon used on ribbon, canvas and panel. *(D25; was "48-unit" before the gate.)*
 
 ## Verification Checklist
 
-- [x] Per-session §11 guards shown RED-then-GREEN. *(Session 1.)*
-- [x] Full suite green on the final tree each session (VC6). *(Session 1; one intermittent flake filed.)*
-- [x] User smoke + approval each session. *(Session 1, 2026-10-02.)*
+- [x] Per-session §11 guards shown RED-then-GREEN. *(Sessions 1–2.)*
+- [x] Full suite green on the final tree each session (VC6). *(Sessions 1–2; CS1: one intermittent flake filed.)*
+- [x] User smoke + approval each session. *(Sessions 1–2, 2026-10-02.)*
 - [ ] This spec's §7.3/§12 rows stamped as each type ships; `status` moves proposal → partial (after Session 1 — **done**) → current (after Session 15).
 - [x] `SPEC-INDEX.md` row updated (applies-to gains the new modules; `scene_tools.py` constraint responsibility removed). *(2026-10-02.)*

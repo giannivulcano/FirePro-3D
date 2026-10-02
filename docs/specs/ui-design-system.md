@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-10-02  # CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 2a22ba9   # CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-10-02  # CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 7853334   # CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -268,16 +268,26 @@ class CreatableSelector(QWidget):       # Selector + square "+" → inline name 
     #   QSS override (house button padding clips the glyph). Content-agnostic: the
     #   OWNER creates the entry (e.g. a folder) then calls set_items(..., current=new).
 
+class StatusBadge(QWidget):             # #statusBadge — state dot + text (2026-10-02, CS2)
+    def __init__(self, text, state): ...   # state: free | defined | conflict (dot token: owned by
+    #   parametric-constraint-system.md D40/D41); own QSS, transparent background
+    #   (a styled QWidget otherwise paints a sunken strip under the app QSS).
+    def text(); state()
+
 class ActionRowList(QWidget):           # #actionRowList — titled row list (2026-10-02, CS1)
-    def __init__(self, title, rows, *, badge="", footer="", empty="", row_height=None): ...
-    #   rows: dict(icon, text, subtext, muted, strike, tooltip,
+    def __init__(self, title, rows, *, badge="", footer="", footer_state="", empty="",
+                 row_height=None): ...
+    #   rows: dict(icon, text, subtext, muted, strike, state ("" | warn | danger, CS2), tooltip,
     #              actions=[(key, glyph, tooltip, callback)], on_click, on_hover(bool))
+    #   footer_state (CS2): the footer is a StatusBadge inset by layout margins
+    #   (QSS padding does not inset a plain QWidget's layout).
     #   Accent UPPERCASE title (+ optional badge), rows of PROP_CONSTRAINT_ROW_H
     #   (icon · text/muted subtext · ACTION_ROW_BTN_PX glyph buttons; hover = accent
     #   left bar + raised fill), muted footer. Sizes/colours in its OWN QSS (theme.M
     #   ACTION_ROW_* + tokens). Content-agnostic; first consumer: the property
     #   panel's Constraints section (parametric-constraint-system.md §10 / D27).
-    def row_count(); row_text(i); row_subtext(i); row_actions(i); footer_text()
+    def row_count(); row_text(i); row_subtext(i); row_actions(i); row_state(i)
+    def footer_text(); footer_state()
     def trigger(i, key)                        # click row i's action button
 ```
 

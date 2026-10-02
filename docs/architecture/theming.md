@@ -26,6 +26,7 @@ primitive values — no logic.
 | Accent | `accent`, `accent_ink` |
 | Selection | `selection`, `selection_active` |
 | Status | `ok`, `warn`, `danger` |
+| Domain state | `constraint_free` (under-defined constraint tint — owned by `specs/parametric-constraint-system.md` D26; never `accent`, which equals `selection`) |
 
 **Layer 2 — semantics (derived `@property`, shared by all variants):** the names
 consumers actually use — `bg_base`/`bg_raised`/`bg_sunken`, `btn_hover`/
