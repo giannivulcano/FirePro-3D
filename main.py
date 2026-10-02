@@ -4880,6 +4880,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         sc.modeChanged.connect(self._on_mode_changed_template)
         sc.selectionChanged.connect(self.update_property_manager)
         sc.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+        # D40: the nothing-selected panel is the block view; the controller's
+        # post-commit refresh asks for it, and scene edits (counts / status)
+        # re-show it while nothing is selected.
+        sc.constraint_ctl.panel_fallback = self._get_active_view_info
+        sc.sceneModified.connect(self._refresh_block_view)
         # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
         sc.instructionChanged.connect(self.footer.set_instruction)
@@ -4889,6 +4894,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # enabled state) in sync when the editor scene's snap/align is toggled.
         sc.snapToggled.connect(self._update_snap_indicator)
         sc.alignToggled.connect(self._update_guides_indicator)
+
+    def _refresh_block_view(self) -> None:
+        """Re-show the Block Editor's nothing-selected view (D40)."""
+        try:
+            sc = self._active_scene()
+            if (getattr(sc, "scene_role", "plan") == "block_editor"
+                    and not sc.selectedItems()):
+                self.update_property_manager()
+        except RuntimeError:
+            pass
 
     def _refresh_snap_align_indicators(self):
         """Point the SNAP/ALIGN status pills at the active scene's state."""
@@ -5240,8 +5255,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.prop_manager.show_properties(info)
 
     def _get_active_view_info(self):
-        """Return a PlanViewInfo for the active plan/detail tab, or None."""
+        """Return the nothing-selected panel target for the active tab: a
+        PlanViewInfo (plan/detail tab), the block view (Block Editor tab,
+        parametric-constraint-system.md D40), or None."""
+        from firepro3d.block_editor import BlockEditorWidget
+        w = self.central_tabs.currentWidget()
         tab_text = self.central_tabs.tabText(self.central_tabs.currentIndex())
+        if isinstance(w, BlockEditorWidget):
+            from firepro3d.block_properties_info import BlockPropertiesInfo
+            name = tab_text[len("Block: "):] if tab_text.startswith("Block: ") else tab_text
+            return BlockPropertiesInfo(w.editor_scene, name)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
             pv = self.plan_view_mgr.get(tab_text)

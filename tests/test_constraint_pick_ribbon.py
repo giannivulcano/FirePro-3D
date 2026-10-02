@@ -499,3 +499,25 @@ def test_show_constraints_toggle_is_the_show_all_override(win_with_editor):
     b.click()
     assert not sc.constraint_ctl.show_all
     assert cp.glyph_layouts(view, sc.constraint_ctl) == []
+
+
+# ── CS2 D40: the nothing-selected Block Editor panel is the block view ──────
+
+def test_d40_nothing_selected_in_editor_shows_block_view(win_with_editor, qapp):
+    from firepro3d.ui_kit import StatusBadge
+    win = win_with_editor
+    sc = win._active_scene()
+    ln = LineItem(QPointF(0, 0), QPointF(100, 30))
+    sc.addItem(ln); sc._draw_lines.append(ln)
+    sc.clearSelection()
+    win.update_property_manager()
+    qapp.processEvents()
+    badges = [b for b in win.prop_manager.findChildren(StatusBadge) if b.isVisible()]
+    assert [b.text() for b in badges] == ["Under-defined \u00b7 4 DOF"]
+    # A constraint commit refreshes it through the controller's fallback.
+    sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    qapp.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    qapp.processEvents()
+    badges = [b for b in win.prop_manager.findChildren(StatusBadge) if b.isVisible()]
+    assert [b.text() for b in badges] == ["Under-defined \u00b7 3 DOF"]

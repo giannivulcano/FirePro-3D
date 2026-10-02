@@ -196,6 +196,8 @@ class ConstraintController:
         # D39: Constraint Status (Inspect toggle) -- geometry tinted by state,
         # default ON, editor only.
         self.show_status = True
+        # () -> the nothing-selected panel target (main.py: the D40 block view).
+        self.panel_fallback = None
         self.pick: PickState | None = None     # D21 pick session
         # D37/D38: ids of admitted constraints whose admission broke
         # solvability. They sit out of every solve until a STRUCTURAL commit
@@ -266,7 +268,11 @@ class ConstraintController:
             sig.emit(ConstraintAdapter(self, self.selected_id))
             return
         sel = self._scene.selectedItems()
-        sig.emit(sel if sel else None)
+        if sel:
+            sig.emit(sel)
+        else:                            # D40: the block view, not a blank panel
+            fb = self.panel_fallback
+            sig.emit(fb() if callable(fb) else None)
 
     def find(self, cid):
         """The constraint with id *cid*, or None."""

@@ -308,3 +308,60 @@ def test_live_style_title_accent_and_row_height(qapp, app_qss):
     assert min(_dist(body.pixelColor(x, y), acc)
                for x in range(body.width()) for y in range(body.height())) > 60
     pm.close()
+
+
+# ── CS2 D40/D41 panel ───────────────────────────────────────────────────────
+
+def test_status_badge_text_and_state(qapp):
+    from firepro3d.ui_kit import StatusBadge
+    b = StatusBadge("Under-defined · 2 DOF", "free")
+    assert b.text() == "Under-defined · 2 DOF" and b.state() == "free"
+
+
+def test_action_row_list_footer_badge_and_row_state(qapp):
+    w = ActionRowList("Constraints", [dict(text="Horizontal", state="danger")],
+                      footer="Conflicting", footer_state="conflict")
+    assert w.footer_text() == "Conflicting"
+    assert w.footer_state() == "conflict"
+    assert w.row_state(0) == "danger"
+
+
+def test_d40_block_view_lists_name_counts_and_status(qapp):
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    sc = Model_Space(scene_role="block_editor")
+    ln = _line(sc, (0, 0), (100, 30))
+    sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    props = BlockPropertiesInfo(sc, "Head A").get_properties()
+    assert props["Name"]["value"] == "Head A" and props["Name"]["readonly"]
+    assert props["Primitives"]["value"] == "1"
+    assert props["Constraints"]["value"] == "1"
+    assert props["Status"] == {"type": "status", "value": "Under-defined · 3 DOF",
+                               "state": "free"}
+
+
+def test_d40_panel_renders_the_status_type_as_a_badge(qapp):
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    from firepro3d.ui_kit import StatusBadge
+    sc = Model_Space(scene_role="block_editor")
+    _line(sc, (0, 0), (100, 30))
+    pm = PropertyManager()
+    pm.show_properties(BlockPropertiesInfo(sc, "Head A"))
+    _flush()
+    badges = pm.findChildren(StatusBadge)
+    assert [(b.text(), b.state()) for b in badges] == [("Under-defined · 4 DOF", "free")]
+    assert _section(pm) is None                 # no Constraints section (D40)
+
+
+def test_d40_refresh_after_a_constraint_commit_keeps_the_block_view(qapp):
+    """The controller's nothing-selected refresh emits the panel fallback
+    (main.py wires it to the block view), not None."""
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    from firepro3d.ui_kit import StatusBadge
+    sc = Model_Space(scene_role="block_editor")
+    ln = _line(sc, (0, 0), (100, 30))
+    pm = _wired_pm(sc)
+    sc.constraint_ctl.panel_fallback = lambda: BlockPropertiesInfo(sc, "B")
+    sc.clearSelection()
+    sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    _flush()
+    assert [b.text() for b in pm.findChildren(StatusBadge)] == ["Under-defined · 3 DOF"]

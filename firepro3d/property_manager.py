@@ -280,6 +280,12 @@ class PropertyManager(QWidget):
                 self._form.addRow(body)
                 continue
 
+            # ── status (state dot + text, read-only — CS2 D40) ──────────
+            elif prop_type == "status":
+                from firepro3d.ui_kit import StatusBadge
+                widget = StatusBadge(str(meta.get("value", "")),
+                                     str(meta.get("state", "")))
+
             # ── label (read-only) ─────────────────────────────────────────
             elif prop_type == "label":
                 widget = QLabel(str(meta["value"]))
