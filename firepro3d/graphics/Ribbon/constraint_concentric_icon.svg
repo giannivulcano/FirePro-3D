@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- Two-token (icon-style-guide §5.1, constraint family D25): #1A1A1A -> ink, #004CFF -> accent (the relation). -->
+  <circle cx="20" cy="20" r="14.167" style="fill:none;stroke:#1A1A1A;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+  <circle cx="20" cy="20" r="7.083" style="fill:none;stroke:#004CFF;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+</svg>

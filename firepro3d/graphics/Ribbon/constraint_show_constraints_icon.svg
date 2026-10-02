@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- Two-token (icon-style-guide §5.1, constraint family D25): #1A1A1A -> ink, #004CFF -> accent (the relation). -->
+  <path d="M 3.333,20 Q 20,4.167 36.667,20 Q 20,35.833 3.333,20 Z" style="fill:none;stroke:#1A1A1A;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+  <rect x="14.583" y="14.583" width="10.833" height="10.833" rx="1.667" style="fill:none;stroke:#004CFF;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+  <path d="M 17.083,20 L 22.917,20" style="fill:none;stroke:#004CFF;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round"/>
+</svg>

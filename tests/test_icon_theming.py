@@ -59,6 +59,41 @@ def test_modify_icons_render_both_themes_no_fallback(qapp, caplog):
             assert isinstance(ic, QIcon) and not ic.isNull()
             assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
 
+# Parametric-constraint icon family (parametric-constraint-system.md D25) —
+# 40-unit 2D-geo family (§5.1); user-approved. All 16 committed in CS1, though
+# only Horizontal + the Inspect icons are wired to the ribbon so far.
+_CONSTRAINT_ICONS = [
+    f"constraint_{k}_icon.svg" for k in (
+        "smart_dimension", "horizontal", "vertical", "coincident", "concentric",
+        "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
+        "midpoint", "collinear", "show_constraints", "constraint_status",
+        "delete_constraints")
+]
+
+
+def test_constraint_icons_40unit_two_token():
+    """D25: the constraint family joins the §5.1 40-unit family."""
+    import os
+    for name in _CONSTRAINT_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing"
+        raw = open(path, "r", encoding="utf-8").read()
+        assert 'viewBox="0 0 40 40"' in raw, f"{name}: not the 40-unit 2D-geo canvas (§5.1)"
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval}"
+            assert hexval.lower() in _GEOM2D_ALLOWED_HEX, f"{name}: non-sentinel {hexval}"
+
+
+def test_constraint_icons_render_both_themes_no_fallback(qapp, caplog):
+    icons._cache.clear()
+    for name in _CONSTRAINT_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"
+
 
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}
