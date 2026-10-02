@@ -2,6 +2,17 @@
 
 This guide covers how to add a new interactive tool (drawing mode) to FirePro3D. Tools follow a consistent pattern: define a mode string, implement mouse event handlers, and wire up a ribbon button.
 
+> **Stale in places (noted 2026-10-01).** The step-by-step below predates the
+> `Model_Space` decomposition: `SceneToolsMixin` is now the composed
+> `SceneTools` (`scene._tools`), and modes route through the
+> `_PRESS_DISPATCH` / `_MOVE_DISPATCH` / `_PREVIEW_DISPATCH` and
+> `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE` tables, with 2D modify-tool
+> behaviour in `ModifyToolsController`. The governing contracts are
+> [`model-space-architecture.md`](../specs/model-space-architecture.md)
+> (structure) and [`scene-tools.md`](../specs/scene-tools.md) (modify-tool
+> behaviour, registries to update when adding a tool); they win where this
+> guide disagrees.
+
 ## Architecture Overview
 
 Tools are driven by a **mode string** stored on `Model_Space`. The flow is:
@@ -15,24 +26,16 @@ Tools are driven by a **mode string** stored on `Model_Space`. The flow is:
 
 In `firepro3d/model_space.py` (the `Model_Space` class), the `set_mode()` method manages all mode transitions. It handles cleanup of previews, snap state, and stale references:
 
-```python
-def set_mode(self, mode, template=None):
-    self.mode = mode
-    self._snap_result = None      # clear stale snap marker
-    self._grip_item = None
-    self._grip_index = -1
-    self._grip_dragging = False
-    self.modeChanged.emit(mode)
-    # Auto-deselect all geometry when entering a drawing mode
-    if mode not in ("select", "stretch", "move", "rotate", "scale",
-                    "radiation_emitter", "radiation_receiver"):
-        self.clearSelection()
-    self.preview_node.hide()
-    self.preview_pipe.hide()
-    self._cal_point1 = None
-```
+`set_mode()` stores the mode, clears stale snap / grip state, runs the modify
+tools' teardown (`ModifyToolsController.clear`), emits `modeChanged`, and —
+for every mode **not** in its keep-selection exemption — clears the
+selection. Read the exemption tuple in `Model_Space.set_mode` itself (it is
+not restated here; selection-operand modify tools such as move / rotate /
+scale / flip / mirror / array keep the selection — see
+[`scene-tools.md`](../specs/scene-tools.md) D3). A selection-operand tool
+must be added to that tuple; a drawing tool must not.
 
-No code changes are needed in `set_mode()` itself -- it accepts any string. Just choose a descriptive name like `"my_tool"` and use it consistently.
+No other change is needed in `set_mode()` -- it accepts any string. Just choose a descriptive name like `"my_tool"` and use it consistently.
 
 ## Step 2: Implement Tool Logic in SceneToolsMixin
 

@@ -4,11 +4,13 @@ status: current
 applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/arc_math.py      # pure arc construction (End Points placement + arc grips)
+  - firepro3d/geometry_intersect.py   # item-agnostic intersection math (scene tools, snap, roof consume it)
+  - firepro3d/cad_math.py      # item-agnostic point/vector math (rotate/mirror/scale/project); app-wide consumers
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-09-29
-verified-commit: 4c48685   # Arc Span panel cap; prior dbeb8b6   # 2026-09-26 design grill: sec.4 close/pop either-point rule (ratified; build pending); prior 892cf76   # snap-polish: polyline 2-vertex finish → LineItem, returns to Select; §5 snap pointer; prior 762d083
+last-verified: 2026-10-01
+verified-commit: c8ff4f4   # scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -58,12 +60,12 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 | `LineItem` | `QGraphicsLineItem` | finite 2-point line |
 | `ReferenceLineItem` | `LineItem` | **non-printing** finite reference/construction line (per-item `printed` flag) |
 | `PolylineItem` | `QGraphicsPathItem` | multi-segment polyline, **open or closed** |
-| `RectangleItem` | `QGraphicsRectItem` | axis-aligned local rect + rotation as data (`_angle`/`_pivot`); every consumer must honour it — `mapToScene`/`mapFromScene`/`mapToParent`/`mapRectToScene` are overridden, and block compile, mirror/scale/explode/offset go through the rotated corners |
+| `RectangleItem` | `QGraphicsRectItem` | axis-aligned local rect + rotation as data (`_angle`/`_pivot`); every consumer must honour it — `mapToScene`/`mapFromScene`/`mapToParent`/`mapRectToScene` are overridden, and block compile / explode / offset go through the rotated corners; Flip / Mirror / Scale go through the per-item `manip_reflect` / `manip_scale_about` (§1.2) |
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
 | `ArcItem` | `QGraphicsPathItem` | centre + radius + start/span (stored CCW, span > 0) |
 | `RegularPolygonItem` | `QGraphicsPathItem` | **parametric** regular N-gon |
 | `EllipseItem` | `QGraphicsPathItem` | centre + rx/ry + **Y-up rotation** |
-| `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights) |
+| `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights), or a smooth **periodic closed** uniform cubic (`closed=True`, §3.5.2) |
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
 
@@ -122,6 +124,48 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   `constants.DEFAULT_GEOMETRY_LINEWEIGHT` (was a hard-coded 2.0) — the weight for every committed
   tool-drawn primitive **and** Block-Editor-imported ones (`geom_dicts_to_primitives(...,
   lineweight=)`). Placement ghosts keep their own preview pens (§3.6).
+
+### 1.2 Per-item reflect / scale (scene-tools P1 batch DD1, as-built 2026-10-01)
+
+Each of the **eight** `geometry_2d.py` primitive classes (`LineItem` — inherited by
+`ReferenceLineItem` — `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem`,
+`RegularPolygonItem`, `EllipseItem`, `SplineItem`) defines two baked, in-place transforms:
+
+- **`manip_reflect(p1, p2)`** — mirror across the **infinite** line through `p1`–`p2`;
+- **`manip_scale_about(base, factor)`** — uniform scale about `base`.
+
+They are the only primitive-side hooks of the Flip / Mirror / Scale tools; the tools select
+targets by `hasattr` capability, so `TextItem`, block instances and non-2D items are skipped
+(tool behaviour, refusals and undo are owned by `scene-tools.md` — Rule A). The methods only
+mutate geometry (`setPath`/`setLine`/`setRect` + `set_angle`); manipulator rebake, reselect and
+the undo push are the caller's duty. Both hooks change geometry only: style (colour,
+lineweight, fill, RefLine `printed` / dash) is never touched, so **lineweights never scale**.
+The scale hook is deliberately **not** named `manip_scale`:
+that name makes the selection manipulator treat an item as box-resizable
+(`item_capabilities`, `selection-manipulator.md`).
+
+| Primitive | `manip_reflect` (θ = the axis' Y-up heading, `arc_math.yup_angle`) | `manip_scale_about` |
+|---|---|---|
+| Line / RefLine, Polyline | every point mirrored; RefLine keeps type / `printed` / dashed pen; the polyline `_closed` flag + fill are kept | every point scaled |
+| Rectangle | origin mirrored; angle → `2θ − angle`, **folded into [0°, 180°)**; the local rect is flipped top-for-bottom, or left-for-right when the heading is folded by 180° (same footprint) — an axis-aligned rect mirrored across an axis-aligned line stays at angle 0, so the redundant manipulator frame stays suppressed; pivot semantics kept | origin + local rect scaled; angle + pivot semantics kept |
+| Circle | centre mirrored; radius kept | centre scaled; radius × factor via `set_radius` (**1 mm floor**) |
+| Arc | centre mirrored; reflection reverses orientation, so the old end becomes the new start: start → `2θ − (start + span)`, **span kept** (stored CCW, span > 0) | centre scaled; radius × factor (**0.01 mm floor**); angles kept |
+| Regular polygon | centre mirrored; rotation → `2θ − rotation` (the circumscribed half-step contributes one full vertex step, so the vertex set is identical for both shapes) | centre scaled; defining radius × factor; sides / rotation / inscribed kept |
+| Ellipse | centre mirrored; rotation → `2θ − rotation`; rx / ry kept | centre scaled; rx / ry × factor (**0.5 mm `_AXIS_MIN` floor**); rotation kept |
+| Spline | control points only — degree, knots, weights and the periodic `closed` flag untouched | control points only (same) |
+
+- **Degenerate axis = no-op.** `geometry_2d._degenerate_axis(p1, p2)` (axis length² < 1e-12,
+  the same threshold `CAD_Math.mirror_point` uses for identity) makes **every**
+  `manip_reflect` return unchanged — otherwise the orientation terms (rect / arc / polygon /
+  ellipse) would flip while the points stayed put, half-applying the reflection. It is the one
+  threshold shared by the axis picker (`axis_picker.py`) and the ghost (`transform_ghost.py`).
+- **Floors make tiny factors non-uniform.** The radius floors above (Circle 1 mm, Arc 0.01 mm,
+  Ellipse 0.5 mm) clamp while the centre scales exactly, so a factor small enough to hit a
+  floor no longer yields a uniform image (lines / polylines / rects / polygons / splines have
+  no such floor). Known and filed (`todo_open.md` "Tiny Scale factors scale non-uniformly").
+- Like `manip_rotate`/`translate`, both hooks transform local data with scene-space
+  arguments — they assume the primitive's `pos()` is the origin (shared pre-existing
+  assumption).
 
 ## 2. Closed polylines (invariant)
 
@@ -200,12 +244,42 @@ shapes) so their geometry is data-parametric and paint-applied.
   `_is_bezier_chain`) is a chain of cubic Bézier spans and is drawn **natively and exactly**
   via `QPainterPath.cubicTo` (the PDF-import form); every other NURBS keeps the ezdxf
   flattening above.
-- **Grips:** one per control point (drag → rebuild). No centre grip.
-  Add/remove control point is deferred.
+- **Periodic closed spline (DD7, as-built 2026-10-01).** `SplineItem(..., *, closed=False)`
+  takes a **keyword-only** `closed` flag (`_closed`). It holds only with **≥ 3** control points
+  (fewer → stored open) and then forces a **uniform non-rational cubic** (degree 3, `_knots`
+  / `_weights` = `None`; the stored degree/knots/weights are ignored). `_bspline_path(...,
+  closed=True)` draws it through an **exact periodic Bézier evaluator**
+  (`_periodic_bezier_path` / `_periodic_bezier_spans`): span *i* uses control points
+  *i..i+3* (wrapped), drawn natively with `cubicTo` and closed — evaluating only the valid
+  knot domain is what keeps the seam closed with a continuous (C2) tangent.
+  - **Two closed tests.** `is_periodic()` is true only for the smooth periodic flag;
+    `is_closed()` is true for a periodic spline **or** the legacy coincident-end (kinked)
+    form (≥ 3 control points, first == last), which is otherwise unchanged. Fill /
+    `get_closed_path()` / offset follow `is_closed()`; snap uses `is_periodic()` (a
+    periodic spline has no end points — `snapping-engine.md §5` owns the per-type snap
+    matrix).
+  - **Persistence:** `to_dict` writes `"closed": true` **only when set** (open and legacy
+    splines serialize byte-identically to before); `from_dict` reads
+    `bool(data.get("closed", False))`. Every copy path (undo, paste, block factory,
+    `tool_geometry._spline_copy` for offset) carries the flag; grips, translate, rotate,
+    reflect and scale never touch it.
+  - **Selection guide:** the dashed control-polygon guide (§3.6) also draws the
+    last → first leg on a periodic spline, so the guide is a closed loop.
+  - **No Closed row** in `get_properties()` yet (the panel shows Degree 3 and no
+    open/closed state); a periodic spline cannot be reopened, nor an open one closed, after
+    drawing — filed (`todo_open.md` "\"Closed\" property toggle for splines and polylines").
+  - `_PERIODIC_WRAP_EPS` (1e-6, wrapped-DXF control-point coincidence) and the underlay
+    flatten tolerance (`periodic_spline_polyline(..., distance=0.5)`, matching the ezdxf
+    `flattening(0.5)` it replaces) live in `geometry_2d.py` as **algorithmic epsilons** of
+    the evaluator, not user-facing constants — recorded here as the one sanctioned exception
+    to the `constants.py` rule.
+- **Grips:** one per control point (drag → rebuild). No centre grip, no seam pair on a
+  periodic spline. Add/remove control point is deferred.
 - **Placement:** N-click control polygon (mirrors polyline) — Enter/double-click
-  finishes, Delete pops the last point, 1 point cancels. Mode `"draw_spline"`,
-  list `_draw_splines`, `type: "draw_spline"`. Open (not fillable) unless first
-  == last control point.
+  finishes **open**, Delete pops the last point, 1 point cancels; with ≥ 3 points a click
+  near the first point commits a **periodic** spline (close gesture and ring: §4). Mode
+  `"draw_spline"`, list `_draw_splines`, `type: "draw_spline"`. Closed (fillable) iff
+  `is_closed()`: the periodic flag, or the legacy first == last control point rule.
 
 Both register in `block_definition._PRIMITIVE_FACTORY` and thread through the
 full dual-path persistence + enumeration set (§6).
@@ -216,7 +290,8 @@ DXF/DWG/PDF import into the **Block Editor** preserves curves **exactly** as
 these editable primitives — no tessellation (2026-09-23, block polish: partial
 ellipses and PDF Béziers joined arcs / full ellipses / splines). It is gated by
 a `preserve_curves` flag on `DxfImportWorker` **and** `PdfImportWorker` (default
-**False**, so the underlay import path is byte-identical); `BlockImportDialog`
+**False**, so the underlay import path keeps its own flattening — byte-identical
+except for DD7 closed periodic SPLINEs, below); `BlockImportDialog`
 sets it True. The shared
 geom-dict schemas (scene-space; DXF `y` already negated) are:
 
@@ -241,6 +316,24 @@ maps these dicts via `geometry_import.geom_dicts_to_primitives`. Import rotation
 **DXF partial ELLIPSE** (`preserve_curves`) → one exact **rational** `spline`
 dict via ezdxf `BSpline.from_ellipse(entity.construction_tool())` (control
 points Y-negated, knots/weights verbatim). Full ellipses stay `ellipse_full`.
+
+**DXF closed SPLINE → periodic (DD7, 2026-10-01).** A closed SPLINE in the wrapped
+periodic form — degree 3, the last 3 control points repeating the first 3 (within
+`_PERIODIC_WRAP_EPS`), a uniform knot vector of `n + 4` knots, absent or uniform weights —
+is recognised by `geometry_2d.periodic_control_points` and maps to its `n − 3` unique
+control points:
+- Block import (`geometry_import.geom_dicts_to_primitives`) → `SplineItem(unique,
+  closed=True)`; the import preview (`dwg_converter.append_geom_to_path`) draws the same
+  periodic path.
+- Underlay import (flag off) → `dxf_import_worker` flattens via
+  `geometry_2d.periodic_spline_polyline` (the same curve, flattened like ezdxf
+  `flattening(0.5)`) into one closed `path_points` record. This replaces ezdxf's
+  full-knot-range flattening, which drew a stray tail; it is therefore **no longer
+  byte-identical** for these splines. The record is curve-derived, never `"straight"`
+  (not a Flip/Mirror axis — `underlay-workflow.md` owns the record schema).
+- Any other closed SPLINE (non-uniform knots or weights, degree ≠ 3, fit-point) keeps the
+  verbatim path and still draws the stray tail — filed (`todo_open.md` "Closed DXF SPLINEs
+  with non-uniform knots or weights still draw a stray tail").
 
 **PDF curves** (`pdf_import_worker`, `preserve_curves`; 2026-09-23, block polish):
 - Each drawing splits into **contiguous subpaths** — a gap >
@@ -315,17 +408,40 @@ the last step of each commit, gated on `_SINGLE_PLACEMENT_MODES`. Chain tools
 (polyline, wall-polyline, floor-polygon) switch only when the chain **completes**
 (Enter / double-click / close-near-first / loop-close); mid-chain keeps drawing.
 
-**Close / pop test point with Ctrl — ratified 2026-09-26 (design grill, FP1; build
-pending, see `todo_open.md` "Close-near-first tests the tip or the cursor").** For
-polyline, floor-polygon and roof-polygon placement, close-near-first (≥3 vertices,
-within the 8 px close tolerance of vertex 0) fires when **either** the committed
-point (the Ctrl-constrained tip) **or** the snapped cursor is within tolerance —
-so a constrained tip that lands on vertex 0 closes instead of adding a
-near-duplicate vertex, and snapping onto vertex 0 with Ctrl held still closes.
-The close ring / preview follow whichever point triggered. Roof vertex-pop
-(click near an existing vertex to remove it) uses the same either-point rule.
-*(As-built divergence until the build lands: all three test the snapped cursor
-only.)* Rejected: committed-tip-only; cursor-only with duplicate suppression.
+**Close / pop test point — the shared close helper (ratified 2026-09-26, FP1; built
+2026-10-01, DD8).** One module-level test, `geometry_drawing_controller.close_hit(first,
+tip, cursor, view_scale)`, decides close-near-first for **polyline, spline, floor-polygon
+and roof-polygon** placement (≥ 3 vertices): it fires when **either** the committed point
+(the Ctrl-constrained tip; equal to the cursor when unconstrained, and always for the
+spline, which has no Ctrl constraint) **or** the snapped cursor is within
+`constants.CLOSE_HIT_PX` screen pixels of vertex 0 (converted by the active view zoom). So a
+constrained tip that lands on vertex 0 closes instead of adding a near-duplicate vertex,
+and snapping onto vertex 0 with Ctrl held still closes. Roof vertex-pop (click near an
+existing vertex to remove it) uses the same either-point test against each vertex.
+Rejected: committed-tip-only; cursor-only with duplicate suppression. The wall loop close
+(tip only, its own tolerance) is a separate rule (`wall-room-floor-system.md §4.4`).
+- **The close ring.** While `close_hit` holds, every caller shows **one shared ring**
+  (`GeometryDrawingController.show_close_ring` / `hide_close_ring`; a fixed screen-size
+  `CLOSE_RING_PX` ring in `SELECTION_OUTLINE_COLOR`, z above the overlay so it is never a
+  snap target, stored on the scene as `_polyline_close_indicator` — historic name). The
+  ring **stays on vertex 0** whichever point triggered, and the preview closes onto
+  vertex 0 (polyline / floor / roof rubber band; the spline preview turns into the smooth
+  periodic curve). It is hidden on commit, on a mode switch, on floor/roof Enter-close,
+  on a Delete-pop and when a HUD-typed spline point is added.
+- **Spline.** With ≥ 3 control points a click within `close_hit` of the first point
+  commits a **periodic** spline (§3.5.2); Enter / double-click finish **open**. A
+  Delete-pop below 3 points drops the closed cue (`_closed` cleared on the preview,
+  ring hidden).
+- **Ring lifecycle across New / Open.** `scene_io._clear_scene` forgets the ring
+  (`scene.clear()` deletes the item under the stored wrapper); `_live_close_ring()`
+  also drops a deleted or foreign-scene ring, so the next `show_close_ring` recreates it
+  instead of raising `RuntimeError` (`eb54232`).
+- **Not on the helper:** room manual close / click-pop and shift-click floor vertex delete
+  still own their own 8 px literals — filed (`todo_open.md` "Room manual close/pop and
+  shift-click floor vertex delete keep their own 8 px literals"). Known interactions,
+  filed: origin snap can pre-empt the ring when vertex 0 sits 8–12 px from (0, 0); a
+  HUD-typed point on vertex 0 closes a floor but adds a near-duplicate vertex on
+  polylines and splines.
 
 Continuous modes (pipe/sprinkler/gridline) still re-arm every commit. **Esc**
 exits to Select in all modes. A mode is
@@ -368,7 +484,8 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   **centre**, which is constrained to the chord's perpendicular bisector (the
   cursor is projected onto it). The default is the **minor** arc, bulging away
   from the centre's side of the chord; **Space** toggles minor ↔ major (reset per
-  placement); with the centre on the chord (semicircle) the last non-zero side is
+  placement; End Points only — Center / Start always sweep CCW and have no Space toggle,
+  a P1 follow-up is filed); with the centre on the chord (semicircle) the last non-zero side is
   kept. **90° snap (2026-09-24):** for the mouse preview and click commit, when
   the centre's signed bisector distance |t| is within the OSNAP aperture of the
   half-chord h (the radials C→A and C→B perpendicular), |t| is pinned to h (sign
@@ -381,8 +498,9 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   chord is refused). One home for the math: `arc_math.py`
   (`project_to_bisector`, `arc_through_chord`, `center_for_radius`); the snap
   lives in `GeometryDrawingController._arc_ep_solve(snap90=…)`.
-- **`ArcItem` storage is CCW:** a negative (CW) span passed to `__init__` (mirror
-  tool, legacy saves) is normalised to the same geometric arc with a positive span
+- **`ArcItem` storage is CCW:** a negative (CW) span passed to `__init__` (legacy
+  saves; the retired `SceneTools._apply_mirror` produced them — `manip_reflect` keeps the
+  span positive, §1.2) is normalised to the same geometric arc with a positive span
   (start += span, span = −span). Grips: centre / start / end — their drag
   semantics (centre: bisector slide; ends: slide along the circle) are owned by
   `selection-manipulator.md` (U3 ArcItem).
@@ -391,8 +509,8 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   first** so placing several in a row leaves only the last-placed item selected
   (commit sites in `geometry_drawing_controller.py` + the `model_space.py` line
   factory / polyline-finalize paths).
-- **Polyline:** multi-click; **click the START vertex (≥3 verts) to close** (a
-  distinct blue close-ring cues it near the first vertex); double-click / Enter
+- **Polyline:** multi-click; **click the START vertex (≥3 verts) to close** (the
+  shared close ring above cues it on the first vertex); double-click / Enter
   finish *open*; **Delete** pops the last vertex (routed via a `Model_View`
   `ShortcutOverride` accept so it beats the window Delete shortcut; cancels at one
   vertex). Mid-chain clicks and Delete stay in polyline mode; a completed chain
@@ -443,7 +561,8 @@ dispatch site (emitter, `_phase4_items`, `_geometric_snaps`).
 (mandatory: `CircleItem` rides the generic `QGraphicsEllipseItem` branch, which
 reads an axis-aligned rect and would emit *wrong* quadrants for a
 rotated ellipse). **SplineItem** emits its **endpoints + control points** (as
-endpoint-class snaps) via its own branch before the generic path branch.
+endpoint-class snaps) via its own branch before the generic path branch — none for a
+periodic spline (`is_periodic()`, §3.5.2), whose snaps come from its path only.
 
 The per-item snap contribution of every primitive — including ellipse/spline
 perpendicular/nearest (projected onto the flattened curve, 2026-09-24), the
@@ -469,7 +588,7 @@ still threads the collect helpers that enumerate the sibling lists: `_items_on_l
 ## 7. Display
 
 The **"2D Geometry"** Display-Manager category owns colour / visibility / opacity
-for all six item types (mirrors Design Area; no per-category line-weight yet).
+for all the 2D-geometry item types (mirrors Design Area; no per-category line-weight yet).
 Fill is a per-item property, independent of the category.
 
 ## 8. Selection dimension readouts (as-built 2026-09-24, `feat/selection-dim-readouts`)
@@ -516,6 +635,8 @@ No rotation-angle readouts (rect / ellipse / polygon). **Panel fold-in:**
 - **Containment invariants** (placement-only, level-on-instance, Text primitive) →
   `model-space-containment-contract.md` C1/C3/C5/C7.
 - Ribbon topology (Create dissolved; Block-Editor/Paper authoring contexts) → `ribbon-bar.md`.
+- Flip / Mirror / Scale tool behaviour (targets, axis picking, ghosts, refusals, undo) →
+  `scene-tools.md` (this spec owns only the per-item hooks, §1.2).
 - Snapping engine → `snapping-engine.md`.
 - Units / dimension parsing → `units-and-formatting.md`.
 

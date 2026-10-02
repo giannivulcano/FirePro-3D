@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-09-30  # closable 3D tab: stub_view3d surface, real-View3D test files, MainWindow-teardown selection family; prior 2026-09-29
-verified-commit: f1d8151   # closable 3D tab; prior ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-10-01  # scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: c8ff4f4   # scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -86,8 +86,18 @@ SEH bug #371).
 
 4. **Posted events need shown views.** Tests exercising focus / event-dispatch /
    render must `show()` + expose the view (see `shown_model_view`) and post real
-   `QMouseEvent`/`QKeyEvent`. Calling handlers directly, or `QTest.mouseMove`, is a
-   false green (drives zero handlers).
+   `QMouseEvent`/`QKeyEvent`. Calling handlers directly, or `QTest.mouseMove` on a
+   widget, is a false green (drives zero handlers).
+   - **Tests drive handlers with `QApplication.sendEvent`** (non-spontaneous events).
+     The two `QTest.mouseMove` overloads are not substitutes:
+     - **`QTest.mouseMove(<QWidget>, …)` — never.** It moves the **user's real cursor**
+       (`QCursor::setPos`; a 2026-10-01 fixer did exactly that) and any resulting move
+       arrives asynchronously, if at all — the false green above.
+     - **`QTest.mouseMove(<QWindow>, …)`** (`view.window().windowHandle()`) injects a
+       **spontaneous** window-system move without touching the cursor. It is only for
+       *simulating OS input* in an Invariant 9 guard
+       (`test_os_mouse_input_cannot_reaim_the_axis`); `ignore_os_mouse` drops exactly
+       these events, so it is never a way to drive handlers.
 
 5. **Never construct a real `QPrinter` in the suite — use `QPdfWriter`.** A real
    `QPrinter` PDF export in-suite raises first-chance SEH. Known latent instance:
@@ -127,6 +137,44 @@ SEH bug #371).
    that is "not a benchmark" (seconds, orders of magnitude of slack) stays
    unmarked. Why: 2026-09-26 the offset guard measured 31.7 ms in-batch vs
    22.8 ms standalone — load, not a regression.
+9. **Shown test windows are deaf to the real OS mouse.** A shown, exposed view
+   (Invariant 4) can sit under the user's real cursor; every real mouse move over it
+   arrives as a **spontaneous** event between a test's own events and its assertions
+   and re-aims hover-driven state (Flip / Mirror axis, Scale / Array ghosts, offset
+   distance, snap / ALIGN acquisition). Root cause **proven 2026-10-01** for the
+   shown-window flakes (probe log of spontaneous `MouseMove`s at the user's cursor;
+   deterministic repro via the `QWindow` overload above). Rule: a test that shows a
+   view and asserts hover-driven state wraps it in **`ignore_os_mouse(view)`**
+   (`tests/_modify_tools_helpers.py`) — a viewport event filter (parented to the
+   viewport) that drops spontaneous mouse-move / press / release / double-click /
+   wheel events; the test's own `sendEvent`ed events (`spontaneous() is False`) still
+   pass. Guard: `test_modify_tools_flip_mirror.py::test_os_mouse_input_cannot_reaim_the_axis`.
+   Adopted so far by the modify-tool, close-helper, spline-close and context-menu
+   copy/cut suites; adoption in `tests/_snap_polish_helpers.make_view` (the snap /
+   ALIGN flakes) is filed in `todo_open.md`. Until then, don't move the mouse over
+   test windows during a suite run.
+10. **A Python-owned stub scene is destroyed deterministically at fixture exit.**
+    `tests/test_scene_tools.py`'s `scene` fixture delegates to the
+    `stub_scene_session(qapp)` context manager, which `sip.delete()`s the view and the
+    `_StubScene` on exit (`f766f73`). Why: the stub scene was kept alive only by a
+    reference cycle (`scene._tools = SceneTools(scene)` ↔ `SceneTools._scene`) with
+    posted events still queued on it (`_q_polishItems`, index / update). The next
+    test's `processEvents()` dispatched them into the garbage scene; a cyclic GC firing
+    inside the resulting Python virtual (`itemChange` / `shape`) freed the scene under
+    Qt → "wrapped C/C++ object has been deleted" → PyQt `qFatal` → silent `0xC0000409`
+    (exit 127). `~QObject` purges the queued events, so deleting at teardown closes
+    it. Rule: any fixture that builds a Python-owned scene/view kept alive by a cycle
+    `sip.delete()`s it at teardown — `view.close()` alone is not enough. Guards:
+    `TestStubSceneTeardown` (deletion contract + a child-process repro asserting exit 0).
+11. **Tests must not reach the user's real home folder.** `MainWindow` autosaves to
+    `~/.firepro3d/autosave/recovery.FPD` (`os.path.expanduser("~")` — the APPDATA
+    monkeypatch does not cover it). A test run that leaves that file behind makes every
+    later `MainWindow` fixture hang on the Recover dialog. **As-built gap (filed,
+    `todo_open.md` "Tests write the autosave `recovery.FPD` into the real home
+    folder"):** there is no conftest-level redirect yet; isolate a run by pointing
+    `USERPROFILE` / `HOME` at a scratch dir (and commit outside that environment — the
+    override also hides the user's git identity). Never delete a real `recovery.FPD`
+    without asking the user.
 
 ## Known native-crash families
 
@@ -136,6 +184,15 @@ SEH bug #371).
   main.py <lambda>", or silent `0xC0000409`/exit 127 at shutdown). Fixed
   2026-09-23 by bound-method connects (Invariant 6).
 
+- **GC inside a Qt-queued slot (Python-owned stub scene)** — a garbage `_StubScene`
+  whose queued posted events are dispatched by a later test's `processEvents()`; a GC
+  inside the dispatched Python virtual frees the scene under Qt → `qFatal` →
+  `0xC0000409` / exit 127 (`test_scene_tools.py`, GC-timing sensitive, pre-existing).
+  Fixed `f766f73` (Invariant 10). The whole `tests/test_[s-z]*.py` chunk, which used to
+  abort reproducibly in `test_scene_tools.py` when the earlier s-z files shared the
+  process, ran clean in **one** process at `c8ff4f4` (2105 passed, exit 0) — **likely
+  fixed by `f766f73`, pending one more confirming VC6 run** (`todo_open.md` keeps the
+  s-z chunk item open until then).
 - **QPrinter-SEH** — a real `QPrinter` PDF export in-suite raises first-chance SEH
   (e.g. `0xe0000001`). Hydraulic report fixed 2026-09-09; thermal twin latent
   (Invariant 5).

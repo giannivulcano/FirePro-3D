@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: d34aeb0   # batch A dead-code sweep; prior 7629311
+last-verified: 2026-10-01  # scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: c8ff4f4   # feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/settings/panes.py        # §17.1 ImportPane PDF DPI/mode defaults
@@ -22,9 +22,9 @@ applies-to:
   - firepro3d/underlay_import_dialog.py   # §10 import dialog (renamed 2026-09-01); §10.7 Modify flow
   - firepro3d/loading.py                   # §10.11 staged LoadingOverlay + LoadProgress/LoaderWorker (Polish v2)
   - firepro3d/frameless_shell.py          # §10.1 FramelessShellMixin — shared frameless house chrome
-  - firepro3d/dxf_import_worker.py
-  - firepro3d/pdf_import_worker.py
-  - firepro3d/dwg_converter.py
+  - firepro3d/dxf_import_worker.py        # §10.5.1 "straight" tag + closed periodic SPLINE flattening
+  - firepro3d/pdf_import_worker.py        # §10.5.1 "straight" tag
+  - firepro3d/dwg_converter.py            # §10.5.1 preview path for closed periodic splines
   - firepro3d/underlay_cache.py
   - firepro3d/underlay_freeze.py            # §18 freeze-blit
   - firepro3d/model_view.py                 # §18 gesture sources
@@ -515,9 +515,9 @@ is semantically wrong for a real-units DXF (§10.13).
 | CIRCLE | `circle` → QGraphicsEllipseItem | Existing |
 | ARC | `arc` → QGraphicsPathItem | Existing |
 | ELLIPSE | `ellipse_full` or `path_points` | Existing |
-| LWPOLYLINE | `path_points` → QGraphicsPathItem | Existing |
-| POLYLINE | `path_points` → QGraphicsPathItem | Existing |
-| SPLINE | `path_points` (flattened) | Existing |
+| LWPOLYLINE | `path_points` → QGraphicsPathItem (+ `"straight": True` when no span is bulged — §10.5.1) | Existing |
+| POLYLINE | `path_points` → QGraphicsPathItem (same `"straight"` rule) | Existing |
+| SPLINE | `path_points` (flattened); a **closed periodic** SPLINE flattens from the periodic curve (§10.5.1) | Existing; closed-periodic path 2026-10-01 |
 | TEXT | `text` → QGraphicsTextItem | Existing |
 | MTEXT | `text` (plain_text extracted) | Existing |
 | INSERT | Recurse via `entity.virtual_entities()` | Implemented |
@@ -529,6 +529,43 @@ is semantically wrong for a real-units DXF (§10.13).
 **POLYLINE vs LWPOLYLINE:** Both map to `path_points`. LWPOLYLINE uses `get_points()`, while POLYLINE (3D polyline, common in block explosions) uses `.vertices` to extract vertex locations. A `hasattr` check selects the correct accessor.
 
 **HATCH** and **DIMENSION** use the same `virtual_entities()` pattern. LEADER, MULTILEADER, and MLEADER are also exploded. SOLID and POINT are extracted directly. All other entity types (3DFACE, etc.) are skipped.
+
+#### 10.5.1 Geometry-record keys added by the scene-tools P1 batch (2026-10-01)
+
+**`"straight": True` — optional, additive record key (user decision 2026-10-01).** The
+underlay path flattens curves (ARC, partial ELLIPSE, SPLINE, PDF Béziers) into
+`path_points` chords that are indistinguishable from real straight segments. The
+importers therefore tag the records whose every span is a true straight segment, and
+the Flip / Mirror axis picker (`axis_picker.py`; flow owned by `scene-tools.md`)
+accepts an underlay segment as a mirror axis **only** from a `line` record (straight by
+kind, never tagged) or a `path_points` record carrying `"straight": True`. The key is
+written only when true (never `False`), and nothing else reads it — rendering, snapping
+and the snap index ignore it. Producers:
+
+| Producer | Tagged `"straight": True` when |
+|---|---|
+| DXF `LWPOLYLINE` / `POLYLINE` | no span is bulged — a vertex's bulge shapes the span it starts; the last vertex's bulge counts only when the polyline is closed (`get_points()` "xyseb" bulge / heavy-POLYLINE `vertex.dxf.bulge`) |
+| DXF `SOLID` | always |
+| DXF `ARC` / partial `ELLIPSE` / `SPLINE` (flattened) | never |
+| PDF vector path (`_extract_path` and the curve-preserving split) | only a record built purely from `l` segments, and every `re` / `qu` record; a record into which any flattened Bézier (`c`) went is untagged |
+
+Record copies keep the key (the import transform and viewport transform copy dicts,
+`filter_geoms_by_bounds` passes the original dict, the reference `BlockDefinition`
+holds the same dicts, and the JSON cache round-trips the bool). **No cache version
+bump** (`_CACHE_VERSION` stays 4): a project cached before this batch loads its
+`path_points` records **without** the key, so they are never mirror axes until the
+underlay is re-imported / refreshed from disk (`line` records still work). **v1
+limitation:** a PDF record mixing `l` and Bézier segments (a rounded-corner rectangle,
+a line ending in a curve) is one record and loses **all** its axes — per-span tagging
+would need a record split. DWG underlays currently give no axis at all (their group tag
+is missing from the snap engine's underlay tags — filed; `snapping-engine.md §6.1`).
+
+**Closed periodic DXF SPLINE (scene-tools P1 DD7).** On the underlay path
+(`DxfImportWorker`, `preserve_curves=False`) a closed periodic DXF SPLINE is emitted as
+one closed `path_points` record with no seam duplicate, never `"straight"`. There is no
+cache bump: underlays cached before this batch keep their old flattening until re-import.
+The recognition rule, the mapping, every import path and the known fallback gap are owned
+by `2d-geometry.md §3.5.3` (Rule A).
 
 ### 10.6 Import flow
 

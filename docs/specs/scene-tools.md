@@ -1,16 +1,22 @@
 ---
-status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment (per-vertex miter, splines on the control polygon) BUILT 2026-09-29 on feature/offset-chord-translate; D10 change request pending (see Build deltas); §1–§6 are the PRE-build as-built record at c47ab60
-last-verified: 2026-09-30  # Block Editor ribbon tab account (permanent tab replaces _build_block_editor_context; Edit/Modify disabled with no editor tab; view-3d I5 refusal linked); prior 2026-09-30 nested-blocks account (block Explode reachable in the Block Editor, D13/D14 deltas, block rotate step retired); prior 2026-09-29 D9 amendment: guards + user smoke on feature/offset-chord-translate
-verified-commit: 44325e5   # feat/block-editor-ribbon-tab (account); prior 345f1b7 feat/nested-blocks (account); prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
+last-verified: 2026-10-01  # P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: c8ff4f4   # feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
   - firepro3d/modify_tools_controller.py
   - firepro3d/transform_ghost.py
+  - firepro3d/axis_picker.py            # Flip / Mirror axis pick (D16)
+  # Shared files — only the Edit/Modify builders, the window tool-shortcut
+  # table and the mode-badge labels (main.py); the Copy/Cut entries
+  # (entity_context_menu.py):
+  - main.py
+  - firepro3d/entity_context_menu.py
   # Tool state machines that live on the scene (shared with other specs — this
   # spec governs only the modify-tool rows/handlers listed in §1):
   - firepro3d/model_space.py
-source-tasks: [orphan-gate review — surface scene tools on the 2D-Geometry contextual ribbon]
+source-tasks: [orphan-gate review — surface scene tools on the 2D-Geometry contextual ribbon, "Array: reference angle + 2D (rows×cols) mode with ←/→ variant cycle; polar [P1]", "Mirror + Scale scene tools [P1]", "Arc angle convention bug [P2]", "Modify-tool polish [P3]"]
 ---
 
 # Scene Tools (2D modify tools) — Design Spec (current behaviour + divergences)
@@ -19,6 +25,11 @@ source-tasks: [orphan-gate review — surface scene tools on the 2D-Geometry con
 > *today* at `c47ab60`. The **ratified as-intended contract is "Design
 > Decisions" D1–D15** (2026-09-25 grill); where a §5 "as-proposed" note
 > disagrees with D1–D15, D1–D15 wins. §8 is kept as the grill's question log.
+> **P1 batch (2026-10-01, `c8ff4f4`):** D10 is amended (array variants), D16
+> Flip / Mirror, D17 Scale and D18 polish are added; the batch build contract
+> is `docs/superpowers/specs/2026-10-01-scene-tools-p1-batch-design.md`
+> (archival — this spec wins where they differ). §1–§6 rows describing the
+> retired legacy `mirror` / `scale` modes are replaced (marked "P1 batch").
 
 ## Goal
 
@@ -59,7 +70,11 @@ dead plumbing, and none has a governing behaviour spec
 - **Selection manipulator** already provides rigid move/rotate/scale for
   selected items via per-item `manip_*` / `translate` protocol
   (`selection-manipulator.md`) — a parallel path to the legacy `rotate`/`scale`
-  modes (§6).
+  modes (§6). *(Both legacy modes are retired: Rotate D8 commits through
+  `manip_rotate`; Flip / Mirror / Scale (D16 / D17) through the per-item
+  `manip_reflect` / `manip_scale_about`, which deliberately are **not** named
+  `manip_scale` — that name enables manipulator resize handles. Manipulator
+  resize stays a parallel, uniform-or-not scale path — §4 P2.)*
 
 (Sections below are appended as the review proceeds.)
 
@@ -81,8 +96,8 @@ Verified by reading every row and by a read-only runtime probe (real
 | Duplicate | `duplicate` (**no dispatch row**) | Ctrl+D / plan context menu → `set_mode("duplicate")`: mode has no press/move handler; entry clears the selection **[probe: mode='duplicate', 0 selected]**. Separately `duplicate_selected()` = instant copy+paste at fixed (+10, +10) mm | — | — | — | `duplicate_selected` pushes once |
 | Move | `move` | Ctrl+M captures `_selected_items`; click 1 = base, click 2 → `move_items(offset)` | `_move_paste_move` + S2 `HandleSnapSession` (handles-only destination snap) | `displacement` (dX/dY, needs anchor) → `_apply_move_displacement` | generic | after `move_items` |
 | Rotate (legacy) | `rotate` | click 1 = pivot, click 2 → `_tools._apply_rotate(pivot, atan2(-dy,dx))` — the **absolute** heading of the cursor, no reference ray | dashed pivot→cursor line + status "Rotate: n°" (no ghost) | none (instruction says "Tab for exact angle"; `numericInputRequested` is never emitted) | set_mode clears pivot + line | after apply |
-| Scale (legacy) | `scale` | click 1 = base; **no commit path** — commit only via `complete_numeric_input("scale")`, whose `numericInputRequested` signal is never emitted | none (`scale` absent from `_MOVE_DISPATCH`) | none | set_mode | (never reached) |
-| Mirror | `mirror` | click 1/2 = axis → `_apply_mirror` (copies), then `confirmRequested("mirror_delete")` | dash-dot axis line | none | set_mode | pushed before the delete-originals answer; delete pushes again |
+| Scale (P1 batch, `c8ff4f4`) | `scale` | `ModifyToolsController.press_scale`: base → reference (refused within the pick tolerance of the base) → click commits `manip_scale_about` per item (D17). Legacy `_apply_scale` + its dead commit path **retired** | `move_scale`: ghost under a scale `QTransform` + status Factor | `scale_factor` (one FACTOR field) → `apply_scale_factor` | generic → `clear()` | after commit (none for factor 1) |
+| Flip / Mirror (P1 batch, `c8ff4f4`) | `flip`, `mirror` | `press_reflect`: click on the hovered straight edge (`axis_picker.pick_axis`) → `commit_reflect` (Flip in place / Mirror copies, D16). Legacy two-click `mirror` + `_apply_mirror` + `confirmRequested("mirror_delete")` **retired** | `move_reflect`: axis + reflected ghost (raw cursor, no SNAP/ALIGN) | none | generic → `clear()` | after commit |
 | Offset | `offset` → `offset_side` | `_press_offset`: pick entity under raw cursor (`items(pos)[0]` filtered to Line/Polyline/Circle/Rect/Arc/Ellipse/Spline) → `offset_side`; click → `make_offset_item(source, signed)` → add to per-type list; re-arm `offset` | `_move_offset_side`: distance = `perpendicular_distance(source, cursor)`; dashed live preview item re-created each move | none (status says "Tab = type distance" — no schema; `_offset_manual` only settable from dead `complete_numeric_input`) | set_mode clears preview/source/highlight; Enter commits like a click | after each commit |
 | Array | — (dialog) | `ArrayDialog` → `array_items(params)`: linear = repeated `paste_items(offset)` through a temporarily swapped clipboard; polar = rewrites dict keys then `paste_items(0,0)` | none | none | dialog cancel | one push after all copies |
 | Trim | `trim` → `trim_pick` | `SceneTools._handle_trim_click`: pick cutting edge, then click target piece; Line = move nearer endpoint; Circle → Arc; Arc = shorten | edge highlight only | none | set_mode clears edge + highlight ("right-click to cancel" actually opens the context menu, whose first item is Cancel) | after each trim |
@@ -119,7 +134,10 @@ Verified by reading every row and by a read-only runtime probe (real
    rotate, scale, radiation_*`, and only `move/rotate/scale` snapshot
    `_selected_items`. `mirror` is neither → `_apply_mirror` sees an empty
    selection and produces nothing **[probe: 0 selected, `_selected_items=None`,
-   0 copies]**. Same trap for the dead `duplicate` mode.
+   0 copies]**. Same trap for the dead `duplicate` mode. *(Fixed: the
+   2026-09-26 build added `copy_base` / `duplicate` / `array` to the
+   keep-selection exemption, the P1 batch `flip` / `mirror`; the legacy
+   `mirror` mode is retired — D16.)*
 4. **Paste plumbing.**
    - `paste_items` iterates `clipboard_data()` without a `None` guard → with an
      empty / non-JSON clipboard it raises `TypeError` **[probe]**. The window
@@ -182,6 +200,11 @@ Two structural facts govern every row:
   `self.scene` (plan), not `_active_scene()`** — unlike the window
   `QShortcut`s and the BE page's draw buttons, which use `_active_scene()`.
 
+*Epoch: rows are the `c47ab60` record except those marked "P1 batch". At `c8ff4f4` every
+Edit/Modify tool in D1 is reachable (ribbon + `_TOOL_KEYS`), and only Trim / Extend / Break /
+Fillet / Chamfer / Stretch / Merge / Join remain unreachable (D14); Align is window
+**Shift+L** (D2).*
+
 | Tool | Ribbon | Keyboard | Context menu | Programmatic only | Verdict |
 |---|---|---|---|---|---|
 | Copy | contextual `Edit ▸ Copy` (plan scene only) | window **Ctrl+C** → `_active_scene().copy_selected_items()` | plan menu `Copy`; entity menu `Copy` (geo2d except Ellipse/Spline — `_find_entity_at` omits them) | — | reachable (plan + BE) |
@@ -192,8 +215,8 @@ Two structural facts govern every row:
 | Move (manipulator) | — | — | — | interior drag of the selection frame | reachable (parallel path, §4) |
 | Rotate (legacy `rotate`) | none | none | none | `set_mode("rotate")` | **UNREACHABLE** |
 | Rotate (manipulator) | — | — | — | rotate knob **removed 2026-09-23** (`test_no_rotate_knob.py`); `manip_rotate` kept "for the future Rotate transform" | **UNREACHABLE** (no rotate of any kind today) |
-| Scale (legacy `scale`) | none | none | none | — (and no commit path, §1.1-2) | **UNREACHABLE + dead** |
-| Mirror | none | none | none | — (and empty-selection trap, §1.1-3) | **UNREACHABLE + dead** |
+| Scale (P1 batch, `c8ff4f4`) | Block Editor Modify ▸ Scale | window **Shift+S** (active scene — plan too) | none | — | reachable (legacy `scale` retired, D17) |
+| Flip / Mirror (P1 batch, `c8ff4f4`) | Block Editor Modify ▸ Flip · Mirror | window **Shift+F** / **Shift+I** (active scene — plan too) | none | — | reachable (legacy `mirror` retired, D16) |
 | Offset | none | none | none | `set_mode("offset")` (self re-arm only) | **UNREACHABLE** |
 | Array (general) | none — `MainWindow._open_array_dialog` has **no caller** | none | none | `array_items(params)` | **UNREACHABLE** |
 | Gridline Array / Offset | none | none | plan + entity menu on one selected gridline | `_start_gridline_replicate` | reachable (gridlines only) |
@@ -211,7 +234,10 @@ Two structural facts govern every row:
 **Counts:** 23 rows reviewed. **UNREACHABLE everywhere: 13** (Rotate legacy, Rotate manip, Scale,
 Mirror, Offset, Array, Trim, Extend, Break, Fillet/Chamfer, Stretch, Merge,
 Join/Explode). **UNREACHABLE in the Block Editor specifically: 16** (the 13 +
-Cut, Duplicate, Constraints).
+Cut, Duplicate, Constraints). *(Counts are the `c47ab60` record. At
+`c8ff4f4` the still-unreachable modify tools are Trim, Extend, Break /
+Break-at-point, Fillet / Chamfer, Stretch, Merge points and geometry
+Join / Explode — D14.)*
 
 ## 3. Primitive × tool coverage matrix
 
@@ -225,7 +251,10 @@ Per-item protocol available on **every** 2D primitive: `to_dict`/`from_dict`,
 `translate` (**not** `TextItem` — it has `manip_translate`), `manip_rotate`
 (Y-up CCW+, internally `rotate_point(…, -angle)`), `grip_points`/`apply_grip`,
 `manip_handles`. No primitive has an `offset`, `mirror` or `scale` method;
-`manip_scale` exists on `TextItem` only.
+`manip_scale` exists on `TextItem` only. *(P1 batch: the eight
+`geometry_2d.py` primitive classes — ReferenceLine inherits Line's — now carry
+`manip_reflect(p1, p2)` and `manip_scale_about(base, f)`; Text and block
+instances do not.)*
 
 Legend: **S** supported · **P** partial · **M** missing (silently skipped
 unless noted) · **X** suspect (runs, wrong result) · **C** crashes ·
@@ -241,9 +270,14 @@ unless noted) · **X** suspect (runs, wrong result) · **C** crashes ·
 | **Offset** [`_press_offset` pick + `tool_geometry.make_offset_item`] | S | **X** result is a plain `LineItem` [probe] | **P** side from 1st segment only; distance = min over *infinite* segment lines | **X** first/last vertex not mitered — seam edge not offset [probe: square +10 → (0,10)…(0,−110)] | **C** axis-aligned (pick `_highlight_item` NameError) / S rotated | **C** pick NameError; **X** radius pen-inflated (`boundingRect()/2`: 50+10 → 63) [probe] | S | **M** not pickable, no branch | **M** pickable, `make_offset_item`→None, distance 0 → silent no-op [probe] | **M** same as Ellipse | *n/a* |
 | **Array linear** [`array_items` → `paste_items` offsets] | S | S | S | S | S | S | S | S | S | S | **M** |
 | **Array polar** [`array_items` dict-key rewrite: `x/y`, `pt1/pt2`, `cx/cy`, `points`] | S geometry, **X** sense (visual CW) [probe] | S/X sense | S/X | S/X | **X** rotates only the `x,y` top-left corner, `angle` untouched [probe] | S/X sense | **X** centre moves, `start_deg` untouched [probe] | **M** `center` key not rotated → all copies stacked on the original [probe] | **P** centre rotated, `rotation` untouched | **M** `control_points` not rotated → stacked [probe] | **M** |
-| **Trim (target)** [`_handle_trim_click` branches] | S (nearer endpoint → hit) | P (LineItem branch in place) | **M** | **M** | **M** (+**C** as cutting edge) | **X** Y-down `atan2` vs Y-up arc angles (code-read) (+**C** as cutting edge) | **X** keeps the clicked piece; intersections computed on the Y-reflected arc [probe] | **M** | **M** | **M** | *n/a* |
-| **Scale legacy** (dead) [`_apply_scale`] | S | S | S | S | S | S | S | M | M | M | M |
-| **Mirror** (dead) [`_apply_mirror`] | S | **X** → plain `LineItem` in `_draw_lines` | S (fill dropped) | **X** closed flag + fill dropped (rebuilt without `close()`) | S | S | **X** keeps `start_deg`, negates span → reflects across the *horizontal*, not the axis [probe: x=0 axis gives Q4 instead of Q2] | **M** | **M** | **M** | **M** |
+| **Trim (target)** [`_handle_trim_click` branches] | S (nearer endpoint → hit) | P (LineItem branch in place) | **M** | **M** | **M** (+**C** as cutting edge) | ~~**X**~~ S since P1 batch (Y-up `arc_math.yup_angle`, DV7) (+**C** as cutting edge at `c47ab60`) | ~~**X**~~ S since P1 batch — the clicked piece is removed (DV7) | **M** | **M** | **M** | *n/a* |
+| **Scale** (P1 batch, `c8ff4f4`) [`commit_scale` → `manip_scale_about`, D17] | S | S (type kept) | S | S (closed + fill kept) | S (w, h × f) | S¹ | S¹ | S | S¹ | S | **M** skipped, counted |
+| **Flip / Mirror** (P1 batch, `c8ff4f4`) [`commit_reflect` → `manip_reflect`, D16] | S | S (type kept) | S | S (closed + fill kept) | S (angle folded to [0°, 180°)) | S | S (arc across x = 0 lands in visual Q2) | S | S | S (closed flag kept) | **M** skipped, counted |
+
+¹ Radius floors (`2d-geometry.md` §1.2) make a very small factor
+non-uniform for these primitives — see D17. The legacy `_apply_scale` / `_apply_mirror` rows recorded at `c47ab60`
+(Mirror: RefLine → plain Line, closed flag + fill dropped, arc reflected across
+the horizontal) are retired with the code.
 
 Adjacent (not in the target set, recorded because they share the
 angle-convention defect): **Break-at-point** on an Arc at a visual 45° is a
@@ -253,7 +287,9 @@ between visual 0° and 90° yields a 90° arc in the wrong quadrant (start 270)
 `atan2` start/span fed to a Y-up `ArcItem`) [probe: ends (10,−20),(0,−10) vs
 tangents (10,0),(0,−10)]; `geometry_intersect.line_arc_intersections` and the
 `compute_extend_intersections` arc branch use the same Y-down `atan2`, so every
-line×arc intersection is computed against the Y-reflected arc.
+line×arc intersection is computed against the Y-reflected arc. *(Fixed in the
+P1 batch, DV7: all 13 live sites now use `arc_math.yup_angle`; the 14th —
+the `_apply_mirror` arc branch — was retired with `_apply_mirror`.)*
 
 **Cell counts** (target rows Move, Copy/Paste, Duplicate, Rotate-legacy,
 Offset, Array-linear, Array-polar, Trim × 11 columns = 88 cells; 2 *n/a*
@@ -266,7 +302,9 @@ picked as the *cutting edge*), **PARTIAL 4**, SUPPORTED 42.
 ### 3.1 isinstance-dispatch ordering hazards
 
 - `ReferenceLineItem` subclasses `LineItem`. Every `isinstance(item, LineItem)`
-  branch that **creates** a new item (`make_offset_item`, `_apply_mirror`,
+  branch that **creates** a new item (`make_offset_item`, `_apply_mirror`
+  — retired in the P1 batch; Flip / Mirror use the per-item `manip_reflect`,
+  which keeps the subclass —,
   `_break_item`, `_break_at_point`, `join_selected_items`) emits a plain
   `LineItem` into `_draw_lines`, and the removal half only checks
   `_draw_lines` — a broken/joined reference line is **left behind in
@@ -288,7 +326,7 @@ arbitration risk; which one survives is a grill question (§8), not decided here
 | # | Concern | Implementation A | Implementation B | Divergence |
 |---|---|---|---|---|
 | P1 | Rotate | legacy `rotate` mode → `SceneTools._apply_rotate` (isinstance chain, `rotate_point(+a)`, rect→polyline, 5 types) | per-item `manip_rotate(angle, pivot)` on all 10 primitives (Y-up CCW+, rect keeps `set_angle`); UI (knob) removed 2026-09-23 | opposite rotation sense; A drops 5 primitive types; A destroys rect identity |
-| P2 | Scale | legacy `scale` mode → `_apply_scale` (dead commit) | manipulator resize via `manip_handles` / `manip_scale` (Text) | A unreachable & dead |
+| P2 | Scale | legacy `scale` mode → `_apply_scale` (dead commit) — *retired in the P1 batch; A is now the Scale tool (D17, uniform, `manip_scale_about`)* | manipulator resize via `manip_handles` / `manip_scale` (Text) | at `c47ab60`: A unreachable & dead. At `c8ff4f4`: two live scale paths by design — the tool (uniform, about a picked base) and the manipulator (handle resize) |
 | P3 | Offset | general `offset`/`offset_side` modes + `tool_geometry.make_offset_item` (no HUD, no ghost-by-HUD) | `gridline_offset` mode + `GridlineItem.offset_copy` (ghost + `distance` HUD schema + Enter/Esc) | B is the modern pattern (HUD, ghost list, one commit helper); A predates it |
 | P4 | Array | `ArrayDialog` + `array_items` (dialog, linear + polar via clipboard round-trip) — unreachable | `gridline_array` mode + `GridlineItem.array_copies` (on-canvas ghost + `spacing_count` HUD) | same as P3 |
 | P5 | Closed-shape offset math | `tool_geometry.offset_polyline_pts` (open-chain miter; used for closed polylines too → seam bug) | `Model_Space._inset_polygon` (closed, wrap-around miter, winding-aware; used by room detection) | B already solves the closed case A gets wrong |
@@ -437,16 +475,18 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
 | DV4 | Paste: empty-clipboard TypeError; ribbon Paste TypeError; two-click paste vs the brief's ghost-then-one-click; no arc/gridline/block ghost; no text | §1.1-4 [probe] | crash + brief divergence |
 | DV5 | Duplicate: dead mode behind Ctrl+D + context menu; ribbon = +10/+10 instant | §1.1-6 [probe] | brief divergence |
 | DV6 | Legacy rotate: visual-CW sense for a Y-up CCW angle, arc start inconsistent, 5 types skipped, rect→polyline, absolute-heading angle | §3 [probe] | wrong result |
-| DV7 | Rotation-convention violations around arcs: mirror, trim, break, break-at-point, fillet, line×arc intersection, extend-to-arc all use Y-down `atan2` against Y-up `ArcItem` angles | §3 adjacent [probe] | wrong result |
+| DV7 | ~~Rotation-convention violations around arcs: mirror, trim, break, break-at-point, fillet, line×arc intersection, extend-to-arc all use Y-down `atan2` against Y-up `ArcItem` angles~~ **RESOLVED 2026-10-01 (P1 batch):** the 13 live sites (`scene_tools.py` break ×2 circle, break-at-point circle + arc, trim circle ×2 + arc ×2; `tool_geometry.py` fillet ×2, extend line-arc + polyline-arc; `geometry_intersect.line_arc_intersections`) use `arc_math.yup_angle`; the mirror arc branch was retired with `_apply_mirror` (D16) | §3 adjacent [probe]; guards `tests/test_arc_convention_tools.py` | — |
 | DV8 | Offset: no polygon/ellipse/spline; closed-polyline seam; circle radius pen-inflated (pinned by `test_scene_tools.py::test_circle_offset_*`, which assert the `boundingRect()/2` radius — a test enshrining the defect); ReferenceLine → Line; false "Tab" instruction | §3, §1.1-2 [probe] | wrong result |
 | DV9 | Array: dialog unreachable; polar stacks polygons/splines, mis-rotates rects/arcs, ignores `rotate_items`, CW sense, centre Y in raw scene coords | §3, §5.8 [probe] | wrong result |
-| DV10 | Mirror: entry clears the selection → never produces anything; arc reflect wrong; closed polylines open | §1.1-3, §3 [probe] | dead + wrong |
-| DV11 | Scale: no commit path | §1.1-2 | dead |
+| DV10 | ~~Mirror: entry clears the selection → never produces anything; arc reflect wrong; closed polylines open~~ **RESOLVED 2026-10-01 (P1 batch):** legacy `mirror` retired; Flip / Mirror rebuilt per D16 | §1.1-3, §3 [probe] | — |
+| DV11 | ~~Scale: no commit path~~ **RESOLVED 2026-10-01 (P1 batch):** legacy `scale` retired; Scale rebuilt per D17 | §1.1-2 | — |
 | DV12 | Move tool skips Text; Paste/Duplicate/Array drop Text | §1.1-4/5 [probe] | missing |
 | DV13 | `numericInputRequested` never emitted; `complete_numeric_input` dead | §1.1-2 | dead code |
 | DV14 | ReferenceLine subclass dispatch: new items are plain Lines; originals left in `_reference_lines` after break/join | §3.1 | wrong result |
 | DV15 | Align pushes undo before mutating | §1.1-7 | undo drift |
-| DV16 | All modify modes are enterable in the plan scene (none is in `_LOOSE_AUTHORING_MODES`). C1 forbids loose-geometry *authoring* there; modify tools on block instances / walls / pipes are a separate question | [probe: move/rotate/offset/trim/mirror/paste accepted with `scene_role="plan"`] | open question |
+| DV16 | All modify modes are enterable in the plan scene (none is in `_LOOSE_AUTHORING_MODES`). C1 forbids loose-geometry *authoring* there; modify tools on block instances / walls / pipes are a separate question | [probe: move/rotate/offset/trim/mirror/paste accepted with `scene_role="plan"`] | open question (milestone 2). *P1 batch: Shift+F / Shift+I / Shift+S also reach the plan scene; there they act only on the 2D primitives (pipes, nodes, walls, gridlines… are skipped / refused by capability, `nothing_to_hint`).* |
+| DV17 | *(introduced by the P1 batch, accepted)* Polar Array dims the variant-independent copyable set at `start("array")`, so items Polar skips (Nodes — a Sprinkler resolves to its Node — and copyable items without `manip_rotate`) stay dimmed during the gesture (restored on exit) | `start()` dims `_array_copyable(sel)` | cosmetic (D11) |
+| DV18 | *(introduced, accepted)* the big-array ghost is built per cursor move (~36 ms at 50 × 50) — the repaint bar is met (merged trace above `ARRAY_GHOST_FULL_MAX`), the per-move build is not under it | Slice 7 fix measurement | perf follow-up |
 
 ## Design Decisions (ratified — 2026-09-25 grill, FP4 orphan-gate + Phase 2)
 
@@ -479,6 +519,8 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   **Shift+O** Offset · **Shift+A** Array. Ctrl+C / Ctrl+X (new) / Ctrl+V /
   Ctrl+D (fixed → real Duplicate) stay as aliases. **Ctrl+M retired.** Align
   moves **Shift+A → Shift+L**. Tooltips show the Shift binding.
+  *P1 batch:* **Shift+F** Flip · **Shift+I** Mirror · **Shift+S** Scale join
+  the same window table (`main.py` `_TOOL_KEYS`).
 - **D3 Select-first.** Every tool except Offset requires a selection; with none
   → status "Select items first", no mode change. After commit → Select with the
   affected items selected (moved/rotated: the originals; paste/duplicate: the
@@ -486,6 +528,10 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
 - **D4 Copy / Cut.** Copy is modal: "Pick base point" (normal SNAP+ALIGN) →
   selection + base point to the clipboard → Select, selection intact; Esc =
   nothing copied. Cut = the same pick, then delete, **one undo step**.
+  *P1 batch (DD10):* right-click **Copy** in both context menus (the plan
+  view menu and the entity menu) starts this base-point pick
+  (`_modify_ctl.start("copy")`), and a **Cut** entry beside it starts Cut's
+  (`start("cut")`). Cut lights its **own** ribbon button during its pick (I1).
 - **D5 Paste.** Ghost's base point sits on the cursor immediately; cursor snaps
   normally; **one click commits one paste** → Select with the pasted items
   selected. HUD **dX · dY** relative to the copied base point. Esc cancels.
@@ -533,16 +579,71 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   Count** (Count = **total incl. the original**) → click/Enter commits
   **independent copies**, one undo → Select with the original selected. Not
   associative. `ArrayDialog` retired. Polar and rows×cols are follow-ups.
+  **Amended 2026-10-01 (P1 batch, built):** ←/→ at step 0 (before the
+  base / centre pick only) cycles **Linear → 2D → Polar** (badge reads ARRAY
+  for all three; the variant shows in the instruction). Every variant: select-
+  first, independent copies, one undo, back to Select with the original.
+  - **Linear** — HUD **Angle · Spacing · Count** (`array_linear`). A typed
+    Angle **locks the direction** (Y-up CCW+) for this and later Arrays on the
+    canvas; the cursor then sets spacing only (its projection onto the lock;
+    a projection ≤ 0 keeps the previous spacing — the direction never flips).
+    A typed **0 releases** the lock, as does any multiple of 360 (they parse
+    to 0), so Linear cannot be *locked* to 0° (cursor / ALIGN still reach
+    horizontal). A blank field keeps its value (the HUD never reports empty);
+    an Angle equal to the live aim is the untouched readout and does not
+    lock. The status readout shows an active lock.
+  - **2D** — the cursor is the first cell's diagonal corner (any quadrant —
+    spacings are signed); columns along Angle (the lock, else 0°), rows along
+    Angle + 90° CCW (Y-up). HUD **Angle · Col spacing · Cols · Row spacing ·
+    Rows** (`array_grid`; Cols / Rows are totals incl. the original).
+  - **Polar** — centre pick → the CCW cursor sweep sets **Total** from the
+    start ray (centre → the arrayed items' centre); a zero sweep = 360°. HUD
+    **Count · Total** (`array_polar`; Count incl. the original; at 360° the
+    copies fill evenly, otherwise the last lands at Total). Copies turn with
+    the pattern through `manip_rotate` (Rotate's loop). Nodes are excluded (a
+    zero-offset node paste dedupes onto its original); items without
+    `manip_rotate` are skipped with a count; a centre pick with nothing
+    rotatable is refused.
+  - **Targets** — only what `paste_items` can re-create
+    (`Model_Space._paste_accepts`): walls, rooms, floors, roofs and design
+    areas are refused up front ("Nothing to array …"), so ghost == commit and
+    the skipped count is honest. Linear / 2D array a Sprinkler through its
+    Node (as Move does).
+  - **Memory** — scene-side, per canvas tab, this session, never cleared by
+    leaving the tool (unlike Offset's sticky distance, which `clear()` drops):
+    `_array_variant`, `_array_angle_locked` and `_array_memory` — only
+    non-cursor fields are remembered (Linear Count; 2D Cols / Rows; **Polar
+    Count only** — Total is the cursor sweep, user decision 2026-10-01; a
+    typed Total commits as typed and is not remembered). First-use defaults:
+    `constants.ARRAY_DEFAULT_MEMORY`. `_array_count_default` is retired.
 - **D11 Ghost.** One style for Move, Duplicate, Paste, Rotate, Offset, Array
   (and the gridline offset/array ghosts): HALO preselection glow + a **1 px
   solid accent line tracing the true drawn geometry** (not `shape()`). Original
   is **dimmed to 35 %** during every transform mode (mockup gate B, 2026-09-25;
   HALO defaults 4 px / α128 / glow 8 px). No copy cap.
+  *Amended 2026-10-01 (P1 batch):* Flip, Mirror and Scale use the same ghost
+  (a reflection / scale `QTransform` over the cached base paths) and the same
+  35 % dim of the originals they act on. **Big arrays** (user decision): above
+  `constants.ARRAY_GHOST_FULL_MAX` ghost paths (copies × traced items) the
+  preview drops the HALO and paints one merged 1 px trace
+  (`transform_ghost.LiteGhostPath`); the **commit stays uncapped**.
+  **Ghost hand-off rule (`c8ff4f4`):** no mode inherits another mode's ghost —
+  `ModifyToolsController.clear()` drops `_move_ghost` / `_move_ghost_base` on
+  every mode change, and each tool builds its ghost after its own `set_mode`
+  (base click, `begin_paste`, `begin_move_from`, `start()`).
 - **D12 Icons.** 9 icons (Copy, Cut, Paste, Duplicate, Delete, Move, Rotate,
   Offset, Array) in the 40-unit 2D-geo family (`icon-style-guide.md` §5.1),
   27 px small buttons; grammar **ink = source, accent = result/motion**; reuse
   existing filenames + new `offset_icon.svg`; two-token + both-theme guards.
   Mockup approved 2026-09-25 as drawn (see Implementation design).
+  *Amended 2026-10-01 (P1 batch):* **12 icons** — + Scale, Flip
+  (`flip_icon.svg`, new), Mirror, approved at a live mockup gate (`aaea504`).
+  The user simplified Flip / Mirror at the gate: source triangle + accent copy
+  across a thin solid reference-line axis, no rings, no motion arrow (Flip
+  source dashed, Mirror source solid). Small-button size → `ribbon-bar.md`
+  §3.1; drawing rules → `icon-style-guide.md` §5.1 (Rule A — the "27 px"
+  above is not the live size). Guarded by `tests/test_icon_theming.py`
+  `_MODIFY_ICONS`. (The block **Explode** icon is `block-system.md`'s.)
 - **D13 Containment.** Paste refuses loose 2D geometry / text into a plan scene
   ("2D geometry can only be pasted in the Block Editor") and plan entities
   (walls, pipes, block instances…) into the Block Editor. No cross-scene 2D paste.
@@ -558,8 +659,98 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   Modify ▸ Explode + right-click, `Model_Space.explode_selected_blocks` → `block_explode.py` —
   is now reachable in the **Block Editor only** (containment C1); the geometry
   `SceneTools.explode_selected_items` (Polyline/Rect) stays unreachable and unchanged.)*
+  *(2026-10-01, P1 batch: **Scale** and **Mirror** — plus the new **Flip** —
+  are surfaced (D16, D17) and **DV7 is fixed** (13 sites). Still
+  unreachable: Trim, Extend, Break / Break-at-point, Fillet / Chamfer,
+  Stretch, Merge points, geometry Join / Explode — so their DV7 fixes are
+  guarded by tests only and cannot be smoke-tested in the UI. Polar and 2D
+  array are built (D10).)*
 - **D15 Dead plumbing.** `numericInputRequested` / `complete_numeric_input`
   deleted (the HUD replaces it).
+
+### P1 batch decisions (ratified 2026-10-01 grill + brainstorm; built `c8ff4f4`)
+
+Build contract and user-decision log:
+`docs/superpowers/specs/2026-10-01-scene-tools-p1-batch-design.md` (archival).
+Owned elsewhere (linked, not restated): origin snap + the shared snap
+eligibility rule → `snapping-engine.md`; per-item transform protocol →
+`selection-manipulator.md`, with the per-primitive `manip_reflect` /
+`manip_scale_about` rules in `2d-geometry.md` §1.2; closed (periodic)
+splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse grammar →
+`units-and-formatting.md`; the underlay record `"straight"` key →
+`underlay-workflow.md`; icon drawing rules → `icon-style-guide.md`.
+
+- **D16 Flip (Shift+F) / Mirror (Shift+I).** Flip reflects the selection in
+  place; Mirror adds reflected copies. Modify-group buttons (D1).
+  1. *Gate:* select-first (D3); with no selected item carrying
+     `manip_reflect` → status `nothing_to_hint` ("Nothing to flip — only 2D
+     drafting geometry can be flipped"), no mode change. One shared helper
+     for Flip, Mirror and Scale.
+  2. *Axis step* ("Pick mirror axis"): cursor SNAP and ALIGN are **off** —
+     no snap glyph (`snapping-engine.md` §3 forbids contextual snap-by-tool;
+     the picker is not a snap). Each move → `axis_picker.pick_axis(scene,
+     cursor, tol)`: the nearest **visible straight segment** within the snap
+     aperture at the **active** view's zoom (`_pick_tolerance()`, never
+     `views()[0]`). Axis sources: Line / RefLine, Polyline (incl. a closed
+     polyline's closing edge — the snap segment iterator omits it), Rect and
+     RegularPolygon edges (incl. the selection's own), gridlines, wall faces,
+     and underlay records that are straight by construction (DXF `line`
+     records; `path_points` records tagged `"straight": True`). **Never an
+     axis:** arcs, circles, ellipses, splines, bulged polyline spans,
+     flattened underlay curves, a legacy cached underlay record without the
+     tag (re-import restores LINE-derived ones only), a PDF record mixing
+     straight and curved segments (v1), block-instance edges,
+     floor / roof / room edges, pipes. No two-point fallback.
+  3. *Paint:* infinite accent dash-dot 1 px axis + HALO glow on the **single**
+     source segment + the reflected ghost (D11); the reflectable originals
+     dimmed. Every view repaints on an axis change (detail views share the
+     scene).
+  4. *Commit:* click or Enter with an axis. No axis → "Pick a straight edge
+     or reference line" (tool stays live); an axis whose source was removed
+     or hidden since the last aim is dropped, never committed across. Flip:
+     `manip_reflect` on the originals; Mirror: `to_dict` → `_add_from_dict`
+     → `manip_reflect` on the copies. One undo step (none if nothing was
+     reflected) → Select with the originals (Flip) / copies (Mirror)
+     selected; status "Flipped / Mirrored n item(s) (k skipped)", k counting
+     non-reflectable items and copies that failed to rebuild.
+  5. *Re-entry* (Shift+F again, Flip ↔ Mirror) keeps the hovered axis and
+     rebuilds its ghost. Esc / Undo cancel (`CANCEL_ON_UNDO_MODES`).
+  6. *Per primitive:* the reflection rules (type, closed flag, fill and style
+     kept; rect angle folded into [0°, 180°); arc start / span; degenerate
+     axis = no-op via `geometry_2d._degenerate_axis`, the one threshold the
+     picker and the axis paint share) are owned by `2d-geometry.md` §1.2.
+  7. *Skipped by capability:* Text, block instances (a persisted mirror flag
+     is a follow-up), Nodes / Sprinklers, pipes, walls, gridlines — anything
+     without `manip_reflect`.
+- **D17 Scale (Shift+S).** Uniform, in place, about a picked base.
+  1. *Gate:* as D16 with `manip_scale_about` ("Nothing to scale — …").
+  2. *Steps:* base (SNAP + ALIGN on) → reference point (= 1×; refused with
+     "Reference point must differ from the base point" within the pick
+     tolerance of the base, so the factor is never ill-conditioned) → the
+     cursor sets factor = |cursor − base| / |ref − base| (ghost + status
+     "Factor: …") → **click** commits (no Enter-at-cursor commit, like
+     Rotate).
+  3. *HUD* after the base: `scale_factor` — one Factor field
+     (`FieldKind.FACTOR`, unitless, > 0; formatter / parser are
+     `ScaleManager.format_factor` / `parse_factor`); typed + Enter commits;
+     ≤ 0 or non-finite → refused (`reject_commit`, HUD stays).
+  4. *Commit:* `manip_scale_about(base, f)` per item (per-primitive rules,
+     incl. "lineweights never scale", owned by `2d-geometry.md` §1.2). One
+     undo → Select with the originals; "(k skipped)". **Factor 1** is a
+     no-op: the tool ends, no undo step, status "Scale factor is 1 —
+     nothing changed".
+  5. *Accepted limitation:* the per-primitive radius floors
+     (`2d-geometry.md` §1.2) make a very small factor non-uniform for
+     Circle / Arc / Ellipse; the tool does not refuse it (follow-up filed).
+  6. *Skipped by capability:* as D16 (Text, block instances, Nodes, …).
+- **D18 Mode badge.** The footer badge shows the friendly tool name for every
+  mode a user can enter (`main.py` `_MODE_LABELS`): the dispatch-table modes,
+  literal `set_mode` callers (incl. `dimension`), `offset_side` → Offset,
+  both radiation modes → **Radiation** (user decision 2026-10-01 — never an
+  internal step name); a live Cut `copy_base` reads **Cut**
+  (`ModifyToolsController.button_key`). An unlabelled mode falls back to
+  title-case; the guard enumerates the dispatch tables plus a hand-listed set
+  of literal modes (ribbon-registry keys are not enumerated — follow-up).
 
 ## Acceptance Criteria (ratified 2026-09-25)
 
@@ -609,7 +800,14 @@ gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
   resolves the scene through `scene_getter()` (= `MainWindow._active_scene`).
   Modal buttons (Copy, Paste, Duplicate, Move, Rotate, Offset, Array) register in
   `_block_mode_buttons` on the Block Editor page so `_sync_mode_buttons`
-  checks/clears them; Cut and Delete are plain buttons. Enable-state refreshes on
+  checks/clears them; Cut and Delete are plain buttons *(amended P1 batch,
+  DD10: **Cut is modal too** — it shares Copy's `copy_base` mode, so its
+  button registers under the pseudo-mode key
+  `ModifyToolsController.CUT_BUTTON_KEY` (`"copy_base:cut"`) and
+  `button_key(mode, scene)` resolves `copy_base` with `_copy_is_cut` to it:
+  Cut lights during its pick, Copy does not, un-toggle cancels. Only Delete
+  is plain. The plan contextual Edit group, built without a registry, keeps
+  Copy / Cut plain)*. Enable-state refreshes on
   the editor scene's `selectionChanged` and on clipboard change.
 - **Window shortcuts** — one table `{key: tool}` in `main.py` registered as
   window `QShortcut`s (D2). The handler **refuses** when the focus widget is a
@@ -655,6 +853,9 @@ generic `set_mode(None)` → `clear()` (drop ghost, restore opacity).
 | Rotate | `rotate`: step 0 pivot → 1 start ray → 2 sweep | new `rotate_by` schema: one ANGLE field, **relative CCW+**, anchored on the pivot, seed 0 | `manip_rotate(Δ, pivot)` per item |
 | Offset | `offset` (pick; skipped with one offsettable selected) → `offset_side` (cursor side + distance; ghost = the candidate item) | `distance` (magnitude; side from the cursor) | `offset_item`; `None` ⇒ "Offset too large"; re-arm `offset` with the sticky distance |
 | Array | `array`: step 0 base → 1 cursor sets direction + spacing; ghost = N−1 copies | new `array_linear` schema: Spacing + Count (**total**, min 2) | N−1 copies at k·spacing |
+| Array variants (P1 batch, D10 amended) | `array`; ←/→ at step 0 sets `_array_variant`; Linear / 2D: base → aim; Polar: centre → sweep | `array_linear` (Angle · Spacing · Count), `array_grid`, `array_polar` — `ARRAY_SCHEMA_FOR_VARIANT` | one transform formula for ghost and commit (`_array_transforms`): Linear k·sp·û; 2D c·colSp·û + r·rowSp·v̂, (r, c) ≠ (0, 0); Polar `manip_rotate` k·step about the centre |
+| Flip / Mirror (P1 batch, D16) | `flip` / `mirror`: one axis step (hover → `pick_axis`) | none | `commit_reflect` |
+| Scale (P1 batch, D17) | `scale`: base → reference → cursor | `scale_factor` (Factor) after the base | `commit_scale` |
 
 The gridline `spacing_count` schema is untouched (its Count = copies, not total).
 
@@ -665,6 +866,11 @@ The gridline `spacing_count` schema is untouched (its Count = copies, not total)
 key branch. **Fixed en route:** DV3 missing imports in `scene_tools.py`; paste
 ghost type keys (moot — ghost built from real temporary items); rotated-rect
 double-rotated ghost (moot — `halo_scene_path`).
+**Retired by the P1 batch (2026-10-01):** `SceneTools._apply_mirror`,
+`_apply_scale`, the legacy two-click `mirror` / dead `scale` mode handling,
+`confirmRequested("mirror_delete")`, `_array_count_default`. (The generic
+Yes/No `else` arm of `MainWindow._on_confirm_requested` now has no emitter —
+left in place as infrastructure, see §7.)
 
 ### I3 Error handling
 
@@ -716,6 +922,7 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - **Smoke 2026-09-29 — change requests:** D9 for **open polylines and splines** — first grilled as a copy translated along the end-point chord normal (built, then rejected at smoke the same day as the wrong fork); re-pinned by the user as the **per-vertex miter** (splines: on the control polygon, closed / zero-chord: wrapped) with the pre-existing nearest-segment cursor measure — **BUILT** (see D9 above). D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→ — still as-proposed, pending its own P1 task + grill; D10 above stays the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
 - **Nested blocks (2026-09-30, `feat/nested-blocks`):** the Block Editor Modify group gains a non-modal **Explode** small button (enabled only while a block instance is selected) that explodes block instances — contract in `block-system.md` "Nested blocks"; the D13 allow-list admits `block_instance` records in the editor. Neither touches the §1/§2 tool rows (the geometry Join/Explode methods stay unreachable).
 - **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
+- **P1 batch (2026-10-01, `feat/scene-tools-p1-batch`, verified `c8ff4f4`):** D10 → array variants; D16 Flip / Mirror; D17 Scale; D18 badge; D4 context menus; I1 Cut modal; D11 big-array ghost + ghost hand-off rule; D12 12 icons; DV7 fixed. The transform tools' own picks (Flip / Mirror axis, Scale "reference = base") share one radius, `ModifyToolsController._pick_tolerance()` (snap aperture at the active view's zoom; was `_axis_tolerance`). Modify group order: Move · Rotate · Scale · Flip · Mirror · Offset · Array (+ Explode in the Block Editor).
 
 ## Verification Checklist
 
@@ -736,15 +943,23 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 
 - `firepro3d/modify_tools_controller.py` — `ModifyToolsController`
   (`scene._modify_ctl`, owns no state): Copy/Cut/Paste/Duplicate/Move/Rotate/
-  Offset/linear Array press/move/preview/commit + `start` / `clear` (D1–D11).
+  Offset/Array (Linear / 2D / Polar)/Flip/Mirror/Scale press/move/preview/
+  commit + `start` / `clear` / `nothing_to_hint` / `button_key` (D1–D18).
+- `firepro3d/axis_picker.py` — `pick_axis` → `AxisPick` (D16; pure, no
+  scene state; reusable for Trim / Extend edge picks).
   `start` also refuses every Edit/Modify entry while the canvas shows no view
   (owned by `view-3d.md` I5 — Rule A).
 - `firepro3d/transform_ghost.py` — ghost base paths (`ghost_base_paths`),
-  `paint_ghost`, dim/restore of the originals (D11).
+  `paint_ghost`, dim/restore of the originals (D11); `reflect_transform`,
+  `scale_transform`, `paint_axis`, `LiteGhostPath` (D16 / D17 / D10).
 - `firepro3d/scene_tools.py` — `SceneTools` (composed `scene._tools`):
-  `_apply_scale/_mirror`, join/explode, break, fillet/chamfer commits,
+  join/explode, break, fillet/chamfer commits,
   stretch, trim/extend/merge/constraint click handlers, align, pick helpers,
-  `_PadlockItem`. (Array and Rotate moved to `ModifyToolsController`.)
+  `_PadlockItem`. (Array, Rotate, Flip / Mirror and Scale live in
+  `ModifyToolsController`; `_apply_scale` / `_apply_mirror` are retired.)
+- `firepro3d/geometry_intersect.py` — `line_arc_intersections` (Trim's arc
+  path; reads arc angles Y-up — DV7). Item-agnostic math, governed by
+  `2d-geometry.md`.
 - `firepro3d/tool_geometry.py` — pure math: `extract_edges`, offset
   (`offset_polyline_pts`, `offset_signed_dist`, `inset_polygon`,
   `distance_to_item`, `offset_side_sign`, `offset_item` — D9),
@@ -760,7 +975,11 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - `main.py` — `_build_contextual_edit_group`, `_build_geo2d_context`,
   `_init_block_editor_tab` (the permanent Block Editor tab, built once — replaced
   `_build_block_editor_context` 2026-09-30) + `_set_block_editor_context`,
-  window `QShortcut`s (Ctrl+C/V/D, Shift+A).
+  window `QShortcut`s (`_TOOL_KEYS`: Shift+C/X/V/D/M/R/O/A/F/I/S + Ctrl+C/X/V/D;
+  Shift+L Align), `build_edit_group` / `build_modify_group`, `_MODE_LABELS`
+  (D18).
+- `firepro3d/entity_context_menu.py` + `model_view.py` plan menu — Copy / Cut
+  entries start the base-point pick (D4).
 - `firepro3d/dynamic_input.py` — HUD schemas.
 - `firepro3d/geometry_2d.py`, `firepro3d/text_item.py` — per-item protocol.
 
@@ -771,8 +990,16 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - Trim with no intersection → status "No intersection found"; circle with <2
   intersections → status; arc trim point outside the span → status.
 - Extend from an interior polyline vertex → status.
-- Mirror asks "Delete original objects?" via `confirmRequested` *after*
-  already pushing the copy's undo step.
+- ~~Mirror asks "Delete original objects?" via `confirmRequested` *after*
+  already pushing the copy's undo step.~~ *(Retired with the legacy mirror —
+  D16 has no confirm: Flip and Mirror are separate tools.)*
+- *(P1 batch, known — follow-up filed)* Delete mid-pick leaves Move / Rotate /
+  Flip / Mirror armed with the deleted items' ghost; Enter then reports
+  "Flipped 0 item(s)" with no undo step.
+- *(P1 batch)* Break can create a zero-span arc (click on an arc endpoint, or
+  coincident circle break points) and Trim on an arc uses the first
+  intersection rather than the one nearest the click — both pre-existing,
+  filed; Break / Trim stay unreachable (D14).
 
 ## 7. Spec contradictions / ambiguities noticed (VC10 — not fixed here)
 
@@ -795,6 +1022,17 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - `main.py` `_MODE_INSTRUCTIONS` and `Model_Space.set_mode` `_initial_steps`
   carry duplicate, diverging instruction strings for the same modes (e.g.
   offset "Tab for exact distance", which is false today).
+- *(P1 batch account, 2026-10-01)* `MainWindow._on_confirm_requested`'s
+  generic Yes/No `else` arm lost its last emitter with `mirror_delete`
+  (the remaining `confirmRequested` emitters are the pipe-network
+  `elev_mismatch_*` prompts, handled by the `if` arm) — prune or keep as
+  infrastructure; not decided.
+- *(Resolved at the P1 batch account, 2026-10-01: `align-placement.md` §5.2 /
+  §5.4 reconciled with `dynamic_input.SCHEMAS`.)*
+- *(P1 batch account)* Offset's sticky distance is per tool run (`clear()`
+  drops it) while Array memory is per canvas tab for the session — the batch
+  contract's "scope = same as Offset" was inaccurate; D10 records the as-built
+  scope.
 
 ## 8. Open questions for grill
 
@@ -826,7 +1064,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
    polar (orientation of parametric primitives too)? Associative or one-shot?
 8. **Angle-convention fix scope.** DV7 affects arc handling in trim, break,
    fillet, mirror, extend and `geometry_intersect`. Fix all in this milestone
-   (one helper), or only for the tools being surfaced?
+   (one helper), or only for the tools being surfaced? *(Answered: all fixed
+   in the P1 batch, DV7.)*
 9. **Trim** in or out of this milestone; if in, multi-edge and polyline/rect
    targets?
 10. **Text** in scope for the Move tool / Copy-Paste / Duplicate / Array /

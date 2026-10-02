@@ -1,13 +1,14 @@
 ---
 status: partial
-last-verified: 2026-09-30  # nested-blocks account: `rotation` schema no longer serves place_block; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-26
-verified-commit: 345f1b7   # feat/nested-blocks (account); prior d34aeb0 batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+last-verified: 2026-10-01  # scene-tools P1 Account: FieldKind.FACTOR + scale_factor, array_linear Angle + array_grid/array_polar, per-mode transform seeds, source-less ALIGN identity, origin priority -1, Flip/Mirror raw-cursor exception; prior 2026-09-30 nested-blocks account: `rotation` schema no longer serves place_block; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-26
+verified-commit: c8ff4f4   # feat/scene-tools-p1-batch (account); prior 345f1b7   # feat/nested-blocks (account); prior d34aeb0 batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
   - firepro3d/snap_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
+  - firepro3d/placement_input_coordinator.py   # active_schema (array variant), get_placement_anchor, _transform_seed_values (§5.2–§5.3)
   - firepro3d/pipe_network_controller.py
   - firepro3d/model_view.py
   - firepro3d/settings/panes.py
@@ -154,7 +155,19 @@ point-asking command.
 **Trackable = any SNAP candidate.** Whatever the SnapEngine grabs under the cursor is
 acquirable — endpoint/midpoint/center/quadrant/intersection/node (→ point-acquire),
 or nearest/perpendicular on a line-like body (→ direction-acquire). The two
-snap-type sets are `_POINT_SNAPS` / `_DIRECTION_SNAPS` in `align_controller.py`.
+snap-type sets are `_POINT_SNAPS` / `_DIRECTION_SNAPS` in `align_controller.py`;
+any type outside `_DIRECTION_SNAPS` acquires as a point — including the `origin`
+kind (`snapping-engine.md §4.1`, 2026-10-01), whose H/V axes then track.
+
+**Source identity (`Model_Space._align_snap_dict`).** `source_id` is
+`id(source_item)` when the snap carries one. A **source-less** snap — in practice
+only an `origin` with no coincident geometry — keys on
+`hash((snap_type, round(x, 3), round(y, 3)))` (the point to 1 µm), so the Block
+Editor's (0,0) cross and its pinned insertion marker are **distinct** acquisitions
+(dwelling on one never releases the other). An origin that adopted a coincident
+item's source (snapping-engine §4.1) keys on that item and carries its direction,
+so Extension / Parallel / anchor-perpendicular rays keep working for geometry drawn
+from (0,0).
 
 ### 2.2 Two acquire flavors (decided by the dwell's snap type — no modifier, no mode)
 
@@ -227,6 +240,11 @@ when only ALIGN is live). The seam then routes the winner — an ALIGN type to
 Exception: in the Move tool's destination step (base point set) the seam returns the
 raw cursor with no `find()` — move snapping is handles only, so ALIGN does not apply
 there (owned by `selection-manipulator.md` "Move — handle snap").
+Exception (2026-10-01): in **Flip / Mirror** (`mode in ("flip", "mirror")`) the seam
+also returns the raw cursor with no `find()` and clears `_snap_result` /
+`_align_result` — the axis step picks an existing straight segment through
+`axis_picker.pick_axis`, which is not a snap (flow owned by `scene-tools.md`). Both
+modes are outside `_ALIGN_PLACEMENT_MODES`; `scale` and `array` are inside it.
 
 ### 3.1 Candidate families & priority
 
@@ -239,8 +257,8 @@ same `_SnapCtx` picker that ranks real snaps:
 | path × geometry crossing | `Ray` × nearby scene/underlay segments (`path_x_segment`) | `align_intersection` = 20 |
 | single-path projection | cursor foot on a `Ray` (`project_to_ray`) | `align_path` = 30 |
 
-Real SNAP candidates keep priorities **0–7** (lower is stronger; owned by
-`snap_engine.py` `SNAP_PRIORITY`). Final ranking: **real SNAP > align_intersection
+Real SNAP candidates keep their `SNAP_PRIORITY` values (all below 20; lower is
+stronger — values owned by `snapping-engine.md §6.1`). Final ranking: **real SNAP > align_intersection
 > align_path > free**, with one exception — the **weak-foot rule**:
 
 - **Weak types** are the cursor-foot snaps — `nearest` only. (`perpendicular` exists
@@ -364,17 +382,28 @@ asserted. A **transform** schema resolves to a plain dict handled by its own app
 | `circle` | Radius | `QPointF` | `draw_circle` |
 | `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 (Center / Start variants) |
 | `arc_radius` | Radius | `{"radius": float}` | `draw_arc` step 3, End Points variant (centre on the chord bisector; radius < ½ chord refused by the applier) |
+| `polygon` | Radius | `QPointF` (resolve/seed shared with `circle`) | `polygon` (sizing step) |
 | `rotation` | Angle | `{"angle_deg": float}` | `polygon` (rotate step) — no longer `place_block`, whose rotate step was retired 2026-09-30 (one click at 0°, no HUD — `block-system.md` Decision 8) |
-| `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
+| `displacement` | dX, dY | `{"offset": QPointF}` | `move`, `paste`, `duplicate` |
+| `rotate_by` | Angle (relative sweep, CCW+) | `{"delta_deg": float}` | `rotate` (Modify tool) |
+| `scale_factor` | Factor (**FACTOR**, strictly > 0) | `{"factor": float}` | `scale` (Modify tool, scene-tools P1 DD4) — anchored on the base point |
 | `distance` | Distance | `{"distance": float}` | `gridline_offset` |
+| `offset_distance` | Distance (0 releases a typed lock; negatives refused by the applier) | `{"distance": float}` | `offset_side` (Offset tool) |
 | `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |
+| `array_linear` | Angle, Spacing, Count (TOTAL incl. the original, ≥ 2) | `{"angle", "spacing", "count"}` | `array`, Linear variant — a typed Angle (Y-up CCW+) locks the direction; 0 releases it |
+| `array_grid` | Angle, ColSpacing, Cols, RowSpacing, Rows (spacings signed; Cols/Rows TOTALS) | `{"angle", "col_spacing", "cols", "row_spacing", "rows"}` | `array`, 2D variant — columns along Angle, rows along Angle + 90° |
+| `array_polar` | Count (TOTAL), Total (**SPAN**, CCW fill; > 360° refused by the applier) | `{"count", "total_deg"}` | `array`, Polar variant — anchored on the centre |
+| `manip_move` / `manip_resize` | dX, dY / Width, Height | `{"offset": QPointF}` / `{"width", "height"}` | selection-manipulator move / resize gestures (`selection-manipulator.md`) |
 | **`track`** | **Distance** (signed) | **`QPointF`** | **ALIGN on-path (§5.7)** |
 
 Angles are **Y-up** (0° = right, 90° = up; scene Y is down). The corner-variant
 rect depth H is **signed**. `arc`/`rectangle`/`wall`/`floor`/`polygon` are
 **step-aware**: `active_schema()` returns a
 different schema per placement step and the existing `_sync_dynamic_input` rebuild
-swaps the HUD's field set. `arc_span` uses `FieldKind.SPAN` (unsigned 0–360°,
+swaps the HUD's field set. `array` is **variant-aware** the same way: it has no
+`_SCHEMA_FOR_MODE` row, and `active_schema()` returns `array_linear` / `array_grid` /
+`array_polar` for the ←/→ variant (`ModifyToolsController.ARRAY_SCHEMA_FOR_VARIANT`;
+the variant cycles only before the base / centre pick). `arc_span` uses `FieldKind.SPAN` (unsigned 0–360°,
 non-normalising) so a reflex sweep reads 270°; its Arc-length field is a derived view
 coupled through the seeded radius (`set_coupling_radius`, in mm). The `rotation` angle
 is Y-up (CCW+) and negated at Qt's `setRotation` (CW+ on the Y-down scene). The
@@ -391,7 +420,9 @@ normal — so their resolvers stay pure `(anchor, values)` functions.
 
 **Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`) decides
 whether the HUD may open without a placement anchor. Every placement requires one;
-`move` also requires one (its base point). The gridline transforms (`distance`,
+the Modify transforms do too — `move` / `paste` / `duplicate` (base point), `rotate`
+(pivot), `scale` (base point) and `array` (base point; Polar: centre) — so their HUD
+stays shut until it is picked (`get_placement_anchor` returns it). The gridline transforms (`distance`,
 `spacing_count`) are genuinely anchorless.
 
 ### 5.3 Seeding invariant (WYSIWYG)
@@ -402,9 +433,21 @@ numbers shown are the ones the user is looking at. `Model_Space.publish_placemen
 is the single source for both the passive readout and the engage-time seed. (Never
 truthiness-test the `QPointF`: `QPointF(0,0)` is a legitimate SNAP result.)
 
+**Transform schemas seed per mode.** A transform has no cursor-derived inverse, so
+each transform schema needs its **own branch** in
+`PlacementInputCoordinator._transform_seed_values`, reading the same live value its
+ghost and status readout show; a schema without a branch silently seeds the editors'
+defaults (a dead readout). As of 2026-10-01: `displacement` (live dX/dY), `rotation`,
+`rotate_by` (live relative sweep), `scale_factor` (live factor — 1.0 until the
+reference point is picked), `arc_radius`, `arc_span`, the three `array_*` schemas
+(live aim + remembered counts, one home: `ModifyToolsController.array_seed_values`)
+and `offset_distance`; the array and offset branches must precede the gridline
+replicate fallback, which reads gridline state.
+
 ### 5.4 Unit handling
 
-Each field is a `DimensionEdit` (three `FieldKind` configurations of the one widget).
+Each field is a `DimensionEdit` — the `FieldKind` enum (`dynamic_input.py`, the one
+home; not counted here) selects one configuration of the one widget per kind.
 Schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
 
 - **DIMENSION** fields convert at the HUD boundary (`set_values`/`values`), **guarded
@@ -413,7 +456,15 @@ Schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
 - **ANGLE** fields are dimensionless — angle convention owned by
   [units-and-formatting.md](units-and-formatting.md) (`ScaleManager.normalize_angle`/
   `format_angle`/`parse_angle`), not restated here.
-- **COUNT** fields are bare integers (rounded, floored at 1).
+- **SPAN** fields are an unsigned 0–360° sweep (non-normalising) — `arc_span`, the
+  Polar array Total.
+- **COUNT** fields are bare integers (rounded, floored at 1). Their format/parse is
+  still local to `dynamic_input.py` — a recorded divergence
+  ([units-and-formatting.md §8](units-and-formatting.md)).
+- **FACTOR** fields (scene-tools P1, 2026-10-01 — the Scale tool's `scale_factor`)
+  are a unitless decimal ratio, never rounded; format/parse are
+  `ScaleManager.format_factor` / `parse_factor` (thin `dynamic_input` shells) — the
+  convention is owned by [units-and-formatting.md §3](units-and-formatting.md).
 
 ### 5.5 Interaction with SNAP / ALIGN
 

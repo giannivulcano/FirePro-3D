@@ -1,9 +1,10 @@
 ---
 status: current          # code-verified as-built conventions; divergences ledger at end
-last-verified: 2026-09-24
-verified-commit: 762d083
+last-verified: 2026-10-01  # scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
+verified-commit: c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
 applies-to:
   - firepro3d/scale_manager.py
+  - firepro3d/dynamic_input.py    # FieldKind formatter/parser shells (FACTOR → ScaleManager; COUNT still local — §8 D5)
   - firepro3d/dimension_edit.py   # widget contract owned by property-panel.md §3.8; unit rules owned here
 source-tasks: "Design-Area Criteria System wrap-up (2026-07-14) — user-requested consistency guide after mixed ft²/sq ft surfaced in smoke test"
 ---
@@ -41,6 +42,7 @@ Values are converted **at display time only**. Never store a display string as t
 | Flow | `750 gpm` | gpm (no metric variant yet) | inline `:.0f` + "gpm" |
 | Text size (annotations) | Word-style **pt** display | pt | storage stays mm cap-height (paper-space.md §9; user_word_like_text_ux) |
 | Angle | decimal degrees (unit-invariant) | decimal degrees (unit-invariant) | `ScaleManager.format_angle` / `parse_angle` — conventions in §4 |
+| Factor (unitless ratio — the Scale tool's factor, added 2026-10-01) | bare decimal, no unit glyph (unit-invariant): `2`, `0.5`, `0.3333`, `0.00002`, `12345.6` | same | `ScaleManager.format_factor` / `parse_factor` (`@staticmethod`s; `dynamic_input._format_factor`/`_parse_factor` are delegating shells for `FieldKind.FACTOR`). **Display:** values ≥ 1 keep up to 4 decimals, values < 1 keep 4 *significant* digits (a tiny positive factor never collapses to `0`); never scientific notation; trailing zeros trimmed, rounded half-up; non-finite (`NaN`/`±inf`) displays `1` (the identity — it reaches paint paths). **Input:** the §3.1 number grammar (`_NUM`), **unsigned** (a sign is refused), optional trailing `x` / `X` / `×` (`2x`); `1e3`, `1_000`, `nan`, `inf` refused → `None` (revert). Positivity (> 0) is the field `minimum` / applier's job, not the parser's. The one precision for every factor display (HUD field, live status, commit message). |
 
 **Spelling conventions (imperial):** `sq ft`, `cu ft`, `gpm/ft²`, `psi`, `gpm`, `gal`. **Not** `ft²`/`sqft`/`SF` in UI text. (`gpm/ft²` keeps the `ft²` glyph inside the compound unit only.)
 
@@ -57,7 +59,7 @@ The way a *number* may be written is one fact, and both `parse_dimension` and `p
 | `1e3` | ❌ | far more likely a typo than an intended 1000 |
 | `1,5` | ❌ | decimal comma is ambiguous against a thousands separator |
 
-Rejections route to `DimensionEdit`'s revert-to-last-valid, never to a wild value. Implementation: the shared `_NUM` sub-pattern in `scale_manager.py`; the unit suffixes wrapped around it are each parser's own business.
+Rejections route to `DimensionEdit`'s revert-to-last-valid, never to a wild value. Implementation: the shared `_NUM` sub-pattern in `scale_manager.py` (used by `parse_dimension` and, unsigned, by `parse_factor`); the unit suffixes and sign rules wrapped around it are each parser's own business. Two parsers still re-spell the grammar instead of reusing `_NUM` — see §8 D5 (COUNT) and D6 (angle/span).
 
 ## 4. Angles
 
@@ -127,7 +129,7 @@ There are **two** angle-normalization ranges in the codebase, and they are delib
 
 ## 7. Rules for new code
 
-1. New quantity → new `ScaleManager.format_<quantity>()` method + None-safe module wrapper if callers can be scene-less. Never a local helper in an entity/dialog module. **Exception:** a *unit-invariant* quantity needs no wrapper — make its helpers `@staticmethod`s, which are inherently scene-less, and there is nothing for a wrapper to guard against (see angles, §4).
+1. New quantity → new `ScaleManager.format_<quantity>()` method + None-safe module wrapper if callers can be scene-less. Never a local helper in an entity/dialog module. **Exception:** a *unit-invariant* quantity needs no wrapper — make its helpers `@staticmethod`s, which are inherently scene-less, and there is nothing for a wrapper to guard against (see angles, §4, and the unitless factor, `format_factor` / `parse_factor`, §3). A widget layer that needs a module-level formatter/parser pair (e.g. `dynamic_input`) keeps only thin delegating shells (precedent: `_format_span` / `_format_factor`).
 2. New editable dimension → `DimensionEdit`. New editable NFPA field → convert at the `set_property` boundary, store native.
 3. Copy the spelling table verbatim; when in doubt, match the Room properties panel.
 4. Tests asserting display strings should construct a real `ScaleManager` (not a MagicMock) and set `display_unit` explicitly.
@@ -140,3 +142,5 @@ There are **two** angle-normalization ranges in the codebase, and they are delib
 | D2 | Pressure/flow have no ScaleManager formatter (inline f-strings in report/badge/solver messages). | Acceptable while psi/gpm are the only display units; promote when metric pressure/flow is requested. |
 | D3 | `hydraulic_solver`/`equivalent_length` internals mix ft/psi/gpm computation constants — out of scope here (they compute, not display). | By design. |
 | D4 | `design_area.py` imports the private `_SQFT_TO_M2` from scale_manager for its set_property back-conversion. | Cosmetic; expose a public constant or a `parse_area_to_sqft` helper on next touch. |
+| D5 | COUNT (`FieldKind.COUNT` — array / gridline counts) is still formatted and parsed by local helpers `dynamic_input._format_count` / `_parse_count`, not `ScaleManager`. `_parse_count` uses bare `float()`, so it accepts `1e3` / `1_000` against §3.1, and typing `inf` raises `OverflowError` inside `editingFinished`. (Recorded 2026-10-01; `FACTOR` was moved onto `ScaleManager` in the same batch, COUNT was not — the move is not mechanical.) | Bug filed (todo `_parse_count accepts 1e3/1_000 …`): move COUNT format/parse onto `ScaleManager` static methods on the `_NUM` grammar, then add its §3 row. |
+| D6 | `ScaleManager._ANGLE_RE` (behind `parse_angle` / `parse_span`) re-spells the number grammar inline instead of reusing `_NUM`, and additionally accepts a leading `+`. Same accepted forms otherwise. (Recorded 2026-10-01.) | Fold onto `_NUM` with the COUNT move (D5, same filed task). |

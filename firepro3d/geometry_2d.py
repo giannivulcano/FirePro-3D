@@ -1691,8 +1691,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         super().__init__()
         self._center = QPointF(center)
         self._radius = max(radius, 0.01)
-        # Store every arc in CCW form (span > 0): a negative (CW) span — the
-        # mirror tool, legacy saves — is the same geometric arc starting at
+        # Store every arc in CCW form (span > 0): a negative (CW) span — e.g.
+        # legacy saves — is the same geometric arc starting at
         # start + span. The grip refits assume CCW start→end.
         from .arc_math import _norm360
         if span_deg < 0:

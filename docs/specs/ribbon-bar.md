@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-30  # permanent Block Editor base tab (6 base tabs; Architecture Block group removed; editor-only context state); prior 2026-09-30 chrome polish (tokenized metrics, 2-line button caption box, QSS-owned wrapping group label, tab separators); prior 2026-09-28
-verified-commit: 44325e5   # permanent Block Editor tab (feat/block-editor-ribbon-tab); prior 416584c chrome polish (feat/chrome-polish); prior d34aeb0 batch A dead-code sweep; prior d9d6f20   # Block Editor Edit/Modify groups pointer; prior af36ed6
+last-verified: 2026-10-01  # scene-tools P1 Account: §3.5 registry key = ModifyToolsController.button_key (Cut's CUT_BUTTON_KEY); button roster/shortcuts stay in scene-tools.md; prior 2026-09-30  # permanent Block Editor base tab (6 base tabs; Architecture Block group removed; editor-only context state); prior 2026-09-30 chrome polish (tokenized metrics, 2-line button caption box, QSS-owned wrapping group label, tab separators); prior 2026-09-28
+verified-commit: c8ff4f4   # feat/scene-tools-p1-batch; prior 44325e5   # permanent Block Editor tab (feat/block-editor-ribbon-tab); prior 416584c chrome polish (feat/chrome-polish); prior d34aeb0 batch A dead-code sweep; prior d9d6f20   # Block Editor Edit/Modify groups pointer; prior af36ed6
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -103,6 +103,8 @@ The **Create tab was dissolved** (D10 resolved — containment contract C7, 2026
 ### 3.5 Mode-button protocol
 
 Checkable tool buttons that enter a scene mode register in `self._mode_buttons[mode_name] = btn`; clicking calls `scene.set_mode(mode_name)`. The reverse edge is `scene.modeChanged → _sync_mode_buttons(mode)`: every registered button gets `blockSignals(True); setChecked(...)` — deduped by `id(btn)` because split buttons may register under multiple mode names. New mode buttons must join this dict or they'll stay stuck checked.
+
+**Registry key ≠ mode for Cut (2026-10-01, scene-tools P1 DD10).** `_sync_mode_buttons` looks buttons up by `ModifyToolsController.button_key(mode, scene)`, which is the mode itself except when two tools share one mode: Cut and Copy both run `copy_base`, so Cut's (now modal, checkable) button registers under `ModifyToolsController.CUT_BUTTON_KEY` and lights when the *emitting* scene's `_copy_is_cut` is set (`MainWindow._mode_signal_scene` — the signal sender, else the active scene). A modal Edit/Modify button registers under every key of `ModifyToolsController.tool_modes(tool)`. The same key feeds the footer mode badge's friendly name (`MainWindow._MODE_LABELS`). Which Edit/Modify buttons exist, their order and shortcuts stay owned by `scene-tools.md` (D1/D2).
 
 **Two registries (#217, 2026-09-16):** the Block Editor page registers its draw-mode buttons in a **separate** `self._block_mode_buttons`, NOT the main `_mode_buttons` — sharing one dict under the same mode keys (`draw_rectangle`/…) evicted the Create-tab buttons, so after the editor page was torn down `_sync_mode_buttons` could never un-check them (they stuck lit). `_sync_mode_buttons` syncs **both** registries: the active mode's button stays checked; every other button in both clears. *As-built 2026-09-30:* the page is permanent, so `_block_mode_buttons` is created once in `init_ribbon` (no longer rebuilt per page build), and its buttons count as checkable-live only while a Block Editor tab is current (`_block_ribbon_active`) — otherwise a plan mode sharing a key (`move`, …) leaves the disabled editor button unchecked.
 

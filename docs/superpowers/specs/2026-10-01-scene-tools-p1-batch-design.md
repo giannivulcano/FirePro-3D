@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed + approved 2026-10-01, unbuilt
+status: built             # designed + approved 2026-10-01; BUILT 2026-10-01 on feat/scene-tools-p1-batch (7766316..c8ff4f4); folded into the governing specs at Account — this file is archival (see "As-built / execution amendments")
 last-verified: 2026-10-01
-verified-commit: 7766316
+verified-commit: c8ff4f4   # account; prior 7766316 (design)
 applies-to:
   - firepro3d/modify_tools_controller.py
   - firepro3d/geometry_2d.py
@@ -13,6 +13,11 @@ applies-to:
   - firepro3d/handle_snap.py
   - firepro3d/geometry_drawing_controller.py
   - firepro3d/geometry_import.py
+  - firepro3d/dwg_converter.py          # as-built: DXF periodic-spline mapping (import preview)
+  - firepro3d/dxf_import_worker.py      # as-built: underlay "straight" tag + periodic flattening
+  - firepro3d/pdf_import_worker.py      # as-built: underlay "straight" tag
+  - firepro3d/scale_manager.py          # as-built: format_factor / parse_factor
+  - firepro3d/constants.py              # as-built: ARRAY_DEFAULT_MEMORY, ARRAY_GHOST_FULL_MAX, CLOSE_HIT_PX, CLOSE_RING_PX
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
   - firepro3d/geometry_intersect.py
@@ -93,7 +98,9 @@ and summarised per member below; the design that follows implements it.
   closed SPLINEs import periodic. One grip per control point; stays closed on
   drag; no reopen (follow-up); no endpoint snaps; offset as a closed shape.
 - **M6 Arc angle bug** — fix all 14 in-scope sites (trim, extend, break,
-  break-at-point, fillet, mirror, `line_arc_intersections`).
+  break-at-point, fillet, mirror, `line_arc_intersections`). *(As built: 13
+  live sites fixed; the 14th — the mirror arc branch — was retired with
+  `_apply_mirror`, see DD9.)*
 - **M7 Shared snap filter** — one eligibility rule for `find()` phase 1, phase
   4 and `HandleSnapSession`; children of non-underlay parents (gridline
   bubbles/labels, sprinkler & fitting symbols) are skipped everywhere.
@@ -128,7 +135,8 @@ and summarised per member below; the design that follows implements it.
 ## Design Decisions
 
 Each approach decision was presented with alternatives and approved in the
-2026-10-01 brainstorm.
+2026-10-01 brainstorm. **Status: DD1–DD11 BUILT 2026-10-01 (`c8ff4f4`)** —
+deviations in "As-built / execution amendments" below.
 
 ### DD1 Per-item transforms (approved: per-item methods)
 `manip_reflect(p1, p2)` and `manip_scale_about(base, f)` on the eight
@@ -169,7 +177,10 @@ whole parent shape) + the standard D11 ghost (cached paths under a reflection
 
 ### DD4 Flip / Mirror / Scale flows
 - **Flip / Mirror**: `start()` gate (selection; ≥1 item with `manip_reflect`,
-  else "Nothing to flip — text and blocks are skipped"). Axis step: cursor
+  else the shared `nothing_to_hint` status — as built "Nothing to flip — only
+  2D drafting geometry can be flipped"; the designed "text and blocks are
+  skipped" wording named the wrong reason for plan-scene pipes / nodes /
+  walls). Axis step: cursor
   snap + ALIGN off; each move → `pick_axis` → scene-side axis state → paint.
   Click/Enter with an axis → Flip: `manip_reflect` on originals; Mirror:
   `to_dict` → `_add_from_dict` → `manip_reflect` on the copies → one
@@ -264,7 +275,11 @@ The 14 sites (`scene_tools.py` × 9 — mirror arc branch, break circle ×2,
 break-at-point circle + arc, trim circle ×2, trim arc ×2; `tool_geometry.py` ×
 4 — fillet ×2, extend line + polyline arc branches; `geometry_intersect.
 line_arc_intersections` × 1, Trim's only path) move to `arc_math.yup_angle` /
-`point_at`. No new helper. `test_scene_tools.py::TestBreakAtPoint::
+`point_at`. No new helper. *(As built — **13 live sites**: `scene_tools.py`
+× 8 (the list above minus the mirror arc branch), `tool_geometry.py` × 4,
+`geometry_intersect` × 1, all on `arc_math.yup_angle`; the mirror arc branch
+was retired with `_apply_mirror` in slice 5, not patched — plan-review
+amendment below.)* `test_scene_tools.py::TestBreakAtPoint::
 test_arc_break_produces_two_arcs` is rewritten (its break point is off the
 arc; it passes only because of the bug — `scene-tools.md` already documents
 it). DXF full-ellipse rotation is out of scope (filed separately).
@@ -284,44 +299,51 @@ Modify group: Move · Rotate · Scale · Flip · Mirror · Offset · Array ·
 Explode; tooltips show the Shift binding. Three new icons (Flip, Mirror,
 Scale) in the 40-unit 2D-geo family (`icon-style-guide.md` §5.1, D12 grammar)
 — contact-sheet mockup gate, live at 27 px light + dark, before wiring;
-buttons use temporary icons until approved.
+buttons use temporary icons until approved. *(As built: gate rendered the
+live 18 px small-button size + 27 px; Flip / Mirror simplified by the user at
+the gate — see the as-built amendments.)*
 
 ## Acceptance Criteria
 
-- [ ] **M1** Array ←/→ cycles Linear/2D/Polar only before the first pick;
+*Status at Account (`c8ff4f4`; VC9 seam-review sweep at `3a95a3f` + `c8ff4f4`
+fix): M1–M8 + icons MET (four with recorded deviations — see the as-built
+amendments).*
+
+- [x] **M1** Array ←/→ cycles Linear/2D/Polar only before the first pick;
       Linear with typed Angle 30° places copies at k·spacing along 30°
       (Y-up); 2D 3 × 4 places 12 items (incl. original) on the grid; Polar 8 @
       360° places 8 items at 45° steps, each rotated; variant + typed values
       pre-fill the next Array on the same canvas; one undo each.
-- [ ] **M2** Flip / Mirror detect any visible straight segment (incl. the
+- [x] **M2** Flip / Mirror detect any visible straight segment (incl. the
       selection's own edges), never curves; empty-space click refused; Flip
       transforms in place, Mirror adds copies; per-primitive results per DD1
       (type, closed flag, fill preserved; arc across x = 0 lands in Q2);
       text/blocks skipped with status; Shift+F / Shift+I; one undo; Esc no-op.
-- [ ] **M3** Scale by base/ref/cursor and by typed Factor; per-primitive
+- [x] **M3** Scale by base/ref/cursor and by typed Factor; per-primitive
       results per DD1; refusals; text/blocks skipped; Shift+S; one undo.
-- [ ] **M4** Handle drag of an endpoint near (0,0) snaps to (0,0) as `origin`
+- [x] **M4** Handle drag of an endpoint near (0,0) snaps to (0,0) as `origin`
       (⊕); Paste / Duplicate base near (0,0) snaps `origin` with the
       intersection toggle **off**; the Block Editor red marker pinned away
       from (0,0) is a target; plan scene too; no intersection X at the origin.
-- [ ] **M5** Click-near-first with ≥ 3 points makes a periodic spline with a
+- [x] **M5** Click-near-first with ≥ 3 points makes a periodic spline with a
       continuous seam tangent; `closed` round-trips both serialization paths +
       block factory; Enter finishes open; a closed DXF SPLINE imports
       periodic; legacy coincident-end splines load unchanged; grip drag keeps
       it closed; no endpoint snaps; offset stays periodic. Polyline / floor /
       roof close on either the constrained tip or the snapped cursor.
-- [ ] **M6** All 14 sites produce correct painted geometry (break-at-point at
+- [x] **M6** All 14 sites (as built: the 13 live sites; the 14th retired) produce correct painted geometry (break-at-point at
       visual 45° splits there; circle break 0°–90° keeps the correct quadrant;
       fillet arc ends at the tangent points; trim removes the clicked piece;
       line × arc intersection = (50, −86.6) for the probe case).
-- [ ] **M7** Gridline bubble centres / symbol points are no longer
+- [x] **M7** Gridline bubble centres / symbol points are no longer
       handle-snap targets; the snap baseline (325 passed at `7766316`) passes,
       any rewritten test named in the done evidence.
-- [ ] **M8** Badge reads COPY / CUT / OFFSET … for real `modeChanged`
+- [x] **M8** Badge reads COPY / CUT / OFFSET … for real `modeChanged`
       emissions; Cut button lit during Cut and Copy not; context-menu Copy
       enters `copy_base`, Cut present in both menus.
-- [ ] Icons approved at the mockup gate; tooltips on every new/changed button.
-- [ ] Governing specs amended in place at Account (Rule A).
+- [x] Icons approved at the mockup gate; tooltips on every new/changed button.
+- [x] Governing specs amended in place at Account (Rule A). *(Account,
+      2026-10-01, stamped `c8ff4f4`.)*
 
 ## Verification Checklist
 
@@ -342,7 +364,12 @@ buttons use temporary icons until approved.
       `test_geo2d_serialization.py`, `test_block_curve_import.py`,
       `test_geometry_import.py`, `test_geo2d_context_menu.py`,
       `test_block_explode.py`.
-- [ ] Whole-repo grep for every retired symbol (`_apply_mirror`,
+- [x] Whole-repo grep for every retired symbol (re-run at Account,
+      `c8ff4f4`: no live code refs; only retirement comments
+      (`scene_tools.py`), test docstrings in `test_rect_rotation_consumers.py`
+      (retirement guards) and `test_manip_reflect_scale.py`, and docs;
+      `_apply_scale_factor` in `model_space.py` is the new applier, not the
+      retired symbol) (`_apply_mirror`,
       `_apply_scale`, `mirror_delete`, `_array_count_default`) — VC5.
 - [ ] VC9 seam review before smoke; smoke → fixes → one full suite
       (`-m "not perf"`, then `-m perf` alone), honest exit codes.
@@ -375,6 +402,102 @@ local — plans are gitignored) was approved:
 - **DD8**: the shared ring keeps the scene attribute `_polyline_close_indicator`
   and stays on vertex 0.
 - **DD11**: the live small-button icon size is 18 px — the gate renders 18 and 27 px.
+
+## As-built / execution amendments (2026-10-01)
+
+Recorded at Account (Phase 6) from the slice reviews, the VC9 seam review and
+the user decisions taken during execution; every item verified against the
+code at `c8ff4f4`. **All DD1–DD11 are BUILT** on `feat/scene-tools-p1-batch`
+(`7766316..c8ff4f4`, 57 commits). The governing specs now carry the contract
+(Rule A) — `scene-tools.md` D10 (amended), D11–D12 / D14 (amended), D16
+Flip / Mirror, D17 Scale, D18 badge, DV7 resolved; origin / eligibility →
+`snapping-engine.md`; closed splines + close helper → `2d-geometry.md`.
+
+**User decisions (2026-10-01, during execution):**
+
+- *Origin + coincident geometry (DD6, Slice 2 review I-1):* when geometry
+  coincides with the origin, the origin snap still wins (kind `origin`, ⊕)
+  but adopts the coincident candidate's source / lines so ALIGN keeps
+  working; a cursor `nearest` foot never decides the adopted source.
+  Glyph colour `#e8325a` approved at a live gate.
+- *Underlay curves are never mirror axes (DD2, Slice 4 review I1):* flattened
+  DXF ARC / partial ELLIPSE / SPLINE and PDF Bézier chords are rejected via an
+  additive optional underlay record key `"straight": True` (no cache-version
+  bump); legacy cached `path_points` records are never axes until re-import
+  (DXF LINE records still are).
+- *Axis-pick perf bar:* `pick_axis` hover ≤ 8 ms median on a 20k-vertex
+  contour in a 50k-record underlay (perf guard; measured 2.7–4.9 ms).
+- *Polar Total (DD5, Slice 7 review I1):* the cursor sweep wins — Total is not
+  remembered; Polar remembers Count only; a typed Total commits as typed.
+- *Big arrays (DD5 / D11, Slice 7 review I2):* above
+  `ARRAY_GHOST_FULL_MAX` (200) ghost paths the preview is one merged
+  trace-only path (≤ ~16 ms repaint at 50 × 50); the commit stays uncapped.
+- *Icons (DD11, gate `aaea504`):* Flip / Mirror simplified — source triangle
+  + accent copy across a thin solid reference-line axis, no rings, no motion
+  arrow (Flip source dashed, Mirror source solid). Scale keeps one base-corner
+  ring at a larger radius than `icon-style-guide.md` §5.1's (18 px dark
+  visibility — style-guide carve-out owned there).
+- *Badge (DD10):* both thermal-radiation modes read **Radiation**.
+- *Phase-drift absorbed (C2):* the dead close-ring wrapper after
+  `_clear_scene` (New / Open) is fixed for polyline / floor / roof / spline.
+
+**Deviations from the design text (as built):**
+
+- *DD1:* a degenerate axis (`geometry_2d._degenerate_axis`, length² < 1e-12 —
+  one threshold for picker, paint and `manip_reflect`) makes every
+  `manip_reflect` a no-op (the orientation term would otherwise half-apply).
+  Radius floors (Circle 1 mm, Arc via `set_radius`, Ellipse `_AXIS_MIN`) make
+  very small Scale factors non-uniform — accepted, follow-up filed.
+- *DD2:* axis sources are a whitelist — Line / RefLine, Polyline (incl. the
+  closing edge the snap iterator omits), Rect, RegularPolygon, gridlines, wall
+  faces, straight-tagged underlay records. Block-instance edges,
+  floor / roof / room edges and pipes are not axes; a PDF record mixing
+  straight and curved segments loses all its axes (v1); DWG underlays give no
+  axis (pre-existing `_UNDERLAY_TAGS` gap, filed). Tolerance = the snap
+  aperture at the active view's zoom.
+- *DD4 Flip / Mirror:* refusal text is the shared `nothing_to_hint` ("Nothing
+  to flip — only 2D drafting geometry can be flipped"; mirror / mirrored,
+  scale / scaled), used by Scale too. Nodes (which legacy Mirror reflected) are skipped. Re-entry
+  (Shift+F twice, Flip ↔ Mirror) keeps the hovered axis and rebuilds its
+  ghost; an axis whose source vanished is dropped at commit; failed Mirror
+  copies count as skipped. `MainWindow._on_confirm_requested`'s generic
+  `else` arm lost its last emitter — left in place.
+- *DD4 Scale:* the reference is refused within the pick tolerance of the base
+  (`ModifyToolsController._pick_tolerance()`, snap aperture in px — renamed
+  from `_axis_tolerance`), not an exact 1e-9; factor 1 ends the tool with no
+  undo step ("Scale factor is 1 — nothing changed"); no Enter-at-cursor commit
+  (click or typed Factor). FACTOR formatter / parser live on `ScaleManager`
+  (`format_factor` / `parse_factor`, shared number grammar), not in
+  `dynamic_input` (units spec rule).
+- *DD5:* Array memory is per canvas tab for the session and never cleared by
+  leaving the tool — **not** "same as Offset" (Offset's sticky distance is
+  per tool run). Targets are only what `paste_items` can create
+  (`Model_Space._paste_accepts`): walls / rooms / floors / roofs / design
+  areas are refused up front so ghost == commit. Linear / 2D array a Sprinkler
+  through its Node. Polar refuses a centre pick with nothing rotatable; the
+  dimmed set is variant-independent (Polar-skipped items stay dimmed —
+  follow-up filed). A locked-Linear projection ≤ 0 keeps the previous spacing;
+  an Angle equal to the live aim does not lock; multiples of 360 release;
+  the readout shows an active lock.
+- *DD7:* the DXF periodic mapping also runs in `dwg_converter.py` (import
+  preview) and in the underlay flattening path (`dxf_import_worker.py`);
+  "both serialization paths" for splines means undo snapshot + block
+  definition (loose 2D geometry is not saved in `.fpd`, C8). Non-uniform /
+  weighted closed DXF splines still take the legacy path (tail, filed).
+- *DD8:* the ring stays on vertex 0 (scene attribute
+  `_polyline_close_indicator` kept); roof vertex-pop also uses the
+  either-point rule; room placement still owns its own 8 px literal (filed).
+- *DD10:* the badge also labels `dimension` (a ribbon-only literal mode).
+  Cut's ribbon registry key is the pseudo-mode
+  `ModifyToolsController.CUT_BUTTON_KEY` (`"copy_base:cut"`).
+  `copy_selected_items` is now test-only (follow-up filed).
+- *Ghost hand-off (VC9 seam review I-1, `c8ff4f4`):* `clear()` drops the
+  shared transform ghost on every mode change — no mode inherits another's
+  (was pre-existing for Rotate → Move, widened by Flip / Mirror / Scale /
+  Array).
+- *D14 (scene-tools):* Scale and Mirror (+ Flip) are now surfaced; Trim /
+  Extend / Break / Fillet / Chamfer / Stretch / Merge / Join stay unreachable,
+  so their DV7 fixes are guarded by tests only, not smoke-testable.
 
 ## Build order (slices; each green before the next)
 

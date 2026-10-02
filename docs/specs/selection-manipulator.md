@@ -1,7 +1,7 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24) + snap polish (2026-09-24): move handle snap (HandleSnapSession — interior drag, Move tool, LineItem TranslateGripHandle midpoint); vertex-chain Ctrl (Polyline/FloorSlab/RoofItem vs previous vertex); seam round (2026-09-25): TranslateGripHandle on every whole-item move grip (Circle/Ellipse/RegularPolygon/Text centre, Wall mid, Rect centre via RectTranslateGripHandle), lazy session build
-last-verified: 2026-09-29
-verified-commit: 4c48685   # held_delta accessor for preview-tracking overlays; prior d9d6f20   # scene-tools branch: Rotate tool consumer + Rect/Text manip_rotate compose fix; prior 17b4371   # smoke round B: move snapping is handles only (no grab/cursor snap; Move base point = a handle); prior d36af0a   # snap-polish seam round: handle snap on every whole-item move grip (lazy build); prior 892cf76   # snap polish: move handle snap + vertex_chain_grip_handles + TranslateGripHandle; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+last-verified: 2026-10-01  # scene-tools P1 Account: Move handle snap targets = is_snap_target + origin points (origin no longer excluded); manip_reflect / manip_scale_about are not manipulator capabilities; prior 2026-09-29
+verified-commit: c8ff4f4   # scene-tools P1 batch (feat/scene-tools-p1-batch); prior 4c48685   # held_delta accessor for preview-tracking overlays; prior d9d6f20   # scene-tools branch: Rotate tool consumer + Rect/Text manip_rotate compose fix; prior 17b4371   # smoke round B: move snapping is handles only (no grab/cursor snap; Move base point = a handle); prior d36af0a   # snap-polish seam round: handle snap on every whole-item move grip (lazy build); prior 892cf76   # snap polish: move handle snap + vertex_chain_grip_handles + TranslateGripHandle; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles; snap polish: TranslateGripHandle (+ RectTranslateGripHandle) + vertex_chain_grip_handles
@@ -98,6 +98,13 @@ manipulator is **capability-gated**, not one-size.
 | `manip_translate(dx, dy)` | all selectable items (adapter over `translate()`/`moveBy()`) | baked move |
 | `manip_rotate(angle_deg, pivot)` | **U1: all parametric items** (wall, node→pipes ride, gridline, room, floor, roof, line/polyline/circle/arc/regular-polygon/ellipse/rect) + badge + text | **no manipulator consumer since 2026-09-23** (knob removed; kept for the future Rotate transform). Baked rotate, app Y-up (CCW+) sign — `CAD_Math.rotate_point(p, pivot, -angle_deg)`; angle-carriers (gridline `_angle_deg`, arc `_start_deg`, regpoly `_rotation_deg`, badge `_angle`) accumulate `% 360` |
 | `manip_scale(fx, fy, anchor)` | box-native only (text, `SheetViewport`; **not** `RectangleItem` since 2026-09-23) | baked resize in the item's own semantics |
+
+**Not manipulator capabilities (2026-10-01):** the 2D primitives' `manip_reflect(p1, p2)`
+and `manip_scale_about(base, factor)` (scene-tools P1 Flip / Mirror / Scale) are read only
+by the Modify tools (`modify_tools_controller.py`), never by the manipulator. In particular
+`manip_scale_about` does **not** confer the `scale` capability — handle gating keys on
+`manip_scale` alone. Their per-primitive rules are owned by
+[`2d-geometry.md`](2d-geometry.md) and the tool flows by [`scene-tools.md`](scene-tools.md).
 
 **Box-native (scale set):** `SheetViewport`, `TextAnnotationItem` / text
 blocks, `DesignAreaBadge`, note/dimension annotations (`RectangleItem` left this
@@ -200,9 +207,16 @@ scene items to take handles from.
 - **Targets** are collected **once per gesture**: the same four point types from
   every other visible item, culled to the view's visible rect plus a margin, in a
   pixel-cell grid. The margin and the exact re-collect trigger are implementation
-  detail in `handle_snap.py`. Excluded: the moving items and their children,
-  pipes attached to a moving node, items above z 150, and the origin marker. Pipes
-  are also excluded when the engine skips pipes. Underlay geometry is queried per
+  detail in `handle_snap.py`. Which items may be targets at all is the engine's one
+  eligibility rule, `snap_engine.is_snap_target` (owned by
+  [`snapping-engine.md §6.1`](snapping-engine.md)
+  — the same rule `find()` applies; not restated here). On top of it the session
+  excludes the moving items and their children and pipes attached to a moving node.
+  The **origin points** (the (0,0) cross and the Block Editor insertion marker) are
+  targets of kind `origin` (`HANDLE_TYPES` includes it; scene-tools P1 DD6,
+  2026-10-01 — this reverses the earlier "origin marker excluded" rule): they are
+  added from `SnapEngine._origin_points`, not from item geometry, so a handle can
+  land on the origin. Underlay geometry is queried per
   handle through each group's `UnderlaySnapIndex`. The session is built at the
   manipulator's first moved update (before the first preview transform, so the
   items are at rest), at a move grip's first drag frame (`TranslateGripHandle`,

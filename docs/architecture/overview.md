@@ -159,11 +159,10 @@ classDiagram
 Model_Space uses a `self.mode` string to track the current interactive tool. Mouse and keyboard events are dispatched based on this mode. Examples:
 
 - `None` / `"select"` -- default selection and property editing
-- `"add_pipe"` -- two-click pipe placement
-- `"draw_wall"` -- chain-click wall drawing
-- `"draw_room"` -- manual room boundary drawing
-- `"offset"`, `"rotate"`, `"scale"`, `"mirror"` -- transform tools
-- `"trim"`, `"extend"`, `"break"` -- editing tools
+- `"pipe"` -- two-click pipe placement
+- `"wall"` -- chain-click wall drawing
+- `"room_manual"` -- manual room boundary drawing
+- 2D modify tools (move, rotate, scale, flip / mirror, offset, array, copy / paste …) -- modes, entry points and behaviour owned by [`scene-tools.md`](../specs/scene-tools.md)
 - `"set_scale"` -- two-point calibration
 
 The `modeChanged` signal notifies the status bar, and `instructionChanged` provides step-by-step guidance text.
