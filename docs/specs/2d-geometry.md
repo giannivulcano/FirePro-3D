@@ -494,9 +494,17 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   **centre**, which is constrained to the chord's perpendicular bisector (the
   cursor is projected onto it). The default is the **minor** arc, bulging away
   from the centre's side of the chord; **Space** toggles minor ↔ major (reset per
-  placement; End Points only — Center / Start always sweep CCW and have no Space toggle,
-  a P1 follow-up is filed); with the centre on the chord (semicircle) the last non-zero side is
-  kept. **90° snap (2026-09-24):** for the mouse preview and click commit, when
+  placement); with the centre on the chord (semicircle) the last non-zero side is
+  kept. *Center / Start* sweep **CCW** from the start by default; **Space** at the
+  span step toggles **CCW ↔ CW** (2026-10-02; `Model_Space._draw_arc_cw`, reset per
+  placement — step-0 click, commit, mode teardown, scene reset). The preview, the
+  click commit and the `arc_span` seed all read one signed span,
+  `GeometryDrawingController._arc_span_to` (CCW `(0, 360]`, CW `(−360, 0]`); the
+  commit hands the signed span to `ArcItem`, which stores it CCW (below). The HUD
+  **Span / Arc stay unsigned magnitudes** (the SPAN convention,
+  `units-and-formatting.md`): the seed reads `|span|`, and a typed Span sweeps that
+  magnitude in the live direction (`_arc_end_point_for_span`). Space before the
+  span step cycles nothing. **90° snap (2026-09-24):** for the mouse preview and click commit, when
   the centre's signed bisector distance |t| is within the OSNAP aperture of the
   half-chord h (the radials C→A and C→B perpendicular), |t| is pinned to h (sign
   kept) so the arc is exactly 90° minor / 270° major. The window is

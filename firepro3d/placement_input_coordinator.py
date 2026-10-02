@@ -1081,15 +1081,11 @@ class PlacementInputCoordinator:
             # or a typed Span commits.  Without this the readout sits at 0 the
             # whole span step (a transform has no cursor-derived inverse).
             # ArcLength stays in scene units; ``set_values`` converts it to mm.
+            # Unsigned magnitude in the live (Space-toggled) direction.
             point = self.get_resolved_point()
             if point is None or self._scene._draw_arc_center is None:
                 return {"Span": 0.0, "ArcLength": 0.0}
-            cx, cy = self._scene._draw_arc_center.x(), self._scene._draw_arc_center.y()
-            end_deg = math.degrees(math.atan2(-(point.y() - cy),
-                                              point.x() - cx))
-            span = end_deg - self._scene._draw_arc_start_deg
-            if span <= 0:
-                span += 360.0
+            span = abs(self._scene._geom_ctl._arc_span_to(point))
             return {"Span": span,
                     "ArcLength": math.radians(span) * self._scene._draw_arc_radius}
         if schema.name in self._scene._modify_ctl.ARRAY_SCHEMA_FOR_VARIANT.values():

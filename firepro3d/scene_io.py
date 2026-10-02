@@ -540,6 +540,7 @@ class SceneIOMixin:
         self._draw_arc_ep_b = None
         self._draw_arc_ep_major = False
         self._draw_arc_ep_side = 1
+        self._draw_arc_cw = False
         self._draw_arc_radius_line = None
         self._draw_arc_preview = None
         self._text_anchor = None

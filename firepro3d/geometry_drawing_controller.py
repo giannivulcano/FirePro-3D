@@ -135,6 +135,7 @@ class GeometryDrawingController:
             s._draw_arc_ep_b = None
             s._draw_arc_ep_major = False
             s._draw_arc_ep_side = 1
+            s._draw_arc_cw = False
             if s._draw_arc_radius_line is not None:
                 if s._draw_arc_radius_line.scene() is s:
                     s.removeItem(s._draw_arc_radius_line)
@@ -937,12 +938,7 @@ class GeometryDrawingController:
             cx = s._draw_arc_center.x()
             cy = s._draw_arc_center.y()
             r = s._draw_arc_radius
-            end_deg = math.degrees(
-                math.atan2(-(resolved.y() - cy), resolved.x() - cx)
-            )
-            span = end_deg - s._draw_arc_start_deg
-            if span <= 0:
-                span += 360.0
+            span = self._arc_span_to(resolved)
             path = QPainterPath()
             rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
             path.arcMoveTo(rect, s._draw_arc_start_deg)
@@ -984,6 +980,7 @@ class GeometryDrawingController:
             # Click 1 — the centre (center-first) or the start point (start-first)
             s._draw_arc_center = snapped
             s._draw_arc_step = 1
+            s._draw_arc_cw = False         # each placement starts CCW
             s.update_preview_node(snapped)
             # Start-first's next pick is the centre, not a start angle.
             s.instructionChanged.emit(
@@ -1097,15 +1094,17 @@ class GeometryDrawingController:
     def _arc_end_point_for_span(self, span_deg) -> "QPointF":
         """Return the sweep endpoint on the radius circle for ``span_deg``.
 
-        The stored centre/radius/start° plus the typed span give a bearing
-        ``start° + span`` (Y-up), projected onto the radius circle.  Feeds
+        The stored centre/radius/start° plus the typed span (an unsigned
+        magnitude) give a bearing ``start° ± span`` (Y-up; minus while the
+        Space toggle has the sweep CW), projected onto the radius circle.  Feeds
         ``_commit_draw_arc_at``, which re-derives the span from this point, so
         the Dynamic Input span and the mouse third click share one commit.
         """
         s = self._scene
         cx, cy = s._draw_arc_center.x(), s._draw_arc_center.y()
         r = s._draw_arc_radius
-        end_deg = s._draw_arc_start_deg + span_deg
+        end_deg = s._draw_arc_start_deg + (-span_deg if s._draw_arc_cw
+                                           else span_deg)
         return QPointF(cx + r * math.cos(math.radians(end_deg)),
                        cy - r * math.sin(math.radians(end_deg)))
 
@@ -1149,24 +1148,51 @@ class GeometryDrawingController:
         s = self._scene
         if s._draw_arc_center is None:
             return False
-        cx, cy = s._draw_arc_center.x(), s._draw_arc_center.y()
-        end_deg = math.degrees(
-            math.atan2(-(end_point.y() - cy), end_point.x() - cx)
-        )
-        span = end_deg - s._draw_arc_start_deg
-        # Normalise span to positive CCW direction
-        if span <= 0:
-            span += 360.0
+        span = self._arc_span_to(end_point)
         # Reject near-zero arcs
-        if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
+        if abs(span) < 0.5 or abs(abs(span) - 360.0) < 0.5:
             s._show_status("Arc span too small — skipped", timeout=2000)
             return False
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
+        # A CW (negative) span is normalised to the same arc stored CCW by
+        # ``ArcItem.__init__``.
         item = ArcItem(s._draw_arc_center, s._draw_arc_radius,
                        s._draw_arc_start_deg, span, _c, _lw)
         self._finish_arc_commit(item)
         return True
+
+    def _arc_span_to(self, point) -> float:
+        """Signed sweep (Y-up degrees) from the stored start° to ``point``'s bearing.
+
+        The one home for the Center / Start span math, shared by the preview,
+        the commit and the ``arc_span`` HUD seed.  CCW (the default) returns
+        ``(0, 360]``; after Space toggles ``_draw_arc_cw`` it returns the
+        complementary CW sweep in ``(-360, 0]`` — the same end bearing reached
+        the other way round.
+        """
+        s = self._scene
+        cx, cy = s._draw_arc_center.x(), s._draw_arc_center.y()
+        end_deg = math.degrees(math.atan2(-(point.y() - cy), point.x() - cx))
+        span = end_deg - s._draw_arc_start_deg
+        span %= 360.0
+        if span <= 0:
+            span += 360.0
+        return span - 360.0 if s._draw_arc_cw else span
+
+    def _toggle_arc_cw(self) -> None:
+        """Space (Center / Start span step): flip CCW ↔ CW and refresh.
+
+        Redraws the ghost at the resolved point and reseeds the HUD so the
+        Span readout jumps to the complementary magnitude at once.
+        """
+        s = self._scene
+        s._draw_arc_cw = not s._draw_arc_cw
+        pt = s.get_resolved_point()
+        if pt is not None:
+            self._preview_from_arc(pt)
+            self._update_arc_sweep_ref(pt)
+        s._sync_dynamic_input()
 
     # Step-0 prompt re-emitted after a commit, per arc variant.
     _ARC_STEP0_PROMPT = {"center": "Pick center point",
@@ -1202,6 +1228,7 @@ class GeometryDrawingController:
         s._draw_arc_ep_a = None
         s._draw_arc_ep_b = None
         s._draw_arc_ep_major = False
+        s._draw_arc_cw = False
         s.clear_placement_state()
         s.push_undo_state()
         s.instructionChanged.emit(self._ARC_STEP0_PROMPT.get(s._arc_variant,

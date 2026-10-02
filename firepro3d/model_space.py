@@ -343,6 +343,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_arc_ep_b: "QPointF | None" = None
         self._draw_arc_ep_major: bool = False
         self._draw_arc_ep_side: int = 1
+        # Center / Start sweep direction at the span step: Space toggles CCW ↔
+        # CW (reset per placement, like ``_draw_arc_ep_major``).
+        self._draw_arc_cw: bool = False
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
         # Arc span-step angle guides from the centre (protractor): a 0° datum
@@ -3628,6 +3631,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if (self.mode == "draw_arc" and self._arc_variant == _ARC_VARIANT_ENDPOINTS
                 and self._draw_arc_step == 2):
             self._geom_ctl._toggle_arc_ep_major()
+            return True
+        if self.mode == "draw_arc" and self._draw_arc_step == 2:
+            self._geom_ctl._toggle_arc_cw()          # Center / Start variants
             return True
         return False
 
