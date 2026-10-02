@@ -353,6 +353,47 @@ def _paint_axes(painter, view, t) -> None:
     painter.drawLine(QPointF(o.x() + 0.5, vp.top()), QPointF(o.x() + 0.5, vp.bottom() + 1))
 
 
+_TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
+
+
+def _tint_width(it, view) -> float:
+    """The item's own stroke width in viewport px (min 1, CS2 gate) plus
+    ``CONSTRAINT_TINT_EXTRA_PX``: an anti-aliased stroke straddles two pixel
+    rows, so a same-width overlay only half-covers the item's own fringe."""
+    pen_fn = getattr(it, "pen", None)
+    if not callable(pen_fn):
+        return 1.0
+    p = pen_fn()
+    w = p.widthF()
+    if not p.isCosmetic():
+        w *= abs(view.transform().m11())
+    return max(1.0, w) + M.CONSTRAINT_TINT_EXTRA_PX
+
+
+def _paint_tint(painter, view, ctl, t) -> None:
+    """D39: re-stroke every participating, unselected item's drawn geometry
+    (its HALO trace) in its state colour. Text is not tinted (CS2 gate,
+    option b: the overlay cannot recolour QGraphicsTextItem glyphs)."""
+    if not getattr(ctl, "show_status", False):
+        return
+    from .halo import halo_scene_path
+    from .text_item import TextItem
+    d = ctl.diagnostics()
+    vt = view.viewportTransform()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for it in ctl.items():
+        if isinstance(it, TextItem) or it.isSelected() or not it.isVisible():
+            continue
+        u = getattr(it, "_uid", None)
+        if u is None:
+            continue
+        pen = QPen(t.color(_TINT_TOKEN[d.state(u)]), _tint_width(it, view))
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        painter.setPen(pen)
+        painter.drawPath(vt.map(halo_scene_path(it)))
+
+
 def paint(painter: QPainter, view, ctl) -> None:
     """Axes, hover/selected target glow, glyphs, then pick markers (one pass)."""
     if not ctl.enabled:
@@ -366,6 +407,7 @@ def paint(painter: QPainter, view, ctl) -> None:
     try:
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        _paint_tint(painter, view, ctl, t)
         _paint_axes(painter, view, t)
         # Target glow: selected first, hover on top (D11).
         for cid, tok in _glow_ids(ctl):
@@ -381,6 +423,7 @@ def paint(painter: QPainter, view, ctl) -> None:
         lays = fr.layouts
         if lays:
             by_id = {c.id: c for c in ctl.constraints}
+            diag = ctl.diagnostics()
             icon_t = _icon_theme()
             pad = M.CONSTRAINT_GLYPH_PAD_PX
             rad = M.CONSTRAINT_GLYPH_RADIUS_PX
@@ -390,6 +433,10 @@ def paint(painter: QPainter, view, ctl) -> None:
                     tok, w = "selection", 1.6
                 elif cid == ctl.hover_id:
                     tok, w = "selection_hover", 1.0
+                elif cid in ctl.red:                      # CS2 D38: conflicting
+                    tok, w = "danger", M.CONSTRAINT_STATE_BORDER_W
+                elif cid in diag.redundant:               # CS2: redundant (amber)
+                    tok, w = "warn", M.CONSTRAINT_STATE_BORDER_W
                 else:
                     tok, w = "line_strong", 1.0
                 # Suppressed and inert (unsupported, never solved) glyphs are

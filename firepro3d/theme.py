@@ -145,6 +145,8 @@ class _Metrics:
     CONSTRAINT_PICK_EDGE_GLOW_W_PX = 5.0
     CONSTRAINT_PICK_EDGE_GLOW_ALPHA = 140
     CONSTRAINT_INACTIVE_OPACITY = 0.4    # suppressed / inert (unsupported) glyph
+    CONSTRAINT_STATE_BORDER_W = 1.6      # CS2 amber / red glyph border (mockup gate)
+    CONSTRAINT_TINT_EXTRA_PX = 1.0       # D39 tint covers the item's AA fringe
     PROP_CONSTRAINT_ROW_H = 28
     STATUS_BADGE_GAP = 6        # dot <-> text (CS2 mockup gate, 2026-10-02)
     STATUS_BADGE_DOT_FS = 10    # dot glyph px (CS2 mockup gate)

@@ -70,7 +70,9 @@ def _px(img, dpr, x, y) -> QColor:
     return img.pixelColor(int(round(x * dpr)), int(round(y * dpr)))
 
 
-def _dist(a: QColor, b: QColor) -> int:
+def _dist(a, b: QColor) -> int:
+    if isinstance(a, _Near):
+        return min(_dist(c, b) for c in a.cols)
     return (abs(a.red() - b.red()) + abs(a.green() - b.green())
             + abs(a.blue() - b.blue()))
 
@@ -403,3 +405,95 @@ def test_moving_constrained_geometry_repaints_old_and_new_glyph_regions(be):
     for r in (new, old):
         assert spy.region.intersected(QRegion(r)) == QRegion(r), (
             spy.region.boundingRect(), r)
+
+
+# ── CS2 D39 tint + glyph state borders (pixels, both themes) ────────────────
+
+@pytest.fixture(params=["dark", "light"])
+def themed(request, monkeypatch):
+    t = th.DARK if request.param == "dark" else th.LIGHT
+    monkeypatch.setattr(th, "detect", lambda: t)
+    return t
+
+
+class _Near:
+    """The pixels within +-1 row/col of a stroke point; ``_dist`` against it
+    is the BEST match (an anti-aliased stroke straddles two rows)."""
+    def __init__(self, cols):
+        self.cols = cols
+
+
+def _line_px(img, dpr, v, a, b):
+    """Pixels around the midpoint of scene segment a-b."""
+    m = v.mapFromScene(QPointF((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))
+    return _Near([_px(img, dpr, m.x() + dx, m.y() + dy)
+                  for dx in (-1, 0, 1) for dy in (-1, 0, 1)])
+
+
+def test_tint_free_and_conflict_pixels(be, themed):
+    v, sc = be
+    t = themed
+    _line(sc, (-200, -100), (-50, -100))                        # untouched -> free
+    held = _line(sc, (-200, 100), (-50, 140))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": held._uid, "h": "edge"}])
+    ctl.add("vertical", [{"uid": held._uid, "h": "edge"}])       # red -> conflict
+    sc.clearSelection()
+    img, dpr = _grab(v)
+    assert _dist(_line_px(img, dpr, v, (-200, -100), (-50, -100)),
+                 t.color("constraint_free")) <= 40
+    y = held._pt1.y()
+    assert _dist(_line_px(img, dpr, v, (-200, y), (-50, y)), t.color("danger")) <= 40
+
+
+def test_tint_token_for_defined_is_ink(be, themed):
+    """Paint-level mapping only (defined -> ink): with H/V alone a line cannot
+    be fully defined (D36), so the cache is seeded; the real defined-state
+    guard is test_constraint_controller::test_fully_defined_text_ins_at_origin."""
+    from firepro3d.constraint_controller import SketchDiag
+    v, sc = be
+    t = themed
+    ln = _line(sc, (-200, -100), (-50, -100))
+    ctl = sc.constraint_ctl
+    d = ctl.diagnostics()
+    ctl._diag = (ctl._diag[0], SketchDiag(0, d.redundant, {ln._uid: 0}, d.conflict_uids))
+    img, dpr = _grab(v)
+    assert _dist(_line_px(img, dpr, v, (-200, -100), (-50, -100)), t.color("ink")) <= 40
+
+
+def test_tint_off_restores_item_colour(be, themed):
+    v, sc = be
+    t = themed
+    _line(sc, (-200, -100), (-50, -100))
+    sc.constraint_ctl.show_status = False
+    img, dpr = _grab(v)
+    assert _dist(_line_px(img, dpr, v, (-200, -100), (-50, -100)),
+                 t.color("constraint_free")) > 60
+
+
+def test_selected_item_is_not_tinted(be, themed):
+    v, sc = be
+    t = themed
+    ln = _line(sc, (-200, -100), (-50, -100))
+    ln.setSelected(True)
+    img, dpr = _grab(v)
+    assert _dist(_line_px(img, dpr, v, (-200, -100), (-50, -100)),
+                 t.color("constraint_free")) > 60
+
+
+def test_glyph_border_red_and_amber(be, themed):
+    v, sc = be
+    t = themed
+    ln = _line(sc)
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    amber = ctl.add("horizontal", [{"uid": ln._uid, "h": "p1"}, {"uid": ln._uid, "h": "p2"}])
+    red = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    assert amber.id in ctl.diagnostics().redundant and ctl.red == {red.id}
+    ctl.show_all = True
+    img, dpr = _grab(v)
+    lays = dict(cp.glyph_layouts(v, ctl))
+    for cid, tok in ((amber.id, "warn"), (red.id, "danger")):
+        r = lays[cid]
+        got = _Near([_px(img, dpr, r.left() + dx, r.center().y()) for dx in (0, 1, 2)])
+        assert _dist(got, t.color(tok)) <= 48, (tok, [c.name() for c in got.cols])

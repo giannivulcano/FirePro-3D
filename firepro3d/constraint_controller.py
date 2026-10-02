@@ -193,6 +193,9 @@ class ConstraintController:
         # plus the selected constraint; Show Constraints is a temporary
         # show-every-glyph override, default off.
         self.show_all = False
+        # D39: Constraint Status (Inspect toggle) -- geometry tinted by state,
+        # default ON, editor only.
+        self.show_status = True
         self.pick: PickState | None = None     # D21 pick session
         # D37/D38: ids of admitted constraints whose admission broke
         # solvability. They sit out of every solve until a STRUCTURAL commit
