@@ -88,10 +88,11 @@ to a line. Differences:
   routes it via `type_to_list` **before** `LineItem`, subclass-ordered).
 - Per-item **`printed` flag, default False.** `printed=False` → excluded from
   paper-space plots (`paper_display.apply_paper_overrides` hides `printed is False`
-  during the render pass) AND from a saved block definition
-  (`BlockEditor.gather_primitives` includes reference lines only when printed);
-  `printed=True` → plots dashed at the "Reference Lines" paper weight + embeds in
-  the block. Edited via a **`ToggleSwitch`** ("toggle" property-field type).
+  during the render pass) AND from a block's rendered/exploded output — it is
+  still **saved** in the block definition as scaffolding and re-seeded on reopen
+  (parametric-constraint-system.md D23; `block_definition.is_scaffold` gates the
+  compile and `block_explode`); `printed=True` → plots dashed at the "Reference
+  Lines" paper weight + renders in the block. Edited via a **`ToggleSwitch`** ("toggle" property-field type).
 - Own **"Reference Lines"** Display-Manager category (colour + show/hide-all;
   `display_manager._CATEGORIES` + `_items_for_category_static`;
   `paper_display._category_for_item` maps it before `LineItem`). Level-scoped;

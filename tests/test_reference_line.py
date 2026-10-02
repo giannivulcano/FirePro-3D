@@ -111,11 +111,15 @@ def test_paper_export_excludes_non_printed_includes_printed(shown_model_view):
     assert off.isVisible() is True, "visibility must be restored after the render pass"
 
 
-def test_block_definition_excludes_non_printed_includes_printed(qapp):
+def test_block_definition_saves_all_renders_only_printed(qapp):
+    # D23 (parametric-constraint-system.md) retired "non-printed is dropped from
+    # the block": every reference line is saved as scaffolding; compile renders
+    # only the printed one.
     from PyQt6.QtWidgets import QTabWidget
     from firepro3d.model_space import Model_Space
     from firepro3d.block_editor import BlockEditorManager
-    w = BlockEditorManager(QTabWidget(), Model_Space()).open_new()
+    tabs, proj = QTabWidget(), Model_Space()   # kept alive for commit_block
+    w = BlockEditorManager(tabs, proj).open_new()
     s = w.editor_scene
     off = ReferenceLineItem(QPointF(0, 0), QPointF(100, 0), printed=False)
     on = ReferenceLineItem(QPointF(0, 50), QPointF(100, 50), printed=True)
@@ -123,7 +127,10 @@ def test_block_definition_excludes_non_printed_includes_printed(qapp):
         s.addItem(it); s._reference_lines.append(it)
     prims = w.gather_primitives()
     assert on in prims, "printed reference line must be in the block definition"
-    assert off not in prims, "non-printing reference line must be excluded from the block"
+    assert off in prims, "non-printing reference line is saved as scaffolding (D23)"
+    defn = w.commit_block("RL", "L", "S")
+    assert len(defn.primitives) == 2
+    assert len(defn.render_ops()) == 1, "only the printed reference line renders"
 
 
 def test_reference_lines_display_category(shown_model_view):

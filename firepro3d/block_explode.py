@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF
 
+from .block_definition import is_scaffold
+
 _NESTED_TYPE = "block_instance"
 
 
@@ -88,6 +90,8 @@ def explode_instances(scene, instances, flatten: bool) -> list:
                 else:
                     created.append(child)
                 continue
+            if is_scaffold(rec):
+                continue   # non-printed reference line: scaffolding (D23)
             item = scene._add_from_dict(rec)
             if item is None:
                 continue

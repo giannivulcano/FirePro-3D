@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
 from .model_space import Model_Space
 from .model_view import Model_View
 from .geometry_2d import (
-    LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
-    EllipseItem, SplineItem,
+    LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+    RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem
 from .block_definition import _PRIMITIVE_FACTORY
@@ -26,6 +26,8 @@ from . import geometry_import
 from .house_dialog import HouseDialog
 
 _CLS_TO_LIST = {
+    # Subclass before base (lookup is exact type(item), but keep the guard order).
+    ReferenceLineItem: "_reference_lines",
     LineItem: "_draw_lines", RectangleItem: "_draw_rects",
     CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
     EllipseItem: "_draw_ellipses",
@@ -447,10 +449,8 @@ class BlockEditorWidget(QWidget):
             items.extend(getattr(s, attr))
         # Nested blocks (D8): emitted as D2 block_instance records on commit.
         items.extend(getattr(s, "_block_instances", []))
-        # Reference lines are scaffolding: included in the block ONLY when
-        # explicitly printed; a non-printing reference line is dropped (task D).
-        items.extend(r for r in getattr(s, "_reference_lines", [])
-                     if getattr(r, "printed", False))
+        # Reference lines are scaffolding (D23): all are saved; compile renders only printed ones.
+        items.extend(getattr(s, "_reference_lines", []))
         return items
 
     def commit_block(self, name, library, series, *, replace_source=True,

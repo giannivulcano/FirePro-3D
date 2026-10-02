@@ -857,8 +857,9 @@ class ReferenceLineItem(LineItem):
 
     * Always rendered in the canonical width-1 dashed reference style.
     * Carries a per-item ``printed`` flag (default False). ``printed=False``
-      excludes it from paper-space plots/exports AND from a saved block
-      definition (pure scaffolding); ``printed=True`` graduates it to real
+      excludes it from paper-space plots/exports AND from a block's rendered
+      / exploded output (pure scaffolding — still saved in the definition and
+      re-seeded on reopen, D23); ``printed=True`` graduates it to real
       output geometry (still dashed).
     * Its own "Reference Lines" Display-Manager category.
     """

@@ -13,14 +13,15 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
 
 from .geometry_2d import (
-    LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem, RegularPolygonItem,
-    EllipseItem, SplineItem,
+    LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+    RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
 _PRIMITIVE_FACTORY = {
     "draw_line": LineItem,
+    "reference_line": ReferenceLineItem,
     "draw_rectangle": RectangleItem,
     "draw_circle": CircleItem,
     "arc": ArcItem,
@@ -32,6 +33,19 @@ _PRIMITIVE_FACTORY = {
 }
 
 _NESTED_TYPE = "block_instance"
+
+
+def is_scaffold(prim: dict) -> bool:
+    """A non-printed reference line: saved + re-seeded, never rendered (D23).
+
+    Args:
+        prim: A definition primitive dict.
+
+    Returns:
+        True for a ``reference_line`` record whose ``printed`` flag is unset.
+    """
+    return prim.get("type") == "reference_line" and not prim.get("printed", False)
+
 _PLACEHOLDER_COLOR = "#c0392b"      # BlockInstance orphan placeholder colour
 _PLACEHOLDER_MM = 200.0
 _COMPILING: set[str] = set()        # re-entrancy guard (corrupt cyclic data)
@@ -113,12 +127,16 @@ class BlockDefinition:
         origin: Definition-local insertion origin, in scene millimetres.
         attributes: Reserved slot list; no UI in v1.
         primitives: List of 2D-primitive dicts (geometry_2d to_dict form).
+            Non-printed reference lines are kept as scaffolding (D23): saved
+            and re-seeded, never compiled/exploded (see ``is_scaffold``).
+        constraints: Sketch constraint record dicts (spec §6.3).
     """
 
     def __init__(self, *, id: str, version: int, name: str, library: str,
                  series: str, scale_mode: str, origin: tuple[float, float],
                  attributes: list, primitives: list[dict],
-                 render_mode: str = "default", geoms: list[dict] | None = None):
+                 render_mode: str = "default", geoms: list[dict] | None = None,
+                 constraints: list | None = None):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -129,6 +147,9 @@ class BlockDefinition:
         self._origin = (float(origin[0]), float(origin[1]))
         self.attributes = list(attributes)
         self.primitives = list(primitives)
+        # Sketch constraint records (parametric-constraint-system.md §6.3);
+        # additive key, absent => [] (no schema bump).
+        self.constraints: list[dict] = list(constraints or [])
         # Reference definitions (render_mode="reference") own the curve-preserving,
         # layer-tagged import geom-dict list. This is the geometry data model for
         # imported references — rendered by the batched underlay builder (which
@@ -151,11 +172,13 @@ class BlockDefinition:
     @classmethod
     def new(cls, *, name: str, library: str, series: str,
             primitives: list[dict], origin: tuple[float, float],
-            render_mode: str = "default") -> "BlockDefinition":
+            render_mode: str = "default",
+            constraints: list | None = None) -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
-                   attributes=[], primitives=primitives, render_mode=render_mode)
+                   attributes=[], primitives=primitives, render_mode=render_mode,
+                   constraints=constraints)
 
     @classmethod
     def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
@@ -255,6 +278,8 @@ class BlockDefinition:
                         _COMPILING.discard(self.id)
                     out.extend([[t.map(p) for p in box] for box in boxes])
                     continue
+                if is_scaffold(prim):
+                    continue
                 cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
                 if cls is None:
                     continue
@@ -281,6 +306,8 @@ class BlockDefinition:
         for prim in self.primitives:
             if prim.get("type") == _NESTED_TYPE:
                 ops.extend(self._nested_ops(prim, ox, oy))
+                continue
+            if is_scaffold(prim):
                 continue
             cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
             if cls is None:
@@ -373,6 +400,8 @@ class BlockDefinition:
                 yield it, getattr(it, "layer", "")
         else:
             for prim in self.primitives:
+                if is_scaffold(prim):
+                    continue
                 cls = _PRIMITIVE_FACTORY.get(prim.get("type"))
                 if cls is None:
                     continue
@@ -391,6 +420,7 @@ class BlockDefinition:
             "attributes": list(self.attributes),
             "primitives": list(self.primitives),
             "render_mode": self.render_mode,
+            "constraints": [dict(c) for c in self.constraints],
         }
 
     @classmethod
@@ -405,4 +435,5 @@ class BlockDefinition:
             attributes=data.get("attributes", []),
             primitives=data.get("primitives", []),
             render_mode=data.get("render_mode", "default"),
+            constraints=data.get("constraints", []),
         )
