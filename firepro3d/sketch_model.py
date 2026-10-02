@@ -1,0 +1,145 @@
+"""Pure constraint data model — parametric-constraint-system.md §6, §12.
+
+No Qt. ``ConstraintType`` declares the whole catalogue from day one (§6.4);
+``REGISTRY`` says which types are built. A record whose type is unknown or not
+yet implemented loads **inert** and round-trips verbatim.
+"""
+from __future__ import annotations
+
+import copy
+import uuid
+from dataclasses import dataclass, field
+from enum import Enum
+
+GROUNDS = ("origin", "x_axis", "y_axis")
+
+
+class ConstraintType(str, Enum):
+    """File ``type`` strings (file-format; §7.3 catalogue, §12 order)."""
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+    COINCIDENT = "coincident"
+    POINT_ON_CURVE = "point_on_curve"
+    DIM_DISTANCE = "dim_distance"        # length / aligned / Δx / Δy (helper.kind)
+    DIM_RADIUS = "dim_radius"
+    DIM_DIAMETER = "dim_diameter"
+    DIM_ANGLE = "dim_angle"
+    CONCENTRIC = "concentric"
+    SYMMETRIC = "symmetric"
+    FIX = "fix"
+    PARALLEL = "parallel"
+    PERPENDICULAR = "perpendicular"
+    EQUAL = "equal"
+    TANGENT = "tangent"
+    MIDPOINT = "midpoint"
+    COLLINEAR = "collinear"
+    DIM_POINT_LINE = "dim_point_line"
+
+
+@dataclass(frozen=True)
+class TypeSpec:
+    """Registry row: accepted ref-kind patterns (pick order), DOF removed, built?"""
+    label: str
+    patterns: tuple
+    dof: int
+    implemented: bool = False
+
+    @property
+    def icon(self) -> str:
+        return f"constraint_{self.label.lower().replace(' ', '_')}_icon.svg"
+
+
+REGISTRY: dict[str, TypeSpec] = {
+    "horizontal": TypeSpec("Horizontal", (("edge",), ("point", "point")), 1, True),
+    "vertical": TypeSpec("Vertical", (("edge",), ("point", "point")), 1),
+    "coincident": TypeSpec("Coincident", (("point", "point"),), 2),
+    "point_on_curve": TypeSpec("Coincident", (("point", "edge"), ("point", "curve"), ("point", "axis")), 1),
+    "dim_distance": TypeSpec("Smart Dimension", (("edge",), ("point", "point")), 1),
+    "dim_radius": TypeSpec("Smart Dimension", (("curve",),), 1),
+    "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1),
+    "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1),
+    "concentric": TypeSpec("Concentric", (("curve", "curve"), ("curve", "point")), 2),
+    "symmetric": TypeSpec("Symmetric", (("point", "point", "edge"), ("point", "point", "axis")), 2),
+    "fix": TypeSpec("Fix", (("point",),), 2),
+    "parallel": TypeSpec("Parallel", (("edge", "edge"),), 1),
+    "perpendicular": TypeSpec("Perpendicular", (("edge", "edge"),), 1),
+    "equal": TypeSpec("Equal", (("edge", "edge"), ("curve", "curve")), 1),
+    "tangent": TypeSpec("Tangent", (("edge", "curve"), ("curve", "curve")), 1),
+    "midpoint": TypeSpec("Midpoint", (("point", "edge"),), 2),
+    "collinear": TypeSpec("Collinear", (("edge", "edge"),), 2),
+    "dim_point_line": TypeSpec("Smart Dimension", (("point", "edge"),), 1),
+}
+
+
+def is_ground(ref: dict) -> bool:
+    return "ref" in ref
+
+
+def ref_uids(c: "Constraint") -> set:
+    return {r["uid"] for r in c.refs if not is_ground(r)}
+
+
+@dataclass
+class Constraint:
+    """One constraint record (§6.3). ``raw`` keeps an inert record verbatim."""
+    id: str
+    type: str
+    refs: list
+    value: float | None = None
+    driving: bool = True
+    enabled: bool = True
+    helper: dict = field(default_factory=dict)
+    label: dict | None = None
+    raw: dict | None = None
+
+    @classmethod
+    def new(cls, ctype: str, refs: list, **kw) -> "Constraint":
+        return cls(id=uuid.uuid4().hex, type=ctype, refs=copy.deepcopy(refs), **kw)
+
+    @property
+    def inert(self) -> bool:
+        spec = REGISTRY.get(self.type)
+        return spec is None or not spec.implemented
+
+    @property
+    def label_text(self) -> str:
+        spec = REGISTRY.get(self.type)
+        return spec.label if spec is not None else "Unsupported constraint"
+
+    def to_dict(self) -> dict:
+        if self.raw is not None:
+            return copy.deepcopy(self.raw)
+        d = {"id": self.id, "type": self.type, "refs": copy.deepcopy(self.refs),
+             "value": self.value, "driving": self.driving, "enabled": self.enabled,
+             "helper": copy.deepcopy(self.helper)}
+        if self.label is not None:
+            d["label"] = copy.deepcopy(self.label)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Constraint":
+        c = cls(id=str(d.get("id") or uuid.uuid4().hex), type=str(d.get("type", "")),
+                refs=copy.deepcopy(list(d.get("refs", []))), value=d.get("value"),
+                driving=bool(d.get("driving", True)), enabled=bool(d.get("enabled", True)),
+                helper=copy.deepcopy(dict(d.get("helper", {}))),
+                label=copy.deepcopy(d.get("label")))
+        if c.inert:
+            c.raw = copy.deepcopy(d)
+        return c
+
+
+def remap_for_copy(cons, uid_map: dict) -> list:
+    """§8 Copy/Paste/Duplicate/Array: keep only constraints internal to the
+    copied set (every ref a mapped uid — grounds count as external), with
+    fresh ids and remapped uids."""
+    out = []
+    for c in cons:
+        if c.inert or not c.refs:
+            continue
+        if any(is_ground(r) or r["uid"] not in uid_map for r in c.refs):
+            continue
+        n = Constraint.from_dict(c.to_dict())
+        n.id = uuid.uuid4().hex
+        n.refs = [{"uid": uid_map[r["uid"]], "h": r["h"]} for r in c.refs]
+        out.append(n)
+    return out
