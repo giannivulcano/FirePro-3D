@@ -709,6 +709,18 @@ class PropertyManager(QWidget):
             if callable(cm) and id(sc) not in seen:
                 seen.add(id(sc))
                 defer.enter_context(cm())
+        # Constraint seam (parametric-constraint-system §8): entered AFTER the
+        # deferred undo push, so the ExitStack (LIFO) solves first and the
+        # coalesced undo step snapshots the solved geometry.
+        seen_ctl = set()
+        for t in self._targets:
+            sc = t.scene() if callable(getattr(t, "scene", None)) else None
+            ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
+            if ctl is not None and id(sc) not in seen_ctl:
+                seen_ctl.add(id(sc))
+                defer.enter_context(ctl.edit(
+                    [u for u in self._targets
+                     if callable(getattr(u, "scene", None)) and u.scene() is sc]))
         try:
             with defer:
                 for t in self._targets:

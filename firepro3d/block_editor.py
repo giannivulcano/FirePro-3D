@@ -416,10 +416,17 @@ class BlockEditorWidget(QWidget):
         # its origin lands on (0,0); the next save writes origin (0,0) and the
         # compiled instances render identically (compile applies -origin).
         ox, oy = float(defn.origin[0]), float(defn.origin[1])
-        if (ox, oy) != (0.0, 0.0):
+        migrated = (ox, oy) != (0.0, 0.0)
+        if migrated:
             self._translate_all(-ox, -oy)
-            # The migrated state is the baseline — Ctrl+Z must not undo it.
-            self._rebaseline_undo()
+        # Constraints load AFTER the migration (uids are stable across it, so
+        # the refs still resolve) and BEFORE the re-baseline, so the undo
+        # baseline holds them and Ctrl+Z can never undo them away
+        # (parametric-constraint-system §6.5, §8).
+        self.editor_scene.constraint_ctl.load(defn.constraints)
+        # The (migrated) seeded state is the baseline.
+        self._rebaseline_undo()
+        if migrated:
             self.fit_view_to_block()
         self._mark_clean()
 
@@ -507,7 +514,8 @@ class BlockEditorWidget(QWidget):
             primitives=prims, origin=(origin.x(), origin.y()),
             place_instance=do_replace,
             source_items=self._seed_source_items if do_replace else None,
-            place_at=(base.x(), base.y()) if base is not None else None)
+            place_at=(base.x(), base.y()) if base is not None else None,
+            constraints=self.editor_scene.constraint_ctl.to_records())
         if defn is None:
             return None
         self._edit_block_id = defn.id

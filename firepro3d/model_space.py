@@ -1908,7 +1908,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
-                                source_items=None, place_at=None):
+                                source_items=None, place_at=None,
+                                constraints=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -1938,6 +1939,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             place_at: ``(x, y)`` scene point for the placed instance, decoupled
                 from the definition origin (Create Block from selection places
                 at the selection's bbox centre, D24). ``None`` -> *origin*.
+            constraints: The editor's sketch constraint records
+                (``ConstraintController.to_records``) stored on the
+                definition (parametric-constraint-system.md §6.3); None -> [].
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -1948,7 +1952,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
-                                       primitives=list(primitives), origin=(ox, oy))
+                                       primitives=list(primitives), origin=(ox, oy),
+                                       constraints=list(constraints or []))
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
@@ -1964,6 +1969,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return None
             defn.name, defn.library, defn.series = name, library, series
             defn.origin = (ox, oy)
+            defn.constraints = list(constraints or [])
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -7334,12 +7340,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
 
-    def paste_items(self, offset, data=None):
+    def paste_items(self, offset, data=None, constraints=None):
         """Add clipboard records translated by *offset*.
 
         Args:
             offset: Scene displacement applied to every record.
-            data: Records to paste; defaults to :meth:`clipboard_data`.
+            data: Records to paste; defaults to the clipboard payload's items
+                (and then *constraints* defaults to its ``constraints``).
+            constraints: Constraint records internal to *data*
+                (``ConstraintController.internal_records``); remapped onto the
+                new items' uids after the paste (parametric-constraint-system
+                §8). The caller pushes the undo step.
 
         Returns:
             Every pasted top-level item — 2D geometry / text, each record's
@@ -7350,8 +7361,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             sprinkler, pipe or pipe end node.
         """
         if data is None:
-            data = self.clipboard_data() or []
+            payload = self.clipboard_payload()
+            data = payload["items"] if payload else []
+            if constraints is None and payload:
+                constraints = payload.get("constraints")
         new_items = []
+        uid_map = {}          # source uid -> new uid (constraint remap, §8)
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -7359,6 +7374,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if obj_type in self._GEOM_TYPE_REGISTRY:
                 item = self._add_from_dict(obj)
                 if item is not None:
+                    if obj.get("uid"):
+                        uid_map[obj["uid"]] = item._uid
                     if hasattr(item, "translate"):
                         item.translate(offset.x(), offset.y())
                     else:
@@ -7449,6 +7466,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     )
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)
+                    if obj.get("uid"):
+                        uid_map[obj["uid"]] = inst._uid
                     new_items.append(inst)
                 # else: definition absent (cross-project paste) — skip silently
 
@@ -7466,6 +7485,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 apply_duplicate_warnings(self._gridlines)
                 new_items.append(gl)
 
+        if constraints:
+            self.constraint_ctl.paste_records(constraints, uid_map)
         self._show_status(f"Pasted {len(data)} item(s)")
         return new_items
 

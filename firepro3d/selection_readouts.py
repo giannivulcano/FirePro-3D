@@ -7,6 +7,7 @@ the live selection into painted, pickable, editable labels.
 """
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass
 from typing import Callable
@@ -488,7 +489,13 @@ class SelectionReadoutController:
             self.cancel_edit()
             return
         try:
-            s.spec.apply(v)
+            # Constraint seam (parametric-constraint-system §8): the typed
+            # edit's values are goals; the rest re-solves when the context
+            # exits — BEFORE the undo push below snapshots.
+            ctl = getattr(self._scene, "constraint_ctl", None)
+            with (ctl.edit([s.item]) if ctl is not None
+                  else contextlib.nullcontext()):
+                s.spec.apply(v)
         except Exception:                      # never half-apply into undo
             import logging
             logging.getLogger(__name__).exception("readout apply failed")

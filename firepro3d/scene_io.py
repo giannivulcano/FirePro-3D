@@ -568,6 +568,9 @@ class SceneIOMixin:
         self.init_preview_node()
         self.init_preview_pipe()
         self.draw_origin()
+        # Constraints belong to the cleared content (New / Open): drop them
+        # (and any pick / drag session) before the fresh undo baseline.
+        self.constraint_ctl.reset()
         self._undo_stack = []
         self._undo_pos = -1
         self.push_undo_state()

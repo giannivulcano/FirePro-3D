@@ -68,6 +68,13 @@ class _RecCtl:
     def restore(self, records):
         self.events.append(("restore", records))
 
+    # Copy-path surface (CS1 Task 10): copies carry no records here.
+    def internal_records(self, items):
+        return []
+
+    def paste_records(self, records, uid_map, mirror_axis=None):
+        self.events.append(("paste_records", list(records or [])))
+
     def kinds(self):
         return [e[0] for e in self.events]
 

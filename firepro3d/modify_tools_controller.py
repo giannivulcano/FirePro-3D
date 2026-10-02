@@ -217,7 +217,9 @@ class ModifyToolsController:
         data = s._clipboard_item_dicts(items)
         payload = {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION,
                    "base": [base.x(), base.y()],
-                   "scene_role": s.scene_role, "items": data}
+                   "scene_role": s.scene_role, "items": data,
+                   # §8: constraints internal to the copied set (remapped on paste)
+                   "constraints": s.constraint_ctl.internal_records(items)}
         text = json.dumps(payload)
         clip = QApplication.clipboard()
         clip.setText(text)
@@ -301,7 +303,9 @@ class ModifyToolsController:
         s = self._scene
         records = s._paste_payload["items"]
         s.clearSelection()
-        new_items = s.paste_items(offset, data=records)
+        new_items = s.paste_items(
+            offset, data=records,
+            constraints=s._paste_payload.get("constraints"))
         skipped = len(records) - len(new_items)
         if new_items:
             s.push_undo_state()
@@ -781,7 +785,9 @@ class ModifyToolsController:
         # selectable kind (2D geometry, text, nodes, gridlines, blocks) copies.
         records = s._clipboard_item_dicts(src)
         s.clearSelection()
-        new_items = s.paste_items(offset, data=records)
+        new_items = s.paste_items(
+            offset, data=records,
+            constraints=s.constraint_ctl.internal_records(src))
         if new_items:
             s.push_undo_state()
         s._selected_items = []
@@ -1071,11 +1077,18 @@ class ModifyToolsController:
         targets = self._reflectable(items)
         if mirror:
             result = []
+            uid_map = {}
             for it in targets:
                 copy = s._add_from_dict(it.to_dict())
                 if copy is not None:
                     copy.manip_reflect(p1, p2)
                     result.append(copy)
+                    uid_map[getattr(it, "_uid", None)] = copy._uid
+            # §8 Mirror: internal constraints follow the copies (CS1 rule in
+            # ConstraintController.paste_records).
+            s.constraint_ctl.paste_records(
+                s.constraint_ctl.internal_records(targets), uid_map,
+                mirror_axis=(p1, p2))
         else:
             with s.constraint_ctl.edit(targets):
                 for it in targets:
@@ -1605,12 +1618,15 @@ class ModifyToolsController:
         copy_src = self._array_targets(src)
         why_empty = self._array_refusal(copy_src)  # before _selected_items clears
         records = s._clipboard_item_dicts(copy_src)
+        # §8: constraints internal to the copied set ride every copy.
+        cons = s.constraint_ctl.internal_records(copy_src)
         created = []
         if v == "polar":
             centre = QPointF(s._array_base)
             step = self.polar_step(float(p["total_deg"]), int(p["count"]))
             for k in range(1, int(p["count"])):
-                new = s.paste_items(QPointF(0, 0), data=records) or []
+                new = s.paste_items(QPointF(0, 0), data=records,
+                                    constraints=cons) or []
                 # Constraint seam (§8): each copy's turn is one edit.
                 with s.constraint_ctl.edit(new):
                     for it in self._rotatable(new):
@@ -1623,7 +1639,7 @@ class ModifyToolsController:
         else:
             for t in transforms:
                 created += s.paste_items(QPointF(t.dx(), t.dy()),
-                                         data=records) or []
+                                         data=records, constraints=cons) or []
         if created:
             s.push_undo_state()
         s._move_ghost = []
