@@ -208,7 +208,7 @@ class Model_View(QGraphicsView):
         the coloured snap-point glyph, both from the shared
         ``paint_snap_indicator`` so this view and the import-dialog preview
         match), the HALO highlight, selection readouts, the rubber band, and the
-        remaining overlays (floor vertex dots, constraint / gridline indicators,
+        remaining overlays (floor vertex dots, gridline spacing indicators,
         dim HUD, ALIGN overlay, array / move ghosts, crosshair).
 
         Grip handles are NOT drawn here: they are the selection manipulator's

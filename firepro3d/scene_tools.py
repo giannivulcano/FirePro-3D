@@ -19,6 +19,7 @@ Tools included:
 
 from __future__ import annotations
 
+import contextlib
 import math
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPen, QBrush, QColor
@@ -870,23 +871,32 @@ class SceneTools:
                 self._scene._show_status("No parallel edge found on target")
                 return
 
-        self._scene.push_undo_state()
-
         items_to_move = [target] + (group[1:] if group else [])
-        for item in items_to_move:
-            if isinstance(item, GridlineItem):
-                if getattr(item, '_locked', False):
-                    self._scene._show_status("Gridline is locked — skipped")
-                    continue
-                # Use move_perpendicular for gridlines
-                # Compute signed perpendicular distance
-                line = item.line()
-                nx, ny = item._perpendicular_vector()
-                dist_signed = delta.x() * nx + delta.y() * ny
-                item.move_perpendicular(dist_signed)
-            else:
-                item.moveBy(delta.x(), delta.y())
+        # Constraint seam (parametric-constraint-system.md §8): the move is
+        # one edit; the context exits (solve) before the single undo push.
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        with (ctl.edit(items_to_move) if ctl is not None
+              else contextlib.nullcontext()):
+            for item in items_to_move:
+                if isinstance(item, GridlineItem):
+                    if getattr(item, '_locked', False):
+                        self._scene._show_status("Gridline is locked — skipped")
+                        continue
+                    # Use move_perpendicular for gridlines
+                    # Compute signed perpendicular distance
+                    nx, ny = item._perpendicular_vector()
+                    dist_signed = delta.x() * nx + delta.y() * ny
+                    item.move_perpendicular(dist_signed)
+                elif hasattr(item, "translate"):
+                    # Translate contract: 2D primitives keep pos() == (0,0)
+                    # and move their internal coordinates.
+                    item.translate(delta.x(), delta.y())
+                elif hasattr(item, "manip_translate"):   # Text (D7)
+                    item.manip_translate(delta.x(), delta.y())
+                else:
+                    item.moveBy(delta.x(), delta.y())
 
+        self._scene.push_undo_state()
         self._scene._show_status("Aligned")
         for v in self._scene.views():
             v.viewport().update()
