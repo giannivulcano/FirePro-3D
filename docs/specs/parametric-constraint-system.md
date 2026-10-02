@@ -1,6 +1,6 @@
 ---
 status: proposal          # designed + grilled 2026-09-29, unbuilt. The prototype this file used to describe (constraints.py: Concentric/Dimensional/Alignment + iterative solver) is RETIRED by Session 1 (§12) — see §2 "As-built (to be retired)".
-last-verified: 2026-09-30  # ribbon-surface wording re-pointed at the permanent Block Editor tab (feat/block-editor-ribbon-tab); §2 as-built files unchanged since 2e511cd (git diff empty for constraints.py / geometry_2d.py / the geo2d constraints group); prior 2026-09-29
+last-verified: 2026-10-01  # CS1 Phase 2/3 deltas: D21–D27 added (FP1 questions + both §10 mockup gates passed), §2 re-derived at 406747b (12 solve sites, Set Origin/marker/bbox-TL default, reference-line drop), §5.3 handle↔grip map, §6 uid/schema/migration clarifications, Horizontal row pinned; prior 2026-09-30 ribbon-surface wording re-pointed at the permanent Block Editor tab (feat/block-editor-ribbon-tab); §2 as-built files unchanged since 2e511cd (git diff empty for constraints.py / geometry_2d.py / the geo2d constraints group); prior 2026-09-29
 verified-commit: 44325e5  # prior 2e511cd — as-built §2 claims checked against that HEAD (feat/nested-blocks)
 applies-to:
   - firepro3d/constraints.py            # as-built prototype — retired in Session 1
@@ -51,13 +51,13 @@ Every row below was ratified by the user at a human gate (P5). "Ref-spec" = the 
 | D7 | **A dimensional constraint is a persisted readout:** same painter/style as the selection readouts, always visible in the editor (never on instances/prints). Created by the Smart Dimension tool **or** by clicking a lock glyph beside a transient readout ("promote"). Driving by default; **Driving/Reference is one boolean**. A permanent dim suppresses the duplicate transient readout. | Ref-spec §8's "annotation engine" does not exist (persistent dimensions were deleted under C1/C8); replaced by the readout layer. |
 | D8 | **Snaps never create constraints. No snap journal.** | Drops ref-spec §10's journal. |
 | D9 | **Admit + flag:** a redundant or conflicting constraint is added and shown amber/red (not refused at the gate). | Same as ref-spec §7.5. |
-| D10 | **State display:** glyphs + dims coloured by state (amber redundant, red conflicting); **DOF badge**; geometry **tint** by state (under-defined = the theme **accent** token — blue in light, green in dark; fully defined = ink; conflicting = red) behind an Inspect toggle, default on, editor only. During a conflict the geometry **holds its last good solution** (no least-squares compromise). | Adds hold-last-good. |
+| D10 | **State display:** glyphs + dims coloured by state (amber redundant, red conflicting); **DOF badge**; geometry **tint** by state (under-defined = ~~the theme **accent** token~~ the `constraint_free` token — **amended by D26**; fully defined = ink; conflicting = red) behind an Inspect toggle, default on, editor only. During a conflict the geometry **holds its last good solution** (no least-squares compromise). | Adds hold-last-good. |
 | D11 | **SolidWorks is the behaviour reference:** boxed relation glyphs beside geometry (toggle, default on), hover a glyph → its targets glow, click → select, Delete removes it; selecting an entity lists its constraints in the property panel. SolidWorks constraint catalogue + names are the baseline. | — |
 | D12 | **Selection-first** constraint buttons (enabled only when the selection is valid for that type); with nothing selected a button enters a pick mode. **One Smart Dimension tool** (tool-first) infers the dim kind from the picks + label placement. | — |
 | D13 | **"Mirror" = the Symmetric constraint only.** Mirror stays an unlinked copy tool in the scene/Modify tools; no linked "Mirror Entities". | Ref-spec had Symmetric as Tier 2; promoted. |
 | D14 | **One constraint type per session**, in the §12 order; Session 1 = foundation + Horizontal and retires the old system. | Replaces ref-spec §12 phasing. |
 | D15 | **Ribbon:** two new groups on the Block Editor tab **after Modify** — **Constrain** (large Smart Dimension + small buttons stacked 3/column in build order) and **Inspect**. **No greyed placeholders** — each session adds its own button. *(2026-09-30: the Block Editor page is now a permanent base tab — `ribbon-bar.md` §3.4 — not a contextual page; its Definition group's disabled **Edit Attributes** button is an explicit user-ratified exception to this rule. The rule still binds the Constrain / Inspect groups.)* | Ref-spec wanted greyed Tier-2 buttons; forbidden by `icon-style-guide.md` §7. |
-| D16 | **Icons:** 48-unit on-contract (two-token); **one symbol SVG per constraint** used at ribbon (54/27 px), canvas glyph (~16 px, boxed) and panel list; whole family designed up-front as a mockup-gated contact sheet in Session 1. | — |
+| D16 | **Icons:** ~~48-unit~~ on-contract (two-token; canvas **amended by D25** → the 40-unit §5.1 family); **one symbol SVG per constraint** used at ribbon (the live large/small sizes owned by `ribbon-bar.md` §3.1), canvas glyph (16 px, boxed) and panel list; whole family designed up-front as a mockup-gated contact sheet in Session 1. | — |
 | D17 | **Operations on constrained geometry:** §8 table. Move/Rotate/Scale of **grounded** geometry is **refused** (SolidWorks model). | New. |
 | D18 | **Bars** on a 200-primitive / 300-constraint block: drag re-solve ≤ 8 ms/mouse-move; add-constraint/commit (solve + diagnostics) ≤ 50 ms; open (load + first solve) ≤ 200 ms; residual ≤ 1e-6 mm linear, 1e-9 rad angular; a driving dim never displays a value different from what was typed. | New. |
 | D19 | **UI term = "Constraints"** everywhere (group "Constrain", toggle "Show Constraints", panel "Constraints", status "Over-constrained: …"); individual type names follow SolidWorks. | — |
@@ -72,17 +72,32 @@ Brainstorm (Phase 3) decisions, approved by the user in the design presentation:
 | B3 | File format §6 (primitive `uid`, `HandleRef`, constraint record, additive key, forward-compatible inert records). |
 | B4 | Residual catalogue §7.3 (corrects ref-spec angle / tangent / parallel / equal forms). |
 
+Session-1 delta decisions (2026-10-01 `/todo` CS1 run — Phase 2 FP1 questions + the two §10 mockup gates, each ratified by the user at that gate):
+
+| # | Decision |
+|---|---|
+| D21 | **Pick mode = hover markers.** With nothing selected a constraint button enters pick mode: every participating primitive's handles (§5.1) show as hollow square markers; hovering highlights the nearest handle (filled accent) or, before the first point pick, the nearest edge within the pick tolerance (accent glow); clicks accumulate picks until the type's arity is met, then the constraint is added. Status bar: "Horizontal: pick 2 points or 1 edge (n/2) · Esc to cancel". **Selection-first** applies only to a single selected whole-item edge (a line or reference line). Selection stays item-level — no handle selection in the selection model. |
+| D22 | **Applying a constraint = pure least-change solve:** every variable's goal is its current value, weight 1 (no anchor rule). A tilted line made Horizontal moves both ends to their mean Y. |
+| D23 | **Reference lines persist in definitions:** every reference line (printed or not) is saved in the definition and re-seeded on reopen (`reference_line` joins the definition primitive factory); compile renders only printed ones. Constraints on reference lines therefore survive Save. (Fixes the pre-existing drop — §2.) |
+| D24 | **Create Block from selection:** the selection's **bounding-box centre** is the base point — translated to (0,0) on seed; the replaced plan instance is placed at that centre so nothing moves visually. The plan placement point is decoupled from the definition origin (always (0,0), D4). |
+| D25 | **Icon grammar (amends D16):** the constraint family joins the **40-unit Modify/2D-geo family** (`icon-style-guide.md` §5.1 — 40-unit `viewBox`, ink stroke 2.4, accent = the relation, white-centred rings where markers appear), not the 48-unit canvas: it sits beside Modify on the same tab. Approved shapes (contact sheet, real loader, both themes): Smart Dimension = accent dim line + arrowheads between two ink witness lines; Horizontal / Vertical = a bare accent line; Coincident = two ink lines meeting at an accent ring; Concentric = ink outer + accent inner circle; Symmetric = dashed ink axis + mirrored accent points; Fix = accent ground line + ink hatch; Parallel = two accent slants; Perpendicular = ink legs + accent right-angle mark; Equal = two accent parallel lines; Tangent = ink circle + accent tangent line; Midpoint = ink line + accent mid ring; Collinear = two ink segments + dashed accent bridge; Inspect: Show Constraints (eye + glyph box), Constraint Status (half-accent triangle), Delete Constraints (glyph box + accent ✕). Files `constraint_<type>_icon.svg`. |
+| D26 | **Tint token (amends D10):** under-defined geometry tints with a **new `constraint_free` theme token** (blue — dark `#5B8CFF`, light `#2357D9`), not `accent`: `selection == accent` in both themes, so an accent tint would read as "selected". Fully defined = `ink`; conflicting = `danger`. The tint never overrides the selection colour on a selected item. |
+| D27 | **Canvas + panel metrics (gate 2):** glyph icon 16 px, box padding 2 px, radius 3 px, `surface` fill, `line_strong` 1 px border (hover → `selection_hover`, selected → `selection`, CS2 states → `warn` / `danger`), centred 12 px off its geometry on the side away from the entity centroid, several glyphs on one anchor laid out side by side; pick markers hollow squares half-size 4 px, edge pick tolerance 6 px; X/Y axes `muted` at alpha 0.22, dash-dot `[12,4,2,4]`, non-printing; Constraints panel rows 28 px (icon · type + targets · Suppress · Delete). Constants live in `theme.M` (`CONSTRAINT_*`, `PROP_CONSTRAINT_ROW_H`). |
+
 ## 2. As-built (to be retired in Session 1)
 
-Checked at `2e511cd`. This is what exists today; none of it survives Session 1.
+Checked at `2e511cd`; **re-derived at `406747b` (2026-10-01 CS1 grounding)** — the additions below that check are marked *(406747b)*. This is what exists today; none of it survives Session 1.
 
 - `firepro3d/constraints.py` — `Constraint` base (`solve(moved_item)`, `involves`, `visual_points`, `to_dict(item_to_id)`, factory `from_dict` on `constraint_type`), `ConcentricConstraint` (writes `_center`), `DimensionalConstraint` (grip indices + `apply_grip`), `AlignmentConstraint` (moves target via `moveBy`, breaking the primitives' pos-identity convention), `solve_constraints` (≤20 Gauss-Seidel passes, stall after 3).
 - Scene state on `Model_Space`: `_constraints`, `_constraint_circle_a`, `_constraint_grip_a`, `_align_padlocks`; modes `constraint_concentric` / `constraint_dimensional` → `_press_constraint`; ids = index into `SceneTools._all_geometry_items()`; captured only into undo snapshots (`_capture_constraints` / `_restore_network`).
-- `SceneTools._solve_constraints` call sites: `manip_handle` grip drag/release, `selection_manipulator` move/resize bake, `modify_tools_controller.commit_rotate`, paste/move commit, `model_view.mouseDoubleClickEvent` (dim edit). **Not** called from readout commits or panel `_dim_edit`.
+- `SceneTools._solve_constraints` call sites *(406747b: 12, not the 7 first listed)*: `manip_handle` `GripHandle.on_drag` / `on_release`; `selection_manipulator` `_bake_move` / `_bake_scale`; `modify_tools_controller` `commit_rotate`, `commit_reflect` (Flip, in-place branch), `commit_scale`, `commit_array` (Polar branch); `Model_Space.move_items` (Move only — Paste does **not** solve); `model_view.mouseDoubleClickEvent` (dim edit); and the two legacy constraint click handlers in `scene_tools`. **Not** called from readout commits, panel `_dim_edit`, `paste_items` or `commit_duplicate`.
+- *(406747b)* Also retired with the module: the lazy `"Constraint"` export in `firepro3d/__init__.py`, the `"constraints"` entry in `docs/gen_ref_pages.py`, the mode labels / cursors / `_initial_steps` text for the two constraint modes (remove `_PRESS_DISPATCH` rows and `_MODE_LABELS` together — `test_badge_has_a_friendly_label_for_every_dispatched_mode` pairs them), and the `mouseDoubleClickEvent` dimensional-edit block.
+- *(406747b)* **Block-editor origin (D4 retirement surface):** the **Set Origin** tool (`set_origin` mode, `originPicked` signal, `_press_set_origin`, ribbon button — its `insert_block_icon.svg` is shared, keep the file), the movable **red origin marker** (`BlockEditorWidget._ensure_origin_marker`, `_block_origin_marker_item`, its snap-target registration), and the **bounding-box top-left default** of `BlockEditorWidget.origin_point()` (new definitions get a non-zero origin today). The white (0,0) cross (`Model_Space.draw_origin`) stays — it is the D3/D4 origin.
+- *(406747b)* **Reference lines are not persisted** (fixed by D23): the definition primitive factory has no `reference_line` key, so a printed reference line is saved but skipped by compile and dropped on reopen, and a non-printed one is not saved at all.
 - `_PadlockItem` (scene_tools) creates `AlignmentConstraint` after an Align move — session-only (not saved, dropped on load, wiped by undo).
 - `main.py` `_build_geo2d_constraints_group` (`_GEO2D_CONSTRAINT_TOOLS` + disabled placeholders) lives on the plan-scene 2D-geometry contextual tab, never shown in the Block Editor.
 - `scene_io` discards any `constraints` payload (C8 clean-drop).
-- **Divergences / latent bugs found during grounding** (filed as follow-ups; most dissolve with the retirement): (a) `Model_View.drawForeground` §3b reads `c.item_a` on every constraint — a Concentric/Alignment constraint raises `AttributeError` and skips the rest of the foreground paint; (b) geo2d Constraints buttons call `self.scene.set_mode` (plan scene) not `_active_scene()`; (c) Block Editor constraints are lost on Save (`commit_block` carries only primitives + origin); (d) `explode_selected_items` drops a **closed** polyline's closing segment (independent of constraints — survives the retirement).
+- **Divergences / latent bugs found during grounding** (filed as follow-ups; most dissolve with the retirement): (a) `Model_View.drawForeground` §3b reads `c.item_a` on every constraint — a Concentric/Alignment constraint raises `AttributeError` and skips the rest of the foreground paint; (b) geo2d Constraints buttons call `self.scene.set_mode` (plan scene) not `_active_scene()`; (c) Block Editor constraints are lost on Save (`commit_block` carries only primitives + origin); (d) `explode_selected_items` drops a **closed** polyline's closing segment (independent of constraints — survives the retirement); *(406747b)* (e) `scene_io._clear_scene` resets `_constraints` but not `_align_padlocks`, so the next undo restore after New/Open touches deleted padlock items (code-read; dissolves with the retirement).
 
 ## 3. Architecture
 
@@ -150,7 +165,7 @@ Only items referenced by at least one enabled constraint become solver variables
 | Line `draw_line` / reference line `reference_line` | x1 y1 x2 y2 | `p1` `p2` `edge` |
 | Circle `draw_circle` | cx cy r | `center` `curve` |
 | Arc `arc` | cx cy r θs θe | `center` `start` `end` `curve` — endpoints derived through the ArcItem's own Y-up convention (`2d-geometry.md`; Y-up CCW, Qt Y-down scene); write-back keeps `span_deg > 0` |
-| Rectangle `draw_rectangle` | cx cy w h θ | corners/edges/centre named after the **existing 9-grip naming** (`tl tr br bl`, edge names, `center`); derived through the rotation; write-back **canonicalizes to a centre-following pivot** (`pivot: null`) — identical scene geometry |
+| Rectangle `draw_rectangle` | cx cy w h θ | points `tl tm tr rm br bm bl lm center` + edges `top right bottom left` (named in §5.3 — the grips are index-only in code); derived through the rotation; write-back **canonicalizes to a centre-following pivot** (`pivot: null`) — identical scene geometry |
 | Polyline `polyline` | 2 per vertex | `v<i>` `s<i>` (closing segment of a closed polyline included) |
 | Polygon `polygon` | cx cy R rot | `center` |
 | Ellipse `draw_ellipse` | cx cy rx ry rot | `center` |
@@ -164,11 +179,27 @@ Rotation of text/instances is not a variable in v1. Handle *kinds* (point / line
 
 `v<i>` indices are positional. Any operation that inserts or removes vertices renumbers the affected `HandleRef`s; constraints on a removed vertex/segment cascade-delete (one undo step with the edit).
 
+### 5.3 Handle names ↔ grip indices (pinned 2026-10-01, file-format)
+
+Grips are identified in code by an integer index into `item.grip_points()`; `sketch_adapters` owns the one map from handle name to grip index (the drag seam reports the index, the solver speaks names).
+
+| Primitive | Grip index → handle |
+|---|---|
+| Line / reference line | 0 → `p1`, 2 → `p2` (1 = the translate grip, not a handle); edge `edge` |
+| Rectangle | 0 `tl`, 1 `tm`, 2 `tr`, 3 `rm`, 4 `br`, 5 `bm`, 6 `bl`, 7 `lm`, 8 `center` — in the rect's **local** frame (`top` = local min-y, Qt Y-down), mapped through θ; edges `top` (tl→tr), `right` (tr→br), `bottom` (br→bl), `left` (bl→tl) |
+| Circle | 0 `center` (1–4 are radius grips → the `curve`) |
+| Arc | 0 `center`, 1 `start`, 2 `end` |
+| Polyline | i → `v<i>`; segment `s<i>` = `v<i>`→`v<i+1>` (closing `s<n-1>` = `v<n-1>`→`v0` when closed) |
+| Polygon / ellipse | 0 → `center` |
+| Text / nested instance | the move grip → `ins` (text: its `pos()`, the only primitive whose geometry is not pos-identity) |
+
+**Pivot canonicalization** (§5.1 rectangle row) happens only on a solver write-back; an unconstrained grip drag keeps today's `RectGripHandle` pivot behaviour.
+
 ## 6. File format
 
 ### 6.1 Primitive ids
 
-Every primitive dict, including `block_instance` records, gains **`"uid"`** (uuid4 hex). Assigned at creation and carried as `item._uid`; survives undo snapshots, Save and reopen. Legacy dicts without one are assigned one on load. Copy / Paste / Duplicate / Array / Mirror mint **new** uids (§8). This also replaces the list-index ids the undo snapshot uses for constraints today.
+Every primitive dict, including `block_instance` records, gains **`"uid"`** (uuid4 hex). Assigned at creation and carried as `item._uid`; survives undo snapshots, Save and reopen. Legacy dicts without one are assigned one **when the item is built from the dict** (`from_dict` reads `uid` if present, else mints) — `BlockDefinition.from_dict` keeps primitive dicts verbatim, so a definition round-trip never rewrites them; a legacy definition gains uids on its next save. Copy / Paste / Duplicate / Array / Mirror / Offset / block Explode mint **new** uids (§8) at the one choke point they share (`Model_Space._add_from_dict`, plus `place_block_instance` for instances); undo restore, project load and editor seeding **carry** the uid (instances included — their restore path must not drop it). The clipboard payload keeps the source uid (minting happens on paste). This also replaces the list-index ids the undo snapshot uses for constraints today.
 
 ### 6.2 HandleRef
 
@@ -176,7 +207,7 @@ Every primitive dict, including `block_instance` records, gains **`"uid"`** (uui
 
 ### 6.3 Constraint record
 
-Stored in a new `BlockDefinition` key **`"constraints": [...]`** — additive; absent ⇒ `[]`; **no `schema` bump** (the nested-blocks design reserves schema 2).
+Stored in a new `BlockDefinition` key **`"constraints": [...]`** — additive; absent ⇒ `[]`; **no `schema` bump**. *(2026-10-01: schema 2 is not merely reserved — library files that bundle nested blocks are already written with `schema: 2`; the additive key is still safe because `BlockDefinition.from_dict` ignores `schema`. `from_dict` currently drops unknown top-level keys, so `constraints` must be a real field, not a pass-through.)*
 
 ```json
 {"id": "<uuid hex>", "type": "horizontal", "refs": [ {HandleRef}, ... ],
@@ -196,7 +227,7 @@ Stored in a new `BlockDefinition` key **`"constraints": [...]`** — additive; a
 
 ### 6.5 Origin migration (D4)
 
-Opening a definition whose `origin ≠ (0,0)` translates its primitives by `−origin` and writes `origin: [0,0]` on the next save. Instances render identically (compile already applies `translate(−origin)`). The `origin` field becomes a vestigial constant; its removal is a later schema cleanup.
+Opening a definition whose `origin ≠ (0,0)` translates its primitives by `−origin` (nested `block_instance` records' `pos` included) and writes `origin: [0,0]` on the next save. Instances render identically (compile already applies `translate(−origin)` — verified at `406747b`). The `origin` field becomes a vestigial constant; its removal is a later schema cleanup. The editor's bounding-box top-left origin default is retired with Set Origin; **Create Block from selection** uses the bbox **centre** as its base (D24); DXF/PDF import into the editor maps its base point to (0,0) unconditionally.
 
 ## 7. Solver
 
@@ -253,6 +284,8 @@ Damped Gauss–Newton iterations until `F` meets the D18 tolerances. **Constrain
 
 Each session pins its row (argument meaning, helper fields, degenerate cases) before building; the pinned row is file-format.
 
+**Pinned — Horizontal (Session 1, 2026-10-01):** `refs` = `[edge]` (`edge` / `s<i>` / a rectangle edge) **or** `[point, point]` (any two §5.3 point handles, or one point + `{"ref":"origin"}` ⇒ the point lies on the X axis); order is not significant (the residual is symmetric). `helper` = `{}`, `value` = `null`. Raw-variable cases (line / reference line / polyline points, text / instance `ins`, circle / arc / polygon / ellipse `center`, origin) are **substituted** (`y_b := y_a`, origin ⇒ `y := 0`); handles derived through other variables (rectangle points/edges via θ, arc `start`/`end` via θ) add a **row**. Applying it is a D22 least-change solve. Degenerate: a zero-length edge is accepted (trivially satisfied); two refs naming the same handle are refused at the pick (status "Pick a different point").
+
 ### 7.4 Diagnostics (on commit, not per drag frame)
 
 - **DOF** per component = variables − rank(J) (SVD, relative tolerance); substituted variables counted; the sketch DOF is the sum. **Fully defined** ⇔ DOF = 0 — which includes grounding, because the origin/axes are constants.
@@ -266,11 +299,11 @@ Each session pins its row (argument meaning, helper fields, degenerate cases) be
 |---|---|
 | Delete an entity | Every constraint touching it cascade-deletes; one undo step. |
 | Grip drag / typed readout / property-panel edit | Through the solver (§7.2). Readout + panel edits no longer bypass constraints. |
-| Move / Rotate / Scale a selection | Moved handles become drag goals; the rest re-solves. **Refused** (dry-run first, nothing mutated) if the selection is grounded — status bar: "Selection is fully defined — remove Fix/grounding constraints to move". |
+| Move / Rotate / Scale a selection | Moved handles become drag goals; the rest re-solves. **Refused** (dry-run first, nothing mutated) if the selection is grounded — status bar: "Selection is fully defined — remove Fix/grounding constraints to move". *(2026-10-01: with Horizontal as the only built type a selection can never be fully defined — X stays free — so the refusal is unreachable in Session 1. Session 1 ships the dry-run seam; the refusal and its E2E guard land with the first session that can ground a selection, CS3 Coincident-to-origin.)* |
 | Copy / Paste / Duplicate / Array | New uids; constraints **internal** to the copied set are copied and remapped; constraints to anything outside (including origin/axes) are dropped. |
 | Mirror (scene tool, D13) | As Copy; internal constraints reflected (H/V preserved; Symmetric pairs preserved). |
 | Offset | New geometry, no constraints. |
-| Trim / Extend / Break / Fillet / Join / Explode | The consumed entities' constraints are dropped; results start free; status bar "N constraints removed". Smart remapping deferred. |
+| Trim / Extend / Break / Fillet / Join / Explode | The consumed entities' constraints are dropped; results start free; status bar "N constraints removed". Smart remapping deferred. *(406747b: Trim/Extend/Break/Fillet/Chamfer/Join and geometry Explode have no ribbon button or shortcut — guarded by tests only until reachable; the Block Editor's Explode is block-only, and exploding a nested instance drops the constraints on its `ins`.)* |
 | Block Save → instances | Frozen (D2); compile unchanged. |
 
 ## 9. Performance (D18) — P4 probe, 2026-09-29
@@ -293,8 +326,9 @@ Consequence: component partitioning **and** equality substitution are Session-1 
 - **Canvas (D10/D11):** origin cross + non-printing X/Y axes (pickable targets); boxed ~16 px constraint glyphs beside their geometry (screen-constant, non-printing); persisted dims via `readout_paint`; state colours + tint. **Pick order:** grips > dim labels > glyphs > origin/axes > HALO geometry. Hover a glyph → its targets glow; click selects it; Delete removes it.
 - **Property panel:** a **Constraints** container for the selected entity/constraint — rows: icon, type name, targets, value (editable for dims), Driving/Reference, Suppress, Delete; sketch DOF shown.
 - **Status bar:** "Over-constrained: …", refusal and "N constraints removed" messages.
-- **Icons (D16):** `firepro3d/graphics/Ribbon/`, 48-unit two-token per `icon-style-guide.md`, one symbol per type reused for ribbon/glyph/panel; guarded by `tests/test_icon_theming.py`.
-- **Mockup gates (Session 1, before code):** (1) the full icon-family contact sheet rendered through the real loader at 54/27/16 px, light + dark; (2) the Constraints panel container + canvas glyph/tint look. Both served as interactive mockups for sign-off.
+- **Icons (D16/D25):** `firepro3d/graphics/Ribbon/constraint_<type>_icon.svg`, the 40-unit §5.1 two-token family, one symbol per type reused for ribbon/glyph/panel; guarded by a `_CONSTRAINT_ICONS` list in `tests/test_icon_theming.py`. The whole approved family is committed in Session 1 (D16 designs it up front); each type's button still ships only with its session (D15).
+- **Pick mode (D21)** and the canvas/panel metrics (D27); tint colours (D26).
+- **Mockup gates (Session 1, before code): both PASSED 2026-10-01.** (1) Icon-family contact sheet rendered through the real loader at the live ribbon large/small sizes + the 16 px glyph, light + dark, plus a live `RibbonBar.grab()` beside the shipped Modify icons → grammar B + eight redraws (D25). (2) Interactive canvas + panel mock (pick mode, glyph hover/select/Delete, tint candidates, panel rows) → D26/D27.
 
 ## 11. Per-session done contract (D20)
 
