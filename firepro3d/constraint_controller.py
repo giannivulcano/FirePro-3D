@@ -181,6 +181,7 @@ class ConstraintController:
         self._scene_gen = 0
         self._sel_gen = 0
         self._frames: dict = {}                # id(view) -> (key, _Frame)
+        self._drag_extra: list = []            # body-drag selection items outside the ctx
         # Zero-arg callbacks run when the constraint selection / list changes
         # (the ribbon's Delete Constraints enable state, main.py).
         self.state_listeners: list = []
@@ -676,28 +677,86 @@ class ConstraintController:
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
+        self._drag_extra = []
 
-    def begin_drag(self, item) -> None:
-        """Open a grip-drag session on *item* (any stale session is dropped)."""
+    @property
+    def dragging(self) -> bool:
+        """Whether a drag session (grip or D35 body drag) is open."""
+        return self._drag_snap is not None
+
+    def begin_drag(self, items) -> None:
+        """Open a drag session (any stale session is dropped).
+
+        Args:
+            items: The grip drag's item, or (D35) a body / resize drag's whole
+                selection. No session opens unless one of them is constrained.
+        """
         self._end_session()
-        if not (self.enabled and self.touches([item])):
+        items = (list(items) if isinstance(items, (list, tuple, set, frozenset))
+                 else [items])
+        if not (self.enabled and self.touches(items)):
             return
-        self._drag_snap = self._snapshot()
-        self._last_good = self._drag_snap
+        self._drag_snap = self._snapshot(items)
         self._drag_ctx = self._build(self.active())
+        slots = self._drag_ctx[1]
+        # Adapter-backed selection items outside the solve (unconstrained):
+        # part of last-good so a held conflict holds the whole selection.
+        self._drag_extra = [(k, it) for k, (it, _v) in self._drag_snap.items()
+                            if k not in slots]
+        self._last_good = self._good_state()
+
+    def _good_state(self) -> dict:
+        """Current values of the session's items. From the cached slots (=
+        every constrained item) plus the body selection's extras: no per-frame
+        rescan of the scene lists (D18 drag bar)."""
+        good = {u: (it, list(ad.read(it)))
+                for u, (it, ad, _off) in self._drag_ctx[1].items()}
+        for k, it in self._drag_extra:
+            good[k] = (it, list(adapter_for(it).read(it)))
+        return good
 
     def drag(self, item, grip_index: int) -> None:
         """One drag frame: *item*'s grip was applied; pin it and re-solve."""
         if self._drag_snap is None:
             return
         if self._solve(edited=(item,), pin=(item, grip_index), ctx=self._drag_ctx):
-            # From the cached slots (= every constrained item): no per-frame
-            # rescan of the scene lists (D18 drag bar).
-            self._last_good = {u: (it, list(ad.read(it)))
-                               for u, (it, ad, _off) in self._drag_ctx[1].items()}
+            self._last_good = self._good_state()
         else:
-            self._restore(self._last_good)      # D10 hold last good
-            self._report_conflict()
+            self.hold_last_good()               # D10 hold last good
+
+    def drag_frame(self, items, apply, *, reset: bool = True) -> bool:
+        """One D35 body / resize drag frame on the open session.
+
+        Args:
+            items: The dragged selection: ``W_EDIT`` goals of the solve (D34
+                translate-first applies).
+            apply: Zero-arg callable that applies the frame's delta to the
+                real geometry (the release bake's own path).
+            reset: Restore the session snapshot first, so *apply* applies the
+                gesture's TOTAL delta (a body move); False = *apply* is
+                incremental (a resize).
+
+        Returns:
+            True when solved (written back, now last-good). False = a
+            conflict: nothing was written beyond *apply*; the caller undoes
+            any non-adapter part of *apply*, then calls :meth:`hold_last_good`.
+            Without a session *apply* just runs (True).
+        """
+        if self._drag_snap is None:
+            apply()
+            return True
+        if reset:
+            self._restore(self._drag_snap)
+        apply()
+        if self._solve(edited=list(items), ctx=self._drag_ctx):
+            self._last_good = self._good_state()
+            return True
+        return False
+
+    def hold_last_good(self) -> None:
+        """D10: restore the session's last good state and report the conflict."""
+        self._restore(self._last_good)
+        self._report_conflict()
 
     def end_drag(self) -> None:
         """Close the drag session (the caller then pushes undo)."""

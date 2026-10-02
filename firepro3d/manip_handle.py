@@ -142,8 +142,13 @@ class ResizeHandle(Handle):
         moved = m._moved
         factors = m._last_factors
         from_center = m._last_from_center
+        live = m._live                  # D35: the geometry is already live
         m._restore_preview()
         m._end_drag()
+        if live is not None:
+            m._live_release(live, "resize", moved and any(
+                abs(f - 1.0) > 1e-12 for f in factors))
+            return
         if moved:
             m._bake_scale([r[0] for r in m._items0_at_press], self.role,
                           factors, m._R0_at_press, m._B0_at_press,

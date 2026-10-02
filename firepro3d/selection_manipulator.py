@@ -5,6 +5,11 @@ Governing spec: docs/specs/selection-manipulator.md. One instance per scene
 transform, bakes real coordinates on release via each item's ``manip_*``
 capability methods. Parametric grips (grip_points/apply_grip) are untouched
 and render via Model_View.drawForeground inside this frame.
+
+D35 (parametric-constraint-system.md): a body / box-native resize drag whose
+selection touches an active constraint applies LIVE instead -- every frame
+bakes the delta into the real geometry inside a constraint drag session and
+re-solves, so constrained partners follow; see :class:`_LiveDrag`.
 """
 
 from __future__ import annotations
@@ -54,6 +59,28 @@ class _NullCtl:
     @contextlib.contextmanager
     def edit(self, items):
         yield
+
+
+class _LiveDrag:
+    """D35 live-apply state of one body (move) / resize gesture.
+
+    The controller's drag session owns every adapter-backed item's values
+    (snapshot, last good, exact Esc restore). Items with no adapter (never
+    constrained, so never solved) are tracked here by the delta / factors
+    already applied to them.
+    """
+
+    def __init__(self, ctl, items):
+        from .sketch_adapters import adapter_for
+        self.ctl = ctl
+        self.items = list(items)
+        self.ad_items = [it for it in self.items if adapter_for(it) is not None]
+        self.other = [it for it in self.items if adapter_for(it) is None]
+        self.applied = (0.0, 0.0)        # move: delta on self.other
+        self.good = (0.0, 0.0)           # move: last solved delta
+        # resize (single box-native item): (fx, fy, anchor) applied / good
+        self.f_applied = (1.0, 1.0, None)
+        self.f_good = (1.0, 1.0, None)
 
 
 # App-wide, user-tunable (Preferences); read at call time. AutoCAD GRIPOBJLIMIT
@@ -370,6 +397,7 @@ class SelectionManipulator(QGraphicsObject):
         self._held_snap = None
         self._handle_snap = None      # S2 HandleSnapSession (per move gesture)
         self._handle_marker = None    # S2 snap result this manipulator published
+        self._live: Optional[_LiveDrag] = None   # D35 live-apply gesture
 
         # Dynamic-input HUD (live readout + typed-input surface), owned per
         # gesture.  Distinct from the scene's placement HUD (``dynamic_input``)
@@ -974,6 +1002,9 @@ class SelectionManipulator(QGraphicsObject):
         # handles' commit_typed bake from these (spec baked-at-rest rule).
         self._typed_r0 = QRectF(self._R0)
         self._typed_b0 = QTransform(self._B0)
+        # D35: a live gesture's geometry goes back to rest first; the typed
+        # bake then applies the exact values through the constraint seam.
+        self._live_cancel()
         self._restore_preview()
         self._typed_items = [rec[0] for rec in self._items0]
         self._end_drag()
@@ -1033,6 +1064,8 @@ class SelectionManipulator(QGraphicsObject):
         # old->new undo commands (model scene passes no press_hook).
         if self._press_hook is not None:
             self._press_hook([rec[0] for rec in self._items0])
+        self._live = (self._open_live([rec[0] for rec in self._items0])
+                      if mode in ("move", "resize") else None)
         if self._active_handle is not None and mode != "grip":
             self._active_handle.on_press(self)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -1097,8 +1130,14 @@ class SelectionManipulator(QGraphicsObject):
 
     def _apply(self, d: QTransform) -> None:
         """Held-transform preview: prepend the scene-space delta to the frame
-        and to each item's own transform (no geometry edits during drag)."""
+        and to each item's own transform (no geometry edits during drag).
+
+        A D35 live gesture (constrained selection) instead bakes *d* into the
+        real geometry and re-solves (:meth:`_live_apply`)."""
         self._D = d
+        if self._live is not None:
+            self._live_apply(d)
+            return
         self.setTransform(self._B0 * d)
         for it, s0, s0_inv, t0 in self._items0:
             it.setTransform(s0 * d * s0_inv * t0)
@@ -1123,6 +1162,14 @@ class SelectionManipulator(QGraphicsObject):
             self._active_handle.on_release(self, scene_pos, mods)
             if moved:
                 self.rebake()
+        elif self._live is not None:
+            # D35: the geometry is already where the last frame put it --
+            # end the session and push ONE undo (never bake the delta twice).
+            live, d = self._live, QTransform(self._D)
+            self._restore_preview(); self._end_drag()
+            self._live_release(live, "move",
+                               moved and (abs(d.dx()) > 1e-12 or abs(d.dy()) > 1e-12))
+            self.rebake()
         else:
             # Interior move: capture the held delta, restore, then bake.
             d = QTransform(self._D)
@@ -1179,12 +1226,7 @@ class SelectionManipulator(QGraphicsObject):
         One undo per gesture.
         """
         fx, fy = factors
-        u, v, _dx, _dy = _ROLE_GEOM[role]
-        # Fixed anchor: the frame centre for from-centre (Ctrl) resizes, else the
-        # corner opposite the dragged handle — in local coords, then to scene.
-        anchor_local = (r0.center() if from_center
-                        else _rect_point(r0, 1.0 - u, 1.0 - v))
-        anchor = b0.map(anchor_local)
+        anchor = self._scale_anchor(role, r0, b0, from_center)
         sc = self.scene()
         with (getattr(sc, "constraint_ctl", None) or _NullCtl()).edit(items):
             for it in items:
@@ -1198,10 +1240,119 @@ class SelectionManipulator(QGraphicsObject):
         if self._commit_hook is not None:
             self._commit_hook("resize")
 
+    @staticmethod
+    def _scale_anchor(role: HandleRole, r0: QRectF, b0: QTransform,
+                      from_center: bool) -> QPointF:
+        """Scene anchor of a resize: the frame centre for a from-centre (Ctrl)
+        resize, else the corner opposite the dragged handle -- in the resting
+        frame's local coords, mapped to scene through *b0*."""
+        u, v, _dx, _dy = _ROLE_GEOM[role]
+        anchor_local = (r0.center() if from_center
+                        else _rect_point(r0, 1.0 - u, 1.0 - v))
+        return b0.map(anchor_local)
+
+    # ------------------------------------------------- D35 live-apply drag --
+
+    def _open_live(self, items) -> Optional[_LiveDrag]:
+        """D35: open a constraint drag session when the gesture's selection
+        touches an active constraint; else None (the held preview runs,
+        unchanged). A scene without a real controller never goes live."""
+        ctl = getattr(self.scene(), "constraint_ctl", None)
+        if (ctl is None or not getattr(ctl, "enabled", False) or not items
+                or not hasattr(ctl, "drag_frame") or not ctl.touches(items)):
+            return None
+        ctl.begin_drag(items)
+        return _LiveDrag(ctl, items) if ctl.dragging else None
+
+    def _live_apply(self, d: QTransform) -> None:
+        """One live frame: reset to the session snapshot, bake this frame's
+        delta with the release bake's own path (``bake_translate`` /
+        ``manip_scale``), solve with the moved items as edit goals (D34
+        translate-first applies); a conflict holds the last good frame (D10)."""
+        lv = self._live
+        if self._mode == "resize":
+            self._live_resize(lv)
+        else:
+            dx, dy = d.dx(), d.dy()
+
+            def _bake():
+                for it in lv.ad_items:
+                    bake_translate(it, dx, dy)
+            if lv.ctl.drag_frame(lv.items, _bake, reset=True):
+                lv.good = (dx, dy)
+            else:
+                lv.ctl.hold_last_good()
+                dx, dy = lv.good
+            ax, ay = lv.applied
+            for it in lv.other:
+                bake_translate(it, dx - ax, dy - ay)
+            lv.applied = (dx, dy)
+        self._reflow_live()
+
+    def _live_resize(self, lv: _LiveDrag) -> None:
+        """Live resize frame (a single box-native item): undo the applied
+        factors about their anchor, apply this frame's about its own (Ctrl
+        may switch the anchor mid-drag). Incremental -- an adapter reset
+        would not restore the box size."""
+        fx, fy = self._last_factors
+        anchor = self._scale_anchor(self._role, self._R0, self._B0,
+                                    self._last_from_center)
+        if min(abs(fx), abs(fy), abs(lv.f_applied[0]), abs(lv.f_applied[1])) < 1e-9:
+            return                                  # degenerate: hold this frame
+        target = (fx, fy, anchor)
+
+        def _set(frm, to):
+            for it in lv.items:
+                fn = getattr(it, "manip_scale", None)
+                if fn is None:
+                    continue
+                if frm[2] is not None:
+                    fn(1.0 / frm[0], 1.0 / frm[1], frm[2])
+                fn(to[0], to[1], to[2])
+        if lv.ctl.drag_frame(lv.items, lambda: _set(lv.f_applied, target), reset=False):
+            lv.f_applied = lv.f_good = target
+        else:
+            _set(target, lv.f_good if lv.f_good[2] is not None else (1.0, 1.0, anchor))
+            lv.f_applied = lv.f_good
+            lv.ctl.hold_last_good()
+
+    def _live_cancel(self) -> None:
+        """Esc / typed commit / mode change: put a live gesture's geometry
+        back EXACTLY (the session snapshot) and close the session."""
+        lv = self._live
+        if lv is None:
+            return
+        self._live = None
+        fa = lv.f_applied
+        if fa[2] is not None and min(abs(fa[0]), abs(fa[1])) > 1e-9:
+            for it in lv.items:
+                fn = getattr(it, "manip_scale", None)
+                if fn is not None:
+                    fn(1.0 / fa[0], 1.0 / fa[1], fa[2])
+        ax, ay = lv.applied
+        for it in lv.other:
+            bake_translate(it, -ax, -ay)
+        lv.ctl.cancel_drag()                 # adapter items + partners: snapshot
+        self._reflow_live()
+
+    def _live_release(self, lv: _LiveDrag, kind: str, changed: bool) -> None:
+        """Release: the last frame stands -- close the session and push ONE
+        undo through the commit hook (no second bake). An unchanged gesture
+        restores the snapshot exactly and commits nothing."""
+        if not changed:
+            self._live = lv
+            self._live_cancel()
+            return
+        lv.ctl.end_drag()
+        self._refresh_fittings(lv.items)
+        if self._commit_hook is not None:
+            self._commit_hook(kind)
+
     def cancel_drag(self) -> None:
         """Abort the active drag and restore the pre-drag state (no commit)."""
         if self._mode is None:
             return
+        self._live_cancel()
         self._restore_preview()
         if self._active_handle is not None:
             self._active_handle.on_cancel(self)
@@ -1210,6 +1361,7 @@ class SelectionManipulator(QGraphicsObject):
 
     def _end_drag(self) -> None:
         self._mode = None
+        self._live = None
         self._moved = False
         self._items0 = []
         self._held_snap = None

@@ -599,6 +599,12 @@ class ModifyToolsController:
         Rebuilds ``_move_ghost`` (read by ``drawForeground`` block 8) as the
         base silhouette translated by ``target - node_start_pos`` and repaints.
         A no-op before the base point is set.
+
+        The Move TOOL stays commit-only for constrained geometry (D35): this
+        ghost never touches the real items and nothing solves per frame; the
+        destination click commits through ``Model_Space.move_items`` (the
+        constraint ``edit`` seam, one solve). Only the selection
+        manipulator's body / resize drag applies live.
         """
         s = self._scene
         if s.node_start_pos is None:

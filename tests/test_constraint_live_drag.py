@@ -161,19 +161,195 @@ def _constrained_rect_and_line(sc):
 
 # ── D35: a constrained body drag applies live ───────────────────────────────
 
+def test_constrained_body_drag_moves_the_partner_and_glyph_every_frame(be):
+    v, sc = be
+    r, ln, c = _constrained_rect_and_line(sc)
+    ctl = sc.constraint_ctl
+    r.setSelected(True)
+    QApplication.processEvents()
+    br0, p10, p20 = _br(r), QPointF(ln._pt1), QPointF(ln._pt2)
+    g0 = dict(cp.glyph_layouts(v, ctl))[c.id]           # D32: rect selected
+    grab = QPointF(25, 15)                              # interior, off every grip
+    _press(v, grab)
+    for k in range(1, 6):
+        dy = 8.0 * k + 8.0                              # past the drag threshold
+        _move(v, grab + QPointF(0, dy))
+        # The real geometry moved (live, not a held transform). The dragged
+        # selection is a W_EDIT goal (as in the release bake's edit seam), so
+        # it yields ~1/W_EDIT of the partner's correction: 0.05 mm bar.
+        assert r.transform().isIdentity()
+        assert _br(r).y() == pytest.approx(br0.y() + dy, abs=0.05)
+        assert _br(r).x() == pytest.approx(br0.x(), abs=0.05)
+        # ... and the H-tied partner followed this frame.
+        assert ln._pt1.y() == pytest.approx(_br(r).y(), abs=1e-6)
+    # Mid-drag viewport: the glyph box moved with the geometry and is painted.
+    g1 = dict(cp.glyph_layouts(v, ctl))[c.id]
+    assert g1.center().y() - g0.center().y() == pytest.approx(48.0, abs=1.5)
+    assert _glyph_drawn(v, g1)
+    # Pixels: the line's moved end is inked; its old spot is canvas now.
+    img, dpr = _grab(v)
+    bg = _px(img, dpr, QPointF(v.mapFromScene(QPointF(-300, -250))))
+
+    def _on_line(p1, p2, t=0.5):                    # clear of the move HUD
+        return QPointF(v.mapFromScene(p1 + (p2 - p1) * t))
+    def _ink(p):                                    # strongest ink in a 5x5 px window
+        return max(_dist(_px(img, dpr, p + QPointF(i, j)), bg)
+                   for i in range(-2, 3) for j in range(-2, 3))
+    assert _ink(_on_line(QPointF(ln._pt1), QPointF(ln._pt2))) > 60
+    assert _ink(_on_line(p10, p20)) <= 24
+    _release(v, grab + QPointF(0, 48))
 
 
+def test_constrained_body_drag_esc_restores_both_exactly(be):
+    v, sc = be
+    r, ln, _c = _constrained_rect_and_line(sc)
+    r.setSelected(True)
+    QApplication.processEvents()
+    before = ([tuple((p.x(), p.y()) for p in r.grip_points())],
+              (ln._pt1.x(), ln._pt1.y(), ln._pt2.x(), ln._pt2.y()))
+    n_undo = len(sc._undo_stack)
+    grab = QPointF(25, 15)                              # interior, off every grip
+    _press(v, grab)
+    for k in range(1, 4):
+        _move(v, grab + QPointF(3.0 * k, 11.0 * k))
+    assert ln._pt1.y() != pytest.approx(before[1][1])    # it was live
+    _esc(v)
+    after = ([tuple((p.x(), p.y()) for p in r.grip_points())],
+             (ln._pt1.x(), ln._pt1.y(), ln._pt2.x(), ln._pt2.y()))
+    assert after == before                               # exact, no tolerance
+    assert len(sc._undo_stack) == n_undo
+    _release(v, grab + QPointF(9, 33))                   # no dangling gesture
+    assert not sc._live_manip().is_dragging()
+    assert len(sc._undo_stack) == n_undo
 
 
+def test_constrained_body_drag_release_is_one_undo_step(be):
+    v, sc = be
+    r, ln, _c = _constrained_rect_and_line(sc)
+    r.setSelected(True)
+    QApplication.processEvents()
+    br0, p10 = _br(r), QPointF(ln._pt1)
+    n_undo = len(sc._undo_stack)
+    grab = QPointF(25, 15)                              # interior, off every grip
+    _press(v, grab)
+    for k in range(1, 6):
+        _move(v, grab + QPointF(4.0 * k, 6.0 * k))
+        if k >= 2:                                       # past the drag threshold
+            assert ln._pt1.y() == pytest.approx(_br(r).y(), abs=1e-6)   # live
+            assert ln._pt1.y() != pytest.approx(p10.y(), abs=1.0)
+    _release(v, grab + QPointF(20, 30))
+    # Not baked twice: the release left the last frame's geometry.
+    assert _br(r).x() == pytest.approx(br0.x() + 20, abs=0.05)   # W_EDIT goal
+    assert _br(r).y() == pytest.approx(br0.y() + 30, abs=0.05)
+    assert ln._pt1.y() == pytest.approx(_br(r).y(), abs=1e-6)
+    assert len(sc._undo_stack) == n_undo + 1             # ONE undo step
+    sc.undo()
+    QApplication.processEvents()
+    (r2,) = sc._draw_rects                               # undo rebuilds items
+    (l2,) = sc._draw_lines
+    assert (_br(r2).x(), _br(r2).y()) == pytest.approx((br0.x(), br0.y()), abs=1e-9)
+    assert (l2._pt1.x(), l2._pt1.y()) == pytest.approx((p10.x(), p10.y()), abs=1e-9)
 
 
+def test_unconstrained_body_drag_keeps_the_held_transform_preview(be):
+    """Parity (passes before and after D35): no constraint touches the
+    selection -> geometry untouched mid-drag, the item carries the held
+    transform, the release bakes once."""
+    v, sc = be
+    r, ln, _c = _constrained_rect_and_line(sc)
+    free = _rect(sc, (0, -200), (100, -140))
+    free.setSelected(True)
+    QApplication.processEvents()
+    g0 = [QPointF(p) for p in free.grip_points()]
+    rect0 = free.rect()
+    l0 = (QPointF(ln._pt1), QPointF(ln._pt2))
+    n_undo = len(sc._undo_stack)
+    grab = QPointF(25, -185)                            # interior, off every grip
+    _press(v, grab)
+    for k in range(1, 4):
+        _move(v, grab + QPointF(0, 4.0 + 10.0 * k))         # past the threshold
+        assert free.rect() == rect0                     # model geometry at rest
+        assert not free.transform().isIdentity()        # the held preview
+        assert (ln._pt1, ln._pt2) == l0
+    _release(v, grab + QPointF(0, 34))
+    assert free.transform().isIdentity()
+    assert QPointF(free.grip_points()[0]).y() == pytest.approx(g0[0].y() + 34, abs=1e-6)
+    assert len(sc._undo_stack) == n_undo + 1
 
 
+@pytest.mark.perf
+def test_d18_constrained_body_drag_frame_bar(be):
+    """D18: one constrained body-drag mouse move (manipulator + session reset +
+    bake + solve + reflow) on a modest sketch stays under the 8 ms bar."""
+    v, sc = be
+    lines = [_line(sc, (i * 30.0 - 600, 200.0), (i * 30.0 - 580, 210.0))
+             for i in range(40)]
+    ctl = sc.constraint_ctl
+    recs = [{"id": f"h{i}", "type": "horizontal",
+             "refs": [{"uid": ln._uid, "h": "edge"}]} for i, ln in enumerate(lines)]
+    recs += [{"id": f"j{i}", "type": "horizontal",
+              "refs": [{"uid": lines[i]._uid, "h": "p2"},
+                       {"uid": lines[i + 1]._uid, "h": "p1"}]} for i in range(39)]
+    ctl.load(recs)
+    r, ln, _c = _constrained_rect_and_line(sc)
+    r.setSelected(True)
+    QApplication.processEvents()
+    grab = QPointF(25, 15)                              # interior, off every grip
+    _press(v, grab)
+    _move(v, grab + QPointF(0, 5))
+    ts = []
+    for k in range(31):
+        p = grab + QPointF(float(k % 5), 6.0 + float(k % 7))
+        t = time.perf_counter()
+        _send(v, QEvent.Type.MouseMove, p, NB, L)
+        ts.append((time.perf_counter() - t) * 1e3)
+        QApplication.processEvents()
+    _release(v, p)
+    med = sorted(ts)[len(ts) // 2]
+    print(f"constrained body-drag frame median {med:.2f} ms")
+    assert ln._pt1.y() == pytest.approx(_br(r).y(), abs=1e-6)
+    assert med <= 8.0, f"body-drag frame {med:.2f} ms"
 
 
 # ── D35: a box-native resize drag (tests-only: no constrainable block-editor
 # primitive is box-native-scalable today) ────────────────────────────────────
 
+def test_constrained_resize_drag_applies_live_and_esc_restores(be, monkeypatch):
+    from firepro3d.text_item import TextItem
+    v, sc = be
+    ln = _line(sc, (200, 0), (320, -40))
+    from firepro3d.text_item import TextAnnotationData
+    tx = TextItem(TextAnnotationData(text="Label", x=0.0, y=0.0, height_mm=20.0))
+    sc.addItem(tx)
+    sc._texts.append(tx)
+    # Make the text box-native scalable (the paper surface's capability).
+    monkeypatch.setattr(TextItem, "manip_capabilities",
+                        lambda self: {"translate", "scale", "rotate"})
+    c = sc.constraint_ctl.add("horizontal", [{"uid": tx._uid, "h": "ins"},
+                                             {"uid": ln._uid, "h": "p1"}])
+    assert c is not None
+    QApplication.processEvents()
+    tx.setSelected(True)
+    QApplication.processEvents()
+    m = sc._live_manip()
+    from firepro3d.manip_math import HandleRole
+    h = m._handles[HandleRole.TOP_LEFT]
+    assert h.isVisible()
+    pos0, p10 = QPointF(tx.pos()), QPointF(ln._pt1)
+    box0 = QPointF(tx.manip_bounds().width(), tx.manip_bounds().height())
+    start = h.scenePos()
+    _press(v, start)
+    for k in range(1, 4):
+        _move(v, start + QPointF(-6.0 * k, -9.0 * k))
+        assert tx.transform().isIdentity()               # live, not held
+        assert ln._pt1.y() == pytest.approx(tx.pos().y(), abs=1e-6)
+    assert tx.pos().y() != pytest.approx(pos0.y())
+    _esc(v)
+    assert QPointF(tx.pos()) == pos0
+    assert QPointF(ln._pt1) == p10
+    b = tx.manip_bounds()
+    assert (b.width(), b.height()) == pytest.approx((box0.x(), box0.y()), abs=1e-6)
+    _release(v, start + QPointF(-18, -27))
 
 
 # ── D32: glyph visibility follows the selection ─────────────────────────────
