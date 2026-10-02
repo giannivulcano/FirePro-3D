@@ -15,6 +15,11 @@ from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
 
 
+def _no_uid(d):
+    """*d* without its per-item ``uid`` (each item owns its own — spec §6.1)."""
+    return {k: v for k, v in d.items() if k != "uid"}
+
+
 def _make_poly():
     # centre (0,0), 6 sides, circumradius 50, rotation 0, inscribed (Y-up CCW+):
     #   grip 0    = centre  (0, 0)
@@ -71,7 +76,7 @@ def test_vertex_grip_apply_matches_legacy():
 
     migrated = _make_poly()
     _drive_handle(migrated, 1, QPointF(80, 20))
-    assert migrated.to_dict() == legacy.to_dict()
+    assert _no_uid(migrated.to_dict()) == _no_uid(legacy.to_dict())
 
 
 def test_centre_grip_apply_matches_legacy():
@@ -81,7 +86,7 @@ def test_centre_grip_apply_matches_legacy():
 
     migrated = _make_poly()
     _drive_handle(migrated, 0, QPointF(15, -25))
-    assert migrated.to_dict() == legacy.to_dict()
+    assert _no_uid(migrated.to_dict()) == _no_uid(legacy.to_dict())
 
 
 def _post_drag(view, scene, path):

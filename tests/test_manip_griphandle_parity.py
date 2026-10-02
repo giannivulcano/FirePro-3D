@@ -8,6 +8,11 @@ from firepro3d.geometry_2d import CircleItem
 from firepro3d.manip_handle import GripHandle
 
 
+def _no_uid(d):
+    """*d* without its per-item ``uid`` (each item owns its own — spec §6.1)."""
+    return {k: v for k, v in d.items() if k != "uid"}
+
+
 def test_circle_manip_handles_shape():
     c = CircleItem(QPointF(0, 0), 50)
     hs = c.manip_handles()
@@ -44,7 +49,7 @@ def test_radius_grip_apply_matches_legacy():
     sc = _Scene()
     m = _M()
     h.on_press(m); h.on_drag(m, QPointF(80, 0), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    assert _no_uid(migrated.to_dict()) == _no_uid(legacy.to_dict())
 
 
 def _post_drag(view, scene, path):

@@ -15,6 +15,11 @@ from firepro3d.manip_handle import (EndpointGripHandle,
 from firepro3d.manip_math import HandleRole
 
 
+def _no_uid(d):
+    """*d* without its per-item ``uid`` (each item owns its own — spec §6.1)."""
+    return {k: v for k, v in d.items() if k != "uid"}
+
+
 def _make_line():
     return LineItem(QPointF(0, 0), QPointF(100, 0))
 
@@ -64,7 +69,7 @@ def test_endpoint_grip_apply_matches_legacy():
     sc = _StubScene(); m = _StubM(sc)
     h.on_press(m)
     h.on_drag(m, QPointF(80, 40), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    assert _no_uid(migrated.to_dict()) == _no_uid(legacy.to_dict())
 
 
 def test_ctrl_constrains_endpoint_against_opposite():

@@ -40,6 +40,13 @@ def ser(item) -> str:
     return json.dumps(item.to_dict(), sort_keys=True)
 
 
+def ser_no_uid(item) -> str:
+    """:func:`ser` without the per-item ``uid`` — for comparing two distinct
+    items (each owns its own uid, parametric-constraint-system.md §6.1)."""
+    d = {k: v for k, v in item.to_dict().items() if k != "uid"}
+    return json.dumps(d, sort_keys=True)
+
+
 def _post_mouse(view, etype, scene_pos: QPointF,
                 button: Qt.MouseButton = Qt.MouseButton.LeftButton,
                 buttons=None,
@@ -198,7 +205,7 @@ def test_resize_posted_matches_slot(qapp, scene_and_view, index):
     manip._finish(end, Qt.KeyboardModifier.NoModifier)
     qapp.processEvents()
 
-    ser_a = ser(rect_a)
+    ser_a = ser_no_uid(rect_a)
     initial = json.dumps({"type": "draw_rectangle",
                           "x": 100.0, "y": 100.0,
                           "w": 100.0, "h": 50.0,
@@ -228,7 +235,7 @@ def test_resize_posted_matches_slot(qapp, scene_and_view, index):
     _post_mouse(view, QEvent.Type.MouseButtonRelease, end)
     qapp.processEvents()
 
-    ser_b = ser(rect_b)
+    ser_b = ser_no_uid(rect_b)
 
     # Primary assertion: posted path == slot path (byte-identical)
     assert ser_a == ser_b, (

@@ -1269,15 +1269,21 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """Serialise to the shared "text" record (data.to_dict()), position-synced.
 
         NO ``level`` key (text carries no level semantics in this task).
+        ``uid`` is stamped here: ``TextAnnotationData`` does not carry it
+        (parametric-constraint-system.md §6.1).
         """
         self.sync_data_from_item()
         self._data.angle = self._angle
-        return dict(self._data.to_dict())
+        d = dict(self._data.to_dict())
+        d["uid"] = self._uid
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "TextItem":
         data = TextAnnotationData.from_dict(d)
         obj = cls(data)
+        if d.get("uid"):
+            obj._uid = str(d["uid"])
         obj.setPos(data.x, data.y)
         if data.angle:
             obj.set_angle(data.angle)

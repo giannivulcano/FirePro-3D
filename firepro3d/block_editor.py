@@ -386,7 +386,8 @@ class BlockEditorWidget(QWidget):
                 # borrowed project registry, not a factory primitive.
                 pos = d.get("pos", [0.0, 0.0])
                 self.editor_scene.place_block_instance(
-                    d["block_id"], (pos[0], pos[1]), rotation=d.get("rotation", 0.0))
+                    d["block_id"], (pos[0], pos[1]), rotation=d.get("rotation", 0.0),
+                    uid=d.get("uid"))
                 continue
             cls = _PRIMITIVE_FACTORY.get(d.get("type"))
             if cls is None:

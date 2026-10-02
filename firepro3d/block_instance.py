@@ -15,6 +15,7 @@ assumes ``transform()`` carries no pose).
 
 from __future__ import annotations
 
+import uuid
 from typing import Callable, Optional
 from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
@@ -34,6 +35,8 @@ class BlockInstance(QGraphicsObject):
         super().__init__()
         self.block_id = block_id
         self._resolver = resolver
+        # Stable primitive id (parametric-constraint-system.md §6.1).
+        self._uid: str = uuid.uuid4().hex
         # Level scope lives on the placed instance (containment C3): the block
         # definition's primitives are level-less; the instance carries a level +
         # Z/elevation offset and is filtered by the active level / view-range
@@ -86,7 +89,8 @@ class BlockInstance(QGraphicsObject):
             A D2 ``block_instance`` primitive record (definition-local pose).
         """
         return {"type": "block_instance", "block_id": self.block_id,
-                "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot}
+                "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
+                "uid": self._uid}
 
     def set_block_rotation(self, deg: float) -> None:
         self.prepareGeometryChange()
@@ -263,6 +267,7 @@ class BlockInstance(QGraphicsObject):
             "rotation": self._pose_rot,
             "level": self.level,
             "attributes": dict(self.attributes),
+            "uid": self._uid,
         }
         if self._level_offset_mm != 0.0:
             d["level_offset_mm"] = self._level_offset_mm
@@ -278,4 +283,6 @@ class BlockInstance(QGraphicsObject):
         inst._pose_x, inst._pose_y = float(pos[0]), float(pos[1])
         inst._pose_rot = float(data.get("rotation", 0.0))
         inst.attributes = dict(data.get("attributes", {}))
+        if data.get("uid"):
+            inst._uid = str(data["uid"])
         return inst

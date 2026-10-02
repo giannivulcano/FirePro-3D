@@ -9,6 +9,7 @@ PolylineItem      — a multi-click open polyline on the active user layer.
 from __future__ import annotations
 
 import math
+import uuid
 
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsPathItem,
@@ -101,6 +102,10 @@ class Geometry2DMixin:
         # definition batch-compiles per this tag. See
         # docs/specs/reference-graphic-model.md.
         self.layer: str = ""
+        # Stable primitive id (parametric-constraint-system.md §6.1): minted at
+        # creation, carried by to_dict/from_dict (undo, load, editor seed);
+        # copy paths mint a new one at Model_Space._add_from_dict.
+        self._uid: str = uuid.uuid4().hex
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
         self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
@@ -215,6 +220,7 @@ class Geometry2DMixin:
 
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it (level-less — C3)."""
+        d["uid"] = self._uid
         if getattr(self, "layer", ""):
             d["layer"] = self.layer
         if self.fill_type != "none":
@@ -230,7 +236,11 @@ class Geometry2DMixin:
         """Restore mixin fields from *data* (level-less — C3).
 
         Pre-C3 dicts may carry ``level``/``level_offset_mm``; they are ignored.
+        A legacy dict without ``uid`` keeps the uid minted at construction.
         """
+        uid = data.get("uid")
+        if uid:
+            self._uid = str(uid)
         self.layer = data.get("layer", "")
         f = data.get("fill")
         if f:

@@ -14,6 +14,11 @@ from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
 
 
+def _no_uid(d):
+    """*d* without its per-item ``uid`` (each item owns its own — spec §6.1)."""
+    return {k: v for k, v in d.items() if k != "uid"}
+
+
 def _make_spline():
     return SplineItem([QPointF(0, 0), QPointF(50, 0),
                        QPointF(100, 50), QPointF(150, 0)])
@@ -54,7 +59,7 @@ def test_control_point_grip_apply_matches_legacy():
     m = _M()
     h.on_press(m)
     h.on_drag(m, QPointF(60, 40), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    assert _no_uid(migrated.to_dict()) == _no_uid(legacy.to_dict())
 
 
 def _post_drag(view, scene, path):

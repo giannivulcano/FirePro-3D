@@ -7,6 +7,11 @@ from firepro3d.geometry_2d import ArcItem
 from firepro3d.manip_handle import ArcEndpointGripHandle
 
 
+def _no_uid(d):
+    """*d* without its per-item ``uid`` (each item owns its own — spec §6.1)."""
+    return {k: v for k, v in d.items() if k != "uid"}
+
+
 def _close(p, q, tol=1e-6):
     return abs(p.x() - q.x()) < tol and abs(p.y() - q.y()) < tol
 
@@ -101,7 +106,7 @@ def test_ctrl_has_no_special_meaning():
     a, b = _arc(), _arc()
     _drag(a, 1, QPointF(60, 20))
     _drag(b, 1, QPointF(60, 20), Qt.KeyboardModifier.ControlModifier)
-    assert a.to_dict() == b.to_dict()
+    assert _no_uid(a.to_dict()) == _no_uid(b.to_dict())
 
 
 @pytest.mark.parametrize("index, target", [(2, QPointF(50, 0.1)),     # span ≈ 0°

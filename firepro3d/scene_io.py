@@ -415,6 +415,7 @@ class SceneIOMixin:
                 bdict["block_id"], (_pos[0], _pos[1]),
                 rotation=bdict.get("rotation", 0.0),
                 level=bdict.get("level", "Level 1"),
+                uid=bdict.get("uid"),
             )
             inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
             inst.attributes = dict(bdict.get("attributes", {}))

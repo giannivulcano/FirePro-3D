@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging, time, contextlib
+import sys, json, math, shutil, logging, time, contextlib, uuid
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -1817,11 +1817,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return True
 
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
-                             level: str | None = None):
-        """Create + add a BlockInstance referencing an existing definition."""
+                             level: str | None = None, uid: str | None = None):
+        """Create + add a BlockInstance referencing an existing definition.
+
+        Args:
+            uid: Carry this primitive uid (undo restore, project load, editor
+                seed — parametric-constraint-system.md §6.1). ``None`` mints a
+                fresh one (placement and every copy path).
+        """
         from .block_instance import BlockInstance
         inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
                              level=level or self.active_level)
+        if uid:
+            inst._uid = str(uid)
         inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         self.addItem(inst)
@@ -2480,6 +2488,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     bdict["block_id"], (_pos[0], _pos[1]),
                     rotation=bdict.get("rotation", 0.0),
                     level=bdict.get("level", "Level 1"),
+                    uid=bdict.get("uid"),
                 )
                 inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
                 inst.attributes = dict(bdict.get("attributes", {}))
@@ -7309,6 +7318,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         The one per-type deserialise-and-register helper (scene-tools.md I1)
         used by Paste and Duplicate.
 
+        Every caller is a copy path (Paste / Duplicate / Array / Mirror /
+        Offset / block Explode), so the new item always gets a NEW uid
+        (parametric-constraint-system.md §6.1); *d* itself is not mutated.
+
         Args:
             d: A ``to_dict()`` record.
 
@@ -7320,6 +7333,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if entry is None:
             return None
         cls, attr = entry
+        d = {**d, "uid": uuid.uuid4().hex}
         try:
             item = cls.from_dict(d)
         except Exception:

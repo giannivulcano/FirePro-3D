@@ -217,11 +217,12 @@ def test_editor_saves_nested_reference_and_reopens_it(qapp):
     w = _editor(proj, a.id)
     try:
         w.seed_from_definition(a)
-        w.editor_scene.place_block_instance(b.id, (300.0, 0.0), rotation=30.0)
+        nested = w.editor_scene.place_block_instance(b.id, (300.0, 0.0), rotation=30.0)
         w.commit_block(a.name, a.library, a.series)
         recs = [p for p in a.primitives if p["type"] == "block_instance"]
         assert recs == [{"type": "block_instance", "block_id": b.id,
-                         "pos": [300.0, 0.0], "rotation": 30.0}]
+                         "pos": [300.0, 0.0], "rotation": 30.0,
+                         "uid": nested._uid}]
         w2 = _editor(proj, a.id)
         w2.seed_from_definition(a)
         insts = w2.editor_scene._block_instances
