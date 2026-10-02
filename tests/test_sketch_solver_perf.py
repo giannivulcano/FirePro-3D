@@ -83,7 +83,7 @@ _BUILDS = {
 }
 
 
-def _median_ms(fn, n=15):
+def _median_ms(fn, n=31):
     ts = []
     for _ in range(n):
         t = time.perf_counter(); fn(); ts.append((time.perf_counter() - t) * 1e3)
