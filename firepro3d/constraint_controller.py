@@ -573,14 +573,17 @@ class ConstraintController:
     def _write(slots, x_old, x_new, uids=None) -> None:
         """Exactly one write-back per item the solve CHANGED (§3) -- beyond
         the adapter's write tolerance, so a pinned item's solver jitter is
-        never written (a rect write canonicalises its pivot, VC9 F2)."""
+        never written (a rect write canonicalises its pivot, VC9 F2). Per
+        variable, only a materially moved one takes its solved value; the
+        rest keep the item's old value (``ad.settled``, VC9 R5)."""
         for u, (it, ad, off) in slots.items():
             if uids is not None and u not in uids:
                 continue
             n = ad.nvars(it)
+            old = x_old[off:off + n]
             new = x_new[off:off + n]
-            if ad.changed(it, x_old[off:off + n], new):
-                ad.write(it, new)
+            if ad.changed(it, old, new):
+                ad.write(it, np.array(ad.settled(it, old, new), dtype=float))
 
     @staticmethod
     def _collapses(slots, x_old, x_new) -> bool:

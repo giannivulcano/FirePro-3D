@@ -2611,8 +2611,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.mode in self._modify_ctl.CANCEL_ON_UNDO_MODES:
             self.set_mode(None)
 
+    def _manip_drag_blocks_undo(self) -> bool:
+        """True while a selection-manipulator gesture (grip, body / D35
+        live, resize, held preview) is in flight: an undo / redo restore would
+        rebuild every item under the gesture, which would then drive orphans
+        and push an extra step on release (VC9 R4). The lowest shared entry --
+        the window Ctrl+Z/Y shortcuts, the ribbon / header buttons and the
+        scene key path all land in :meth:`undo` / :meth:`redo`."""
+        m = self._live_manip()
+        return m is not None and m.is_dragging()
+
     def undo(self):
         """Restore the previous network state.
+
+        Refused (a no-op) while a manipulator drag is in progress.
 
         Commits any live inline text edit first.  If that commit discarded an
         empty NEW placement (nothing was ever pushed for it — see
@@ -2620,6 +2632,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         the placement: it returns here without also stepping the stack back,
         since there is no corresponding snapshot to undo past.
         """
+        if self._manip_drag_blocks_undo():
+            return
         if self._text_edit_ctl.commit() == "discarded":
             return
         self._cancel_modify_tool_for_undo()
@@ -2641,7 +2655,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for it — see :meth:`TextEditController.commit`), redo just cancels
         the placement: it returns here without also stepping the stack
         forward, since there is no corresponding snapshot to redo into.
+        Refused (a no-op) while a manipulator drag is in progress.
         """
+        if self._manip_drag_blocks_undo():
+            return
         if self._text_edit_ctl.commit() == "discarded":
             return
         self._cancel_modify_tool_for_undo()

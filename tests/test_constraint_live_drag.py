@@ -533,3 +533,98 @@ def test_f7_constrain_pick_mode_shows_the_entity_pick_cursor(be):
     assert v.cursor().shape() == Qt.CursorShape.PointingHandCursor
     assert v._mode_cursors["constrain_horizontal"] == v._mode_cursors["offset"]
     sc.set_mode("select")
+
+
+# ── R5: solver noise in size / angle variables is never written ────────────
+
+def _rect_exact(r):
+    return (r._angle, r._pivot, r.rect().width(), r.rect().height())
+
+
+def test_r5_axis_aligned_rect_stays_exactly_axis_aligned(be):
+    """D34's translate-first pass leaves ~1e-8 noise in the stiff (size /
+    angle) variables; write-back keeps each variable whose change is below
+    its write tolerance, so a moved rect keeps angle 0, no pivot and its
+    exact size -- through the add AND a live body drag."""
+    v, sc = be
+    r = _rect(sc, (0, 0), (200, 100))
+    ln = _line(sc, (300, 0), (420, -40))
+    c = sc.constraint_ctl.add("horizontal", [{"uid": r._uid, "h": "br"},
+                                             {"uid": ln._uid, "h": "p1"}])
+    assert c is not None
+    QApplication.processEvents()
+    assert abs(_br(r).y() - ln._pt1.y()) < 1e-6           # it solved (moved)
+    assert _rect_exact(r) == (0.0, None, 200.0, 100.0)
+    r.setSelected(True)
+    QApplication.processEvents()
+    grab = QPointF(_br(r).x() - 150, _br(r).y() - 70)     # interior, off grips
+    _press(v, grab)
+    for k in range(1, 5):
+        _move(v, grab + QPointF(3.0 * k, 12.0 + 7.0 * k))
+        assert ln._pt1.y() == pytest.approx(_br(r).y(), abs=1e-6)
+        assert _rect_exact(r) == (0.0, None, 200.0, 100.0)
+    _release(v, grab + QPointF(12.0, 40.0))
+    assert _rect_exact(r) == (0.0, None, 200.0, 100.0)
+
+
+# ── R1: D18 rect-heavy worst case (bench now, optimise later) ───────────────
+
+def _rect_heavy(sc):
+    """The VC9 re-review probe: one component of 100 rects + 100 lines tied
+    by 299 Horizontal (derived-point rows, not substitutions)."""
+    rs, ls = [], []
+    for i in range(100):
+        rs.append(_rect(sc, (i * 300, 0), (i * 300 + 200, 100)))
+        ls.append(_line(sc, (i * 300 - 50, 0), (i * 300 - 80, 30)))
+    recs = []
+    for i in range(100):
+        recs.append({"id": f"b{i}", "type": "horizontal",
+                     "refs": [{"uid": rs[i]._uid, "h": "br"}, {"uid": ls[i]._uid, "h": "p1"}]})
+        recs.append({"id": f"t{i}", "type": "horizontal",
+                     "refs": [{"uid": rs[i]._uid, "h": "tl"}, {"uid": ls[i]._uid, "h": "p2"}]})
+        if i < 99:
+            recs.append({"id": f"c{i}", "type": "horizontal",
+                         "refs": [{"uid": rs[i]._uid, "h": "tr"}, {"uid": rs[i + 1]._uid, "h": "tl"}]})
+    sc.constraint_ctl.load(recs)
+    assert len(sc.constraint_ctl.active()) == 299
+    return rs, ls
+
+
+@pytest.mark.perf
+@pytest.mark.xfail(strict=True, reason=(
+    "D18 rect-heavy worst case — perf follow-up before CS3 (vectorised derived "
+    "rows, skip D34 second pass when no size/angle moves, no full-snapshot "
+    "rewrite per frame)"))
+def test_d18_rect_heavy_worst_case_drag_frames(qapp):
+    """Grip-drag frame (ctl.drag) and D35 body-drag frame (ctl.drag_frame
+    with the release bake's translate) on the rect-heavy component vs 8 ms."""
+    from firepro3d.selection_manipulator import bake_translate
+    sc = Model_Space(scene_role="block_editor")
+    try:
+        rs, _ls = _rect_heavy(sc)
+        ctl = sc.constraint_ctl
+        it = rs[50]
+        ctl.begin_drag(it)
+        grip = []
+        for k in range(21):
+            r = it.rect()
+            it.setRect(r.x(), r.y(), r.width() + 0.3, r.height() + 0.2)
+            t = time.perf_counter()
+            ctl.drag(it, 4)
+            grip.append((time.perf_counter() - t) * 1e3)
+        ctl.end_drag()
+        ctl.begin_drag([it])
+        body = []
+        for k in range(1, 22):
+            d = 0.5 * k
+            t = time.perf_counter()
+            ctl.drag_frame([it], lambda: bake_translate(it, d, d), reset=True)
+            body.append((time.perf_counter() - t) * 1e3)
+        ctl.end_drag()
+        g = sorted(grip)[len(grip) // 2]
+        b = sorted(body)[len(body) // 2]
+        print(f"rect-heavy grip-drag frame median {g:.2f} ms; "
+              f"body-drag frame median {b:.2f} ms")
+        assert g <= 8.0 and b <= 8.0, (g, b)
+    finally:
+        sc.cleanup()

@@ -31,10 +31,13 @@ W_SIZE = 1e3
 # an item by less than this is not written. A drag's pinned item still
 # leaks ~1e-9 x the frame's offset (1 / (W_EDIT * W_PIN): 7e-9 mm on a 7 mm
 # frame, measured) -- it must not be re-written (VC9 F2: a rect write
-# canonicalises its pivot). Both bars are 1e-7 mm at a 1 m lever, a tenth
-# of the solver's own LIN_TOL.
+# canonicalises its pivot). POS is a tenth of the solver's own LIN_TOL.
+# The angle bar is LIN_TOL at a 100 mm lever (VC9 R5): D34's stiff pass
+# leaves ~5e-9 rad of solver noise in an unmoved angle (measured, a 200x100
+# rect) -- below this it is never written (``_Adapter.settled``), so an
+# axis-aligned rect stays exactly axis-aligned.
 POS_WRITE_TOL = 1e-7          # mm (positions, sizes)
-ANG_WRITE_TOL = 1e-10         # rad
+ANG_WRITE_TOL = 1e-8          # rad
 
 # D29 (user, 2026-10-02): a solve that can only be satisfied by collapsing a
 # shape is a CONFLICT. The size floors are geometry_2d's own clamp constants
@@ -98,6 +101,17 @@ class _Adapter:
     def stiff_vars(self, item) -> tuple:
         """D34: the size + angle variables (everything but positions)."""
         return tuple(self.size_floors(item)) + tuple(self.angle_vars(item))
+
+    def settled(self, item, old, new) -> list:
+        """*new* with every variable whose change is within its write
+        tolerance (``POS_WRITE_TOL`` mm / ``ANG_WRITE_TOL`` rad) put back to
+        its *old* value (VC9 R5): solver noise in an unmoved size / angle --
+        D34's stiff pass leaves ~1e-8 -- is never written, so an axis-aligned
+        rect keeps angle 0 (and no pivot) and its exact size."""
+        ang = set(self.angle_vars(item))
+        return [float(a) if abs(float(b) - float(a)) <= (
+                    ANG_WRITE_TOL if i in ang else POS_WRITE_TOL) else float(b)
+                for i, (a, b) in enumerate(zip(old, new))]
 
     def changed(self, item, old, new) -> bool:
         """Whether solved *new* differs from *old* by more than the write

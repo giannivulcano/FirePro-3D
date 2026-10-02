@@ -281,3 +281,103 @@ def test_e2e_typed_length_readout_keeps_horizontal_and_the_typed_length(
     assert (lt._pt1.x(), lt._pt1.y()) == pytest.approx((0.0, 100.0), abs=1e-6)
     assert lt._pt2.y() == pytest.approx(260.0, abs=1e-6)           # p2 moved up
     assert lf._pt1.y() == pytest.approx(lt._pt2.y(), abs=1e-6)      # follower held
+
+
+# ── R4: undo / redo is refused while a manipulator drag is in progress ──────
+
+def _gesture_setup(win):
+    """A filter that swallows OS mouse events on the editor viewport (the real
+    cursor resting over the window cuts posted gestures short)."""
+    from tests.test_constraint_live_drag import _NoRealMouse
+    view = win._test_editor.view
+    sc = win._active_scene()
+    sc.setSceneRect(-5000, -5000, 10000, 10000)       # no re-scroll mid-gesture
+    guard = _NoRealMouse()
+    view.viewport().installEventFilter(guard)
+    return sc, view, guard
+
+
+def _post(view, etype, scene_pt, button, buttons):
+    vp = QPointF(view.mapFromScene(scene_pt))
+    gp = QPointF(view.viewport().mapToGlobal(vp.toPoint()))
+    QApplication.sendEvent(view.viewport(), QMouseEvent(
+        etype, vp, gp, button, buttons, Qt.KeyboardModifier.NoModifier))
+    QApplication.processEvents()
+
+
+def _undo_mid_drag(win, sc, view, item, grab, geom):
+    """Press on *grab*, move, Ctrl+Z AND Ctrl+Y mid-drag (both refused: the
+    stack position and the item survive, the drag continues), release =
+    exactly one new undo step."""
+    L, NB = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    depth, pos = len(sc._undo_stack), sc._undo_pos
+    _post(view, QEvent.Type.MouseMove, grab, NB, NB)
+    _post(view, QEvent.Type.MouseButtonPress, grab, L, L)
+    _post(view, QEvent.Type.MouseMove, grab + QPointF(0, 20), NB, L)
+    assert sc._live_manip().is_dragging()
+    g1 = geom()
+    _ctrl(view, Qt.Key.Key_Z)
+    _ctrl(view, Qt.Key.Key_Y)
+    assert sc._undo_pos == pos and len(sc._undo_stack) == depth   # no undo / redo
+    assert item.scene() is sc                                     # not rebuilt
+    assert sc._live_manip().is_dragging()
+    _post(view, QEvent.Type.MouseMove, grab + QPointF(0, 40), NB, L)
+    assert geom() != g1                                           # drag continues
+    _post(view, QEvent.Type.MouseButtonRelease, grab + QPointF(0, 40), L, NB)
+    assert len(sc._undo_stack) == depth + 1                       # ONE step
+    assert sc._undo_pos == pos + 1
+
+
+def test_r4_undo_is_refused_mid_constrained_body_drag(win_with_editor):
+    from firepro3d.geometry_2d import RectangleItem
+    win = win_with_editor
+    sc, view, guard = _gesture_setup(win)
+    try:
+        r = RectangleItem(QPointF(0, 0), QPointF(100, 60))
+        sc.addItem(r)
+        sc._draw_rects.append(r)
+        ln = _line(sc, (200, 60), (320, 20))
+        sc.constraint_ctl.add("horizontal", [{"uid": r._uid, "h": "br"},
+                                             {"uid": ln._uid, "h": "p1"}])
+        sc.clearSelection()
+        r.setSelected(True)
+        QApplication.processEvents()
+        _undo_mid_drag(win, sc, view, r, QPointF(25, 15),
+                       lambda: (r.rect().y(), ln._pt1.y()))
+        assert ln._pt1.y() == pytest.approx(r.rect().bottom(), abs=1e-6)
+    finally:
+        view.viewport().removeEventFilter(guard)
+
+
+def test_r4_undo_is_refused_mid_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc, view, guard = _gesture_setup(win)
+    try:
+        ln = _line(sc, (-100, 0), (100, 0))
+        sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+        sc.clearSelection()
+        ln.setSelected(True)
+        QApplication.processEvents()
+        _undo_mid_drag(win, sc, view, ln, QPointF(100, 0),
+                       lambda: (ln._pt1.y(), ln._pt2.y()))
+        assert ln._pt1.y() == pytest.approx(ln._pt2.y(), abs=1e-6)
+    finally:
+        view.viewport().removeEventFilter(guard)
+
+
+def test_r4_undo_is_refused_mid_held_preview_drag(win_with_editor):
+    from firepro3d.geometry_2d import RectangleItem
+    win = win_with_editor
+    sc, view, guard = _gesture_setup(win)
+    try:
+        r = RectangleItem(QPointF(0, 0), QPointF(100, 60))   # unconstrained
+        sc.addItem(r)
+        sc._draw_rects.append(r)
+        sc.push_undo_state()
+        sc.clearSelection()
+        r.setSelected(True)
+        QApplication.processEvents()
+        _undo_mid_drag(win, sc, view, r, QPointF(25, 15),
+                       lambda: r.sceneTransform().dy())
+    finally:
+        view.viewport().removeEventFilter(guard)
