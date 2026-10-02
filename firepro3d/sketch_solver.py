@@ -66,10 +66,20 @@ class Row:
 
 @dataclass
 class System:
+    """Variables + equalities + residual rows for one sketch.
+
+    Structure contract: ``aliases``, ``fixes`` and ``rows`` (and ``len(x)``)
+    are append-only. The solver caches its structural analysis (substitution,
+    components, Jacobian scatter indices) on the System, keyed on their lengths.
+    Editing or removing an entry in place after a solve is unsupported; build a
+    new System instead. The values in ``x`` may change freely between solves.
+    """
     x: np.ndarray
     aliases: list = field(default_factory=list)   # (i, j, cid): x_i == x_j
     fixes: list = field(default_factory=list)     # (i, value, cid)
     rows: list = field(default_factory=list)      # Row
+    _structure: object = field(default=None, init=False, repr=False,
+                               compare=False)
 
 
 @dataclass
@@ -84,6 +94,7 @@ class Diagnostics:
     nvars: int
     rank: int
     dof: int
+    conflicts: list = field(default_factory=list)   # cids of contradictory fixes
 
 
 class _UF:
@@ -103,95 +114,143 @@ class _UF:
             self.p[max(ra, rb)] = min(ra, rb)
 
 
-class _Reduced:
-    """The variable space after equality substitution (§7.2)."""
+class _Component:
+    """One union-find component of the reduced space, with precomputed indices."""
+    __slots__ = ("vars", "var_lcol", "ncols", "rows", "jidx", "jmask", "fgroups")
+
+    def __init__(self, ncols: int):
+        self.ncols = ncols
+        self.vars = None        # full-space member vars (array)
+        self.var_lcol = None    # their local column (array, parallel to vars)
+        self.rows = []
+        self.jidx = None        # flat row*ncols + lcol scatter index (free deps)
+        self.jmask = None       # which concatenated gradient entries are free
+        self.fgroups = set()    # fixed groups its rows read
+
+
+class _Structure:
+    """Equality substitution (§7.2) + components, computed once per structure."""
 
     def __init__(self, sys: System):
         n = len(sys.x)
+        self.key = (n, len(sys.aliases), len(sys.fixes), len(sys.rows))
         uf = _UF(n)
         for i, j, _cid in sys.aliases:
             uf.union(i, j)
-        self.rep = [uf.find(i) for i in range(n)]
-        self.fixed: dict[int, float] = {}
+        rep = [uf.find(i) for i in range(n)]
+        fixed: dict[int, float] = {}
         self.conflicts: list[str] = []
         for i, v, cid in sys.fixes:
-            r = self.rep[i]
-            if r in self.fixed and abs(self.fixed[r] - v) > LIN_TOL:
+            r = rep[i]
+            if r in fixed and abs(fixed[r] - v) > LIN_TOL:
                 self.conflicts.append(cid)
-            self.fixed.setdefault(r, float(v))
-        reps = sorted({r for r in self.rep if r not in self.fixed})
-        self.col = {r: k for k, r in enumerate(reps)}
-        self.n = len(reps)
-        self.members: list[list[int]] = [[] for _ in range(self.n)]
-        # rep -> full-space members of a fixed (eliminated) group
-        self.fixed_groups: dict[int, list[int]] = {r: [] for r in self.fixed}
-        for i in range(n):
-            r = self.rep[i]
-            if r in self.fixed:
-                self.fixed_groups[r].append(i)
+            fixed.setdefault(r, float(v))
+        fg_of_rep = {r: k for k, r in enumerate(fixed)}
+        reps = sorted({r for r in rep if r not in fixed})
+        col_of_rep = {r: k for k, r in enumerate(reps)}
+        self.ncols = len(reps)
+        var_col = np.full(n, -1, dtype=np.intp)
+        var_fg = np.full(n, -1, dtype=np.intp)
+        for i, r in enumerate(rep):
+            if r in fixed:
+                var_fg[i] = fg_of_rep[r]
             else:
-                self.members[self.col[r]].append(i)
+                var_col[i] = col_of_rep[r]
+        self.var_col, self.var_fg = var_col, var_fg
+        self.fg_value = np.array(list(fixed.values()), dtype=float)
+        self.fixed_vars = np.flatnonzero(var_fg >= 0)
+        self.fixed_vals = self.fg_value[var_fg[self.fixed_vars]]
+        self.fg_members = [self.fixed_vars[var_fg[self.fixed_vars] == k]
+                           for k in range(len(fixed))]
 
-    def col_of(self, i: int):
-        return self.col.get(self.rep[i])
+        # components: union over the free columns each row touches
+        uf2 = _UF(self.ncols)
+        row_info = []
+        for row in sys.rows:
+            deps = np.asarray(row.deps, dtype=np.intp)
+            cs = var_col[deps]
+            free = cs[cs >= 0]
+            for k in free[1:]:
+                uf2.union(int(free[0]), int(k))
+            row_info.append((deps, cs, free))
+        root_comp: dict[int, int] = {}
+        col_comp = np.empty(self.ncols, dtype=np.intp)
+        col_local = np.empty(self.ncols, dtype=np.intp)
+        counts: list[int] = []
+        for c in range(self.ncols):
+            ci = root_comp.setdefault(uf2.find(c), len(root_comp))
+            if ci == len(counts):
+                counts.append(0)
+            col_comp[c] = ci
+            col_local[c] = counts[ci]
+            counts[ci] += 1
+        self.comps = [_Component(k) for k in counts]
+        free_vars = np.flatnonzero(var_col >= 0)
+        var_comp = np.full(n, -1, dtype=np.intp)
+        var_comp[free_vars] = col_comp[var_col[free_vars]]
+        self.var_comp = var_comp
+        for ci, comp in enumerate(self.comps):
+            mv = free_vars[var_comp[free_vars] == ci]
+            comp.vars = mv
+            comp.var_lcol = col_local[var_col[mv]]
+        self.orphans: list = []                   # rows with no free dependency
+        self.fg_readers = [set() for _ in fixed]  # fixed group -> component ids
+        self.fg_orphans = [[] for _ in fixed]     # fixed group -> orphan rows
+        per_comp: dict[int, list] = {}
+        for row, (deps, cs, free) in zip(sys.rows, row_info):
+            fgs = {int(g) for g in var_fg[deps] if g >= 0}
+            if free.size == 0:
+                self.orphans.append(row)
+                for g in fgs:
+                    self.fg_orphans[g].append(row)
+                continue
+            ci = int(col_comp[free[0]])
+            per_comp.setdefault(ci, []).append((row, cs))
+            for g in fgs:
+                self.fg_readers[g].add(ci)
+            self.comps[ci].fgroups |= fgs
+        for ci, items in per_comp.items():
+            comp = self.comps[ci]
+            comp.rows = [r for r, _ in items]
+            idx, mask = [], []
+            for a, (_row, cs) in enumerate(items):
+                m = cs >= 0
+                mask.append(m)
+                idx.append(a * comp.ncols + col_local[cs[m]])
+            comp.jidx = np.concatenate(idx)
+            jmask = np.concatenate(mask)
+            comp.jmask = None if jmask.all() else jmask
 
-    def reduce(self, vec: np.ndarray, w: np.ndarray):
-        z = np.empty(self.n)
-        wz = np.empty(self.n)
-        for k, mem in enumerate(self.members):
-            ws = w[mem]
-            s = float(ws.sum())
-            z[k] = float((ws * vec[mem]).sum()) / s
-            wz[k] = s
-        return z, wz
 
-    def write_fixed(self, x: np.ndarray, active: set | None) -> None:
-        """Write fixed groups into *x* (only groups touching *active*, if given)."""
-        for r, mem in self.fixed_groups.items():
-            if active is None or active.intersection(mem):
-                x[mem] = self.fixed[r]
-
-    def write(self, x: np.ndarray, z: np.ndarray, cols) -> None:
-        """Write reduced columns *cols* of *z* back to their full-space members."""
-        for k in cols:
-            x[self.members[k]] = z[k]
+def _structure(sys: System) -> _Structure:
+    """The cached structural analysis of *sys* (rebuilt when its shape grows)."""
+    st = sys._structure
+    key = (len(sys.x), len(sys.aliases), len(sys.fixes), len(sys.rows))
+    if st is None or st.key != key:
+        st = _Structure(sys)
+        sys._structure = st
+    return st
 
 
-def _eval_rows(rows, red: _Reduced, x: np.ndarray, cols: list[int]):
-    pos = {c: j for j, c in enumerate(cols)}
-    F = np.empty(len(rows))
-    J = np.zeros((len(rows), len(cols)))
-    for a, row in enumerate(rows):
+def _eval_comp(comp: _Component, x: np.ndarray):
+    """Residuals ``F`` and reduced Jacobian ``J`` of one component at *x*."""
+    nr = len(comp.rows)
+    F = np.empty(nr)
+    gs = []
+    for a, row in enumerate(comp.rows):
         r, g = row.fn(x)
         F[a] = r
-        for d, gv in zip(row.deps, g):
-            k = red.col_of(d)
-            if k is not None and k in pos:
-                J[a, pos[k]] += gv
+        gs.append(g)
+    gflat = np.concatenate(gs).astype(float, copy=False)
+    if comp.jmask is not None:
+        gflat = gflat[comp.jmask]
+    J = np.bincount(comp.jidx, weights=gflat,
+                    minlength=nr * comp.ncols).reshape(nr, comp.ncols)
     return F, J
 
 
 class NumpySolver:
     """The v1 ``SketchSolver`` (spec §7.1)."""
-
-    def _components(self, rows, red: _Reduced):
-        uf = _UF(red.n)
-        row_cols = []
-        for row in rows:
-            cs = [k for k in (red.col_of(d) for d in row.deps) if k is not None]
-            row_cols.append(cs)
-            for k in cs[1:]:
-                uf.union(cs[0], k)
-        comps: dict[int, tuple[list, list]] = {}
-        for k in range(red.n):
-            comps.setdefault(uf.find(k), ([], []))[0].append(k)
-        orphans = []          # rows whose every dep is fixed: nothing can move
-        for row, cs in zip(rows, row_cols):
-            if cs:
-                comps[uf.find(cs[0])][1].append(row)
-            else:
-                orphans.append(row)
-        return list(comps.values()), orphans
 
     def solve(self, sys: System, goals, weights, active=None) -> SolveResult:
         """Weighted min-change projection of *goals* onto ``F(x) = 0``.
@@ -199,47 +258,71 @@ class NumpySolver:
         Args:
             sys: The system (current values in ``sys.x``).
             goals: Per-variable goal values (full space).
-            weights: Per-variable goal weights (full space, > 0).
+            weights: Per-variable goal weights (full space, each > 0).
             active: Full-space variable indices whose components are solved;
-                ``None`` = all. Other components (and fixed groups not touching
-                *active*) keep their current values bit-for-bit.
+                ``None`` = all. A fixed group touched by *active*, or whose
+                current value differs from its fix, is activated too, and so is
+                every component with a row reading an activated fixed group.
+                Everything else keeps its current values bit-for-bit.
 
         Returns:
-            ``SolveResult``; ``converged`` is judged over the solved components'
-            rows (plus all-fixed rows touching *active*) against ``LIN_TOL``.
-            Aliases and fixes hold exactly by construction. On failure the
-            caller must not write back (D10 hold-last-good).
+            ``SolveResult``; ``converged`` is judged against ``LIN_TOL`` over the
+            rows of solved components plus all-fixed rows reading an activated
+            fixed group. Aliases hold exactly within solved components; fixes
+            hold exactly wherever they changed. On failure the caller must not
+            write back (D10 hold-last-good).
+
+        Raises:
+            ValueError: A weight is not > 0.
         """
-        red = _Reduced(sys)
+        w_full = np.asarray(weights, dtype=float)
+        if not np.all(w_full > 0):
+            raise ValueError("solver weights must all be > 0")
+        st = _structure(sys)
         x0 = np.asarray(sys.x, dtype=float)
-        if red.conflicts:
+        if st.conflicts:
             return SolveResult(x0.copy(), False, float("inf"))
-        zg, w = red.reduce(np.asarray(goals, dtype=float),
-                           np.asarray(weights, dtype=float))
-        act_full = None if active is None else set(active)
-        act = (None if act_full is None
-               else {red.col_of(i) for i in act_full} - {None})
-        # Untouched components keep x0 bit-for-bit; solved ones are written.
+        goals = np.asarray(goals, dtype=float)
         x = x0.copy()
-        red.write_fixed(x, act_full)
-        z = zg.copy()
-        comps, orphans = self._components(sys.rows, red)
-        checked = [r for r in orphans
-                   if act_full is None or act_full.intersection(r.deps)]
-        for cols, rows in comps:
-            if act is not None and not act.intersection(cols):
-                continue
-            red.write(x, z, cols)          # start from the goals
-            if not rows:
+
+        # -- activation ------------------------------------------------------
+        if active is None:
+            comp_ids = range(len(st.comps))
+            x[st.fixed_vars] = st.fixed_vals
+            checked = list(st.orphans)
+        else:
+            act = np.asarray(list(active), dtype=np.intp)
+            fgs = {int(g) for g in st.var_fg[act] if g >= 0}
+            stale = x0[st.fixed_vars] != st.fixed_vals
+            if stale.any():
+                fgs.update(int(g) for g in st.var_fg[st.fixed_vars[stale]])
+            comp_set = {int(c) for c in st.var_comp[act] if c >= 0}
+            checked = []
+            for g in fgs:
+                comp_set |= st.fg_readers[g]
+                checked.extend(st.fg_orphans[g])
+            for g in fgs.union(*(st.comps[c].fgroups for c in comp_set)):
+                x[st.fg_members[g]] = st.fg_value[g]
+            comp_ids = sorted(comp_set)
+
+        # -- per-component projection (§7.2) ---------------------------------
+        for ci in comp_ids:
+            comp = st.comps[ci]
+            mv, lc, nc = comp.vars, comp.var_lcol, comp.ncols
+            wm = w_full[mv]
+            w = np.bincount(lc, weights=wm, minlength=nc)
+            zg = np.bincount(lc, weights=wm * goals[mv], minlength=nc) / w
+            z = zg.copy()                  # start from the goals
+            x[mv] = z[lc]
+            if not comp.rows:
                 continue                   # rowless: exactly the weighted-mean goal
-            checked.extend(rows)
-            # Rows may read eliminated (fixed) vars: make them hold their value.
-            red.write_fixed(x, {d for row in rows for d in row.deps})
-            winv = 1.0 / w[cols]
+            checked.extend(comp.rows)
+            winv = 1.0 / w
+            damp = DAMPING * np.eye(len(comp.rows))
             for _ in range(MAX_ITERS):
-                F, J = _eval_rows(rows, red, x, cols)
-                g = zg[cols] - z[cols]
-                A = (J * winv) @ J.T + DAMPING * np.eye(len(rows))
+                F, J = _eval_comp(comp, x)
+                g = zg - z
+                A = (J * winv) @ J.T + damp
                 rhs = -F - J @ g
                 try:
                     lam = np.linalg.solve(A, rhs)
@@ -248,9 +331,9 @@ class NumpySolver:
                 dz = g + winv * (J.T @ lam)
                 if not np.all(np.isfinite(dz)):
                     break                  # diverged: final check reports failure
-                z[cols] += dz
-                red.write(x, z, cols)
-                scale = max(1.0, float(np.max(np.abs(z[cols]))))
+                z += dz
+                x[mv] = z[lc]
+                scale = max(1.0, float(np.max(np.abs(z))))
                 if float(np.max(np.abs(dz))) < STEP_TOL * scale:
                     break
         worst = 0.0
@@ -260,15 +343,23 @@ class NumpySolver:
         return SolveResult(x, converged, worst)
 
     def diagnose(self, sys: System) -> Diagnostics:
-        """DOF = free variables after substitution − rank(J) (§7.4)."""
-        red = _Reduced(sys)
-        if not sys.rows or red.n == 0:
-            return Diagnostics(red.n, 0, red.n)
-        F, J = _eval_rows(sys.rows, red, np.asarray(sys.x, float), list(range(red.n)))
-        s = np.linalg.svd(J, compute_uv=False)
-        tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
-        rank = int((s > max(tol, 1e-9)).sum())
-        return Diagnostics(red.n, rank, red.n - rank)
+        """DOF = free variables after substitution - sum of component ranks (§7.4).
+
+        Fixes are applied before evaluating J. ``conflicts`` lists the cids of
+        contradictory fixes (the system is then not solvable).
+        """
+        st = _structure(sys)
+        x = np.array(sys.x, dtype=float)
+        x[st.fixed_vars] = st.fixed_vals
+        rank = 0
+        for comp in st.comps:
+            if not comp.rows:
+                continue
+            _F, J = _eval_comp(comp, x)
+            s = np.linalg.svd(J, compute_uv=False)
+            tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
+            rank += int((s > max(tol, 1e-9)).sum())
+        return Diagnostics(st.ncols, rank, st.ncols - rank, list(st.conflicts))
 
 
 # ── §7.3 residual catalogue — builders (one per IMPLEMENTED type) ─────────

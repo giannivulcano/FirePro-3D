@@ -188,3 +188,73 @@ def test_nonlinear_row_pinned_drag_converges_with_w_pin():
     assert res.converged and res.max_residual <= ss.LIN_TOL
     assert abs(res.x[1] - goals[1]) < 1e-3
     assert abs(res.x[3] - 0.3) < 0.01 and abs(res.x[7] + 0.2) < 0.01
+
+
+def _y_only(iy):
+    """A point whose ONLY dependency is a y var (x pinned at 0) -> forces a ROW."""
+    return ss.PointExpr(idx=(iy,), fn=lambda v: (np.array([0.0, v[0]]),
+                                                 np.array([[0.0], [1.0]])))
+
+
+def test_row_reading_a_fixed_group_touched_by_active_is_solved():
+    """P6b: a fix written by this solve activates every row reading it."""
+    x = np.array([0.0, 5.0, 10.0, 5.0])
+    s = ss.System(x=x.copy())
+    ss.BUILDERS["horizontal"]("o", (ss.raw_point(0, 1), ss.const_point(0, 0)), s)
+    ss.BUILDERS["horizontal"]("r", (_y_only(1), _y_only(3)), s)
+    res = ss.NumpySolver().solve(s, x.copy(), np.ones(4), active=[0, 1])
+    assert res.converged
+    assert abs(s.rows[0].fn(res.x)[0]) <= ss.LIN_TOL
+    assert np.allclose(res.x, [0.0, 0.0, 10.0, 0.0], atol=1e-9)
+
+
+def test_alias_chain_into_fixed_group_holds_the_fix():
+    """y1 == y3 == y5 and y5 := 7: the whole group is fixed, even when the drag
+    only touches an unrelated x var (a changed fix is a changed handle)."""
+    s = ss.System(x=np.array([0.0, 1.0, 0.0, 2.0, 0.0, 3.0]))
+    ss.BUILDERS["horizontal"]("ab", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    ss.BUILDERS["horizontal"]("bc", (ss.raw_point(2, 3), ss.raw_point(4, 5)), s)
+    ss.BUILDERS["horizontal"]("co", (ss.raw_point(4, 5), ss.const_point(0, 7)), s)
+    goals = np.array([4.0, 10.0, 0.0, 20.0, 0.0, 30.0])
+    res = ss.NumpySolver().solve(s, goals, np.ones(6), active=[0])
+    assert res.converged
+    assert np.allclose(res.x, [4.0, 7.0, 0.0, 7.0, 0.0, 7.0])
+    assert ss.NumpySolver().diagnose(s).dof == 3
+
+
+def test_conflicting_fixes_through_alias_chain():
+    s = ss.System(x=np.array([0.0, 1.0, 0.0, 2.0]))
+    ss.BUILDERS["horizontal"]("ab", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    ss.BUILDERS["horizontal"]("ao", (ss.raw_point(0, 1), ss.const_point(0, 0)), s)
+    ss.BUILDERS["horizontal"]("bo", (ss.const_point(0, 5), ss.raw_point(2, 3)), s)
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
+    assert not res.converged and np.array_equal(res.x, s.x)
+    assert ss.NumpySolver().diagnose(s).conflicts == ["bo"]
+
+
+def test_non_positive_weights_are_rejected():
+    import pytest
+    s = ss.System(x=np.array([0.0, 0.0]))
+    for bad in (0.0, -1.0, float("nan")):
+        with pytest.raises(ValueError):
+            ss.NumpySolver().solve(s, s.x.copy(), np.array([1.0, bad]))
+
+
+def test_structure_cache_tracks_added_constraints():
+    """Solving caches the structure; adding a constraint afterwards is seen."""
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 30.0]))
+    first = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
+    assert np.allclose(first.x, s.x)
+    ss.BUILDERS["horizontal"]("h", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
+    assert np.allclose(res.x, [0.0, 15.0, 100.0, 15.0])
+    assert ss.NumpySolver().diagnose(s).dof == 3
+
+
+def test_diagnose_sums_dof_over_components():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 3.0, 0.0, 50.0, 10.0, 60.0, 7.0, 8.0]))
+    ss.BUILDERS["horizontal"]("r1", (_identity_derived(0), _identity_derived(2)), s)
+    ss.BUILDERS["horizontal"]("r2", (_identity_derived(4), _identity_derived(6)), s)
+    ss.BUILDERS["horizontal"]("r3", (_identity_derived(6), _identity_derived(4)), s)  # redundant
+    d = ss.NumpySolver().diagnose(s)
+    assert (d.nvars, d.rank, d.dof, d.conflicts) == (10, 2, 8, [])
