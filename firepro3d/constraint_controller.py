@@ -27,7 +27,8 @@ from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
 from .sketch_adapters import adapter_for
-from .sketch_solver import BUILDERS, NumpySolver, System, W_EDIT, W_PIN, const_point
+from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
+                            const_point)
 from .theme import M
 
 # Model_Space tracking lists whose items can carry constraints (§5.1).
@@ -837,6 +838,24 @@ class ConstraintController:
                     red.add(c.id)
         return red
 
+    def _unsatisfied(self, cons) -> set:
+        """Ids of *cons* NOT satisfied by the current (committed) geometry --
+        each judged alone, nothing solved or written. Undo restore and paste
+        derive red with this (CS2 review I-1): a committed snapshot satisfies
+        exactly its live non-red constraints, so this reproduces the live red
+        set; a "satisfiable after a solve" test would re-admit a red one that
+        a geometry edit made satisfiable WITHOUT applying it."""
+        out = set()
+        for c in cons:
+            sys_, _slots, _w = self._build([c])
+            x = sys_.x
+            res = [abs(x[i] - x[j]) for i, j, _ in sys_.aliases]
+            res += [abs(x[i] - v) for i, v, _ in sys_.fixes]
+            res += [abs(row.fn(x)[0]) for row in sys_.rows]
+            if res and max(res) > LIN_TOL:
+                out.add(c.id)
+        return out
+
     def _recheck_red(self, skip=()) -> None:
         """D37: after a STRUCTURAL commit, each red constraint (list order)
         re-joins if it is satisfiable again -- its solve is written back.
@@ -920,9 +939,11 @@ class ConstraintController:
         if self.selected_id not in {c.id for c in self.constraints}:
             self.selected_id = None
         self.red &= {c.id for c in self.constraints}
-        self._recheck_red()              # structural: a partner may be gone (D37)
+        n = before - len(self.constraints)
+        if n:                            # structural only when something cascaded
+            self._recheck_red()          # (CS2 review I-2; D37)
         self._commit_gen += 1
-        return before - len(self.constraints)
+        return n
 
     def _committed(self, skip=()) -> None:
         self._recheck_red(skip)          # D37: structural commit re-check
@@ -1144,6 +1165,8 @@ class ConstraintController:
     def item_state_text(self, uid) -> tuple[str, str]:
         """D41 element footer: ``(text, state)``."""
         d = self.diagnostics()
+        if uid not in d.item_dof:        # non-participating (spline): no state
+            return "", ""
         st = d.state(uid)
         if st == "conflict":
             return "Conflicting", st
@@ -1166,8 +1189,13 @@ class ConstraintController:
         """Undo snapshot of the constraint list."""
         return [c.to_dict() for c in self.constraints] if self.enabled else []
 
-    def restore(self, records) -> None:
-        """Undo restore (items are already rebuilt with their uids)."""
+    def restore(self, records, *, _solvable: bool = False) -> None:
+        """Undo restore (items are already rebuilt with their uids).
+
+        Red (D38) is re-derived: a constraint the committed geometry does not
+        satisfy is red (review I-1). ``load`` passes ``_solvable`` -- it solves
+        right after, so a constraint is red only if it cannot join in list
+        order (``_admit_in_order``)."""
         if not self.enabled:
             return
         by = self.item_by_uid()
@@ -1175,7 +1203,9 @@ class ConstraintController:
         self.selected_id = self.hover_id = None
         self._end_session()      # a drag context holds the pre-restore items
         self.red = set()
-        self.red = self._admit_in_order(self.active())   # D38, list order
+        cons = self.active()
+        self.red = (self._admit_in_order(cons) if _solvable
+                    else self._unsatisfied(cons))         # D38
         self._commit_gen += 1
 
     def primitive_uids(self) -> set:
@@ -1204,7 +1234,7 @@ class ConstraintController:
         time so an admitted conflict in one group never blocks another. No
         undo push -- the result is part of the seeded baseline -- and no
         status: a group that fails stays as loaded."""
-        self.restore(records)
+        self.restore(records, _solvable=True)
         if not self.enabled:
             return
         cons = self.active()
@@ -1302,9 +1332,10 @@ class ConstraintController:
                 c.raw, c.invalid = c.to_dict(), True
             self.constraints.append(c)
             new.append(c)
-        # D38: a copied constraint that cannot join (e.g. a source's red one)
-        # is red on the copy too.
-        self.red |= self._admit_in_order(
+        # D38: a copied constraint the copied geometry does not satisfy (e.g.
+        # a source's red one) is red on the copy too -- never active-unapplied
+        # (review I-1).
+        self.red |= self._unsatisfied(
             [c for c in new if c.enabled and not c.inert])
         self._commit_gen += 1
 

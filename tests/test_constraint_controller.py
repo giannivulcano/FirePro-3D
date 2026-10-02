@@ -1562,3 +1562,81 @@ def test_d30_vertical_copy_rule(qapp, kw, kept):
     cp_ = _line(sc, (50, 0), (50, 100))
     ctl.paste_records(recs, {ln._uid: cp_._uid}, **kw)
     assert [c.type for c in ctl.constraints_on(cp_)] == (["vertical"] if kept else [])
+
+
+# ── CS2 review I-1 / I-2 / m-1: red derivation must never leave an active
+#    constraint unsatisfied, and only a real cascade re-checks red ─────────
+
+def _sat(ctl):
+    """Every ACTIVE constraint holds at the committed geometry (the D37
+    invariant): max |residual| over aliases / fixes / rows."""
+    import numpy as np
+    cons = ctl.active()
+    if not cons:
+        return 0.0
+    sys_, _slots, _w = ctl._build(cons)
+    x = sys_.x
+    r = [abs(x[i] - x[j]) for i, j, _c in sys_.aliases]
+    r += [abs(x[i] - v) for i, v, _c in sys_.fixes]
+    r += [abs(row.fn(x)[0]) for row in sys_.rows]
+    return float(max(r)) if r else 0.0
+
+
+def test_review_i1_undo_restore_never_activates_an_unapplied_red(qapp):
+    sc = _scene()
+    L = _line(sc, (0, 0), (100, 0))
+    sc.push_undo_state()
+    ctl = sc.constraint_ctl
+    v = ctl.add("vertical", [{"uid": L._uid, "h": "edge"}])     # collapse -> red
+    assert ctl.red == {v.id}
+    with ctl.edit([L]):                                         # D37: no re-check
+        L._pt2 = QPointF(10, 80)
+        L.setLine(0, 0, 10, 80)
+    sc.push_undo_state()
+    M = _line(sc, (300, 0), (400, 0))
+    sc.push_undo_state()
+    sc.undo()                                                   # unrelated step
+    ctl = sc.constraint_ctl
+    L2 = next(i for i in sc._draw_lines if i._uid == L._uid)
+    assert _sat(ctl) <= 1e-6                                    # [RED before fix]
+    assert v.id in ctl.red                                      # still red, as live
+    assert (L2._pt2.x(), L2._pt2.y()) == pytest.approx((10.0, 80.0))
+
+
+def test_review_i1_paste_keeps_a_red_source_constraint_red(qapp):
+    sc = _scene()
+    L = _line(sc, (0, 0), (100, 0))
+    ctl = sc.constraint_ctl
+    v = ctl.add("vertical", [{"uid": L._uid, "h": "edge"}])     # red
+    with ctl.edit([L]):
+        L._pt2 = QPointF(10, 80)
+        L.setLine(0, 0, 10, 80)
+    recs = ctl.internal_records([L])
+    C = _line(sc, (200, 0), (210, 80))                          # the copy
+    ctl.paste_records(recs, {L._uid: C._uid})
+    copied = [c for c in ctl.constraints_on(C)]
+    assert len(copied) == 1 and copied[0].id in ctl.red        # [RED before fix]
+    assert _sat(ctl) <= 1e-6
+
+
+def test_review_i2_removing_an_unrelated_item_does_not_move_geometry(qapp):
+    sc = _scene()
+    L = _line(sc, (0, 0), (100, 0))
+    other = _line(sc, (300, 300), (400, 300))
+    ctl = sc.constraint_ctl
+    v = ctl.add("vertical", [{"uid": L._uid, "h": "edge"}])     # red
+    with ctl.edit([L]):
+        L._pt2 = QPointF(10, 80)
+        L.setLine(0, 0, 10, 80)
+    before = _grips(L)
+    assert ctl.on_items_removed([other]) == 0                   # nothing cascaded
+    assert _grips(L) == before                                  # [RED before fix]
+    assert v.id in ctl.red
+
+
+def test_review_m1_non_participating_item_has_no_state_footer(qapp):
+    from firepro3d.geometry_2d import SplineItem
+    sc = _scene()
+    sp = SplineItem([QPointF(0, 0), QPointF(50, 40), QPointF(100, 0), QPointF(150, 30)])
+    sc.addItem(sp); sc._draw_splines.append(sp)
+    assert sc.constraint_ctl.item_state_text(getattr(sp, "_uid", None)) == ("", "")

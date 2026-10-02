@@ -1241,8 +1241,7 @@ class ActionRowList(QWidget):
             f"QLabel#actionRowText[muted=\"true\"] {{ color: {t.muted}; }}"
             f"QLabel#actionRowText[state=\"warn\"] {{ color: {t.warn}; }}"
             f"QLabel#actionRowText[state=\"danger\"] {{ color: {t.danger}; }}"
-            f"QWidget#actionRowFooterBadge {{ border-top: 1px solid {t.line};"
-            f" padding: {M.ACTION_ROW_PAD_Y}px {pad}px; }}"
+            f"QWidget#actionRowFooterBadge {{ border-top: 1px solid {t.line}; }}"
             f"QLabel#actionRowEmpty {{ color: {t.muted}; font-style: italic; }}"
             f"QLabel#actionRowFooter {{ color: {t.muted}; border-top: 1px solid {t.line};"
             f" padding: {M.ACTION_ROW_PAD_Y}px {pad}px; }}"
@@ -1335,6 +1334,10 @@ class ActionRowList(QWidget):
             self._footer = StatusBadge(footer, footer_state)
             self._footer.setObjectName("actionRowFooterBadge")
             self._footer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            # QSS padding does not inset a plain QWidget's layout (review m-2):
+            # align with the QLabel footer / title via the layout margins.
+            self._footer.layout().setContentsMargins(
+                pad, M.ACTION_ROW_PAD_Y, pad, M.ACTION_ROW_PAD_Y)
         else:
             self._footer = QLabel(footer)
             self._footer.setObjectName("actionRowFooter")
