@@ -11,6 +11,7 @@ PRIMITIVES = {
     "ground", "surface", "sunken", "raised", "line", "line_strong",
     "ink", "muted", "faint", "accent", "accent_ink", "on_accent",
     "selection", "selection_active", "selection_hover", "ok", "warn", "danger",
+    "constraint_free",          # D26 (parametric-constraint-system): under-defined tint
 }
 
 SEMANTICS = {
@@ -43,6 +44,14 @@ def test_dark_primitive_values():
     assert th.DARK.accent == "#63BE8B"
     assert th.DARK.ground == "#141619"
     assert th.DARK.selection_active == "#8FE3B4"
+
+
+def test_constraint_free_is_blue_and_distinct_from_accent_and_selection():
+    """D26: the under-defined tint must never read as "selected"."""
+    assert th.DARK.constraint_free == "#5B8CFF"
+    assert th.LIGHT.constraint_free == "#2357D9"
+    for preset in (th.DARK, th.LIGHT):
+        assert preset.constraint_free not in (preset.accent, preset.selection)
 
 
 def test_semantic_aliases_resolve_for_both_presets():
