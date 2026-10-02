@@ -1889,10 +1889,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._restore_network(before)
             self._show_status("Explode failed — nothing was changed", 4000)
             return []
+        # §8: the exploded instances' constraints (on their ``ins``) are
+        # dropped inside the same undo step as the explode.
+        n = self.constraint_ctl.on_items_removed(
+            [i for i in insts if i.scene() is not self])
         for it in new:
             it.setSelected(True)
         self.push_undo_state()
         self.blockInstancesChanged.emit()
+        if n:
+            from .constraint_controller import removed_status
+            self._show_status(removed_status(n), 4000)
         return new
 
     def make_block_from_selection(self, items, origin, name, library, series):

@@ -15,7 +15,7 @@ from firepro3d.block_instance import BlockInstance
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem,
                                    RectangleItem, ReferenceLineItem, RegularPolygonItem,
                                    SplineItem)
-from firepro3d.sketch_adapters import ANG_W, GRIP_HANDLES, adapter_for
+from firepro3d.sketch_adapters import ANG_W, GRIP_HANDLES, W_SIZE, adapter_for
 from firepro3d.sketch_solver import ANG_SCALE
 from firepro3d.text_item import TextAnnotationData, TextItem
 
@@ -59,6 +59,8 @@ _MAKERS = {
     "polyline_closed": lambda: _polyline(closed=True),
     "polygon": lambda: RegularPolygonItem(QPointF(5, 6), sides=6, radius_mm=20.0,
                                           rotation_deg=15.0),
+    "polygon_circ": lambda: RegularPolygonItem(QPointF(-4, 9), sides=5, radius_mm=12.0,
+                                               rotation_deg=-35.0, inscribed=False),
     "ellipse": lambda: EllipseItem(QPointF(5, 6), 30.0, 12.0, rotation_deg=20.0),
     "text": lambda: TextItem(TextAnnotationData(text="Hi", x=12.0, y=-7.0)),
     "block": lambda: _block(),
@@ -87,7 +89,8 @@ def test_rect_points_match_grip_points(qapp, angle, pivot):
 
 
 @pytest.mark.parametrize("key", ["line", "reference_line", "circle", "rect", "rect_rotated",
-                                 "arc", "polyline", "polyline_closed", "polygon", "ellipse"])
+                                 "arc", "polyline", "polyline_closed", "polygon",
+                                 "polygon_circ", "ellipse"])
 def test_every_mapped_grip_index_names_its_grip_point(qapp, key):
     """§5.3: grip index -> handle name -> point equals grip_points()[index]."""
     it = _MAKERS[key]()
@@ -133,7 +136,7 @@ def test_rect_derived_grip_pins_every_var(qapp):
 # ── analytic derivatives == finite differences ──────────────────────────────
 
 @pytest.mark.parametrize("key", ["rect", "rect_rotated", "arc", "line", "circle",
-                                 "polyline_closed", "polygon", "ellipse"])
+                                 "polyline_closed", "polygon", "polygon_circ", "ellipse"])
 def test_derivatives_match_finite_differences(qapp, key):
     it = _MAKERS[key]()
     ad = adapter_for(it)
@@ -193,18 +196,53 @@ def test_rect_edges_follow_the_local_frame(qapp):
         assert _close(_pt(a, x), g[ia]) and _close(_pt(b, x), g[ib]), name
 
 
-# ── D28 weights ─────────────────────────────────────────────────────────────
+# ── D28 / D34 weights ───────────────────────────────────────────────────────
 
 def test_angle_variables_carry_the_d28_weight(qapp):
+    """D28: angles ANG_W. D34 (fix round A, VC5 -- this test's size entries
+    were 1 before the ruling): sizes (rect w/h, circle / arc r, polygon R,
+    ellipse rx/ry) carry W_SIZE; positions 1."""
     assert ANG_W == ANG_SCALE ** 2
-    exp = {"rect": [1, 1, 1, 1, ANG_W], "arc": [1, 1, 1, ANG_W, ANG_W],
-           "polygon": [1, 1, 1, ANG_W], "ellipse": [1, 1, 1, 1, ANG_W],
-           "line": [1, 1, 1, 1], "circle": [1, 1, 1], "text": [1, 1], "block": [1, 1]}
+    assert 1.0 < W_SIZE < ANG_W
+    exp = {"rect": [1, 1, W_SIZE, W_SIZE, ANG_W], "arc": [1, 1, W_SIZE, ANG_W, ANG_W],
+           "polygon": [1, 1, W_SIZE, ANG_W], "ellipse": [1, 1, W_SIZE, W_SIZE, ANG_W],
+           "line": [1, 1, 1, 1], "circle": [1, 1, W_SIZE], "text": [1, 1], "block": [1, 1]}
     for key, w in exp.items():
         it = _MAKERS[key]()
         ad = adapter_for(it)
         assert ad.var_weights(it) == w, key
         assert ad.nvars(it) == len(w), key
+
+
+# ── D33: polygon vertex / edge handles ─────────────────────────────────────
+
+@pytest.mark.parametrize("inscribed", [True, False])
+@pytest.mark.parametrize("sides,rot", [(3, 0.0), (5, 17.5), (6, -100.0), (8, 222.0)])
+def test_polygon_vertices_are_its_grip_points(qapp, sides, rot, inscribed):
+    """D33: v_i == grip_points()[i + 1] (the §5.3 map 0 = centre, 1..n =
+    vertices) for both radius meanings; s_i = v_i -> v_(i+1), closing one
+    included; the grip map names them."""
+    it = RegularPolygonItem(QPointF(12, -7), sides=sides, radius_mm=30.0,
+                            rotation_deg=rot, inscribed=inscribed)
+    ad = adapter_for(it)
+    x = np.array(ad.read(it))
+    pts, edges = ad.points(it, 0), ad.edges(it, 0)
+    g = it.grip_points()
+    assert len(g) == sides + 1
+    assert ad.grip_handle(it, 0) == "center"
+    assert _close(_pt(pts["center"], x), g[0])
+    for i in range(sides):
+        assert ad.grip_handle(it, i + 1) == f"v{i}"
+        assert _close(_pt(pts[f"v{i}"], x), g[i + 1]), i
+        a, b = edges[f"s{i}"]
+        assert _close(_pt(a, x), g[i + 1]) and _close(_pt(b, x), g[(i + 1) % sides + 1]), i
+    assert ad.grip_handle(it, sides + 1) is None
+    assert set(edges) == {f"s{i}" for i in range(sides)}
+
+
+def test_polygon_vertex_grip_pins_every_var(qapp):
+    it = _MAKERS["polygon"]()
+    assert adapter_for(it).pin_vars(it, 3) == (0, 1, 2, 3)
 
 
 # ── write-back moves the item's own observable geometry ─────────────────────
@@ -265,12 +303,17 @@ def test_write_back_round_trips(qapp, key):
             assert _close(v[2 * i:2 * i + 2], q), i
         path = it.path()
         assert _close(v[0:2], QPointF(path.elementAt(0).x, path.elementAt(0).y))
-    elif key == "polygon":
+    elif key.startswith("polygon"):
         cx, cy, rad, rot = v
+        n = it._sides
+        # _radius_mm is the circumradius when inscribed, else the apothem
+        # (vertex 0 then sits half a step past the rotation).
+        rv = rad if it._inscribed else rad / math.cos(math.pi / n)
+        off = 0.0 if it._inscribed else 180.0 / n
         g = it.grip_points()
         assert _close((cx, cy), g[0])
-        assert math.hypot(g[1].x() - cx, g[1].y() - cy) == pytest.approx(rad)
-        assert _ang_eq(_yup_deg(g[0], g[1]), math.degrees(rot))
+        assert math.hypot(g[1].x() - cx, g[1].y() - cy) == pytest.approx(rv)
+        assert _ang_eq(_yup_deg(g[0], g[1]), math.degrees(rot) + off)
         # The rendered outline moved too (grip_points reads fields, not the path).
         e0 = it.path().elementAt(0)
         assert _close((e0.x, e0.y), g[1])

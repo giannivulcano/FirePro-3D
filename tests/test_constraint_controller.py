@@ -142,19 +142,28 @@ def test_arc_whose_least_change_is_a_zero_span_holds(qapp):
 
 def test_a_solve_that_shrinks_a_size_above_its_floor_still_applies(qapp):
     """D29 is about collapse only: a rect whose top-right follows a line end
-    (H) may legitimately shrink."""
+    (H) may legitimately shrink.
+
+    Rewritten in fix round A (VC5): D34 (translate, then resize) made the
+    original scenario TRANSLATE the free rect instead of shrinking it, so the
+    rect's bottom is now held on the X axis (H(bl/br, origin)) -- shrinking
+    is the only way for it to follow, which is the D29 contract under test."""
     sc = _scene()
-    r = _rect(sc, (0, 0), (100, 100))
-    ln = _line(sc, (200, 0), (300, 0))
+    r = _rect(sc, (0, -100), (100, 0))
+    ln = _line(sc, (200, -100), (300, -100))
     ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": r._uid, "h": "bl"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": r._uid, "h": "br"}, {"ref": "origin"}])
     ctl.add("horizontal", [{"uid": r._uid, "h": "tr"}, {"uid": ln._uid, "h": "p1"}])
+    assert r.rect().height() == pytest.approx(100.0, abs=1e-6)
     msgs = _status(sc)
     with ctl.edit([ln]):
         ln.translate(0, 30)
     tr = r.grip_points()[2]
     assert abs(tr.y() - ln._pt1.y()) < 1e-6
-    assert tr.y() > 29.0                                  # the rect followed
-    assert 1.0 < r.rect().height() < 100.0 - 1.0          # ... partly by shrinking
+    assert tr.y() > -100.0 + 1.0                          # the rect followed
+    assert 1.0 < r.rect().height() < 100.0 - 1.0          # ... by shrinking
+    assert r.grip_points()[6].y() == pytest.approx(0.0, abs=1e-6)   # bottom held
     assert msgs == []
 
 
@@ -998,3 +1007,258 @@ def test_d18_controller_drag_frame_bar(qapp):
     print(f"controller drag frame median {med:.2f} ms")
     assert abs(lines[0]._pt1.y() - ln._pt2.y()) < 1e-6      # the chain followed
     assert med <= 8.0, f"drag frame {med:.2f} ms"
+
+
+# ── fix round A (VC9 F1): Explode / emptied-text removal cascade (§8) ──────
+
+def _nested_instance(sc, pos=(50.0, 30.0)):
+    from firepro3d.block_definition import BlockDefinition
+    d = BlockDefinition.new(name="n", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(10, 0)).to_dict()])
+    sc.register_block_definition(d)
+    return sc.place_block_instance(d.id, pos)
+
+
+def test_exploding_a_constrained_nested_instance_cascades_its_constraints(qapp):
+    """§8: Explode drops the constraints on the exploded instance's ``ins``
+    in the SAME undo step, with the status "N constraint(s) removed"; undo
+    brings the instance AND a live (not "Unsupported") constraint back."""
+    from PyQt6.QtWidgets import QGraphicsView
+    from firepro3d import constraint_paint as cp
+    sc = _scene()
+    sc.push_undo_state()
+    inst = _nested_instance(sc)
+    ln = _line(sc, (0, 0), (100, 10))
+    ctl = sc.constraint_ctl
+    c = ctl.add("horizontal", [{"uid": inst._uid, "h": "ins"}, {"uid": ln._uid, "h": "p1"}])
+    assert c is not None
+    view = QGraphicsView(sc)
+    msgs = _status(sc)
+    sc.clearSelection()
+    inst.setSelected(True)
+    new = sc.explode_selected_blocks()                    # the real Explode entry
+    assert new and inst.scene() is None
+    assert ctl.constraints == []                                         # [RED]
+    assert ctl.constraints_on(ln) == []
+    assert ctl.to_records() == []
+    assert cp.glyph_layouts(view, ctl) == []
+    assert "1 constraint removed" in msgs
+    assert sc._undo_stack[-1]["constraints"] == []        # cascade inside the step
+    sc.undo()
+    (back,) = sc._block_instances
+    assert back._uid == inst._uid
+    assert [ctl.kind_text(x) for x in ctl.constraints] == ["Horizontal"]
+    assert [x.id for x in ctl.active()] == [c.id]
+    sc.redo()
+    assert sc._block_instances == [] and ctl.constraints == []
+
+
+def test_emptying_a_constrained_text_in_place_cascades_its_constraints(qapp):
+    """§8 delete: a text emptied in its inline session is deleted -- its
+    constraints cascade in that one undo step; undo restores both."""
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    sc = _scene()
+    sc.push_undo_state()
+    d = TextAnnotationData(text="Hi", x=0.0, y=40.0, height_mm=40.0, wrap_width_mm=600.0)
+    t = TextItem(d)
+    sc.addItem(t); sc._texts.append(t); t._apply_format()
+    ln = _line(sc, (100, 0), (200, 0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("horizontal", [{"uid": t._uid, "h": "ins"}, {"uid": ln._uid, "h": "p1"}])
+    assert c is not None
+    n = len(sc._undo_stack)
+    sc._text_edit_ctl.begin(t)
+    t.setPlainText("   ")
+    sc.commit_text_edit()
+    assert sc._texts == []
+    assert len(sc._undo_stack) == n + 1
+    assert ctl.constraints == [] and ctl.constraints_on(ln) == []        # [RED]
+    assert sc._undo_stack[-1]["constraints"] == []
+    sc.undo()
+    assert len(sc._texts) == 1
+    assert [x.id for x in ctl.active()] == [c.id]
+
+
+# ── fix round A (VC9 F5): inert records on adapter-less primitives (§6.4) ──
+
+def test_an_inert_record_on_a_spline_survives_save_and_reopen(qapp):
+    """AC7: a newer build's record on a spline (no adapter in v1) is inert,
+    and Save writes it back verbatim -- through a reopen and a second Save."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.geometry_2d import SplineItem
+    project = Model_Space()
+    sp = SplineItem([QPointF(0, 0), QPointF(10, 10), QPointF(20, 0), QPointF(30, 10)])
+    ln = LineItem(QPointF(0, 50), QPointF(100, 50))
+    rec = {"id": "c-sp", "type": "tangent_spline_future",
+           "refs": [{"uid": sp._uid, "h": "curve"}, {"uid": ln._uid, "h": "edge"}],
+           "future": {"k": 1}}
+    defn = BlockDefinition.new(name="B", library="L", series="S", origin=(0, 0),
+                               primitives=[sp.to_dict(), ln.to_dict()], constraints=[rec])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    w.seed_from_definition(defn)
+    ctl = w.editor_scene.constraint_ctl
+    assert [c.inert for c in ctl.constraints] == [True]
+    w._edit_block_id = defn.id
+    w.commit_block("B", "L", "S")
+    assert project.get_block_definition(defn.id).constraints == [rec]    # [RED]
+    w2 = BlockEditorWidget(project)                     # reopen + save again
+    w2.seed_from_definition(project.get_block_definition(defn.id))
+    w2._edit_block_id = defn.id
+    w2.commit_block("B", "L", "S")
+    assert project.get_block_definition(defn.id).constraints == [rec]
+
+
+# ── fix round A (VC9 F4, D34): translate, then resize, then rotate ─────────
+
+def test_adding_horizontal_to_a_rect_corner_translates_the_rect(qapp):
+    """D34: H(rect.br, line.p1) on an axis-aligned 200x100 rect keeps its
+    size and angle -- the rect and the line end meet halfway (both translate)."""
+    sc = _scene()
+    r = _rect(sc, (0, 0), (200, 100))
+    ln = _line(sc, (-300, 0), (-400, 50))
+    sc.constraint_ctl.add("horizontal", [{"uid": r._uid, "h": "br"}, {"uid": ln._uid, "h": "p1"}])
+    assert r.rect().width() == pytest.approx(200.0, abs=1e-6)
+    assert r.rect().height() == pytest.approx(100.0, abs=1e-6)          # [RED]
+    assert abs(math.remainder(r._angle, 360.0)) < math.degrees(1e-6)
+    br = r.grip_points()[4]
+    assert br.y() == pytest.approx(ln._pt1.y(), abs=1e-6)
+    assert br.y() == pytest.approx(50.0, abs=0.5)                        # halfway
+    assert r.grip_points()[0].x() == pytest.approx(0.0, abs=1e-6)        # pure translate
+
+
+# ── fix round A (VC9 F2): a constrained rotated-rect grip drag tracks ──────
+
+def _drag_rect_corner(qapp, constrained):
+    """Drag the 200x100 @30 deg rect's ``br`` grip through the REAL
+    manipulator + RectGripHandle path. Returns (cursor, br, tl0, tl, pivot,
+    press-time centre)."""
+    v, sc = _shown_editor(qapp)
+    try:
+        sc._snap_enabled = False                          # cursor == drag point
+        r = _rect(sc, (0, 0), (200, 100))
+        r.set_angle(30.0, None)
+        tl = r.grip_points()[0]
+        ln = _line(sc, (tl.x() - 300, tl.y()), (tl.x() - 400, tl.y() + 50))
+        if constrained:
+            assert sc.constraint_ctl.add(
+                "horizontal", [{"uid": r._uid, "h": "br"}, {"uid": ln._uid, "h": "p1"}])
+        r.setSelected(True)
+        qapp.processEvents()
+        tl0, br0 = QPointF(r.grip_points()[0]), QPointF(r.grip_points()[4])
+        c0 = QPointF(r.grip_points()[8])
+        m = sc._live_manip()
+        h = r.manip_handles()[4]
+        m._begin_handle(h, br0, QPointF(v.mapFromScene(br0)))
+        cur = br0
+        for k in range(1, 6):
+            cur = QPointF(br0.x() + 10 * k, br0.y() + 7 * k)
+            m._update(cur, Qt.KeyboardModifier.NoModifier, QPointF(v.mapFromScene(cur)))
+        m._finish(cur, Qt.KeyboardModifier.NoModifier)
+        br, tl1 = QPointF(r.grip_points()[4]), QPointF(r.grip_points()[0])
+        if constrained:
+            assert abs(br.y() - ln._pt1.y()) < 1e-6        # the constraint held
+        return cur, br, tl0, tl1, r._pivot, c0
+    finally:
+        _close(v, sc)
+
+
+# ── fix round A (D33): polygon vertex / edge handles in the solver ─────────
+
+def _polygon(sc, **kw):
+    from firepro3d.geometry_2d import RegularPolygonItem
+    p = RegularPolygonItem(QPointF(0, 0), **kw)
+    sc.addItem(p); sc._draw_polygons.append(p)
+    return p
+
+
+def test_polygon_handles_are_pick_candidates(qapp):
+    from firepro3d.constraint_controller import PickState
+    sc = _scene()
+    p = _polygon(sc, sides=5, radius_mm=40.0, rotation_deg=10.0)
+    names = {(k, r.get("h")) for k, r, _a, _b in PickState(sc.constraint_ctl,
+                                                            "horizontal")._candidates()
+             if r.get("uid") == p._uid}
+    assert names == ({("point", "center")} | {("point", f"v{i}") for i in range(5)}
+                     | {("edge", f"s{i}") for i in range(5)})
+
+
+@pytest.mark.parametrize("inscribed", [True, False])
+def test_horizontal_on_a_polygon_edge_levels_it_by_rotating(qapp, inscribed):
+    """D33 + D28: nothing but a rotation levels an edge (a translate can't;
+    shrinking R to 0 collapses, D29) -- R and the centre stay."""
+    sc = _scene()
+    p = _polygon(sc, sides=6, radius_mm=50.0, rotation_deg=15.0, inscribed=inscribed)
+    c = sc.constraint_ctl.add("horizontal", [{"uid": p._uid, "h": "s0"}])
+    assert c is not None
+    g = p.grip_points()
+    assert g[1].y() == pytest.approx(g[2].y(), abs=1e-6)                # v0, v1 level
+    assert p._radius_mm == pytest.approx(50.0, abs=1e-6)
+    assert (p._center.x(), p._center.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert abs(math.remainder(p._rotation_deg - 15.0, 360.0)) > 1.0      # it rotated
+
+
+def test_horizontal_between_a_polygon_vertex_and_a_line_end_translates(qapp):
+    """D34: the polygon meets the line end by moving (R and rotation kept)."""
+    sc = _scene()
+    p = _polygon(sc, sides=6, radius_mm=50.0, rotation_deg=15.0)
+    ln = _line(sc, (200, 100), (300, 100))
+    v2 = QPointF(p.grip_points()[3])
+    sc.constraint_ctl.add("horizontal", [{"uid": p._uid, "h": "v2"}, {"uid": ln._uid, "h": "p1"}])
+    assert p.grip_points()[3].y() == pytest.approx(ln._pt1.y(), abs=1e-6)
+    assert p._radius_mm == pytest.approx(50.0, abs=1e-6)
+    assert p._rotation_deg == pytest.approx(15.0, abs=1e-6)
+    assert p._center.x() == pytest.approx(0.0, abs=1e-6)
+    assert ln._pt1.y() == pytest.approx((v2.y() + 100.0) / 2.0, abs=0.5)   # met halfway
+
+
+@pytest.mark.parametrize("constrained", [False, True])
+def test_a_constrained_rotated_rect_grip_drag_tracks_the_cursor(qapp, constrained):
+    """VC9 F2: with H(br, line.p1) the drag behaves like the free one -- the
+    corner tracks, the opposite corner stays, and the solver never re-writes
+    the dragged rect (its ~1e-9 pin leakage is below the write tolerance), so
+    the press-time pivot pin survives exactly as in a free drag (§5.3)."""
+    cur, br, tl0, tl, pivot, c0 = _drag_rect_corner(qapp, constrained)
+    assert math.dist(_xy(cur), _xy(br)) <= 0.5                          # [RED]
+    assert math.dist(_xy(tl0), _xy(tl)) <= 0.5            # the opposite corner stays
+    assert pivot is not None and math.dist(_xy(pivot), _xy(c0)) < 1e-9
+
+
+def _xy(p):
+    return (p.x(), p.y())
+
+
+def _self_constrained_rect_drag(qapp, steps):
+    """H(tl, br) on a rotated rect, then drag ``br`` (real manipulator path)
+    to the same end point in *steps* frames. Returns the final grips."""
+    v, sc = _shown_editor(qapp)
+    try:
+        sc._snap_enabled = False
+        r = _rect(sc, (0, 0), (200, 100))
+        r.set_angle(30.0, None)
+        assert sc.constraint_ctl.add("horizontal", [{"uid": r._uid, "h": "tl"},
+                                                    {"uid": r._uid, "h": "br"}])
+        r.setSelected(True)
+        qapp.processEvents()
+        br0 = QPointF(r.grip_points()[4])
+        m = sc._live_manip()
+        m._begin_handle(r.manip_handles()[4], br0, QPointF(v.mapFromScene(br0)))
+        for k in range(1, steps + 1):
+            cur = QPointF(br0.x() + 40.0 * k / steps, br0.y() + 25.0 * k / steps)
+            m._update(cur, Qt.KeyboardModifier.NoModifier, QPointF(v.mapFromScene(cur)))
+        m._finish(cur, Qt.KeyboardModifier.NoModifier)
+        g = r.grip_points()
+        assert abs(g[0].y() - g[4].y()) < 1e-6              # the constraint held
+        return [_xy(p) for p in g]
+    finally:
+        _close(v, sc)
+
+
+def test_a_rect_drag_the_solver_rotates_is_path_independent(qapp):
+    """VC9 F2 (material write-back): when the solve really rotates the dragged
+    rect each frame (its own H(tl, br)), the write canonicalises its pivot;
+    the grip must re-apply every frame from its press-time pose, so the
+    result depends on the end point only, not on the frames taken."""
+    one, six = _self_constrained_rect_drag(qapp, 1), _self_constrained_rect_drag(qapp, 6)
+    assert max(math.dist(p, q) for p, q in zip(one, six)) < 1e-6         # [RED]

@@ -473,10 +473,21 @@ class RectGripHandle(GripHandle):
             it._pivot = QPointF(it.rect().center())
         inv, ok = it._rotation_transform().inverted()
         self._inv0 = inv if ok else QTransform()
+        # The press-time pose the resize math assumes (after pinning).
+        self._angle0 = it._angle
+        self._pose_pivot0 = None if it._pivot is None else QPointF(it._pivot)
 
     def _apply(self, pt: QPointF, mods) -> None:
         from .geometry_2d import rect_grip_resize
         it = self.item
+        # Re-establish the press-time pose every frame: a constraint solve
+        # between frames may have written the rect back with a canonical
+        # (centre) pivot / a new angle, and ``_r0`` / ``_inv0`` are only valid
+        # in the press-time frame (VC9 F2). A no-op for an unconstrained drag.
+        if (it._angle != self._angle0
+                or (it._pivot is None) != (self._pose_pivot0 is None)
+                or (it._pivot is not None and it._pivot != self._pose_pivot0)):
+            it.set_angle(self._angle0, self._pose_pivot0)
         it.prepareGeometryChange()
         it.setRect(rect_grip_resize(
             self._r0, self.index, self._inv0.map(QPointF(pt)),

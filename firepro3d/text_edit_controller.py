@@ -135,6 +135,10 @@ class TextEditController:
         item.clearFocus()
         if item.is_effectively_empty():
             s._remove_item_from_lists(item)
+            # §8 delete cascade, inside the undo step pushed below.
+            ctl = getattr(s, "constraint_ctl", None)
+            if ctl is not None:
+                ctl.on_items_removed([item])
             if not is_new:
                 s.push_undo_state()
                 s.requestPropertyUpdate.emit(None)

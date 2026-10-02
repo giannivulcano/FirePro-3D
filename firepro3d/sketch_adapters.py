@@ -17,8 +17,24 @@ from .geometry_2d import ARC_MIN_RADIUS, CIRCLE_MIN_RADIUS, RECT_MIN_SIZE
 from .sketch_solver import ANG_SCALE, PointExpr, raw_point
 
 # D28 (user, 2026-10-01): angle variables are stiff -- 1 rad costs as much as
-# 1000 mm of travel, so geometry rotates only when nothing else satisfies.
+# 1000 mm of travel.
 ANG_W = ANG_SCALE ** 2
+# D34 (user, 2026-10-02): "translate, then resize, then rotate" -- size
+# variables (rect w/h, circle / arc r, ellipse rx/ry, polygon R) carry this
+# goal weight; positions 1, angles ANG_W. Declared per adapter by its
+# size_floors() keys (sizes) and angle_vars() (angles); see var_weights().
+# (The weights alone still let a rect TILT a little to meet a point -- the
+# controller's translate-first pass makes the order strict, _solve_x.)
+W_SIZE = 1e3
+
+# Write-back tolerance (§3, one write per CHANGED item): a solve that moved
+# an item by less than this is not written. A drag's pinned item still
+# leaks ~1e-9 x the frame's offset (1 / (W_EDIT * W_PIN): 7e-9 mm on a 7 mm
+# frame, measured) -- it must not be re-written (VC9 F2: a rect write
+# canonicalises its pivot). Both bars are 1e-7 mm at a 1 m lever, a tenth
+# of the solver's own LIN_TOL.
+POS_WRITE_TOL = 1e-7          # mm (positions, sizes)
+ANG_WRITE_TOL = 1e-10         # rad
 
 # D29 (user, 2026-10-02): a solve that can only be satisfied by collapsing a
 # shape is a CONFLICT. The size floors are geometry_2d's own clamp constants
@@ -26,8 +42,9 @@ ANG_W = ANG_SCALE ** 2
 DEGEN_EPS = 1e-6
 
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
-# Polyline (i -> v<i>) and text / block instance (move grip -> ins) are
-# computed by their adapters' grip_handle().
+# Polyline (i -> v<i>), polygon (0 -> center, i -> v<i-1>, D33) and text /
+# block instance (move grip -> ins) are computed by their adapters'
+# grip_handle().
 GRIP_HANDLES = {
     "draw_line": {0: "p1", 2: "p2"},
     "reference_line": {0: "p1", 2: "p2"},
@@ -35,7 +52,6 @@ GRIP_HANDLES = {
                        5: "bm", 6: "bl", 7: "lm", 8: "center"},
     "draw_circle": {0: "center"},
     "arc": {0: "center", 1: "start", 2: "end"},
-    "polygon": {0: "center"},
     "draw_ellipse": {0: "center"},
 }
 # Rect handle -> (sign of local u, sign of local v); v is Qt Y-down LOCAL, so
@@ -62,11 +78,33 @@ class _Adapter:
         return len(self.read(item))
 
     def var_weights(self, item) -> list:
-        return [1.0] * self.nvars(item)
+        """Per-variable goal weights: 1 (position), ``W_SIZE`` (a size --
+        D34), ``ANG_W`` (an angle -- D28)."""
+        w = [1.0] * self.nvars(item)
+        for i in self.size_floors(item):
+            w[i] = W_SIZE
+        for i in self.angle_vars(item):
+            w[i] = ANG_W
+        return w
 
     def size_floors(self, item) -> dict:
         """D29: ``{local var index: floor}`` for the item's size variables."""
         return {}
+
+    def angle_vars(self, item) -> tuple:
+        """Local indices of the item's angle variables (radians)."""
+        return ()
+
+    def stiff_vars(self, item) -> tuple:
+        """D34: the size + angle variables (everything but positions)."""
+        return tuple(self.size_floors(item)) + tuple(self.angle_vars(item))
+
+    def changed(self, item, old, new) -> bool:
+        """Whether solved *new* differs from *old* by more than the write
+        tolerance (``POS_WRITE_TOL`` mm / ``ANG_WRITE_TOL`` rad)."""
+        ang = set(self.angle_vars(item))
+        return any(abs(float(b) - float(a)) > (ANG_WRITE_TOL if i in ang else POS_WRITE_TOL)
+                   for i, (a, b) in enumerate(zip(old, new)))
 
     def collapses(self, item, old, new) -> bool:
         """D29: whether solved values *new* collapse the shape. A size the
@@ -149,8 +187,8 @@ class _RectAdapter(_Adapter):
         c = it._rotation_transform().map(r.center())
         return [c.x(), c.y(), r.width(), r.height(), math.radians(it._angle)]
 
-    def var_weights(self, it):
-        return [1.0, 1.0, 1.0, 1.0, ANG_W]          # D28: prefer move/resize over rotate
+    def angle_vars(self, it):
+        return (4,)
 
     def size_floors(self, it):
         return {2: RECT_MIN_SIZE, 3: RECT_MIN_SIZE}
@@ -215,8 +253,8 @@ class _ArcAdapter(_Adapter):
         return [it._center.x(), it._center.y(), float(it._radius), ts,
                 ts + math.radians(it._span_deg)]
 
-    def var_weights(self, it):
-        return [1.0, 1.0, 1.0, ANG_W, ANG_W]         # D28
+    def angle_vars(self, it):
+        return (3, 4)
 
     def size_floors(self, it):
         return {2: ARC_MIN_RADIUS}
@@ -285,11 +323,11 @@ class _PolylineAdapter(_Adapter):
 
 
 class _CenterRotAdapter(_Adapter):
-    """Polygon (cx cy R rot) / ellipse (cx cy rx ry rot): only ``center`` (§5.1).
+    """Polygon (cx cy R rot) / ellipse (cx cy rx ry rot): ``center`` (§5.1).
 
-    ``fields`` are the item attributes after the centre; ``_rotation_deg`` must
-    be last (it carries the D28 weight). ``floors`` mirror the item's own
-    anti-degeneracy floors.
+    ``fields`` are the item attributes after the centre; ``_rotation_deg`` is
+    the angle variable (D28 weight), every floored field a size (D34).
+    ``floors`` mirror the item's own anti-degeneracy floors.
     """
 
     def __init__(self, key, fields, floors):
@@ -302,8 +340,8 @@ class _CenterRotAdapter(_Adapter):
             vals.append(math.radians(v) if f == "_rotation_deg" else float(v))
         return vals
 
-    def var_weights(self, it):
-        return [1.0] * (1 + len(self._fields)) + [ANG_W]   # D28
+    def angle_vars(self, it):
+        return (2 + self._fields.index("_rotation_deg"),)
 
     def size_floors(self, it):
         return {2 + k: self._floors[f] for k, f in enumerate(self._fields)
@@ -320,6 +358,46 @@ class _CenterRotAdapter(_Adapter):
             else:
                 setattr(it, f, max(float(val), self._floors.get(f, 0.0)))
         it._regenerate()
+
+
+def _poly_vertex_fn(k: int, n: int, inscribed: bool):
+    """Vertex ``k`` of an n-gon over vars (cx, cy, R, rot) -- exactly
+    ``RegularPolygonItem.vertices()``: circumradius ``rv = R`` (inscribed) or
+    ``R / cos(pi/n)`` (R = apothem), Y-up heading ``rot (+ pi/n when
+    circumscribed) + k 2pi/n``, scene point ``c + rv (cos a, -sin a)``."""
+    kf = 1.0 if inscribed else 1.0 / math.cos(math.pi / n)
+    base = (0.0 if inscribed else math.pi / n) + k * 2.0 * math.pi / n
+
+    def fn(v):
+        cx, cy, r, rot = v
+        a = rot + base
+        c, s = math.cos(a), math.sin(a)
+        rv = r * kf
+        return (np.array([cx + rv * c, cy - rv * s]),
+                np.array([[1.0, 0.0, kf * c, -rv * s], [0.0, 1.0, -kf * s, -rv * c]]))
+    return fn
+
+
+class _PolygonAdapter(_CenterRotAdapter):
+    """D33: ``center`` + vertices ``v0..v(n-1)`` and edges ``s<i>`` = ``v<i>``
+    -> ``v<i+1>`` (the closing ``s<n-1>`` included), derived from the centre,
+    R and rotation; grip 0 -> ``center``, grip i (1..n) -> ``v<i-1>`` (§5.3)."""
+
+    def grip_handle(self, it, index):
+        if index == 0:
+            return "center"
+        return f"v{index - 1}" if 1 <= index <= it._sides else None
+
+    def points(self, it, off):
+        n, idx = it._sides, (off, off + 1, off + 2, off + 3)
+        out = {"center": raw_point(off, off + 1)}
+        for k in range(n):
+            out[f"v{k}"] = PointExpr(idx=idx, fn=_poly_vertex_fn(k, n, it._inscribed))
+        return out
+
+    def edges(self, it, off):
+        p, n = self.points(it, off), it._sides
+        return {f"s{k}": (p[f"v{k}"], p[f"v{(k + 1) % n}"]) for k in range(n)}
 
 
 class _InsAdapter(_Adapter):
@@ -360,7 +438,7 @@ def _registry():
         CircleItem: _CircleAdapter(),
         ArcItem: _ArcAdapter(),
         PolylineItem: _PolylineAdapter(),
-        RegularPolygonItem: _CenterRotAdapter(
+        RegularPolygonItem: _PolygonAdapter(
             "polygon", ("_radius_mm", "_rotation_deg"), {"_radius_mm": _AXIS_MIN}),
         EllipseItem: _CenterRotAdapter(
             "draw_ellipse", ("_rx", "_ry", "_rotation_deg"),

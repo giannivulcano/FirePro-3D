@@ -37,6 +37,21 @@ _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
 TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
+# D34 translate-first pass (_solve_x): it is taken outright when it holds the
+# edit within HONOUR_TOL; otherwise only when it moves the edit at most
+# HONOUR_RATIO times as far as the plain-weights solve does (bar pinned on the
+# VC9 F4 / shrink probes: translatable cases measure ~1.01, a forced resize 2+).
+HONOUR_TOL = 1e-6
+HONOUR_RATIO = 1.1
+# Every tracking list that holds an editor primitive with a ``_uid``, including
+# the adapter-less ones (spline, D5): a record that names one still resolves
+# for Save (§6.4) even though it can never be solved in v1.
+_PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines",)
+
+
+def removed_status(n: int) -> str:
+    """§8 status after an operation consumed constrained entities."""
+    return f"{n} constraint{'' if n == 1 else 's'} removed"
 
 
 def _safe_ref_uids(c) -> set | None:
@@ -432,29 +447,31 @@ class ConstraintController:
                 sys_.x[off:off + ad.nvars(it)] = ad.read(it)
         weights = base.copy()
         edited_uids = {getattr(i, "_uid", None) for i in edited}
+        honour = self._var_indices(slots, edited_uids)   # the edit's own vars
         for u in edited_uids:
             slot = slots.get(u)
             if slot is not None:
                 it, ad, off = slot
                 weights[off:off + ad.nvars(it)] *= W_EDIT
+        pinned = []
         for u, ks in (typed or {}).items():          # D31: typed = exact
             slot = slots.get(u)
             if slot is not None:
-                for k in ks:
-                    weights[slot[2] + k] *= W_PIN
+                pinned.extend(slot[2] + k for k in ks)
         if pin is not None:
             item, grip = pin
             slot = slots.get(getattr(item, "_uid", None))
             if slot is not None:
-                for k in slot[1].pin_vars(item, grip):
-                    weights[slot[2] + k] *= W_PIN
+                pinned.extend(slot[2] + k for k in slot[1].pin_vars(item, grip))
+        for i in pinned:
+            weights[i] *= W_PIN
         if edited or focus is not None:
             active = self._var_indices(slots, edited_uids | set(focus or ()))
             if not active:
                 return True                     # nothing of ours to solve
         else:
             active = None
-        x = self._solve_x(sys_, slots, weights, active)
+        x = self._solve_x(sys_, slots, weights, active, honour=pinned or honour)
         if x is None:
             return False
         for u, ks in (typed or {}).items():
@@ -465,8 +482,55 @@ class ConstraintController:
         self._write(slots, sys_.x, x)
         return True
 
-    def _solve_x(self, sys_, slots, weights, active):
-        """The solved full-space x, or None (not converged / D29 collapse)."""
+    def _solve_x(self, sys_, slots, weights, active, honour=()):
+        """The solved full-space x, or None (not converged / D29 collapse).
+
+        D34 "translate, then resize, then rotate": a translate-first pass
+        makes every size and angle variable ``W_PIN`` stiffer (their W_SIZE /
+        ANG_W ratio kept), so geometry moves rather than resizes / tilts
+        whenever a move satisfies -- the plain weights alone let a rect meet a
+        point partly by tilting (VC9 F4). Constraints are hard, so that pass
+        still resizes / rotates when nothing else satisfies.
+
+        The pass must not cost the EDIT: when it moves an *honour* variable
+        (the drag pin / typed values, else the edited items' variables) by
+        more than ``HONOUR_TOL``, the plain-weights solve is run as well and
+        wins unless the pass moves the edit at most ``HONOUR_RATIO`` times as
+        far (e.g. a line moved against a rect that can only shrink: the
+        translate-first pass would just move the line back); when the plain
+        solve fails, such a pass is a conflict too -- it only "solved" by
+        undoing the edit. A failed or collapsing pass falls back to the plain
+        solve (and its D29 retry).
+
+        Args:
+            honour: Full-space indices whose goals are the edit itself.
+        """
+        pref = self._stiffened(slots, weights, "stiff_vars")
+        if np.array_equal(pref, weights):              # no size / angle vars
+            return self._solve_plain(sys_, slots, weights, active)
+        res = self._solver.solve(sys_, sys_.x.copy(), pref, active=active)
+        if not res.converged or self._collapses(slots, sys_.x, res.x):
+            return self._solve_plain(sys_, slots, weights, active)
+        dev = self._deviation(res.x, sys_.x, honour)
+        if dev <= HONOUR_TOL:
+            return res.x
+        plain = self._solve_plain(sys_, slots, weights, active)
+        if plain is None:
+            return None         # the pass only "solved" by undoing the edit
+        if dev <= HONOUR_RATIO * self._deviation(plain, sys_.x, honour):
+            return res.x
+        return plain
+
+    @staticmethod
+    def _deviation(x, goal, idx) -> float:
+        """Max |x - goal| over *idx* (0 when empty)."""
+        if not len(idx):
+            return 0.0
+        idx = np.asarray(idx, dtype=np.intp)
+        return float(np.max(np.abs(x[idx] - goal[idx])))
+
+    def _solve_plain(self, sys_, slots, weights, active):
+        """The plain-weights solve + the D29 collapse retry, or None."""
         res = self._solver.solve(sys_, sys_.x.copy(), weights, active=active)
         if not res.converged:
             return None
@@ -475,24 +539,32 @@ class ConstraintController:
             # The least-change answer collapsed a shape; retry with every size
             # variable stiff (W_PIN) so a non-collapsing answer (e.g. a rotate)
             # wins if one exists. Still collapsing / unsolved -> conflict.
-            stiff = weights.copy()
-            for _u, (it, ad, off) in slots.items():
-                for i in ad.size_floors(it):
-                    stiff[off + i] *= W_PIN
+            stiff = self._stiffened(slots, weights, "size_floors")
             res = self._solver.solve(sys_, sys_.x.copy(), stiff, active=active)
             if not res.converged or self._collapses(slots, sys_.x, res.x):
                 return None
         return res.x
 
     @staticmethod
+    def _stiffened(slots, weights, which: str):
+        """*weights* with each slot's ``ad.<which>(item)`` variables x W_PIN."""
+        out = weights.copy()
+        for _u, (it, ad, off) in slots.items():
+            for i in getattr(ad, which)(it):
+                out[off + i] *= W_PIN
+        return out
+
+    @staticmethod
     def _write(slots, x_old, x_new, uids=None) -> None:
-        """Exactly one write-back per changed item (§3)."""
+        """Exactly one write-back per item the solve CHANGED (§3) -- beyond
+        the adapter's write tolerance, so a pinned item's solver jitter is
+        never written (a rect write canonicalises its pivot, VC9 F2)."""
         for u, (it, ad, off) in slots.items():
             if uids is not None and u not in uids:
                 continue
             n = ad.nvars(it)
             new = x_new[off:off + n]
-            if float(np.max(np.abs(new - x_old[off:off + n]))) > 1e-12:
+            if ad.changed(it, x_old[off:off + n], new):
                 ad.write(it, new)
 
     @staticmethod
@@ -876,13 +948,23 @@ class ConstraintController:
         self.selected_id = self.hover_id = None
         self._end_session()      # a drag context holds the pre-restore items
 
+    def primitive_uids(self) -> set:
+        """Uids of EVERY editor primitive, adapter-backed or not (spline)."""
+        out = set()
+        for attr in _PRIMITIVE_LISTS:
+            out.update(getattr(it, "_uid", None) for it in getattr(self._scene, attr, ()))
+        out.discard(None)
+        return out
+
     def to_records(self) -> list:
-        """Save: every constraint whose uid refs resolve (inert ones verbatim)."""
-        by = set(self.item_by_uid())
+        """Save: every inert record verbatim (§6.4 -- a newer build's data is
+        never lost, whatever it names), plus every solvable record whose uid
+        refs resolve against ALL editor primitives."""
+        by = self.primitive_uids()
         out = []
         for c in self.constraints:
             uids = _safe_ref_uids(c)
-            if uids is None or uids <= by:   # unparseable inert refs: keep verbatim
+            if c.inert or uids is None or uids <= by:
                 out.append(c.to_dict())
         return out
 
