@@ -168,6 +168,39 @@ until that doc is approved.
   Automatic colour per surface + live switch, migration, PDF import, DXF import,
   perf) — enumerated in the concept doc.
 
+**HF2 deltas (ratified 2026-10-02, HF2 Phase 2 FP1 grill)**
+- **D-A28** Until HF8, the legacy pattern names (`diagonal`, `cross_hatch`,
+  `horizontal`, `concrete`) resolve to a code-level table of **built-in tile
+  definitions** (read-only, frozen ids; the System Blocks `SYSTEM_DEFAULTS`
+  idea). All Drafting at 3 mm printed spacing (`concrete` gets real
+  geometry) + one Model test pattern (brick 215×65 stretcher bond). Shown in
+  pattern pickers only — not in the Blocks browser, not openable. HF8 swaps
+  their content for shipped System blocks; the table stays the fallback.
+- **D-A29** A stored pattern reference is a **tile block id**; reads also
+  accept a legacy name string and map it via an alias table to the built-in
+  id (QSettings, DM overrides, 2D `fill.pattern` keep working; no migration
+  pass, no format bump).
+- **D-A30** *(amends D-A10's interim)* Until SB1c, Drafting tiles use the
+  **paper viewport's real scale** on paper/PDF and an assumed **1:100** on
+  the model canvas.
+- **D-A31** Pattern lines on paper/PDF use a new **"Hatch"** paper category
+  line weight (default 0.13 mm, user-editable).
+- **D-A32** Tile UI: Block Editor ribbon "Pattern tile" toggle → dashed canvas
+  tile frame with W/H + row-shift grips, typed W/H/shift/Model·Drafting in the
+  property panel when nothing is selected, live repeat preview (mockup-gated).
+  Frame lower-left = block origin (0,0); seeded W×H = content extents from the
+  origin (10×10 when empty).
+- **D-A33** Each cell stamps the tile block's full content offset by the tile
+  step — no per-cell clip; only the host boundary clips.
+- **D-A34** Tiled blocks are listed in the Blocks browser with a pattern badge;
+  place / drag-to-canvas is refused (status message) at the lowest shared
+  placement entry. Turning the tile on for a block placed as a symbol is
+  refused with the instance count.
+- **D-A35** G12 (HF2 bar): full-viewport frame time with 200 placed instances
+  each holding a hatched closed shape ≤ 1.5× the same scene unfilled; LOD tone
+  (35 %) when a tile is < 2 device px or > 20k cells; the bench asserts its
+  composition (pattern actually stamped).
+
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
 - `2d-geometry.md` fill section → per-item fill dissolved (D-A16); link here.

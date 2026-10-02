@@ -137,6 +137,163 @@ flood-fill (fails 0.2 mm, loses curves); QPainterPath boolean tricks
   ColourValue, resolved at paint → theme switches need no recompile. Fixes H1.
 - **Section cut** (walls/floors) calls the same renderer via its Fill Type.
 
+#### HD4a — HF2 build design (approved 2026-10-02; the *what* = D-A28–D-A35)
+
+**Approach — paint-time stamping in scene axes.** `BlockInstance` bakes its
+pose into geometry (no Qt transform), so its `paint` is in scene coords. The
+compile keeps pattern ops definition-local (flyweight shared); paint maps
+clip + origin through the pose and stamps cells in **scene axes** — the
+boundary rotates, the hatch never does (D-A11, G3). Rejected: baking pattern
+lines into the flyweight (rotates with the instance); raster brush textures
+(raster PDF, H2 class).
+
+**`RenderOp`** — new `render_op.py` (LT3's `StrokeOp` extends the same type):
+
+```python
+@dataclass(frozen=True)
+class RenderOp:
+    kind: str                      # "stroke" | "fill" | "pattern" | "text"
+    path: QPainterPath             # definition-local, origin-relative; fill/pattern = closed clip (OddEven)
+    pen: QPen | None = None        # stroke only
+    colour: str | None = None      # fill/pattern/text (unresolved; HF1 ColourValue later)
+    alpha: int = 255
+    tile_ref: str | None = None    # pattern: tile block id or legacy alias
+    origin: QPointF | None = None  # pattern: definition-local pattern origin
+    scale: float = 1.0             # pattern: region Scale
+```
+
+`_compile` emits a primitive's fill/pattern op before its stroke op; text →
+`kind="text"` (retires the `NoPen ⇒ text` heuristic in `block_instance.paint`
+and `snap_engine`). `_nested_ops` maps `path` and `origin` through the pose.
+Tuple-indexing tests (`op[0]`/`op[2]`) move to `op.path`/`op.kind` (contract
+relocated, VC5).
+
+**Tile schema** — `BlockDefinition.tile = {"w", "h", "row_shift", "size":
+"model"|"drafting"} | None`; additive key (no schema bump); its setter bumps
+the version + invalidates like `set_primitives`.
+
+**Built-ins + alias** (`hatch_patterns.py`, rewritten) — `BUILTIN_TILES:
+{frozen_id: BlockDefinition}` built in code (diagonal, cross_hatch,
+horizontal, concrete; Drafting, 3 mm printed spacing; + brick 215×65 Model);
+`LEGACY_ALIAS = {name: frozen_id}`; `resolve_tile(ref, registry)` = alias →
+built-ins → project registry, else `None`; `tile_choices(registry)` = the one
+picker source. SVG parser, `refresh_patterns`, `make_hatch_tile`,
+`DEFAULT_PATTERNS`, `is_builtin` and `graphics/hatch_patterns/*.svg` deleted.
+
+**Registry** — `block_registry.nested_ids` → `referenced_ids(defn)`: nested
+records **plus** primitive `fill.pattern` ids, so `closure`, `bundle_for`,
+`would_cycle`, `users_of`, `invalidate` follow pattern use (G5, `.fpdb`
+bundling, self-reference cycle refusal). Same generalisation as linetypes LD5.
+
+**Renderer** — new `hatch_render.py`; one entry point:
+
+```python
+def paint_fill(painter, clip_scene_path, *, scene,
+               background: QColor | None, tile_ref: str | None,
+               colour: QColor | None, origin: QPointF,
+               scale: float = 1.0, line_width_px: float = 1.0) -> None
+```
+
+1. save → `setClipPath(clip, IntersectClip)` (H5).
+2. Background rect if set.
+3. Resolve tile; effective cell = `w,h × scale × drafting_factor` (Model → 1).
+4. LOD: device scale = `hypot(m11, m12)` of `painter.deviceTransform()`
+   (rotation-safe; paper/PDF-correct; no `views()[0]` — H6). Cell < 2 px or
+   > 20k cells → 35 % tone fill, return.
+5. Cell range = clip bbox grown by the content's overhang past the frame
+   (D-A33), snapped to the lattice anchored at `origin`.
+6. Cached lattice path keyed `(tile id, tile version, eff w, eff h, nx, ny,
+   row parity)` — union of the tile's stroke paths offset per cell, row shift
+   on odd rows — then `translate(first cell)` → `drawPath` (no path copy).
+   Unrotated copies of one block share an entry.
+7. Pen: canvas cosmetic `line_width_px`; paper/PDF = "Hatch" paper category mm
+   ÷ paper scale (the `_apply_construction` pattern).
+8. Colour: override, or the tile's authored pen colours ("By block"); fill
+   ops inside a tile draw as tone fills.
+
+`drafting_factor(scene)`: inside a paper-viewport render `1 / paper_scale`
+(`apply_paper_overrides` sets `scene._hatch_paper_scale`;
+`restore_model_display` clears it — the apply/restore window HF1's surface
+context also uses); items on a `paper_space.PaperScene` (sheet-native,
+already printed mm) 1; model canvas / Block Editor /
+previews `constants.DRAFTING_CANVAS_SCALE = 100` until SB1c (D-A30).
+`displayable_item.draw_fill` stays as the per-item 2D adapter (seven
+`geometry_2d` call sites; HF3 dissolves per-item fill and retires it) and
+`draw_section_hatch` stays as the wall/floor adapter — both become thin
+wrappers over `paint_fill`; `_apply_hatch_pattern` is deleted.
+
+**Callers** — `wall.py` / `floor_slab.py` section cut: `paint_fill(...,
+origin=(0,0))` (container origin). `geometry_2d` per-item fill → `paint_fill`
+with the container origin (no swim — H11 for 2D) and the item alpha.
+`BlockInstance.paint` → `paint_fill(pose.map(op.path),
+origin=pose.map(op.origin), ...)` for fill/pattern ops.
+
+**Paper "Hatch" category** — new `paper_display._CATEGORY_KEYS` entry,
+factory 0.13 mm; the Display Manager paper tab enumerates it.
+
+**Block Editor authoring** — tile state `editor_scene.block_tile` (seeded
+from `defn.tile`; `commit_block` → `commit_block_definition(tile=...)`; in the
+undo snapshot like constraints — hook probed as plan step 1).
+- Ribbon **Pattern tile** toggle (tooltip). On → seed per D-A32 (corner at
+  origin, content extents, 10×10 empty); refused with a status message when
+  `instance_count(id) + len(users_of(id)) > 0` (D-A34). Off → tile cleared;
+  references render the missing-tile tone.
+- **`TileFrameItem`** (new `tile_frame.py`; LT's repeat frame reuses it):
+  non-primitive overlay (`data(0) == "tile_frame"`) excluded from
+  `gather_primitives`, snap targets, delete and paper; it stays HALO-pickable
+  and selectable, because the manipulator only shows grips on a selected item
+  (U3 `default_grip_handles` + a no-op `manip_translate` — the frame is
+  anchored at the origin). Selecting it shows the same tile fields as the
+  nothing-selected panel. Dashed accent rect (0,0)→(w,h); W/H grip
+  top-right; row-shift grip on the top edge (X only); grips snap via the
+  existing handle-snap path. Live repeat preview = the 8 surrounding cells
+  (+ shift) at 35 % via `hatch_render`'s lattice builder over a scratch tile
+  compiled from the current editor primitives (preview ≡ render); rebuilt on
+  `sceneModified`, debounced to the next frame. **Mockup-gated.**
+- `BlockPropertiesInfo` gains a **Pattern tile** section (nothing selected):
+  `Pattern tile` bool, `Width` / `Height` / `Row shift`
+  (`format_length`/`parse_dimension`), `Size` Model|Drafting (default
+  Drafting); hidden when off; edits move the frame; tooltips on every field.
+
+**Pickers** — `geometry_2d` property options, both context menus, the two
+`main.py` combos and the Display Manager section column read
+`tile_choices(registry)` and store the id (D-A29). DM swatches render via
+`paint_fill` into a pixmap (preview ≡ render; H3 swatch mismatch).
+
+**Placement refusal** — at the lowest shared *user* entries (not
+`place_block_instance`, which load / explode / undo use):
+`Model_Space.set_mode("place_block")` (ribbon, browser, `model_view` mode
+entry) and the `model_view` drag gate's `(defn, pool, reason)` check (gains
+"Pattern blocks fill regions — they can't be placed"). `blocks_browser`
+draws a hatch badge on tiled entries.
+
+**Errors / edges** — unknown or missing tile → 35 % tone in the given colour
++ one log line, never blank; zero-size or empty tile → listed nowhere, panel
+hint "Tile is empty"; a tile referencing itself (fill or nesting) → refused by
+the `referenced_ids` cycle guard; definitions without `tile` unchanged.
+
+**HF2 guards** (VC3; each RED with its change reverted):
+
+| Guard | Scenario | Ground truth |
+|---|---|---|
+| H1 / place | block with a hatched rect placed on the plan scene, offscreen render | hatch pixels inside the rect, none outside |
+| G3 | same block at 30° | line angle fitted from sampled hatch pixels = 45° ± 1° |
+| G4 | Scale ×1 vs ×2, canvas render + `paper_export` PDF | spacing ratio 2.0 ± 5 % on both (PDF via PyMuPDF path extraction) |
+| G5 | tile block `set_primitives` | placed-instance + section-cut-wall pixels change, no reload |
+| Alias | fixture `.fpd` `fill.pattern="diagonal"` + QSettings `section_pattern="diagonal"` | hatch pixels; stored ref round-trips to the frozen id |
+| D-A30 | paper viewport 1:50 vs 1:100, Drafting diagonal | printed spacing 3 mm on both |
+| Refusals | `set_mode("place_block")` + drop with a tiled block; tile-on for a placed block | mode not entered / drop rejected + status; tile stays `None` |
+| G12 | 200 hatched instances vs unfilled, one viewport render (`perf`, own process) | ≤ 1.5×; bench asserts stamped cell count > 0 |
+
+**Build order** — (1) probes: `block_tile` undo hook, PyMuPDF spacing
+extraction; (2) `RenderOp` + `_compile` + consumers + tuple-test rewrites;
+(3) `hatch_render` + built-ins + alias + `referenced_ids` + paper "Hatch";
+walls / floors / `draw_fill` onto it, old code deleted; (4) pickers →
+`tile_choices` + ids; (5) mockup gate → `TileFrameItem` + toggle + panel +
+undo; (6) refusals + browser badge; (7) guards + perf bench + spec
+reconciliation (`block-system.md`, `2d-geometry.md` fill section, H2–H6
+retired in `hatch-and-fill.md`).
+
 ### HD5 — Fill Types
 
 - Project payload `fill_types: [{id (uuid), name, background: {colour,
