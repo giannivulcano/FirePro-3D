@@ -628,3 +628,32 @@ def test_d18_rect_heavy_worst_case_drag_frames(qapp):
         assert g <= 8.0 and b <= 8.0, (g, b)
     finally:
         sc.cleanup()
+
+
+@pytest.mark.perf
+@pytest.mark.xfail(strict=True, reason="D18 rect-heavy: 299x900 dense J -- folded "
+                   "into the P1 'D18 rect-heavy drag perf' task (user ruling 2026-10-02)")
+def test_d18_rect_heavy_cs2_diagnostics(qapp):
+    """D18: controller diagnostics (CS2 row basis + redundancy) on the
+    rect-heavy one-component case vs the 50 ms commit bar. The bench
+    compositions' commit bar (incl. diagnose) is test_sketch_solver_perf."""
+    import time
+    from firepro3d import sketch_solver as ss
+    sc = Model_Space(scene_role="block_editor")
+    try:
+        _rect_heavy(sc)
+        ctl = sc.constraint_ctl
+        sys_, _slots, _w = ctl._build(ctl.active())
+        st = ss._structure(sys_)
+        assert max(len(c.rows) for c in st.comps) >= 250          # VC2: one big component
+        ts = []
+        for _ in range(7):
+            ctl._commit_gen += 1                                  # force a recompute
+            t = time.perf_counter()
+            ctl.diagnostics()
+            ts.append((time.perf_counter() - t) * 1e3)
+        ms = sorted(ts)[len(ts) // 2]
+        print(f"[rect-heavy] diagnostics {ms:.1f} ms")
+        assert ms <= 50.0, f"diagnostics {ms:.1f} ms"
+    finally:
+        sc.cleanup()
