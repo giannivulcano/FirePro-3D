@@ -123,10 +123,10 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   serialization stamps (`_geom2d_to_dict`/`_geom2d_from_dict`).
 - `_uid` — stable primitive id (uuid4 hex, CS1 2026-10-02): minted at construction,
   stamped as `"uid"` by `_geom2d_to_dict`, carried by `_geom2d_from_dict` when present (a
-  legacy dict keeps the constructor's fresh one). Copy paths mint a new one at
-  `Model_Space._add_from_dict`. Mint / carry rules + why (constraint references) are owned by
-  `parametric-constraint-system.md` §6.1 — Rule A. (`TextItem` and `BlockInstance` carry the
-  same field outside this mixin.)
+  legacy dict keeps the constructor's fresh one). Copy / mint / carry rules + why (constraint
+  references) are owned by `parametric-constraint-system.md` §6.1 — Rule A. (`TextItem`
+  inherits the field but stamps it in its own `to_dict` / `from_dict`; `BlockInstance`
+  carries it outside the mixin.)
 - **New-geometry pen (2026-09-23, block polish):** `Model_Space._geom_color_lw()` returns
   `constants.DEFAULT_GEOMETRY_LINEWEIGHT` (was a hard-coded 2.0) — the weight for every committed
   tool-drawn primitive **and** Block-Editor-imported ones (`geom_dicts_to_primitives(...,
@@ -167,8 +167,10 @@ that name makes the selection manipulator treat an item as box-resizable
   ellipse) would flip while the points stayed put, half-applying the reflection. It is the one
   threshold shared by the axis picker (`axis_picker.py`) and the ghost (`transform_ghost.py`).
 - **Floors make tiny factors non-uniform.** The radius floors above (Circle 1 mm, Arc 0.01 mm,
-  Ellipse 0.5 mm; the circle / arc values are the module constants `CIRCLE_MIN_RADIUS` /
-  `ARC_MIN_RADIUS`, which the constraint solver's D29 collapse check also reads) clamp while the centre scales exactly, so a factor small enough to hit a
+  Ellipse 0.5 mm; module constants `CIRCLE_MIN_RADIUS` / `ARC_MIN_RADIUS` / `_AXIS_MIN`). The
+  constraint solver's D29 collapse check reads `CIRCLE_MIN_RADIUS`, `ARC_MIN_RADIUS`,
+  `RECT_MIN_SIZE` (its rectangle w/h write-back floor) and `_AXIS_MIN` (ellipse rx/ry, and
+  borrowed for polygon R, which the item itself never clamps). These floors clamp while the centre scales exactly, so a factor small enough to hit a
   floor no longer yields a uniform image (lines / polylines / rects / polygons / splines have
   no such floor). Known and filed (`todo_open.md` "Tiny Scale factors scale non-uniformly").
 - Like `manip_rotate`/`translate`, both hooks transform local data with scene-space
