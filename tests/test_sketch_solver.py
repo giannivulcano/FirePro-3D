@@ -440,3 +440,83 @@ def test_registry_vertical_built():
     from firepro3d import sketch_model as sm
     assert sm.REGISTRY["vertical"].implemented
     assert "vertical" in ss.BUILDERS
+
+
+# ── CS2 §7.4 diagnostics ────────────────────────────────────────────────────
+
+def _diag(s):
+    return ss.NumpySolver().diagnose(s)
+
+
+def test_duplicate_alias_is_redundant_newer_attributed():
+    s = ss.System(x=np.array([0.0, 5.0, 10.0, 5.0]))
+    s.aliases += [(1, 3, "h1"), (1, 3, "h2")]
+    s.cid_rank = {"h1": 0, "h2": 1}
+    assert _diag(s).redundant == ["h2"]
+
+
+def test_alias_order_follows_cid_rank_not_list_order():
+    s = ss.System(x=np.array([0.0, 5.0, 10.0, 5.0]))
+    s.aliases += [(1, 3, "late"), (3, 1, "early")]
+    s.cid_rank = {"early": 0, "late": 1}
+    assert _diag(s).redundant == ["late"]
+
+
+def test_alias_joining_two_equal_fixes_is_redundant():
+    s = ss.System(x=np.array([1.0, 0.0, 2.0, 0.0]))
+    s.fixes += [(1, 0.0, "a0"), (3, 0.0, "b0")]
+    s.aliases.append((1, 3, "ab"))
+    s.cid_rank = {"a0": 0, "b0": 1, "ab": 2}
+    assert _diag(s).redundant == ["ab"]
+
+
+def test_dependent_row_is_redundant_and_rank_matches_svd():
+    s = ss.System(x=np.array([5.0, 2.0, 0.0, 1.0, 2.0]))
+
+    def row(cid, k):
+        def fn(x):
+            return k * x[2], np.array([k])
+        return ss.Row(cid, (2,), fn)
+    s.rows += [row("t1", 1.0), row("t2", 2.0)]        # same direction -> dependent
+    s.cid_rank = {"t1": 0, "t2": 1}
+    d = _diag(s)
+    assert d.redundant == ["t2"]
+    assert d.rank == 1
+
+
+def test_dof_of_null_space_per_variable_group():
+    # x0 free, x1 free, x2 tied to x0 by a row (x2 - x0 = 0); x3 fixed.
+    s = ss.System(x=np.array([1.0, 2.0, 1.0, 0.0]))
+    s.rows.append(ss.Row("r", (0, 2), lambda x: (x[2] - x[0], np.array([-1.0, 1.0]))))
+    s.fixes.append((3, 0.0, "f"))
+    d = _diag(s)
+    assert d.dof == 2                       # (x0==x2) + x1
+    assert d.dof_of([0, 2]) == 1            # the tied pair keeps one DOF
+    assert d.dof_of([1]) == 1               # rowless free
+    assert d.dof_of([3]) == 0               # fixed
+    assert d.dof_of([0, 1, 2, 3]) == 2
+
+
+def test_dof_of_rect_with_horizontal_top_keeps_four():
+    def corner(su, sv):
+        def fn(v):
+            cx, cy, w, h, t = v
+            u, vv = su * w / 2, sv * h / 2
+            c, s_ = math.cos(t), math.sin(t)
+            p = np.array([cx + u * c - vv * s_, cy + u * s_ + vv * c])
+            dp = np.array([[1, 0, su / 2 * c, -sv / 2 * s_, -u * s_ - vv * c],
+                           [0, 1, su / 2 * s_, sv / 2 * c, u * c - vv * s_]], float)
+            return p, dp
+        return ss.PointExpr(idx=(0, 1, 2, 3, 4), fn=fn)
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 50.0, 0.0]))
+    ss.build_horizontal("h", (corner(-1, -1), corner(1, -1)), s)
+    d = _diag(s)
+    assert d.dof == 4 and d.dof_of(range(5)) == 4
+
+
+def test_non_redundant_constraints_are_not_flagged():
+    s = ss.System(x=np.array([0.0, 5.0, 10.0, 5.0]))
+    ss.build_horizontal("h", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    ss.build_vertical("v", (ss.raw_point(0, 1), ss.const_point(0.0, 0.0)), s)
+    s.cid_rank = {"h": 0, "v": 1}
+    assert _diag(s).redundant == []

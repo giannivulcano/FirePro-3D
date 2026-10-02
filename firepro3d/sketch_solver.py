@@ -19,6 +19,8 @@ W_PIN = 1e6             # a drag's pinned handle
 W_EDIT = 1e3            # the item a typed edit / transform changed
 STEP_TOL = 1e-10
 RES_STOP = 1e-3 * LIN_TOL   # stop once every row is this tight (§7.2)
+DEP_TOL = 1e-8          # ordered Gram-Schmidt: a row is dependent below this relative norm (CS2 §7.4)
+NULL_TOL = 1e-8         # a variable "moves" in a null-space direction above this
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,7 @@ class System:
     aliases: list = field(default_factory=list)   # (i, j, cid): x_i == x_j
     fixes: list = field(default_factory=list)     # (i, value, cid)
     rows: list = field(default_factory=list)      # Row
+    cid_rank: dict = field(default_factory=dict)  # cid -> admission order (§7.4 attribution)
     _structure: object = field(default=None, init=False, repr=False,
                                compare=False)
 
@@ -97,6 +100,39 @@ class Diagnostics:
     rank: int
     dof: int
     conflicts: list = field(default_factory=list)   # cids of contradictory fixes
+    redundant: list = field(default_factory=list)   # cids implied by earlier ones (§7.4, amber)
+    _st: object = field(default=None, repr=False, compare=False)
+    _rowb: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def dof_of(self, idx) -> int:
+        """DOF left among full-space variables *idx* (§7.4 per-entity).
+
+        A fixed variable contributes 0. Per component, with ``Q`` the
+        orthonormal row-space basis of J (economy SVD -- 2026-10-02 P4 ruling:
+        never the full null-space basis), the DOF of columns S is
+        ``rank(I - Q_S^T Q_S)``, the null-space projection restricted to S.
+        A rowless component's columns are each free (1).
+        """
+        st = self._st
+        if st is None:
+            return 0
+        by_comp: dict[int, set] = {}
+        for i in idx:
+            i = int(i)
+            if st.var_col[i] < 0:
+                continue
+            by_comp.setdefault(int(st.var_comp[i]), set()).add(int(st.var_lcol[i]))
+        total = 0
+        for ci, lcs in by_comp.items():
+            Q = self._rowb.get(ci)
+            cols = sorted(lcs)
+            if Q is None:
+                total += len(cols)
+                continue
+            Qs = Q[:, cols]
+            ev = np.linalg.eigvalsh(np.eye(len(cols)) - Qs.T @ Qs)
+            total += int((ev > NULL_TOL).sum())
+        return total
 
 
 class _UF:
@@ -201,10 +237,12 @@ class _Structure:
         var_comp = np.full(n, -1, dtype=np.intp)
         var_comp[free_vars] = col_comp[var_col[free_vars]]
         self.var_comp = var_comp
+        self.var_lcol = np.full(n, -1, dtype=np.intp)   # full-space var -> local column
         for ci, comp in enumerate(self.comps):
             mv = free_vars[var_comp[free_vars] == ci]
             comp.vars = mv
             comp.var_lcol = col_local[var_col[mv]]
+            self.var_lcol[mv] = comp.var_lcol
         self.orphans: list = []                   # rows with no free dependency
         self.fg_readers = [set() for _ in fixed]  # fixed group -> component ids
         self.fg_orphans = [[] for _ in fixed]     # fixed group -> orphan rows
@@ -290,6 +328,65 @@ def _eval_comp(comp: _Component, x: np.ndarray):
     J = np.bincount(comp.jidx, weights=v,
                     minlength=nr * comp.ncols).reshape(nr, comp.ncols)
     return F, J
+
+
+def _equality_redundancy(sys: System) -> dict:
+    """``cid -> bool``: whether ALL of a cid's aliases / fixes were already
+    implied when it arrived, in ``cid_rank`` order (§7.4, D38 attribution).
+    A contradiction is not redundant (it is a conflict)."""
+    order = sys.cid_rank or {}
+    big = len(order)
+    ev = [(order.get(c, big), 0, k, i, j, None, c) for k, (i, j, c) in enumerate(sys.aliases)]
+    ev += [(order.get(c, big), 1, k, i, None, v, c) for k, (i, v, c) in enumerate(sys.fixes)]
+    ev.sort(key=lambda e: e[:3])
+    uf = _UF(len(sys.x))
+    val: dict[int, float] = {}
+    out: dict[str, bool] = {}
+    for _o, kind, _k, i, j, v, cid in ev:
+        if kind == 0:
+            ri, rj = uf.find(i), uf.find(j)
+            if ri == rj:
+                red = True
+            else:
+                vi, vj = val.pop(ri, None), val.pop(rj, None)
+                red = vi is not None and vj is not None and abs(vi - vj) <= LIN_TOL
+                uf.union(ri, rj)
+                keep = vi if vi is not None else vj
+                if keep is not None:
+                    val[uf.find(ri)] = keep
+        else:
+            r = uf.find(i)
+            red = r in val and abs(val[r] - float(v)) <= LIN_TOL
+            val.setdefault(r, float(v))
+        out[cid] = out.get(cid, True) and red
+    return out
+
+
+def _dependent_rows(J: np.ndarray) -> np.ndarray:
+    """Ordered modified Gram-Schmidt: ``dep[a]`` = row *a* lies in the span of
+    the rows before it (relative ``DEP_TOL``); re-orthogonalised twice. Run
+    only on a rank-deficient component (P4: ~45 ms on a 299 x 900 J)."""
+    nr, nc = J.shape
+    B = np.empty((nr, nc))
+    k = 0
+    dep = np.zeros(nr, dtype=bool)
+    for a in range(nr):
+        v = J[a].astype(float).copy()
+        n0 = float(np.linalg.norm(v))
+        if n0 <= 1e-12:
+            dep[a] = True
+            continue
+        if k:
+            Bk = B[:k]
+            v -= Bk.T @ (Bk @ v)
+            v -= Bk.T @ (Bk @ v)
+        r = float(np.linalg.norm(v))
+        if r <= DEP_TOL * n0:
+            dep[a] = True
+        else:
+            B[k] = v / r
+            k += 1
+    return dep
 
 
 class NumpySolver:
@@ -404,23 +501,45 @@ class NumpySolver:
         return SolveResult(x, converged, worst)
 
     def diagnose(self, sys: System) -> Diagnostics:
-        """DOF = free variables after substitution - sum of component ranks (§7.4).
+        """DOF = free variables after substitution - sum of component ranks,
+        plus redundancy attribution and row-space bases (§7.4).
 
         Fixes are applied before evaluating J. ``conflicts`` lists the cids of
-        contradictory fixes (the system is then not solvable).
+        contradictory fixes. ``redundant`` lists, in ``sys.cid_rank`` order,
+        every cid whose equalities were all already implied and whose rows
+        are all dependent on earlier rows (and satisfied). Equalities are
+        attributed before rows (they are substituted first).
         """
         st = _structure(sys)
         x = np.array(sys.x, dtype=float)
         x[st.fixed_vars] = st.fixed_vals
         rank = 0
-        for comp in st.comps:
+        rowb: dict[int, np.ndarray] = {}
+        row_dep: dict[str, bool] = {}
+        for ci, comp in enumerate(st.comps):
             if not comp.rows:
                 continue
-            _F, J = _eval_comp(comp, x)
-            s = np.linalg.svd(J, compute_uv=False)
+            F, J = _eval_comp(comp, x)
+            _u, s, vt = np.linalg.svd(J, full_matrices=False)   # economy (P4)
             tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
-            rank += int((s > max(tol, 1e-9)).sum())
-        return Diagnostics(st.ncols, rank, st.ncols - rank, list(st.conflicts))
+            r = int((s > max(tol, 1e-9)).sum())
+            rank += r
+            rowb[ci] = vt[:r]
+            dep = (_dependent_rows(J) if r < len(comp.rows)
+                   else np.zeros(len(comp.rows), dtype=bool))
+            for k, row in enumerate(comp.rows):
+                ok = bool(dep[k]) and abs(float(F[k])) <= LIN_TOL
+                row_dep[row.cid] = row_dep.get(row.cid, True) and ok
+        for row in st.orphans:                       # every dependency fixed
+            ok = abs(float(row.fn(x)[0])) <= LIN_TOL
+            row_dep[row.cid] = row_dep.get(row.cid, True) and ok
+        eq = _equality_redundancy(sys)
+        order = sys.cid_rank or {}
+        red = sorted((c for c in set(eq) | set(row_dep)
+                      if eq.get(c, True) and row_dep.get(c, True)),
+                     key=lambda c: order.get(c, len(order)))
+        return Diagnostics(st.ncols, rank, st.ncols - rank, list(st.conflicts),
+                           red, st, rowb)
 
 
 # ── §7.3 residual catalogue — builders (one per IMPLEMENTED type) ─────────

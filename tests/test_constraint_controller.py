@@ -1264,3 +1264,46 @@ def test_a_rect_drag_the_solver_rotates_is_path_independent(qapp):
     result depends on the end point only, not on the frames taken."""
     one, six = _self_constrained_rect_drag(qapp, 1), _self_constrained_rect_drag(qapp, 6)
     assert max(math.dist(p, q) for p, q in zip(one, six)) < 1e-6         # [RED]
+
+
+# ── CS2 D36: an edge the solve collapses to zero length is a conflict ───────
+
+def _status_log(sc):
+    log = []
+    sc._show_status = lambda m, t=0: log.append(m)
+    return log
+
+
+def test_d36_h_then_v_on_one_line_is_a_conflict_line_holds(qapp):
+    sc = _scene()
+    log = _status_log(sc)
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    v = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    assert v is not None                                   # D9 admitted
+    assert (ln._pt1.x(), ln._pt1.y(), ln._pt2.x(), ln._pt2.y()) == pytest.approx(
+        (0.0, 15.0, 100.0, 15.0), abs=1e-6)                # held, not a point
+    assert "Over-constrained: the change was not applied" in log
+
+
+def test_d36_polyline_segment_collapse_is_a_conflict(qapp):
+    from firepro3d.geometry_2d import PolylineItem
+    sc = _scene()
+    pl = PolylineItem(QPointF(0, 0))
+    for q in (QPointF(100, 30), QPointF(200, 0)):
+        pl.append_point(q)
+    sc.addItem(pl); sc._polylines.append(pl)
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": pl._uid, "h": "s0"}])
+    ctl.add("vertical", [{"uid": pl._uid, "h": "s0"}])
+    p0, p1 = pl._points[0], pl._points[1]
+    assert abs(p1.x() - p0.x()) > 1.0                       # s0 not collapsed
+
+
+@pytest.mark.xfail(strict=True, reason="red set lands in CS2 Task 6")
+def test_d36_already_zero_length_line_is_not_a_collapse(qapp):
+    sc = _scene()
+    ln = _line(sc, (10, 10), (10, 10))
+    c = sc.constraint_ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    assert c is not None and c.id not in sc.constraint_ctl.red

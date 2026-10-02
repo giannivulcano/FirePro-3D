@@ -44,6 +44,18 @@ ANG_WRITE_TOL = 1e-8          # rad
 # (one home); see _Adapter.collapses.
 DEGEN_EPS = 1e-6
 
+
+def _seg_collapses(o, n, i: int, j: int) -> bool:
+    """D36 (user, 2026-10-02): segment (vertex i, vertex j) was longer than
+    ``DEGEN_EPS`` in *o* and is at most that in *n* -- an edge the solve
+    shrank to a point is a collapse, so a conflict (an already-degenerate
+    segment never counts)."""
+    lo = math.hypot(float(o[2 * j]) - float(o[2 * i]),
+                    float(o[2 * j + 1]) - float(o[2 * i + 1]))
+    ln = math.hypot(float(n[2 * j]) - float(n[2 * i]),
+                    float(n[2 * j + 1]) - float(n[2 * i + 1]))
+    return ln <= DEGEN_EPS < lo
+
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>), polygon (0 -> center, i -> v<i-1>, D33) and text /
 # block instance (move grip -> ins) are computed by their adapters'
@@ -168,6 +180,10 @@ class _LineAdapter(_Adapter):
     def edges(self, it, off):
         p = self.points(it, off)
         return {"edge": (p["p1"], p["p2"])}
+
+    def collapses(self, it, old, new):
+        """D29 + D36: the line shrunk to zero length."""
+        return super().collapses(it, old, new) or _seg_collapses(old, new, 0, 1)
 
     def write(self, it, v):
         it._pt1 = QPointF(float(v[0]), float(v[1]))
@@ -329,6 +345,15 @@ class _PolylineAdapter(_Adapter):
         if it.is_closed():
             out[f"s{n - 1}"] = (p[f"v{n - 1}"], p["v0"])
         return out
+
+    def collapses(self, it, old, new):
+        """D29 + D36: any segment (the closing one too) shrunk to zero length."""
+        n = len(it._points)
+        pairs = [(i, i + 1) for i in range(n - 1)]
+        if it.is_closed() and n > 2:
+            pairs.append((n - 1, 0))
+        return super().collapses(it, old, new) or any(
+            _seg_collapses(old, new, i, j) for i, j in pairs)
 
     def write(self, it, v):
         it._points = [QPointF(float(v[2 * i]), float(v[2 * i + 1]))
