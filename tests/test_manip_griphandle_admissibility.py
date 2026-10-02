@@ -1,6 +1,7 @@
 """Proves the GripHandle live-apply lifecycle admits all four per-item drag
 semantics (Ctrl point-transform, sibling apply_grip, post-apply propagation,
-constraint-solver pass) WITHOUT building wall/gridline in this PR."""
+constraint-solver pass via the ConstraintController ``drag`` seam) WITHOUT
+building wall/gridline in this PR."""
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QGraphicsScene
 
@@ -31,18 +32,21 @@ class _Item:
 
 
 class _FakeScene(QGraphicsScene):
-    """Scene stub exposing the grip-snap + solver seam GripHandle uses."""
+    """Scene stub exposing the grip-snap + constraint seam GripHandle uses."""
     def __init__(self):
         super().__init__()
         self._grip_item = None
         self._grip_dragging = False
         self.eff_calls = []
-        self.solved = []
+        self.solved = []   # recorded ConstraintController.drag(item, index) calls
 
-        class _Tools:
+        class _Ctl:
             def __init__(self, s): self._s = s
-            def _solve_constraints(self, item=None): self._s.solved.append(item)
-        self._tools = _Tools(self)
+            def begin_drag(self, item): pass
+            def drag(self, item, grip_index): self._s.solved.append((item, grip_index))
+            def end_drag(self): pass
+            def cancel_drag(self): pass
+        self.constraint_ctl = _Ctl(self)
 
     def get_effective_position(self, pos):
         self.eff_calls.append((self._grip_item, self._grip_dragging, pos))
@@ -68,7 +72,7 @@ def test_on_drag_calls_apply_grip_through_effective_position(qapp):
     # Snap parity by construction: the borrowed flags were set when the scene's
     # grip-snap authority ran (item excluded as source, grip_dragging True).
     assert scene.eff_calls[-1] == (item, True, QPointF(25, 0))
-    assert scene.solved[-1] is item                    # solver pass ran
+    assert scene.solved[-1] == (item, 1)               # solver seam ran
     h.on_cancel(m)
     assert scene._grip_dragging is False               # state cleared
 
@@ -113,7 +117,7 @@ def test_on_release_ends_the_drag(qapp):
     h.on_release(m, QPointF(25, 0), Qt.KeyboardModifier.NoModifier)
     assert m.is_dragging() is False        # _end_drag ran
     assert m._active_handle is None
-    assert scene.solved[-1] is item        # solver ran on the real move
+    assert scene.solved[-1] == (item, 1)   # solver seam ran on the real move
 
 
 def test_after_apply_not_double_fired_when_release_equals_last_drag(qapp):

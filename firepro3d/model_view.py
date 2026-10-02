@@ -4,7 +4,6 @@ import math
 from PyQt6.QtWidgets import (
     QGraphicsView, QMenu, QGraphicsItem,
 )
-from .themed_message import themed_input_number
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent, QKeySequence
 from . import theme as th
@@ -92,8 +91,6 @@ class Model_View(QGraphicsView):
             "extend":                 _C.CrossCursor,
             "extend_pick":            _C.CrossCursor,
             "merge_points":           _C.CrossCursor,
-            "constraint_concentric":  _C.CrossCursor,
-            "constraint_dimensional": _C.CrossCursor,
             "design_area":            _C.CrossCursor,
             "place_block":            _C.CrossCursor,
             "move":                   _C.SizeAllCursor,
@@ -335,68 +332,6 @@ class Model_View(QGraphicsView):
                     painter.setBrush(QBrush(fill))
                     painter.drawEllipse(vp, 5, 5)
                 painter.restore()
-
-        # ── 3b. Constraint indicators (viewport coordinates) ───────────────
-        constraints = getattr(scene, "_constraints", [])
-        if constraints:
-            painter.save()
-            painter.resetTransform()
-            for c in constraints:
-                if not c.enabled:
-                    continue
-                # Only show constraint when one of the constrained items is selected
-                if not (c.item_a.isSelected() or c.item_b.isSelected()):
-                    continue
-                vis = c.visual_points()
-                for vtype, vpt in vis:
-                    vp = self.mapFromScene(vpt)
-                    cx, cy = int(vp.x()), int(vp.y())
-                    if vtype == "concentric":
-                        # Draw bullseye icon
-                        color = QColor("#ff4400") if not c.satisfied else QColor("#00cc44")
-                        painter.setPen(QPen(color, 2))
-                        painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                        painter.drawEllipse(cx - 6, cy - 6, 12, 12)
-                        painter.drawEllipse(cx - 3, cy - 3, 6, 6)
-                    elif vtype == "dimensional":
-                        color = QColor("#ff4400") if not c.satisfied else QColor("#0066cc")
-                        # Draw constraint dimension with witness lines
-                        try:
-                            pa = c.item_a.grip_points()[c.grip_a]
-                            pb = c.item_b.grip_points()[c.grip_b]
-                            vpa = self.mapFromScene(pa)
-                            vpb = self.mapFromScene(pb)
-                            # Dimension line
-                            painter.setPen(QPen(color, 1.5, Qt.PenStyle.DashLine))
-                            painter.drawLine(vpa, vpb)
-                            # Witness ticks (short perpendicular marks)
-                            dx = vpb.x() - vpa.x()
-                            dy = vpb.y() - vpa.y()
-                            length = math.hypot(dx, dy)
-                            if length > 1:
-                                nx = -dy / length * 6  # perpendicular, 6px
-                                ny = dx / length * 6
-                                painter.setPen(QPen(color, 1.5))
-                                painter.drawLine(
-                                    int(vpa.x() - nx), int(vpa.y() - ny),
-                                    int(vpa.x() + nx), int(vpa.y() + ny))
-                                painter.drawLine(
-                                    int(vpb.x() - nx), int(vpb.y() - ny),
-                                    int(vpb.x() + nx), int(vpb.y() + ny))
-                            # Distance label at midpoint
-                            painter.setFont(QFont("Consolas", 9))
-                            painter.setPen(QPen(color))
-                            mid_x = int((vpa.x() + vpb.x()) / 2)
-                            mid_y = int((vpa.y() + vpb.y()) / 2)
-                            painter.drawText(mid_x + 4, mid_y - 4, f"{c.distance:.1f}")
-                        except (IndexError, AttributeError):
-                            # Fallback: simple "D" square
-                            painter.setPen(QPen(color, 2))
-                            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                            painter.drawRect(cx - 5, cy - 5, 10, 10)
-                            painter.setFont(QFont("Arial", 7))
-                            painter.drawText(cx - 3, cy + 3, "D")
-            painter.restore()
 
         # ── 3c. Gridline spacing dimensions (viewport coordinates) ────────
         spacing_dims = getattr(scene, '_gridline_spacing_dims', [])
@@ -1442,36 +1377,10 @@ class Model_View(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton:
             self.fit_to_screen()
             return
-        # Check for double-click on a dimensional constraint label
         if event.button() == Qt.MouseButton.LeftButton:
             sc = self.scene()
             if sc is not None:
                 scene_pos = self.mapToScene(event.pos())
-                for c in getattr(sc, "_constraints", []):
-                    if not c.enabled or not hasattr(c, "distance"):
-                        continue
-                    try:
-                        pa = c.item_a.grip_points()[c.grip_a]
-                        pb = c.item_b.grip_points()[c.grip_b]
-                        mid_x = (pa.x() + pb.x()) / 2
-                        mid_y = (pa.y() + pb.y()) / 2
-                        dist = math.hypot(scene_pos.x() - mid_x, scene_pos.y() - mid_y)
-                        # Hit test: within ~15 scene units of midpoint
-                        scale = self.transform().m11()
-                        tol = 15.0 / max(scale, 1e-6)
-                        if dist <= tol:
-                            val, ok = themed_input_number(
-                                self, "Edit Constraint Distance",
-                                "Distance:", initial=c.distance, dimension=True,
-                                minimum=0.01, maximum=1_000_000)
-                            if ok:
-                                c.distance = val
-                                sc._tools._solve_constraints()
-                                sc.push_undo_state()
-                                self.viewport().update()
-                            return
-                    except (IndexError, AttributeError):
-                        pass
                 # Check for double-click on a gridline spacing dimension.
                 # Use the cached copy because the second press of the
                 # double-click may deselect the gridline, clearing the

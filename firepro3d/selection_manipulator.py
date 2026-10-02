@@ -9,6 +9,7 @@ and render via Model_View.drawForeground inside this frame.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
@@ -46,6 +47,14 @@ if TYPE_CHECKING:                       # runtime import is lazy (circular)
     from .manip_handle import Handle
 
 log = logging.getLogger(__name__)
+
+
+class _NullCtl:
+    """Stand-in for scenes without a constraint controller (plain QGraphicsScene)."""
+    @contextlib.contextmanager
+    def edit(self, items):
+        yield
+
 
 # App-wide, user-tunable (Preferences); read at call time. AutoCAD GRIPOBJLIMIT
 # equivalent: above this many selected items, the manipulator shows the frame
@@ -1140,16 +1149,16 @@ class SelectionManipulator(QGraphicsObject):
         (:meth:`_finish`) and the typed-commit path (:meth:`_on_hud_committed`)
         so they can never diverge on constraint solving or the undo push.
         """
-        for it in items:
-            if not bake_translate(it, dx, dy):
-                log.warning(
-                    "SelectionManipulator: %s has no translate path — "
-                    "move not baked", type(it).__name__)
-        self._refresh_fittings(items)
         sc = self.scene()
-        tools = getattr(sc, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints()
+        # Constraint seam (§8): the edit context solves on exit, before the
+        # commit hook's undo push.
+        with (getattr(sc, "constraint_ctl", None) or _NullCtl()).edit(items):
+            for it in items:
+                if not bake_translate(it, dx, dy):
+                    log.warning(
+                        "SelectionManipulator: %s has no translate path — "
+                        "move not baked", type(it).__name__)
+        self._refresh_fittings(items)
         if self._commit_hook is not None:
             self._commit_hook("move")
 
@@ -1176,18 +1185,16 @@ class SelectionManipulator(QGraphicsObject):
         anchor_local = (r0.center() if from_center
                         else _rect_point(r0, 1.0 - u, 1.0 - v))
         anchor = b0.map(anchor_local)
-        for it in items:
-            fn = getattr(it, "manip_scale", None)
-            if fn is None:
-                log.warning("SelectionManipulator: %s has no manip_scale — "
-                            "resize not baked", type(it).__name__)
-                continue
-            fn(fx, fy, anchor)
-        self._refresh_fittings(items)
         sc = self.scene()
-        tools = getattr(sc, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints()
+        with (getattr(sc, "constraint_ctl", None) or _NullCtl()).edit(items):
+            for it in items:
+                fn = getattr(it, "manip_scale", None)
+                if fn is None:
+                    log.warning("SelectionManipulator: %s has no manip_scale — "
+                                "resize not baked", type(it).__name__)
+                    continue
+                fn(fx, fy, anchor)
+        self._refresh_fittings(items)
         if self._commit_hook is not None:
             self._commit_hook("resize")
 

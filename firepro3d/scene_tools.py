@@ -14,7 +14,6 @@ Tools included:
 - Stretch (crossing window)
 - Trim, Extend
 - Merge, Hatch
-- Constraints (concentric, dimensional)
 - Geometry helpers (grip hit, item segments, intersections)
 """
 
@@ -22,10 +21,10 @@ from __future__ import annotations
 
 import math
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
+from PyQt6.QtGui import QPen, QBrush, QColor
 from PyQt6.QtWidgets import (
-    QDialog, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
-    QGraphicsPathItem, QGraphicsRectItem, QLabel, QVBoxLayout,
+    QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
+    QGraphicsPathItem, QGraphicsRectItem,
 )
 
 from .geometry_2d import (
@@ -41,98 +40,6 @@ from .tool_geometry import extract_edges  # re-exported for existing importers
 
 # ``extract_edges`` moved to ``tool_geometry.py`` (Model_Space decomposition,
 # slice A) and is re-exported above so existing importers keep working.
-
-
-class _PadlockItem(QGraphicsPathItem):
-    """Small padlock icon placed at the alignment point.
-
-    First click: creates an ``AlignmentConstraint`` and locks (turns green).
-    Second click (when locked): removes the constraint and itself from
-    the scene.
-    """
-
-    _SIZE = 12  # pixels (ignores transforms)
-
-    def __init__(self, pos: QPointF, constraint_data: dict, parent=None):
-        super().__init__(parent)
-        self.constraint_data = constraint_data
-        self._locked = False
-        self._constraint = None
-
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setZValue(10000)
-        self.setPos(pos)
-
-        self._build_path()
-        self._update_appearance()
-
-    def _build_path(self):
-        """Construct padlock shape: rectangle body + arc shackle."""
-        s = self._SIZE
-        path = QPainterPath()
-        # Body (rectangle)
-        body_w = s
-        body_h = s * 0.7
-        body_x = -body_w / 2
-        body_y = 0
-        path.addRect(body_x, body_y, body_w, body_h)
-        # Shackle (arc)
-        shackle_w = s * 0.6
-        shackle_h = s * 0.5
-        shackle_x = -shackle_w / 2
-        shackle_y = -shackle_h
-        path.moveTo(shackle_x, 0)
-        path.arcTo(shackle_x, shackle_y, shackle_w, shackle_h * 2, 180, -180)
-        self.setPath(path)
-
-    def _update_appearance(self):
-        """Orange when unlocked, green when locked."""
-        if self._locked:
-            color = QColor("#22cc44")
-        else:
-            color = QColor("#ff8800")
-        pen = QPen(color, 2)
-        pen.setCosmetic(True)
-        self.setPen(pen)
-        self.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 60)))
-
-    def mousePressEvent(self, event):
-        """Toggle lock state on click."""
-        if not self._locked:
-            # First click — create constraint and lock
-            from .constraints import AlignmentConstraint
-            cd = self.constraint_data
-            self._constraint = AlignmentConstraint(
-                reference_item=cd.get("reference_item"),
-                reference_line=cd.get("reference_line"),
-                target_item=cd.get("target_item"),
-                target_point=cd.get("target_point", QPointF(0, 0)),
-                perp_direction=cd.get("perp_direction", QPointF(0, 1)),
-                perpendicular_offset=cd.get("perpendicular_offset", 0.0),
-            )
-            scene = self.scene()
-            if scene and hasattr(scene, "_constraints"):
-                scene._constraints.append(self._constraint)
-            self._locked = True
-            self._update_appearance()
-            event.accept()
-        else:
-            # Second click — remove constraint and self
-            scene = self.scene()
-            if scene and self._constraint is not None:
-                if hasattr(scene, "_constraints"):
-                    try:
-                        scene._constraints.remove(self._constraint)
-                    except ValueError:
-                        pass
-                if hasattr(scene, "_align_padlocks"):
-                    try:
-                        scene._align_padlocks.remove(self)
-                    except ValueError:
-                        pass
-                scene.removeItem(self)
-            event.accept()
 
 
 class SceneTools:
@@ -173,7 +80,7 @@ class SceneTools:
     # ======================================================================
     # ARRAY / ROTATE / SCALE / MIRROR / JOIN / EXPLODE / BREAK
     # FILLET / CHAMFER / STRETCH / TRIM / EXTEND / MERGE / HATCH
-    # CONSTRAINTS / GEOMETRY HELPERS
+    # GEOMETRY HELPERS
     # ======================================================================
 
     # Array lives in ModifyToolsController (scene-tools.md D10: on-canvas
@@ -492,8 +399,8 @@ class SceneTools:
         items.extend(getattr(self._scene, "_draw_splines", []))
         items.extend(self._scene._polylines)
         items.extend(self._scene._draw_polygons)
-        # Text (containment C5) — APPENDED LAST so existing constraint indices
-        # (which key off this list order) are never shifted.
+        # Text (containment C5) — appended last (callers that key off this
+        # list order stay stable).
         items.extend(getattr(self._scene, "_texts", []))
         return items
 
@@ -841,99 +748,6 @@ class SceneTools:
             self._scene._merge_point1 = None
             self._scene.instructionChanged.emit("Click first endpoint")
 
-    def _handle_constraint_concentric_click(self, pos: QPointF):
-        """Handle mouse click during concentric constraint mode."""
-        from .geometry_2d import CircleItem, ArcItem
-        item = self._find_geometry_at(pos)
-        if item is None or not isinstance(item, (CircleItem, ArcItem)):
-            self._scene._show_status("Please select a circle or arc")
-            return
-
-        if self._scene._constraint_circle_a is None:
-            self._scene._constraint_circle_a = item
-            self._scene.instructionChanged.emit("Select second circle")
-        else:
-            from .constraints import ConcentricConstraint
-            constraint = ConcentricConstraint(self._scene._constraint_circle_a, item)
-            self._scene._constraints.append(constraint)
-            self._solve_constraints(self._scene._constraint_circle_a)
-            self._scene.push_undo_state()
-            self._scene._constraint_circle_a = None
-            self._scene._show_status("Concentric constraint applied")
-            self._scene.instructionChanged.emit("Select first circle")
-            for v in self._scene.views():
-                v.viewport().update()
-
-    def _handle_constraint_dimensional_click(self, pos: QPointF):
-        """Handle mouse click during dimensional constraint mode."""
-        endpoint_hit = self._find_endpoint_hit(pos)
-        if endpoint_hit is None:
-            self._scene._show_status("No grip point found nearby")
-            return
-
-        item, grip_idx, grip_pt = endpoint_hit
-
-        if self._scene._constraint_grip_a is None:
-            self._scene._constraint_grip_a = (item, grip_idx, grip_pt)
-            self._scene.instructionChanged.emit("Click second grip point")
-        else:
-            item_a, grip_a, pt_a = self._scene._constraint_grip_a
-            current_dist = math.hypot(
-                grip_pt.x() - pt_a.x(), grip_pt.y() - pt_a.y())
-
-            # Show dialog for distance
-            from PyQt6.QtWidgets import QDoubleSpinBox, QDialogButtonBox
-            dlg = QDialog()
-            dlg.setWindowTitle("Dimensional Constraint")
-            layout = QVBoxLayout(dlg)
-            layout.addWidget(QLabel("Set constraint distance:"))
-            spin = QDoubleSpinBox()
-            spin.setRange(0.01, 1e6)
-            spin.setDecimals(2)
-            spin.setValue(current_dist)
-            layout.addWidget(spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
-            layout.addWidget(buttons)
-
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                from .constraints import DimensionalConstraint
-                dist = spin.value()
-                constraint = DimensionalConstraint(
-                    item_a, grip_a, item, grip_idx, dist)
-                self._scene._constraints.append(constraint)
-                self._solve_constraints()
-                self._scene.push_undo_state()
-                self._scene._show_status(f"Dimensional constraint: {dist:.1f}")
-
-            self._scene._constraint_grip_a = None
-            self._scene.instructionChanged.emit("Click first grip point")
-            for v in self._scene.views():
-                v.viewport().update()
-
-    def _solve_constraints(self, moved_item=None):
-        """Solve constraints, then repaint and report any conflict.
-
-        Thin scene-side shell over :func:`constraints.solve_constraints` (the
-        pure algorithm, decomposition slice C); this half owns the viewport
-        repaint and the status-bar conflict report.
-        """
-        from .constraints import solve_constraints
-        conflict = solve_constraints(self._scene._constraints, moved_item)
-        if conflict:
-            self._report_constraint_conflict(conflict)
-        for v in self._scene.views():
-            v.viewport().update()
-
-    def _report_constraint_conflict(self, unsatisfied: list):
-        """Emit a status message about conflicting constraints."""
-        ids = [str(getattr(c, 'id', '?')) for c in unsatisfied[:3]]
-        msg = f"⚠ Constraint conflict: {', '.join(ids)} cannot be satisfied simultaneously"
-        self._scene._show_status(msg, timeout=5000)
-
     def _compute_intersections(self, item, edge):
         """Delegates to :func:`tool_geometry.compute_intersections`."""
         return tool_geometry.compute_intersections(item, edge)
@@ -1073,65 +887,7 @@ class SceneTools:
             else:
                 item.moveBy(delta.x(), delta.y())
 
-        # Compute perpendicular direction for constraint
-        dx = ref_p2.x() - ref_p1.x()
-        dy = ref_p2.y() - ref_p1.y()
-        seg_len = math.hypot(dx, dy)
-        if seg_len > 1e-10:
-            perp_dir = QPointF(-dy / seg_len, dx / seg_len)
-        else:
-            perp_dir = QPointF(0, 1)
-
-        # Place one padlock per item (anchor + group members)
-        for item in items_to_move:
-            # Find the best edge on this specific item for padlock placement
-            item_edges = extract_edges(item)
-            item_mid = None
-            item_offset = 0.0
-            for ie in item_edges:
-                if is_parallel(ref_p1, ref_p2, ie[0], ie[1]):
-                    item_mid = QPointF(
-                        (ie[0].x() + ie[1].x()) / 2,
-                        (ie[0].y() + ie[1].y()) / 2)
-                    # Compute perpendicular offset from reference line
-                    # (after alignment the anchor is at 0; others may differ)
-                    comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
-                            + (item_mid.y() - ref_p1.y()) * perp_dir.y())
-                    item_offset = comp
-                    break
-            if item_mid is None:
-                # Fallback: use item scene pos (point-like items)
-                sp = item.scenePos() if hasattr(item, 'scenePos') else item.pos()
-                item_mid = QPointF(sp.x(), sp.y())
-                comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
-                        + (item_mid.y() - ref_p1.y()) * perp_dir.y())
-                item_offset = comp
-
-            # Use live reference item when it's a trackable scene item
-            # (has .line() or ._p1); otherwise store a fixed reference line
-            if ref_item is not None and (
-                (hasattr(ref_item, 'line') and callable(ref_item.line))
-                or hasattr(ref_item, '_p1')
-            ):
-                c_ref_item = ref_item
-                c_ref_line = None
-            else:
-                c_ref_item = None
-                c_ref_line = (QPointF(ref_p1), QPointF(ref_p2))
-
-            constraint_data = {
-                "reference_item": c_ref_item,
-                "reference_line": c_ref_line,
-                "target_item": item,
-                "target_point": item_mid,
-                "perp_direction": perp_dir,
-                "perpendicular_offset": item_offset if item is not target else 0.0,
-            }
-            padlock = _PadlockItem(item_mid, constraint_data)
-            self._scene.addItem(padlock)
-            self._scene._align_padlocks.append(padlock)
-
-        self._scene._show_status("Aligned \u2014 click padlock to lock")
+        self._scene._show_status("Aligned")
         for v in self._scene.views():
             v.viewport().update()
 
@@ -1158,9 +914,7 @@ class SceneTools:
             # Skip our own highlight / ghost items
             if item is self._scene._align_highlight or item is self._scene._align_ghost:
                 continue
-            # Skip padlock / lock indicator items
-            if isinstance(item, _PadlockItem):
-                continue
+            # Skip lock indicator items
             if type(item).__name__ == '_LockIndicator':
                 continue
             # Skip invisible items

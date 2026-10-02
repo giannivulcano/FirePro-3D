@@ -62,8 +62,6 @@ _LAZY: dict[str, tuple[str, str]] = {
     "OsnapResult":       (".snap_engine",       "OsnapResult"),
     # Math / utilities
     "CAD_Math":          (".cad_math",          "CAD_Math"),
-    # Constraints
-    "Constraint":        (".constraints",       "Constraint"),
     # Hydraulics
     "HydraulicSolver":   (".hydraulic_solver",  "HydraulicSolver"),
     "HydraulicResult":   (".hydraulic_solver",  "HydraulicResult"),

@@ -40,7 +40,7 @@ TIERS = {
     ],
     "Utilities": [
         "cad_math", "geometry_utils", "geometry_intersect", "format_utils",
-        "hatch_patterns", "constants", "constraints", "displayable_item",
+        "hatch_patterns", "constants", "displayable_item",
         "sprinkler_db", "sprinkler_system", "assets",
     ],
     "Workers": [

@@ -2487,8 +2487,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "extend_pick": "Extend", "break": "Break",
         "break_at_point": "Break at Point", "fillet": "Fillet",
         "chamfer": "Chamfer", "merge_points": "Merge Points",
-        "constraint_concentric": "Concentric",
-        "constraint_dimensional": "Dimensional",
         # Thermal radiation (literal set_mode callers, main.py)
         "radiation_emitter": "Radiation", "radiation_receiver": "Radiation",
     }
@@ -2689,55 +2687,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ── Geo2D contextual builders ──────────────────────────────────────────────
 
     def _build_geo2d_context(self, page) -> None:
-        """Build the '2D Geometry' contextual tab: Edit + Constraints + Graphic
-        Override (redesign 2026-09-16, user [Image #3]).
+        """Build the '2D Geometry' contextual tab: Edit + Graphic Override
+        (redesign 2026-09-16, user [Image #3]; the legacy Constraints group
+        retired with the prototype, parametric-constraint-system.md §2).
 
         Placement (Level / Level Offset) was dropped — redundant with the
         property panel. Fill folded into a condensed Graphic Override group.
-        Order: Edit → Constraints → Graphic Override.
+        Order: Edit → Graphic Override.
 
         Args:
             page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
         """
         self._build_contextual_edit_group(page)
-        self._build_geo2d_constraints_group(page)
         self._build_geo2d_graphic_override_group(page)
-
-    #: Constraint tools placed on the 2D-geo contextual tab. The first two are
-    #: wired to scene modes; the rest are placeholders for the parametric-
-    #: constraint-system spec's future types (shown disabled to signal intent).
-    _GEO2D_CONSTRAINT_TOOLS = (
-        ("Concentric", "constraint_concentric", "Make two circles concentric"),
-        ("Dimensional", "constraint_dimensional", "Add a dimensional constraint between two grips"),
-    )
-    _GEO2D_CONSTRAINT_PLACEHOLDERS = (
-        "H/V Lock", "Equal Spacing", "Parallel", "Perpendicular", "Tangent", "Fix/Pin",
-    )
-
-    def _build_geo2d_constraints_group(self, page) -> None:
-        """Add a 'Constraints' group: the two built constraint tools + disabled
-        placeholders for the spec's future types.
-
-        The two live tools are plain ACTION buttons (click → ``set_mode``), NOT
-        registered in ``_mode_buttons`` — this contextual page is rebuilt on every
-        selection change, and a mode-button registry there dangles on rebuild
-        (the #217 failure mode). Placeholders are disabled with a 'coming soon'
-        tooltip.
-        """
-        from firepro3d.icons import themed_icon, LIGHT, DARK
-        from firepro3d import theme as _th
-        _theme = DARK if _th.detect().name == DARK else LIGHT
-        _I = lambda name: themed_icon(name, _theme)
-
-        g = page.add_group("Constraints")
-        for label, mode, tip in self._GEO2D_CONSTRAINT_TOOLS:
-            b = g.add_small_button(label, _I("placeholder_icon.svg"),
-                                   (lambda m=mode: self.scene.set_mode(m)))
-            b.setToolTip(tip)
-        for label in self._GEO2D_CONSTRAINT_PLACEHOLDERS:
-            b = g.add_small_button(label, _I("placeholder_icon.svg"), lambda: None)
-            b.setEnabled(False)
-            b.setToolTip(f"{label} constraint — coming soon")
 
     def _build_geo2d_graphic_override_group(self, page) -> None:
         """Condensed 'Graphic Override' group: stroke + fill overrides in one

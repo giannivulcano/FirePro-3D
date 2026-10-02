@@ -2,9 +2,10 @@
 
 Verifies:
   1. Selecting a RectangleItem shows the 'Modify | Rectangle' contextual tab
-     with groups Edit + Constraints + Graphic Override — and NO Placement/Fill
+     with groups Edit + Graphic Override — and NO Placement/Fill/Constraints
      (Placement dropped as property-panel redundant; Fill folded into the
-     condensed Graphic Override group).
+     condensed Graphic Override group; the legacy Constraints group retired
+     with the prototype — parametric-constraint-system.md §2).
   2. Driving the Fill-type control to 'solid' routes through the undo path:
      rect.fill_type == 'solid' AND exactly one undo step was pushed.
   3. The fill controls are DISABLED when a LineItem (non-fillable) is selected
@@ -104,9 +105,9 @@ def _group_titles(page):
     return titles
 
 
-def test_geo2d_tab_has_edit_constraints_graphic_override(main_window, qapp, clean_scene):
+def test_geo2d_tab_has_edit_graphic_override(main_window, qapp, clean_scene):
     """Selecting a RectangleItem must show 'Modify | Rectangle' with Edit +
-    Constraints + Graphic Override groups, and NO Placement/Fill groups."""
+    Graphic Override groups, and NO Placement/Fill/Constraints groups."""
     rect = _make_rect(main_window.scene)
     rect.setSelected(True)
     qapp.processEvents()
@@ -119,8 +120,8 @@ def test_geo2d_tab_has_edit_constraints_graphic_override(main_window, qapp, clea
     group_titles = _group_titles(page)
 
     assert "EDIT" in group_titles, group_titles
-    assert "CONSTRAINTS" in group_titles, group_titles
     assert "GRAPHIC OVERRIDE" in group_titles, group_titles
+    assert "CONSTRAINTS" not in group_titles, group_titles   # legacy group retired
     # Dropped / folded away:
     assert "PLACEMENT" not in group_titles, group_titles
     assert "FILL" not in group_titles, group_titles  # a 'Fill:' field label is fine (has colon)

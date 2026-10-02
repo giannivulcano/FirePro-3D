@@ -251,6 +251,11 @@ class GripHandle(Handle):
         # Snapshot every grip point for an exact Esc restore.
         self._snapshot = list(self.item.grip_points())
         self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
+        # Constraint seam (§8): a grip drag goes through the solver. A plain
+        # scene (headless test) has no controller.
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None:
+            ctl.begin_drag(self.item)
 
     def on_drag(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
@@ -266,9 +271,9 @@ class GripHandle(Handle):
         self._apply(pt, mods)                           # hook: press-time/modifier apply
         applied = self.item.grip_points()[self.index]
         self._after_apply(m, applied)                   # hook: sibling / propagation
-        tools = getattr(sc, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints(self.item)
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None:
+            ctl.drag(self.item, self.index)
         m._reflow_live()
 
     def on_release(self, m, scene_pos: QPointF, mods) -> None:
@@ -289,12 +294,16 @@ class GripHandle(Handle):
             if pt != getattr(self, "_last_pt", None):
                 self._apply(pt, mods)
                 self._after_apply(m, self.item.grip_points()[self.index])
+        ctl = getattr(sc, "constraint_ctl", None)
+        if moved and ctl is not None:
+            ctl.drag(self.item, self.index)   # solve the release frame
         self._clear_grip_state(sc)
         m._end_drag()
+        # End the constraint drag session before the commit hook pushes undo,
+        # so the snapshot holds the solved geometry.
+        if ctl is not None:
+            ctl.end_drag()
         if moved:
-            tools = getattr(sc, "_tools", None)
-            if tools is not None:
-                tools._solve_constraints(self.item)
             if m._commit_hook is not None:
                 m._commit_hook("grip")
 
@@ -308,6 +317,9 @@ class GripHandle(Handle):
         # propagated state on OTHER items is restored by _restore_extra.
         self.item.apply_grip(self.index, self._snapshot[self.index])
         self._restore_extra(m)
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None:
+            ctl.cancel_drag()
         self._clear_grip_state(sc)
         m._reflow_live()
 

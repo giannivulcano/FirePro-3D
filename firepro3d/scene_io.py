@@ -553,7 +553,6 @@ class SceneIOMixin:
         self._wall_chain_start = None
         self._floor_active = None
         self._roof_active = None
-        self._constraints = []
         reset_grid_counters()
         self.active_level = DEFAULT_LEVEL
         if self._level_manager:

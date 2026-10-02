@@ -50,22 +50,18 @@ class _StubScene(QGraphicsScene):
         self._draw_circles: list = []
         self._draw_arcs: list = []
         self._polylines: list = []
-        self._constraints: list = []
         self._trim_edge = None
         self._trim_edge_highlight = None
         self._extend_boundary = None
         self._extend_boundary_highlight = None
         self._merge_point1 = None
         self._merge_preview = None
-        self._constraint_circle_a = None
-        self._constraint_grip_a = None
         self._stretch_vertices: list = []
         self._stretch_full_items: list = []
         self._selected_items: list = []
         self._align_reference = None
         self._align_highlight = None
         self._align_ghost = None
-        self._align_padlocks: list = []
         self._grip_tolerance_px = 12
         self.active_level = "Level 1"
 

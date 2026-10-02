@@ -474,7 +474,7 @@ def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
 
 # Priority ordering — lower value = higher priority (endpoint wins over nearest)
 SNAP_PRIORITY: dict[str, int] = {
-    "origin":       -1,       # the (0,0) cross / block insertion marker (DD6)
+    "origin":       -1,       # the fixed white (0,0) origin cross (DD6, D4)
     "intersection":  0,       # highest real-geometry priority
     "endpoint":      1,
     "midpoint":      2,
@@ -532,7 +532,7 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     Returns:
         False for a hidden item, a child of a non-underlay parent (gridline
         bubbles/labels, sprinkler & fitting symbols, ...), an item above
-        z 150, the origin cross / block origin marker, or a pipe when
+        z 150, the fixed white (0,0) origin cross, or a pipe when
         *skip_pipes*; True otherwise.
     """
     if not item.isVisible():
@@ -889,8 +889,8 @@ class SnapEngine:
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
 
-        # Origin (DD6) — the (0,0) cross + the Block Editor insertion
-        # marker, own kind ``origin`` (priority -1). Gated by F3 only
+        # Origin (DD6) — the fixed white (0,0) cross (D4), own kind
+        # ``origin`` (priority -1). Gated by F3 only
         # (``self.enabled``, checked above), never by a per-type toggle.
         for p in ctx.origin_pts:
             ctx.check("origin", p, None)
@@ -1025,7 +1025,7 @@ class SnapEngine:
                 continue
 
             # Shared eligibility (DD6): hidden, children of non-underlay
-            # parents, z > 150, the origin cross / marker, pipes (skip_pipes).
+            # parents, z > 150, the white (0,0) origin cross, pipes (skip_pipes).
             if not is_snap_target(item, skip_pipes=self.skip_pipes):
                 continue
 

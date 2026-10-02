@@ -928,15 +928,14 @@ class ModifyToolsController:
                     it.setSelected(True)
             s._show_status("Nothing to rotate", 3000)
             return False
-        for it in targets:
-            it.manip_rotate(float(delta_deg), QPointF(pivot))
+        # Constraint seam (§8): solved on exit, before the undo push.
+        with s.constraint_ctl.edit(targets):
+            for it in targets:
+                it.manip_rotate(float(delta_deg), QPointF(pivot))
         for it in targets:
             fitting = getattr(it, "fitting", None)
             if fitting is not None:
                 fitting.update()
-        tools = getattr(s, "_tools", None)
-        if tools is not None:
-            tools._solve_constraints()
         s.push_undo_state()
         s._move_ghost = []
         s._move_ghost_base = []
@@ -1078,12 +1077,10 @@ class ModifyToolsController:
                     copy.manip_reflect(p1, p2)
                     result.append(copy)
         else:
-            for it in targets:
-                it.manip_reflect(p1, p2)
+            with s.constraint_ctl.edit(targets):
+                for it in targets:
+                    it.manip_reflect(p1, p2)
             result = list(targets)
-            tools = getattr(s, "_tools", None)
-            if tools is not None and result:
-                tools._solve_constraints()
         if result:
             s.push_undo_state()
         s._move_ghost = []
@@ -1205,12 +1202,10 @@ class ModifyToolsController:
         # Factor 1 changes nothing: end the tool like a commit, but push no
         # undo step (P1 DD4 review M4).
         targets = [] if noop else self._scalable(items)
-        for it in targets:
-            it.manip_scale_about(QPointF(base), factor)
+        with s.constraint_ctl.edit(targets):
+            for it in targets:
+                it.manip_scale_about(QPointF(base), factor)
         if targets:
-            tools = getattr(s, "_tools", None)
-            if tools is not None:
-                tools._solve_constraints()
             s.push_undo_state()
         s._move_ghost = []
         s._move_ghost_base = []
@@ -1616,16 +1611,15 @@ class ModifyToolsController:
             step = self.polar_step(float(p["total_deg"]), int(p["count"]))
             for k in range(1, int(p["count"])):
                 new = s.paste_items(QPointF(0, 0), data=records) or []
-                for it in self._rotatable(new):
-                    it.manip_rotate(k * step, QPointF(centre))
+                # Constraint seam (§8): each copy's turn is one edit.
+                with s.constraint_ctl.edit(new):
+                    for it in self._rotatable(new):
+                        it.manip_rotate(k * step, QPointF(centre))
                 for it in new:
                     fitting = getattr(it, "fitting", None)
                     if fitting is not None:
                         fitting.update()
                 created += new
-            tools = getattr(s, "_tools", None)
-            if tools is not None and created:
-                tools._solve_constraints()
         else:
             for t in transforms:
                 created += s.paste_items(QPointF(t.dx(), t.dy()),

@@ -55,7 +55,6 @@ from .room import Room
 from .block_instance import BlockInstance
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
-from .constraints import Constraint as ConstraintBase
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
                             seed_line, is_valid_relative_angle)
 from . import geometry_intersect as gi
@@ -206,6 +205,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # anything can emit selectionChanged/modeChanged/changed.
         from .selection_readouts import SelectionReadoutController
         self.readouts = SelectionReadoutController(self)
+        # Parametric constraints (parametric-constraint-system.md §3, §8):
+        # the single seam every geometry edit routes through.
+        from .constraint_controller import ConstraintController
+        self.constraint_ctl = ConstraintController(self)
         self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
@@ -426,15 +429,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._extend_boundary_highlight = None
         self._merge_point1: tuple | None = None  # (item, grip_index, QPointF)
         self._merge_preview = None          # visual line connecting merge points
-        # Constraint state (Sprint Y)
-        self._constraints: list = []        # list of Constraint objects
-        self._constraint_circle_a = None    # first circle for concentric constraint
-        self._constraint_grip_a: tuple | None = None  # (item, grip_index) for dimensional
         # Align tool state
         self._align_reference = None
         self._align_highlight = None
         self._align_ghost = None
-        self._align_padlocks: list = []
         # Interactive transforms (Rotate, Scale, Mirror)
         # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
         # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
@@ -1110,20 +1108,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if sprinklers_to_remove:
             ss.sprinklers = [s for s in ss.sprinklers if s not in sprinklers_to_remove]
 
-        # ── Constraints ───────────────────────────────────────────────────
-        all_deleted = selected_set | pipes_to_remove | nodes_to_remove
-        self._constraints = [c for c in self._constraints
-                             if not any(c.involves(d) for d in all_deleted)]
-
-        # Clean up padlocks for removed constraints
-        surviving = set(self._constraints)
-        stale_padlocks = [p for p in self._align_padlocks
-                          if p._constraint is not None
-                          and p._constraint not in surviving]
-        for p in stale_padlocks:
-            self._align_padlocks.remove(p)
-            if p.scene() is self:
-                self.removeItem(p)
+        # ── Constraints (§8: cascade-delete, same undo step) ──────────────
+        # Callers push the undo state after this returns, so the cascade is
+        # inside the snapshot.
+        self.constraint_ctl.on_items_removed(
+            list(selected_set | pipes_to_remove | nodes_to_remove))
 
         # Update fittings on surviving nodes that lost pipes
         for node in ss.nodes:
@@ -1281,12 +1270,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if self._merge_preview.scene() is self:
                     self.removeItem(self._merge_preview)
                 self._merge_preview = None
-
-        # Clean up constraint state
-        if mode != "constraint_concentric":
-            self._constraint_circle_a = None
-        if mode != "constraint_dimensional":
-            self._constraint_grip_a = None
 
         # Clean up align state
         if mode != "align":
@@ -1452,8 +1435,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "extend":         "Select boundary edge",
             "extend_pick":    "Click near endpoint to extend (right-click to cancel)",
             "merge_points":   "Click first endpoint",
-            "constraint_concentric":   "Select first circle",
-            "constraint_dimensional":  "Click first grip point",
             "align": "Click reference edge",
             "rotate":          "Pick pivot point",
             "array":           "Pick base point",
@@ -2195,20 +2176,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "block_definitions":  {bid: d.to_dict()
                                    for bid, d in self._block_definitions.items()},
             "blocks":             [inst.to_dict() for inst in self._block_instances],
-            "constraints":        self._capture_constraints(),
+            "constraints":        self.constraint_ctl.capture(),
         }
-
-    def _capture_constraints(self) -> list[dict]:
-        """Serialize constraints for undo/save, using geometry-list index IDs."""
-        all_geom = self._tools._all_geometry_items()
-        geom_id = {item: i for i, item in enumerate(all_geom)}
-        result = []
-        for c in self._constraints:
-            try:
-                result.append(c.to_dict(geom_id))
-            except (KeyError, AttributeError):
-                pass
-        return result
 
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
@@ -2387,14 +2356,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._block_instances.clear()
             self._block_definitions.clear()
 
-            # Clear padlocks
-            for p in self._align_padlocks:
-                if p.scene() is self:
-                    self.removeItem(p)
-            self._align_padlocks.clear()
-
-            self._constraints.clear()
-
             # Restore from snapshot
             for d in state.get("polylines", []):
                 pl = PolylineItem.from_dict(d)
@@ -2502,16 +2463,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             for da in self.design_areas:
                 da.compute_area(self.scale_manager)
 
-            # ── Constraints ───────────────────────────────────────────────
-            all_geom = self._tools._all_geometry_items()
-            id_to_geom = {i: item for i, item in enumerate(all_geom)}
-            for d in state.get("constraints", []):
-                try:
-                    c = ConstraintBase.from_dict(d, id_to_geom)
-                    if c is not None:
-                        self._constraints.append(c)
-                except (ValueError, KeyError, TypeError):
-                    pass  # skip malformed constraint data
+            # ── Constraints (after every item is recreated) ───────────────
+            self.constraint_ctl.restore(state.get("constraints", []))
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
@@ -2980,8 +2933,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         stable identity for the source item so re-hover-release and self-
         exclusion key off it (``id(source_item)`` when present, else the snap
         type + the snapped point rounded to 1 µm — so two source-less snaps at
-        different points, e.g. the Block Editor's (0,0) cross and its red
-        insertion marker, are distinct acquisitions, DD6 / I-2).
+        different points are distinct acquisitions, DD6 / I-2; the only
+        source-less origin snap is the fixed white (0,0) cross, D4).
         """
         if res is None:
             return None
@@ -4555,7 +4508,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     #   • ``select`` / ``None``            — no point placed
     #   • object-pick transforms/modifies  — flip, mirror, break,
     #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
-    #     merge_points, offset(_side), align, the two constraint pickers, room
+    #     merge_points, offset(_side), align, room
     #     (click-inside-region), place_import (ghost drag, no snap point)
     # ``move``/``paste`` are placement (destination point) AND self-exclude the
     # moved item; they stay armed here and the press path swaps the sentinel for
@@ -4618,8 +4571,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "extend":                   "_press_extend",
         "extend_pick":              "_press_extend",
         "merge_points":             "_press_merge_hatch",
-        "constraint_concentric":    "_press_constraint",
-        "constraint_dimensional":   "_press_constraint",
         "align":                    "_press_align",
         "polyline":                 "_press_polyline",
         "draw_line":                "_press_draw_line",
@@ -5559,13 +5510,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_merge_hatch(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.mode == "merge_points":
             self._tools._handle_merge_click(snapped)
-
-    # ── Constraints ──────────────────────────────────────────────────
-    def _press_constraint(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self.mode == "constraint_concentric":
-            self._tools._handle_constraint_concentric_click(snapped)
-        elif self.mode == "constraint_dimensional":
-            self._tools._handle_constraint_dimensional_click(snapped)
 
     def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell (slice 8)
         return self._geom_ctl._press_polyline(event, pos, snapped, item_under, node_under, pipe_under)
@@ -7546,18 +7490,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)
-        for item in resolved:
-            if isinstance(item, Node):
-                item.moveBy(offset.x(), offset.y())
-                item.setSelected(True)
-                item.fitting.update()
-            elif hasattr(item, "translate"):
-                item.translate(offset.x(), offset.y())
-                item.setSelected(True)
-            elif hasattr(item, "manip_translate"):   # Text (D7)
-                item.manip_translate(offset.x(), offset.y())
-                item.setSelected(True)
-        self._tools._solve_constraints()  # enforce constraints after move
+        # §8: the moved set's handles become drag goals; the controller
+        # re-solves on exit (before the caller's undo push).
+        with self.constraint_ctl.edit(resolved):
+            for item in resolved:
+                if isinstance(item, Node):
+                    item.moveBy(offset.x(), offset.y())
+                    item.setSelected(True)
+                    item.fitting.update()
+                elif hasattr(item, "translate"):
+                    item.translate(offset.x(), offset.y())
+                    item.setSelected(True)
+                elif hasattr(item, "manip_translate"):   # Text (D7)
+                    item.manip_translate(offset.x(), offset.y())
+                    item.setSelected(True)
         self._selected_items = None   # clear after use
 
     def clipboard_payload(self):
@@ -7594,5 +7540,5 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)
     # array, rotate, scale, mirror, join, explode, break, fillet, chamfer,
-    # stretch, trim, extend, merge, hatch, constraints, geometry helpers
+    # stretch, trim, extend, merge, hatch, geometry helpers
     # -------------------------------------------------------------------------

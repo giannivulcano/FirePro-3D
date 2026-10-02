@@ -34,7 +34,7 @@ def test_legacy_loose_content_dropped(qapp, tmp_path):
     assert s._texts == []
     assert s.annotations.notes == []
     assert s.annotations.dimensions == []
-    assert s._constraints == []
+    assert s.constraint_ctl.capture() == []
 
 
 def test_resave_omits_dropped_keys(qapp, tmp_path):
