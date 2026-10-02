@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-01
-verified-commit: c8ff4f4   # scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-02  # CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -121,6 +121,12 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   non-None. Fill is rendered in each item's own `paint()` via `draw_fill()`.
 - Property rows (`_geom2d_properties`) + setter (`_geom2d_set`) + dual-path
   serialization stamps (`_geom2d_to_dict`/`_geom2d_from_dict`).
+- `_uid` — stable primitive id (uuid4 hex, CS1 2026-10-02): minted at construction,
+  stamped as `"uid"` by `_geom2d_to_dict`, carried by `_geom2d_from_dict` when present (a
+  legacy dict keeps the constructor's fresh one). Copy paths mint a new one at
+  `Model_Space._add_from_dict`. Mint / carry rules + why (constraint references) are owned by
+  `parametric-constraint-system.md` §6.1 — Rule A. (`TextItem` and `BlockInstance` carry the
+  same field outside this mixin.)
 - **New-geometry pen (2026-09-23, block polish):** `Model_Space._geom_color_lw()` returns
   `constants.DEFAULT_GEOMETRY_LINEWEIGHT` (was a hard-coded 2.0) — the weight for every committed
   tool-drawn primitive **and** Block-Editor-imported ones (`geom_dicts_to_primitives(...,
@@ -161,7 +167,8 @@ that name makes the selection manipulator treat an item as box-resizable
   ellipse) would flip while the points stayed put, half-applying the reflection. It is the one
   threshold shared by the axis picker (`axis_picker.py`) and the ghost (`transform_ghost.py`).
 - **Floors make tiny factors non-uniform.** The radius floors above (Circle 1 mm, Arc 0.01 mm,
-  Ellipse 0.5 mm) clamp while the centre scales exactly, so a factor small enough to hit a
+  Ellipse 0.5 mm; the circle / arc values are the module constants `CIRCLE_MIN_RADIUS` /
+  `ARC_MIN_RADIUS`, which the constraint solver's D29 collapse check also reads) clamp while the centre scales exactly, so a factor small enough to hit a
   floor no longer yields a uniform image (lines / polylines / rects / polygons / splines have
   no such floor). Known and filed (`todo_open.md` "Tiny Scale factors scale non-uniformly").
 - Like `manip_rotate`/`translate`, both hooks transform local data with scene-space

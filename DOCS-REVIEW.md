@@ -228,7 +228,7 @@ These decisions were reached in the grill session and **refine the proposals bel
 - `docs/superpowers/plans/2026-04-30-align-tool.md`
 - (Align participation also in `grid-system.md`)
 
-**Canonical:** `docs/specs/parametric-constraint-system.md` (only in-depth `constraints.py` doc). Fold the constraint-relevant bits of the align-tool design into it; leave the dated align spec as historical.
+**Canonical:** `docs/specs/parametric-constraint-system.md` (only in-depth `constraints.py` doc). *(`constraints.py`, `AlignmentConstraint` and the Align padlock were retired at CS1, 2026-10-02 — the spec now governs the `sketch_*` / `constraint_controller` system; the salvage below is moot.)* Fold the constraint-relevant bits of the align-tool design into it; leave the dated align spec as historical.
 
 **Archive:** `2026-04-30-align-tool.md` plan (implemented). Keep `2026-04-30-align-tool-design.md` in place until its unique rationale is promoted.
 
@@ -237,7 +237,7 @@ These decisions were reached in the grill session and **refine the proposals bel
 **CONTRADICTIONS FLAG:**
 1. **Spec vs code:** `parametric-constraint-system.md` Open Questions #3 and #4 claim visual rendering and dimensional-distance editing are **unimplemented** — both are shipped (`model_view.py:355-399` and `:765-792`). §8.1 says "visual point rendering is not implemented in the paint path" — false.
 2. **Spec design vs shipped model:** align-tool design models targets via `target_edge_index` + parallel-edge resolution; shipped `AlignmentConstraint` is point-based (`target_point` + `perp_direction`).
-3. **Latent code bug surfaced (not a doc task, but record it):** `model_view.py:364` accesses `c.item_a/c.item_b` unconditionally; those exist only on `DimensionalConstraint`, so concentric/alignment indicators would AttributeError if drawn by that loop.
+3. **Latent code bug surfaced (not a doc task, but record it):** *(retired at CS1, 2026-10-02 — the `drawForeground` §3b loop was deleted with the prototype)* `model_view.py:364` accesses `c.item_a/c.item_b` unconditionally; those exist only on `DimensionalConstraint`, so concentric/alignment indicators would AttributeError if drawn by that loop.
 
 ---
 
@@ -859,7 +859,7 @@ Both map underlays to `Z_BELOW_GEOMETRY=-100` (actually the origin cross; underl
 - `docs/specs/wall-room-floor-system.md` §13: the entire "Divergences" table describes changes already implemented (alignment rename, Miter removal, offset clamping, MITER_TOL extraction); also invents constant names (`WALL_JOIN_TOLERANCE`) and fabricates ceiling-type strings (§9.4) and window-preset axes (§7.8).
 - `docs/specs/parametric-constraint-system.md`: Open Questions #3 (visual rendering) and #4 (dimensional distance editing) are *already implemented*.
 
-**I. AlignmentConstraint spec vs as-built mismatch.**
+**I. AlignmentConstraint spec vs as-built mismatch.** *(Moot — `AlignmentConstraint` retired at CS1, 2026-10-02.)*
 `docs/superpowers/specs/2026-04-30-align-tool-design.md` models alignment via `target_edge_index` + parallel-edge resolution. Shipped code (confirmed) is *point-based*: `target_point` + `perp_direction`, with dual `reference_line`/`reference_item` modes. The dual-mode underlay-fixed-line rationale exists ONLY in this spec and no curated doc.
 
 **J. PaperViewport → SheetViewport rename not propagated.**
@@ -936,4 +936,4 @@ Relevant absolute paths for the grilling session:
 - Aspirational-as-current / status-unreliable specs: `docs\specs\{selection-mode,section-view-subsystem,hydraulic-solver-and-reporting,paper-space,view-relationships,wall-room-floor-system,sprinkler-system-components,parametric-constraint-system,pipe-placement-methodology}.md`
 - Canonical Z-order source of truth (per constants.py): `docs\specs\view-relationships.md` §7.3
 - Layer-removal record: `docs\superpowers\specs\2026-05-13-remove-layer-system-design.md`
-- Code hubs: `firepro3d\model_space.py`, `firepro3d\level_manager.py`, `firepro3d\constants.py`, `firepro3d\constraints.py`
+- Code hubs: `firepro3d\model_space.py`, `firepro3d\level_manager.py`, `firepro3d\constants.py`, `firepro3d\constraints.py` (retired at CS1, 2026-10-02)

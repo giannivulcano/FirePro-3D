@@ -19,7 +19,7 @@
 - `firepro3d/text_item.py` -- The unified `TextItem` (model, paper and block text)
 - `firepro3d/block_definition.py`, `firepro3d/block_instance.py` -- Block flyweight (definition + placed instance)
 - `firepro3d/detail_view.py` -- Detail markers (`DetailMarker`, `DetailViewManager`)
-- `firepro3d/constraints.py` -- Parametric constraints between geometry items
+- `firepro3d/sketch_model.py`, `firepro3d/constraint_controller.py` (+ `sketch_solver.py`, `sketch_adapters.py`, `constraint_paint.py`) -- Block Editor parametric constraints (records, solver, Qt shell)
 - `firepro3d/annotations.py` -- Legacy `Annotation` base + the retired-hatch load migration helper
 
 ## DisplayableItemMixin
@@ -232,8 +232,9 @@ system was removed) and participate in the snap engine. Mechanics are owned by
   [`grid-system.md`](../specs/grid-system.md)
 - **Detail markers** -- `DetailMarker` / `DetailViewManager` →
   [`view-relationships.md`](../specs/view-relationships.md)
-- **Constraints** -- `ConcentricConstraint`, `DimensionalConstraint`,
-  `AlignmentConstraint` (`constraints.py`) →
+- **Constraints** -- Block Editor sketch constraints: `Constraint` records
+  (`sketch_model.py`) solved by `ConstraintController` (`constraint_controller.py`)
+  over the primitives' named handles; not scene items →
   [`parametric-constraint-system.md`](../specs/parametric-constraint-system.md)
 - **Sprinkler design** -- `DesignArea`, `WaterSupply` →
   [`sprinkler-system-components.md`](../specs/sprinkler-system-components.md)

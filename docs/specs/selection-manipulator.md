@@ -1,14 +1,14 @@
 ---
 status: partial          # v1 (2026-08-30) + U1 (2026-08-31) + U2 Handle model (2026-09-08) + U3 GripHandle/CircleItem (2026-09-08) + U3 PolylineItem/default_grip_handles + SplineItem + LineItem/EndpointGripHandle (2026-09-09) + ArcItem + RegularPolygonItem + EllipseItem + RectangleItem/box-native/single-gate + WallSegment/propagation+sibling-Esc + GridlineItem/parallel-delta+sibling-Esc (2026-09-10) + Room/label-grip/state-dependent-empty + DesignArea/badge-grip + FloorSlab + RoofItem/polygon-vertex-grips + DimensionAnnotation/offset-grip (2026-09-10) + DetailMarker/parametric-crop + render_overlay + _painting_into_clip_view (2026-09-11) + NoteAnnotation/box-native+bake-at-rest-rotation (2026-09-11) + ViewMarkerArrow/shared-crop parametric (translate-only caps, own outline dropped) (2026-09-11) + U4 retire-parallel-grip-systems (2026-09-12): all 3 legacy legs deleted (drawForeground grip loop, scene_tools._find_grip_hit, drag/commit leg), provides_handles_for→_is_box_native_single, manipulator is the SOLE model-scene grip path + U5 Leg A (2026-09-13): HALO preselection engine + selection-mode folded into the PLAN scene against the unified manipulator (see selection-mode.md §4-as-HALO) + U5 Leg B (2026-09-14): the manipulator becomes the sole grip owner in the ELEVATION scene (HaloSelectionMixin extraction, elevation manipulator construction, legacy _find_grip_hit/paintEvent retired; see selection-mode.md §14); U5 Leg C (3D handle providers) remains + arc/rect grip polish (2026-09-23): rotate knob removed app-wide; RectangleItem no longer box-native (9 RectGripHandles, Ctrl/Shift); ArcItem bisector centre + ArcEndpointGripHandle; GripHandle._apply hook + arc endpoint slide-along-circle (2026-09-24) + snap polish (2026-09-24): move handle snap (HandleSnapSession — interior drag, Move tool, LineItem TranslateGripHandle midpoint); vertex-chain Ctrl (Polyline/FloorSlab/RoofItem vs previous vertex); seam round (2026-09-25): TranslateGripHandle on every whole-item move grip (Circle/Ellipse/RegularPolygon/Text centre, Wall mid, Rect centre via RectTranslateGripHandle), lazy session build
-last-verified: 2026-10-01  # scene-tools P1 Account: Move handle snap targets = is_snap_target + origin points (origin no longer excluded); manip_reflect / manip_scale_about are not manipulator capabilities; prior 2026-09-29
-verified-commit: c8ff4f4   # scene-tools P1 batch (feat/scene-tools-p1-batch); prior 4c48685   # held_delta accessor for preview-tracking overlays; prior d9d6f20   # scene-tools branch: Rotate tool consumer + Rect/Text manip_rotate compose fix; prior 17b4371   # smoke round B: move snapping is handles only (no grab/cursor snap; Move base point = a handle); prior d36af0a   # snap-polish seam round: handle snap on every whole-item move grip (lazy build); prior 892cf76   # snap polish: move handle snap + vertex_chain_grip_handles + TranslateGripHandle; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
+last-verified: 2026-10-02  # CS1 Account: GripHandle constraint seam = ctl.begin_drag/drag/end_drag/cancel_drag (no _solve_constraints); release bakes inside ConstraintController.edit; D35 live body / box-resize drag for constrained selections; undo/redo refused mid-drag; origin handle-snap source = the (0,0) cross only; prior 2026-10-01 scene-tools P1 Account: Move handle snap targets = is_snap_target + origin points (origin no longer excluded); manip_reflect / manip_scale_about are not manipulator capabilities; prior 2026-09-29
+verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch (feat/scene-tools-p1-batch); prior 4c48685   # held_delta accessor for preview-tracking overlays; prior d9d6f20   # scene-tools branch: Rotate tool consumer + Rect/Text manip_rotate compose fix; prior 17b4371   # smoke round B: move snapping is handles only (no grab/cursor snap; Move base point = a handle); prior d36af0a   # snap-polish seam round: handle snap on every whole-item move grip (lazy build); prior 892cf76   # snap polish: move handle snap + vertex_chain_grip_handles + TranslateGripHandle; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 62683b9   # arc endpoint grips slide along the circle; prior d31bfda arc/rect grip polish (knob removal, RectGripHandle, ArcEndpointGripHandle); prior 434066c block polish: _handle_scene_pos grip-points cache for pooled hosts; prior c0e1c28 bugfix batch: Ctrl-resize from-centre bake anchor (_bake_scale from_center) + Shift+handle press routing (hit_handle / _manip_press_should_route); U5 Leg B (98466ef) unchanged
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_handle.py            # U2: Handle behavior classes (base + ResizeHandle; RotateHandle deleted 2026-09-23); U3: GripHandle + EndpointGripHandle + RectGripHandle + ArcEndpointGripHandle + default_grip_handles; snap polish: TranslateGripHandle (+ RectTranslateGripHandle) + vertex_chain_grip_handles
   - firepro3d/handle_snap.py             # S2 move handle snap: HandleSnapSession + HandleSnapResult ("Move — handle snap")
   - firepro3d/manip_math.py
   - firepro3d/arc_math.py                # ArcItem centre-grip bisector math + angle helpers (shared with End Points placement — 2d-geometry.md §4)
-  - firepro3d/model_view.py              # drawForeground snap/constraint overlay + manipulator render_overlay (grip-render loop retired U4)
+  - firepro3d/model_view.py              # drawForeground snap overlay + manipulator render_overlay (grip-render loop retired U4; constraint glyph paint is constraint_paint.py — parametric-constraint-system.md)
   - firepro3d/scene_tools.py             # legacy _find_grip_hit retired U4 (no grip code remains)
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
@@ -162,15 +162,32 @@ whose `manip_frame_redundant()` returns True (an unrotated `RectangleItem`).
    delta. **Snap-then-transform** still holds for resize, which snaps the dragged
    handle point via `snap_engine.find(…, held=…)`.
    Preview = prototype held transform prepended to each item's `transform()`.
-   No geometry edits, no constraint solve during the drag. Overlay consumers
+   No geometry edits, no constraint solve during the drag *(except a D35 live
+   gesture — below)*. Overlay consumers
    that must track the preview (selection readouts — selection-mode §15) read
    it via `held_delta(item)` → `s0⁻¹·sceneTransform()` (None outside a gesture;
    identity for handles that edit geometry live), never the private snapshot.
 3. **Release**: clear preview transforms → **bake once** through each item's
-   `manip_*` (real mm coords) → constraint solver once (existing release path)
-   → undo commit (below) → frame rebake.
+   `manip_*` (real mm coords) inside `ConstraintController.edit(items)` (the
+   solve runs as the context exits — `_bake_move` / `_bake_scale`, shared with
+   the typed-commit path) → undo commit (below) → frame rebake.
 4. **Esc** mid-drag: drop preview transforms, restore snapshots — no geometry
    churn, no undo entry.
+
+**D35 live drag of constrained selections (CS1, 2026-10-02).** When an interior
+(body) move or a box-native resize starts on a selection that touches an active
+constraint (`ConstraintController.touches`, Block Editor only), the gesture runs
+**live** instead of as a held preview (`_open_live` → `_LiveDrag`): every frame
+resets to the session snapshot (move) or undoes the applied factors (resize),
+bakes this frame's delta / factors into the real geometry through the release
+bake's own primitives (`bake_translate` / `manip_scale`), and solves through
+`ConstraintController.drag_frame`; a conflicting frame holds the last good frame.
+Release keeps the last frame and pushes **one** undo through the commit hook
+(never a second bake; an unchanged gesture restores exactly and commits
+nothing); Esc / a typed commit restores the session snapshot exactly
+(`_live_cancel` → `cancel_drag`). Unconstrained selections are unchanged (held
+preview, bake on release). The solve semantics (weights, hold-last-good) are
+owned by `parametric-constraint-system.md` D35 / §7.2 — not restated here.
 
 **Baked-at-rest rule:** committed state carries **no Qt item transform**.
 RectangleItem reconciles by keeping `_angle` as a serialized **data field**
@@ -212,7 +229,8 @@ scene items to take handles from.
   [`snapping-engine.md §6.1`](snapping-engine.md)
   — the same rule `find()` applies; not restated here). On top of it the session
   excludes the moving items and their children and pipes attached to a moving node.
-  The **origin points** (the (0,0) cross and the Block Editor insertion marker) are
+  The **origin points** (the (0,0) cross — the Block Editor insertion marker was
+  retired at CS1, 2026-10-02) are
   targets of kind `origin` (`HANDLE_TYPES` includes it; scene-tools P1 DD6,
   2026-10-01 — this reverses the earlier "origin marker excluded" rule): they are
   added from `SnapEngine._origin_points`, not from item geometry, so a handle can
@@ -259,10 +277,15 @@ apply the exact value → bake + undo as if released.
 ### Undo & domains
 
 - One undo entry per gesture: **model** = single `push_undo_state()` after the
-  bake; **paper** = `beginMacro` + existing per-item commands
+  bake (after the constraint seam has solved); **paper** = `beginMacro` + existing per-item commands
   (`ViewportGeometryCommand`, `ResizeTextBoxCommand`, move equivalents) +
   `endMacro`.
 - **Mixed model+paper selections are disallowed** (separate scenes/stacks).
+- **Undo / redo are refused while a manipulator gesture is in flight** (grip,
+  body / D35 live, resize, held preview — `Model_Space._manip_drag_blocks_undo`,
+  checked at `undo()` / `redo()`, the entry every shortcut, header / ribbon
+  button and scene-key path reaches): a restore would rebuild every item under
+  the gesture, which would then drive orphans and push an extra step on release.
 - Group move resolves Sprinkler → parent Node (as `move_items` does). Items
   lacking a translate path are **excluded from the wrap and logged** — never
   silently skipped.
@@ -578,21 +601,28 @@ returns `item.grip_points()[index]` (rides the live grip); `visible` mirrors
 `apply_grip(index, pt)` (the DRY mutation primitive — edit math is not rewritten):
 - `on_press`: borrow the scene's grip-state (`_grip_item`/`_grip_dragging`,
   saving prior values) so the snap authority runs exactly as legacy; snapshot all
-  grip points for Esc.
+  grip points for Esc; open the constraint drag session
+  (`scene.constraint_ctl.begin_drag(item)` — a no-op unless the item is
+  constrained in a Block Editor scene; a plain scene has no controller).
 - `on_drag`: `pt = scene.get_effective_position(scene_pos)` (getattr fallback for
   plain scenes) → `_transform_point` hook → **`_apply(pt, mods)` hook** (default
   `item.apply_grip(index, pt)`; subclasses override it to use press-time state /
   modifiers — `RectGripHandle`) → `_after_apply` hook →
-  `scene._tools._solve_constraints(item)` → `m._reflow_live()`. Records
+  `constraint_ctl.drag(item, index)` (one solve frame; hold last good on a
+  conflict — `parametric-constraint-system.md` §8) → `m._reflow_live()`. Records
   `self._last_pt`.
 - `on_release`: capture `moved`; re-apply the release point **only if it differs
   from `_last_pt`** (Qt normally delivers a final move at the release position →
   re-apply skipped, so a future `_after_apply` propagation override cannot
-  double-fire; the re-apply goes through the same `_apply` hook); `_clear_grip_state`; `m._end_drag()`; then if `moved`, solve +
-  `commit_hook("grip")` (one undo per gesture).
+  double-fire; the re-apply goes through the same `_apply` hook); if `moved`,
+  `constraint_ctl.drag(...)` solves the release frame; `_clear_grip_state`;
+  `m._end_drag()`; `constraint_ctl.end_drag()` (before the push, so the undo
+  snapshot holds the solved geometry); then if `moved`, `commit_hook("grip")`
+  (one undo per gesture).
 - `on_cancel`: re-apply the snapshot for **only the dragged grip**
   (`apply_grip(self.index, snapshot[index])`) + `_restore_extra` for sibling/
-  propagated state; `_clear_grip_state`; **no** commit. (Restoring *every* grip
+  propagated state; `constraint_ctl.cancel_drag()` (restores every item the
+  gesture's solves wrote); `_clear_grip_state`; **no** commit. (Restoring *every* grip
   corrupts index-dependent grips — LineItem's midpoint `apply_grip` translates
   the whole line, so replaying it mid-restore shifts the endpoints; a derived
   grip like the midpoint recomputes from the endpoints anyway. Fixed 2026-09-09
@@ -603,7 +633,7 @@ returns `item.grip_points()[index]` (rides the live grip); `visible` mirrors
 apply, added 2026-09-23; `on_cancel` bypasses it and restores via `apply_grip`
 directly), `_after_apply` (gridline
 parallel-delta / wall-endpoint propagation), `_extra_snapshots`/`_restore_extra`
-(siblings), plus the always-run solver pass. Proven by
+(siblings), plus the always-run solver pass (since CS1 the `constraint_ctl.drag` seam — a no-op without an open constraint drag session). Proven by
 `test_manip_griphandle_admissibility.py` fake-handle overrides.
 
 **Snap parity** = drive the scene's own `get_effective_position` via the borrowed

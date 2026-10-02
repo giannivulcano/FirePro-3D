@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-10-01  # P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: c8ff4f4   # feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-10-02  # CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: 2a22ba9   # feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -53,7 +53,8 @@ dead plumbing, and none has a governing behaviour spec
 
 - **Home split (as-built).** Pure item-aware math lives in `tool_geometry.py`
   (no scene state). `SceneTools` holds the commit/mutation halves plus trim/
-  extend/merge/constraint/align click handlers. The *mode state machines*
+  extend/merge/align click handlers (the constraint click handlers were retired
+  at CS1, 2026-10-02). The *mode state machines*
   (press/move/key handlers, previews, set_mode teardown) live on `Model_Space`
   and route through its `_PRESS_DISPATCH` / `_MOVE_DISPATCH` /
   `_PREVIEW_DISPATCH` tables and `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE` HUD
@@ -107,8 +108,8 @@ Verified by reading every row and by a read-only runtime probe (real
 | Stretch | `stretch` | view-side right-to-left rubber band (`Model_View` release) → `begin_stretch_crossing`; base click, dest click → `_commit_stretch` | dashed line | none | set_mode | after |
 | Merge points | `merge_points` | two endpoint clicks → `apply_grip` | marker item | none | set_mode | after |
 | Join / Explode | — (methods) | `join_selected_items` / `explode_selected_items` | — | — | — | after |
-| Constraints | `constraint_concentric`, `constraint_dimensional` | `_handle_constraint_*_click` | — | none (dimensional opens a modal `QDialog`) | set_mode | after |
-| Align | `align` | `_press_align` → `_execute_align` + `_PadlockItem` | `_move_align` highlight / ghost | none | Esc #1 clears reference, #2 exits | **before** the move (`_execute_align` pushes, then moves) |
+| ~~Constraints~~ **RETIRED at CS1 (2026-10-02)** | ~~`constraint_concentric`, `constraint_dimensional`~~ | ~~`_handle_constraint_*_click`~~ — the legacy prototype is gone; Block Editor constraints: `parametric-constraint-system.md` | — | — | — | — |
+| Align | `align` | `_press_align` → `_execute_align` (~~`_PadlockItem`~~ retired at CS1) | `_move_align` highlight / ghost | none | Esc #1 clears reference, #2 exits | ~~**before** the move~~ — since CS1 **after** the move (translate inside `ConstraintController.edit`, then one push) |
 | Gridline array / offset | `gridline_array`, `gridline_offset` | `_press_gridline_replicate` → `GridlineItem.array_copies / offset_copy` | ghost lines (`_build_replicate_ghost`) | `spacing_count` / `distance` | Esc cancels | after commit |
 
 ### 1.1 Hop-level defects found while tracing (code-verified; runtime-confirmed where marked)
@@ -168,7 +169,9 @@ Verified by reading every row and by a read-only runtime probe (real
    call `duplicate_selected()` (instant +10/+10 mm copy, not a Move-like
    placement).
 7. **Align pushes undo before it moves** (`_execute_align`), unlike every other
-   tool (mutate-then-push, see `Geometry2DMixin._push_undo`).
+   tool (mutate-then-push, see `Geometry2DMixin._push_undo`). *(Resolved at CS1,
+   2026-10-02: `_execute_align` now moves — `translate` / `manip_translate`, inside
+   `ConstraintController.edit` — then pushes once, so Redo restores the move.)*
 8. **Pick tolerance from `views()[0]`.** `_find_geometry_at`,
    `_find_endpoint_hit` and `_find_nearest_edge` size their tolerance from
    `views()[0]` — see the vestigial-`views()[0]` memory note; the tolerance may
@@ -197,7 +200,8 @@ Two structural facts govern every row:
   files — C1 forbids authoring it there). Surfacing tools "on the geo2d tab"
   alone would not reach BE geometry.
 - **The shared contextual `Edit` group and the geo2d `Constraints` group bind
-  `self.scene` (plan), not `_active_scene()`** — unlike the window
+  `self.scene` (plan), not `_active_scene()`** *(the geo2d `Constraints` group was
+  retired at CS1, 2026-10-02)* — unlike the window
   `QShortcut`s and the BE page's draw buttons, which use `_active_scene()`.
 
 *Epoch: rows are the `c47ab60` record except those marked "P1 batch". At `c8ff4f4` every
@@ -228,7 +232,7 @@ Fillet / Chamfer / Stretch / Merge / Join remain unreachable (D14); Align is win
 | Merge points | none | none | none | — | **UNREACHABLE** |
 | Join / Explode | none | none | none | methods (tests call `explode_selected_items`) | **UNREACHABLE** |
 | Hatch | not a tool — fill is a property: entity/plan menu `Fill ▸ Hatch`, geo2d Graphic Override group | — | — | — | reachable (as fill property) |
-| Constraint Concentric / Dimensional | geo2d tab `Constraints` group (plan scene only, `self.scene`) | none | none | — | plan only; **UNREACHABLE in BE**; Dimensional raises (§1.1-1) |
+| ~~Constraint Concentric / Dimensional~~ | ~~geo2d tab `Constraints` group~~ | — | — | — | **RETIRED at CS1 (2026-10-02)** — Block Editor Constrain group, `parametric-constraint-system.md` §10 |
 | Align | none | window **Shift+A** (`_active_scene()`) | none | — | reachable |
 
 **Counts:** 23 rows reviewed. **UNREACHABLE everywhere: 13** (Rotate legacy, Rotate manip, Scale,
@@ -922,6 +926,7 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - **Smoke 2026-09-29 — change requests:** D9 for **open polylines and splines** — first grilled as a copy translated along the end-point chord normal (built, then rejected at smoke the same day as the wrong fork); re-pinned by the user as the **per-vertex miter** (splines: on the control polygon, closed / zero-chord: wrapped) with the pre-existing nearest-segment cursor measure — **BUILT** (see D9 above). D10 → a settable reference angle + a 2D (rows×cols) variant cycled with ←/→ — still as-proposed, pending its own P1 task + grill; D10 above stays the contract until then. The offset/handle-snap latency guards are `perf`-marked (run policy: `test-harness.md` Invariant 8).
 - **Nested blocks (2026-09-30, `feat/nested-blocks`):** the Block Editor Modify group gains a non-modal **Explode** small button (enabled only while a block instance is selected) that explodes block instances — contract in `block-system.md` "Nested blocks"; the D13 allow-list admits `block_instance` records in the editor. Neither touches the §1/§2 tool rows (the geometry Join/Explode methods stay unreachable).
 - **Ribbon:** the modal Edit/Modify buttons register in `_block_mode_buttons` (lit while their mode runs; un-toggle cancels). Window shortcut table + Align on Shift+L: see D2.
+- **CS1 constraint seams (2026-10-02, `feat/cs1-constraint-foundation`, verified `2a22ba9`):** in a Block Editor scene every modify-tool commit (Move's destination click via `move_items`, Rotate, Scale, in-place Flip, Align, Polar Array turns) mutates inside `ConstraintController.edit(items)`, which re-solves constrained partners on exit — before the tool's own undo push — and rolls the whole commit back on a conflict; copy-producing tools (Copy / Paste / Duplicate / Array / Mirror) carry the copied set's internal constraints through the clipboard payload's `constraints` key and `paste_records`, filtered by the transform-preservation rule D30. With no constraint on the touched items each seam is a no-op. Semantics owned by `parametric-constraint-system.md` §8 / D30 (Rule A — not restated). Known gap (filed): a rolled-back commit still pushes an unchanged undo step.
 - **P1 batch (2026-10-01, `feat/scene-tools-p1-batch`, verified `c8ff4f4`):** D10 → array variants; D16 Flip / Mirror; D17 Scale; D18 badge; D4 context menus; I1 Cut modal; D11 big-array ghost + ghost hand-off rule; D12 12 icons; DV7 fixed. The transform tools' own picks (Flip / Mirror axis, Scale "reference = base") share one radius, `ModifyToolsController._pick_tolerance()` (snap aperture at the active view's zoom; was `_axis_tolerance`). Modify group order: Move · Rotate · Scale · Flip · Mirror · Offset · Array (+ Explode in the Block Editor).
 
 ## Verification Checklist
@@ -954,8 +959,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
   `scale_transform`, `paint_axis`, `LiteGhostPath` (D16 / D17 / D10).
 - `firepro3d/scene_tools.py` — `SceneTools` (composed `scene._tools`):
   join/explode, break, fillet/chamfer commits,
-  stretch, trim/extend/merge/constraint click handlers, align, pick helpers,
-  `_PadlockItem`. (Array, Rotate, Flip / Mirror and Scale live in
+  stretch, trim/extend/merge click handlers, align, pick helpers (the
+  constraint click handlers + `_PadlockItem` were retired at CS1). (Array, Rotate, Flip / Mirror and Scale live in
   `ModifyToolsController`; `_apply_scale` / `_apply_mirror` are retired.)
 - `firepro3d/geometry_intersect.py` — `line_arc_intersections` (Trim's arc
   path; reads arc angles Y-up — DV7). Item-agnostic math, governed by
@@ -1009,7 +1014,9 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
   slice B). Stale.
 - `SPEC-INDEX.md` routes `scene_tools.py` to both `model-space-architecture.md`
   (structure) and `parametric-constraint-system.md` (constraints / align);
-  this draft would be a third owner (behaviour). The index is not updated by
+  this draft would be a third owner (behaviour). *(Resolved: the index row
+  states the split; since CS1 the constraint spec owns only the solve seams the
+  commits route through.)* The index is not updated by
   this review (single-file write) — follow-up: add the row and state the
   ownership split.
 - `selection-manipulator.md` / `test_no_rotate_knob.py` reserve `manip_rotate`

@@ -182,7 +182,7 @@ Model_Space maintains an undo stack (`_undo_stack`, `UNDO_MAX` entries) of scene
 - **Gridlines** (`gridline.py`) -- `GridlineItem` + bubbles, snap and ALIGN participation → [`grid-system.md`](../specs/grid-system.md)
 - **Detail views** (`detail_view.py`) -- `DetailMarker` / `DetailViewManager`, a clipped second view on the same scene → [`view-relationships.md`](../specs/view-relationships.md)
 - **Blocks** (`block_definition.py`, `block_instance.py`, `block_library.py`) -- flyweight definition/instance + library → [`block-system.md`](../specs/block-system.md)
-- **Parametric constraints** (`constraints.py`) -- concentric / dimensional / alignment constraints → [`parametric-constraint-system.md`](../specs/parametric-constraint-system.md)
+- **Parametric constraints** (`sketch_model.py`, `sketch_solver.py`, `sketch_adapters.py`, `constraint_controller.py`, `constraint_paint.py`) -- Block Editor sketch constraints; every editor edit seam routes through the controller → [`parametric-constraint-system.md`](../specs/parametric-constraint-system.md)
 - **Theme** (`theme.py`) -- colour / metrics / typography tokens → [`theming.md`](theming.md)
 
 The full file → governing-spec lookup is [`SPEC-INDEX.md`](../specs/SPEC-INDEX.md).

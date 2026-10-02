@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-01  # scene-tools P1 Account: §5.1 Modify/Edit icons in the 40-unit family + Flip/Mirror/Scale grammar + Scale base-ring carve-out; §4.1 white-fill scope; §8 stale 27 px line; prior 2026-09-30 chrome polish: render-size ref de-restated (was stale 54/27), app_glyph_icon stroke deviation; prior 2026-09-19
-verified-commit: c8ff4f4   # feat/scene-tools-p1-batch; prior 416584c   # prior 0a7b44a
+last-verified: 2026-10-02  # CS1 Account: §5.1 constraint icon family joins the 40-unit family (guard _CONSTRAINT_ICONS; shapes owned by parametric-constraint-system.md D25); prior 2026-10-01 scene-tools P1 Account: §5.1 Modify/Edit icons in the 40-unit family + Flip/Mirror/Scale grammar + Scale base-ring carve-out; §4.1 white-fill scope; §8 stale 27 px line; prior 2026-09-30 chrome polish: render-size ref de-restated (was stale 54/27), app_glyph_icon stroke deviation; prior 2026-09-19
+verified-commit: 2a22ba9   # feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 416584c   # prior 0a7b44a
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
@@ -118,6 +118,8 @@ The 2D-geo primitive icons (`line`, `polyline`, `circle`, `rectangle`, `arc`, `e
 - **Flip / Mirror** (approved 2026-10-01, simplified by the user at the live-render gate): a source triangle and its accent copy reflected across a **thin solid ink reference-line axis** (`stroke-width:1.6`); no rings and no motion arrow. Flip's source is dashed (reflected in place), Mirror's solid (a reflected copy is added). The two differ only in that dash.
 - **Scale** (approved 2026-10-01): a dashed small ink square, its accent enlarged copy sharing the base corner, an accent diagonal motion arrow (filled `stroke:none` arrowhead), and one accent base-corner ring.
 - **Carve-out — Scale's base ring is `r=2.4`, `stroke-width:1.4`** (not the family `r=1.8` / `1.6`): at the live small-button size in the dark theme the family ring's white centre does not survive, so the base point read as a solid dot. Observation (not yet acted on): the family-wide `r=1.8` rings lose their white centre at that size too (Offset / Rotate / Array) — a candidate follow-up, not a rule change.
+
+**Constraint icons join the family (2026-10-01, CS1).** The Block Editor's parametric-constraint icons (`constraint_<type>_icon.svg` — the Constrain types plus the Inspect icons) sit beside Modify on the same tab and use the same 40-unit canvas, ink stroke and white-centred accent rings; **accent = the relation**. Guard: `test_icon_theming._CONSTRAINT_ICONS` (40-unit `viewBox` + two-token-plus-white, both-theme render without the fallback glyph). The approved per-icon shapes and which icons are wired to buttons are owned by `parametric-constraint-system.md` (D25, §10) — not restated here.
 
 ## 6. Loader Contract
 

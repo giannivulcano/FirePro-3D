@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-09-26
-verified-commit: e96b6ae   # 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -501,9 +501,9 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 Gridlines can be both **reference** and **target** for the Align tool:
 
 - **As reference:** The gridline's single line segment (p1→p2) serves as the reference edge. Other items align to it.
-- **As target:** The Align tool calls `set_perpendicular_position()` to move the gridline. This respects the existing `_locked` flag — locked gridlines cannot be aligned (status bar warning: "Gridline 'X' is locked").
+- **As target:** `SceneTools._execute_align` moves the gridline with `move_perpendicular()` (the align delta projected onto the gridline's normal). This respects the existing `_locked` flag — a locked gridline is skipped (status bar: "Gridline is locked — skipped").
 - **Edge extraction:** A gridline exposes exactly one linear segment (p1→p2).
-- **Lock constraint:** When locked via Align, an `AlignmentConstraint` is stored referencing the gridline. The padlock icon appears at the alignment point. Moving the reference triggers `set_perpendicular_position()` via the constraint solver.
+- ~~**Lock constraint:** an `AlignmentConstraint` + padlock icon re-applied the alignment when the reference moved.~~ **Retired at CS1 (2026-10-02)** with the legacy constraint prototype (`parametric-constraint-system.md` §2; D2 puts model-element "locked relationships" out of scope). An Align is now a one-shot move. The gridline's own lock (`_LockIndicator`, §4) is unrelated and unchanged.
 
 No structural changes to `GridlineItem` are needed. The existing `move_perpendicular()` and `set_perpendicular_position()` APIs are sufficient.
 
@@ -519,7 +519,7 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 - [ ] Align tool can use gridline as reference (other items align to it)
 - [ ] Align tool can use gridline as target (gridline moves to match reference)
 - [ ] Locked gridlines rejected by Align tool with status bar warning
-- [ ] AlignmentConstraint lock works with gridline as target
+- [ ] ~~AlignmentConstraint lock works with gridline as target~~ — retired at CS1 (2026-10-02)
 
 ## 14. Existing Code Context
 

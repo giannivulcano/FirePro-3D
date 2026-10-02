@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-29   # dimension `maximum` meta (Arc Span cap); prior 2026-09-22   # color row → ui_kit.Swatch/colour_picker + generic `disabled`/`allow_none` meta (todo #70); prior 2026-09-19 header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
-verified-commit: 4c48685   # prior af36ed6
+last-verified: 2026-10-02   # CS1 Account: ConstraintAdapter client + Block Editor Constraints section (ActionRowList rows from ConstraintController.panel_rows; requestPropertyUpdate refresh) verified against the shipped code; prior 2026-09-29 dimension `maximum` meta (Arc Span cap); prior 2026-09-22   # color row → ui_kit.Swatch/colour_picker + generic `disabled`/`allow_none` meta (todo #70); prior 2026-09-19 header overline restyle + tokenization (Stage-2 chrome); §3.2 + D1
+verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior 4c48685; prior af36ed6
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py

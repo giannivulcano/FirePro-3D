@@ -1,7 +1,7 @@
 ---
 status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
-last-verified: 2026-09-30  # Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: 44325e5   # Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-10-02  # CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -11,10 +11,10 @@ applies-to:
   - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser) + module helpers library_only_entries / ensure_block_loaded (shared with the Open picker, 2026-09-30)
   - firepro3d/block_open_dialog.py  # 2026-09-30 — BlockOpenDialog, the Block Editor tab's Open… picker
   - firepro3d/app_data.py           # new — shared _app_data_dir() helper (GENERALIZE)
-  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition + set_origin mode (v2)
+  - firepro3d/model_space.py        # registry, instance list, place_block mode, make-from-selection, commit_block_definition (v2; place_at + constraints since CS1)
   - firepro3d/scene_io.py           # .fpd embed of definitions + instances
   - firepro3d/main.py               # browser dock; Block Editor ribbon tab (permanent base tab since 2026-09-30 — Block group New/Open/Manager/Insert + editor-only groups; wiring owned by ribbon-bar.md) + active-scene routing (v2)
-  - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + bbox_top_left
+  - firepro3d/geometry_import.py    # v2 — pure geom_dict→primitive factory + geometric_bounds (bbox_top_left retired at CS1)
   - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
   - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
   - firepro3d/block_registry.py     # nested blocks — BlockRegistry (resolution / dependency / cycle / invalidation choke point)
@@ -284,9 +284,10 @@ level does this block show on?" is an **instance** question, so level scope live
   "library": "Typical Detail",      // tier 1
   "series": "Wall Joints",          // tier 2
   "scale_mode": "real_size",        // enum; v1 sole value; "annotative" reserved
-  "origin": [x_mm, y_mm],           // definition-local insertion origin
+  "origin": [x_mm, y_mm],           // vestigial since CS1: always [0, 0] on save (D4 — see below)
   "attributes": [],                 // reserved; no UI in v1
-  "primitives": [ { /* each primitive's own to_dict() */ } ]   // reuse geometry_2d items
+  "primitives": [ { /* each primitive's own to_dict(), incl. "uid" */ } ],   // reuse geometry_2d items
+  "constraints": [ /* sketch constraint records */ ]   // additive since CS1; absent => []
 }
 ```
 
@@ -294,12 +295,33 @@ level does this block show on?" is an **instance** question, so level scope live
 record — the placed-instance shape minus level fields (containment C3):
 
 ```jsonc
-{ "type": "block_instance", "block_id": "<nested id>", "pos": [x_mm, y_mm], "rotation": <deg> }
+{ "type": "block_instance", "block_id": "<nested id>", "pos": [x_mm, y_mm], "rotation": <deg>,
+  "uid": "<primitive uid>" }
 ```
 
 `pos` is definition-local (before the host's origin shift); `rotation` is Y-up CCW degrees (the
 `BlockInstance.pose_transform` convention). Files without such records load unchanged. Record
 producer: `BlockInstance.to_nested_dict`.
+
+**Constraint foundation (CS1, 2026-10-02).** Additive, schema-1-compatible changes (no `schema`
+bump; `BlockDefinition.from_dict` ignores `schema`):
+
+- **`constraints`** — `BlockDefinition.constraints`, the editor's sketch constraint records (saved
+  by the Block Editor's commit, re-loaded and first-solved on open). Record format, validity,
+  forward compatibility and solve semantics are owned by
+  [`parametric-constraint-system.md`](parametric-constraint-system.md) §6 — not restated here.
+  Compile ignores them: instances render the saved (solved) geometry and never re-solve.
+- **Primitive `uid`** — every primitive dict, nested `block_instance` records included, carries a
+  stable `uid` (mint / carry rules: that spec §6.1). Legacy dicts gain one on the next save.
+- **Origin fixed at (0,0)** — the definition origin is the editor scene's (0,0) cross; `origin` is a
+  vestigial field written `[0, 0]`. A definition with a non-zero `origin` is migrated **on open** by
+  translating its seeded primitives (nested instances included) by `−origin`; instances render
+  identically because compile already applies `translate(−origin)` (that spec §6.5 / D4).
+- **Reference lines persist as scaffolding** — every reference line is saved (`reference_line`
+  joins the definition primitive factory) and re-seeded on reopen; a **non-printed** one is
+  scaffolding (`block_definition.is_scaffold`): skipped by compile, snap points and Explode, and a
+  definition holding only scaffolding is not savable. A printed one renders dashed (that spec D23;
+  item behaviour in `2d-geometry.md`).
 
 **`.fpdb` schema 2 — `bundled` (library files only).** A library save of a definition that nests
 others writes `"schema": 2` plus `"bundled": { "<id>": { /* full definition */ }, … }` holding every
@@ -452,7 +474,7 @@ nested records ride inside each embedded definition's `primitives`.
    `blockDefinitionsChanged` signal; `place_block` 2-step mode (position→rotation, ghost, Enter=0°,
    HUD `angle_deg`, repeat-until-Esc — *the rotation step was retired 2026-09-30, Decision 8*); `make_block_from_selection` (consume → def + instance, one
    undo); the three seam fixes (`translate` movability, `block_instance` copy/paste branch, orphan
-   placeholder); ribbon Make/Insert/Manager buttons. Origin = selection bbox top-left in v1
+   placeholder); ribbon Make/Insert/Manager buttons. Origin = selection bbox top-left in v1 *(superseded at CS1: bbox centre → (0,0), D24)*
    (interactive snapped origin-pick deferred to a smoke follow-up); "save to library?" not wired
    until S3. Seam-reviewed (one blocker fixed: ghost teardown on same-mode re-entry).
 3. **S3 — Library layer.** `.fpdb` schema + `app_data.py` helper + per-folder `index.json` +
@@ -504,7 +526,7 @@ nested records ride inside each embedded definition's `primitives`.
 > authoring, thumbnails, strict ribbon-tab hiding.
 
 The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
-the user draws/imports 2D geometry, sets the origin and metadata, and Saves a definition into the
+the user draws/imports 2D geometry around the fixed (0,0) origin, sets metadata, and Saves a definition into the
 project registry — **disconnected from all model views**.
 
 ### Contract
@@ -525,10 +547,10 @@ project registry — **disconnected from all model views**.
   `Model_Space.commit_block_definition(...)` (Save) and S3 `save_to_library` (opt-in). It is a
   scratchpad; the definition lands in the **project** `Model_Space`.
 - **`commit_block_definition(*, block_id, name, library, series, primitives, origin, place_instance,
-  source_items)`** is the arm's-length commit (DD-11 posture): **new** (`block_id is None` →
+  source_items, place_at, constraints)`** is the arm's-length commit (DD-11 posture): **new** (`block_id is None` →
   `BlockDefinition.new` → `register`) vs **edit-in-place** (`block_id` → `set_primitives` version-bump
-  + repaint-all + metadata update); optional delete of `source_items` + one instance at `origin`;
-  **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
+  + repaint-all + metadata update; `constraints` stored on the definition); optional delete of
+  `source_items` + one instance at `place_at` (default `origin`); **exactly one undo**. `make_block_from_selection` / the Quick Block path are thin callers of the
   same core.
 - **Entry points:** Create Block button — since 2026-09-30 the Block Editor tab's **New** (blank | seeded-with-selection-**copy** → new `id`; `_open_block_editor`); Block Editor tab **Open…** (`BlockOpenDialog`, see "Open picker" below → `edit_definition`); Manager →
   Create new (blank); Manager → Create new based off selected (clone geometry + `attributes`, new
@@ -573,12 +595,19 @@ project registry — **disconnected from all model views**.
   (new `id`), so renaming a saved block **in place** is not reachable from the editor; the Manager's
   collision Rename (`set_block_metadata`) is the only in-place rename. Tracked in `todo_open.md`
   ("Rename a saved block in place from the Block Editor").
-- **Origin:** snapped "Set Origin" tool + persistent marker, default `bbox_top_left`, stored
-  definition-local (render-ops already origin-relative). Folds in `todo_open.md:60`.
+- **Origin (amended CS1, 2026-10-02):** the definition origin is **always the editor scene's fixed
+  (0,0)** (`BlockEditorWidget.origin_point()`); users design around the white origin cross or Move
+  geometry to it. The snapped Set Origin tool, its persistent red marker and the `bbox_top_left`
+  default are **retired** (parametric-constraint-system.md D4; migration of old definitions: "Input
+  / Output" above). **Create Block from selection** (`seed_from_selection`) translates the copied
+  selection so its pen-free **bounding-box centre** (scaffolding excluded) sits on (0,0) and
+  remembers that plan point; a replace-on-save places the new instance there via
+  `commit_block_definition(place_at=…)`, so nothing moves visually (D24).
 - **Restricted "Block Editor" ribbon context** while an editor tab is active (2D geometry +
   modify/transform + constraints + editor verbs only); property panel reused; no level chrome.
   *As-built 2026-09-30:* realised as the permanent **Block Editor** base tab whose editor-only groups
-  (Definition / 2D Geometry / Edit / Modify) are enabled only while a Block Editor canvas tab is
+  (Definition / 2D Geometry / Edit / Modify, and since CS1 Constrain / Inspect —
+  `parametric-constraint-system.md` §10) are enabled only while a Block Editor canvas tab is
   current, and disabled (with an explanatory tooltip) otherwise; the Block group
   stays live. Mechanism owned by `ribbon-bar.md` §3.4 (Rule A).
 
@@ -601,11 +630,11 @@ project registry — **disconnected from all model views**.
   With it on, a clash with a **different** block's file (`block_library.find_collision`) is
   resolved in-dialog **before** commit: Overwrite / Rename (dialog stays open on Name) / Cancel.
 - **Import placement by base point** (`import_with_params`) — the dialog's picked base point is the
-  placing grip. *Insert at origin* ON → the base point lands on the block origin (the pinned
-  origin, else the editor origin). OFF → geometry is added base-at-origin, selected, and handed to
-  Move with the base preset (`Model_Space.begin_move_from(base)` — skips Move's base click; same
-  commit / undo / Esc as Move). Importing into an empty editor with no pinned origin pins the origin
-  at the base point.
+  placing grip. *Insert at origin* ON → the base point lands on the block origin, the fixed (0,0).
+  OFF → geometry is added base-at-origin, selected, and handed to Move with the base preset
+  (`Model_Space.begin_move_from(base)` — skips Move's base click; same commit / undo / Esc as
+  Move). *(Pre-CS1, an empty editor with no pinned origin pinned it at the base point — retired
+  with the movable origin.)*
 - **Imported primitives** take the standard new-geometry line weight (`lineweight=` fed from
   `_geom_color_lw()` — owned by `2d-geometry.md §1.1`) and are selected as one batch
   (`select_items` — `selection-mode.md §5.9`).
@@ -655,7 +684,7 @@ Record shapes: "Input / Output" above.
   and closing the tab detaches its scene. Registry writes a drop triggers (a library load) go to the
   owning project scene.
 - **Authoring nested blocks.** The editor saves its placed instances as nested records
-  (instances-only blocks are savable; the default origin's bbox includes them, pen-free), re-places
+  (instances-only blocks are savable), re-places
   them when seeding, and admits `block_instance` records on paste. Save re-checks `would_cycle`
   (refused: "A block can't contain itself") and invalidates every user; the status line adds the
   count of blocks that use the saved one. Nested instances are gathered **after** the primitive
@@ -681,7 +710,10 @@ Record shapes: "Input / Output" above.
   scene positions and turns nested records into new instances at the composed pose; when any
   selected block nests others, one prompt asks **This level only / Flatten all**. One undo step;
   the results become the selection; missing or imported-reference definitions are left in place
-  (status message only); a failure part-way restores the prior state with no undo step. Plan
+  (status message only); a failure part-way restores the prior state with no undo step. Non-printed
+  reference lines (scaffolding) are not exploded. Constraints on an exploded instance's insertion
+  point cascade-delete in the same undo step ("N constraint(s) removed" —
+  `parametric-constraint-system.md` §8). Plan
   scenes never offer Explode. (Unrelated to the still-unreachable `SceneTools.explode_selected_items`
   — `scene-tools.md`.)
 - **Edit Block** — see Entry points above (right-click in plan and editor; nested double-click in
@@ -706,6 +738,6 @@ annotative `scale_mode`. *(Text-in-blocks shipped 2026-09-23.)*
 ### Build order
 
 BE1 `geometry_import` + `commit_block_definition` (headless core) · BE2 editor shell + entry-point
-wiring + `BlockSaveDialog` · BE3 Set-Origin tool · BE4 import-into-editor · BE5 polish (its Quick
+wiring + `BlockSaveDialog` · BE3 Set-Origin tool *(retired at CS1, 2026-10-02 — origin fixed at (0,0))* · BE4 import-into-editor · BE5 polish (its Quick
 Block button was retired by containment contract C7) +
 polish. Full slice detail + acceptance criteria in the dated design doc.
