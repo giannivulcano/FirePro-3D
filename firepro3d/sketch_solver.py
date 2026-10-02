@@ -425,21 +425,21 @@ class NumpySolver:
 
 # ── §7.3 residual catalogue — builders (one per IMPLEMENTED type) ─────────
 
-def build_horizontal(cid: str, ends, sys: System) -> None:
-    """Horizontal (pinned 2026-10-01): ``ends`` = (a, b) PointExprs.
+def _axis_equal(axis: int, cid: str, ends, sys: System) -> None:
+    """H (``axis`` 1, y) / V (``axis`` 0, x) on ``ends`` = (a, b) PointExprs.
 
-    Raw/raw -> alias the Y variables; raw/const (origin) -> fix Y; otherwise a
-    row ``y_b - y_a``.
+    Raw/raw -> alias the axis variables; raw/const (origin) -> fix it;
+    otherwise a row ``b[axis] - a[axis]``.
     """
     a, b = ends
     if a.raw is not None and b.raw is not None:
-        sys.aliases.append((a.raw[1], b.raw[1], cid))
+        sys.aliases.append((a.raw[axis], b.raw[axis], cid))
         return
     if a.const is not None and b.raw is not None:
-        sys.fixes.append((b.raw[1], float(a.const[1]), cid))
+        sys.fixes.append((b.raw[axis], float(a.const[axis]), cid))
         return
     if b.const is not None and a.raw is not None:
-        sys.fixes.append((a.raw[1], float(b.const[1]), cid))
+        sys.fixes.append((a.raw[axis], float(b.const[axis]), cid))
         return
     deps = tuple(dict.fromkeys(a.deps + b.deps))
     pos = {d: k for k, d in enumerate(deps)}
@@ -449,12 +449,23 @@ def build_horizontal(cid: str, ends, sys: System) -> None:
         pb, db = b.eval(x)
         g = np.zeros(len(deps))
         for c, d in enumerate(a.deps):
-            g[pos[d]] -= da[1, c]
+            g[pos[d]] -= da[axis, c]
         for c, d in enumerate(b.deps):
-            g[pos[d]] += db[1, c]
-        return float(pb[1] - pa[1]), g
+            g[pos[d]] += db[axis, c]
+        return float(pb[axis] - pa[axis]), g
 
     sys.rows.append(Row(cid, deps, fn))
 
 
-BUILDERS = {"horizontal": build_horizontal}
+def build_horizontal(cid: str, ends, sys: System) -> None:
+    """Horizontal (pinned 2026-10-01): equal Y (``_axis_equal`` axis 1)."""
+    _axis_equal(1, cid, ends, sys)
+
+
+def build_vertical(cid: str, ends, sys: System) -> None:
+    """Vertical (pinned 2026-10-02, CS2): equal X (``_axis_equal`` axis 0);
+    with the origin the point lies on the Y axis (``x := 0``)."""
+    _axis_equal(0, cid, ends, sys)
+
+
+BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical}

@@ -373,3 +373,70 @@ def test_tight_component_plus_nan_component_is_not_converged():
     s.rows.append(ss.Row("nan", (4,), lambda x: (float("nan"), np.array([1.0]))))
     res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
     assert not res.converged and np.isnan(res.max_residual)
+
+
+# ── CS2: Vertical (§7.3 pinned row, Session 2) ────────────────────────────
+import pytest
+
+
+def _rot_point(cx_i, cy_i, t_i, r):
+    """A derived point: (cx + r cos t, cy + r sin t) over vars (cx, cy, t)."""
+    def fn(v):
+        cx, cy, t = v
+        p = np.array([cx + r * math.cos(t), cy + r * math.sin(t)])
+        dp = np.array([[1.0, 0.0, -r * math.sin(t)], [0.0, 1.0, r * math.cos(t)]])
+        return p, dp
+    return ss.PointExpr(idx=(cx_i, cy_i, t_i), fn=fn)
+
+
+def test_vertical_raw_points_alias_x():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 5.0]))
+    ss.build_vertical("v", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    assert s.aliases == [(0, 2, "v")] and not s.rows and not s.fixes
+
+
+def test_vertical_origin_fixes_x_to_zero():
+    s = ss.System(x=np.array([7.0, 3.0]))
+    ss.build_vertical("v", (ss.const_point(0.0, 0.0), ss.raw_point(0, 1)), s)
+    assert s.fixes == [(0, 0.0, "v")]
+    s2 = ss.System(x=np.array([7.0, 3.0]))
+    ss.build_vertical("v", (ss.raw_point(0, 1), ss.const_point(0.0, 0.0)), s2)
+    assert s2.fixes == [(0, 0.0, "v")]
+
+
+def test_vertical_derived_row_residual_and_jacobian():
+    s = ss.System(x=np.array([5.0, 2.0, 0.7, 1.0, 9.0]))
+    a = _rot_point(0, 1, 2, 30.0)
+    ss.build_vertical("v", (a, ss.raw_point(3, 4)), s)
+    (row,) = s.rows
+    r, g = row.fn(s.x)
+    pa, _ = a.eval(s.x)
+    assert r == pytest.approx(s.x[3] - pa[0])                    # x_b - x_a
+    eps = 1e-6
+    for k, d in enumerate(row.deps):                             # FD Jacobian
+        xp = s.x.copy(); xp[d] += eps
+        xm = s.x.copy(); xm[d] -= eps
+        fd = (row.fn(xp)[0] - row.fn(xm)[0]) / (2 * eps)
+        assert g[k] == pytest.approx(fd, rel=1e-6, abs=1e-6)
+    s.x[3] = pa[0]                                                # satisfy it
+    assert abs(row.fn(s.x)[0]) < 1e-12
+
+
+def test_vertical_removes_one_dof():
+    s = ss.System(x=np.array([5.0, 2.0, 0.7, 1.0, 9.0]))
+    ss.build_vertical("v", (_rot_point(0, 1, 2, 30.0), ss.raw_point(3, 4)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 5 - 1
+
+
+def test_horizontal_unchanged_after_refactor():
+    s = ss.System(x=np.array([5.0, 2.0, 0.7, 1.0, 9.0]))
+    ss.build_horizontal("h", (_rot_point(0, 1, 2, 30.0), ss.raw_point(3, 4)), s)
+    (row,) = s.rows
+    pa, _ = _rot_point(0, 1, 2, 30.0).eval(s.x)
+    assert row.fn(s.x)[0] == pytest.approx(s.x[4] - pa[1])     # y_b - y_a
+
+
+def test_registry_vertical_built():
+    from firepro3d import sketch_model as sm
+    assert sm.REGISTRY["vertical"].implemented
+    assert "vertical" in ss.BUILDERS

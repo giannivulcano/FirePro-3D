@@ -10,8 +10,15 @@ def test_catalogue_declares_every_session_type():
             "dim_radius", "dim_diameter", "dim_angle"} == names
 
 
-def test_only_horizontal_is_implemented_in_cs1():
-    assert [t for t, s in sm.REGISTRY.items() if s.implemented] == ["horizontal"]
+def test_horizontal_and_vertical_are_implemented_after_cs2():
+    assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
+        "horizontal", "vertical"]
+
+
+def test_vertical_accepts_edge_or_two_points():
+    spec = sm.REGISTRY["vertical"]
+    assert spec.patterns == (("edge",), ("point", "point"))
+    assert spec.dof == 1 and spec.label == "Vertical"
 
 
 def test_horizontal_accepts_edge_or_two_points():
@@ -34,8 +41,9 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "vertical", "refs": [{"uid": "a", "h": "edge"}]})
-    assert built_later.inert          # declared but not implemented in CS1
+        {"id": "x2", "type": "coincident",
+         "refs": [{"uid": "a", "h": "p1"}, {"uid": "b", "h": "p1"}]})
+    assert built_later.inert          # declared but not implemented (CS3)
 
 
 def test_ref_helpers():
