@@ -87,3 +87,26 @@ def test_explode_skips_scaffold_reference_lines(qapp):
     created = explode_instances(s, [inst], flatten=False)
     assert len(created) == 2
     assert [r.printed for r in s._reference_lines] == [True]
+
+
+def test_scaffold_only_editor_counts_as_empty(qapp, monkeypatch):
+    # D23: scaffolding is not geometry — an editor holding only non-printed
+    # reference lines has nothing to save.
+    from firepro3d.model_space import Model_Space
+    from firepro3d import themed_message
+    proj = Model_Space()
+    w = _editor(proj)
+    off = ReferenceLineItem(QPointF(0, 0), QPointF(50, 0), printed=False)
+    w._add_primitive(off)
+    infos = []
+    monkeypatch.setattr(themed_message, "themed_info",
+                        lambda *a, **k: infos.append(a))
+    assert w._has_geometry(None) is False and len(infos) == 1
+    assert w.commit_block("B", "L", "S") is None
+    assert proj._block_definitions == {}
+    line = LineItem(QPointF(0, 100), QPointF(50, 100))
+    w._add_primitive(line)
+    assert w._has_geometry(None) is True
+    defn = w.commit_block("B", "L", "S")
+    assert defn is not None and proj._block_definitions == {defn.id: defn}
+    assert sorted(p["type"] for p in defn.primitives) == ["draw_line", "reference_line"]

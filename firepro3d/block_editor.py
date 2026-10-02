@@ -21,7 +21,7 @@ from .geometry_2d import (
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem
-from .block_definition import _PRIMITIVE_FACTORY
+from .block_definition import _PRIMITIVE_FACTORY, is_scaffold
 from . import geometry_import
 from .house_dialog import HouseDialog
 
@@ -35,6 +35,12 @@ _CLS_TO_LIST = {
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
     TextItem: "_texts",
 }
+
+
+def _is_scaffold_item(item) -> bool:
+    """Live-item twin of ``block_definition.is_scaffold``: a non-printed
+    reference line is scaffolding (D23) — saved, but never block geometry."""
+    return isinstance(item, ReferenceLineItem) and not getattr(item, "printed", False)
 
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
@@ -481,8 +487,8 @@ class BlockEditorWidget(QWidget):
         items = self.gather_primitives()
         prims = [it.to_nested_dict() if hasattr(it, "to_nested_dict") else it.to_dict()
                  for it in items]
-        if not prims:
-            return None
+        if all(is_scaffold(p) for p in prims):
+            return None   # empty, or scaffolding only (D23: not geometry)
         origin = self.origin_point()
         is_new = self._edit_block_id is None
         do_replace = is_new and replace_source and bool(self._seed_source_items)
@@ -565,8 +571,8 @@ class BlockEditorWidget(QWidget):
         return self._save_via_dialog(parent, save_as=True)
 
     def _has_geometry(self, parent) -> bool:
-        if self.gather_primitives():
-            return True
+        if any(not _is_scaffold_item(it) for it in self.gather_primitives()):
+            return True   # scaffolding alone is not geometry (D23)
         from .themed_message import themed_info
         themed_info(parent or self, "Save Block", "Draw or import geometry first.")
         return False
