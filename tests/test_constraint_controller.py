@@ -1041,7 +1041,9 @@ def test_exploding_a_constrained_nested_instance_cascades_its_constraints(qapp):
     assert ctl.constraints == []                                         # [RED]
     assert ctl.constraints_on(ln) == []
     assert ctl.to_records() == []
+    ctl.show_all = True                        # D32: every glyph would show
     assert cp.glyph_layouts(view, ctl) == []
+    ctl.show_all = False
     assert "1 constraint removed" in msgs
     assert sc._undo_stack[-1]["constraints"] == []        # cascade inside the step
     sc.undo()

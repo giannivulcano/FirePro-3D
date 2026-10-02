@@ -73,6 +73,24 @@ REGISTRY: dict[str, TypeSpec] = {
 }
 
 
+# Glyph / panel icon for a record whose type this build does not know (VC9 F6):
+# a neutral constraint-family glyph box, never the loader's _missing fallback.
+NEUTRAL_ICON = "constraint_show_constraints_icon.svg"
+
+
+def icon_for(ctype: str) -> str:
+    """The one icon home for a constraint type (ribbon, canvas glyph, panel).
+
+    Args:
+        ctype: A record's ``type``.
+
+    Returns:
+        ``REGISTRY[ctype].icon``, or :data:`NEUTRAL_ICON` for an unknown type.
+    """
+    spec = REGISTRY.get(ctype)
+    return spec.icon if spec is not None else NEUTRAL_ICON
+
+
 def is_ground(ref: dict) -> bool:
     """Whether a ref points at a ground (origin/axis) rather than a primitive.
 

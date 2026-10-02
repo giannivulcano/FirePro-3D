@@ -144,7 +144,8 @@ class PickState:
         cands = list(self._candidates())
         for kind, ref, a, b in cands:
             if kind == "edge" and ref == self.hover:
-                pen = QPen(t.color("accent", 140), 5.0)
+                pen = QPen(t.color("accent", M.CONSTRAINT_PICK_EDGE_GLOW_ALPHA),
+                           M.CONSTRAINT_PICK_EDGE_GLOW_W_PX)
                 pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -170,8 +171,16 @@ class ConstraintController:
         self.constraints: list[sm.Constraint] = []
         self.selected_id: str | None = None
         self.hover_id: str | None = None
-        self.show_glyphs = True
+        # D32: glyphs show only for constraints touching a selected entity,
+        # plus the selected constraint; Show Constraints is a temporary
+        # show-every-glyph override, default off.
+        self.show_all = False
         self.pick: PickState | None = None     # D21 pick session
+        # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
+        # bumped on every scene change / item-selection change.
+        self._scene_gen = 0
+        self._sel_gen = 0
+        self._frames: dict = {}                # id(view) -> (key, _Frame)
         # Zero-arg callbacks run when the constraint selection / list changes
         # (the ribbon's Delete Constraints enable state, main.py).
         self.state_listeners: list = []
@@ -239,6 +248,7 @@ class ConstraintController:
     def _on_selection_changed(self) -> None:
         """An item selection clears the selected constraint. A Qt slot: a
         dying scene still emits, so bail when its wrapper is gone; never raises."""
+        self._sel_gen += 1                     # D32 visibility follows the selection
         try:
             if sip.isdeleted(self._scene):
                 return
@@ -251,7 +261,11 @@ class ConstraintController:
 
     def _on_scene_changed(self, _regions) -> None:
         """Glyphs + glow sit outside item dirty regions (MinimalViewportUpdate):
-        repaint old ∪ new glyph region per view. A Qt slot: never raises."""
+        repaint old ∪ new glyph region per view. A Qt slot: never raises.
+
+        Bumps the per-frame layout token first: the layouts computed here are
+        the ones paint and the hover pick reuse this frame (VC9 F3)."""
+        self._scene_gen += 1
         try:
             if sip.isdeleted(self._scene) or not self.constraints and not self._painted:
                 return
@@ -899,8 +913,9 @@ class ConstraintController:
             actions.append(("delete", "✕", "Delete constraint (Del)",
                             lambda _=False, cid=c.id: self.delete([cid])))
             rows.append(dict(
-                icon=(None if c.inert else
-                      themed_icon(f"constraint_{c.type}_icon.svg", icon_t)),
+                # One icon home (sketch_model.icon_for, VC9 F6): an inert row
+                # keeps its type's icon (muted), an unknown type the neutral one.
+                icon=themed_icon(sm.icon_for(c.type), icon_t),
                 text=kind,
                 subtext=self.targets_text(c, " ↔ ", by),
                 muted=not c.enabled or c.inert,

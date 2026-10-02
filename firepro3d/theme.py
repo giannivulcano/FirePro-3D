@@ -137,6 +137,14 @@ class _Metrics:
     CONSTRAINT_PICK_EDGE_TOL_PX = 6
     CONSTRAINT_AXES_ALPHA = 0.22
     CONSTRAINT_AXES_DASH = (12.0, 4.0, 2.0, 4.0)
+    # Hover / selected constraint target glow (approved mockup: round stroke,
+    # ~0.35 alpha) and the D21 pick-mode hovered-edge glow.
+    CONSTRAINT_GLOW_W_PX = 7.0
+    CONSTRAINT_GLOW_ALPHA = 90
+    CONSTRAINT_GLOW_POINT_R_PX = 6.0
+    CONSTRAINT_PICK_EDGE_GLOW_W_PX = 5.0
+    CONSTRAINT_PICK_EDGE_GLOW_ALPHA = 140
+    CONSTRAINT_INACTIVE_OPACITY = 0.4    # suppressed / inert (unsupported) glyph
     PROP_CONSTRAINT_ROW_H = 28
     # ui_kit.ActionRowList (panel row list: icon · text/subtext · actions)
     ACTION_ROW_PAD_X = 8         # row / title / footer side padding

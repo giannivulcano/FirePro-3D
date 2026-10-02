@@ -85,6 +85,7 @@ def test_glyph_sits_beside_its_edge_and_hits(be):
     v, sc = be
     ln = _line(sc)
     c = _horizontal(sc, ln)
+    sc.constraint_ctl.show_all = True          # D32: Show Constraints ON
     lays = cp.glyph_layouts(v, sc.constraint_ctl)
     assert [cid for cid, _ in lays] == [c.id]
     rect = lays[0][1]
@@ -103,6 +104,7 @@ def test_glyph_on_rect_edge_sits_away_from_the_centroid(be):
     sc.addItem(r)
     sc._draw_rects.append(r)
     ctl = sc.constraint_ctl
+    ctl.show_all = True                        # D32: Show Constraints ON
     top = ctl.add("horizontal", [{"uid": r._uid, "h": "top"}])
     bot = ctl.add("horizontal", [{"uid": r._uid, "h": "bottom"}])
     lays = dict(cp.glyph_layouts(v, ctl))
@@ -120,21 +122,27 @@ def test_two_glyphs_on_one_anchor_sit_side_by_side(be):
     ctl = sc.constraint_ctl
     _horizontal(sc, ln)
     _horizontal(sc, ln)
+    ctl.show_all = True                        # D32: Show Constraints ON
     (_, a), (_, b) = cp.glyph_layouts(v, ctl)
     assert a.top() == b.top()
     assert not a.intersects(b)
     assert b.left() - a.right() == pytest.approx(M.CONSTRAINT_GLYPH_GAP_PX, abs=1)
 
 
-def test_show_constraints_off_hides_glyphs(be):
+def test_show_all_off_hides_unselected_glyphs(be):
+    """D32: with Show Constraints off (the default) and nothing selected, no
+    glyph lays out or picks; the constraint itself is untouched."""
     v, sc = be
     ln = _line(sc)
     c = _horizontal(sc, ln)
-    rect = cp.glyph_layouts(v, sc.constraint_ctl)[0][1]
-    sc.constraint_ctl.show_glyphs = False
-    assert cp.glyph_layouts(v, sc.constraint_ctl) == []
-    assert cp.glyph_at(v, sc.constraint_ctl, rect.center()) is None
-    assert c in sc.constraint_ctl.constraints
+    ctl = sc.constraint_ctl
+    assert ctl.show_all is False
+    ctl.show_all = True
+    rect = cp.glyph_layouts(v, ctl)[0][1]
+    ctl.show_all = False
+    assert cp.glyph_layouts(v, ctl) == []
+    assert cp.glyph_at(v, ctl, rect.center()) is None
+    assert c in ctl.constraints
 
 
 # ── pixels (D27) ────────────────────────────────────────────────────────────
@@ -145,9 +153,9 @@ def test_glyph_box_and_icon_pixels_render(be):
     _horizontal(sc, ln)
     ctl = sc.constraint_ctl
     t = th.detect()
-    ctl.show_glyphs = False
+    ctl.show_all = False                       # D32: nothing selected -> none
     base, dpr = _grab(v)
-    ctl.show_glyphs = True
+    ctl.show_all = True
     img, dpr = _grab(v)
     rect = cp.glyph_layouts(v, ctl)[0][1]      # layout at grab time
     cy = rect.center().y()
@@ -194,6 +202,7 @@ def test_glyph_hover_sets_hover_id_and_glows_its_target(be):
     ln = _line(sc)
     c = _horizontal(sc, ln)
     ctl = sc.constraint_ctl
+    ctl.show_all = True                        # D32: Show Constraints ON
     rect = cp.glyph_layouts(v, ctl)[0][1]
     _move(v, QPointF(5, 5))
     assert ctl.hover_id is None
@@ -220,13 +229,15 @@ def test_glyph_click_selects_clears_items_and_item_select_clears_it(be):
     other = _line(sc, (-100, -120), (100, -120))
     c = _horizontal(sc, ln)
     ctl = sc.constraint_ctl
-    other.setSelected(True)
+    ln.setSelected(True)                       # D32: the line's glyph shows
     QApplication.processEvents()
     rect = cp.glyph_layouts(v, ctl)[0][1]
     QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, pos=_pt(rect.center()))
     QApplication.processEvents()
     assert ctl.selected_id == c.id
     assert sc.selectedItems() == []
+    # D32: the selected constraint's glyph stays with its entity deselected.
+    assert [cid for cid, _ in cp.glyph_layouts(v, ctl)] == [c.id]
     # glyph border is painted in the selection colour
     img, dpr = _grab(v)
     sel = th.detect().color("selection")
@@ -247,6 +258,7 @@ def test_grip_under_the_glyph_wins(be):
     ln = _line(sc)
     c = _horizontal(sc, ln)
     ctl = sc.constraint_ctl
+    ctl.show_all = True                        # D32: Show Constraints ON
     rect = cp.glyph_layouts(v, ctl)[0][1]
     # A second line whose end grip sits exactly on the glyph centre.
     g = v.mapToScene(_pt(rect.center()))
@@ -266,6 +278,8 @@ def test_glyph_click_then_delete_removes_only_the_constraint(be):
     v, sc = be
     ln = _line(sc)
     c = _horizontal(sc, ln)
+    ln.setSelected(True)                       # D32: the line's glyph shows
+    QApplication.processEvents()
     rect = cp.glyph_layouts(v, sc.constraint_ctl)[0][1]
     QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton, pos=_pt(rect.center()))
     assert sc.constraint_ctl.selected_id == c.id
@@ -325,6 +339,7 @@ def test_delete_key_in_main_window_removes_only_the_selected_constraint(mw, qapp
     keep = _line(sc, (-100, -150), (100, -150))
     c = _horizontal(sc, ln)
     k = _horizontal(sc, keep)
+    sc.constraint_ctl.show_all = True          # D32: Show Constraints ON
     v.centerOn(0, 0)
     qapp.processEvents()
     lays = dict(cp.glyph_layouts(v, sc.constraint_ctl))
@@ -358,6 +373,7 @@ def test_moving_constrained_geometry_repaints_old_and_new_glyph_regions(be):
     ln = _line(sc)
     _horizontal(sc, ln)
     ctl = sc.constraint_ctl
+    ctl.show_all = True                             # D32: Show Constraints ON
     _grab(v)                                        # a real paint records the region
     old = cp.glyph_layouts(v, ctl)[0][1].toAlignedRect()
 

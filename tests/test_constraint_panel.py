@@ -206,6 +206,7 @@ def test_glyph_click_shows_the_constraint_adapter(be):
     c = sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
     QApplication.processEvents()
     pm = _wired_pm(sc)
+    sc.constraint_ctl.show_all = True          # D32: Show Constraints ON
     rect = cp.glyph_layouts(v, sc.constraint_ctl)[0][1]
     QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton,
                      pos=QPointF(rect.center()).toPoint())

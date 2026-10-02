@@ -479,14 +479,23 @@ def test_lit_horizontal_button_click_ends_pick(win_with_editor):
     assert not _btn(win, "Horizontal").isChecked()
 
 
-def test_show_constraints_toggle_hides_glyphs(win_with_editor):
+def test_show_constraints_toggle_is_the_show_all_override(win_with_editor):
+    """D32: Show Constraints is a temporary SHOW-ALL override, default OFF."""
+    from firepro3d import constraint_paint as cp
     win = win_with_editor
     sc = _editor_scene(win)
+    sc.clearSelection()
     ln = _line(sc, (0, 0), (100, 30))
-    sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    c = sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
     b = _btn(win, "Show Constraints")
-    assert b.isChecked() and sc.constraint_ctl.show_glyphs
+    assert b.toolTip() == ("Show Constraints \u2014 show every constraint glyph "
+                           "(otherwise only the selected geometry's)")
+    view = _view(win)
+    assert not b.isChecked() and not sc.constraint_ctl.show_all
+    assert cp.glyph_layouts(view, sc.constraint_ctl) == []
     b.click()
-    assert not sc.constraint_ctl.show_glyphs
+    assert sc.constraint_ctl.show_all
+    assert [cid for cid, _r in cp.glyph_layouts(view, sc.constraint_ctl)] == [c.id]
     b.click()
-    assert sc.constraint_ctl.show_glyphs
+    assert not sc.constraint_ctl.show_all
+    assert cp.glyph_layouts(view, sc.constraint_ctl) == []

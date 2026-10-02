@@ -9,6 +9,17 @@ a pick session is live, its markers (D21, Task 12).
 Pick order (§10): grips > dim labels > glyphs > origin/axes > HALO geometry.
 :func:`glyph_at` defers to a manipulator grip under the point; the caller
 (``Model_View``) runs the readout label pick first and HALO after.
+
+D32 visibility: a glyph shows only for a constraint touching a currently
+selected entity, plus the selected constraint itself; Show Constraints
+(``ctl.show_all``) is a temporary show-every-glyph override; a pick session
+shows none (its markers carry the picking). Only visible glyphs pick.
+
+VC9 F3: the visible set, the ``uid -> item`` map and the glyph layouts are
+computed ONCE per frame (:func:`_frame`, keyed on the controller's
+scene-change and selection counters, the view transform / size, the show-all
+flag, the selected constraint, the pick session and the constraint list) and
+shared by :func:`dirty_rect`, :func:`paint` and :func:`glyph_at`.
 """
 from __future__ import annotations
 
@@ -18,15 +29,11 @@ import numpy as np
 from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
 from PyQt6.QtGui import QPainter, QPainterPath, QPen
 
+from . import sketch_model as sm
 from . import theme as th
 from .icons import DARK, LIGHT, themed_icon
 from .sketch_adapters import adapter_for
 from .theme import M
-
-# Hover / selected target glow (approved mockup: 7 px round stroke, ~0.35 alpha).
-GLOW_WIDTH_PX = 7.0
-GLOW_ALPHA = 90
-GLOW_POINT_R_PX = 6.0
 
 
 def _icon_theme() -> str:
@@ -37,8 +44,23 @@ def _box_px() -> int:
     return M.CONSTRAINT_GLYPH_PX + 2 * M.CONSTRAINT_GLYPH_PAD_PX
 
 
-def _ref_geom(ref, by):
-    """Scene-space geometry of one ref.
+def _held_fn(ctl):
+    """``item -> QTransform | None``: the live manipulator's held-preview
+    delta (rest-pose scene -> drawn scene) mid-gesture, else None."""
+    live = getattr(ctl._scene, "_live_manip", None)
+    manip = live() if callable(live) else None
+    if manip is None or not manip.is_dragging():
+        return None
+    return manip.held_delta
+
+
+def _ref_geom(ref, by, held=None):
+    """Scene-space geometry of one ref, where the item is DRAWN.
+
+    Adapter values are the rest pose; under a held-transform preview
+    (*held*, :func:`_held_fn`) the points are mapped through the item's held
+    delta, so the anchor and the (``sceneBoundingRect``) centroid share one
+    frame -- a mixed frame side-flips the glyph mid-drag (S1).
 
     Returns:
         ``("point", QPointF)``, ``("edge", (QPointF, QPointF))``,
@@ -59,13 +81,18 @@ def _ref_geom(ref, by):
     if ad is None:
         return None
     x = np.array(ad.read(it), dtype=float)
+    t = held(it) if held is not None else None
+
+    def _p(e):
+        q = QPointF(*e.eval(x)[0])
+        return t.map(q) if t is not None else q
     pts = ad.points(it, 0)
     if h in pts:
-        return "point", QPointF(*pts[h].eval(x)[0])
+        return "point", _p(pts[h])
     eds = ad.edges(it, 0)
     if h in eds:
         a, b = eds[h]
-        return "edge", (QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
+        return "edge", (_p(a), _p(b))
     return None
 
 
@@ -87,10 +114,10 @@ def _away(dx, dy, mid, cen) -> tuple[float, float]:
     return (dx, dy) if s > 0 else (-dx, -dy)
 
 
-def _anchor(view, c, by) -> QPointF | None:
+def _anchor(view, c, by, held=None) -> QPointF | None:
     """Viewport-px centre of *c*'s glyph: 12 px off its geometry (plus half
     the box) on the side away from the entity centroid (D27)."""
-    geoms = [(r, _ref_geom(r, by)) for r in c.refs]
+    geoms = [(r, _ref_geom(r, by, held)) for r in c.refs]
     geoms = [(r, g) for r, g in geoms if g is not None and g[0] != "axis"]
     if not geoms:
         return None
@@ -123,20 +150,87 @@ def _anchor(view, c, by) -> QPointF | None:
     return QPointF(mid.x() + nx * d, mid.y() + ny * d)
 
 
-def glyph_layouts(view, ctl) -> list:
-    """``[(cid, QRectF viewport px)]`` — one boxed glyph per constraint (D27).
+# ── D32 visibility + the per-frame cache (VC9 F3) ───────────────────────────
 
-    Several glyphs on one anchor sit side by side. Empty when the controller
-    is disabled (plan scenes) or Show Constraints is off.
+def visible_constraints(ctl, sel_uids) -> list:
+    """D32: the constraints whose glyphs show.
+
+    None during a pick session; every one under the Show Constraints
+    override (``ctl.show_all``); else those touching a selected entity
+    (*sel_uids*) plus the selected constraint.
     """
-    if not ctl.enabled or not ctl.show_glyphs or not ctl.constraints:
+    if not ctl.enabled or getattr(ctl, "pick", None) is not None:
         return []
+    if ctl.show_all:
+        return list(ctl.constraints)
+    from .constraint_controller import _safe_ref_uids
+    return [c for c in ctl.constraints
+            if c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids]
+
+
+def _selected_uids(ctl) -> set:
+    try:
+        sel = ctl._scene.selectedItems()
+    except RuntimeError:                       # a dying scene
+        return set()
+    out = {getattr(it, "_uid", None) for it in sel}
+    out.discard(None)
+    return out
+
+
+class _Frame:
+    """One frame's glyph state: ``uid -> item`` (None when nothing shows),
+    the held-preview mapper and the visible glyph layouts."""
+    __slots__ = ("by", "held", "layouts")
+
+    def __init__(self, by, held, layouts):
+        self.by, self.held, self.layouts = by, held, layouts
+
+
+def _frame_key(view, ctl) -> tuple:
+    t = view.viewportTransform()
+    vp = view.viewport()
+    return (ctl._scene_gen, ctl._sel_gen, ctl.show_all, ctl.selected_id,
+            getattr(ctl, "pick", None) is None, id(ctl.constraints),
+            len(ctl.constraints), vp.width(), vp.height(),
+            t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy())
+
+
+def _frame(view, ctl) -> _Frame:
+    """This frame's :class:`_Frame` for *view*, cached on the controller.
+
+    The scene-change counter is bumped by ``ctl._on_scene_changed`` (every
+    geometry change, incl. a held-preview transform), the selection counter
+    by ``ctl._on_selection_changed``; a geometry change painted before its
+    ``scene.changed`` arrives is corrected by that slot's old ∪ new repaint.
+    """
+    key = _frame_key(view, ctl)
+    hit = ctl._frames.get(id(view))
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    fr = _compute_layouts(view, ctl)
+    ctl._frames[id(view)] = (key, fr)
+    return fr
+
+
+def _compute_layouts(view, ctl) -> _Frame:
+    """The uncached frame build (one per frame, VC9 F3)."""
+    cons = visible_constraints(ctl, _selected_uids(ctl)) if ctl.constraints else []
+    held = _held_fn(ctl)
+    if not cons:
+        return _Frame(None, held, [])
     by = ctl.item_by_uid()
+    return _Frame(by, held, _layout(view, cons, by, held))
+
+
+def _layout(view, cons, by, held) -> list:
+    """``[(cid, QRectF viewport px)]`` for *cons*; several glyphs on one
+    anchor sit side by side (D27)."""
     box = _box_px()
     out, used = [], {}
-    for c in ctl.constraints:
+    for c in cons:
         try:
-            anchor = _anchor(view, c, by)
+            anchor = _anchor(view, c, by, held)
         except Exception:                      # malformed (inert) record
             anchor = None
         if anchor is None:
@@ -150,17 +244,29 @@ def glyph_layouts(view, ctl) -> list:
     return out
 
 
+def glyph_layouts(view, ctl) -> list:
+    """``[(cid, QRectF viewport px)]`` — one boxed glyph per VISIBLE
+    constraint (D27, D32). Empty when the controller is disabled (plan
+    scenes)."""
+    if not ctl.enabled:
+        return []
+    return list(_frame(view, ctl).layouts)
+
+
 def dirty_rect(view, ctl) -> QRect:
-    """Viewport rect covering every glyph and the target glow (repaint region)."""
+    """Viewport rect covering every visible glyph and the target glow."""
+    if not ctl.enabled:
+        return QRect()
+    fr = _frame(view, ctl)
     out = QRectF()
-    for _cid, r in glyph_layouts(view, ctl):
+    for _cid, r in fr.layouts:
         out = out.united(r)
-    path = _glow_path(view, ctl, _glow_ids(ctl))
+    path = _glow_path(view, ctl, _glow_ids(ctl), fr)
     if not path.isEmpty():
         out = out.united(path.boundingRect())
     if out.isEmpty():
         return QRect()
-    pad = GLOW_WIDTH_PX + 2
+    pad = M.CONSTRAINT_GLOW_W_PX + 2
     return out.adjusted(-pad, -pad, pad, pad).toAlignedRect()
 
 
@@ -173,14 +279,14 @@ def _grip_under(view, ctl, vp_pt) -> bool:
 
 
 def glyph_at(view, ctl, vp_pt) -> str | None:
-    """Constraint id of the glyph under *vp_pt* (viewport px), or None.
+    """Constraint id of the VISIBLE glyph under *vp_pt* (viewport px), or None.
 
     A manipulator grip under the point wins (§10 pick order: grips > glyphs).
     """
-    if not ctl.enabled or not ctl.show_glyphs or not ctl.constraints:
+    if not ctl.enabled or not ctl.constraints:
         return None
     p = QPointF(vp_pt)
-    for cid, r in reversed(glyph_layouts(view, ctl)):
+    for cid, r in reversed(_frame(view, ctl).layouts):
         if r.adjusted(-2, -2, 2, 2).contains(p):
             return None if _grip_under(view, ctl, p) else cid
     return None
@@ -192,10 +298,13 @@ def _glow_ids(ctl) -> list:
             if cid is not None]
 
 
-def _glow_path(view, ctl, ids) -> QPainterPath:
+def _glow_path(view, ctl, ids, fr=None) -> QPainterPath:
     path = QPainterPath()
+    if not ids:
+        return path
     by_id = {c.id: c for c in ctl.constraints}
-    by = None
+    by = fr.by if fr is not None else None
+    held = fr.held if fr is not None else _held_fn(ctl)
     vp = QRectF(view.viewport().rect())
     o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
     for cid, _tok in ids:
@@ -203,22 +312,23 @@ def _glow_path(view, ctl, ids) -> QPainterPath:
         if c is None:
             continue
         by = by if by is not None else ctl.item_by_uid()
-        path.addPath(_refs_path(view, c.refs, by, vp, o))
+        path.addPath(_refs_path(view, c.refs, by, vp, o, held))
     return path
 
 
-def _refs_path(view, refs, by, vp, o) -> QPainterPath:
+def _refs_path(view, refs, by, vp, o, held=None) -> QPainterPath:
     path = QPainterPath()
     for r in refs:
         try:
-            g = _ref_geom(r, by)
+            g = _ref_geom(r, by, held)
         except Exception:
             g = None
         if g is None:
             continue
         kind, val = g
         if kind == "point":
-            path.addEllipse(QPointF(view.mapFromScene(val)), GLOW_POINT_R_PX, GLOW_POINT_R_PX)
+            path.addEllipse(QPointF(view.mapFromScene(val)),
+                            M.CONSTRAINT_GLOW_POINT_R_PX, M.CONSTRAINT_GLOW_POINT_R_PX)
         elif kind == "edge":
             path.moveTo(QPointF(view.mapFromScene(val[0])))
             path.lineTo(QPointF(view.mapFromScene(val[1])))
@@ -248,6 +358,7 @@ def paint(painter: QPainter, view, ctl) -> None:
     if not ctl.enabled:
         return
     t = th.detect()
+    fr = _frame(view, ctl)
     painted = getattr(ctl, "_painted", None)
     if isinstance(painted, dict):
         painted[id(view)] = dirty_rect(view, ctl)    # old region for the next repaint
@@ -258,16 +369,16 @@ def paint(painter: QPainter, view, ctl) -> None:
         _paint_axes(painter, view, t)
         # Target glow: selected first, hover on top (D11).
         for cid, tok in _glow_ids(ctl):
-            path = _glow_path(view, ctl, [(cid, tok)])
+            path = _glow_path(view, ctl, [(cid, tok)], fr)
             if path.isEmpty():
                 continue
-            pen = QPen(t.color(tok, GLOW_ALPHA), GLOW_WIDTH_PX)
+            pen = QPen(t.color(tok, M.CONSTRAINT_GLOW_ALPHA), M.CONSTRAINT_GLOW_W_PX)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
-        lays = glyph_layouts(view, ctl) if ctl.show_glyphs else []
+        lays = fr.layouts
         if lays:
             by_id = {c.id: c for c in ctl.constraints}
             icon_t = _icon_theme()
@@ -281,12 +392,16 @@ def paint(painter: QPainter, view, ctl) -> None:
                     tok, w = "selection_hover", 1.0
                 else:
                     tok, w = "line_strong", 1.0
-                painter.setOpacity(1.0 if c.enabled else 0.4)
+                # Suppressed and inert (unsupported, never solved) glyphs are
+                # dimmed alike -- the panel's muted "Unsupported constraint"
+                # row (VC9 F6); never a live-looking glyph.
+                painter.setOpacity(1.0 if c.enabled and not c.inert
+                                   else M.CONSTRAINT_INACTIVE_OPACITY)
                 painter.setBrush(t.color("surface"))
                 painter.setPen(QPen(t.color(tok), w))
                 # Inset half a px so a 1 px border covers whole pixel columns.
                 painter.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), rad, rad)
-                icon = themed_icon(f"constraint_{c.type}_icon.svg", icon_t)
+                icon = themed_icon(sm.icon_for(c.type), icon_t)
                 ir = r.adjusted(pad, pad, -pad, -pad).toRect()
                 painter.drawPixmap(ir, icon.pixmap(ir.size()))
             painter.setOpacity(1.0)

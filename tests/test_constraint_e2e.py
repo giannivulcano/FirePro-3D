@@ -153,6 +153,8 @@ def test_e2e_save_close_reopen_and_frozen_instance(win_with_editor):
     w2.view.resetTransform()
     w2.view.centerOn(0, 0)
     w2.editor_scene.set_mode("select")
+    sc2.clearSelection()
+    l2.setSelected(True)                       # D32: the line's glyph shows
     QApplication.processEvents()
     assert [cid for cid, _r in cp.glyph_layouts(w2.view, ctl2)] == [
         ctl2.constraints[0].id]

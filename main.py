@@ -5018,9 +5018,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 ships Horizontal only;
         # Smart Dimension (CS4), Constraint Status + DOF badge (CS2) later.
+        from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_h = gc.add_small_button(
-            "Horizontal", self._modify_icon("constraint_horizontal_icon.svg"),
+            "Horizontal", self._modify_icon(icon_for("horizontal")),
             lambda checked: self._be_constrain("horizontal", checked),
             checkable=True)
         self._block_mode_buttons["constrain_horizontal"] = b_h
@@ -5029,8 +5030,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "Show Constraints",
             self._modify_icon("constraint_show_constraints_icon.svg"),
             self._be_toggle_show_constraints, checkable=True)
+        # D32: a temporary SHOW-ALL override, default OFF (otherwise only the
+        # selected geometry's glyphs + the selected constraint's show).
         b_show.blockSignals(True)
-        b_show.setChecked(True)
+        b_show.setChecked(False)
         b_show.blockSignals(False)
         b_del = gi.add_small_button(
             "Delete Constraints",
@@ -5041,7 +5044,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Delete Constraints": b_del}
         _editor_only(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge")
-        _editor_only(b_show, "Show Constraints — show or hide the constraint glyphs")
+        _editor_only(b_show, "Show Constraints — show every constraint glyph "
+                             "(otherwise only the selected geometry's)")
         _editor_only(b_del, "Delete Constraints — delete the selected constraint, "
                             "or every constraint on the selected geometry")
 
@@ -5076,10 +5080,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._sync_mode_buttons(sc.mode)
 
     def _be_toggle_show_constraints(self, checked: bool) -> None:
-        """Show Constraints toggle: glyph visibility of the current editor."""
+        """Show Constraints toggle: the current editor's D32 show-all override."""
         ctl = getattr(self._active_scene(), "constraint_ctl", None)
         if ctl is not None:
-            ctl.show_glyphs = bool(checked)
+            ctl.show_all = bool(checked)
             ctl._repaint()
 
     def _be_delete_constraints(self) -> None:
@@ -5102,7 +5106,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Horizontal: enabled with nothing selected (pick mode) or a valid
         selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
-        glyph visibility. No-op with no editor tab current (the page's
+        D32 show-all override. No-op with no editor tab current (the page's
         no-editor state, ``_set_block_editor_context``).
         """
         from PyQt6 import sip
@@ -5127,7 +5131,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         s = btns.get("Show Constraints")
         if s is not None and not sip.isdeleted(s):
             s.blockSignals(True)
-            s.setChecked(ctl.show_glyphs)
+            s.setChecked(ctl.show_all)
             s.blockSignals(False)
 
     def _set_block_editor_context(self, active: bool) -> None:
