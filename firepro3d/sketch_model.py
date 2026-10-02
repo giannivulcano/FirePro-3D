@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 GROUNDS = ("origin", "x_axis", "y_axis")
+_KNOWN = frozenset(("id", "type", "refs", "value", "driving", "enabled", "helper", "label"))
 
 
 class ConstraintType(str, Enum):
@@ -46,6 +47,7 @@ class TypeSpec:
 
     @property
     def icon(self) -> str:
+        """Ribbon/glyph icon filename derived from the label."""
         return f"constraint_{self.label.lower().replace(' ', '_')}_icon.svg"
 
 
@@ -72,16 +74,37 @@ REGISTRY: dict[str, TypeSpec] = {
 
 
 def is_ground(ref: dict) -> bool:
+    """Whether a ref points at a ground (origin/axis) rather than a primitive.
+
+    Args:
+        ref: A single ref dict from a constraint record.
+
+    Returns:
+        True if the ref is a ground ref (has a ``"ref"`` key).
+    """
     return "ref" in ref
 
 
 def ref_uids(c: "Constraint") -> set:
+    """Primitive uids a constraint references (grounds excluded).
+
+    Args:
+        c: The constraint record.
+
+    Returns:
+        The set of referenced primitive uids.
+    """
     return {r["uid"] for r in c.refs if not is_ground(r)}
 
 
 @dataclass
 class Constraint:
-    """One constraint record (§6.3). ``raw`` keeps an inert record verbatim."""
+    """One constraint record (§6.3). ``raw`` keeps an inert record verbatim.
+
+    An inert record is kept verbatim and must not be edited; its ``to_dict``
+    returns the raw dict. Unknown top-level keys on a built record are kept in
+    ``extras`` and re-emitted (§6.4: a newer build's file never loses data).
+    """
     id: str
     type: str
     refs: list
@@ -91,9 +114,13 @@ class Constraint:
     helper: dict = field(default_factory=dict)
     label: dict | None = None
     raw: dict | None = None
+    extras: dict = field(default_factory=dict)
 
     @classmethod
     def new(cls, ctype: str, refs: list, **kw) -> "Constraint":
+        for k in ("helper", "label"):
+            if k in kw:
+                kw[k] = copy.deepcopy(kw[k])
         return cls(id=uuid.uuid4().hex, type=ctype, refs=copy.deepcopy(refs), **kw)
 
     @property
@@ -109,7 +136,8 @@ class Constraint:
     def to_dict(self) -> dict:
         if self.raw is not None:
             return copy.deepcopy(self.raw)
-        d = {"id": self.id, "type": self.type, "refs": copy.deepcopy(self.refs),
+        d = copy.deepcopy(self.extras)
+        d |= {"id": self.id, "type": self.type, "refs": copy.deepcopy(self.refs),
              "value": self.value, "driving": self.driving, "enabled": self.enabled,
              "helper": copy.deepcopy(self.helper)}
         if self.label is not None:
@@ -122,7 +150,8 @@ class Constraint:
                 refs=copy.deepcopy(list(d.get("refs", []))), value=d.get("value"),
                 driving=bool(d.get("driving", True)), enabled=bool(d.get("enabled", True)),
                 helper=copy.deepcopy(dict(d.get("helper", {}))),
-                label=copy.deepcopy(d.get("label")))
+                label=copy.deepcopy(d.get("label")),
+                extras={k: copy.deepcopy(v) for k, v in d.items() if k not in _KNOWN})
         if c.inert:
             c.raw = copy.deepcopy(d)
         return c
@@ -131,7 +160,15 @@ class Constraint:
 def remap_for_copy(cons, uid_map: dict) -> list:
     """§8 Copy/Paste/Duplicate/Array: keep only constraints internal to the
     copied set (every ref a mapped uid — grounds count as external), with
-    fresh ids and remapped uids."""
+    fresh ids and remapped uids.
+
+    Args:
+        cons: Source constraint records (not modified).
+        uid_map: Old primitive uid -> new primitive uid.
+
+    Returns:
+        New constraint records for the copied set.
+    """
     out = []
     for c in cons:
         if c.inert or not c.refs:
@@ -140,6 +177,6 @@ def remap_for_copy(cons, uid_map: dict) -> list:
             continue
         n = Constraint.from_dict(c.to_dict())
         n.id = uuid.uuid4().hex
-        n.refs = [{"uid": uid_map[r["uid"]], "h": r["h"]} for r in c.refs]
+        n.refs = [{**r, "uid": uid_map[r["uid"]]} for r in c.refs]
         out.append(n)
     return out

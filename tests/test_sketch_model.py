@@ -51,3 +51,41 @@ def test_remap_for_copy_keeps_internal_drops_external_and_grounds():
     out = sm.remap_for_copy([inside, outside, grounded], {"a": "A2"})
     assert len(out) == 1
     assert out[0].refs == [{"uid": "A2", "h": "edge"}] and out[0].id != inside.id
+
+
+def test_built_record_keeps_unknown_top_level_keys():
+    raw = {"id": "h1", "type": "horizontal", "refs": [{"uid": "a", "h": "edge"}],
+           "value": None, "driving": True, "enabled": True, "helper": {}, "future": 1}
+    c = sm.Constraint.from_dict(raw)
+    assert not c.inert
+    assert c.to_dict()["future"] == 1
+    assert c.to_dict() == raw
+
+
+def test_inert_raw_is_isolated_from_input_mutation():
+    raw = {"id": "x1", "type": "from_the_future", "refs": [], "extra": [1, 2]}
+    c = sm.Constraint.from_dict(raw)
+    raw["extra"].append(3)
+    raw["added"] = True
+    assert c.to_dict() == {"id": "x1", "type": "from_the_future", "refs": [], "extra": [1, 2]}
+
+
+def test_new_does_not_alias_helper_or_label():
+    helper = {"kind": "x"}
+    label = {"pos": [1, 2]}
+    c = sm.Constraint.new("horizontal", [], helper=helper, label=label)
+    helper["kind"] = "y"
+    label["pos"].append(3)
+    assert c.helper == {"kind": "x"} and c.label == {"pos": [1, 2]}
+
+
+def test_remap_two_ref_internal_preserves_h_and_source_unchanged():
+    src = sm.Constraint.new("horizontal", [{"uid": "a", "h": "p1"}, {"uid": "b", "h": "p2"}])
+    before = src.to_dict()
+    out = sm.remap_for_copy([src], {"a": "A2", "b": "B2"})
+    assert out[0].refs == [{"uid": "A2", "h": "p1"}, {"uid": "B2", "h": "p2"}]
+    assert src.to_dict() == before
+
+
+def test_catalogue_and_registry_in_sync():
+    assert {t.value for t in sm.ConstraintType} == set(sm.REGISTRY)
