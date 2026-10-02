@@ -273,6 +273,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: user question at CS1 smoke 2026-10-02. Same equation twice → REDUNDANT, not conflicting. As built (D9 admit + flag) it is admitted and solves fine; CS2 colours it amber. Decide in CS2 whether exact duplicates are refused at add ("Already constrained") instead. Recommendation given: keep D9 + amber.
 - [ ] [type:maint] Spec §6.1: state the primitive-uid uniqueness scope [P3] [subject:Documentation]
   - Details: CS1 Task 5 review M1: unique per definition / scene; definition clones (Block Manager "New from selected", Save As, Create Block from selection) keep the source uids by design (§6.1 seed carries, §6.2 refs resolve within one definition). One sentence in `docs/specs/parametric-constraint-system.md` §6.1.
+- [ ] [type:maint] Doc drift found by the CS1 Account prose review (pre-existing) [P3] [subject:Documentation]
+  - Details: (1) `docs/specs/align-placement.md` ~166 still describes the retired pinned insertion marker (Set Origin retired by D4); (2) parametric-constraint-system.md D26 `constraint_free` token is not in `theme.py` yet — note it lands with CS2; (3) §11 item 6 "enables only on a valid selection" contradicts D12/D21 + code (empty selection enables pick mode); (4) 2d-geometry.md ~228 claims `_AXIS_MIN` equals the circle/polygon radius floors — it doesn't; (5) block-system.md status comment doesn't mention CS1 (cosmetic); (6) §6.2 `HandleRef` is a dict shape with no class — add a one-line note; (7) `docs/architecture/io.md:28` still says "Serialize hatches, constraints" (C8-era drift). Findings: CS1 session review_account.md.
 
 ## Underlay Import dialog
 
