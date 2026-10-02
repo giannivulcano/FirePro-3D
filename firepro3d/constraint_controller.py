@@ -63,6 +63,52 @@ class ConstraintController:
         self._drag_snap = None
         self._last_good = None
         self._drag_ctx = None
+        self._painted: dict = {}               # id(view) -> last glyph/glow QRect
+        if self.enabled:
+            scene.selectionChanged.connect(self._on_selection_changed)
+            scene.changed.connect(self._on_scene_changed)
+
+    # ── canvas selection / repaint (D11, constraint_paint) ───────────────
+    def select(self, cid) -> None:
+        """Select a constraint (glyph / panel-row click); item selection clears."""
+        self._scene.clearSelection()
+        self.selected_id = cid
+        self._repaint()
+
+    def delete_selected(self) -> int:
+        """Delete the selected constraint (geometry untouched); one undo step."""
+        return self.delete([self.selected_id]) if self.selected_id else 0
+
+    def _on_selection_changed(self) -> None:
+        """An item selection clears the selected constraint. A Qt slot: a
+        dying scene still emits, so bail when its wrapper is gone; never raises."""
+        try:
+            if sip.isdeleted(self._scene):
+                return
+            if self.selected_id is not None and self._scene.selectedItems():
+                self.selected_id = None
+                self._repaint()
+        except Exception:
+            _log.exception("constraint selection-change handling failed")
+
+    def _on_scene_changed(self, _regions) -> None:
+        """Glyphs + glow sit outside item dirty regions (MinimalViewportUpdate):
+        repaint old ∪ new glyph region per view. A Qt slot: never raises."""
+        try:
+            if sip.isdeleted(self._scene) or not self.constraints and not self._painted:
+                return
+            from .constraint_paint import dirty_rect
+            from PyQt6.QtCore import QRect
+            for v in self._scene.views():
+                if sip.isdeleted(v):
+                    continue
+                new = dirty_rect(v, self)
+                dirty = self._painted.get(id(v), QRect()).united(new)
+                self._painted[id(v)] = new
+                if not dirty.isEmpty():
+                    v.viewport().update(dirty)
+        except Exception:
+            _log.exception("constraint glyph repaint failed")
 
     def reset(self) -> None:
         """New / Open: drop every constraint and all transient state."""
@@ -338,7 +384,8 @@ class ConstraintController:
 
     def _repaint(self) -> None:
         for v in self._scene.views():
-            v.viewport().update()
+            if not sip.isdeleted(v):
+                v.viewport().update()
 
     # ── edit seams (§8) ──────────────────────────────────────────────────
     @contextlib.contextmanager

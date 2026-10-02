@@ -4374,6 +4374,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 and self.view_3d.get_3d_selected():
             self.view_3d.delete_selected()
             return
+        # A selected constraint (glyph / panel-row click) is deleted on its
+        # own — geometry untouched (parametric-constraint-system.md D11).
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None and ctl.selected_id:
+            ctl.delete_selected()
+            return
         sc.delete_selected_items()
 
     def open_underlay_manager(self):

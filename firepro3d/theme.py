@@ -126,6 +126,18 @@ class _Metrics:
     RIBBON_LARGE_MIN_W = 72
     RIBBON_SMALL_ICON = 18
     RIBBON_SMALL_H = 26
+    # Constraint canvas + panel (parametric-constraint-system.md D27)
+    CONSTRAINT_GLYPH_PX = 16
+    CONSTRAINT_GLYPH_PAD_PX = 2
+    CONSTRAINT_GLYPH_RADIUS_PX = 3
+    CONSTRAINT_GLYPH_OFFSET_PX = 12
+    CONSTRAINT_GLYPH_GAP_PX = 2          # side-by-side glyphs sharing one anchor
+    CONSTRAINT_PICK_MARKER_HALF_PX = 4
+    CONSTRAINT_PICK_POINT_TOL_PX = 8
+    CONSTRAINT_PICK_EDGE_TOL_PX = 6
+    CONSTRAINT_AXES_ALPHA = 0.22
+    CONSTRAINT_AXES_DASH = (12.0, 4.0, 2.0, 4.0)
+    PROP_CONSTRAINT_ROW_H = 28
     DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
     DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # empty-canvas placeholder (canvas_placeholder.py — mockup-approved 2026-09-30)

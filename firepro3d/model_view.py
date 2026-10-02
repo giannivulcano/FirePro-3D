@@ -295,6 +295,20 @@ class Model_View(QGraphicsView):
                 from .halo import paint_halo_highlight
                 paint_halo_highlight(painter, self, halo, th.detect())
 
+        # ── Constraint axes / glow / glyphs (parametric-constraint §10, D27) ─
+        # Viewport px, non-printing; block-editor scenes only (ctl.enabled).
+        # Before the readouts so a dim label (which out-picks a glyph, §10)
+        # also paints over it. A virtual override: an escaping exception
+        # aborts PyQt6 — guard.
+        ctl = getattr(scene, "constraint_ctl", None)
+        if not self._clip_rect and ctl is not None and ctl.enabled:
+            try:
+                from . import constraint_paint
+                constraint_paint.paint(painter, self, ctl)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("constraint paint failed")
+
         # ── Selection dimension readouts (selection-mode §15) ─────────────
         # Painted overlay records in viewport px, after HALO so a hovered
         # label's glow sits over the geometry highlight, before the band.
@@ -904,6 +918,12 @@ class Model_View(QGraphicsView):
             if ro is not None and ro.press_at(self, QPointF(event.pos())):
                 event.accept()
                 return
+            # A constraint glyph under the press selects the constraint and
+            # consumes the press (§10: grips > dim labels > glyphs > HALO;
+            # glyph_at defers to a grip). Any other select-mode press drops
+            # the selected constraint and runs as before.
+            if self._constraint_glyph_press(sc, event):
+                return
             # Track rubber-band start (viewport px). Used by both the legacy
             # stretch-mode crossing path and the scene-drawn select band.
             self._rb_start = event.pos()
@@ -932,6 +952,63 @@ class Model_View(QGraphicsView):
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
+
+    def _glyph_ctl(self, sc):
+        """The scene's constraint controller when glyph picking applies:
+        a block-editor scene in select mode, outside a detail (clip) view."""
+        ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
+        if (ctl is None or not ctl.enabled or self._clip_rect is not None
+                or getattr(sc, "mode", None) not in (None, "select")):
+            return None
+        return ctl
+
+    def _constraint_glyph_press(self, sc, event) -> bool:
+        """Left press: select the constraint whose glyph is under the press
+        (consumed → True). A miss clears the selected constraint and returns
+        False so the press runs as before. Never raises (virtual override)."""
+        try:
+            ctl = self._glyph_ctl(sc)
+            if ctl is None:
+                return False
+            from . import constraint_paint
+            cid = constraint_paint.glyph_at(self, ctl, QPointF(event.pos()))
+            if cid is not None:
+                ctl.select(cid)
+                event.accept()
+                return True
+            if ctl.selected_id is not None:
+                ctl.selected_id = None
+                ctl._repaint()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("constraint glyph press failed")
+        return False
+
+    def _constraint_glyph_hover(self, sc, event) -> bool:
+        """Update the hovered constraint glyph; True while over one (HALO is
+        then cleared and skipped, like a readout label). Never raises."""
+        try:
+            ctl = self._glyph_ctl(sc)
+            if ctl is None:
+                raw = getattr(sc, "constraint_ctl", None) if sc is not None else None
+                if raw is not None and raw.hover_id is not None:
+                    raw.hover_id = None              # left select mode mid-hover
+                    self.viewport().update()
+                return False
+            from . import constraint_paint
+            cid = constraint_paint.glyph_at(self, ctl, QPointF(event.pos()))
+            changed = cid != ctl.hover_id
+            ctl.hover_id = cid
+            cleared = False
+            if cid is not None and hasattr(sc, "halo_clear"):
+                cleared = sc.halo_clear()
+            if changed or cleared:
+                self.viewport().update()
+            return cid is not None
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("constraint glyph hover failed")
+            return False
 
     def mouseMoveEvent(self, event):
         self._last_vp_pos = event.pos()   # used by drawForeground for dim HUD
@@ -980,6 +1057,9 @@ class Model_View(QGraphicsView):
                         self.viewport().update()
                 elif changed:
                     self.viewport().update()
+            # Constraint glyphs pick after labels, ahead of HALO (§10).
+            if not on_label and not self._panning:
+                on_label = self._constraint_glyph_hover(sc, event)
             if (not on_label and sc is not None and hasattr(sc, "halo_update")
                     and not self._panning):
                 from . import halo_selection
