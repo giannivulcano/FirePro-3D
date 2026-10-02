@@ -69,13 +69,16 @@ class _Adapter:
         return {}
 
     def collapses(self, item, old, new) -> bool:
-        """D29: whether solved values *new* collapse the shape. A size below
-        its floor (- ``DEGEN_EPS``) always does -- write-back would clamp it,
-        so the written geometry would not be the solved one; a size that was
-        above its floor and lands at it (+ ``DEGEN_EPS``) does too."""
+        """D29: whether solved values *new* collapse the shape. A size the
+        solve MOVED below its floor (- ``DEGEN_EPS``) does -- write-back would
+        clamp it, so the written geometry would not be the solved one; a size
+        that was above its floor and lands at it (+ ``DEGEN_EPS``) does too.
+        A size the solve left alone never does, even if it already sits below
+        the floor (CircleItem / RegularPolygonItem constructors don't clamp)."""
         for i, f in self.size_floors(item).items():
             n, o = float(new[i]), float(old[i])
-            if n < f - DEGEN_EPS or (n <= f + DEGEN_EPS < o):
+            moved = abs(n - o) > 1e-9
+            if (moved and n < f - DEGEN_EPS) or (n <= f + DEGEN_EPS < o):
                 return True
         return False
 
@@ -185,7 +188,14 @@ class _CircleAdapter(_Adapter):
 
     def write(self, it, v):
         it._center = QPointF(float(v[0]), float(v[1]))
-        it.set_radius(float(v[2]))        # rebuilds the rect about _center (1 mm floor)
+        r = float(v[2])
+        if r != float(it._radius):
+            it.set_radius(r)              # rebuilds the rect about _center (1 mm floor)
+        else:
+            # Radius untouched: rebuild the rect WITHOUT set_radius's floor, so
+            # a sub-floor circle (the ctor doesn't clamp) is written as solved.
+            cx, cy = it._center.x(), it._center.y()
+            it.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
 
 def _arc_point_fn(v):

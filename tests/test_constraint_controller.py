@@ -705,6 +705,58 @@ def test_conflict_status_survives_the_tools_success_message(qapp):
     assert msgs and msgs[-1] == CONFLICT_STATUS                          # [RED]
 
 
+def _sub_floor_item_follows(sc, item, msgs):
+    """Shared body: H(item.center, line.p1) -- add and later line edits
+    succeed silently although *item*'s size is already below its floor (the
+    solve never moves it)."""
+    ln = _line(sc, (200, 10), (300, 10))
+    ctl = sc.constraint_ctl
+    c = ctl.add("horizontal", [{"uid": item._uid, "h": "center"},
+                               {"uid": ln._uid, "h": "p1"}])
+    assert c is not None
+    assert abs(item._center.y() - ln._pt1.y()) < 1e-6                   # [RED]
+    for dy in (25.0, -40.0):
+        with ctl.edit([ln]):
+            ln.translate(0, dy)
+        assert abs(item._center.y() - ln._pt1.y()) < 1e-6
+    assert msgs == []
+
+
+def test_a_circle_already_below_its_floor_does_not_block_its_group(qapp):
+    """Re-review: CircleItem's ctor does not clamp (r = 0.5 < the 1 mm floor);
+    D29 must only flag a below-floor size the solve CHANGED."""
+    from firepro3d.geometry_2d import CircleItem
+    sc = _scene()
+    circ = CircleItem(QPointF(0, 0), 0.5)
+    sc.addItem(circ); sc._draw_circles.append(circ)
+    msgs = _status(sc)
+    _sub_floor_item_follows(sc, circ, msgs)
+    assert circ._radius == 0.5
+
+
+def test_a_zero_radius_polygon_does_not_block_its_group(qapp):
+    """Re-review: RegularPolygonItem defaults to radius 0.0 (< the 0.5 floor)."""
+    from firepro3d.geometry_2d import RegularPolygonItem
+    sc = _scene()
+    poly = RegularPolygonItem(QPointF(0, 0))
+    assert poly._radius_mm == 0.0
+    sc.addItem(poly); sc._draw_polygons.append(poly)
+    msgs = _status(sc)
+    _sub_floor_item_follows(sc, poly, msgs)
+
+
+def test_the_same_handle_twice_is_refused_whatever_the_extra_keys(qapp):
+    """Duplicate refs compare by identity (uid, h) / ground, not whole dicts."""
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    _status(sc)
+    assert ctl.add("horizontal", [{"uid": ln._uid, "h": "p1"},
+                                  {"uid": ln._uid, "h": "p1", "note": 1}]) is None   # [RED]
+    assert ctl.add("horizontal", [{"ref": "origin"}, {"ref": "origin", "x": 0}]) is None
+    assert ctl.constraints == []
+
+
 def test_focus_on_nothing_solves_nothing(qapp):
     """M2: a solve focused on items that carry no solver variables is a
     no-op, not a whole-sketch solve (which would re-report a held conflict)."""

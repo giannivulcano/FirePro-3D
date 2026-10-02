@@ -141,10 +141,12 @@ class ConstraintController:
             return False
         if not isinstance(c.refs, list) or not c.refs:
             return False
-        try:                                    # two refs naming one handle (§7.3)
-            if len({repr(sorted(r.items())) for r in c.refs}) != len(c.refs):
-                return False
-        except AttributeError:                  # a ref that is not a dict
+        if not all(isinstance(r, dict) for r in c.refs):
+            return False
+        # Two refs naming one handle (§7.3): compare identities, not dicts.
+        idents = {("ref", r["ref"]) if "ref" in r else ("uid", r.get("uid"), r.get("h"))
+                  for r in c.refs}
+        if len(idents) != len(c.refs):
             return False
         if by is None:
             by = self.item_by_uid()
