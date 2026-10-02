@@ -357,3 +357,19 @@ def test_divergent_step_reports_not_converged():
     s.rows.append(ss.Row("nan", (0,), lambda x: (1.0, np.array([np.nan]))))
     res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
     assert not res.converged
+
+
+def test_nan_residual_with_finite_gradient_is_not_converged():
+    s = ss.System(x=np.array([0.0, 0.0]))
+    s.rows.append(ss.Row("nan", (0,), lambda x: (float("nan"), np.array([1.0]))))
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
+    assert not res.converged and np.isnan(res.max_residual)
+
+
+def test_tight_component_plus_nan_component_is_not_converged():
+    """A component that stops tight must not mask a NaN in another one."""
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 5.0, 5.0]))
+    ss.BUILDERS["horizontal"]("ok", (_identity_derived(0), _identity_derived(2)), s)
+    s.rows.append(ss.Row("nan", (4,), lambda x: (float("nan"), np.array([1.0]))))
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
+    assert not res.converged and np.isnan(res.max_residual)

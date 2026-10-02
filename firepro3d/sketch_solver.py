@@ -349,7 +349,7 @@ class NumpySolver:
             comp_ids = sorted(comp_set)
 
         # -- per-component projection (§7.2) ---------------------------------
-        worst = 0.0
+        maxima: list[float] = []      # reduced with np.max: NaN must propagate
         for ci in comp_ids:
             comp = st.comps[ci]
             mv, lc, nc = comp.vars, comp.var_lcol, comp.ncols
@@ -370,7 +370,7 @@ class NumpySolver:
                 if fmax <= RES_STOP:
                     # F is AT the final x (this component's rows read only its
                     # own vars + fixes), so it is also the convergence check.
-                    worst = max(worst, fmax)
+                    maxima.append(fmax)
                     tight = True
                     break
                 g = zg - z
@@ -398,7 +398,8 @@ class NumpySolver:
             if not tight:
                 checked.extend(comp.rows)       # step-tol / cap / divergence: re-check at x
         if checked:
-            worst = max(worst, float(np.max(np.abs([row.fn(x)[0] for row in checked]))))
+            maxima.extend(abs(float(row.fn(x)[0])) for row in checked)
+        worst = float(np.max(maxima)) if maxima else 0.0
         converged = bool(np.isfinite(worst)) and worst <= LIN_TOL
         return SolveResult(x, converged, worst)
 
