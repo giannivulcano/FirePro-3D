@@ -19,6 +19,15 @@ from .sketch_solver import ANG_SCALE, PointExpr, raw_point
 # 1000 mm of travel, so geometry rotates only when nothing else satisfies.
 ANG_W = ANG_SCALE ** 2
 
+# D29 (user, 2026-10-02): a solve that can only be satisfied by collapsing a
+# shape is a CONFLICT. The size floors below are the SAME floors each item's
+# write-back clamps to (one home); a value within DEGEN_EPS of its floor -- or
+# an arc span within DEGEN_EPS rad of 0 / 2*pi -- is a collapse.
+DEGEN_EPS = 1e-6
+RECT_MIN = 1e-6          # _RectAdapter.write clamp
+CIRCLE_MIN = 1.0         # CircleItem.set_radius floor
+ARC_R_MIN = 0.01         # _ArcAdapter.write / ArcItem.set_radius floor
+
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>) and text / block instance (move grip -> ins) are
 # computed by their adapters' grip_handle().
@@ -57,6 +66,16 @@ class _Adapter:
 
     def var_weights(self, item) -> list:
         return [1.0] * self.nvars(item)
+
+    def size_floors(self, item) -> dict:
+        """D29: ``{local var index: floor}`` for the item's size variables."""
+        return {}
+
+    def degenerate(self, item, vals) -> bool:
+        """D29: whether *vals* (this item's variables) collapse the shape --
+        a size variable at / below its floor (+ ``DEGEN_EPS``)."""
+        return any(float(vals[i]) <= f + DEGEN_EPS
+                   for i, f in self.size_floors(item).items())
 
     def points(self, item, off: int) -> dict:
         return {}
@@ -128,6 +147,9 @@ class _RectAdapter(_Adapter):
     def var_weights(self, it):
         return [1.0, 1.0, 1.0, 1.0, ANG_W]          # D28: prefer move/resize over rotate
 
+    def size_floors(self, it):
+        return {2: RECT_MIN, 3: RECT_MIN}
+
     def points(self, it, off):
         idx = tuple(range(off, off + 5))
         return {name: PointExpr(idx=idx, fn=_rect_point_fn(su, sv))
@@ -139,7 +161,7 @@ class _RectAdapter(_Adapter):
 
     def write(self, it, v):
         cx, cy, w, h, th = (float(t) for t in v)
-        w, h = max(w, 1e-6), max(h, 1e-6)
+        w, h = max(w, RECT_MIN), max(h, RECT_MIN)
         it.prepareGeometryChange()
         it.setRect(QRectF(cx - w / 2.0, cy - h / 2.0, w, h))
         it.set_angle(math.degrees(th), None)
@@ -155,6 +177,9 @@ class _CircleAdapter(_Adapter):
 
     def points(self, it, off):
         return {"center": raw_point(off, off + 1)}
+
+    def size_floors(self, it):
+        return {2: CIRCLE_MIN}
 
     def write(self, it, v):
         it._center = QPointF(float(v[0]), float(v[1]))
@@ -181,6 +206,17 @@ class _ArcAdapter(_Adapter):
     def var_weights(self, it):
         return [1.0, 1.0, 1.0, ANG_W, ANG_W]         # D28
 
+    def size_floors(self, it):
+        return {2: ARC_R_MIN}
+
+    def degenerate(self, it, vals):
+        """Radius at its floor, or the span (te - ts) wrapped to ~0 / ~2*pi
+        (write-back maps a 0 span to a full circle)."""
+        if super().degenerate(it, vals):
+            return True
+        m = float(vals[4] - vals[3]) % (2.0 * math.pi)
+        return m <= DEGEN_EPS or (2.0 * math.pi - m) <= DEGEN_EPS
+
     def points(self, it, off):
         def end(k):
             return PointExpr(idx=(off, off + 1, off + 2, off + k), fn=_arc_point_fn)
@@ -189,7 +225,7 @@ class _ArcAdapter(_Adapter):
     def write(self, it, v):
         cx, cy, r, ts, te = (float(t) for t in v)
         it._center = QPointF(cx, cy)
-        it._radius = max(r, 0.01)
+        it._radius = max(r, ARC_R_MIN)
         it._start_deg = math.degrees(ts) % 360.0
         span = math.degrees(te - ts) % 360.0           # keeps span_deg > 0 (§5.1)
         it._span_deg = span if span > 1e-9 else 360.0
@@ -248,6 +284,10 @@ class _CenterRotAdapter(_Adapter):
 
     def var_weights(self, it):
         return [1.0] * (1 + len(self._fields)) + [ANG_W]   # D28
+
+    def size_floors(self, it):
+        return {2 + k: self._floors[f] for k, f in enumerate(self._fields)
+                if f in self._floors}
 
     def points(self, it, off):
         return {"center": raw_point(off, off + 1)}

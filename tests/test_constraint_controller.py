@@ -6,6 +6,8 @@ the guards for the seams (typed readout, property panel, Rotate, Polar
 Array, Mirror, grip cancel, New/Open, definition open) drive the real entry
 paths and assert scene geometry / the undo stack.
 """
+import math
+
 import pytest
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication
@@ -67,6 +69,10 @@ def test_rotated_rect_edge_row_path(qapp):
     sc.constraint_ctl.add("horizontal", [{"uid": r._uid, "h": "bottom"}])
     g = r.grip_points()
     assert abs(g[4].y() - g[6].y()) < 1e-6           # br / bl level
+    # ... by ROTATING level, not by collapsing the width (D29).
+    assert r.rect().width() == pytest.approx(80.0, abs=1e-6)
+    assert r.rect().height() == pytest.approx(40.0, abs=1e-6)
+    assert abs(math.remainder(r._angle, 180.0)) < 1e-6
 
 
 def test_typed_edit_and_transform_honour_the_constraint(qapp):
@@ -91,22 +97,65 @@ def test_grip_drag_pins_the_dragged_end(qapp):
     assert abs(ln._pt2.x() - 100) < 1e-6
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "NEEDS_CONTEXT (CS1 Task 10): Horizontal on a rectangle's bottom AND left "
-    "is satisfiable by collapsing the height to 0 (a zero-length edge is "
-    "trivially level, §7.3), so the least-change solve converges with h -> 0 "
-    "instead of failing; no Horizontal-only sketch reaches D10 without such a "
-    "degenerate solution. Pending a ruling on degenerate-collapse handling."))
+def _status(sc):
+    msgs = []
+    sc._show_status = lambda m, *a, **k: msgs.append(m)
+    return msgs
+
+
 def test_conflict_holds_last_good(qapp):
+    """D29: H(bottom) + H(left) is satisfiable only by collapsing the rect
+    (h -> 0) -- a CONFLICT: admitted (D9), geometry held (D10), status shown."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
     sc = _scene()
     r = _rect(sc, (0, 0), (80, 40))
     ctl = sc.constraint_ctl
     ctl.add("horizontal", [{"uid": r._uid, "h": "bottom"}])
     before = [QPointF(p) for p in r.grip_points()]
+    msgs = _status(sc)
     ctl.add("horizontal", [{"uid": r._uid, "h": "left"}])    # unsatisfiable with bottom
     assert len(ctl.constraints) == 2                          # D9 admit
     assert all(abs(a.x() - b.x()) < 1e-9 and abs(a.y() - b.y()) < 1e-9
-               for a, b in zip(before, r.grip_points()))      # D10 hold last good
+               for a, b in zip(before, r.grip_points()))      # D10 hold last good  [RED]
+    assert r.rect().height() == pytest.approx(40.0)
+    assert msgs == [CONFLICT_STATUS]
+
+
+def test_arc_whose_least_change_is_a_zero_span_holds(qapp):
+    """D29 arc: H(start, end) on a 10..30 deg arc -- the least change collapses
+    the span (or the radius); either is a collapse, so the arc holds."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    from firepro3d.geometry_2d import ArcItem
+    sc = _scene()
+    arc = ArcItem(QPointF(0, 0), 100.0, 10.0, 20.0)
+    sc.addItem(arc); sc._draw_arcs.append(arc)
+    before = (arc._center.x(), arc._center.y(), arc._radius,
+              arc._start_deg, arc._span_deg)
+    msgs = _status(sc)
+    c = sc.constraint_ctl.add("horizontal", [{"uid": arc._uid, "h": "start"},
+                                             {"uid": arc._uid, "h": "end"}])
+    assert c is not None and len(sc.constraint_ctl.constraints) == 1
+    assert (arc._center.x(), arc._center.y(), arc._radius,
+            arc._start_deg, arc._span_deg) == before
+    assert msgs == [CONFLICT_STATUS]
+
+
+def test_a_solve_that_shrinks_a_size_above_its_floor_still_applies(qapp):
+    """D29 is about collapse only: a rect whose top-right follows a line end
+    (H) may legitimately shrink."""
+    sc = _scene()
+    r = _rect(sc, (0, 0), (100, 100))
+    ln = _line(sc, (200, 0), (300, 0))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": r._uid, "h": "tr"}, {"uid": ln._uid, "h": "p1"}])
+    msgs = _status(sc)
+    with ctl.edit([ln]):
+        ln.translate(0, 30)
+    tr = r.grip_points()[2]
+    assert abs(tr.y() - ln._pt1.y()) < 1e-6
+    assert tr.y() > 29.0                                  # the rect followed
+    assert 1.0 < r.rect().height() < 100.0 - 1.0          # ... partly by shrinking
+    assert msgs == []
 
 
 def test_failed_solve_rolls_the_edit_back_and_reports(qapp, monkeypatch):
@@ -193,12 +242,12 @@ def test_sketch_dof(qapp):
 # ── requirement 1: edit([]) is a no-op ─────────────────────────────────────
 
 def test_empty_edit_is_a_no_op_even_on_an_unsolved_sketch(qapp):
-    """Scale by 1 passes ``edit([])``: it must not solve the sketch. A loaded
-    (unsolved) Horizontal on a tilted line proves it — a solve would level it."""
+    """Scale by 1 passes ``edit([])``: it must not solve the sketch. A
+    restored (unsolved) Horizontal on a tilted line proves it — a solve would level it."""
     sc = _scene()
     ln = _line(sc, (0, 0), (100, 30))
-    sc.constraint_ctl.load([{"id": "c1", "type": "horizontal",
-                             "refs": [{"uid": ln._uid, "h": "edge"}]}])
+    sc.constraint_ctl.restore([{"id": "c1", "type": "horizontal",
+                                "refs": [{"uid": ln._uid, "h": "edge"}]}])
     msgs = []
     sc._show_status = lambda m, *a, **k: msgs.append(m)
     with sc.constraint_ctl.edit([]):
@@ -211,8 +260,8 @@ def test_scale_by_one_commit_leaves_constrained_geometry_alone(qapp):
     """The real caller: ``commit_scale(1.0)`` passes ``edit([])``."""
     sc = _scene()
     ln = _line(sc, (0, 0), (100, 30))
-    sc.constraint_ctl.load([{"id": "c1", "type": "horizontal",
-                             "refs": [{"uid": ln._uid, "h": "edge"}]}])
+    sc.constraint_ctl.restore([{"id": "c1", "type": "horizontal",
+                                "refs": [{"uid": ln._uid, "h": "edge"}]}])
     sc._scale_base = QPointF(0, 0)
     sc._selected_items = [ln]
     pos = sc._undo_pos
@@ -331,6 +380,41 @@ def test_definition_open_loads_constraints_into_the_undo_baseline(qapp, origin):
     sc.delete_items([other])
     sc.undo()
     assert [c.id for c in ctl.constraints] == ["c-h"]                    # [RED]
+
+
+@pytest.mark.parametrize("origin", [(0.0, 0.0), (10.0, 20.0)])
+def test_definition_open_solves_a_violated_saved_constraint(qapp, origin):
+    """D18 "open = load + first solve": saved geometry that violates its saved
+    Horizontal opens level, and that solved state IS the baseline (Ctrl+Z,
+    even after an unrelated edit, never un-levels it)."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    project = Model_Space()
+    tilted = LineItem(QPointF(10, 20), QPointF(110, 50))
+    other = LineItem(QPointF(10, 200), QPointF(110, 200))
+    defn = BlockDefinition.new(
+        name="B", library="L", series="S",
+        primitives=[tilted.to_dict(), other.to_dict()], origin=origin,
+        constraints=[{"id": "c-h", "type": "horizontal",
+                      "refs": [{"uid": tilted._uid, "h": "edge"}]}])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    msgs = []
+    w.editor_scene._show_status = lambda m, *a, **k: msgs.append(m)
+    w.seed_from_definition(defn)
+    sc = w.editor_scene
+    ln = next(l for l in sc._draw_lines if l._uid == tilted._uid)
+    mean = (20 + 50) / 2.0 - origin[1]
+    assert ln._pt1.y() == pytest.approx(mean, abs=1e-6)          # [RED]
+    assert ln._pt2.y() == pytest.approx(mean, abs=1e-6)
+    assert not sc.can_undo() and msgs == []
+    sc.undo()
+    assert ln._pt2.y() == pytest.approx(mean, abs=1e-6)
+    sc.delete_items([next(l for l in sc._draw_lines if l._uid != tilted._uid)])
+    sc.undo()
+    (lv,) = [l for l in sc._draw_lines if l._uid == tilted._uid]
+    assert lv._pt1.y() == pytest.approx(mean, abs=1e-6)
+    assert lv._pt2.y() == pytest.approx(mean, abs=1e-6)
 
 
 def test_commit_block_saves_and_reopens_constraints(qapp):

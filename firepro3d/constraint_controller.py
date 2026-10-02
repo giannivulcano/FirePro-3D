@@ -180,17 +180,40 @@ class ConstraintController:
             if slot is not None:
                 for k in slot[1].pin_vars(item, grip):
                     weights[slot[2] + k] *= W_PIN
-        active = self._var_indices(slots, edited_uids | set(focus))
-        res = self._solver.solve(sys_, sys_.x.copy(), weights,
-                                 active=active if active else None)
+        active = self._var_indices(slots, edited_uids | set(focus)) or None
+        res = self._solver.solve(sys_, sys_.x.copy(), weights, active=active)
         if not res.converged:
             return False
+        # D29: a solve that can only be satisfied by collapsing a shape is a CONFLICT.
+        if self._collapses(slots, sys_.x, res.x):
+            # The least-change answer collapsed a shape; retry with every size
+            # variable stiff (W_PIN) so a non-collapsing answer (e.g. a rotate)
+            # wins if one exists. Still collapsing / unsolved -> conflict.
+            stiff = weights.copy()
+            for _u, (it, ad, off) in slots.items():
+                for i in ad.size_floors(it):
+                    stiff[off + i] *= W_PIN
+            res = self._solver.solve(sys_, sys_.x.copy(), stiff, active=active)
+            if not res.converged or self._collapses(slots, sys_.x, res.x):
+                return False
         for _u, (it, ad, off) in slots.items():
             n = ad.nvars(it)
             new = res.x[off:off + n]
             if float(np.max(np.abs(new - sys_.x[off:off + n]))) > 1e-12:
                 ad.write(it, new)
         return True
+
+    @staticmethod
+    def _collapses(slots, x_old, x_new) -> bool:
+        """D29: whether *x_new* collapses an item that *x_old* did not (an item
+        already degenerate before the solve is left to the §7.3 zero-length
+        rule)."""
+        for _u, (it, ad, off) in slots.items():
+            n = ad.nvars(it)
+            if (ad.degenerate(it, x_new[off:off + n])
+                    and not ad.degenerate(it, x_old[off:off + n])):
+                return True
+        return False
 
     def _snapshot(self) -> dict:
         """``uid -> (item, values)`` for every constrained item."""
@@ -257,7 +280,8 @@ class ConstraintController:
             self._last_good = {u: (it, list(ad.read(it)))
                                for u, (it, ad, _off) in self._drag_ctx[1].items()}
         else:
-            self._restore(self._last_good)
+            self._restore(self._last_good)      # D10 hold last good
+            self._report_conflict()
 
     def end_drag(self) -> None:
         """Close the drag session (the caller then pushes undo)."""
@@ -367,8 +391,13 @@ class ConstraintController:
         return out
 
     def load(self, records) -> None:
-        """Definition open: adopt the saved records (geometry not re-solved)."""
+        """Definition open: adopt the saved records, then one whole-sketch
+        solve (D18 "open = load + first solve"). No undo push -- the result is
+        part of the seeded baseline -- and no status: on failure the geometry
+        stays as loaded."""
         self.restore(records)
+        if self.enabled:
+            self._solve()
 
     def internal_records(self, items) -> list:
         """§8 copy: constraints whose refs all lie inside *items* (no grounds)."""
