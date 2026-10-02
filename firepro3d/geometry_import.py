@@ -67,27 +67,6 @@ def geometric_bounds(items) -> QRectF | None:
     return QRectF(left, top, right - left, bottom - top)
 
 
-def bbox_top_left(items) -> QPointF:
-    """Top-left (min-x, min-y) of the union of the items' geometric bounding rects.
-
-    Uses the coordinate-level (pen-free) bounding rect so that the result
-    reflects the authored geometry, not the visual stroke inflation.
-
-    Args:
-        items: construction-geometry primitives (LineItem, CircleItem,
-            PolylineItem subclasses).
-
-    Returns:
-        The union bounding-rect top-left as a ``QPointF``; (0, 0) when empty.
-    """
-    if not items:
-        return QPointF(0.0, 0.0)
-    rects = [_geometric_bbox(it) for it in items]
-    min_x = min(r.left() for r in rects)
-    min_y = min(r.top() for r in rects)
-    return QPointF(min_x, min_y)
-
-
 def geom_dicts_to_primitives(geoms, import_scale: float = 1.0, *,
                              lineweight: float = 1.0):
     """Convert kind-tagged import geom dicts to editable primitives.

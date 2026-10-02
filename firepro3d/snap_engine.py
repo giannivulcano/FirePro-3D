@@ -498,10 +498,9 @@ ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
 _WEAK_SNAP_TYPES: frozenset[str] = frozenset({"nearest"})
 
 _UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
-# Items that are never snap geometry themselves: the (0,0) origin cross and
-# the Block Editor insertion marker. Their POSITIONS are offered as the
-# ``origin`` kind by SnapEngine._origin_points (DD6).
-_NON_TARGET_TAGS = frozenset({"origin", "block_origin_marker"})
+# Items that are never snap geometry themselves: the (0,0) origin cross. Its
+# POSITION is offered as the ``origin`` kind by SnapEngine._origin_points (DD6).
+_NON_TARGET_TAGS = frozenset({"origin"})
 # Scene distance (mm) within which a real snap candidate counts as lying ON an
 # origin point, so the winning ``origin`` result adopts its source (I-1).
 _ORIGIN_COINCIDE_EPS = 1e-6
@@ -1053,22 +1052,19 @@ class SnapEngine:
         """Scene positions offered as the ``origin`` snap kind (DD6).
 
         The (0,0) origin cross (``Model_Space.draw_origin`` registers its two
-        lines as ``scene._origin_cross_items``) and the Block Editor red
-        insertion marker (``scene._block_origin_marker_item``), each only
-        while it is in this scene and visible. Deduped. O(1): read from the
-        registered references, never a scene walk.
+        lines as ``scene._origin_cross_items``), each line only while it is in
+        this scene and visible. Deduped. O(1): read from the registered
+        references, never a scene walk. (The Block Editor's movable red
+        insertion marker is retired — the origin is fixed at (0,0), D4.)
 
         Args:
-            scene: Any scene; one without the attributes yields [].
+            scene: Any scene; one without the attribute yields [].
 
         Returns:
-            Scene points (0, 1 or 2 of them).
+            Scene points (0 or 1 of them).
         """
         from PyQt6 import sip
         cands = list(getattr(scene, "_origin_cross_items", None) or ())
-        marker = getattr(scene, "_block_origin_marker_item", None)
-        if marker is not None:
-            cands.append(marker)
         pts: list[QPointF] = []
         for it in cands:
             if sip.isdeleted(it) or it.scene() is not scene or not it.isVisible():

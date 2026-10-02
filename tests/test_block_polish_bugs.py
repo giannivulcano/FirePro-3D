@@ -261,19 +261,13 @@ def _vertex_at(w, pt, tol=1e-6):
 def test_insert_at_origin_lands_base_point_on_new_block_origin(qapp):
     from firepro3d.block_editor import BlockEditorWidget
     w = BlockEditorWidget(Model_Space())
-    w.import_with_params(_params(base=(60, 20), origin=True))
+    # D4 / §6.5: the base point maps to the fixed (0,0) origin unconditionally
+    # — also into an editor that already holds geometry away from it.
+    w._add_primitive(LineItem(QPointF(500, 400), QPointF(700, 400)))
+    w.import_with_params(_params(base=(60, 20), origin=True, rot=90.0))
     assert _vertex_at(w, (0.0, 0.0)), "picked base vertex must land on the origin"
     o = w.origin_point()
-    assert (o.x(), o.y()) == (0.0, 0.0) and w._origin is not None, (
-        "an empty editor's origin is pinned at the import base point")
-
-
-def test_insert_at_origin_honours_a_pinned_origin(qapp):
-    from firepro3d.block_editor import BlockEditorWidget
-    w = BlockEditorWidget(Model_Space())
-    w.set_origin_point(QPointF(100.0, 50.0))
-    w.import_with_params(_params(base=(60, 20), origin=True, rot=90.0))
-    assert _vertex_at(w, (100.0, 50.0))
+    assert (o.x(), o.y()) == (0.0, 0.0)
 
 
 def test_insert_off_places_base_point_where_the_user_clicks(qapp):

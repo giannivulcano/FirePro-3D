@@ -1,27 +1,13 @@
 """Tests for firepro3d.geometry_import — pure, headless conversion layer.
 
-Tests for bbox_top_left and geom_dicts_to_primitives.
+Tests for geom_dicts_to_primitives.
 """
 
 import math
 
 from PyQt6.QtCore import QPointF
-from firepro3d.geometry_import import bbox_top_left, geom_dicts_to_primitives
+from firepro3d.geometry_import import geom_dicts_to_primitives
 from firepro3d.geometry_2d import LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem, SplineItem
-
-
-def test_bbox_top_left_over_mixed_primitives(qapp):
-    items = [
-        LineItem(QPointF(10, 40), QPointF(30, 10)),
-        CircleItem(QPointF(50, 50), 5),
-    ]
-    tl = bbox_top_left(items)
-    assert (round(tl.x(), 3), round(tl.y(), 3)) == (10.0, 10.0)
-
-
-def test_bbox_top_left_empty_returns_origin(qapp):
-    tl = bbox_top_left([])
-    assert (tl.x(), tl.y()) == (0.0, 0.0)
 
 
 def test_line_dict_scales_to_lineitem(qapp):

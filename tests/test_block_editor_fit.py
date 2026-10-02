@@ -50,6 +50,9 @@ def main_window(_main_window_singleton):
 # (centred on the origin) cannot pass for a fit.
 _X0, _Y0 = 3000.0, 2000.0
 _BLOCK_RECT = QRectF(_X0, _Y0, 500.0, 400.0)
+# Opening a definition whose origin is (_X0, _Y0) migrates it to (0,0) (D4,
+# parametric-constraint-system.md §6.5): the editor frames the block there.
+_MIGRATED_RECT = _BLOCK_RECT.translated(-_X0, -_Y0)
 
 
 def _block_prims():
@@ -100,13 +103,14 @@ def test_edit_definition_fits_a_fresh_tab_to_the_block(qapp, main_window):
         w = main_window.block_editor_manager.edit_definition(d.id)
         _settle()
         assert main_window.central_tabs.currentWidget() is w
-        _assert_framed(w.view)
+        _assert_framed(w.view, _MIGRATED_RECT)
     finally:
         _forget(proj, d)
 
 
 def test_create_block_from_a_selection_fits_the_seeded_geometry(qapp, main_window):
-    """Ribbon Create Block seeded from a plan selection (open_new + seed_from_dicts)."""
+    """Ribbon Create Block seeded from a plan selection (open_new +
+    seed_from_selection): the seeded geometry is centred on (0,0) (D24)."""
     proj = main_window.scene
     items = [LineItem.from_dict(p) for p in _block_prims()[:2]]
     try:
@@ -117,7 +121,10 @@ def test_create_block_from_a_selection_fits_the_seeded_geometry(qapp, main_windo
         _settle()
         w = main_window.central_tabs.currentWidget()
         assert len(w.gather_primitives()) == 2
-        _assert_framed(w.view)
+        from firepro3d import geometry_import
+        seeded = geometry_import.geometric_bounds(w.gather_primitives())
+        assert (seeded.center().x(), seeded.center().y()) == (0.0, 0.0)
+        _assert_framed(w.view, _BLOCK_RECT.translated(-_BLOCK_RECT.center()))
     finally:
         for it in items:
             if it.scene() is proj:
@@ -170,7 +177,7 @@ def test_seeding_before_the_first_show_is_not_overridden_by_the_default(qapp):
         w.seed_from_definition(d)
         w.resize(900, 700); w.show(); QTest.qWaitForWindowExposed(w)
         _settle()
-        _assert_framed(w.view)
+        _assert_framed(w.view, _MIGRATED_RECT)
     finally:
         w.hide()
         w.editor_scene.cleanup()

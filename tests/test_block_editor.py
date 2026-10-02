@@ -237,7 +237,7 @@ def test_widget_save_empty_returns_none(qapp, monkeypatch):
 # BE2.3a: editor toolbar strip with Save button
 # ---------------------------------------------------------------------------
 
-# Editor verbs (Save / Set Origin / Import / Edit Attributes) live in the
+# Editor verbs (Save / Save As / Import / Edit Attributes) live in the
 # contextual "Block Editor" ribbon (MainWindow-built, live-only), not on a widget
 # strip. The headless-testable Save core is exercised by the widget-save tests above.
 
@@ -265,91 +265,6 @@ def test_manager_open_in_editor_uses_editor_manager(qapp):
         w.seed_from_definition(defn)
     assert w._edit_block_id == defn.id
     assert len(w.gather_primitives()) == 1   # seeded from the def
-
-
-# ---------------------------------------------------------------------------
-# BE3a: Set-Origin core — pinned origin + persistent marker
-# ---------------------------------------------------------------------------
-
-def test_origin_defaults_to_bbox_top_left(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    w.seed_from_dicts(_seed_dicts())     # lines spanning (0,0)-(100,50)
-    o = w.origin_point()
-    assert (round(o.x()), round(o.y())) == (0, 0)
-
-
-def test_set_origin_point_pins_and_marks(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    w.seed_from_dicts(_seed_dicts())
-    w.set_origin_point(QPointF(100, 50))
-    o = w.origin_point()
-    assert (round(o.x()), round(o.y())) == (100, 50)
-    assert w._origin_marker is not None
-    assert w._origin_marker.pos() == QPointF(100, 50)
-    assert w._origin_marker.scene() is w.editor_scene
-
-
-def test_commit_uses_pinned_origin(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    w.seed_from_dicts(_seed_dicts())
-    w.set_origin_point(QPointF(25, 10))
-    defn = w.commit_block("N", "L", "S")
-    assert defn is not None
-    assert (round(defn.origin[0]), round(defn.origin[1])) == (25, 10)
-
-
-def test_seed_from_definition_restores_origin_marker(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    a = LineItem(QPointF(0, 0), QPointF(10, 0))
-    defn = project.commit_block_definition(block_id=None, name="B", library="L",
-        series="S", primitives=[a.to_dict()], origin=(7.0, 3.0), place_instance=False)
-    w = BlockEditorManager(tabs, project).open_for_definition(defn.id)
-    w.seed_from_definition(defn)
-    o = w.origin_point()
-    assert (round(o.x()), round(o.y())) == (7, 3)
-    assert w._origin_marker is not None
-
-
-# ---------------------------------------------------------------------------
-# BE3b: live snapped Set-Origin pick + ribbon button
-# ---------------------------------------------------------------------------
-
-def test_begin_set_origin_enters_scene_mode(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    w.begin_set_origin()
-    # Reuses the scene's placement pipeline (snap + align + live marker).
-    assert w.editor_scene.mode == "set_origin"
-
-
-def test_origin_picked_signal_pins_and_shows_marker(qapp):
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    # The scene emits originPicked with the snapped+aligned point on click.
-    w.editor_scene.originPicked.emit(QPointF(42, 17))
-    assert w._origin is not None
-    o = w.origin_point()
-    assert (round(o.x()), round(o.y())) == (42, 17)
-    assert w._origin_marker is not None
-    assert w._origin_marker.scene() is w.editor_scene
-
-
-def test_set_origin_press_emits_snapped_point(qapp):
-    # The scene's set_origin press handler emits the (already snap/align-resolved)
-    # point and returns to select mode.
-    project = Model_Space(); tabs = QTabWidget()
-    w = BlockEditorManager(tabs, project).open_new()
-    got = []
-    w.editor_scene.originPicked.connect(lambda p: got.append(p))
-    w.begin_set_origin()
-    w.editor_scene._press_set_origin(None, QPointF(9, 9), QPointF(3, 4),
-                                     None, None, None)
-    assert got and (round(got[0].x()), round(got[0].y())) == (3, 4)
-    assert w.editor_scene.mode == "select"
-    assert (round(w.origin_point().x()), round(w.origin_point().y())) == (3, 4)
 
 
 # ---------------------------------------------------------------------------

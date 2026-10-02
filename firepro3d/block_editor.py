@@ -285,16 +285,17 @@ class BlockEditorWidget(QWidget):
         self.view = Model_View(self.editor_scene)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        # Editor verbs (Save / Set Origin / Import / Edit Attributes) live on the
+        # Editor verbs (Save / Save As / Import / Edit Attributes) live on the
         # permanent "Block Editor" ribbon tab, enabled by MainWindow while this
         # tab is current — not on a widget strip (see
         # MainWindow._init_block_editor_tab).
         lay.addWidget(self.view)
         self._dirty = False
-        self._origin = None          # QPointF | None ; None => auto bbox_top_left
-        self._origin_marker = None   # QGraphicsItem crosshair
+        # Create Block from a plan selection (D24): the plan-scene point the
+        # selection's bbox centre came from. The replaced plan instance is
+        # placed there; the definition origin itself is always (0,0) (D4).
+        self._seed_base = None       # QPointF | None
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
-        self.editor_scene.originPicked.connect(self._on_origin_picked)
 
     @property
     def _edit_block_id(self):
@@ -316,62 +317,37 @@ class BlockEditorWidget(QWidget):
     def _mark_clean(self):
         self._dirty = False
 
-    # ── Origin-pick mode (BE3b) ──────────────────────────────────────────────
-
-    def begin_set_origin(self):
-        """Enter the scene's 'set_origin' mode.
-
-        Reuses the full placement pipeline (OSNAP + ALIGN + live snap marker via
-        get_effective_position), so the next click pins a snapped/aligned origin.
-        The scene emits ``originPicked`` on click (wired in __init__).
-        """
-        self.editor_scene.set_mode("set_origin")
-
-    def _on_origin_picked(self, pt):
-        """Slot for the editor scene's ``originPicked`` signal."""
-        self.set_origin_point(pt)
-
-    # ── Origin point + marker ────────────────────────────────────────────────
-
-    def set_origin_point(self, pt):
-        """Pin the block insertion origin (definition-local) + show the marker.
-
-        Args:
-            pt: a QPointF in editor-scene coordinates.
-        """
-        from PyQt6.QtCore import QPointF
-        self._origin = QPointF(pt)
-        self._ensure_origin_marker()
-        self._origin_marker.setPos(self._origin)
+    # ── Origin (D4: fixed at the editor scene's (0,0)) ───────────────────────
 
     def origin_point(self):
-        """Return the pinned origin QPointF, or the current bbox top-left if unset."""
-        if self._origin is not None:
-            return self._origin
-        return geometry_import.bbox_top_left(self.gather_primitives())
+        """The block insertion origin: always the editor scene's (0,0) (D4).
 
-    def _ensure_origin_marker(self):
-        """Create the persistent, screen-constant origin crosshair once."""
-        if self._origin_marker is not None:
-            return
-        from PyQt6.QtWidgets import QGraphicsPathItem
-        from PyQt6.QtGui import QPainterPath, QPen, QColor
-        path = QPainterPath()
-        r = 8.0  # device px (ItemIgnoresTransformations => screen-constant)
-        path.moveTo(-r, 0); path.lineTo(r, 0)
-        path.moveTo(0, -r); path.lineTo(0, r)
-        path.addEllipse(-r, -r, 2 * r, 2 * r)
-        item = QGraphicsPathItem(path)
-        pen = QPen(QColor("#ff3b30")); pen.setWidthF(1.5); pen.setCosmetic(True)
-        item.setPen(pen)
-        item.setFlag(item.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, False)
-        item.setZValue(10_000)
-        item.setData(0, "block_origin_marker")
-        self.editor_scene.addItem(item)
-        self._origin_marker = item
-        # Snap target (``origin`` kind, DD6) — SnapEngine._origin_points.
-        self.editor_scene._block_origin_marker_item = item
+        The movable origin (Set Origin tool + red marker) and the bbox
+        top-left default are retired; users design around the white (0,0)
+        cross. See parametric-constraint-system.md D4 / §6.5.
+        """
+        from PyQt6.QtCore import QPointF
+        return QPointF(0.0, 0.0)
+
+    def _translate_all(self, dx: float, dy: float) -> None:
+        """Shift every seeded primitive / nested instance in place.
+
+        Used by the D4 origin migration and the D24 bbox-centre base. The SAME
+        items are moved (uids stay stable) — never rebuilt.
+        """
+        for it in self.gather_primitives():
+            if hasattr(it, "translate"):
+                it.translate(dx, dy)
+            else:
+                it.manip_translate(dx, dy)     # TextItem (no translate())
+
+    def _rebaseline_undo(self) -> None:
+        """Make the current editor state the undo baseline (index 0)."""
+        sc = self.editor_scene
+        sc._undo_stack = []
+        sc._undo_pos = -1
+        sc.push_undo_state()
+        self._mark_clean()
 
     def _add_primitive(self, item):
         """Add a construction primitive to the editor scene + its tracking list."""
@@ -422,7 +398,7 @@ class BlockEditorWidget(QWidget):
 
         Uses the pen-free bounds of ``gather_primitives()`` (nested blocks via
         ``geometric_rect()``), not ``itemsBoundingRect()``, which would also
-        take in the origin marker and helper items.
+        take in the origin cross and helper items.
         """
         rect = geometry_import.geometric_bounds(self.gather_primitives())
         if rect is not None:
@@ -436,9 +412,41 @@ class BlockEditorWidget(QWidget):
                 editor scene.
         """
         self.seed_from_dicts(list(defn.primitives))
-        from PyQt6.QtCore import QPointF
-        self.set_origin_point(QPointF(defn.origin[0], defn.origin[1]))
+        # D4 / §6.5 migration: a definition with a non-zero origin is moved so
+        # its origin lands on (0,0); the next save writes origin (0,0) and the
+        # compiled instances render identically (compile applies -origin).
+        ox, oy = float(defn.origin[0]), float(defn.origin[1])
+        if (ox, oy) != (0.0, 0.0):
+            self._translate_all(-ox, -oy)
+            # The migrated state is the baseline — Ctrl+Z must not undo it.
+            self._rebaseline_undo()
+            self.fit_view_to_block()
         self._mark_clean()
+
+    def seed_from_selection(self, prim_dicts, *, source_items):
+        """Create Block from a plan selection: bbox centre -> (0,0) (D24).
+
+        The copies are translated so the selection's bounding-box centre sits
+        on the fixed origin; the plan-scene centre is remembered so a
+        replace-on-save places the instance there and nothing moves visually.
+
+        Args:
+            prim_dicts: the selection's primitive ``to_dict`` dicts.
+            source_items: the plan-scene items (consumed on a replace save).
+        """
+        from PyQt6.QtCore import QPointF
+        self.seed_from_dicts(prim_dicts, source_items=source_items)
+        # The base is the centre of the REAL geometry: non-printed reference
+        # lines are scaffolding (D23), not block geometry, so they are left out
+        # of the bbox (a plan selection carries none today; explicit anyway).
+        real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
+        rect = geometry_import.geometric_bounds(real)
+        c = rect.center() if rect is not None else QPointF(0.0, 0.0)
+        self._seed_base = QPointF(c)
+        if (c.x(), c.y()) != (0.0, 0.0):
+            self._translate_all(-c.x(), -c.y())
+        self._rebaseline_undo()
+        self.fit_view_to_block()
 
     def gather_primitives(self):
         """Return the editor scene's construction primitives (stable list order).
@@ -465,7 +473,8 @@ class BlockEditorWidget(QWidget):
 
         New (``_edit_block_id is None``): registers a new definition. When the
         editor was seeded from a selection and ``replace_source`` is True, the
-        source items are consumed and one instance is placed at the origin.
+        source items are consumed and one instance is placed at the seed's
+        plan-scene base point (D24; the definition origin is always (0,0), D4).
         Edit-in-place: updates the existing definition (version bump + repaint),
         no placement. Returns the BlockDefinition, or None if there is no
         geometry. After a successful new commit, ``_edit_block_id`` is set so a
@@ -492,15 +501,18 @@ class BlockEditorWidget(QWidget):
         origin = self.origin_point()
         is_new = self._edit_block_id is None
         do_replace = is_new and replace_source and bool(self._seed_source_items)
+        base = self._seed_base
         defn = self._project_scene.commit_block_definition(
             block_id=self._edit_block_id, name=name, library=library, series=series,
             primitives=prims, origin=(origin.x(), origin.y()),
             place_instance=do_replace,
-            source_items=self._seed_source_items if do_replace else None)
+            source_items=self._seed_source_items if do_replace else None,
+            place_at=(base.x(), base.y()) if base is not None else None)
         if defn is None:
             return None
         self._edit_block_id = defn.id
         self._seed_source_items = []   # consumed / no longer a fresh seed
+        self._seed_base = None
         self._mark_clean()
         # save_to_library handled in the next sub-task (dialog wiring)
         self.saved.emit(self, defn)
@@ -698,36 +710,25 @@ class BlockEditorWidget(QWidget):
 
         The picked **base point** is the grip that places the geometry:
 
-        * ``insert_at_origin`` on — the base point lands on the block origin
-          (the pinned origin, else the editor origin).
+        * ``insert_at_origin`` on — the base point lands on the block origin,
+          the editor scene's fixed (0,0) (D4, §6.5).
         * off — the geometry is added base-at-origin, selected, and handed to
           the Move tool with the base point preset, so it rides the cursor
           (OSNAP / ALIGN / HUD) until the placing click.
-
-        Importing into an EMPTY editor with no pinned origin pins the origin
-        at the base point (so the marker sits where the base point was picked,
-        not at the geometry's bbox corner).
 
         Args:
             p: ``ImportParams`` from ``BlockImportDialog.get_import_params()``.
         """
         from PyQt6.QtCore import QPointF
         from . import dwg_converter
-        was_empty = not self.gather_primitives()
-        # Base-shift + scale + rotation: the base point maps to (0, 0). Scale is
-        # baked here, so the primitive factory gets 1.0.
+        # Base-shift + scale + rotation: the base point maps to (0, 0)
+        # unconditionally (§6.5). Scale is baked here, so the primitive
+        # factory gets 1.0.
         geoms = dwg_converter.apply_import_transform(
             p.geom_list, p.scale, p.base_x, p.base_y, p.rotation)
-        target = QPointF(0.0, 0.0)
-        if p.insert_at_origin and self._origin is not None:
-            target = QPointF(self._origin)
-            geoms = dwg_converter.apply_import_transform(
-                geoms, 1.0, -target.x(), -target.y())
-        if was_empty and self._origin is None:
-            self.set_origin_point(QPointF(0.0, 0.0))
         added, _skipped = self._add_imported_geoms(geoms, 1.0)
         if added and not p.insert_at_origin:
-            self.editor_scene.begin_move_from(target)
+            self.editor_scene.begin_move_from(QPointF(0.0, 0.0))
 
     def _save_to_library(self, defn, parent, *, overwrite: bool = False):
         """Persist *defn* to the on-disk block library.

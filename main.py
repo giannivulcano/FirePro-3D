@@ -2464,7 +2464,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Plan / network / sheets
         "pipe": "Pipe", "sprinkler": "Sprinkler",
         "water_supply": "Water Supply", "design_area": "Design Area",
-        "set_scale": "Set Scale", "set_origin": "Set Origin",
+        "set_scale": "Set Scale",
         "place_import": "Place Import", "place_block": "Place Block",
         "draw_gridline": "Gridline", "gridline_array": "Array Gridlines",
         "gridline_offset": "Offset Gridline", "detail": "Detail View",
@@ -2618,7 +2618,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         items = [it for it in self.scene.selectedItems() if isinstance(it, PRIM)]
         w = self.block_editor_manager.open_new()
         if items:
-            w.seed_from_dicts([it.to_dict() for it in items], source_items=items)
+            # D24: the selection's bbox centre is the base point (-> (0,0)).
+            w.seed_from_selection([it.to_dict() for it in items], source_items=items)
 
     def _focus_blocks_browser(self):
         """Ribbon handler: reveal the Blocks browser tab for insert/place."""
@@ -4987,10 +4988,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             gd.add_small_button("Import", _I("block_manager_icon.svg"),
                                 self._be_import),
             "Import DXF/DWG/PDF geometry into the editor")
-        self._be_origin_btn = _editor_only(
-            gd.add_small_button("Set Origin", _I("insert_block_icon.svg"),
-                                self._be_set_origin),
-            "Set the block insertion origin (click to pick, snapped)")
         # Placeholder (user exception to D15): permanently disabled until wired.
         self._be_attr_btn = _editor_only(
             gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
@@ -5112,11 +5109,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self._active_editor_widget()
         if w is not None:
             w.save_as(self)
-
-    def _be_set_origin(self):
-        w = self._active_editor_widget()
-        if w is not None:
-            w.begin_set_origin()
 
     def _be_import(self):
         w = self._active_editor_widget()

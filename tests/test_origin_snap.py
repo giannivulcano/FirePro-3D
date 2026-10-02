@@ -1,7 +1,7 @@
 """DD6 guards — shared snap eligibility + the ``origin`` snap kind (Slice 2).
 
 Real path: shown Model_View over a real Model_Space (or a real
-BlockEditorWidget for the red insertion marker), posted mouse events through
+BlockEditorWidget for the editor's fixed (0,0) origin), posted mouse events through
 the scene dispatch (cursor snap via get_effective_position -> find(); handle
 snap via the manipulator / Move-Duplicate destination -> HandleSnapSession).
 Ground truth: where the geometry actually lands (grip points) and the
@@ -237,9 +237,9 @@ def test_plan_scene_origin_is_its_own_kind(qapp):
         close_view(view, scene)
 
 
-# ── M4: the Block Editor red insertion marker ──────────────────────────────
+# ── M4: the Block Editor origin (fixed at (0,0), D4) ──────────────────────────────
 
-def _block_editor(origin: QPointF):
+def _block_editor():
     from firepro3d.block_editor import BlockEditorWidget
     from firepro3d.level_manager import LevelManager
     from firepro3d.model_space import Model_Space
@@ -252,7 +252,6 @@ def _block_editor(origin: QPointF):
     sc = w.editor_scene
     sc._level_manager = LevelManager()
     sc.scale_manager = ScaleManager()
-    w.set_origin_point(origin)
     w.resize(800, 600)
     w.show()
     QTest.qWaitForWindowExposed(w)
@@ -271,35 +270,6 @@ def _close_editor(w, project):
     w.close()
     w.deleteLater()
     QApplication.processEvents()
-
-
-def test_pinned_red_marker_is_a_cursor_snap_target(qapp):
-    w, v, sc, project = _block_editor(QPointF(300, 200))
-    try:
-        a = _selected_line(sc, (100, 100), (200, 100))
-        sc._modify_ctl.start("copy")
-        click(v, QPointF(100, 100))                # copied base = a.p1
-        sc.clearSelection()
-        assert sc._modify_ctl.start("paste")
-        move(v, QPointF(304, 203))
-        click(v, QPointF(304, 203))
-        pasted = [l for l in sc._draw_lines if l is not a]
-        assert len(pasted) == 1
-        assert _at(pasted[0].grip_points()[0], 300.0, 200.0)             # [RED]
-    finally:
-        _close_editor(w, project)
-
-
-def test_pinned_red_marker_is_a_handle_snap_target(qapp):
-    w, v, sc, project = _block_editor(QPointF(300, 200))
-    try:
-        a = _selected_line(sc, (100, 100), (200, 100))
-        # raw drop puts a.p1 at (304,203)
-        marker = _drag_peek(v, QPointF(150, 100), QPointF(354, 203))
-        assert _at(a.grip_points()[0], 300.0, 200.0)                     # [RED]
-        assert marker is not None and marker.snap_type == "origin"
-    finally:
-        _close_editor(w, project)
 
 
 # ── M4: the glyph ───────────────────────────────────────────────────────────
@@ -402,17 +372,19 @@ def test_wall_face_corner_on_origin_keeps_the_wall_extension_ray(qapp):
 
 # ── I-2: each source-less origin point has its own ALIGN identity ──────────
 
-def test_block_editor_dwell_acquires_both_origin_points(qapp):
-    w, v, sc, project = _block_editor(QPointF(300, 200))
+def test_block_editor_dwell_acquires_only_the_fixed_origin(qapp):
+    # D4: the white (0,0) cross is the editor's only origin point; the retired
+    # red insertion marker's old spot (300,200) offers nothing.
+    w, v, sc, project = _block_editor()
     try:
         sc._snap_engine.snap_intersection = False
         sc.set_mode("draw_line")
         dwell(v, QPointF(1, 1))                    # acquire the (0,0) cross
-        move(v, QPointF(150, 100))                 # away from both
-        dwell(v, QPointF(301, 201))                # acquire the red marker
+        move(v, QPointF(150, 100))                 # away from it
+        dwell(v, QPointF(301, 201))                # no origin point here now
         acq = sorted(tuple(round(c, 3) for c in a.point)
                      for a in sc._align_controller.acquired if a.point is not None)
-        assert acq == [(0.0, 0.0), (300.0, 200.0)]                       # [RED]
+        assert acq == [(0.0, 0.0)]
     finally:
         _close_editor(w, project)
 

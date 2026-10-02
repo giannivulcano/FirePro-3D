@@ -352,17 +352,21 @@ def test_closed_editor_scene_is_freed(qapp):
     assert len(b._instances) == 0
 
 
-def test_default_origin_excludes_instance_pen_margin(qapp):
+def test_origin_is_fixed_at_zero_not_the_nested_bbox(qapp):
+    # D4: the editor origin is the fixed (0,0) — never derived from the
+    # geometry's bbox (the retired top-left default would give (40,30) here).
     proj = Model_Space()
     b = _line_def("B", 0, 100, 0)
     proj.register_block_definition(b)
     w = _editor(proj)
     try:
-        w.editor_scene.place_block_instance(b.id, (0.0, 0.0))
-        ln = LineItem(QPointF(0, 50), QPointF(100, 50))
+        w.editor_scene.place_block_instance(b.id, (40.0, 30.0))
+        ln = LineItem(QPointF(40, 80), QPointF(140, 80))
         w._add_primitive(ln)
         o = w.origin_point()
         assert (o.x(), o.y()) == (0.0, 0.0)
+        defn = w.commit_block("N", "L", "S")
+        assert defn.origin == (0.0, 0.0)
     finally:
         w.editor_scene.cleanup()
 

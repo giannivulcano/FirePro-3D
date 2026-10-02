@@ -179,7 +179,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
-    originPicked = pyqtSignal(QPointF)       # "set_origin" mode click (Block Editor)
     blockEditRequested = pyqtSignal(str)     # Block Editor: open a nested block's definition
 
     def __init__(self, scene_role: str = "plan"):
@@ -565,9 +564,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.init_preview_node()
         self.init_preview_pipe()
         self._suppress_preview_node = False  # True while the crosshair owns the cursor
-        # Block Editor red insertion marker, registered by BlockEditorWidget
-        # so the snap engine can offer its position as ``origin`` (DD6).
-        self._block_origin_marker_item = None
         self.draw_origin()
         self.push_undo_state()   # initial empty state
         # Dirty tracking (chrome header ●). The seed push above is not a user
@@ -1443,7 +1439,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "polyline":       "Pick first point",
             "text":           "Pick first corner",
             "set_scale":      "Pick first calibration point",
-            "set_origin":     "Click to set the block origin (snapped) — Esc to cancel",
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
             "duplicate":      "Pick base point",
@@ -1932,14 +1927,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
-                                source_items=None):
+                                source_items=None, place_at=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
         register). ``block_id`` given -> edit-in-place: update
         name/library/series/origin and ``set_primitives`` (bumps version +
-        repaints every instance). Places one ``BlockInstance`` at *origin* when
-        ``place_instance``. Pushes exactly one undo state. Returns the
+        repaints every instance). Places one ``BlockInstance`` at *place_at*
+        (default *origin*) when ``place_instance``. Pushes exactly one undo state. Returns the
         definition, or None (empty ``primitives``, or a given ``block_id``
         absent from the registry).
 
@@ -1955,10 +1950,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             primitives: List of 2D-primitive dicts (geometry_2d
                 to_dict form).
             origin: ``(x, y)`` insertion origin in scene millimetres.
-            place_instance: When True, place one BlockInstance at *origin*.
+            place_instance: When True, place one BlockInstance at *place_at*.
             source_items: Optional list of scene items to remove after all
                 guards pass (seeded-create replace workflow). Never deleted on
                 an early-return None.
+            place_at: ``(x, y)`` scene point for the placed instance, decoupled
+                from the definition origin (Create Block from selection places
+                at the selection's bbox centre, D24). ``None`` -> *origin*.
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -1993,7 +1991,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for it in (source_items or []):
             self._remove_item_from_lists(it)
         if place_instance:
-            self.place_block_instance(defn.id, (ox, oy), rotation=0.0)
+            px, py = ((float(place_at[0]), float(place_at[1]))
+                      if place_at is not None else (ox, oy))
+            self.place_block_instance(defn.id, (px, py), rotation=0.0)
         self.push_undo_state()
         return defn
 
@@ -4576,7 +4576,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
-        "text", "set_scale", "set_origin", "water_supply", "design_area",
+        "text", "set_scale", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
@@ -4589,7 +4589,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "sprinkler":                "_press_sprinkler",
         "pipe":                     "_press_pipe",
         "set_scale":                "_press_set_scale",
-        "set_origin":               "_press_set_origin",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
         "draw_gridline":            "_press_draw_line",
@@ -4900,15 +4899,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._show_status(f"Calibration failed: {e}")
             self._cal_point1 = None
             self.set_mode(None)
-
-    def _press_set_origin(self, event, pos, snapped, item_under, node_under, pipe_under):
-        """Block Editor 'set_origin' mode: emit the snapped+aligned point.
-
-        ``snapped`` is already OSNAP+ALIGN-resolved by get_effective_position, so
-        the origin honours snaps and alignment guides like any placement pick.
-        """
-        self.originPicked.emit(snapped)
-        self.set_mode("select")
 
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:
