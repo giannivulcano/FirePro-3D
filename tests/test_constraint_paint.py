@@ -497,3 +497,29 @@ def test_glyph_border_red_and_amber(be, themed):
         r = lays[cid]
         got = _Near([_px(img, dpr, r.left() + dx, r.center().y()) for dx in (0, 1, 2)])
         assert _dist(got, t.color(tok)) <= 48, (tok, [c.name() for c in got.cols])
+
+
+def test_tinted_reference_line_keeps_its_dashes(be, themed):
+    """User, 2026-10-02 (CS2 smoke): reference lines must keep looking like
+    reference lines -- the tint follows their dash pattern (dash lengths in
+    px unchanged), so the line reads blue AND dashed."""
+    from firepro3d.geometry_2d import ReferenceLineItem
+    v, sc = be
+    t = themed
+    rl = ReferenceLineItem(QPointF(-300, -150), QPointF(0, -150))
+    sc.addItem(rl); sc._reference_lines.append(rl)
+    sc.clearSelection()
+    img, dpr = _grab(v)
+    a, b = v.mapFromScene(QPointF(-290, -150)), v.mapFromScene(QPointF(-10, -150))
+    bp = v.mapFromScene(QPointF(-150, -250))
+    free, bg = t.color("constraint_free"), _px(img, dpr, bp.x(), bp.y())
+    on = gaps = 0
+    for x in range(a.x(), b.x()):
+        col = _Near([_px(img, dpr, x, a.y() + dy) for dy in (-1, 0, 1)])
+        if _dist(col, free) <= 60:
+            on += 1
+        elif _dist(col, bg) <= 30:
+            gaps += 1
+    span = b.x() - a.x()
+    assert on > 0.3 * span, (on, span)          # tinted
+    assert gaps > 0.15 * span, (gaps, span)     # still dashed

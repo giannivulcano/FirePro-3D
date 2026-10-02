@@ -356,10 +356,8 @@ def _paint_axes(painter, view, t) -> None:
 _TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
 
 
-def _tint_width(it, view) -> float:
-    """The item's own stroke width in viewport px (min 1, CS2 gate) plus
-    ``CONSTRAINT_TINT_EXTRA_PX``: an anti-aliased stroke straddles two pixel
-    rows, so a same-width overlay only half-covers the item's own fringe."""
+def _item_width(it, view) -> float:
+    """The item's own stroke width in viewport px (min 1, CS2 gate)."""
     pen_fn = getattr(it, "pen", None)
     if not callable(pen_fn):
         return 1.0
@@ -367,7 +365,28 @@ def _tint_width(it, view) -> float:
     w = p.widthF()
     if not p.isCosmetic():
         w *= abs(view.transform().m11())
-    return max(1.0, w) + M.CONSTRAINT_TINT_EXTRA_PX
+    return max(1.0, w)
+
+
+def _tint_pen(it, view, color) -> QPen:
+    """The D39 tint pen: the item's width + ``CONSTRAINT_TINT_EXTRA_PX`` (an
+    anti-aliased stroke straddles two pixel rows, so a same-width overlay only
+    half-covers the item's own fringe). A dashed item (reference line) keeps
+    its dash pattern at the same px lengths -- Qt dash lengths are in units of
+    pen width, so the pattern is scaled by item / tint width (user,
+    2026-10-02: reference lines stay looking like reference lines)."""
+    wi = _item_width(it, view)
+    wt = wi + M.CONSTRAINT_TINT_EXTRA_PX
+    pen = QPen(color, wt)
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+    pen_fn = getattr(it, "pen", None)
+    ip = pen_fn() if callable(pen_fn) else None
+    if ip is not None and ip.style() not in (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen):
+        k = wi / wt
+        pen.setDashPattern([d * k for d in ip.dashPattern()])
+        pen.setDashOffset(ip.dashOffset() * k)
+    return pen
 
 
 def _paint_tint(painter, view, ctl, t) -> None:
@@ -387,10 +406,7 @@ def _paint_tint(painter, view, ctl, t) -> None:
         u = getattr(it, "_uid", None)
         if u is None:
             continue
-        pen = QPen(t.color(_TINT_TOKEN[d.state(u)]), _tint_width(it, view))
-        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
+        painter.setPen(_tint_pen(it, view, t.color(_TINT_TOKEN[d.state(u)])))
         painter.drawPath(vt.map(halo_scene_path(it)))
 
 
