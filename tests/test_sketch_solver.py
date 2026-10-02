@@ -258,3 +258,46 @@ def test_diagnose_sums_dof_over_components():
     ss.BUILDERS["horizontal"]("r3", (_identity_derived(6), _identity_derived(4)), s)  # redundant
     d = ss.NumpySolver().diagnose(s)
     assert (d.nvars, d.rank, d.dof, d.conflicts) == (10, 2, 8, [])
+
+
+def test_pinned_drag_off_manifold_meets_tolerance():
+    """A W_PIN goal the constraints forbid: damping must not stall the residual."""
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0]))
+    ss.BUILDERS["horizontal"]("o", (ss.raw_point(0, 1), ss.const_point(0, 0)), s)
+    ss.BUILDERS["horizontal"]("r", (_y_only(1), _y_only(3)), s)
+    goals = s.x.copy(); goals[3] = 9.0
+    w = np.ones(4); w[3] = ss.W_PIN
+    res = ss.NumpySolver().solve(s, goals, w, active=[3])
+    assert res.converged and res.max_residual <= ss.LIN_TOL
+    assert abs(res.x[3]) <= ss.LIN_TOL
+
+
+def test_two_pinned_ends_fighting_a_row_meet_tolerance():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0]))
+    ss.BUILDERS["horizontal"]("r", (_y_only(1), _y_only(3)), s)
+    goals = s.x.copy(); goals[3] = 9.0
+    w = np.ones(4); w[1] = w[3] = ss.W_PIN
+    res = ss.NumpySolver().solve(s, goals, w)
+    assert res.converged and res.max_residual <= ss.LIN_TOL
+    assert abs(res.x[1] - 4.5) < 1e-6 and abs(res.x[3] - 4.5) < 1e-6
+
+
+def test_structure_cache_sees_in_place_fix_edit():
+    s = ss.System(x=np.array([0.0, 3.0]))
+    ss.BUILDERS["horizontal"]("o", (ss.raw_point(0, 1), ss.const_point(0, 0)), s)
+    assert ss.NumpySolver().solve(s, s.x.copy(), np.ones(2)).x[1] == 0.0
+    s.fixes[0] = (1, 5.0, "o")                 # same length, new value
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
+    assert res.converged and res.x[1] == 5.0
+
+
+def test_structure_cache_sees_alias_swap_with_same_length():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 30.0, 20.0, 50.0]))
+    ss.BUILDERS["horizontal"]("ab", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    first = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
+    assert np.allclose(first.x[[1, 3, 5]], [15.0, 15.0, 50.0])
+    s.aliases.pop()
+    ss.BUILDERS["horizontal"]("bc", (ss.raw_point(2, 3), ss.raw_point(4, 5)), s)
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
+    assert res.converged
+    assert np.allclose(res.x[[1, 3, 5]], [0.0, 40.0, 40.0])

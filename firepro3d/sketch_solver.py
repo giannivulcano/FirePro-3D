@@ -14,7 +14,7 @@ import numpy as np
 LIN_TOL = 1e-6          # D18 linear residual bar (mm)
 ANG_SCALE = 1000.0      # angular rows are multiplied by this (§7.2)
 MAX_ITERS = 25
-DAMPING = 1e-12
+DAMPING_REL = 1e-12     # Tikhonov term, relative to max diag(J W^-1 J^T)
 W_PIN = 1e6             # a drag's pinned handle
 W_EDIT = 1e3            # the item a typed edit / transform changed
 STEP_TOL = 1e-10
@@ -68,11 +68,12 @@ class Row:
 class System:
     """Variables + equalities + residual rows for one sketch.
 
-    Structure contract: ``aliases``, ``fixes`` and ``rows`` (and ``len(x)``)
-    are append-only. The solver caches its structural analysis (substitution,
-    components, Jacobian scatter indices) on the System, keyed on their lengths.
-    Editing or removing an entry in place after a solve is unsupported; build a
-    new System instead. The values in ``x`` may change freely between solves.
+    The solver caches its structural analysis (substitution, components,
+    Jacobian scatter indices) on the System, keyed on the content of
+    ``aliases`` / ``fixes`` (tuples compared by value), the identity of each
+    ``Row`` and ``len(x)``; any edit to those lists rebuilds it. A ``Row``
+    object must not be mutated after a solve (replace it instead). The values
+    in ``x`` may change freely between solves.
     """
     x: np.ndarray
     aliases: list = field(default_factory=list)   # (i, j, cid): x_i == x_j
@@ -133,7 +134,7 @@ class _Structure:
 
     def __init__(self, sys: System):
         n = len(sys.x)
-        self.key = (n, len(sys.aliases), len(sys.fixes), len(sys.rows))
+        self.key = _structure_key(sys)
         uf = _UF(n)
         for i, j, _cid in sys.aliases:
             uf.union(i, j)
@@ -222,10 +223,16 @@ class _Structure:
             comp.jmask = None if jmask.all() else jmask
 
 
+def _structure_key(sys: System) -> tuple:
+    """Content key: catches appends AND in-place edits of aliases/fixes/rows."""
+    return (len(sys.x), tuple(sys.aliases), tuple(sys.fixes),
+            tuple(map(id, sys.rows)))
+
+
 def _structure(sys: System) -> _Structure:
-    """The cached structural analysis of *sys* (rebuilt when its shape grows)."""
+    """The cached structural analysis of *sys* (rebuilt when its content changes)."""
     st = sys._structure
-    key = (len(sys.x), len(sys.aliases), len(sys.fixes), len(sys.rows))
+    key = _structure_key(sys)
     if st is None or st.key != key:
         st = _Structure(sys)
         sys._structure = st
@@ -318,11 +325,16 @@ class NumpySolver:
                 continue                   # rowless: exactly the weighted-mean goal
             checked.extend(comp.rows)
             winv = 1.0 / w
-            damp = DAMPING * np.eye(len(comp.rows))
             for _ in range(MAX_ITERS):
                 F, J = _eval_comp(comp, x)
                 g = zg - z
-                A = (J * winv) @ J.T + damp
+                A = (J * winv) @ J.T
+                # relative Tikhonov: A scales with 1/weight, so an absolute term
+                # would bias a W_PIN solve off-manifold by ~1e-6 x the offset
+                # (an all-zero A — rows with no free gradient — gets 1.0 so the
+                # step stays finite: dz = W^-1 J^T lam = 0 there)
+                dmax = float(np.max(np.diag(A)))
+                A[np.diag_indices_from(A)] += DAMPING_REL * dmax if dmax > 0 else 1.0
                 rhs = -F - J @ g
                 try:
                     lam = np.linalg.solve(A, rhs)
