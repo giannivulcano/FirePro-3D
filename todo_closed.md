@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS2 Vertical + diagnostics — 2026-10-02
+
+- [x] [type:feature] CS2 — Vertical + diagnostics (DOF badge, D10 tint toggle, amber redundant / red conflicting, hold-last-good) [P1] [subject:CAD] [done:2026-10-02]
+  - Details: spec §7.4, D9/D10. Built on `feat/cs2-vertical-diagnostics` (code close `7853334`; spec Account `13ff622`). Phase 2 FP1 rulings D36–D42 + the P4 economy-SVD ruling + the user's reference-line dash ruling (smoke). Delivered: Vertical (shared `_axis_equal` builder); `Diagnostics.redundant` / `dof_of`; D36 edge collapse; D37/D38 red set (structural-commit re-check; load = solvable-in-order, restore/paste = unsatisfied-at-committed-geometry after review I-1); D39 tint overlay + Constraint Status toggle (reference lines keep their dashes); D40 block view (`block_properties_info.py`, panel type "status", `ui_kit.StatusBadge`); D41 element footer; D42 copy rule + redundant status; amber/red glyph borders. Evidence: VC6 four chunks green (1546 / 950 / 1859 / 2222) + perf 12 passed / 2 strict xfail; VC3 RED-with-revert on the Vertical, H+V and D40 guards; two per-task reviews (2 Important fixed with RED guards); user smoke passed. Follow-ups filed: perpendicular-line rotate, attribution consistency, load() loop, one chunk flake; D18 task widened to the CS2 diagnostics cost.
+
 ## Block Editor constraint system — CS1 foundation + Horizontal — 2026-10-02
 
 - [x] [type:feature] CS1 — Constraint foundation + Horizontal [P1] [subject:CAD] [done:2026-10-02]
