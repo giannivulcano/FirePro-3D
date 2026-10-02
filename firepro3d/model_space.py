@@ -7340,7 +7340,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
 
-    def paste_items(self, offset, data=None, constraints=None):
+    def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
         """Add clipboard records translated by *offset*.
 
         Args:
@@ -7351,6 +7351,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 (``ConstraintController.internal_records``); remapped onto the
                 new items' uids after the paste (parametric-constraint-system
                 §8). The caller pushes the undo step.
+            rotation_deg: The rotation the caller will give these copies
+                (Polar Array); constraints it does not preserve are dropped
+                (D30, ``ConstraintController.paste_records``).
 
         Returns:
             Every pasted top-level item — 2D geometry / text, each record's
@@ -7486,7 +7489,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 new_items.append(gl)
 
         if constraints:
-            self.constraint_ctl.paste_records(constraints, uid_map)
+            self.constraint_ctl.paste_records(constraints, uid_map,
+                                              rotation_deg=rotation_deg)
         self._show_status(f"Pasted {len(data)} item(s)")
         return new_items
 
@@ -7531,7 +7535,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """The versioned FirePro3D clipboard payload (scene-tools.md I1).
 
         Returns:
-            ``{"fp3d_clipboard", "base", "scene_role", "items"}``, or None when
+            ``{"fp3d_clipboard", "base", "scene_role", "items",
+            "constraints"}`` (``constraints`` = the copied set's internal
+            constraint records; absent on an older payload), or None when
             the clipboard is empty, not JSON, or lacks the current
             ``CLIPBOARD_FORMAT_VERSION`` key (foreign).
         """

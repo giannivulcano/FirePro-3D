@@ -481,7 +481,10 @@ def test_rotate_commit_relevels_a_horizontal_line_to_the_mean_y(qapp):
         _close(v, sc)
 
 
-def test_polar_array_copies_carry_the_constraint_and_relevel(qapp):
+def test_polar_array_keeps_horizontal_only_on_copies_it_preserves(qapp):
+    """D30: a 6-way polar array of a Horizontal line -- the 180 deg copy keeps
+    its Horizontal (a half-turn preserves it); the 60/120/240/300 deg copies
+    are FREE and keep their rotated geometry (not re-levelled)."""
     from tests._snap_polish_helpers import click
     from PyQt6.QtTest import QTest
     v, sc = _shown_editor(qapp)
@@ -495,22 +498,219 @@ def test_polar_array_copies_carry_the_constraint_and_relevel(qapp):
         QTest.keyClick(v.viewport(), Qt.Key.Key_Right)     # Linear -> 2D -> Polar
         click(v, QPointF(0, 0))                            # centre
         assert sc.begin_dynamic_input() is True
-        sc.dynamic_input.editor("Count").setText("4")
-        sc.dynamic_input.editor("Total").setText("120")
+        sc.dynamic_input.editor("Count").setText("6")
+        sc.dynamic_input.editor("Total").setText("360")
         sc.dynamic_input._accept()
-        assert len(sc._draw_lines) == 4
+        assert len(sc._draw_lines) == 6
         ctl = sc.constraint_ctl
-        assert len(ctl.active()) == 4                       # one per copy
-        assert {c.refs[0]["uid"] for c in ctl.constraints} == \
-            {l._uid for l in sc._draw_lines}
-        for k, copy in enumerate(sc._draw_lines[1:], start=1):
-            t1, t2 = _rotated_twin_ys((100, 0), (150, 0), 40.0 * k)
-            mean = (t1.y() + t2.y()) / 2.0
-            assert copy._pt1.y() == pytest.approx(mean, abs=1e-6)
-            assert copy._pt2.y() == pytest.approx(mean, abs=1e-6)
-            assert copy._pt1.x() == pytest.approx(t1.x(), abs=1e-6)
+        by_angle = {}
+        for k in range(1, 6):
+            t1, t2 = _rotated_twin_ys((100, 0), (150, 0), 60.0 * k)
+            copy = next(l for l in sc._draw_lines
+                        if abs(l._pt1.x() - t1.x()) < 1e-3
+                        and abs(l._pt1.y() - t1.y()) < 1e-3)
+            assert copy._pt2.x() == pytest.approx(t2.x(), abs=1e-6)   # rotated,
+            assert copy._pt2.y() == pytest.approx(t2.y(), abs=1e-6)   # not re-levelled  [RED]
+            by_angle[60 * k] = copy
+        constrained = {c.refs[0]["uid"] for c in ctl.active()}
+        assert constrained == {ln._uid, by_angle[180]._uid}
+        assert len(ctl.constraints) == 2
     finally:
         _close(v, sc)
+
+
+# -- review round: I1-I4, D30, M1, M2 -----------------------------------------
+
+def _conflicted_rect(sc):
+    """A rect with H(bottom) + H(left): satisfiable only by collapsing (D29),
+    so the second is admitted (D9) and held (D10)."""
+    r = _rect(sc, (0, 0), (80, 40))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": r._uid, "h": "bottom"}])
+    ctl.add("horizontal", [{"uid": r._uid, "h": "left"}])
+    assert r.rect().height() == pytest.approx(40.0)
+    return r
+
+
+def _grips(it):
+    return [(p.x(), p.y()) for p in it.grip_points()]
+
+
+def test_rolled_back_move_restores_every_moved_item(qapp):
+    """I1: Move [conflicted rect, free line] fails -> the WHOLE move is undone
+    (the status says the change was not applied), the free line included."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    sc = _scene()
+    r = _conflicted_rect(sc)
+    free = _line(sc, (300, 300), (400, 300))
+    r0, f0 = _grips(r), _grips(free)
+    msgs = _status(sc)
+    sc._selected_items = [r, free]
+    sc.move_items(QPointF(10, 10))
+    assert _grips(r) == r0
+    assert _grips(free) == f0                                            # [RED]
+    assert CONFLICT_STATUS in msgs
+
+
+def test_open_solves_each_group_despite_a_conflict_elsewhere(qapp):
+    """I2: an admitted conflict in one group must not block the first solve
+    of another: the violated line opens level, the conflicted rect as saved."""
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    r = _rect(sc, (300, 0), (380, 40))
+    r0 = _grips(r)
+    sc.constraint_ctl.load([
+        {"id": "a", "type": "horizontal", "refs": [{"uid": ln._uid, "h": "edge"}]},
+        {"id": "b1", "type": "horizontal", "refs": [{"uid": r._uid, "h": "bottom"}]},
+        {"id": "b2", "type": "horizontal", "refs": [{"uid": r._uid, "h": "left"}]}])
+    assert ln._pt1.y() == pytest.approx(15.0, abs=1e-6)                 # [RED]
+    assert ln._pt2.y() == pytest.approx(15.0, abs=1e-6)
+    assert _grips(r) == r0
+    assert len(sc.constraint_ctl.active()) == 3
+
+
+def test_a_size_already_at_its_floor_is_never_driven_below_it(qapp):
+    """I3: a zero-height rect tied to a line: the solve must not push h
+    negative (write-back would clamp it, so written != solved). The written
+    geometry satisfies the constraint."""
+    sc = _scene()
+    r = _rect(sc, (0, 0), (100, 0))
+    ln = _line(sc, (200, 0), (300, 0))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": r._uid, "h": "tl"}, {"uid": ln._uid, "h": "p1"}])
+    with ctl.edit([ln]):
+        ln.translate(0, 20)
+    tl = r.grip_points()[0]
+    assert abs(tl.y() - ln._pt1.y()) < 1e-6                             # [RED]
+    assert r.rect().height() >= 0.0
+
+
+def test_an_arc_span_sign_flip_is_a_conflict(qapp):
+    """I3 arc: centre and start pinned to the X axis, the end tied to a line
+    end moved below the centre. With the radius stiff the only answer flips
+    the span negative (40 deg -> about -6 deg, which write-back would draw as
+    a 354 deg arc): a collapse, so the edit is held."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    from firepro3d.geometry_2d import ArcItem
+    sc = _scene()
+    arc = ArcItem(QPointF(0, 0), 100.0, 0.0, 40.0)
+    sc.addItem(arc); sc._draw_arcs.append(arc)
+    ey = -100.0 * math.sin(math.radians(40.0))
+    ln = _line(sc, (200, ey), (300, ey))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": arc._uid, "h": "center"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": arc._uid, "h": "start"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": arc._uid, "h": "end"}, {"uid": ln._uid, "h": "p1"}])
+    a0 = (arc._radius, arc._start_deg, arc._span_deg)
+    l0 = _grips(ln)
+    msgs = _status(sc)
+    with ctl.edit([ln]):
+        ln.translate(0, 10.0 - ey)                    # p1 to y = +10 (below)
+    assert (arc._radius, arc._start_deg, arc._span_deg) == a0           # [RED]
+    assert _grips(ln) == l0
+    assert CONFLICT_STATUS in msgs
+
+
+def test_add_refuses_refs_that_do_not_validate(qapp):
+    """I4: single point / X-axis ground / unknown handle / same handle twice /
+    unknown uid / junk -> None, list untouched, "Invalid constraint"; later
+    edits of the item still work (no poisoned list)."""
+    from firepro3d.constraint_controller import INVALID_STATUS
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    msgs = _status(sc)
+    bad = [[{"uid": ln._uid, "h": "p1"}],
+           [{"uid": ln._uid, "h": "p1"}, {"ref": "x_axis"}],
+           [{"uid": ln._uid, "h": "bogus"}],
+           [{"uid": ln._uid, "h": "p1"}, {"uid": ln._uid, "h": "p1"}],
+           [{"uid": "nope", "h": "edge"}],
+           ["junk"]]
+    for refs in bad:
+        assert ctl.add("horizontal", refs) is None, refs                 # [RED]
+    assert ctl.constraints == []
+    assert msgs == [INVALID_STATUS] * len(bad)
+    with ctl.edit([ln]):
+        ln.translate(5, 0)
+    assert ln._pt1.x() == 5.0
+
+
+def test_open_keeps_an_unknown_handle_record_inert_and_saves_it(qapp):
+    """I4: a definition whose record names a handle this build does not know
+    (a newer build's, or a stale v9) opens, never solves it, and saves it
+    back verbatim."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    project = Model_Space()
+    tilted = LineItem(QPointF(0, 0), QPointF(100, 30))
+    rec = {"id": "c-x", "type": "horizontal", "refs": [{"uid": tilted._uid, "h": "v9"}],
+           "future": {"k": 1}}
+    defn = BlockDefinition.new(name="B", library="L", series="S",
+                               primitives=[tilted.to_dict()], origin=(0, 0),
+                               constraints=[rec])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    w.seed_from_definition(defn)                                         # [RED]
+    sc = w.editor_scene
+    (ln,) = sc._draw_lines
+    assert (ln._pt1.y(), ln._pt2.y()) == (0.0, 30.0)                    # not solved
+    assert sc.constraint_ctl.active() == []
+    with sc.constraint_ctl.edit([ln]):
+        ln.translate(0, 5)
+    w._edit_block_id = defn.id
+    w.commit_block("B", "L", "S")
+    assert project.get_block_definition(defn.id).constraints == [rec]
+
+
+def test_paste_of_a_malformed_clipboard_record_does_not_crash(qapp):
+    """I4: clipboard JSON is untrusted -- malformed constraint records are
+    dropped / kept inert; the paste lands and later edits work."""
+    import json
+    from firepro3d.constants import CLIPBOARD_FORMAT_VERSION
+    sc = _scene()
+    src = LineItem(QPointF(0, 0), QPointF(100, 0))
+    payload = {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION, "base": [0, 0],
+               "scene_role": "block_editor", "items": [src.to_dict()],
+               "constraints": [{"id": "m", "type": "horizontal",
+                                "refs": [{"uid": src._uid}]},
+                               {"id": "n", "type": "horizontal",
+                                "refs": [{"uid": src._uid, "h": "zz"}]},
+                               5, "junk", {"type": "horizontal", "refs": "x"}]}
+    QApplication.clipboard().setText(json.dumps(payload))
+    new = sc.paste_items(QPointF(0, 50))                                 # [RED]
+    assert len(new) == 1
+    assert sc.constraint_ctl.active() == []
+    with sc.constraint_ctl.edit(new):
+        new[0].translate(1, 0)
+    assert new[0]._pt1.x() == 1.0
+    QApplication.clipboard().setText(json.dumps(
+        {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION, "base": [0, 0],
+         "scene_role": "block_editor", "items": [src.to_dict()], "constraints": 7}))
+    assert len(sc.paste_items(QPointF(0, 90))) == 1
+
+
+def test_conflict_status_survives_the_tools_success_message(qapp):
+    """M1: a rolled-back Scale commit -- the tool posts its own status after
+    the edit context exits; the conflict status must be the one left showing."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    sc = _scene()
+    r = _conflicted_rect(sc)
+    r0 = _grips(r)
+    msgs = _status(sc)
+    sc._scale_base = QPointF(0, 0)
+    sc._selected_items = [r]
+    sc._modify_ctl.commit_scale(2.0)
+    QApplication.processEvents()
+    assert _grips(r) == r0
+    assert msgs and msgs[-1] == CONFLICT_STATUS                          # [RED]
+
+
+def test_focus_on_nothing_solves_nothing(qapp):
+    """M2: a solve focused on items that carry no solver variables is a
+    no-op, not a whole-sketch solve (which would re-report a held conflict)."""
+    sc = _scene()
+    _conflicted_rect(sc)
+    assert sc.constraint_ctl._solve(focus=set()) is True                 # [RED]
 
 
 # ── requirement 6: typed-edit seams solve BEFORE the undo push ─────────────

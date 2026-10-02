@@ -29,6 +29,11 @@ _DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
 # Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
 # that needs to reject a vanishingly short segment (2d-geometry.md §8).
 _EPS_LEN = 1e-9
+# Size floors the items clamp to. The constraint solver's D29 collapse check
+# (sketch_adapters) imports these, so each floor has ONE home.
+CIRCLE_MIN_RADIUS = 1.0     # CircleItem.set_radius
+ARC_MIN_RADIUS = 0.01       # ArcItem.set_radius / solver write-back
+RECT_MIN_SIZE = 1e-6        # solver write-back of a rectangle's w / h
 
 
 def _manip_wraps(item) -> bool:
@@ -1559,7 +1564,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         """Set the radius, keeping the centre (floor 1 mm, as apply_grip)."""
         if not math.isfinite(radius_mm):
             return
-        self._radius = max(1.0, float(radius_mm))
+        self._radius = max(CIRCLE_MIN_RADIUS, float(radius_mm))
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
@@ -1887,7 +1892,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Set the radius, keeping centre and both angles (floor 0.01 mm)."""
         if not math.isfinite(radius_mm):
             return
-        self._radius = max(float(radius_mm), 0.01)
+        self._radius = max(float(radius_mm), ARC_MIN_RADIUS)
         self._rebuild_path()
 
     def dimension_specs(self) -> list:

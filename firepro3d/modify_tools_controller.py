@@ -1625,8 +1625,10 @@ class ModifyToolsController:
             centre = QPointF(s._array_base)
             step = self.polar_step(float(p["total_deg"]), int(p["count"]))
             for k in range(1, int(p["count"])):
+                # D30: only constraints the k-th turn preserves ride the copy.
                 new = s.paste_items(QPointF(0, 0), data=records,
-                                    constraints=cons) or []
+                                    constraints=cons,
+                                    rotation_deg=k * step) or []
                 # Constraint seam (§8): each copy's turn is one edit.
                 with s.constraint_ctl.edit(new):
                     for it in self._rotatable(new):

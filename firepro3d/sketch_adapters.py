@@ -13,6 +13,7 @@ import math
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF
 
+from .geometry_2d import ARC_MIN_RADIUS, CIRCLE_MIN_RADIUS, RECT_MIN_SIZE
 from .sketch_solver import ANG_SCALE, PointExpr, raw_point
 
 # D28 (user, 2026-10-01): angle variables are stiff -- 1 rad costs as much as
@@ -20,13 +21,9 @@ from .sketch_solver import ANG_SCALE, PointExpr, raw_point
 ANG_W = ANG_SCALE ** 2
 
 # D29 (user, 2026-10-02): a solve that can only be satisfied by collapsing a
-# shape is a CONFLICT. The size floors below are the SAME floors each item's
-# write-back clamps to (one home); a value within DEGEN_EPS of its floor -- or
-# an arc span within DEGEN_EPS rad of 0 / 2*pi -- is a collapse.
+# shape is a CONFLICT. The size floors are geometry_2d's own clamp constants
+# (one home); see _Adapter.collapses.
 DEGEN_EPS = 1e-6
-RECT_MIN = 1e-6          # _RectAdapter.write clamp
-CIRCLE_MIN = 1.0         # CircleItem.set_radius floor
-ARC_R_MIN = 0.01         # _ArcAdapter.write / ArcItem.set_radius floor
 
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>) and text / block instance (move grip -> ins) are
@@ -71,11 +68,16 @@ class _Adapter:
         """D29: ``{local var index: floor}`` for the item's size variables."""
         return {}
 
-    def degenerate(self, item, vals) -> bool:
-        """D29: whether *vals* (this item's variables) collapse the shape --
-        a size variable at / below its floor (+ ``DEGEN_EPS``)."""
-        return any(float(vals[i]) <= f + DEGEN_EPS
-                   for i, f in self.size_floors(item).items())
+    def collapses(self, item, old, new) -> bool:
+        """D29: whether solved values *new* collapse the shape. A size below
+        its floor (- ``DEGEN_EPS``) always does -- write-back would clamp it,
+        so the written geometry would not be the solved one; a size that was
+        above its floor and lands at it (+ ``DEGEN_EPS``) does too."""
+        for i, f in self.size_floors(item).items():
+            n, o = float(new[i]), float(old[i])
+            if n < f - DEGEN_EPS or (n <= f + DEGEN_EPS < o):
+                return True
+        return False
 
     def points(self, item, off: int) -> dict:
         return {}
@@ -148,7 +150,7 @@ class _RectAdapter(_Adapter):
         return [1.0, 1.0, 1.0, 1.0, ANG_W]          # D28: prefer move/resize over rotate
 
     def size_floors(self, it):
-        return {2: RECT_MIN, 3: RECT_MIN}
+        return {2: RECT_MIN_SIZE, 3: RECT_MIN_SIZE}
 
     def points(self, it, off):
         idx = tuple(range(off, off + 5))
@@ -161,7 +163,7 @@ class _RectAdapter(_Adapter):
 
     def write(self, it, v):
         cx, cy, w, h, th = (float(t) for t in v)
-        w, h = max(w, RECT_MIN), max(h, RECT_MIN)
+        w, h = max(w, RECT_MIN_SIZE), max(h, RECT_MIN_SIZE)
         it.prepareGeometryChange()
         it.setRect(QRectF(cx - w / 2.0, cy - h / 2.0, w, h))
         it.set_angle(math.degrees(th), None)
@@ -179,7 +181,7 @@ class _CircleAdapter(_Adapter):
         return {"center": raw_point(off, off + 1)}
 
     def size_floors(self, it):
-        return {2: CIRCLE_MIN}
+        return {2: CIRCLE_MIN_RADIUS}
 
     def write(self, it, v):
         it._center = QPointF(float(v[0]), float(v[1]))
@@ -207,15 +209,23 @@ class _ArcAdapter(_Adapter):
         return [1.0, 1.0, 1.0, ANG_W, ANG_W]         # D28
 
     def size_floors(self, it):
-        return {2: ARC_R_MIN}
+        return {2: ARC_MIN_RADIUS}
 
-    def degenerate(self, it, vals):
-        """Radius at its floor, or the span (te - ts) wrapped to ~0 / ~2*pi
-        (write-back maps a 0 span to a full circle)."""
-        if super().degenerate(it, vals):
+    def collapses(self, it, old, new):
+        """Radius rule, plus the RAW span ``te - ts`` (no mod-2*pi wrap, so a
+        sign flip -- 40 deg -> -10 deg, which write-back would turn into a 350
+        deg arc -- is caught): outside (0, 2*pi) always collapses; a span that
+        lands within ``DEGEN_EPS`` of 0 / 2*pi collapses unless it was there."""
+        if super().collapses(it, old, new):
             return True
-        m = float(vals[4] - vals[3]) % (2.0 * math.pi)
-        return m <= DEGEN_EPS or (2.0 * math.pi - m) <= DEGEN_EPS
+        tau = 2.0 * math.pi
+        dn, do = float(new[4] - new[3]), float(old[4] - old[3])
+        if dn < -DEGEN_EPS or dn > tau + DEGEN_EPS:
+            return True
+
+        def degen(d):
+            return d <= DEGEN_EPS or d >= tau - DEGEN_EPS
+        return degen(dn) and not degen(do)
 
     def points(self, it, off):
         def end(k):
@@ -225,7 +235,7 @@ class _ArcAdapter(_Adapter):
     def write(self, it, v):
         cx, cy, r, ts, te = (float(t) for t in v)
         it._center = QPointF(cx, cy)
-        it._radius = max(r, ARC_R_MIN)
+        it._radius = max(r, ARC_MIN_RADIUS)
         it._start_deg = math.degrees(ts) % 360.0
         span = math.degrees(te - ts) % 360.0           # keeps span_deg > 0 (§5.1)
         it._span_deg = span if span > 1e-9 else 360.0

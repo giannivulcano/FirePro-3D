@@ -115,6 +115,10 @@ class Constraint:
     label: dict | None = None
     raw: dict | None = None
     extras: dict = field(default_factory=dict)
+    # A built-type record whose refs do not validate against the sketch (an
+    # unknown handle, a wrong ref kind / arity): kept verbatim and inert like
+    # an unknown type (§6.4). Never serialised -- ``raw`` is.
+    invalid: bool = False
 
     @classmethod
     def new(cls, ctype: str, refs: list, **kw) -> "Constraint":
@@ -125,6 +129,8 @@ class Constraint:
 
     @property
     def inert(self) -> bool:
+        if self.invalid:
+            return True
         spec = REGISTRY.get(self.type)
         return spec is None or not spec.implemented
 
@@ -173,7 +179,8 @@ def remap_for_copy(cons, uid_map: dict) -> list:
     for c in cons:
         if c.inert or not c.refs:
             continue
-        if any(is_ground(r) or r["uid"] not in uid_map for r in c.refs):
+        if any(not isinstance(r, dict) or is_ground(r) or r.get("uid") not in uid_map
+               for r in c.refs):
             continue
         n = Constraint.from_dict(c.to_dict())
         n.id = uuid.uuid4().hex
