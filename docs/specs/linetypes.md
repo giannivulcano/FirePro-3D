@@ -1,7 +1,7 @@
 ---
 status: proposal         # greenfield — nothing below is built; D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7, ratified in the brainstorm)
 last-verified: 2026-10-02
-verified-commit: b6b320d
+verified-commit: 18df05d
 applies-to:               # planned modules (none exist yet) + the seams they change
   - firepro3d/stroke_style.py        # planned — cascade resolution
   - firepro3d/path_walk.py           # planned — arc-length walker + axis phase
@@ -38,7 +38,7 @@ gridline/pipe line work is bespoke. The end goal (user, 2026-10-02): build
 system geometry such as a gridline (primary line + two leaders of definable
 length + toggleable bubble end caps) from primitives via System Blocks.
 
-## As-built baseline (2026-10-02, b6b320d)
+## As-built baseline (2026-10-02, 18df05d)
 
 - Primitive weight = `pen().widthF()` in cosmetic px, serialized as
   `"lineweight"` in each primitive class's own `to_dict` (default

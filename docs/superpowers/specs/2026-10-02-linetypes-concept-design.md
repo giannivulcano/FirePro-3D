@@ -1,7 +1,7 @@
 ---
 status: proposal          # concept ratified 2026-10-02 (grill Q1–Q23 + brainstorm LD-A, LD1–LD7); unbuilt — slices LT1–LT8
 last-verified: 2026-10-02
-verified-commit: b6b320d
+verified-commit: 18df05d
 applies-to:
   - firepro3d/geometry_2d.py
   - firepro3d/block_definition.py
