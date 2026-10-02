@@ -308,14 +308,18 @@ def test_hover_paints_the_axis_and_the_reflected_ghost(qapp):
         rl = ReferenceLineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
         scene.addItem(rl)
         scene._reference_lines.append(rl)
-        add_primitive(scene, "line")                      # (0,0)-(100,0)
+        line, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
+        # Lift it off y = 0: the Block Editor's non-printing constraint X axis
+        # runs through the origin (parametric-constraint-system.md D3/D27), so a
+        # probe on y = 0 is never background.
+        line.translate(0.0, 40.0)
         scene._modify_ctl.start("flip")
         img0 = _grab(view)
         bg = _px(view, img0, QPointF(300, -200))
-        assert _px(view, img0, QPointF(350, 0)) == bg
+        assert _px(view, img0, QPointF(350, 40)) == bg
         move(view, QPointF(AXIS_X + 2.0, 0.0))
         img1 = _grab(view)
-        assert _px(view, img1, QPointF(350, 0)) != bg     # [RED] ghost at the mirror image
+        assert _px(view, img1, QPointF(350, 40)) != bg    # [RED] ghost at the mirror image
         on_axis = [QPointF(AXIS_X, y) for y in range(-280, -100)]
         assert sum(_px(view, img1, p) != bg for p in on_axis) >= 60       # [RED] axis
     finally:

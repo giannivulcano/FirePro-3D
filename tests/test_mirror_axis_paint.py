@@ -37,12 +37,15 @@ def test_axis_dash_dot_and_single_segment_glow(qapp):
     the rect's other edges do not."""
     view, scene = make_view(scale=1.0)
     try:
-        rect = RectangleItem(QPointF(200, -50), QPointF(350, 50))
+        # Kept off y = 0: the Block Editor draws its non-printing constraint X/Y
+        # axes through the origin (parametric-constraint-system.md D3/D27), so a
+        # pixel probe on the X axis is never background.
+        rect = RectangleItem(QPointF(200, 30), QPointF(350, 130))
         scene.addItem(rect)
         scene._draw_rects.append(rect)
         img0 = _grab(view)
         bg = _px(view, img0, QPointF(300, -200))
-        scene._mirror_axis = pick_axis(scene, QPointF(202, 0), 10.0)
+        scene._mirror_axis = pick_axis(scene, QPointF(202, 80), 10.0)
         assert scene._mirror_axis is not None and scene._mirror_axis.source is rect
         assert {round(scene._mirror_axis.p1.x(), 6),
                 round(scene._mirror_axis.p2.x(), 6)} == {200.0}   # the left edge
@@ -50,11 +53,11 @@ def test_axis_dash_dot_and_single_segment_glow(qapp):
         on_axis = [QPointF(200, y) for y in range(-280, -100)]
         assert sum(_px(view, img0, p) != bg for p in on_axis) == 0
         assert sum(_px(view, img1, p) != bg for p in on_axis) >= 60   # [RED]
-        assert _px(view, img0, QPointF(203, 0)) == bg
-        assert _px(view, img1, QPointF(203, 0)) != bg                 # [RED] glow
+        assert _px(view, img0, QPointF(203, 80)) == bg
+        assert _px(view, img1, QPointF(203, 80)) != bg                # [RED] glow
         assert _px(view, img1, QPointF(203, -200)) == bg   # glow is the segment only
         # ...and not the parent shape: no glow beside the rect's other edges.
-        for other in (QPointF(353, 0), QPointF(275, -53), QPointF(275, 53)):
+        for other in (QPointF(353, 80), QPointF(275, 27), QPointF(275, 133)):
             assert _px(view, img0, other) == bg
             assert _px(view, img1, other) == bg                       # [RED] I2
     finally:
