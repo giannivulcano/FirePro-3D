@@ -40,7 +40,7 @@ Non-entity **adapter clients** implement this protocol as plain objects (not `QG
 |---|---|---|
 | `header` | section-divider `QLabel` rendered as the **house overline** — UPPERCASE text + `setProperty("role","header")` (app-wide `QLabel[role="header"]` styling; was a bold `── {key} ──` divider before the 2026-09-19 Stage-2 chrome revamp, `mainwindow-chrome-revamp-stage2.md`). No editor, no `value` key needed | — |
 | `label` | read-only `QLabel` (sunken style) | — |
-| `status` | `ui_kit.StatusBadge(value, meta["state"])` — read-only state dot + text (CS2; states `free` / `defined` / `conflict`, `ui-design-system.md`; first consumer `BlockPropertiesInfo`, `parametric-constraint-system.md` D40) | — |
+| `status` | `ui_kit.StatusBadge(value, meta.get("state", ""))` — read-only state dot + text (CS2; states `free` / `defined` / `conflict`, `ui-design-system.md`; first consumer `BlockPropertiesInfo`, `parametric-constraint-system.md` D40) | — |
 | `warning` | full-width amber header (`⚠ {key}`) + word-wrapped bullet body (`QLabel`, `Expanding` + `setMinimumWidth(1)` so long words don't force a wider dock minimum) | — |
 | `string` (+ fallback) | `QLineEdit`; auto-attaches `QDoubleValidator` when current value parses as float | `editingFinished` |
 | `enum` / `combo` | `QComboBox` from `options` | `currentTextChanged` |
