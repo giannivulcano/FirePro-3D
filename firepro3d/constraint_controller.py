@@ -1264,12 +1264,12 @@ class ConstraintController:
         is kept verbatim and inert.
 
         D30 (user, 2026-10-02): a transformed copy keeps a constraint only if
-        the transform preserves it. Horizontal survives a rotation that is a
-        multiple of 180 deg (+-1e-6) and a reflection across a horizontal /
-        vertical axis; any other rotation or mirror axis drops it, and the
-        copy keeps its transformed geometry (it is not re-solved).
-        Translation-only copies keep everything. (Vertical / Symmetric rules
-        land with their sessions.)
+        the transform preserves it. Horizontal and Vertical (D42) survive a
+        rotation that is a multiple of 180 deg (+-1e-6) and a reflection
+        across a horizontal / vertical axis; any other rotation or mirror axis
+        drops them (no H<->V swap), and the copy keeps its transformed
+        geometry (it is not re-solved). Translation-only copies keep
+        everything. (The Symmetric rule lands with its session.)
 
         Args:
             records: ``internal_records`` output (constraint dicts).
@@ -1285,16 +1285,16 @@ class ConstraintController:
                 cons.append(sm.Constraint.from_dict(r))
             except Exception:
                 continue
-        keep_h = True
+        keep_hv = True
         if mirror_axis is not None:
             p1, p2 = mirror_axis
             ang = math.degrees(math.atan2(p2.y() - p1.y(), p2.x() - p1.x())) % 90.0
-            keep_h = min(ang, 90.0 - ang) <= 1e-6
-        if keep_h and rotation_deg is not None:
+            keep_hv = min(ang, 90.0 - ang) <= 1e-6
+        if keep_hv and rotation_deg is not None:
             m = float(rotation_deg) % 180.0
-            keep_h = min(m, 180.0 - m) <= 1e-6
-        if not keep_h:
-            cons = [c for c in cons if c.type != "horizontal"]
+            keep_hv = min(m, 180.0 - m) <= 1e-6
+        if not keep_hv:
+            cons = [c for c in cons if c.type not in ("horizontal", "vertical")]
         by = self.item_by_uid()
         new = []
         for c in sm.remap_for_copy(cons, uid_map):

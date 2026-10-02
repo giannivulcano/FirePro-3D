@@ -102,6 +102,7 @@ class Model_View(QGraphicsView):
             "mirror":                 _C.PointingHandCursor,
             # D21 constraint pick: an entity-pick mode like offset/flip/mirror.
             "constrain_horizontal":   _C.PointingHandCursor,
+            "constrain_vertical":     _C.PointingHandCursor,
         }
 
         # Accept drag-drop for PDF/DXF import

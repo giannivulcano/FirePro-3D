@@ -4005,6 +4005,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset":          "_move_gridline_replicate",
         "place_block":              "_move_place_block",
         "constrain_horizontal":     "_move_constrain_pick",
+        "constrain_vertical":       "_move_constrain_pick",
     }
 
     # Mode -> name of the method that redraws the placement preview from an
@@ -4634,6 +4635,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset":          "_press_gridline_replicate",
         "place_block":              "_press_place_block",
         "constrain_horizontal":     "_press_constrain_pick",
+        "constrain_vertical":       "_press_constrain_pick",
     }
 
     # ── Constraint pick mode (parametric-constraint-system.md D21) ────────

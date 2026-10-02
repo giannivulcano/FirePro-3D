@@ -381,3 +381,46 @@ def test_r4_undo_is_refused_mid_held_preview_drag(win_with_editor):
                        lambda: r.sceneTransform().dy())
     finally:
         view.viewport().removeEventFilter(guard)
+
+
+# ── CS2: Vertical + the H+V conflict through the real ribbon ────────────────
+
+def _xs(ln):
+    return ln._pt1.x(), ln._pt2.x()
+
+
+def test_e2e_vertical_survives_a_tilting_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    view = win._test_editor.view
+    ln = _line(sc, (0, -100), (30, 100))                 # tilted
+    sc.clearSelection(); ln.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Vertical"].click()        # the REAL button
+    QApplication.processEvents()
+    assert [c.type for c in sc.constraint_ctl.constraints_on(ln)] == ["vertical"]
+    assert _xs(ln) == pytest.approx((15.0, 15.0), abs=1e-6)   # D22 mean
+    sc.clearSelection(); ln.setSelected(True)
+    QApplication.processEvents()
+    _drag(view, QPointF(15, 100), QPointF(75, 100))       # would tilt it
+    assert ln._pt2.x() == pytest.approx(75.0, abs=1.0)
+    assert ln._pt1.x() == pytest.approx(ln._pt2.x(), abs=1e-6)
+    assert ln._pt1.y() == pytest.approx(-100.0, abs=1e-6)
+
+
+def test_e2e_h_plus_v_conflict_red_and_held_line(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    ln = _line(sc, (-100, 0), (100, 30))
+    sc.clearSelection(); ln.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Horizontal"].click()
+    QApplication.processEvents()
+    win._be_constrain_buttons["Vertical"].click()
+    QApplication.processEvents()
+    ctl = sc.constraint_ctl
+    v = [c for c in ctl.constraints if c.type == "vertical"][0]
+    assert ctl.red == {v.id}
+    assert _ys(ln) == pytest.approx((15.0, 15.0), abs=1e-6)
+    assert _xs(ln) == pytest.approx((-100.0, 100.0), abs=1e-6)
+    assert ctl.sketch_state() == ("Over-constrained", "conflict")

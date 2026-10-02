@@ -1542,3 +1542,23 @@ def test_panel_row_state_for_red_and_redundant(qapp):
     ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])                                # red
     states = [r["state"] for r in ctl.panel_rows(ln)["rows"]]
     assert states == ["", "warn", "danger"]
+
+
+# ── CS2 D42: D30 copy rule for Vertical ─────────────────────────────────────
+
+@pytest.mark.parametrize("kw, kept", [
+    ({}, True),                                                    # translate-only
+    ({"rotation_deg": 180.0}, True),
+    ({"rotation_deg": 90.0}, False),                               # no H<->V swap
+    ({"mirror_axis": (QPointF(200, -500), QPointF(200, 500))}, True),
+    ({"mirror_axis": (QPointF(0, 0), QPointF(100, 100))}, False),  # 45 deg
+])
+def test_d30_vertical_copy_rule(qapp, kw, kept):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (0, 100))
+    ctl = sc.constraint_ctl
+    ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    recs = ctl.internal_records([ln])
+    cp_ = _line(sc, (50, 0), (50, 100))
+    ctl.paste_records(recs, {ln._uid: cp_._uid}, **kw)
+    assert [c.type for c in ctl.constraints_on(cp_)] == (["vertical"] if kept else [])

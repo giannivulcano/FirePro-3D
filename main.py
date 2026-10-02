@@ -2491,6 +2491,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "radiation_emitter": "Radiation", "radiation_receiver": "Radiation",
         # Constraint pick modes (parametric-constraint-system.md D21)
         "constrain_horizontal": "Horizontal",
+        "constrain_vertical": "Vertical",
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
@@ -5031,8 +5032,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             _editor_only(b, b.toolTip())
 
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
-        # editor-only). No greyed placeholders: CS1 ships Horizontal only;
-        # Smart Dimension (CS4), Constraint Status + DOF badge (CS2) later.
+        # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
+        # Constraint Status (the DOF badge lives in the panel, D40/D41);
+        # Smart Dimension (CS4) later.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_h = gc.add_small_button(
@@ -5040,6 +5042,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("horizontal", checked),
             checkable=True)
         self._block_mode_buttons["constrain_horizontal"] = b_h
+        b_v = gc.add_small_button(
+            "Vertical", self._modify_icon(icon_for("vertical")),
+            lambda checked: self._be_constrain("vertical", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_vertical"] = b_v
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5050,15 +5057,29 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         b_show.blockSignals(True)
         b_show.setChecked(False)
         b_show.blockSignals(False)
+        b_status = gi.add_small_button(
+            "Constraint Status",
+            self._modify_icon("constraint_constraint_status_icon.svg"),
+            self._be_toggle_constraint_status, checkable=True)
+        # D39: the geometry state tint, default ON (editor only).
+        b_status.blockSignals(True)
+        b_status.setChecked(True)
+        b_status.blockSignals(False)
         b_del = gi.add_small_button(
             "Delete Constraints",
             self._modify_icon("constraint_delete_constraints_icon.svg"),
             self._be_delete_constraints)
         self._be_constrain_buttons = {"Horizontal": b_h,
+                                      "Vertical": b_v,
                                       "Show Constraints": b_show,
+                                      "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
         _editor_only(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge")
+        _editor_only(b_v, "Vertical — make the selected line vertical, "
+                          "or pick 2 points / 1 edge")
+        _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
+                               "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
                              "(otherwise only the selected geometry's)")
         _editor_only(b_del, "Delete Constraints — delete the selected constraint, "
@@ -5101,6 +5122,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             ctl.show_all = bool(checked)
             ctl._repaint()
 
+    def _be_toggle_constraint_status(self, checked: bool) -> None:
+        """Constraint Status toggle: the editor's D39 geometry state tint."""
+        ctl = getattr(self._active_scene(), "constraint_ctl", None)
+        if ctl is not None:
+            ctl.show_status = bool(checked)
+            ctl._repaint()
+
     def _be_delete_constraints(self) -> None:
         """Delete the selected constraint, else every one on the selection."""
         sc = self._active_scene()
@@ -5136,9 +5164,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             sel = sc.selectedItems()
         except RuntimeError:
             return
-        h = btns.get("Horizontal")
-        if h is not None and not sip.isdeleted(h):
-            h.setEnabled(not sel or ctl.selection_refs("horizontal") is not None)
+        from firepro3d import sketch_model as sm
+        for ctype in ("horizontal", "vertical"):
+            b = btns.get(sm.REGISTRY[ctype].label)
+            if b is not None and not sip.isdeleted(b):
+                b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)
         d = btns.get("Delete Constraints")
         if d is not None and not sip.isdeleted(d):
             d.setEnabled(bool(ctl.selected_id)
@@ -5148,6 +5178,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             s.blockSignals(True)
             s.setChecked(ctl.show_all)
             s.blockSignals(False)
+        st = btns.get("Constraint Status")
+        if st is not None and not sip.isdeleted(st):
+            st.blockSignals(True)
+            st.setChecked(ctl.show_status)
+            st.blockSignals(False)
 
     def _set_block_editor_context(self, active: bool) -> None:
         """Enable/disable the Block Editor tab's editor-only groups.

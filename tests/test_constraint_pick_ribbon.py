@@ -18,7 +18,8 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
-CONSTRAIN_LABELS = {"Horizontal", "Show Constraints", "Delete Constraints"}
+CONSTRAIN_LABELS = {"Horizontal", "Vertical", "Show Constraints",
+                    "Constraint Status", "Delete Constraints"}
 
 
 @pytest.fixture(scope="module")
@@ -183,9 +184,9 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert titles[i + 1:] == ["CONSTRAIN", "INSPECT"]
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
-        == {"Horizontal"}                       # no greyed placeholders (D15)
+        == {"Horizontal", "Vertical"}           # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
-        == {"Show Constraints", "Delete Constraints"}
+        == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
     for b in win._be_constrain_buttons.values():
         assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP
@@ -521,3 +522,37 @@ def test_d40_nothing_selected_in_editor_shows_block_view(win_with_editor, qapp):
     qapp.processEvents()
     badges = [b for b in win.prop_manager.findChildren(StatusBadge) if b.isVisible()]
     assert [b.text() for b in badges] == ["Under-defined \u00b7 3 DOF"]
+
+
+# ── CS2 ribbon: Vertical + Constraint Status ────────────────────────────────
+
+def test_constraint_status_toggle_defaults_on_and_drives_show_status(win_with_editor, qapp):
+    win = win_with_editor
+    ctl = win._active_scene().constraint_ctl
+    b = win._be_constrain_buttons["Constraint Status"]
+    win._refresh_constrain_buttons()
+    assert b.isCheckable() and b.isChecked() and ctl.show_status
+    b.click()
+    qapp.processEvents()
+    assert not ctl.show_status and not b.isChecked()
+    b.click()
+    qapp.processEvents()
+    assert ctl.show_status and b.isChecked()
+
+
+def test_vertical_enable_tracks_selection(win_with_editor, qapp):
+    from firepro3d.geometry_2d import RectangleItem
+    win = win_with_editor
+    sc = win._active_scene()
+    b = win._be_constrain_buttons["Vertical"]
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                     # pick mode
+    r = RectangleItem(QPointF(0, 0), QPointF(50, 50))
+    sc.addItem(r); sc._draw_rects.append(r); r.setSelected(True)
+    qapp.processEvents(); win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                 # not a valid selection
+    ln = LineItem(QPointF(0, 100), QPointF(50, 150))
+    sc.addItem(ln); sc._draw_lines.append(ln)
+    sc.clearSelection(); ln.setSelected(True)
+    qapp.processEvents(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                     # one line: selection-first
