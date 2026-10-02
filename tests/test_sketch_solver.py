@@ -301,3 +301,59 @@ def test_structure_cache_sees_alias_swap_with_same_length():
     res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
     assert res.converged
     assert np.allclose(res.x[[1, 3, 5]], [0.0, 40.0, 40.0])
+
+
+def _mixed_system(seed=5):
+    """Rotation-derived rows + identity rows + aliases that put TWO entries of
+    the same row into one reduced column (duplicate COO entries)."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(-20, 20, 16)
+    s = ss.System(x=x)
+    ss.BUILDERS["horizontal"]("a", (_derived_point(0), _derived_point(4)), s)
+    ss.BUILDERS["horizontal"]("b", (_identity_derived(8), _identity_derived(10)), s)
+    ss.BUILDERS["horizontal"]("c", (_identity_derived(10), _identity_derived(12)), s)
+    s.aliases += [(11, 13, "al"), (2, 6, "ar")]      # rows c and a: 2 deps -> 1 col
+    s.fixes.append((14, 1.0, "fx"))
+    return s
+
+
+def test_sparse_gram_matches_dense_jacobian_product():
+    s = _mixed_system()
+    st = ss._structure(s)
+    x = s.x.copy(); x[st.fixed_vars] = st.fixed_vals
+    rng = np.random.default_rng(1)
+    dup = sum(len(c.ja) - len(set(zip(c.ja.tolist(), c.jc.tolist())))
+              for c in st.comps if c.rows)
+    assert dup >= 2                         # VC2: duplicate COO entries exercised
+    for comp in st.comps:
+        if not comp.rows:
+            continue
+        nr = len(comp.rows)
+        winv = rng.uniform(1e-6, 2.0, comp.ncols)
+        F, J = ss._eval_comp(comp, x)
+        F2, v = ss._eval_vals(comp, x)
+        A = np.bincount(comp.pidx, weights=v[comp.pe] * v[comp.pf] * winv[comp.pc],
+                        minlength=nr * nr).reshape(nr, nr)
+        assert np.allclose(A, (J * winv) @ J.T, rtol=1e-12, atol=1e-12)
+        g = rng.normal(size=comp.ncols); lam = rng.normal(size=nr)
+        assert np.allclose(np.bincount(comp.ja, weights=v * g[comp.jc], minlength=nr), J @ g)
+        assert np.allclose(np.bincount(comp.jc, weights=v * lam[comp.ja],
+                                       minlength=comp.ncols), J.T @ lam)
+        assert np.array_equal(F, F2)
+
+
+def test_residual_stop_reports_the_true_residual_at_the_returned_x():
+    s = _row_sys([0, 0, 10, 0.3, 50, 20, 10, -0.2])
+    w = np.ones(8); w[3] = w[7] = ss.ANG_SCALE ** 2; w[0] = w[1] = ss.W_PIN
+    goals = s.x.copy(); goals[1] += 3.0
+    res = ss.NumpySolver().solve(s, goals, w)
+    true = max(abs(r.fn(res.x)[0]) for r in s.rows)
+    assert res.converged and true <= ss.LIN_TOL
+    assert res.max_residual == true
+
+
+def test_divergent_step_reports_not_converged():
+    s = ss.System(x=np.array([0.0, 0.0]))
+    s.rows.append(ss.Row("nan", (0,), lambda x: (1.0, np.array([np.nan]))))
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
+    assert not res.converged

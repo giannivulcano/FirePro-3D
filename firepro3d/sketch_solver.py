@@ -18,6 +18,7 @@ DAMPING_REL = 1e-12     # Tikhonov term, relative to max diag(J W^-1 J^T)
 W_PIN = 1e6             # a drag's pinned handle
 W_EDIT = 1e3            # the item a typed edit / transform changed
 STEP_TOL = 1e-10
+RES_STOP = 1e-3 * LIN_TOL   # stop once every row is this tight (§7.2)
 
 
 @dataclass(frozen=True)
@@ -116,8 +117,16 @@ class _UF:
 
 
 class _Component:
-    """One union-find component of the reduced space, with precomputed indices."""
-    __slots__ = ("vars", "var_lcol", "ncols", "rows", "jidx", "jmask", "fgroups")
+    """One union-find component of the reduced space, with precomputed indices.
+
+    The Jacobian is kept sparse as COO entries (``ja`` row, ``jc`` local column,
+    values = the concatenated free row gradients). ``pe``/``pf`` enumerate every
+    ordered pair of entries sharing a column, so ``J W^-1 J^T`` is one
+    ``np.bincount`` over ``pidx`` (cost ~ sum of column-count squares, never more
+    than the dense product).
+    """
+    __slots__ = ("vars", "var_lcol", "ncols", "rows", "jidx", "jmask", "fgroups",
+                 "ja", "jc", "pe", "pf", "pidx", "pc")
 
     def __init__(self, ncols: int):
         self.ncols = ncols
@@ -127,6 +136,8 @@ class _Component:
         self.jidx = None        # flat row*ncols + lcol scatter index (free deps)
         self.jmask = None       # which concatenated gradient entries are free
         self.fgroups = set()    # fixed groups its rows read
+        self.ja = self.jc = None                   # COO entry row / local col
+        self.pe = self.pf = self.pidx = self.pc = None   # same-column entry pairs
 
 
 class _Structure:
@@ -221,6 +232,25 @@ class _Structure:
             comp.jidx = np.concatenate(idx)
             jmask = np.concatenate(mask)
             comp.jmask = None if jmask.all() else jmask
+            nr = len(comp.rows)
+            comp.ja, comp.jc = np.divmod(comp.jidx, comp.ncols)
+            comp.pe, comp.pf = _same_column_pairs(comp.jc, comp.ncols)
+            comp.pidx = comp.ja[comp.pe] * nr + comp.ja[comp.pf]
+            comp.pc = comp.jc[comp.pe]
+
+
+def _same_column_pairs(jc: np.ndarray, ncols: int):
+    """All ordered pairs ``(e, f)`` of COO entries with ``jc[e] == jc[f]``."""
+    order = np.argsort(jc, kind="stable")
+    cs = jc[order]
+    k = np.bincount(jc, minlength=ncols)
+    start = np.cumsum(k) - k
+    reps = k[cs]                                   # partners per sorted entry
+    pe = np.repeat(order, reps)
+    first = np.repeat(np.cumsum(reps) - reps, reps)
+    offs = np.arange(int(reps.sum()), dtype=np.intp) - first
+    pf = order[np.repeat(start[cs], reps) + offs]
+    return pe, pf
 
 
 def _structure_key(sys: System) -> tuple:
@@ -239,19 +269,25 @@ def _structure(sys: System) -> _Structure:
     return st
 
 
-def _eval_comp(comp: _Component, x: np.ndarray):
-    """Residuals ``F`` and reduced Jacobian ``J`` of one component at *x*."""
-    nr = len(comp.rows)
-    F = np.empty(nr)
+def _eval_vals(comp: _Component, x: np.ndarray):
+    """Residuals ``F`` and the sparse Jacobian values (parallel to ``ja``/``jc``)."""
+    F = np.empty(len(comp.rows))
     gs = []
     for a, row in enumerate(comp.rows):
         r, g = row.fn(x)
         F[a] = r
         gs.append(g)
-    gflat = np.concatenate(gs).astype(float, copy=False)
+    v = np.concatenate(gs).astype(float, copy=False)
     if comp.jmask is not None:
-        gflat = gflat[comp.jmask]
-    J = np.bincount(comp.jidx, weights=gflat,
+        v = v[comp.jmask]
+    return F, v
+
+
+def _eval_comp(comp: _Component, x: np.ndarray):
+    """Residuals ``F`` and dense reduced Jacobian ``J`` (diagnostics only)."""
+    F, v = _eval_vals(comp, x)
+    nr = len(comp.rows)
+    J = np.bincount(comp.jidx, weights=v,
                     minlength=nr * comp.ncols).reshape(nr, comp.ncols)
     return F, J
 
@@ -313,6 +349,7 @@ class NumpySolver:
             comp_ids = sorted(comp_set)
 
         # -- per-component projection (§7.2) ---------------------------------
+        worst = 0.0
         for ci in comp_ids:
             comp = st.comps[ci]
             mv, lc, nc = comp.vars, comp.var_lcol, comp.ncols
@@ -323,24 +360,34 @@ class NumpySolver:
             x[mv] = z[lc]
             if not comp.rows:
                 continue                   # rowless: exactly the weighted-mean goal
-            checked.extend(comp.rows)
             winv = 1.0 / w
+            nr = len(comp.rows)
+            ja, jc = comp.ja, comp.jc
+            tight = False
             for _ in range(MAX_ITERS):
-                F, J = _eval_comp(comp, x)
+                F, v = _eval_vals(comp, x)
+                fmax = float(np.max(np.abs(F)))
+                if fmax <= RES_STOP:
+                    # F is AT the final x (this component's rows read only its
+                    # own vars + fixes), so it is also the convergence check.
+                    worst = max(worst, fmax)
+                    tight = True
+                    break
                 g = zg - z
-                A = (J * winv) @ J.T
+                A = np.bincount(comp.pidx, weights=v[comp.pe] * v[comp.pf] * winv[comp.pc],
+                                minlength=nr * nr).reshape(nr, nr)      # J W^-1 J^T
                 # relative Tikhonov: A scales with 1/weight, so an absolute term
                 # would bias a W_PIN solve off-manifold by ~1e-6 x the offset
                 # (an all-zero A — rows with no free gradient — gets 1.0 so the
                 # step stays finite: dz = W^-1 J^T lam = 0 there)
                 dmax = float(np.max(np.diag(A)))
                 A[np.diag_indices_from(A)] += DAMPING_REL * dmax if dmax > 0 else 1.0
-                rhs = -F - J @ g
+                rhs = -F - np.bincount(ja, weights=v * g[jc], minlength=nr)   # J g
                 try:
                     lam = np.linalg.solve(A, rhs)
                 except np.linalg.LinAlgError:
                     lam = np.linalg.lstsq(A, rhs, rcond=None)[0]
-                dz = g + winv * (J.T @ lam)
+                dz = g + winv * np.bincount(jc, weights=v * lam[ja], minlength=nc)  # J^T lam
                 if not np.all(np.isfinite(dz)):
                     break                  # diverged: final check reports failure
                 z += dz
@@ -348,9 +395,10 @@ class NumpySolver:
                 scale = max(1.0, float(np.max(np.abs(z))))
                 if float(np.max(np.abs(dz))) < STEP_TOL * scale:
                     break
-        worst = 0.0
+            if not tight:
+                checked.extend(comp.rows)       # step-tol / cap / divergence: re-check at x
         if checked:
-            worst = float(np.max(np.abs([row.fn(x)[0] for row in checked])))
+            worst = max(worst, float(np.max(np.abs([row.fn(x)[0] for row in checked]))))
         converged = bool(np.isfinite(worst)) and worst <= LIN_TOL
         return SolveResult(x, converged, worst)
 
