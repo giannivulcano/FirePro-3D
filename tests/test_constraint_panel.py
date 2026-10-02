@@ -70,7 +70,9 @@ def test_selected_entity_lists_its_constraints_with_dof(qapp):
     assert sec is not None and sec.row_count() == 1
     assert sec.row_text(0) == "Horizontal"
     assert sec.row_subtext(0) == "Line · edge"
-    assert "Sketch DOF 3" in sec.footer_text()
+    # D41 (CS2): the footer is the ELEMENT's own state, not the sketch DOF.
+    assert sec.footer_text() == "Under-defined · 3 DOF"
+    assert sec.footer_state() == "free"
     assert sec.row_actions(0) == ["suppress", "delete"]
 
 
@@ -172,7 +174,7 @@ def test_panel_refreshes_after_add_suppress_delete(qapp):
     ctl.delete([c.id])
     sec = _section(pm)
     assert sec.row_count() == 1 and sec.row_suppressed(0)
-    assert "Sketch DOF 4" in sec.footer_text()
+    assert sec.footer_text() == "Under-defined · 4 DOF"     # D41 element state
 
 
 @pytest.fixture

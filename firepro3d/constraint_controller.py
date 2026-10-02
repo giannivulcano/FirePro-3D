@@ -18,6 +18,7 @@ import copy
 import logging
 import math
 import uuid
+from dataclasses import dataclass
 
 import numpy as np
 from PyQt6 import sip
@@ -36,6 +37,7 @@ _PARTICIPATING = ("_draw_lines", "_reference_lines", "_draw_rects", "_draw_circl
 _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
+REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 # D34 translate-first pass (_solve_x): it is taken outright when it holds the
 # edit within HONOUR_TOL; otherwise only when it moves the edit at most
@@ -47,6 +49,22 @@ HONOUR_RATIO = 1.1
 # the adapter-less ones (spline, D5): a record that names one still resolves
 # for Save (§6.4) even though it can never be solved in v1.
 _PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines",)
+
+
+@dataclass(frozen=True)
+class SketchDiag:
+    """Commit-level diagnostics (§7.4, D39/D41): sketch DOF, amber ids,
+    per-item remaining DOF, and the uids touched by a red constraint."""
+    dof: int
+    redundant: frozenset
+    item_dof: dict
+    conflict_uids: frozenset
+
+    def state(self, uid) -> str:
+        """``"conflict"`` / ``"defined"`` / ``"free"`` for an item uid."""
+        if uid in self.conflict_uids:
+            return "conflict"
+        return "defined" if self.item_dof.get(uid, 1) == 0 else "free"
 
 
 def removed_status(n: int) -> str:
@@ -176,6 +194,13 @@ class ConstraintController:
         # show-every-glyph override, default off.
         self.show_all = False
         self.pick: PickState | None = None     # D21 pick session
+        # D37/D38: ids of admitted constraints whose admission broke
+        # solvability. They sit out of every solve until a STRUCTURAL commit
+        # re-checks them (derived state -- never saved; re-derived in list
+        # order on load / undo restore / paste).
+        self.red: set[str] = set()
+        self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
+        self._diag = None              # (key, SketchDiag)
         # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
@@ -288,6 +313,8 @@ class ConstraintController:
         self.constraints = []
         self.selected_id = self.hover_id = None
         self.pick = None
+        self.red = set()
+        self._commit_gen += 1
         self._end_session()
 
     # ── items ────────────────────────────────────────────────────────────
@@ -303,11 +330,12 @@ class ConstraintController:
         return {getattr(it, "_uid", None): it for it in self.items()}
 
     def active(self) -> list:
-        """Solvable constraints: enabled, built and valid (not inert), refs resolve."""
+        """Solvable constraints: enabled, built and valid (not inert), not red
+        (D37), refs resolve."""
         by = set(self.item_by_uid())
         out = []
         for c in self.constraints:
-            if not c.enabled or c.inert:
+            if not c.enabled or c.inert or c.id in self.red:
                 continue
             uids = _safe_ref_uids(c)
             if uids is not None and uids <= by:
@@ -660,6 +688,7 @@ class ConstraintController:
         if not self._solve(edited=items, typed=pins):
             self._restore(snap)
             self._report_conflict(reassert=True)
+        self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
 
     @staticmethod
     def _typed_pins(items, snap) -> dict:
@@ -764,12 +793,53 @@ class ConstraintController:
     def end_drag(self) -> None:
         """Close the drag session (the caller then pushes undo)."""
         self._end_session()
+        self._commit_gen += 1
 
     def cancel_drag(self) -> None:
         """Esc: restore EVERY item the gesture's solves wrote, close the session."""
         if self._drag_snap is not None:
             self._restore(self._drag_snap)
         self._end_session()
+        self._commit_gen += 1
+
+    # ── red set (D37/D38) ────────────────────────────────────────────────
+    def _try(self, cons) -> bool:
+        """Whether *cons* alone is satisfiable from the current geometry
+        (D29/D34/D36 rules included). Nothing is written."""
+        if not cons:
+            return True
+        sys_, slots, base = self._build(cons)
+        return self._solve_x(sys_, slots, base, None) is not None
+
+    def _admit_in_order(self, cons) -> set:
+        """D38: ids of *cons* that cannot join, in list order. Each
+        constraint-connected group is tried whole first; only a failing group
+        is admitted one constraint at a time."""
+        red = set()
+        for uids in self._groups(cons):
+            group = [c for c in cons if (_safe_ref_uids(c) or set()) & uids]
+            if self._try(group):
+                continue
+            ok = []
+            for c in group:
+                if self._try(ok + [c]):
+                    ok.append(c)
+                else:
+                    red.add(c.id)
+        return red
+
+    def _recheck_red(self, skip=()) -> None:
+        """D37: after a STRUCTURAL commit, each red constraint (list order)
+        re-joins if it is satisfiable again -- its solve is written back.
+        Never run after a geometry edit (a released drag must not jump)."""
+        for c in list(self.constraints):
+            if c.id not in self.red or c.id in skip:
+                continue
+            self.red.discard(c.id)
+            if not c.enabled or c.inert:
+                continue
+            if not self._solve(focus=_safe_ref_uids(c) or set()):
+                self.red.add(c.id)
 
     # ── model ops ────────────────────────────────────────────────────────
     def add(self, ctype: str, refs: list):
@@ -791,9 +861,14 @@ class ConstraintController:
             self._status(INVALID_STATUS)
             return None
         self.constraints.append(c)
-        if not self._solve(focus=sm.ref_uids(c)):
+        ok = self._solve(focus=sm.ref_uids(c))
+        if not ok:
+            self.red.add(c.id)               # D38: the newcomer is the culprit
+        self._committed(skip=(c.id,))
+        if not ok:
             self._report_conflict()          # nothing written: hold last good
-        self._committed()
+        elif c.id in self.diagnostics().redundant:
+            self._status(REDUNDANT_STATUS)   # D42
         return c
 
     def delete(self, ids) -> int:
@@ -801,6 +876,7 @@ class ConstraintController:
         ids = set(ids)
         before = len(self.constraints)
         self.constraints = [c for c in self.constraints if c.id not in ids]
+        self.red &= {c.id for c in self.constraints}
         if self.selected_id in ids:
             self.selected_id = None
         n = before - len(self.constraints)
@@ -814,10 +890,16 @@ class ConstraintController:
         for c in self.constraints:
             if c.id == cid and c.enabled != enabled and not c.inert:
                 c.enabled = enabled
-                if (enabled and not c.inert
-                        and not self._solve(focus=_safe_ref_uids(c) or set())):
+                bad = False
+                if enabled:
+                    bad = not self._solve(focus=_safe_ref_uids(c) or set())
+                    if bad:
+                        self.red.add(c.id)       # D38: re-enabling broke it
+                else:
+                    self.red.discard(c.id)
+                self._committed(skip=(c.id,) if bad else ())
+                if bad:
                     self._report_conflict()
-                self._committed()
 
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""
@@ -828,9 +910,14 @@ class ConstraintController:
                             if not ((_safe_ref_uids(c) or set()) & uids)]
         if self.selected_id not in {c.id for c in self.constraints}:
             self.selected_id = None
+        self.red &= {c.id for c in self.constraints}
+        self._recheck_red()              # structural: a partner may be gone (D37)
+        self._commit_gen += 1
         return before - len(self.constraints)
 
-    def _committed(self) -> None:
+    def _committed(self, skip=()) -> None:
+        self._recheck_red(skip)          # D37: structural commit re-check
+        self._commit_gen += 1
         self._scene.push_undo_state()
         refit = getattr(self._scene, "notify_geometry_edited", None)
         if callable(refit):
@@ -962,6 +1049,7 @@ class ConstraintController:
         from .constraint_paint import _icon_theme
         icon_t = _icon_theme()
         by = self.item_by_uid()
+        diag = self.diagnostics()
         rows = []
         for c in cons:
             kind = self.kind_text(c)
@@ -982,13 +1070,19 @@ class ConstraintController:
                 subtext=self.targets_text(c, " ↔ ", by),
                 muted=not c.enabled or c.inert,
                 strike=not c.enabled and not c.inert,
+                state=("danger" if c.id in self.red
+                       else "warn" if c.id in diag.redundant else ""),
                 tooltip=(f"{kind} — click to select" if not c.inert else
                          "Unsupported constraint — kept as saved, never solved"),
                 actions=actions,
                 on_click=lambda cid=c.id: self.select(cid),
                 on_hover=lambda on, cid=c.id: self._hover_row(cid, on)))
+        if isinstance(target, ConstraintAdapter):
+            footer, fstate = "", ""
+        else:            # D41: the element's own state, not the sketch DOF
+            footer, fstate = self.item_state_text(getattr(target, "_uid", None))
         return dict(title=f"Constraints · {len(rows)}", rows=rows,
-                    footer=f"Sketch DOF {self.sketch_dof()}",
+                    footer=footer, footer_state=fstate,
                     empty="No constraints on this entity")
 
     def _hover_row(self, cid, on) -> None:
@@ -1002,14 +1096,61 @@ class ConstraintController:
         self._repaint()
 
     # ── diagnostics ──────────────────────────────────────────────────────
+    def diagnostics(self) -> SketchDiag:
+        """Cached on (commit generation, constraint ids/enabled, red ids,
+        participating item uids): never recomputed per drag frame (§7.4)."""
+        items = self.items()
+        key = (self._commit_gen,
+               tuple((c.id, c.enabled) for c in self.constraints),
+               frozenset(self.red),
+               tuple(sorted(str(getattr(i, "_uid", "")) for i in items)))
+        if self._diag is not None and self._diag[0] == key:
+            return self._diag[1]
+        item_dof = {}
+        for it in items:
+            u = getattr(it, "_uid", None)
+            if u is not None:
+                item_dof[u] = adapter_for(it).nvars(it)
+        total = sum(item_dof.values())
+        dof, redundant = total, frozenset()
+        cons = self.active()
+        if cons:
+            sys_, slots, _w = self._build(cons)
+            sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
+            d = self._solver.diagnose(sys_)
+            redundant = frozenset(d.redundant)
+            for u, (it, ad, off) in slots.items():
+                item_dof[u] = d.dof_of(range(off, off + ad.nvars(it)))
+            dof = total - (len(sys_.x) - d.dof)
+        conflict = frozenset(u for c in self.constraints if c.id in self.red
+                             for u in (_safe_ref_uids(c) or ()))
+        out = SketchDiag(dof, redundant, item_dof, conflict)
+        self._diag = (key, out)
+        return out
+
     def sketch_dof(self) -> int:
         """Sum of participating items' variables minus what constraints remove."""
-        total = sum(adapter_for(it).nvars(it) for it in self.items())
-        cons = self.active()
-        if not cons:
-            return total
-        sys_, _slots, _w = self._build(cons)
-        return total - (len(sys_.x) - self._solver.diagnose(sys_).dof)
+        return self.diagnostics().dof
+
+    def item_state_text(self, uid) -> tuple[str, str]:
+        """D41 element footer: ``(text, state)``."""
+        d = self.diagnostics()
+        st = d.state(uid)
+        if st == "conflict":
+            return "Conflicting", st
+        if st == "defined":
+            return "Fully defined", st
+        return f"Under-defined · {d.item_dof.get(uid, 0)} DOF", st
+
+    def sketch_state(self) -> tuple[str, str]:
+        """D40 block Status badge: ``(text, state)``. An empty sketch is
+        under-defined (0 DOF), never "fully defined"."""
+        d = self.diagnostics()
+        if self.red:
+            return "Over-constrained", "conflict"
+        if d.dof == 0 and d.item_dof:
+            return "Fully defined", "defined"
+        return f"Under-defined · {d.dof} DOF", "free"
 
     # ── undo / persistence / copy ────────────────────────────────────────
     def capture(self) -> list:
@@ -1024,6 +1165,9 @@ class ConstraintController:
         self.constraints = [self._adopt(r, by) for r in records or []]
         self.selected_id = self.hover_id = None
         self._end_session()      # a drag context holds the pre-restore items
+        self.red = set()
+        self.red = self._admit_in_order(self.active())   # D38, list order
+        self._commit_gen += 1
 
     def primitive_uids(self) -> set:
         """Uids of EVERY editor primitive, adapter-backed or not (spline)."""
@@ -1143,10 +1287,17 @@ class ConstraintController:
         if not keep_h:
             cons = [c for c in cons if c.type != "horizontal"]
         by = self.item_by_uid()
+        new = []
         for c in sm.remap_for_copy(cons, uid_map):
             if not self._valid(c, by):
                 c.raw, c.invalid = c.to_dict(), True
             self.constraints.append(c)
+            new.append(c)
+        # D38: a copied constraint that cannot join (e.g. a source's red one)
+        # is red on the copy too.
+        self.red |= self._admit_in_order(
+            [c for c in new if c.enabled and not c.inert])
+        self._commit_gen += 1
 
 
 class ConstraintAdapter:

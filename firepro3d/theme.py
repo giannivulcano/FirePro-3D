@@ -146,6 +146,8 @@ class _Metrics:
     CONSTRAINT_PICK_EDGE_GLOW_ALPHA = 140
     CONSTRAINT_INACTIVE_OPACITY = 0.4    # suppressed / inert (unsupported) glyph
     PROP_CONSTRAINT_ROW_H = 28
+    STATUS_BADGE_GAP = 6        # dot <-> text (CS2 mockup gate, 2026-10-02)
+    STATUS_BADGE_DOT_FS = 10    # dot glyph px (CS2 mockup gate)
     # ui_kit.ActionRowList (panel row list: icon · text/subtext · actions)
     ACTION_ROW_PAD_X = 8         # row / title / footer side padding
     ACTION_ROW_PAD_Y = 6         # title / footer vertical padding
@@ -288,6 +290,7 @@ class Theme:
     ok: str
     warn: str
     danger: str
+    constraint_free: str      # D26: under-defined constraint tint (blue, never accent)
 
     # Layer 2: semantic aliases (derived; shared by all variants)
     @property
@@ -388,6 +391,7 @@ DARK = Theme(
     selection="#63BE8B", selection_active="#8FE3B4",
     selection_hover="#00BFFF",
     ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
+    constraint_free="#5B8CFF",
 )
 
 LIGHT = Theme(
@@ -399,6 +403,7 @@ LIGHT = Theme(
     selection="#2f9e63", selection_active="#1f7a49",
     selection_hover="#0091D6",
     ok="#2f9e63", warn="#b46500", danger="#c42b1c",
+    constraint_free="#2357D9",
 )
 
 

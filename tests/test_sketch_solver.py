@@ -2,6 +2,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from firepro3d import sketch_solver as ss
 
@@ -376,7 +377,6 @@ def test_tight_component_plus_nan_component_is_not_converged():
 
 
 # ── CS2: Vertical (§7.3 pinned row, Session 2) ────────────────────────────
-import pytest
 
 
 def _rot_point(cx_i, cy_i, t_i, r):
@@ -520,3 +520,11 @@ def test_non_redundant_constraints_are_not_flagged():
     ss.build_vertical("v", (ss.raw_point(0, 1), ss.const_point(0.0, 0.0)), s)
     s.cid_rank = {"h": 0, "v": 1}
     assert _diag(s).redundant == []
+
+
+def test_dependent_rows_count_reconciles_with_svd_rank():
+    """CS2 review m2: a near-singular J whose relative GS test would flag a
+    different count than the SVD rank defers to the rank."""
+    J = np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 5e-9, 0.0]])
+    assert int(ss._dependent_rows(J, ndep=1).sum()) == 1
+    assert ss._dependent_rows(J, ndep=1)[1]          # the exact duplicate

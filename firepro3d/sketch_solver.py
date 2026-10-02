@@ -362,14 +362,20 @@ def _equality_redundancy(sys: System) -> dict:
     return out
 
 
-def _dependent_rows(J: np.ndarray) -> np.ndarray:
+def _dependent_rows(J: np.ndarray, ndep: int | None = None) -> np.ndarray:
     """Ordered modified Gram-Schmidt: ``dep[a]`` = row *a* lies in the span of
     the rows before it (relative ``DEP_TOL``); re-orthogonalised twice. Run
-    only on a rank-deficient component (P4: ~45 ms on a 299 x 900 J)."""
+    only on a rank-deficient component (P4: ~45 ms on a 299 x 900 J).
+
+    *ndep* (= rows - SVD rank) reconciles the two tolerances on a
+    near-singular J (CS2 review m2): when the relative test flags a different
+    count, the *ndep* rows with the smallest relative residual are dependent.
+    """
     nr, nc = J.shape
     B = np.empty((nr, nc))
     k = 0
     dep = np.zeros(nr, dtype=bool)
+    ratio = np.zeros(nr)
     for a in range(nr):
         v = J[a].astype(float).copy()
         n0 = float(np.linalg.norm(v))
@@ -381,11 +387,16 @@ def _dependent_rows(J: np.ndarray) -> np.ndarray:
             v -= Bk.T @ (Bk @ v)
             v -= Bk.T @ (Bk @ v)
         r = float(np.linalg.norm(v))
+        ratio[a] = r / n0
         if r <= DEP_TOL * n0:
             dep[a] = True
         else:
             B[k] = v / r
             k += 1
+    if ndep is not None and int(dep.sum()) != ndep:
+        dep = np.zeros(nr, dtype=bool)
+        if ndep > 0:
+            dep[np.argsort(ratio, kind="stable")[:ndep]] = True
     return dep
 
 
@@ -525,7 +536,7 @@ class NumpySolver:
             r = int((s > max(tol, 1e-9)).sum())
             rank += r
             rowb[ci] = vt[:r]
-            dep = (_dependent_rows(J) if r < len(comp.rows)
+            dep = (_dependent_rows(J, len(comp.rows) - r) if r < len(comp.rows)
                    else np.zeros(len(comp.rows), dtype=bool))
             for k, row in enumerate(comp.rows):
                 ok = bool(dep[k]) and abs(float(F[k])) <= LIN_TOL

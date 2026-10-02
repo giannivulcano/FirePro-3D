@@ -1161,6 +1161,49 @@ class _ActionRow(QWidget):
         super().mousePressEvent(event)
 
 
+class StatusBadge(QWidget):
+    """A state readout: coloured dot + text (parametric-constraint-system.md
+    D40/D41). ``state`` picks the dot token: ``free`` -> ``constraint_free``,
+    ``defined`` -> ``ink``, ``conflict`` -> ``danger``; anything else ``muted``.
+
+    Its own background is transparent: under the app QSS a styled ``QWidget``
+    otherwise paints a sunken strip (CS2 gate live render).
+    """
+
+    _TOKENS = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
+
+    def __init__(self, text: str, state: str, parent=None):
+        super().__init__(parent)
+        t = _detect()
+        self._state = state
+        if not self.objectName():
+            self.setObjectName("statusBadge")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(M.STATUS_BADGE_GAP)
+        self._dot = QLabel("●")
+        self._dot.setObjectName("statusBadgeDot")
+        self._text = QLabel(text)
+        self._text.setObjectName("statusBadgeText")
+        self._text.setTextFormat(Qt.TextFormat.PlainText)
+        dot = getattr(t, self._TOKENS.get(state, "muted"))
+        self.setStyleSheet(
+            f"QWidget#statusBadge {{ background: transparent; }}"
+            f"QLabel#statusBadgeDot {{ color: {dot}; font-size: {M.STATUS_BADGE_DOT_FS}px;"
+            f" background: transparent; }}"
+            f"QLabel#statusBadgeText {{ color: {t.ink}; font-size: {M.PROP_FIELD_FS}px;"
+            f" background: transparent; }}")
+        self.setToolTip(text)
+        lay.addWidget(self._dot)
+        lay.addWidget(self._text, 1)
+
+    def text(self) -> str:
+        return self._text.text()
+
+    def state(self) -> str:
+        return self._state
+
+
 class ActionRowList(QWidget):
     """Titled list of rows: icon · text/subtext · small action buttons, + footer.
 
@@ -1179,7 +1222,7 @@ class ActionRowList(QWidget):
     """
 
     def __init__(self, title: str, rows: list, *, badge: str = "",
-                 footer: str = "", empty: str = "",
+                 footer: str = "", footer_state: str = "", empty: str = "",
                  row_height: int | None = None, parent=None):
         super().__init__(parent)
         t = _detect()
@@ -1196,6 +1239,10 @@ class ActionRowList(QWidget):
             f" border-radius: {M.RADIUS_CHIP}px; padding: 0 6px; }}"
             f"QLabel#actionRowSub {{ color: {t.muted}; font-size: {M.ACTION_ROW_SUB_FS}px; }}"
             f"QLabel#actionRowText[muted=\"true\"] {{ color: {t.muted}; }}"
+            f"QLabel#actionRowText[state=\"warn\"] {{ color: {t.warn}; }}"
+            f"QLabel#actionRowText[state=\"danger\"] {{ color: {t.danger}; }}"
+            f"QWidget#actionRowFooterBadge {{ border-top: 1px solid {t.line};"
+            f" padding: {M.ACTION_ROW_PAD_Y}px {pad}px; }}"
             f"QLabel#actionRowEmpty {{ color: {t.muted}; font-style: italic; }}"
             f"QLabel#actionRowFooter {{ color: {t.muted}; border-top: 1px solid {t.line};"
             f" padding: {M.ACTION_ROW_PAD_Y}px {pad}px; }}"
@@ -1244,6 +1291,7 @@ class ActionRowList(QWidget):
             txt = QLabel()
             txt.setObjectName("actionRowText")
             txt.setProperty("muted", bool(spec.get("muted")))
+            txt.setProperty("state", spec.get("state", ""))   # CS2 warn / danger
             if spec.get("strike"):
                 txt.setTextFormat(Qt.TextFormat.RichText)
                 txt.setText(f"<s>{html.escape(plain)}</s>")
@@ -1283,9 +1331,15 @@ class ActionRowList(QWidget):
             self._empty.setObjectName("actionRowEmpty")
             self._empty.setContentsMargins(*M.ACTION_ROW_EMPTY_MARGIN)
             lay.addWidget(self._empty)
-        self._footer = QLabel(footer)
-        self._footer.setObjectName("actionRowFooter")
+        if footer_state:              # D41: a state badge (dot + text)
+            self._footer = StatusBadge(footer, footer_state)
+            self._footer.setObjectName("actionRowFooterBadge")
+            self._footer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        else:
+            self._footer = QLabel(footer)
+            self._footer.setObjectName("actionRowFooter")
         self._footer.setVisible(bool(footer))
+        self._footer_state = footer_state
         lay.addWidget(self._footer)
 
     # ── read API (tests / callers) ────────────────────────────────────────
@@ -1317,6 +1371,12 @@ class ActionRowList(QWidget):
 
     def footer_text(self) -> str:
         return self._footer.text()
+
+    def footer_state(self) -> str:
+        return self._footer_state
+
+    def row_state(self, i: int) -> str:
+        return str(self._rows[i][1].property("state") or "")
 
     def trigger(self, i: int, key: str) -> None:
         """Click row *i*'s *key* action button (as a user would)."""

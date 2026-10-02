@@ -541,22 +541,39 @@ def _conflicted_rect(sc):
     return r
 
 
+def _collapsing_pair(sc):
+    """CS2 (D37 retired the persistently conflicted rect as an edit blocker):
+    L (0,0)-(100,0) Horizontal, L.p1 Vertical to the origin, L.p2 Vertical to
+    M.p1 -- all satisfied. Moving / scaling [L, M] so L.p2's goal lands on
+    L.p1's X can only be solved by shrinking L to a point (D36): an EDIT-time
+    conflict, so the whole commit rolls back."""
+    L = _line(sc, (0, 0), (100, 0))
+    M = _line(sc, (100, 50), (200, 50))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": L._uid, "h": "edge"}])
+    ctl.add("vertical", [{"uid": L._uid, "h": "p1"}, {"ref": "origin"}])
+    ctl.add("vertical", [{"uid": L._uid, "h": "p2"}, {"uid": M._uid, "h": "p1"}])
+    assert ctl.red == set()
+    return L, M
+
+
 def _grips(it):
     return [(p.x(), p.y()) for p in it.grip_points()]
 
 
 def test_rolled_back_move_restores_every_moved_item(qapp):
-    """I1: Move [conflicted rect, free line] fails -> the WHOLE move is undone
-    (the status says the change was not applied), the free line included."""
+    """I1: Move [L, M, free line] fails (D36 edit-time collapse) -> the WHOLE
+    move is undone (the status says the change was not applied), the free
+    line included."""
     from firepro3d.constraint_controller import CONFLICT_STATUS
     sc = _scene()
-    r = _conflicted_rect(sc)
+    L, M = _collapsing_pair(sc)
     free = _line(sc, (300, 300), (400, 300))
-    r0, f0 = _grips(r), _grips(free)
+    l0, m0, f0 = _grips(L), _grips(M), _grips(free)
     msgs = _status(sc)
-    sc._selected_items = [r, free]
-    sc.move_items(QPointF(10, 10))
-    assert _grips(r) == r0
+    sc._selected_items = [L, M, free]
+    sc.move_items(QPointF(-100, 10))
+    assert _grips(L) == l0 and _grips(M) == m0
     assert _grips(free) == f0                                            # [RED]
     assert CONFLICT_STATUS in msgs
 
@@ -575,7 +592,11 @@ def test_open_solves_each_group_despite_a_conflict_elsewhere(qapp):
     assert ln._pt1.y() == pytest.approx(15.0, abs=1e-6)                 # [RED]
     assert ln._pt2.y() == pytest.approx(15.0, abs=1e-6)
     assert _grips(r) == r0
-    assert len(sc.constraint_ctl.active()) == 3
+    # D37/D38 (CS2): all three are admitted; the one whose admission broke the
+    # rect's group (b2, list order) is red and sits out of active().
+    assert len(sc.constraint_ctl.constraints) == 3
+    assert sc.constraint_ctl.red == {"b2"}
+    assert [c.id for c in sc.constraint_ctl.active()] == ["a", "b1"]
 
 
 def test_a_size_already_at_its_floor_is_never_driven_below_it(qapp):
@@ -703,14 +724,14 @@ def test_conflict_status_survives_the_tools_success_message(qapp):
     the edit context exits; the conflict status must be the one left showing."""
     from firepro3d.constraint_controller import CONFLICT_STATUS
     sc = _scene()
-    r = _conflicted_rect(sc)
-    r0 = _grips(r)
+    L, M = _collapsing_pair(sc)
+    l0 = _grips(L)
     msgs = _status(sc)
-    sc._scale_base = QPointF(0, 0)
-    sc._selected_items = [r]
+    sc._scale_base = QPointF(200, 0)
+    sc._selected_items = [L, M]
     sc._modify_ctl.commit_scale(2.0)
     QApplication.processEvents()
-    assert _grips(r) == r0
+    assert _grips(L) == l0
     assert msgs and msgs[-1] == CONFLICT_STATUS                          # [RED]
 
 
@@ -1301,9 +1322,223 @@ def test_d36_polyline_segment_collapse_is_a_conflict(qapp):
     assert abs(p1.x() - p0.x()) > 1.0                       # s0 not collapsed
 
 
-@pytest.mark.xfail(strict=True, reason="red set lands in CS2 Task 6")
 def test_d36_already_zero_length_line_is_not_a_collapse(qapp):
     sc = _scene()
     ln = _line(sc, (10, 10), (10, 10))
     c = sc.constraint_ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
     assert c is not None and c.id not in sc.constraint_ctl.red
+
+
+# ── CS2 D37/D38: red constraints sit out; attribution = admission ──────────
+
+def _top_left_y(r):
+    import numpy as np
+    from firepro3d.sketch_adapters import adapter_for
+    ad = adapter_for(r)
+    x = np.array(ad.read(r), float)
+    return float(ad.points(r, 0)["tl"].eval(x)[0][1])
+
+
+def test_d38_newly_added_conflict_is_red_earlier_one_not(qapp):
+    sc = _scene()
+    r = _rect(sc, (0, 0), (100, 50))
+    ctl = sc.constraint_ctl
+    h = ctl.add("horizontal", [{"uid": r._uid, "h": "top"}])
+    v = ctl.add("vertical", [{"uid": r._uid, "h": "top"}])
+    assert ctl.red == {v.id}
+    assert h.id not in ctl.red
+    assert [c.id for c in ctl.active()] == [h.id]
+
+
+def test_d37_connected_geometry_stays_editable_after_a_red_admit(qapp):
+    sc = _scene()
+    r = _rect(sc, (0, 0), (100, 50))
+    ln = _line(sc, (200, 0), (300, 10))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": r._uid, "h": "top"}])
+    ctl.add("horizontal", [{"uid": r._uid, "h": "tl"}, {"uid": ln._uid, "h": "p1"}])
+    ctl.add("vertical", [{"uid": r._uid, "h": "top"}])           # red
+    before = (ln._pt1.x(), ln._pt1.y())
+    with ctl.edit([ln]):
+        ln._pt1 = QPointF(200, 40)
+        ln.setLine(200, 40, 300, 10)
+    assert (ln._pt1.x(), ln._pt1.y()) != before                  # the edit applied
+    assert ln._pt1.y() == pytest.approx(_top_left_y(r), abs=1e-6)   # H tl~p1 honoured
+
+
+def test_d37_deleting_the_conflict_partner_rejoins_the_red_one(qapp):
+    """H(L) + V(L.p1, M.p1) + V(L.p2, M.p1): the last can only collapse L
+    (D36) -> red. Deleting V(L.p1, M.p1) makes it satisfiable: the structural
+    commit's re-check re-admits it and applies it."""
+    sc = _scene()
+    L = _line(sc, (0, 0), (100, 30))
+    M = _line(sc, (40, 100), (140, 100))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": L._uid, "h": "edge"}])
+    v1 = ctl.add("vertical", [{"uid": L._uid, "h": "p1"}, {"uid": M._uid, "h": "p1"}])
+    v2 = ctl.add("vertical", [{"uid": L._uid, "h": "p2"}, {"uid": M._uid, "h": "p1"}])
+    assert ctl.red == {v2.id}
+    assert L._pt2.x() != pytest.approx(M._pt1.x(), abs=1e-3)     # not applied yet
+    ctl.delete([v1.id])                                          # structural commit
+    assert ctl.red == set()
+    assert L._pt2.x() == pytest.approx(M._pt1.x(), abs=1e-6)     # V now applied
+    assert L._pt1.y() == pytest.approx(L._pt2.y(), abs=1e-6)     # H still holds
+
+
+def test_d37_a_geometry_edit_never_rejoins_a_red_one(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    v = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    with ctl.edit([ln]):
+        ln._pt2 = QPointF(150, 15)
+        ln.setLine(ln._pt1.x(), ln._pt1.y(), 150, 15)
+    assert ctl.red == {v.id}
+
+
+def test_d38_red_rederived_on_load_in_list_order(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 15), (100, 15))
+    ctl = sc.constraint_ctl
+    h = ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    v = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    recs = ctl.to_records()
+    ctl.reset()
+    assert ctl.red == set()
+    ctl.load(recs)
+    assert ctl.red == {v.id} and h.id not in ctl.red
+    assert (ln._pt1.x(), ln._pt1.y(), ln._pt2.x()) == pytest.approx((0.0, 15.0, 100.0))
+
+
+def test_d38_undo_restore_rederives_red(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 15), (100, 15))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    v = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    snap = ctl.capture()
+    ctl.red.clear()
+    ctl.restore(snap)
+    assert ctl.red == {v.id}
+
+
+def test_suppress_clears_red_and_reenable_reattributes(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 15), (100, 15))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    v = ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])
+    ctl.set_enabled(v.id, False)
+    assert v.id not in ctl.red
+    ctl.set_enabled(v.id, True)
+    assert v.id in ctl.red
+
+
+def test_d42_redundant_add_posts_status_and_still_admits(qapp):
+    sc = _scene()
+    log = _status_log(sc)
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    c2 = ctl.add("horizontal", [{"uid": ln._uid, "h": "p1"}, {"uid": ln._uid, "h": "p2"}])
+    assert c2 is not None and c2.id not in ctl.red
+    assert c2.id in ctl.diagnostics().redundant
+    assert "Redundant constraint: already implied by others" in log
+
+
+# ── CS2 diagnostics cache (§7.4, D39/D41) ───────────────────────────────────
+
+def test_item_states_free_defined_conflict(qapp):
+    sc = _scene()
+    a = _line(sc, (10, 5), (60, 40))
+    b = _line(sc, (0, 100), (50, 120))                       # untouched
+    ctl = sc.constraint_ctl
+    O = {"ref": "origin"}
+    ctl.add("horizontal", [{"uid": a._uid, "h": "p1"}, O])
+    ctl.add("vertical", [{"uid": a._uid, "h": "p1"}, O])     # p1 pinned at the origin
+    ctl.add("horizontal", [{"uid": a._uid, "h": "edge"}])    # p2.y = 0, p2.x free
+    d = ctl.diagnostics()
+    assert d.state(a._uid) == "free" and d.item_dof[a._uid] == 1
+    assert d.state(b._uid) == "free" and d.item_dof[b._uid] == 4   # unconstrained
+    r = _rect(sc, (300, 0), (400, 50))
+    ctl.add("horizontal", [{"uid": r._uid, "h": "top"}])
+    ctl.add("vertical", [{"uid": r._uid, "h": "top"}])             # red
+    assert ctl.diagnostics().state(r._uid) == "conflict"
+
+
+def test_fully_defined_text_ins_at_origin(qapp):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    sc = _scene()
+    t = TextItem(TextAnnotationData(text="A", x=30.0, y=40.0, height_mm=20.0))
+    sc.addItem(t); sc._texts.append(t)
+    ctl = sc.constraint_ctl
+    O = {"ref": "origin"}
+    ctl.add("horizontal", [{"uid": t._uid, "h": "ins"}, O])
+    ctl.add("vertical", [{"uid": t._uid, "h": "ins"}, O])
+    assert ctl.diagnostics().state(t._uid) == "defined"
+    assert ctl.sketch_state() == ("Fully defined", "defined")
+
+
+def test_line_both_ends_to_origin_collapses_red(qapp):
+    sc = _scene()
+    a = _line(sc, (10, 5), (60, 40))
+    ctl = sc.constraint_ctl
+    O = {"ref": "origin"}
+    ctl.add("horizontal", [{"uid": a._uid, "h": "p1"}, O])
+    ctl.add("vertical", [{"uid": a._uid, "h": "p1"}, O])
+    ctl.add("horizontal", [{"uid": a._uid, "h": "p2"}, O])
+    v = ctl.add("vertical", [{"uid": a._uid, "h": "p2"}, O])       # D36: collapse -> red
+    assert ctl.red == {v.id}
+    assert ctl.diagnostics().state(a._uid) == "conflict"
+
+
+def test_diagnostics_cached_until_a_commit(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    d1 = ctl.diagnostics()
+    assert ctl.diagnostics() is d1                          # no commit -> same object
+    ctl.add("vertical", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    assert ctl.diagnostics() is not d1
+
+
+def test_new_unconstrained_item_invalidates_the_cache(qapp):
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    d1 = ctl.diagnostics()
+    ln = _line(sc, (0, 0), (100, 30))
+    d2 = ctl.diagnostics()
+    assert d2 is not d1 and d2.state(ln._uid) == "free" and d2.dof == 4
+
+
+def test_sketch_state_text(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    assert ctl.sketch_state() == ("Under-defined · 4 DOF", "free")
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])      # red
+    assert ctl.sketch_state() == ("Over-constrained", "conflict")
+
+
+def test_d41_element_footer_is_the_element_state(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    spec = ctl.panel_rows(ln)
+    assert spec["footer"] == "Under-defined · 3 DOF"
+    assert spec["footer_state"] == "free"
+
+
+def test_panel_row_state_for_red_and_redundant(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "p1"}, {"uid": ln._uid, "h": "p2"}])  # amber
+    ctl.add("vertical", [{"uid": ln._uid, "h": "edge"}])                                # red
+    states = [r["state"] for r in ctl.panel_rows(ln)["rows"]]
+    assert states == ["", "warn", "danger"]
