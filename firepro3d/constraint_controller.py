@@ -21,11 +21,13 @@ import uuid
 
 import numpy as np
 from PyQt6 import sip
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QPointF, QRectF, QTimer, Qt
+from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
 from .sketch_adapters import adapter_for
 from .sketch_solver import BUILDERS, NumpySolver, System, W_EDIT, W_PIN, const_point
+from .theme import M
 
 # Model_Space tracking lists whose items can carry constraints (§5.1).
 _PARTICIPATING = ("_draw_lines", "_reference_lines", "_draw_rects", "_draw_circles",
@@ -48,6 +50,101 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+PICK_SAME_POINT_STATUS = "Pick a different point"
+
+
+def _xy(p) -> tuple[float, float]:
+    return (p.x(), p.y())
+
+
+def _seg_dist(p, a, b) -> float:
+    """Distance from *p* to segment *ab* (all viewport px)."""
+    ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy or 1e-12
+    t = max(0.0, min(1.0, ((p.x() - ax) * dx + (p.y() - ay) * dy) / L2))
+    return math.hypot(p.x() - ax - t * dx, p.y() - ay - t * dy)
+
+
+class PickState:
+    """D21 hover-marker pick mode for one constraint type.
+
+    Every participating primitive's §5.1 point handles (and the origin) show
+    as hollow square markers; the hover is the nearest point within
+    ``CONSTRAINT_PICK_POINT_TOL_PX`` or — before the first point pick — the
+    nearest edge within ``CONSTRAINT_PICK_EDGE_TOL_PX`` (viewport px).
+    """
+
+    def __init__(self, ctl, ctype: str):
+        self.ctl, self.ctype = ctl, ctype
+        self.picks: list[dict] = []
+        self.hover: dict | None = None
+        self.hover_kind: str | None = None      # "point" / "edge"
+
+    def _candidates(self):
+        """``(kind, ref, a, b)`` scene-space; ``b`` is None for a point."""
+        for it in self.ctl.items():
+            uid = getattr(it, "_uid", None)
+            if uid is None:
+                continue
+            ad = adapter_for(it)
+            x = np.array(ad.read(it), dtype=float)
+            for name, e in ad.points(it, 0).items():
+                yield "point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]), None
+            for name, (a, b) in ad.edges(it, 0).items():
+                yield ("edge", {"uid": uid, "h": name},
+                       QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
+        yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
+
+    def hover_at(self, view, vp_pt) -> dict | None:
+        """Nearest point within tol; else (no picks yet) nearest edge."""
+        cands = list(self._candidates())
+        best = None
+        for kind, ref, a, _b in cands:
+            if kind != "point":
+                continue
+            d = math.dist(_xy(vp_pt), _xy(view.mapFromScene(a)))
+            if d <= M.CONSTRAINT_PICK_POINT_TOL_PX and (best is None or d < best[0]):
+                best = (d, ref, kind)
+        if best is None and not self.picks:
+            for kind, ref, a, b in cands:
+                if kind != "edge":
+                    continue
+                d = _seg_dist(vp_pt, view.mapFromScene(a), view.mapFromScene(b))
+                if d <= M.CONSTRAINT_PICK_EDGE_TOL_PX and (best is None or d < best[0]):
+                    best = (d, ref, kind)
+        self.hover = best[1] if best else None
+        self.hover_kind = best[2] if best else None
+        return self.hover
+
+    def status(self) -> str:
+        label = sm.REGISTRY[self.ctype].label
+        return f"{label}: pick 2 points or 1 edge ({len(self.picks)}/2) · Esc to cancel"
+
+    def paint(self, painter, view, t) -> None:
+        """Hover-edge glow, then the markers: hollow ``muted`` squares, filled
+        ``accent`` for the hovered (enlarged) and already-picked handles."""
+        half = M.CONSTRAINT_PICK_MARKER_HALF_PX
+        cands = list(self._candidates())
+        for kind, ref, a, b in cands:
+            if kind == "edge" and ref == self.hover:
+                pen = QPen(t.color("accent", 140), 5.0)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawLine(QPointF(view.mapFromScene(a)), QPointF(view.mapFromScene(b)))
+        for kind, ref, a, _b in cands:
+            if kind != "point":
+                continue
+            hov = ref == self.hover
+            on = hov or ref in self.picks
+            s = half + (1.5 if hov else 0.0)
+            p = QPointF(view.mapFromScene(a))
+            painter.setPen(QPen(t.color("accent" if on else "muted"), 1.3))
+            painter.setBrush(t.color("accent" if on else "surface"))
+            painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
+
+
 class ConstraintController:
     """Owns the editor's constraint list and every solve seam (spec §3, §8)."""
 
@@ -58,7 +155,10 @@ class ConstraintController:
         self.selected_id: str | None = None
         self.hover_id: str | None = None
         self.show_glyphs = True
-        self.pick = None                       # PickState (Task 12)
+        self.pick: PickState | None = None     # D21 pick session
+        # Zero-arg callbacks run when the constraint selection / list changes
+        # (the ribbon's Delete Constraints enable state, main.py).
+        self.state_listeners: list = []
         self._solver = NumpySolver()
         self._drag_snap = None
         self._last_good = None
@@ -74,10 +174,28 @@ class ConstraintController:
         self._scene.clearSelection()
         self.selected_id = cid
         self._repaint()
+        self._notify_state()
+
+    def clear_selected(self) -> bool:
+        """Drop the selected constraint (Esc / a missed press). True if one was."""
+        if self.selected_id is None:
+            return False
+        self.selected_id = None
+        self._repaint()
+        self._notify_state()
+        return True
 
     def delete_selected(self) -> int:
         """Delete the selected constraint (geometry untouched); one undo step."""
         return self.delete([self.selected_id]) if self.selected_id else 0
+
+    def _notify_state(self) -> None:
+        """Run :attr:`state_listeners`; a failing listener never escapes."""
+        for cb in list(self.state_listeners):
+            try:
+                cb()
+            except Exception:
+                _log.exception("constraint state listener failed")
 
     def _on_selection_changed(self) -> None:
         """An item selection clears the selected constraint. A Qt slot: a
@@ -88,6 +206,7 @@ class ConstraintController:
             if self.selected_id is not None and self._scene.selectedItems():
                 self.selected_id = None
                 self._repaint()
+                self._notify_state()
         except Exception:
             _log.exception("constraint selection-change handling failed")
 
@@ -508,6 +627,82 @@ class ConstraintController:
         if callable(refit):
             refit()
         self._repaint()
+        self._notify_state()
+
+    # ── pick mode (D21) ──────────────────────────────────────────────────
+    def begin_pick(self, ctype: str) -> None:
+        """Start a pick session for *ctype* (status shows the pick count)."""
+        if not self.enabled:
+            return
+        self.pick = PickState(self, ctype)
+        self._scene.instructionChanged.emit(self.pick.status())
+        self._repaint()
+
+    def cancel_pick(self) -> None:
+        """End any pick session (no constraint added)."""
+        if self.pick is not None:
+            self.pick = None
+            self._repaint()
+
+    def pick_hover(self, view, vp_pt) -> None:
+        """Mouse move in pick mode: update the hovered handle / edge."""
+        p = self.pick
+        if p is None:
+            return
+        before = (p.hover_kind, p.hover)
+        p.hover_at(view, vp_pt)
+        if (p.hover_kind, p.hover) != before:
+            self._repaint()
+
+    def pick_press(self, view, vp_pt) -> bool:
+        """Accumulate a pick; add the constraint once the arity is met.
+
+        An edge (only offered before the first point pick) completes at once;
+        points accumulate to two. A second pick naming the same handle is
+        refused with the status "Pick a different point" (§7.3 Horizontal).
+
+        Returns:
+            True when the constraint was added (the session has ended).
+        """
+        p = self.pick
+        if p is None:
+            return False
+        ref = p.hover_at(view, vp_pt)
+        if ref is None:
+            return False
+        if p.hover_kind == "edge":
+            refs = [ref]
+        else:
+            if ref in p.picks:
+                self._status(PICK_SAME_POINT_STATUS)
+                return False
+            p.picks.append(ref)
+            if len(p.picks) < 2:
+                self._scene.instructionChanged.emit(p.status())
+                self._repaint()
+                return False
+            refs = list(p.picks)
+        ctype = p.ctype
+        self.pick = None
+        self._scene.set_mode("select")
+        self.add(ctype, refs)
+        return True
+
+    def selection_refs(self, ctype: str):
+        """D21 selection-first: one selected line / reference line -> ``[edge]``.
+
+        Returns:
+            The refs to add, or None when the selection is not valid for it.
+        """
+        from .geometry_2d import LineItem      # covers ReferenceLineItem
+        try:
+            sel = self._scene.selectedItems()
+        except RuntimeError:
+            return None
+        if (len(sel) == 1 and isinstance(sel[0], LineItem)
+                and getattr(sel[0], "_uid", None) is not None):
+            return [{"uid": sel[0]._uid, "h": "edge"}]
+        return None
 
     # ── diagnostics ──────────────────────────────────────────────────────
     def sketch_dof(self) -> int:

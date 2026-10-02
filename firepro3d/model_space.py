@@ -1132,6 +1132,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
             return
+        if (isinstance(mode, str) and mode.startswith("constrain_")
+                and not self.constraint_ctl.enabled):
+            # Constraint pick modes exist only in a Block Editor scene (D2);
+            # refused here, the shared entry every ribbon/shortcut path hits.
+            return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
         # primitive pre-selected so all downstream logic sees mode == "wall".
@@ -1164,6 +1169,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # clear() hook (slice 7 §3.4). No-op when nothing is open. ALIGN teardown
         # stays inline below (ALIGN is core snap-plumbing, not the coordinator).
         self._plc.clear()
+        # Any mode change ends a constraint pick session (D21); entering a
+        # pick mode starts a fresh one below, after the initial instruction.
+        self.constraint_ctl.cancel_pick()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -1466,6 +1474,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 f"Pick centre point  |  {self._polygon_readout()}")
         elif instr:
             self.instructionChanged.emit(instr)
+        # Constraint pick mode (D21): the session emits its own counted
+        # status ("Horizontal: pick 2 points or 1 edge (0/2) · Esc to cancel").
+        if isinstance(mode, str) and mode.startswith("constrain_"):
+            self.constraint_ctl.begin_pick(mode[len("constrain_"):])
 
         # Multi-variant tools (arc, rectangle) re-apply their session-sticky
         # variant on entry and overwrite the plain instruction above with the
@@ -3968,6 +3980,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_array":           "_move_gridline_replicate",
         "gridline_offset":          "_move_gridline_replicate",
         "place_block":              "_move_place_block",
+        "constrain_horizontal":     "_move_constrain_pick",
     }
 
     # Mode -> name of the method that redraws the placement preview from an
@@ -4596,7 +4609,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_array":           "_press_gridline_replicate",
         "gridline_offset":          "_press_gridline_replicate",
         "place_block":              "_press_place_block",
+        "constrain_horizontal":     "_press_constrain_pick",
     }
+
+    # ── Constraint pick mode (parametric-constraint-system.md D21) ────────
+    def _event_view(self, event):
+        """The Model_View an event was delivered through (its viewport's
+        parent), else the zoom-driving view (headless / synthetic events)."""
+        w = event.widget() if hasattr(event, "widget") else None
+        v = w.parent() if w is not None else None
+        return v if v is not None and hasattr(v, "mapFromScene") else self._snap_view()
+
+    def _press_constrain_pick(self, event, pos, snapped, item_under,
+                              node_under, pipe_under):
+        """D21: one pick (raw cursor, not the snapped point)."""
+        v = self._event_view(event)
+        if v is not None:
+            self.constraint_ctl.pick_press(v, v.mapFromScene(event.scenePos()))
+
+    def _move_constrain_pick(self, event, snapped):
+        """D21: hover the nearest handle / edge marker."""
+        v = self._event_view(event)
+        if v is not None:
+            self.constraint_ctl.pick_hover(v, v.mapFromScene(event.scenePos()))
 
     # ------------------------------------------------------------------
     # Dialog callbacks — called by main.py after showing the dialog
@@ -7058,7 +7093,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ran earlier in this method (step 1). If the ladder consumed the
             # key, stop here; otherwise fall through to the tool-mode
             # set_mode(None) below (a no-op for select/None).
-            if self.mode in (None, "select") and self._escape_ladder():
+            if self.mode in (None, "select") and (
+                    self._escape_ladder() or self.constraint_ctl.clear_selected()):
                 event.accept()
                 return
             if self.mode and self.mode not in (None, "select"):

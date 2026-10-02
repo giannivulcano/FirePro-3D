@@ -57,6 +57,9 @@ class _RecCtl:
     def cancel_drag(self):
         self.events.append(("cancel_drag",))
 
+    def cancel_pick(self):
+        """set_mode ends any D21 pick session (not a geometry seam: unrecorded)."""
+
     def on_items_removed(self, items):
         self.events.append(("removed", list(items)))
         return 0

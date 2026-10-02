@@ -17,7 +17,8 @@ from firepro3d import snap_engine
 
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
-EDITOR_GROUPS = ("Definition", "2D Geometry", "Edit", "Modify")
+EDITOR_GROUPS = ("Definition", "2D Geometry", "Edit", "Modify",
+                 "Constrain", "Inspect")
 
 
 @pytest.fixture(scope="module")
@@ -163,7 +164,8 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
     from firepro3d.ribbon_bar import RibbonButton, RibbonSmallButton
     page = _page(mw, PAGE)
     assert [t for t, _g in _groups(page)] == [
-        "BLOCK", "DEFINITION", "2D GEOMETRY", "EDIT", "MODIFY"]
+        "BLOCK", "DEFINITION", "2D GEOMETRY", "EDIT", "MODIFY",
+        "CONSTRAIN", "INSPECT"]                    # D15: after Modify
     block = _buttons(_group(page, "Block"))
     assert set(block) == {"New", "Open", "Manager", "Insert"}
     assert type(block["New"]) is RibbonButton

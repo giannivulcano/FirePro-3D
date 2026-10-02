@@ -2489,6 +2489,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "chamfer": "Chamfer", "merge_points": "Merge Points",
         # Thermal radiation (literal set_mode callers, main.py)
         "radiation_emitter": "Radiation", "radiation_receiver": "Radiation",
+        # Constraint pick modes (parametric-constraint-system.md D21)
+        "constrain_horizontal": "Horizontal",
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
@@ -3394,6 +3396,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 b.setEnabled(has_block)
             elif label == "Paste":
                 b.setEnabled(scene.clipboard_payload() is not None)
+        self._refresh_constrain_buttons()
 
     def _connect_modify_refresh(self, scene) -> None:
         """Connect *scene*'s selectionChanged to the refresh exactly once."""
@@ -3408,6 +3411,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         seen.add(scene)
         scene.selectionChanged.connect(self._refresh_modify_buttons)
+        # Constrain/Inspect enable state (D12): selection changes run through
+        # _refresh_modify_buttons above; a constraint added/deleted (undo
+        # push) or a glyph (de)selected refreshes it directly.
+        if hasattr(scene, "sceneModified"):
+            scene.sceneModified.connect(self._refresh_constrain_buttons)
+        ctl = getattr(scene, "constraint_ctl", None)
+        if ctl is not None:
+            ctl.state_listeners.append(self._refresh_constrain_buttons)
 
     def _build_contextual_edit_group(self, page) -> None:
         """Shared Edit group for every contextual tab (routes to the active scene).
@@ -4355,8 +4366,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
         if sc.mode == "pipe" and sc.cancel_pipe_placement():
             return
-        sc.set_mode("select")
+        sc.set_mode("select")      # also ends a constraint pick session (D21)
         sc.clearSelection()
+        # A selected constraint (glyph / panel row, D11) drops like a selection.
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None:
+            ctl.clear_selected()
         self.view_3d.cancel_interaction()
 
     def _delete_if_not_editing(self):
@@ -4999,6 +5014,121 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         }
         for b in self._be_modify_buttons.values():
             _editor_only(b, b.toolTip())
+
+        # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
+        # editor-only). No greyed placeholders: CS1 ships Horizontal only;
+        # Smart Dimension (CS4), Constraint Status + DOF badge (CS2) later.
+        gc = page.add_group("Constrain")
+        b_h = gc.add_small_button(
+            "Horizontal", self._modify_icon("constraint_horizontal_icon.svg"),
+            lambda checked: self._be_constrain("horizontal", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_horizontal"] = b_h
+        gi = page.add_group("Inspect")
+        b_show = gi.add_small_button(
+            "Show Constraints",
+            self._modify_icon("constraint_show_constraints_icon.svg"),
+            self._be_toggle_show_constraints, checkable=True)
+        b_show.blockSignals(True)
+        b_show.setChecked(True)
+        b_show.blockSignals(False)
+        b_del = gi.add_small_button(
+            "Delete Constraints",
+            self._modify_icon("constraint_delete_constraints_icon.svg"),
+            self._be_delete_constraints)
+        self._be_constrain_buttons = {"Horizontal": b_h,
+                                      "Show Constraints": b_show,
+                                      "Delete Constraints": b_del}
+        _editor_only(b_h, "Horizontal — make the selected line horizontal, "
+                          "or pick 2 points / 1 edge")
+        _editor_only(b_show, "Show Constraints — show or hide the constraint glyphs")
+        _editor_only(b_del, "Delete Constraints — delete the selected constraint, "
+                            "or every constraint on the selected geometry")
+
+    # ── Constrain / Inspect handlers (parametric-constraint-system.md D12/D21) ─
+    def _be_constrain(self, ctype: str, checked: bool = True) -> None:
+        """Constrain button: selection-first add, else enter the pick mode.
+
+        A valid selection (D21: one line / reference line) adds the
+        constraint at once; an empty selection enters ``constrain_<ctype>``;
+        any other selection is refused with a status hint. Clicking the lit
+        button again ends the pick mode.
+        """
+        sc = self._active_scene()
+        mode = f"constrain_{ctype}"
+        ctl = getattr(sc, "constraint_ctl", None)
+        if not checked:                       # user un-toggled the lit button
+            if sc.mode == mode:
+                sc.set_mode("select")
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctl is None or not ctl.enabled:
+            self._sync_mode_buttons(sc.mode)
+            return
+        refs = ctl.selection_refs(ctype)
+        if refs is not None:
+            ctl.add(ctype, refs)
+        elif sc.selectedItems():
+            sc._show_status("Select one line, or nothing to pick points / an edge",
+                            4000)
+        else:
+            sc.set_mode(mode)
+        self._sync_mode_buttons(sc.mode)
+
+    def _be_toggle_show_constraints(self, checked: bool) -> None:
+        """Show Constraints toggle: glyph visibility of the current editor."""
+        ctl = getattr(self._active_scene(), "constraint_ctl", None)
+        if ctl is not None:
+            ctl.show_glyphs = bool(checked)
+            ctl._repaint()
+
+    def _be_delete_constraints(self) -> None:
+        """Delete the selected constraint, else every one on the selection."""
+        sc = self._active_scene()
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return
+        if ctl.selected_id:
+            ctl.delete_selected()
+            return
+        ids = [c.id for it in sc.selectedItems() for c in ctl.constraints_on(it)]
+        n = ctl.delete(ids)
+        sc._show_status(f"{n} constraint(s) deleted" if n
+                        else "No constraints on the selection", 3000)
+
+    def _refresh_constrain_buttons(self) -> None:
+        """Enable state of the Constrain / Inspect buttons (D12).
+
+        Horizontal: enabled with nothing selected (pick mode) or a valid
+        selection; Delete Constraints: a selected constraint, or selected
+        geometry that carries one. Show Constraints mirrors the editor's
+        glyph visibility. No-op with no editor tab current (the page's
+        no-editor state, ``_set_block_editor_context``).
+        """
+        from PyQt6 import sip
+        btns = getattr(self, "_be_constrain_buttons", None) or {}
+        if not btns or not getattr(self, "_block_ribbon_active", False):
+            return
+        sc = self._active_scene()
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return
+        try:
+            sel = sc.selectedItems()
+        except RuntimeError:
+            return
+        h = btns.get("Horizontal")
+        if h is not None and not sip.isdeleted(h):
+            h.setEnabled(not sel or ctl.selection_refs("horizontal") is not None)
+        d = btns.get("Delete Constraints")
+        if d is not None and not sip.isdeleted(d):
+            d.setEnabled(bool(ctl.selected_id)
+                         or any(ctl.constraints_on(i) for i in sel))
+        s = btns.get("Show Constraints")
+        if s is not None and not sip.isdeleted(s):
+            s.blockSignals(True)
+            s.setChecked(ctl.show_glyphs)
+            s.blockSignals(False)
 
     def _set_block_editor_context(self, active: bool) -> None:
         """Enable/disable the Block Editor tab's editor-only groups.

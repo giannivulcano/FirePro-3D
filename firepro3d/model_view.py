@@ -976,9 +976,7 @@ class Model_View(QGraphicsView):
                 ctl.select(cid)
                 event.accept()
                 return True
-            if ctl.selected_id is not None:
-                ctl.selected_id = None
-                ctl._repaint()
+            ctl.clear_selected()
         except Exception:
             import logging
             logging.getLogger(__name__).exception("constraint glyph press failed")
