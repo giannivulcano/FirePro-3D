@@ -269,8 +269,9 @@ class CreatableSelector(QWidget):       # Selector + square "+" → inline name 
     #   OWNER creates the entry (e.g. a folder) then calls set_items(..., current=new).
 
 class StatusBadge(QWidget):             # #statusBadge — state dot + text (2026-10-02, CS2)
-    def __init__(self, text, state): ...   # state: free | defined | conflict (dot token: owned by
-    #   parametric-constraint-system.md D40/D41); own QSS, transparent background
+    def __init__(self, text, state): ...   # state: free | defined | conflict -> the D39 state
+    #   tokens constraint_free / ink / danger (owned by parametric-constraint-system.md
+    #   D39 + §10 CS2 gate); any other state -> muted. Own QSS, transparent background
     #   (a styled QWidget otherwise paints a sunken strip under the app QSS).
     def text(); state()
 
@@ -279,8 +280,9 @@ class ActionRowList(QWidget):           # #actionRowList — titled row list (20
                  row_height=None): ...
     #   rows: dict(icon, text, subtext, muted, strike, state ("" | warn | danger, CS2), tooltip,
     #              actions=[(key, glyph, tooltip, callback)], on_click, on_hover(bool))
-    #   footer_state (CS2): the footer is a StatusBadge inset by layout margins
-    #   (QSS padding does not inset a plain QWidget's layout).
+    #   footer_state (CS2; a StatusBadge state -- free | defined | conflict): the footer
+    #   is a StatusBadge inset by layout margins (ink text; QSS padding does not inset a
+    #   plain QWidget's layout); otherwise the muted QLabel footer.
     #   Accent UPPERCASE title (+ optional badge), rows of PROP_CONSTRAINT_ROW_H
     #   (icon · text/muted subtext · ACTION_ROW_BTN_PX glyph buttons; hover = accent
     #   left bar + raised fill), muted footer. Sizes/colours in its OWN QSS (theme.M
