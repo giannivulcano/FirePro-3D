@@ -267,6 +267,18 @@ class CreatableSelector(QWidget):       # Selector + square "+" → inline name 
     #   default button / close never fire. "+" is a _SEL_H square with a zero-padding
     #   QSS override (house button padding clips the glyph). Content-agnostic: the
     #   OWNER creates the entry (e.g. a folder) then calls set_items(..., current=new).
+
+class ActionRowList(QWidget):           # #actionRowList — titled row list (2026-10-02, CS1)
+    def __init__(self, title, rows, *, badge="", footer="", empty="", row_height=None): ...
+    #   rows: dict(icon, text, subtext, muted, strike, tooltip,
+    #              actions=[(key, glyph, tooltip, callback)], on_click, on_hover(bool))
+    #   Accent UPPERCASE title (+ optional badge), rows of PROP_CONSTRAINT_ROW_H
+    #   (icon · text/muted subtext · ACTION_ROW_BTN_PX glyph buttons; hover = accent
+    #   left bar + raised fill), muted footer. Sizes/colours in its OWN QSS (theme.M
+    #   ACTION_ROW_* + tokens). Content-agnostic; first consumer: the property
+    #   panel's Constraints section (parametric-constraint-system.md §10 / D27).
+    def row_count(); row_text(i); row_subtext(i); row_actions(i); footer_text()
+    def trigger(i, key)                        # click row i's action button
 ```
 
 `ToolbarBar` is a **styling hook only** (`#toolbarBar` + QSS), not a widget class.

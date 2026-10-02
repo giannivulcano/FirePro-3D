@@ -32,7 +32,7 @@ The panel renders anything exposing:
 
 The panel never imports entity modules for rendering decisions except the special cases in §3.4. Objects without `get_properties` render nothing (empty panel, no error).
 
-Non-entity **adapter clients** implement this protocol as plain objects (not `QGraphicsItem`s): `SheetProperties` (per-sheet metadata) and `ViewportProperties` (a selected `SheetViewport` — Title/Scale/Show Border/Position/read-only derived size), both in `paper_space.py` and routing writes through the paper `QUndoStack` (see `paper-space.md §19.4`). Adapters are the pattern for surfacing anything editable without a modal dialog.
+Non-entity **adapter clients** implement this protocol as plain objects (not `QGraphicsItem`s): `SheetProperties` (per-sheet metadata) and `ViewportProperties` (a selected `SheetViewport` — Title/Scale/Show Border/Position/read-only derived size), both in `paper_space.py` and routing writes through the paper `QUndoStack` (see `paper-space.md §19.4`); and `ConstraintAdapter` (`constraint_controller.py`, a selected Block Editor constraint — Type/Kind/Targets labels + a `Suppressed` bool; an inert record is all-labels, see `parametric-constraint-system.md §6.4/§10`). In a Block Editor scene the panel appends a **Constraints section** (`ui_kit.ActionRowList`) after the form for a single selected item or `ConstraintAdapter`; its rows come from `ConstraintController.panel_rows()` (never `get_properties()`), and the controller re-emits `requestPropertyUpdate` after every add/suppress/delete/select so the section refreshes without a re-select. Adapters are the pattern for surfacing anything editable without a modal dialog.
 
 ### 3.2 Widget-per-type registry (as-built: if/elif chain)
 

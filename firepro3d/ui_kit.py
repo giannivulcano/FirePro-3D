@@ -4,13 +4,15 @@ docs/specs/ui-design-system.md. Widgetization-review rule: new widgetizable UI
 gets a 'promote to ui_kit?' review before being built inline."""
 from __future__ import annotations
 
+import html
+
 from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
                          QFontDatabase, QIntValidator, QCursor)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
-                             QLineEdit)
+                             QLineEdit, QToolButton)
 
 from .theme import M, detect as _detect
 
@@ -1121,3 +1123,201 @@ class Swatch(QWidget):
 
     def hex(self):
         return self._hex
+
+
+class _ActionRow(QWidget):
+    """One ActionRowList row: hover → ``hot`` (accent left bar + raised fill)
+    and the caller's ``on_hover(bool)``; a left press → ``on_click()``."""
+
+    def __init__(self, on_click=None, on_hover=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("actionRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("hot", False)
+        self._on_click, self._on_hover = on_click, on_hover
+        if on_click is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _set_hot(self, on: bool) -> None:
+        self.setProperty("hot", on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        if self._on_hover is not None:
+            self._on_hover(on)
+
+    def enterEvent(self, event):
+        self._set_hot(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_hot(False)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._on_click is not None:
+            event.accept()
+            self._on_click()
+            return
+        super().mousePressEvent(event)
+
+
+class ActionRowList(QWidget):
+    """Titled list of rows: icon · text/subtext · small action buttons, + footer.
+
+    Container chrome only — the domain supplies every string and callback
+    (first consumer: the property panel's Constraints section,
+    parametric-constraint-system.md §10 / D27). Rows are dicts::
+
+        dict(icon=QIcon | None, text=str, subtext=str, muted=bool,
+             strike=bool, tooltip=str,
+             actions=[(key, glyph, tooltip, callback)],
+             on_click=callable | None, on_hover=callable(bool) | None)
+
+    Sizes/colours come from ``theme.M`` / the theme tokens in the widget's
+    OWN QSS (a QSS font size beats ``setFont``; the own sheet beats the
+    property panel's ``QLabel`` cascade).
+    """
+
+    def __init__(self, title: str, rows: list, *, badge: str = "",
+                 footer: str = "", empty: str = "",
+                 row_height: int | None = None, parent=None):
+        super().__init__(parent)
+        t = _detect()
+        rh = row_height or M.PROP_CONSTRAINT_ROW_H
+        pad, gap = M.ACTION_ROW_PAD_X, M.ACTION_ROW_GAP
+        self.setObjectName("actionRowList")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            f"QWidget#actionRowList {{ border-top: 1px solid {t.line}; }}"
+            f"QLabel {{ font-size: {M.PROP_FIELD_FS}px; color: {t.ink};"
+            f" background: transparent; }}"
+            f"QLabel#actionRowTitle {{ color: {t.accent}; font-weight: 600; }}"
+            f"QLabel#actionRowBadge {{ color: {t.muted}; border: 1px solid {t.line_strong};"
+            f" border-radius: {M.RADIUS_CHIP}px; padding: 0 6px; }}"
+            f"QLabel#actionRowSub {{ color: {t.muted}; font-size: {M.ACTION_ROW_SUB_FS}px; }}"
+            f"QLabel#actionRowText[muted=\"true\"] {{ color: {t.muted}; }}"
+            f"QLabel#actionRowEmpty {{ color: {t.muted}; font-style: italic; }}"
+            f"QLabel#actionRowFooter {{ color: {t.muted}; border-top: 1px solid {t.line};"
+            f" padding: {M.ACTION_ROW_PAD_Y}px {pad}px; }}"
+            f"QWidget#actionRow {{ border-left: 2px solid transparent; }}"
+            f"QWidget#actionRow[hot=\"true\"] {{ border-left: 2px solid {t.accent};"
+            f" background: {t.raised}; }}"
+            f"QToolButton#actionRowBtn {{ color: {t.muted}; background: transparent;"
+            f" border: none; border-radius: 3px; padding: 0;"
+            f" font-size: {M.ACTION_ROW_BTN_FS}px; }}"
+            f"QToolButton#actionRowBtn:hover {{ color: {t.ink}; background: {t.line}; }}")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        head = QHBoxLayout()
+        head.setContentsMargins(*M.ACTION_ROW_HEAD_MARGIN)
+        self._title = QLabel(title.upper())
+        self._title.setObjectName("actionRowTitle")
+        head.addWidget(self._title)
+        head.addStretch(1)
+        if badge:
+            b = QLabel(badge)
+            b.setObjectName("actionRowBadge")
+            head.addWidget(b)
+        lay.addLayout(head)
+        self._rows: list = []       # (row widget, text label, sub label, spec)
+        self._actions: list = []    # per row: key -> QToolButton
+        for spec in rows:
+            row = _ActionRow(spec.get("on_click"), spec.get("on_hover"))
+            row.setFixedHeight(rh)
+            if spec.get("tooltip"):
+                row.setToolTip(spec["tooltip"])
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(*M.ACTION_ROW_MARGIN)   # left trims the hot bar
+            rl.setSpacing(gap)
+            ip = M.ACTION_ROW_ICON_PX
+            if "icon" in spec:              # icon=None keeps the column aligned
+                ic = QLabel()
+                ic.setFixedSize(ip, ip)
+                if spec["icon"] is not None:
+                    ic.setPixmap(spec["icon"].pixmap(ip, ip))
+                rl.addWidget(ic)
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(0)
+            plain = str(spec.get("text", ""))
+            txt = QLabel()
+            txt.setObjectName("actionRowText")
+            txt.setProperty("muted", bool(spec.get("muted")))
+            if spec.get("strike"):
+                txt.setTextFormat(Qt.TextFormat.RichText)
+                txt.setText(f"<s>{html.escape(plain)}</s>")
+            else:
+                txt.setTextFormat(Qt.TextFormat.PlainText)
+                txt.setText(plain)
+            col.addWidget(txt)
+            sub = None
+            if spec.get("subtext"):
+                sub = QLabel(str(spec["subtext"]))
+                sub.setObjectName("actionRowSub")
+                sub.setTextFormat(Qt.TextFormat.PlainText)
+                # Never widen the panel: clip instead of growing.
+                sub.setMinimumWidth(1)
+                sub.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                col.addWidget(sub)
+            rl.addLayout(col, 1)
+            acts = {}
+            bp = M.ACTION_ROW_BTN_PX
+            for key, glyph, tip, cb in spec.get("actions", ()):
+                btn = QToolButton()
+                btn.setObjectName("actionRowBtn")
+                btn.setText(glyph)
+                btn.setToolTip(tip)
+                btn.setFixedSize(bp, bp)
+                btn.setAutoRaise(True)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(cb)
+                rl.addWidget(btn)
+                acts[key] = btn
+            lay.addWidget(row)
+            self._rows.append((row, txt, sub, plain, spec))
+            self._actions.append(acts)
+        self._empty = None
+        if not rows and empty:
+            self._empty = QLabel(empty)
+            self._empty.setObjectName("actionRowEmpty")
+            self._empty.setContentsMargins(*M.ACTION_ROW_EMPTY_MARGIN)
+            lay.addWidget(self._empty)
+        self._footer = QLabel(footer)
+        self._footer.setObjectName("actionRowFooter")
+        self._footer.setVisible(bool(footer))
+        lay.addWidget(self._footer)
+
+    # ── read API (tests / callers) ────────────────────────────────────────
+    def title_text(self) -> str:
+        return self._title.text()
+
+    def row_count(self) -> int:
+        return len(self._rows)
+
+    def row_widget(self, i: int) -> QWidget:
+        return self._rows[i][0]
+
+    def row_text(self, i: int) -> str:
+        return self._rows[i][3]
+
+    def row_subtext(self, i: int) -> str:
+        sub = self._rows[i][2]
+        return sub.text() if sub is not None else ""
+
+    def row_suppressed(self, i: int) -> bool:
+        """Whether row *i* renders dimmed (``muted``)."""
+        return bool(self._rows[i][1].property("muted"))
+
+    def row_actions(self, i: int) -> list:
+        return list(self._actions[i])
+
+    def action_tooltip(self, i: int, key: str) -> str:
+        return self._actions[i][key].toolTip()
+
+    def footer_text(self) -> str:
+        return self._footer.text()
+
+    def trigger(self, i: int, key: str) -> None:
+        """Click row *i*'s *key* action button (as a user would)."""
+        self._actions[i][key].click()

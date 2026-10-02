@@ -175,6 +175,7 @@ class ConstraintController:
         self.selected_id = cid
         self._repaint()
         self._notify_state()
+        self._refresh_panel()
 
     def clear_selected(self) -> bool:
         """Drop the selected constraint (Esc / a missed press). True if one was."""
@@ -183,6 +184,7 @@ class ConstraintController:
         self.selected_id = None
         self._repaint()
         self._notify_state()
+        self._refresh_panel()
         return True
 
     def delete_selected(self) -> int:
@@ -196,6 +198,27 @@ class ConstraintController:
                 cb()
             except Exception:
                 _log.exception("constraint state listener failed")
+
+    def _refresh_panel(self) -> None:
+        """Re-show the property panel's current context after a constraint
+        change (the ``requestPropertyUpdate`` refresh path, property-panel.md):
+        the selected constraint's :class:`ConstraintAdapter`, else the item
+        selection, else nothing. Rebuilt from ids every time -- never a held
+        item/record reference (undo replaces both)."""
+        sig = getattr(self._scene, "requestPropertyUpdate", None)
+        if sig is None:
+            return
+        if self.find(self.selected_id) is not None:
+            sig.emit(ConstraintAdapter(self, self.selected_id))
+            return
+        sel = self._scene.selectedItems()
+        sig.emit(sel if sel else None)
+
+    def find(self, cid):
+        """The constraint with id *cid*, or None."""
+        if cid is None:
+            return None
+        return next((c for c in self.constraints if c.id == cid), None)
 
     def _on_selection_changed(self) -> None:
         """An item selection clears the selected constraint. A Qt slot: a
@@ -601,9 +624,10 @@ class ConstraintController:
         return n
 
     def set_enabled(self, cid: str, enabled: bool) -> None:
-        """Suppress / unsuppress one constraint; re-enabling re-solves it."""
+        """Suppress / unsuppress one constraint; re-enabling re-solves it.
+        An inert record is read-only (§6.4: kept verbatim) -- a no-op."""
         for c in self.constraints:
-            if c.id == cid and c.enabled != enabled:
+            if c.id == cid and c.enabled != enabled and not c.inert:
                 c.enabled = enabled
                 if (enabled and not c.inert
                         and not self._solve(focus=_safe_ref_uids(c) or set())):
@@ -628,6 +652,7 @@ class ConstraintController:
             refit()
         self._repaint()
         self._notify_state()
+        self._refresh_panel()
 
     # ── pick mode (D21) ──────────────────────────────────────────────────
     def begin_pick(self, ctype: str) -> None:
@@ -703,6 +728,92 @@ class ConstraintController:
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
         return None
+
+    # ── property panel (§10, D11/D27) ────────────────────────────────────
+    def ref_text(self, ref, by=None) -> str:
+        """Display text for one ref: ``"Line · edge"``, ``"Origin"``,
+        ``"X Axis"``; ``"?"`` parts for an unresolvable / malformed ref."""
+        if not isinstance(ref, dict):
+            return "?"
+        if "ref" in ref:
+            return str(ref["ref"]).replace("_", " ").title()
+        if by is None:
+            by = self.item_by_uid()
+        it = by.get(ref.get("uid"))
+        kind = type(it).__name__.removesuffix("Item") if it is not None else "?"
+        return f"{kind} · {ref.get('h', '?')}"
+
+    @staticmethod
+    def kind_text(c) -> str:
+        """Row / panel name: the type label, or "Unsupported constraint" for
+        any inert record (unknown type AND invalid refs, §6.4)."""
+        return "Unsupported constraint" if c.inert else c.label_text
+
+    def targets_text(self, c, sep: str, by=None) -> str:
+        """Every ref of *c* as :meth:`ref_text`, joined by *sep*."""
+        refs = c.refs if isinstance(c.refs, list) else []
+        if by is None:
+            by = self.item_by_uid()
+        return sep.join(self.ref_text(r, by) for r in refs)
+
+    def panel_rows(self, target) -> dict | None:
+        """``ActionRowList`` kwargs for the panel's Constraints section, or
+        None when *target* has none (a non-editor scene / a gone constraint).
+
+        *target* is a scene item (its constraints, D11) or a
+        :class:`ConstraintAdapter` (that one constraint). Inert rows are
+        read-only: Delete only, no Suppress (§6.4).
+        """
+        if not self.enabled:
+            return None
+        if isinstance(target, ConstraintAdapter):
+            c = target.c
+            if c is None:
+                return None
+            cons = [c]
+        else:
+            cons = self.constraints_on(target)
+        from .icons import themed_icon
+        from .constraint_paint import _icon_theme
+        icon_t = _icon_theme()
+        by = self.item_by_uid()
+        rows = []
+        for c in cons:
+            kind = self.kind_text(c)
+            actions = []
+            if not c.inert:
+                actions.append((
+                    "suppress", "●" if c.enabled else "◌",
+                    ("Suppress — keep the constraint but don't solve it" if c.enabled
+                     else "Unsuppress — solve this constraint again"),
+                    lambda _=False, cid=c.id, en=c.enabled: self.set_enabled(cid, not en)))
+            actions.append(("delete", "✕", "Delete constraint (Del)",
+                            lambda _=False, cid=c.id: self.delete([cid])))
+            rows.append(dict(
+                icon=(None if c.inert else
+                      themed_icon(f"constraint_{c.type}_icon.svg", icon_t)),
+                text=kind,
+                subtext=self.targets_text(c, " ↔ ", by),
+                muted=not c.enabled or c.inert,
+                strike=not c.enabled and not c.inert,
+                tooltip=(f"{kind} — click to select" if not c.inert else
+                         "Unsupported constraint — kept as saved, never solved"),
+                actions=actions,
+                on_click=lambda cid=c.id: self.select(cid),
+                on_hover=lambda on, cid=c.id: self._hover_row(cid, on)))
+        return dict(title=f"Constraints · {len(rows)}", rows=rows,
+                    footer=f"Sketch DOF {self.sketch_dof()}",
+                    empty="No constraints on this entity")
+
+    def _hover_row(self, cid, on) -> None:
+        """Panel-row hover drives the canvas glow like a glyph hover (D11)."""
+        if on:
+            self.hover_id = cid
+        elif self.hover_id == cid:
+            self.hover_id = None
+        else:
+            return
+        self._repaint()
 
     # ── diagnostics ──────────────────────────────────────────────────────
     def sketch_dof(self) -> int:
@@ -840,3 +951,41 @@ class ConstraintController:
             if not self._valid(c, by):
                 c.raw, c.invalid = c.to_dict(), True
             self.constraints.append(c)
+
+
+class ConstraintAdapter:
+    """Non-item property-panel client for a selected constraint
+    (property-panel.md adapter clients; spec §10, D11).
+
+    Holds the constraint's id and re-resolves the record on every call, so an
+    undo (which replaces every record) never leaves it pointing at a dead
+    object. An inert record (§6.4) exposes no editable field.
+    """
+
+    def __init__(self, ctl, c):
+        self.ctl = ctl
+        self.cid = getattr(c, "id", c)
+
+    @property
+    def c(self):
+        """The live record, or None once it is gone."""
+        return self.ctl.find(self.cid)
+
+    def scene(self):
+        return self.ctl._scene
+
+    def get_properties(self) -> dict:
+        c = self.c
+        if c is None:
+            return {}
+        props = {"Type": {"type": "label", "value": "Constraint"},
+                 "Kind": {"type": "label", "value": self.ctl.kind_text(c)},
+                 "Targets": {"type": "label", "value": self.ctl.targets_text(c, ", ")}}
+        if not c.inert:
+            props["Suppressed"] = {"type": "bool", "value": not c.enabled}
+        return props
+
+    def set_property(self, key, value) -> None:
+        c = self.c
+        if key == "Suppressed" and c is not None and not c.inert:
+            self.ctl.set_enabled(c.id, not bool(value))

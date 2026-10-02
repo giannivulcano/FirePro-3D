@@ -656,6 +656,28 @@ class PropertyManager(QWidget):
             )
             self._form.addRow(QLabel("Absolute Elev."), abs_field)
 
+        self._append_constraints_section()
+
+    def _append_constraints_section(self) -> None:
+        """Block Editor Constraints section (parametric-constraint-system.md
+        §10, D11/D27): a single selected item or constraint adapter whose scene
+        has an enabled constraint controller. Rows come from the controller
+        (never through ``get_properties``); container chrome is
+        ``ui_kit.ActionRowList``."""
+        if len(self._targets) != 1:
+            return
+        tgt = self._targets[0]
+        sc_fn = getattr(tgt, "scene", None)
+        sc = sc_fn() if callable(sc_fn) else None
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return
+        spec = ctl.panel_rows(tgt)
+        if spec is None:
+            return
+        from firepro3d.ui_kit import ActionRowList
+        self._form.addRow(ActionRowList(**spec))
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _on_button_callback(self, callback):

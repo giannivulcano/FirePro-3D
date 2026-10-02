@@ -138,6 +138,17 @@ class _Metrics:
     CONSTRAINT_AXES_ALPHA = 0.22
     CONSTRAINT_AXES_DASH = (12.0, 4.0, 2.0, 4.0)
     PROP_CONSTRAINT_ROW_H = 28
+    # ui_kit.ActionRowList (panel row list: icon · text/subtext · actions)
+    ACTION_ROW_PAD_X = 8         # row / title / footer side padding
+    ACTION_ROW_PAD_Y = 6         # title / footer vertical padding
+    ACTION_ROW_HEAD_MARGIN = (8, 6, 8, 6)    # title rail
+    ACTION_ROW_MARGIN = (6, 0, 8, 0)         # row; left = PAD_X - the 2 px hover bar
+    ACTION_ROW_EMPTY_MARGIN = (8, 2, 8, 6)   # "no rows" note
+    ACTION_ROW_GAP = 6           # icon → text → buttons spacing
+    ACTION_ROW_ICON_PX = 16
+    ACTION_ROW_BTN_PX = 20       # small square action button
+    ACTION_ROW_BTN_FS = 13       # action glyph font (px)
+    ACTION_ROW_SUB_FS = 10       # muted subtext font (px)
     DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
     DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # empty-canvas placeholder (canvas_placeholder.py — mockup-approved 2026-09-30)
