@@ -424,3 +424,76 @@ def test_e2e_h_plus_v_conflict_red_and_held_line(win_with_editor):
     assert _ys(ln) == pytest.approx((15.0, 15.0), abs=1e-6)
     assert _xs(ln) == pytest.approx((-100.0, 100.0), abs=1e-6)
     assert ctl.sketch_state() == ("Over-constrained", "conflict")
+
+
+# ── CS2 §11 #3/#4: Vertical + red persist across save/reopen and undo/redo ──
+
+def test_e2e_vertical_and_red_survive_save_close_reopen(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    ln = _line(sc, (-50, 10), (50, 30))
+    sc.clearSelection(); ln.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Horizontal"].click()
+    QApplication.processEvents()
+    win._be_constrain_buttons["Vertical"].click()            # red (D36)
+    QApplication.processEvents()
+    sc.clearSelection()
+    defn = w.commit_block("cs2-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    ctl2 = w2.editor_scene.constraint_ctl
+    (l2,) = w2.editor_scene._draw_lines
+    assert _ys(l2) == pytest.approx((20.0, 20.0), abs=1e-6)
+    assert _xs(l2) == pytest.approx((-50.0, 50.0), abs=1e-6)
+    assert [c.type for c in ctl2.constraints] == ["horizontal", "vertical"]
+    assert ctl2.red == {ctl2.constraints[1].id}              # D38 list order on load
+    assert [c["type"] for c in defn.constraints] == ["horizontal", "vertical"]
+
+
+def test_e2e_undo_redo_of_vertical_add(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    view = win._test_editor.view
+    ln = _line(sc, (0, -100), (30, 100))
+    uid = ln._uid
+    sc.push_undo_state()
+
+    def cur():
+        (l,) = [x for x in sc._draw_lines if x._uid == uid]
+        return l
+    ln.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Vertical"].click()
+    assert _xs(cur()) == pytest.approx((15.0, 15.0), abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Z)
+    assert _xs(cur()) == pytest.approx((0.0, 30.0), abs=1e-6)
+    assert sc.constraint_ctl.constraints == []
+    _ctrl(view, Qt.Key.Key_Y)
+    assert _xs(cur()) == pytest.approx((15.0, 15.0), abs=1e-6)
+    assert [c.type for c in sc.constraint_ctl.constraints_on(cur())] == ["vertical"]
+
+
+def test_e2e_undo_of_a_red_add_and_redo_restores_red(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    view = win._test_editor.view
+    ln = _line(sc, (-100, 0), (100, 30))
+    uid = ln._uid
+    sc.push_undo_state()
+    ln.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Horizontal"].click()
+    win._be_constrain_buttons["Vertical"].click()            # red
+    ctl = sc.constraint_ctl
+    vid = [c.id for c in ctl.constraints if c.type == "vertical"][0]
+    assert ctl.red == {vid}
+    _ctrl(view, Qt.Key.Key_Z)                                 # undo the red add
+    assert ctl.red == set() and [c.type for c in ctl.constraints] == ["horizontal"]
+    _ctrl(view, Qt.Key.Key_Y)                                 # redo: red again
+    assert ctl.red == {vid}
+    (l,) = [x for x in sc._draw_lines if x._uid == uid]
+    assert _ys(l) == pytest.approx((15.0, 15.0), abs=1e-6)
