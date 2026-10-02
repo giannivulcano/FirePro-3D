@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes — concept design — 2026-10-02
+
+- [x] [type:design] Concept: user-definable linetypes as blocks — end types (point/rounded/square/arrow/tick…), dash-dot spacing + configuration, lineweight at definition vs host level [P2] [subject:CAD] [done:2026-10-02]
+  - Details: (user, 2026-10-02 /todo) "define line types as block": (1) end types point, rounded, square, arrow, tick, etc.; (2) user-defined dash/dot spacing and configuration; (3) open question — a base lineweight in the definition plus an additional weight where it is used. Precedent: Hatch & Fill pattern-tile blocks.
+  - Findings: greenfield orphan gate forged `docs/specs/linetypes.md` (as-built baseline + D-L1–D-L23 from the 23-question grill) and the concept doc `docs/superpowers/specs/2026-10-02-linetypes-concept-design.md` (LD-A, LD1–LD7, guards G1–G11). Headline decisions: linetypes + end types are ordinary blocks with `repeat`/`end` capabilities; weight cascade By Linetype | named | By Block (opt-in, chains through nested placements; top-level By Block → surface category); every end type is a block (Fixed or Weight-relative); axis-anchored phase so collinear lines read as one (user end goal: build gridlines/pipes from primitives); named weights become project-scoped; one shared paint-time renderer (StrokeOp, flyweight preserved); pipes adopt piping linetypes. Filed LT1–LT8 + 6 follow-ups (instance parameters, gridline-from-primitives, pipe-as-Feature, stroke migrations, DXF/PDF import) under "Linetypes build" in `todo_open.md`. Revisit trigger: HF2 RenderOp shape changes → re-check LT3.
+
 ## Hatch & Fill — concept design — 2026-10-01
 
 - [x] [type:design] Concept: region Fill/Hatch tool + user-definable hatch patterns as blocks + theme-"Automatic" colours [P2] [subject:CAD] [done:2026-10-01]

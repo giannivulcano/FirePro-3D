@@ -430,6 +430,39 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 - [ ] [type:design] Filled Region: associative boundary + Sketch / Edit Boundary mode + manual draw order [P3] [subject:CAD]
   - Details: D-A1/D-A3/D-A7 deferrals. Associative needs System Blocks SB5 stable uids; Sketch mode is the Revit "Edit Boundary"; draw order = bring forward/send back among regions/items.
 
+### Linetypes build (concept: `docs/superpowers/specs/2026-10-02-linetypes-concept-design.md`; what = `docs/specs/linetypes.md` D-L1–D-L23)
+
+> Filed 2026-10-02 by the linetype concept run (grill Q1–Q23 + brainstorm LD-A, LD1–LD7, all ratified). LT1 ∥ LT2; then LT3 → LT4 → LT5 → LT6 → LT7/LT8. Each slice carries its guards (G1–G11 in the concept doc) and its spec amendments ("Cross-spec reconciliation" in `linetypes.md`). End goal (user): build system geometry (gridline, pipe, leader) from primitives.
+
+- [ ] [type:feature] LT1 — Project-scoped named weights (`.fpd`; QSettings = template; `.fpdb` bundles used weights, project wins) + Display Manager "Blocks" category weight + `_category_for_item` BlockInstance case + canvas px = mm × `UNDERLAY_MM_TO_PX_HINT` + view-level Thin Lines toggle [P2] [subject:CAD]
+  - Details: concept LD4; D-L5, D-L13, D-L14, D-L17. Fixes block linework plotting cosmetic on PDF. Retire `text_item._BORDER_WEIGHT_PX` + `frame_group` weight copies onto the shared mapping. Guards G4 (category half), G8 (weights half). `paper_display.py`, `display_manager.py`, `scene_io.py`, `block_library.py`, `model_view.py`. Amend the paper-space DM design §7.2. Tier Large.
+- [ ] [type:feature] LT2 — Stroke style record on `Geometry2DMixin` (`style: {linetype, weight, start, finish, colour}`; move `"lineweight"` out of per-class `to_dict`) + `copy_style` used by explode/clipboard/join/break/trim/fillet/chamfer/offset/polyline swap + legacy migration (Continuous + By Block, px dropped) + format bump + ribbon/panel current Linetype/Weight (D-L18) [P2] [subject:CAD]
+  - Details: concept LD1; D-L17a, D-L18, D-L23b. Until LT3 renders, style is stored + preserved (Continuous only). Guard G9 + style survives every edit tool. Check both serialization paths (`scene_io` + `_capture_network`). `geometry_2d.py`, `scene_tools.py`, `block_explode.py`, `tool_geometry.py`, `model_space.py`, `scene_io.py`. Tier Large.
+- [ ] [type:feature] LT3 — `path_walk.py` (arc-length walker + axis phase D-L9/D-L9b) + `stroke_style.resolve_stroke` cascade + `linetype_render.expand` (explicit-geometry dashes, LOD < 2 px, cache) + `StrokeOp` compile (stroke half of hatch HD4 RenderOp) + `BlockInstance.paint` stops forcing cosmetic [P2] [subject:CAD]
+  - Details: concept LD-A, LD2, LD3; D-L3, D-L4–D-L6, D-L9, D-L17, D-L23e. Coordinate with HF2 (whichever lands first owns the RenderOp refactor). Reuse gridline dash normalisation for viewport scale. Guards G1, G2, G3, G4, G11. Depends LT1, LT2. Tier Large.
+- [ ] [type:feature] LT4 — `repeat` capability + Block Editor repeat frame (shared with HF2 tile frame) + property-panel Pattern list (Dash/Gap/Dot) + live preview + `block_registry.referenced_ids` (style refs) + capability-filtered pickers [P2] [subject:CAD]
+  - Details: concept LD1, LD5, LD6; D-L1, D-L12, D-L20, D-L23a. **Mockup-gated** (new widgets: Pattern list, frame). Tooltips on every new control. Guard G8 (bundle/closure half). Depends LT3. Tier Large.
+- [ ] [type:feature] LT5 — `end` capability (Fixed / Weight-relative, trim, attach point +X) + end rendering + per-end override + per-end Visible + By Block chain through placements and nested records (placement/nested `style` slot) [P2] [subject:CAD]
+  - Details: concept LD1–LD3; D-L5–D-L8b, D-L11, D-L23c/d. End-block authoring mode in the Block Editor (mockup-gated). Guards G4 (nested half), G5. Depends LT4. Tier Large.
+- [ ] [type:feature] LT6 — Embedded symbols/text in repeat units (fit-skip, upright, tangent on curves) + `@[key]` attributes in end blocks (System Blocks F3) [P2] [subject:CAD]
+  - Details: concept LD3; D-L10, D-L15, D-L19. Guards G6, G7. Depends LT5 + SB1 attributes. Tier Large.
+- [ ] [type:feature] LT7 — Ship System > Linetypes (General: Continuous, Hidden, Center, Phantom, Dot, Fire-FP, Sprinkler-S; Piping: Branch, Main, Cross Main, Existing, Drain) + System > End Types (Flat, Round, Square, Arrow, Open Arrow, Arrow 30°, Tick, Dot, Slash, Box, None, Grid Bubble) [P3] [subject:CAD]
+  - Details: concept LD5; D-L8, D-L12, D-L22. Add the series to the System Blocks concept. Depends LT6 + SB1b.
+- [ ] [type:feature] LT8 — Linetype perf bench + fixes: 2,000 linetyped segments + 400 end blocks, pan/zoom ≤ 16 ms/frame and ≤ 1.5× Continuous [P3] [subject:CAD]
+  - Details: D-L21; guard G10. Confirm the bench (scene, interaction, threshold) with the user before any fix; A/B on real data. Depends LT6.
+- [ ] [type:design] Instance parameters — per-placement Yes/No + exposed driving dimensions (constraint system) + binding to style properties (D-L11) [P2] [subject:CAD]
+  - Details: linetype concept Q11. Revit-family-parameter analogue: e.g. gridline Start Bubble / End Bubble (→ end Visible), Leader Length (→ driving dim). Overlaps `parametric-constraint-system.md` and System Blocks instance attributes. Prerequisite for gridline-from-primitives.
+- [ ] [type:design] Gridline built from primitives — system block: primary line + two leaders (definable length) + toggleable bubble end blocks, later jogged (polyline) leaders [P3] [subject:CAD]
+  - Details: user end goal (2026-10-02). Extends System Blocks concept (its row "the line/leader/crop stays bespoke"). Depends LT6, LT7, instance parameters. Supersedes the "Display-Manager linetype property for gridlines" half of the Gridline Revit-UX task.
+- [ ] [type:design] Pipe as a linear Feature — plan block = one line in a piping linetype (Linetype By Block, Weight By Linetype); "Line Type" enum → Linetype property (Piping series) + migration [P3] [subject:Architecture]
+  - Details: D-L22. `pipe.py` (`MAIN_WIDTH_MM`/`BRANCH_WIDTH_MM` width class), `feature-system.md` (no pipe coverage yet). Depends LT7, feature system, instance parameters.
+- [ ] [type:feature] Migrate other strokes to linetypes: filled-region outline (D-A7 "line style"), text-box border (replaces `border_line_type` enum), and system items' hard-coded Qt dashes (room, design area, roof inner/ridge, detail marker, elevation datum, reference line) [P3] [subject:CAD]
+  - Details: D-L2 follow-up; split per consumer when picked up. After LT3 (LT7 for named system linetypes).
+- [ ] [type:feature] DXF import: LTYPE (simple + complex text/shape) → project linetype blocks (deduped) + DXF lineweight → nearest named weight [P3] [subject:CAD]
+  - Details: D-L16. `dxf_import_worker.py`, `geometry_import.py` (today: colour only; one uniform lineweight). After LT6.
+- [ ] [type:feature] PDF import: dash arrays + line caps → linetypes on Block Editor import; underlays draw dashes as authored [P3] [subject:CAD]
+  - Details: D-L16. `pdf_import_worker.py` reads `width` only today. After LT4.
+
 - [ ] [type:feature] Geometric snaps (perpendicular/nearest/tangent, intersection) for ellipse and spline [P3] [subject:CAD]
   - Details: deferred in the 2026-09-08 build, logged in `2d-geometry.md §5` — perpendicular / nearest / tangent on a rotated ellipse (ellipse-segment = quartic) + nearest/perpendicular on a NURBS (numerical projection) + phase-4 intersection participation for both. Named-point snaps (centre/quadrants/endpoints/control-points) already ship. `snap_engine.py`.
 - [ ] [type:feature] Vertical / "elevation plane" (section-based) anchoring for 2D geometry [P3] [subject:Architecture]
