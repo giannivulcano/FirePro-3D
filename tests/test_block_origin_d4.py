@@ -16,7 +16,7 @@ def _editor(proj):
 
 
 def _rects(defn):
-    return [op[2].boundingRect() for op in defn.render_ops()]
+    return [op.path.boundingRect() for op in defn.render_ops()]
 
 
 def test_open_migrates_nonzero_origin_and_instances_render_identically(qapp):

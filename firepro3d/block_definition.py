@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import uuid
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QColor, QPainterPath, QPen
 
 from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
@@ -70,7 +71,7 @@ def _nested_pose(rec: dict):
     return t
 
 
-def _placeholder_op(t) -> tuple:
+def _placeholder_op(t) -> RenderOp:
     """Red box-with-diagonal render op for an unresolvable nested block.
 
     Args:
@@ -83,7 +84,7 @@ def _placeholder_op(t) -> tuple:
     path.lineTo(h, h)
     pen = QPen(QColor(_PLACEHOLDER_COLOR))
     pen.setCosmetic(True)               # match BlockInstance's orphan placeholder
-    return (pen, QBrush(Qt.BrushStyle.NoBrush), t.map(path))
+    return RenderOp(STROKE, t.map(path), pen=pen)
 
 
 def _local_path(item) -> QPainterPath:
@@ -114,6 +115,29 @@ def _local_path(item) -> QPainterPath:
     elif isinstance(item, QGraphicsPathItem):
         path = QPainterPath(item.path())
     return path
+
+
+def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
+    """Fill / pattern op for a primitive's per-item ``fill`` record (fixes H1).
+
+    The clip is the item's closed path through its pos/rotation, origin-relative;
+    the pattern origin is the container origin (definition (0,0) -> (-ox, -oy)).
+    """
+    f = prim.get("fill")
+    if not isinstance(f, dict) or f.get("type", "none") == "none":
+        return []
+    gcp = getattr(item, "get_closed_path", None)
+    cp = gcp() if gcp is not None else None
+    if cp is None or cp.isEmpty():
+        return []
+    clip = item.mapToParent(cp)
+    clip.translate(-ox, -oy)
+    colour = f.get("color") or "#888888"
+    alpha = int(round(float(f.get("opacity", 0.45)) * 255))
+    if f.get("type") == "solid":
+        return [RenderOp(FILL, clip, colour=colour, alpha=alpha)]
+    return [RenderOp(PATTERN, clip, colour=colour, alpha=alpha,
+                     tile_ref=item.fill_pattern, origin=QPointF(-ox, -oy))]
 
 
 class BlockDefinition:
@@ -162,7 +186,7 @@ class BlockDefinition:
         #                 batched-per-layer compile that keeps a 437k-geom DXF
         #                 interactive. See docs/specs/reference-graphic-model.md.
         self.render_mode = render_mode or "default"
-        self._render_ops: list[tuple[QPen, QBrush, QPainterPath]] | None = None
+        self._render_ops: list[RenderOp] | None = None
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
@@ -233,15 +257,14 @@ class BlockDefinition:
         self._render_ops = None
         self._text_snap_pts = None
 
-    def render_ops(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
-        """Return the cached, shared (pen, brush, path) render-op list.
+    def render_ops(self) -> list[RenderOp]:
+        """Return the cached, shared ``RenderOp`` list.
 
         Returns:
-            A list of ``(QPen, QBrush, QPainterPath)`` tuples in definition-local,
-            origin-relative coordinates. Stroked geometry carries a ``NoBrush``;
-            text carries a ``NoPen`` + a solid colour brush (filled glyph
-            outlines). The same list identity is returned on every call until
-            :meth:`set_primitives` invalidates the cache.
+            ``RenderOp``s in definition-local, origin-relative coordinates. Text
+            is ``kind == "text"``; per-item fills are ``fill`` / ``pattern`` ops
+            ordered before their stroke. The same list identity is returned on
+            every call until :meth:`set_primitives` invalidates the cache.
         """
         if self._render_ops is None:
             self._render_ops = self._compile()
@@ -291,7 +314,7 @@ class BlockDefinition:
             self._text_snap_pts = out
         return self._text_snap_pts
 
-    def _compile(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
+    def _compile(self) -> list[RenderOp]:
         """Compile captured primitive dicts into origin-relative render ops.
 
         In ``reference`` mode the ops are batched per source layer (one op per
@@ -302,7 +325,7 @@ class BlockDefinition:
         if self.render_mode == "reference":
             return self._compile_reference()
         ox, oy = self.origin
-        ops: list[tuple[QPen, QBrush, QPainterPath]] = []
+        ops: list[RenderOp] = []
         for prim in self.primitives:
             if prim.get("type") == _NESTED_TYPE:
                 ops.extend(self._nested_ops(prim, ox, oy))
@@ -318,14 +341,10 @@ class BlockDefinition:
             path = item.mapToParent(_local_path(item))   # honor prim pos/rotation
             path.translate(-ox, -oy)                       # origin-relative
             if hasattr(item, "render_outline_path"):
-                # Text primitive: fill the glyph outline (no stroke). pen() does
-                # not exist on TextItem; the fill colour is the authored colour.
-                pen = QPen(Qt.PenStyle.NoPen)
-                brush = QBrush(QColor(item.data.color))
-            else:
-                pen = QPen(item.pen())
-                brush = QBrush(Qt.BrushStyle.NoBrush)
-            ops.append((pen, brush, path))
+                ops.append(RenderOp(TEXT, path, colour=item.data.color))
+                continue
+            ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
+            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen())))
         return ops
 
     def _resolve_nested(self, prim):
@@ -352,14 +371,14 @@ class BlockDefinition:
             child_ops = child.render_ops()
         finally:
             _COMPILING.discard(self.id)
-        return [(pen, brush, t.map(path)) for pen, brush, path in child_ops]
+        return [op.mapped(t) for op in child_ops]
 
-    def _compile_reference(self) -> list[tuple[QPen, QBrush, QPainterPath]]:
+    def _compile_reference(self) -> list[RenderOp]:
         """Batched compile: accumulate each layer's geometry into one path.
 
         Groups by ``layer`` tag, unioning each layer's geometry into a single
         cosmetic ``QPainterPath`` (subpaths kept separate via ``addPath``). The
-        result is one ``(QPen, QBrush, QPainterPath)`` per distinct *geometry*
+        result is one stroke ``RenderOp`` per distinct *geometry*
         layer — ``len(render_ops) == n_distinct_layers``, never ``n_primitives``.
         Per-layer colour/weight is applied downstream by the reference bundle's
         display pass, so the compile pen is a cosmetic default.
@@ -381,10 +400,7 @@ class BlockDefinition:
                 pen.setCosmetic(True)
                 pens[layer] = pen
             by_layer[layer].addPath(path)
-        # Reference geometry is stroked (text is excluded here — see docstring),
-        # so every op carries a NoBrush for a consistent 3-tuple shape.
-        no_brush = QBrush(Qt.BrushStyle.NoBrush)
-        return [(pens[layer], no_brush, by_layer[layer]) for layer in by_layer]
+        return [RenderOp(STROKE, by_layer[layer], pen=pens[layer]) for layer in by_layer]
 
     def _reference_items(self):
         """Yield ``(primitive_item, layer)`` for the reference compile.

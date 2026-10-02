@@ -130,12 +130,12 @@ def test_nested_ops_are_flattened_through_the_pose(qapp):
     assert len(ops) == 2
     # B's line points +Y in the Y-DOWN scene (screen-down); 90° Y-up CCW turns
     # screen-down into screen-right, so it spans x 500..600 at y 0.
-    br = ops[1][2].boundingRect()
+    br = ops[1].path.boundingRect()
     assert abs(br.left() - 500) < 1e-6 and abs(br.right() - 600) < 1e-6
     assert abs(br.top()) < 1e-6 and abs(br.bottom()) < 1e-6
     # Parity with a PLACED B at the same pose (D2: the BlockInstance convention).
     placed = sc.place_block_instance(b.id, (500.0, 0.0), rotation=90.0)
-    ref = placed.pose_transform().map(b.render_ops()[0][2]).boundingRect()
+    ref = placed.pose_transform().map(b.render_ops()[0].path).boundingRect()
     assert ref == br
 
 
@@ -162,9 +162,9 @@ def test_missing_nested_definition_draws_placeholder(qapp):
     a = _line_def("A", 0, 1, 0, extra=[_nested("deadbeef", 300, 300)])
     sc.register_block_definition(a)
     ops = a.render_ops()
-    placeholder = [op for op in ops if op[0].color() == QColor("#c0392b")]
+    placeholder = [op for op in ops if op.pen.color() == QColor("#c0392b")]
     assert len(placeholder) == 1
-    assert placeholder[0][2].boundingRect().contains(QPointF(300, 300))
+    assert placeholder[0].path.boundingRect().contains(QPointF(300, 300))
 
 
 def test_nested_text_snap_points_are_mapped(qapp):
@@ -184,10 +184,10 @@ def test_nested_text_snap_points_are_mapped(qapp):
 def test_origin_assignment_clears_caches(qapp):
     d = _line_def("B")
     first = d.render_ops()
-    before = first[0][2].boundingRect()
+    before = first[0].path.boundingRect()
     d.origin = (10.0, 0.0)
     assert d.render_ops() is not first
-    after = d.render_ops()[0][2].boundingRect()
+    after = d.render_ops()[0].path.boundingRect()
     assert after == before.translated(-10.0, 0.0)          # geometry moved too
 
 
@@ -200,7 +200,7 @@ def test_compile_survives_a_corrupt_cycle(qapp):
     sc._block_definitions[a.id] = a
     sc._block_definitions[b.id] = b
     ops = sc.get_block_definition(a.id).render_ops()     # must terminate
-    assert any(op[0].color() == QColor("#c0392b") for op in ops)
+    assert any(op.pen.color() == QColor("#c0392b") for op in ops)
 
 
 def _editor(proj, block_id=None):
@@ -287,7 +287,7 @@ def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
         wb.commit_block(b.name, b.library, b.series)
         assert calls["plan"] >= 1
         assert calls["editor"] >= 1
-        assert plan_a.render_ops()[1][2].boundingRect().top() == 50.0
+        assert plan_a.render_ops()[1].path.boundingRect().top() == 50.0
     finally:
         for w in (wa, wb):
             w.editor_scene.cleanup()
@@ -375,8 +375,8 @@ def test_nested_placeholder_pen_is_cosmetic(qapp):
     sc = Model_Space()
     a = _line_def("A", 0, 1, 0, extra=[_nested("deadbeef", 300, 300)])
     sc.register_block_definition(a)
-    ph = [op for op in a.render_ops() if op[0].color() == QColor("#c0392b")]
-    assert ph and ph[0][0].isCosmetic()
+    ph = [op for op in a.render_ops() if op.pen.color() == QColor("#c0392b")]
+    assert ph and ph[0].pen.isCosmetic()
 
 
 # ── Task 13: missing nested definitions warn on load (D12; AC14) ─────────────
@@ -401,8 +401,8 @@ def test_project_load_warns_about_missing_nested_blocks(qapp, tmp_path, monkeypa
     assert len(fresh._block_instances) == 1      # ... and its placed instance
     # ... and the reopened A still DRAWS the red placeholder for the missing id
     ph = [op for op in fresh._block_definitions[a.id].render_ops()
-          if op[0].color() == QColor("#c0392b")]
-    assert len(ph) == 1 and ph[0][2].boundingRect().contains(QPointF(300, 300))
+          if op.pen.color() == QColor("#c0392b")]
+    assert len(ph) == 1 and ph[0].path.boundingRect().contains(QPointF(300, 300))
     img = _render(fresh, QRectF(200, 200, 200, 200))       # around the placeholder
     red = sum(1 for x in range(0, 400, 2) for y in range(0, 400, 2)
               if (lambda c: c.red() > 150 and c.green() < 100 and c.blue() < 100)(

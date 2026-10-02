@@ -77,4 +77,4 @@ def test_definition_ignores_stray_level_on_primitive_dict(qapp):
                         series="", scale_mode="default", origin=(0.0, 0.0),
                         attributes=[], primitives=[prim])
     ops = d.render_ops()
-    assert any(not p.isEmpty() for *_h, p in ops)
+    assert any(not op.path.isEmpty() for op in ops)

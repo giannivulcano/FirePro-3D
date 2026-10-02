@@ -81,7 +81,7 @@ def test_block_compile_keeps_rotated_rect_footprint(qapp, pivot):
     d = BlockDefinition.from_dict(d.to_dict())
     ops = d.render_ops()
     assert len(ops) == 1
-    assert _same_point_set(_path_vertices(ops[0][2]), expected)
+    assert _same_point_set(_path_vertices(ops[0].path), expected)
 
 
 # ── 2. scene_tools transforms ────────────────────────────────────────────────

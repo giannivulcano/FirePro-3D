@@ -1526,9 +1526,10 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _pen, _brush, path in (_defn.render_ops() if _defn is not None else []):
-                    if _pen.style() == Qt.PenStyle.NoPen:
-                        continue   # text op = filled glyph outline — never snap targets (S6)
+                for _op in (_defn.render_ops() if _defn is not None else []):
+                    if _op.kind != "stroke":
+                        continue   # text glyphs / fill clips are never endpoint targets (S6)
+                    path = _op.path
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
                         if el.type in _on_curve:

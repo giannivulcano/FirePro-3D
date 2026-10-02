@@ -22,6 +22,7 @@ from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
+from .render_op import STROKE, FILL, PATTERN, TEXT
 
 _PLACEHOLDER_MM = 200.0
 
@@ -135,8 +136,8 @@ class BlockInstance(QGraphicsObject):
                 combined.moveTo(-h, -h)
                 combined.lineTo(h, h)
             return combined
-        for _pen, _brush, path in ops:
-            combined.addPath(path)
+        for op in ops:
+            combined.addPath(op.path)
         return combined
 
     def _posed_path(self) -> QPainterPath:
@@ -167,26 +168,46 @@ class BlockInstance(QGraphicsObject):
                 painter.drawPath(self._posed_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
-        for pen, brush, path in ops:
-            is_text = pen.style() == Qt.PenStyle.NoPen  # filled glyph outline op
-            p = QPen(pen)
-            p.setCosmetic(True)
-            b = QBrush(brush)
-            if is_text:
-                # Text op: the fill (brush) carries the colour; the pen is NoPen,
-                # so selection/override tint must apply to the BRUSH, not the pen.
+        selected = self.isSelected()
+        for op in ops:
+            if op.kind in (FILL, PATTERN):
+                self._paint_fill_op(painter, pose, op)
+                continue
+            if op.kind == TEXT:
+                # Text op: the fill carries the colour, so selection/override
+                # tint applies to the BRUSH.
+                b = QBrush(QColor(op.colour or "#ffffff"))
                 if override is not None:
                     b.setColor(override)
-                if self.isSelected():
+                if selected:
                     b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(b)
             else:
+                p = QPen(op.pen)
+                p.setCosmetic(True)
                 if override is not None:
                     p.setColor(override)
-                if self.isSelected():
+                if selected:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
-            painter.setPen(p)
-            painter.setBrush(b)
-            painter.drawPath(pose.map(path))
+                painter.setPen(p)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(pose.map(op.path))
+
+    def _paint_fill_op(self, painter, pose, op) -> None:
+        """Fill / pattern op: boundary posed, pattern stamped in scene axes (D-A11)."""
+        from .hatch_render import paint_fill
+        col = QColor(op.colour or "#888888")
+        col.setAlpha(op.alpha)
+        if op.kind == FILL:
+            paint_fill(painter, pose.map(op.path), scene=self.scene(),
+                       background=col, to_scene=self.sceneTransform())
+        else:
+            origin = pose.map(op.origin if op.origin is not None else QPointF(0, 0))
+            paint_fill(painter, pose.map(op.path), scene=self.scene(),
+                       tile_ref=op.tile_ref, colour=col,
+                       origin=self.sceneTransform().map(origin), scale=op.scale,
+                       to_scene=self.sceneTransform())
 
     def _display_pen_color(self) -> Optional[QColor]:
         """Hook for display-manager 'Blocks' category colour + pre-highlight.

@@ -175,7 +175,7 @@ def test_closed_survives_block_definition_file_round_trip(model_space, tmp_path)
     assert d2.primitives[0].get("closed") is True                  # [RED]
     ops = d2.render_ops()
     assert len(ops) == 1
-    path = ops[0][2]
+    path = ops[0].path
     assert _start_end_gap(path) < 1e-6
     assert _seam_turn_deg(path) < 0.5
     assert _inside_hull(path, SQUARE, pad=1e-3)
