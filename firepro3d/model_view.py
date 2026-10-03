@@ -648,6 +648,9 @@ class Model_View(QGraphicsView):
                     "a block", host_name, 1)
             return defn, pool, (f"{defn.name} contains {host_name} — "
                                 f"{block_library.LOOP_REASON}")
+        if getattr(defn, "tile", None):
+            return defn, pool, ("Pattern blocks fill regions — they "
+                                "can't be placed")
         return defn, pool, None
 
     def _begin_block_drag(self, sc, payload, defn, pool) -> None:

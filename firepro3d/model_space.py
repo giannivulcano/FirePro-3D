@@ -1140,6 +1140,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Constraint pick modes exist only in a Block Editor scene (D2);
             # refused here, the shared entry every ribbon/shortcut path hits.
             return
+        if mode == "place_block" and isinstance(template, str):
+            defn = self.get_block_definition(template)
+            if defn is not None and defn.tile:
+                # hatch D-A34: a pattern block fills regions - never a symbol.
+                # Refused at the shared entry every ribbon / browser / drag path hits.
+                self._show_status("Pattern blocks fill regions — they "
+                                  "can't be placed", 5000)
+                return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
         # primitive pre-selected so all downstream logic sees mode == "wall".

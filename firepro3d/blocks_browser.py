@@ -24,6 +24,20 @@ _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
 
 
+def _pattern_badge():
+    """Small hatch glyph for tiled (pattern) blocks (D-A34)."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QIcon, QPainter, QPixmap
+    from .hatch_render import paint_swatch
+    from . import theme as th
+    pix = QPixmap(14, 14)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    paint_swatch(p, QRectF(0, 0, 14, 14), "diagonal", QColor(th.detect().muted))
+    p.end()
+    return QIcon(pix)
+
+
 def library_only_entries(scene, root: str | None = None
                          ) -> list[tuple[str, str, str, str, str]]:
     """Library blocks NOT already in the project.
@@ -209,8 +223,14 @@ class BlocksBrowser(QWidget):
                     leaf = QTreeWidgetItem(s_item, [name])
                     leaf.setData(0, _ROLE_ID, block_id)
                     if path is None:
-                        leaf.setToolTip(0, "Drag onto a canvas or double-click "
-                                           "to place")
+                        d = self._scene.get_block_definition(block_id)
+                        if d is not None and d.tile:
+                            leaf.setIcon(0, _pattern_badge())
+                            leaf.setToolTip(0, "Pattern block — used by hatch "
+                                               "fills; it can't be placed")
+                        else:
+                            leaf.setToolTip(0, "Drag onto a canvas or double-click "
+                                               "to place")
                     else:
                         leaf.setData(0, _ROLE_PATH, path)
                         leaf.setFont(0, f_lib)
