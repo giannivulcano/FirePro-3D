@@ -220,6 +220,8 @@ class ConstraintController:
         self._drag_snap = None
         self._last_good = None
         self._drag_ctx = None
+        self._drag_cur = None                  # session: slot values as last written (D18)
+        self._drag_base = None                 # session: slot values at begin_drag
         self._painted: dict = {}               # id(view) -> last glyph/glow QRect
         if self.enabled:
             scene.selectionChanged.connect(self._on_selection_changed)
@@ -466,7 +468,7 @@ class ConstraintController:
 
     # ── solve + write-back (one write per item, §3) ──────────────────────
     def _solve(self, *, edited=(), pin=None, ctx=None, focus=None,
-               typed=None) -> bool:
+               typed=None, reset: bool = False) -> bool:
         """One solve + write-back.
 
         Args:
@@ -480,6 +482,9 @@ class ConstraintController:
             typed: ``{uid: [local var index]}`` -- a TYPED edit's changed
                 variables (D31): pinned at ``W_PIN`` and required to land
                 within ``TYPED_TOL`` of the typed value, else the solve fails.
+            reset: A D35 reset frame -- the session-start values are the goals
+                of every item the caller did not move (D18; the snapshot is
+                not rewritten).
 
         Only the components holding *edited* / *focus* variables are solved
         (§7.2 components). With neither given, every component is; with a
@@ -496,8 +501,18 @@ class ConstraintController:
             sys_, slots, base = self._build(cons)
         else:
             sys_, slots, base = ctx
-            for _u, (it, ad, off) in slots.items():
-                sys_.x[off:off + ad.nvars(it)] = ad.read(it)
+            cur = self._drag_cur
+            moved = []
+            for it in edited:                  # only the items the caller moved (D18)
+                slot = slots.get(getattr(it, "_uid", None))
+                if slot is not None:
+                    _it, ad, off = slot
+                    vals = ad.read(_it)
+                    cur[off:off + len(vals)] = vals
+                    moved.append((off, len(vals)))
+            sys_.x[:] = self._drag_base if reset else cur
+            for off, n in moved:
+                sys_.x[off:off + n] = cur[off:off + n]
         weights = base.copy()
         edited_uids = {getattr(i, "_uid", None) for i in edited}
         honour = self._var_indices(slots, edited_uids)   # the edit's own vars
@@ -532,7 +547,10 @@ class ConstraintController:
             if slot is not None and any(
                     abs(x[slot[2] + k] - sys_.x[slot[2] + k]) > TYPED_TOL for k in ks):
                 return False                    # the typed value can't be honoured
-        self._write(slots, sys_.x, x)
+        if ctx is None:
+            self._write(slots, sys_.x, x)
+        else:
+            self._write_tracked(slots, sys_.x, x, self._drag_cur)
         return True
 
     def _solve_x(self, sys_, slots, weights, active, honour=()):
@@ -622,6 +640,22 @@ class ConstraintController:
             new = x_new[off:off + n]
             if ad.changed(it, old, new):
                 ad.write(it, np.array(ad.settled(it, old, new), dtype=float))
+
+    @staticmethod
+    def _write_tracked(slots, goal, x_new, cur) -> None:
+        """Drag-session write-back (D18). Each item's target is exactly what
+        the stateless path leaves it at -- ``ad.settled`` against this
+        frame's goal when the solve changed it, else the goal itself -- and it
+        is written only when that differs from its tracked value *cur*
+        (updated in place), so a reset frame never rewrites the snapshot."""
+        for _u, (it, ad, off) in slots.items():
+            n = ad.nvars(it)
+            old, new = goal[off:off + n], x_new[off:off + n]
+            tgt = (np.array(ad.settled(it, old, new), dtype=float)
+                   if ad.changed(it, old, new) else np.array(old, dtype=float))
+            if not np.array_equal(tgt, cur[off:off + n]):
+                ad.write(it, tgt)
+                cur[off:off + n] = tgt
 
     @staticmethod
     def _collapses(slots, x_old, x_new) -> bool:
@@ -719,6 +753,7 @@ class ConstraintController:
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
+        self._drag_cur = self._drag_base = None
         self._drag_extra = []
 
     @property
@@ -740,6 +775,8 @@ class ConstraintController:
             return
         self._drag_snap = self._snapshot(items)
         self._drag_ctx = self._build(self.active())
+        self._drag_base = self._drag_ctx[0].x.copy()
+        self._drag_cur = self._drag_base.copy()
         slots = self._drag_ctx[1]
         # Adapter-backed selection items outside the solve (unconstrained):
         # part of last-good so a held conflict holds the whole selection.
@@ -747,15 +784,11 @@ class ConstraintController:
                             if k not in slots]
         self._last_good = self._good_state()
 
-    def _good_state(self) -> dict:
-        """Current values of the session's items. From the cached slots (=
-        every constrained item) plus the body selection's extras: no per-frame
-        rescan of the scene lists (D18 drag bar)."""
-        good = {u: (it, list(ad.read(it)))
-                for u, (it, ad, _off) in self._drag_ctx[1].items()}
-        for k, it in self._drag_extra:
-            good[k] = (it, list(adapter_for(it).read(it)))
-        return good
+    def _good_state(self):
+        """Last-good record: the tracked slot values (an array copy -- no
+        per-frame rescan or read, D18) plus the body selection's extras."""
+        extras = [(k, it, list(adapter_for(it).read(it))) for k, it in self._drag_extra]
+        return (self._drag_cur.copy(), extras)
 
     def drag(self, item, grip_index: int) -> None:
         """One drag frame: *item*'s grip was applied; pin it and re-solve."""
@@ -774,9 +807,10 @@ class ConstraintController:
                 translate-first applies).
             apply: Zero-arg callable that applies the frame's delta to the
                 real geometry (the release bake's own path).
-            reset: Restore the session snapshot first, so *apply* applies the
-                gesture's TOTAL delta (a body move); False = *apply* is
-                incremental (a resize).
+            reset: Restore the moved items to the session snapshot first
+                (the rest take the snapshot as their goals, D18), so *apply*
+                applies the gesture's TOTAL delta (a body move); False =
+                *apply* is incremental (a resize).
 
         Returns:
             True when solved (written back, now last-good). False = a
@@ -787,17 +821,24 @@ class ConstraintController:
         if self._drag_snap is None:
             apply()
             return True
-        if reset:
-            self._restore(self._drag_snap)
+        if reset:                      # only the moved items go back physically (D18)
+            keys = {getattr(it, "_uid", None) or id(it) for it in items}
+            self._restore({k: v for k, v in self._drag_snap.items() if k in keys})
         apply()
-        if self._solve(edited=list(items), ctx=self._drag_ctx):
+        if self._solve(edited=list(items), ctx=self._drag_ctx, reset=reset):
             self._last_good = self._good_state()
             return True
         return False
 
     def hold_last_good(self) -> None:
         """D10: restore the session's last good state and report the conflict."""
-        self._restore(self._last_good)
+        if self._last_good is not None:
+            cur, extras = self._last_good
+            snap = {u: (it, list(cur[off:off + ad.nvars(it)]))
+                    for u, (it, ad, off) in self._drag_ctx[1].items()}
+            snap.update({k: (it, vals) for k, it, vals in extras})
+            self._restore(snap)
+            self._drag_cur[:] = cur
         self._report_conflict()
 
     def end_drag(self) -> None:
