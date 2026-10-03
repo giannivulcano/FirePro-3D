@@ -348,3 +348,5 @@ DRAFTING_CANVAS_SCALE = 100.0   # assumed plan scale (1:N) for Drafting tiles on
 HATCH_LOD_MIN_CELL_PX = 2.0     # a tile cell smaller than this on the device draws the tone
 HATCH_LOD_MAX_CELLS = 20000     # more cells than this per fill draws the tone
 HATCH_LOD_TONE = 0.35           # tone opacity (× the pattern colour's alpha)
+HATCH_LATTICE_CACHE_MAX_CELLS = 200_000  # Σ(nx·ny) budget of the cached lattice paths (LRU-evicted)
+HATCH_VISIBLE_SNAP_CELLS = 4    # visible cell range snapped outward to multiples of this (cache-friendly pan)

@@ -2,7 +2,7 @@
 """paint_fill: lattice in scene axes, LOD, drafting factor, IntersectClip (HD4a)."""
 import math
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath
+from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
 from firepro3d import hatch_patterns as hp
 from firepro3d import hatch_render as hr
 
@@ -110,3 +110,107 @@ def test_pattern_never_rotates_with_the_painter_frame(qapp):
     lit = [(x, y) for x in range(30, 370, 2) for y in range(30, 370, 2) if _red(img, x, y)]
     along = sum(_red(img, x + 3, y - 3) for x, y in lit) / len(lit)
     assert along > 0.8
+
+
+# ── Fix round (review I1 / I2 / I3, M4, M5) ──────────────────────────────────
+
+def test_lattice_cache_follows_content_through_undo(qapp):
+    """I1: undo restores an old version number; a later edit landing on a
+    version that was cached with different content must render the NEW content."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.model_space import Model_Space
+    s = Model_Space()
+    line = hp._line
+    d = BlockDefinition.new(name="T", library="Project", series="",
+                            primitives=[line(0, 0, 40, 0)], origin=(0.0, 0.0))
+    d.set_tile({"w": 40, "h": 40, "row_shift": 0, "size": "model"}, notify=False)
+    d.set_primitives([line(0, 0, 40, 0)])                  # content A (horizontal)
+    s.register_block_definition(d)
+    s.push_undo_state()
+    d.set_primitives([line(0, 0, 40, -40)])                # content B (rises →)
+    s.push_undo_state()
+    cached_version = d.version
+
+    def render():
+        img = _img()
+        p = QPainter(img)
+        hr.paint_fill(p, _rect(0, 0, 400, 400), scene=s, tile_ref=d.id,
+                      colour=QColor("#ff0000"))
+        p.end()
+        return img
+
+    def rising_fraction(img):
+        lit = [(x, y) for x in range(10, 390, 2) for y in range(10, 390, 2)
+               if _red(img, x, y)]
+        return sum(_red(img, x + 3, y - 3) for x, y in lit) / len(lit)
+
+    assert rising_fraction(render()) > 0.8                 # B rendered + cached
+    s.undo()                                               # real restore → content A, old version
+    r = s.block_registry.get(d.id)
+    assert r is not d and r.version == cached_version - 1
+    # Content C: same bbox as B (same lattice extents → same nx/ny) but falling.
+    r.set_primitives([line(0, -40, 40, 0)])
+    assert r.version == cached_version                     # same id + version as cached B
+    assert rising_fraction(render()) < 0.2                 # C drawn, not stale B
+
+
+def test_large_fill_stamps_visible_cells_not_tone(qapp):
+    """I2: 200 m × 200 m diagonal fill, 2 m window on screen → real lines."""
+    img = _img()
+    p = QPainter(img)
+    p.scale(0.2, 0.2)                                      # 2000 mm → 400 px
+    hr.paint_fill(p, _rect(-100000, -100000, 200000, 200000), scene=None,
+                  tile_ref="diagonal", colour=QColor("#ff0000"))
+    p.end()
+    reds = sum(_red(img, x, y) for x in range(0, 400, 2) for y in range(0, 400, 2))
+    whites = sum(QColor(img.pixel(x, y)) == QColor("white")
+                 for x in range(0, 400, 2) for y in range(0, 400, 2))
+    assert reds > 100 and whites > 10000                   # lines, not a uniform tone
+
+
+def test_lattice_cache_is_bounded_by_cells(qapp, monkeypatch):
+    """I3: LRU eviction by Σ(nx·ny), oversize entries never cached."""
+    monkeypatch.setattr(hr, "HATCH_LATTICE_CACHE_MAX_CELLS", 100)
+    hr._LATTICE.clear()
+    hr._LATTICE_CELLS[0] = 0
+    tile = hp.resolve_tile("horizontal")
+    t = tile.tile
+    hr._lattice(tile, t, 1.0, 5, 8, 0)                     # A: 40
+    hr._lattice(tile, t, 1.0, 8, 5, 0)                     # B: 40
+    hr._lattice(tile, t, 1.0, 5, 8, 0)                     # touch A
+    hr._lattice(tile, t, 1.0, 4, 10, 0)                    # C: 40 → evicts B (LRU)
+    dims = [(k[-3], k[-2]) for k in hr._LATTICE]
+    assert dims == [(5, 8), (4, 10)]
+    assert hr._LATTICE_CELLS[0] == 80
+    s, _ = hr._lattice(tile, t, 1.0, 11, 10, 0)            # 110 > budget
+    assert not s.isEmpty() and len(hr._LATTICE) == 2 and hr._LATTICE_CELLS[0] == 80
+    hr._LATTICE.clear()
+    hr._LATTICE_CELLS[0] = 0
+
+
+def test_non_finite_bounds_draw_nothing(qapp):
+    """M5: an infinite bound never raises inside paint."""
+    img = _img()
+    p = QPainter(img)
+    pen = QPen(QColor("#ff0000"))
+    tile = hp.resolve_tile("horizontal")
+    assert hr.stamp_lattice(p, QRectF(0, 0, math.inf, 100), tile, 100.0,
+                            QPointF(0, 0), pen, QColor("#ff0000")) is False
+    p.end()
+    assert QColor(img.pixel(50, 50)) == QColor("white")
+
+
+def test_tone_leaves_painter_state(qapp):
+    """M4: the LOD-tone return path restores pen and brush."""
+    from PyQt6.QtGui import QBrush
+    img = _img()
+    p = QPainter(img)
+    p.setPen(QPen(QColor("#00ff00"), 3))
+    p.setBrush(QBrush(QColor("#0000ff")))
+    p.scale(0.01, 0.01)                                    # sub-pixel cells → tone
+    tile = hp.resolve_tile("diagonal")
+    assert hr.stamp_lattice(p, QRectF(0, 0, 1000, 1000), tile, 1.0, QPointF(0, 0),
+                            QPen(QColor("#ff0000")), QColor("#ff0000")) is False
+    assert p.pen().color() == QColor("#00ff00") and p.pen().width() == 3
+    assert p.brush().color() == QColor("#0000ff")
+    p.end()

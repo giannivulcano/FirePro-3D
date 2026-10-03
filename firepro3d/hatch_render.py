@@ -3,8 +3,15 @@
 One entry point, :func:`paint_fill`: IntersectClip to the boundary, optional
 solid background, then the tile block's lattice stamped in **scene axes**
 anchored at the pattern origin — the boundary may be posed/rotated by the
-caller's frame, the hatch never rotates (D-A11). Lattice paths are cached per
-``(tile id, tile version, effective scale, nx, ny, row parity)``.
+caller's frame, the hatch never rotates (D-A11). Only the cells over the
+visible part of the boundary are stamped (clip bbox ∩ the painter's visible
+area, snapped outward in ``HATCH_VISIBLE_SNAP_CELLS`` steps). Lattice paths
+are cached per ``(compiled op list identity, effective scale, nx, ny, row
+parity)`` in an LRU bounded by ``HATCH_LATTICE_CACHE_MAX_CELLS`` total cells.
+The op-list identity is a content key: every content change (edit, undo
+restore, nested-child edit) drops the definition's compiled ops, so a new
+list — and a new key — follows. The cached value holds the list so its id
+cannot be recycled while the entry lives.
 
 ``BlockDefinition.tile`` returns a fresh copy on every access, so each entry
 point reads it once and passes the dict down.
@@ -18,14 +25,16 @@ from collections import OrderedDict
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 
-from .constants import (DRAFTING_CANVAS_SCALE, HATCH_LOD_MAX_CELLS,
-                        HATCH_LOD_MIN_CELL_PX, HATCH_LOD_TONE)
+from .constants import (DRAFTING_CANVAS_SCALE, HATCH_LATTICE_CACHE_MAX_CELLS,
+                        HATCH_LOD_MAX_CELLS, HATCH_LOD_MIN_CELL_PX,
+                        HATCH_LOD_TONE, HATCH_VISIBLE_SNAP_CELLS)
 from .hatch_patterns import resolve_tile, tile_is_valid
 from .render_op import STROKE
 
 _log = logging.getLogger(__name__)
-_CACHE_MAX = 256
-_LATTICE: "OrderedDict[tuple, tuple[QPainterPath, QPainterPath]]" = OrderedDict()
+#: key → (stroke path, fill path, compiled op list kept alive, cell count).
+_LATTICE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_LATTICE_CELLS = [0]          # Σ cell count of the cached entries (budget)
 _MISSING_LOGGED: set = set()
 _PAPER_SCENE_CLS = None
 
@@ -86,18 +95,49 @@ def _pattern_pen(scene, colour: QColor, line_width_px: float) -> QPen:
 
 
 def _tone(painter, rect: QRectF, colour: QColor) -> None:
-    """LOD / missing-tile tone: *rect* filled at ``HATCH_LOD_TONE`` × alpha."""
+    """LOD / missing-tile tone: *rect* filled at ``HATCH_LOD_TONE`` × alpha.
+
+    Leaves the painter's pen and brush as it found them.
+    """
     c = QColor(colour)
     c.setAlphaF(c.alphaF() * HATCH_LOD_TONE)
+    painter.save()
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QBrush(c))
     painter.drawRect(rect)
+    painter.restore()
 
 
-def _tile_paths(tile, k: float) -> tuple[QPainterPath, QPainterPath]:
+def _finite_rect(r: QRectF) -> bool:
+    """True if every edge of *r* is a finite number."""
+    return all(math.isfinite(v) for v in (r.left(), r.top(), r.right(), r.bottom()))
+
+
+def _visible_area(painter, bounds: QRectF) -> QRectF:
+    """*bounds* ∩ the painter's visible area, in painter coords.
+
+    Visible area = the device rect mapped back through the inverse device
+    transform, ∩ ``clipBoundingRect()`` when clipping is on (which already
+    holds the fill's IntersectClip and any outer viewport crop). The device
+    rect is scaled by the device pixel ratio, which can only over-cover.
+    """
+    area = QRectF(bounds)
+    dev = painter.device()
+    if dev is not None:
+        inv, ok = painter.deviceTransform().inverted()
+        if ok:
+            dpr = max(1.0, float(dev.devicePixelRatioF()))
+            area = area.intersected(inv.mapRect(
+                QRectF(0.0, 0.0, dev.width() * dpr, dev.height() * dpr)))
+    if painter.hasClipping():
+        area = area.intersected(painter.clipBoundingRect())
+    return area
+
+
+def _tile_paths(ops, k: float) -> tuple[QPainterPath, QPainterPath]:
     """(stroke path, filled path) of one tile cell scaled by *k* (tile-local)."""
     strokes, fills = QPainterPath(), QPainterPath()
-    for op in tile.render_ops():
+    for op in ops:
         (strokes if op.kind == STROKE else fills).addPath(op.path)
     if k != 1.0:
         t = QTransform.fromScale(k, k)
@@ -106,16 +146,21 @@ def _tile_paths(tile, k: float) -> tuple[QPainterPath, QPainterPath]:
 
 
 def _lattice(tile, t: dict, k, nx, ny, parity) -> tuple[QPainterPath, QPainterPath]:
-    """Cached union of nx×ny cells; cell (a, b) at (a·w + s, −b·h), s = row
-    shift on odd lattice rows (``parity`` = the first row's lattice index % 2)."""
-    key = (tile.id, tile.version, round(k, 9), nx, ny, parity)
+    """Union of nx×ny cells; cell (a, b) at (a·w + s, −b·h), s = row shift on
+    odd lattice rows (``parity`` = the first row's lattice index % 2).
+
+    Cached by compiled-op-list identity (see the module docstring); an entry
+    larger than the whole cell budget is built and returned uncached.
+    """
+    ops = tile.render_ops()
+    key = (id(ops), round(k, 9), nx, ny, parity)
     hit = _LATTICE.get(key)
-    if hit is not None:
+    if hit is not None and hit[2] is ops:
         _LATTICE.move_to_end(key)
-        return hit
+        return hit[0], hit[1]
     w, h = t["w"] * k, t["h"] * k
     shift = t["row_shift"] * k
-    cell_s, cell_f = _tile_paths(tile, k)
+    cell_s, cell_f = _tile_paths(ops, k)
     out_s, out_f = QPainterPath(), QPainterPath()
     for b in range(ny):
         dx0 = shift if (parity + b) % 2 else 0.0
@@ -125,17 +170,29 @@ def _lattice(tile, t: dict, k, nx, ny, parity) -> tuple[QPainterPath, QPainterPa
                 out_s.addPath(cell_s.translated(dx, dy))
             if not cell_f.isEmpty():
                 out_f.addPath(cell_f.translated(dx, dy))
-    _LATTICE[key] = (out_s, out_f)
-    if len(_LATTICE) > _CACHE_MAX:
-        _LATTICE.popitem(last=False)
+    n = nx * ny
+    budget = HATCH_LATTICE_CACHE_MAX_CELLS
+    if n <= budget:
+        old = _LATTICE.pop(key, None)
+        if old is not None:
+            _LATTICE_CELLS[0] -= old[3]
+        _LATTICE[key] = (out_s, out_f, ops, n)
+        _LATTICE_CELLS[0] += n
+        while _LATTICE_CELLS[0] > budget:
+            _LATTICE_CELLS[0] -= _LATTICE.popitem(last=False)[1][3]
     return out_s, out_f
 
 
 def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
                   pen: QPen, colour: QColor, t: dict | None = None) -> bool:
-    """Stamp *tile* (scaled by *k*) over *bounds*, anchored at *origin*.
+    """Stamp *tile* (scaled by *k*) over the visible part of *bounds*,
+    anchored at *origin*.
 
-    Painter coords must be the pattern frame (scene axes).
+    Painter coords must be the pattern frame (scene axes). Only cells over
+    ``bounds ∩ visible area`` are stamped (snapped outward to multiples of
+    ``HATCH_VISIBLE_SNAP_CELLS``); the lattice stays anchored at *origin*, so
+    the look does not depend on what is visible. The painter's pen and brush
+    are left unchanged.
 
     Args:
         painter: Active painter in the pattern frame.
@@ -148,8 +205,12 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
         t: The tile dict already read from ``tile.tile`` (read once if None).
 
     Returns:
-        False when the LOD rule drew the tone instead (D-A35).
+        False when nothing was stamped because the LOD rule drew the tone
+        (D-A35) or *bounds* is not finite; True otherwise (including when no
+        part of *bounds* is visible, which draws nothing).
     """
+    if not _finite_rect(bounds):
+        return False
     if t is None:
         t = tile.tile
     w, h = t["w"] * k, t["h"] * k
@@ -158,15 +219,21 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
     if min(w, h) * dev < HATCH_LOD_MIN_CELL_PX:
         _tone(painter, bounds, colour)
         return False
+    area = _visible_area(painter, bounds)
+    if area.isEmpty() or not _finite_rect(area):
+        return True
     cb = QRectF()                                     # content overhang (D-A33)
     for op in tile.render_ops():
         cb = cb.united(op.path.boundingRect())
     cb = QRectF(cb.left() * k, cb.top() * k, cb.width() * k, cb.height() * k)
     ox, oy = origin.x(), origin.y()
-    j0 = math.floor((oy + cb.top() - bounds.bottom()) / h)
-    j1 = math.ceil((oy + cb.bottom() - bounds.top()) / h)
-    i0 = math.floor((bounds.left() - cb.right() - ox - max(0.0, shift)) / w)
-    i1 = math.ceil((bounds.right() - cb.left() - ox - min(0.0, shift)) / w)
+    j0 = math.floor((oy + cb.top() - area.bottom()) / h)
+    j1 = math.ceil((oy + cb.bottom() - area.top()) / h)
+    i0 = math.floor((area.left() - cb.right() - ox - max(0.0, shift)) / w)
+    i1 = math.ceil((area.right() - cb.left() - ox - min(0.0, shift)) / w)
+    m = HATCH_VISIBLE_SNAP_CELLS                      # pan in steps -> cache hits
+    i0, j0 = (i0 // m) * m, (j0 // m) * m
+    i1, j1 = -(-(i1 + 1) // m) * m - 1, -(-(j1 + 1) // m) * m - 1
     nx, ny = i1 - i0 + 1, j1 - j0 + 1
     if nx * ny > HATCH_LOD_MAX_CELLS:
         _tone(painter, bounds, colour)
@@ -217,8 +284,10 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
             if ok:
                 painter.setTransform(inv * painter.transform())   # now scene coords
                 clip = to_scene.map(clip)
-        painter.setClipPath(clip, Qt.ClipOperation.IntersectClip)   # H5
         bounds = clip.boundingRect()
+        if not _finite_rect(bounds):
+            return                                                  # M5: never raise in paint
+        painter.setClipPath(clip, Qt.ClipOperation.IntersectClip)   # H5
         if background is not None:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(background))
@@ -243,8 +312,12 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
 
 def paint_swatch(painter, rect: QRectF, tile_ref: str | None, colour: QColor,
                  registry=None, background: QColor | None = None) -> None:
-    """Picker / Display Manager swatch: ~2.5 cells across *rect*'s height,
-    stamped by the same lattice builder as the renderer (preview ≡ render, H3).
+    """Picker / Display Manager swatch, stamped by the same lattice builder as
+    the renderer (preview ≡ render, H3).
+
+    The tile is scaled so its LARGER side spans 1/2.5 of *rect*'s height:
+    ~2.5 cells down the swatch for a square tile, more rows for a wide one
+    (e.g. brick 225×75 → ~7.5 rows).
 
     Args:
         painter: Active painter (widget / pixmap coords).
