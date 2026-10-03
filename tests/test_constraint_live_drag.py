@@ -655,3 +655,33 @@ def test_d18_rect_heavy_cs2_diagnostics(qapp):
         assert ms <= 50.0, f"diagnostics {ms:.1f} ms"
     finally:
         sc.cleanup()
+
+
+@pytest.mark.perf
+def test_d18_rect_heavy_commit_bar(qapp):
+    """D18 commit bar (solve + diagnostics <= 50 ms) on the rect-heavy
+    component: a typed height edit through the real edit seam, then the
+    diagnostics the panel/tint read."""
+    sc = Model_Space(scene_role="block_editor")
+    try:
+        rs, _ls = _rect_heavy(sc)
+        ctl, it, nb = sc.constraint_ctl, rs[50], rs[49]
+        ctl.diagnostics()
+        ts = []
+        for k in range(9):
+            y0 = QPointF(nb.grip_points()[2]).y()
+            dh = 2.0 if k % 2 == 0 else -2.0
+            t = time.perf_counter()
+            with ctl.edit([it], typed=True):            # grow upward: tl moves
+                r = it.rect()
+                it.setRect(r.x(), r.y() - dh, r.width(), r.height() + dh)
+            ctl.diagnostics()
+            ts.append((time.perf_counter() - t) * 1e3)
+            # VC2: the edit rippled into the neighbour (c49: r49.tr == r50.tl)
+            tr49, tl50 = QPointF(nb.grip_points()[2]), QPointF(it.grip_points()[0])
+            assert abs(tr49.y() - y0) > 0.1 and abs(tr49.y() - tl50.y()) < 1e-6
+        ms = sorted(ts)[len(ts) // 2]
+        print(f"[rect-heavy] commit {ms:.1f} ms")
+        assert ms <= 50.0, f"commit {ms:.1f} ms"
+    finally:
+        sc.cleanup()

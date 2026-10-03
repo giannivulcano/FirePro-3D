@@ -165,6 +165,10 @@ class _Adapter:
             return tuple(e.raw)
         return tuple(range(self.nvars(item)))
 
+    def struct_key(self, item) -> tuple:
+        """What a built System's rows depend on besides values (D18 build cache)."""
+        return (self.type_key, self.nvars(item))
+
 
 class _LineAdapter(_Adapter):
     """vars x1 y1 x2 y2; handles ``p1`` ``p2`` + edge ``edge``."""
@@ -469,6 +473,10 @@ class _PolygonAdapter(_CenterRotAdapter):
         if index == 0:
             return "center"
         return f"v{index - 1}" if 1 <= index <= it._sides else None
+
+    def struct_key(self, it):
+        """Vertex rows capture the side count and the inscribed flag."""
+        return (self.type_key, it._sides, bool(it._inscribed))
 
     def points(self, it, off):
         n, idx = it._sides, (off, off + 1, off + 2, off + 3)

@@ -207,6 +207,7 @@ class ConstraintController:
         self.red: set[str] = set()
         self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
         self._diag = None              # (key, SketchDiag)
+        self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
         # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
@@ -428,6 +429,29 @@ class ConstraintController:
 
     # ── system build ─────────────────────────────────────────────────────
     def _build(self, cons):
+        """:meth:`_build_fresh`, reusing the last System when the constraint
+        set and the items' structure are unchanged -- only x is re-read (D18
+        commit bar: the commit solve and its diagnostics share one build).
+        Callers must not keep mutating a returned System's ``x`` across
+        builds (a drag session uses :meth:`_build_fresh`)."""
+        by = self.item_by_uid()
+        try:
+            key = (tuple((c.id, c.type, repr(c.refs)) for c in cons),
+                   tuple((u, id(by[u]), adapter_for(by[u]).struct_key(by[u]))
+                         for c in cons for u in (_safe_ref_uids(c) or ())))
+        except KeyError:
+            return self._build_fresh(cons)
+        hit = self._build_cache
+        if hit is not None and hit[0] == key:
+            _k, sys_, slots, base = hit
+            for _u, (it, ad, off) in slots.items():
+                sys_.x[off:off + ad.nvars(it)] = ad.read(it)
+            return sys_, slots, base
+        sys_, slots, base = self._build_fresh(cons)
+        self._build_cache = (key, sys_, slots, base)
+        return sys_, slots, base
+
+    def _build_fresh(self, cons):
         """(System, slots ``uid -> (item, adapter, offset)``, base weights)."""
         by = self.item_by_uid()
         slots, x, w = {}, [], []
@@ -798,7 +822,7 @@ class ConstraintController:
         if not (self.enabled and self.touches(items)):
             return
         self._drag_snap = self._snapshot(items)
-        self._drag_ctx = self._build(self.active())
+        self._drag_ctx = self._build_fresh(self.active())   # never the cached System
         self._drag_base = self._drag_ctx[0].x.copy()
         self._drag_cur = self._drag_base.copy()
         slots = self._drag_ctx[1]
@@ -1267,6 +1291,7 @@ class ConstraintController:
         order (``_admit_in_order``)."""
         if not self.enabled:
             return
+        self._build_cache = None   # items were rebuilt: an id() may be reused
         by = self.item_by_uid()
         self.constraints = [self._adopt(r, by) for r in records or []]
         self.selected_id = self.hover_id = None
