@@ -169,7 +169,7 @@ until that doc is approved.
   perf) — enumerated in the concept doc.
 
 **HF2 deltas (ratified 2026-10-02, HF2 Phase 2 FP1 grill)**
-- **D-A28** Until HF8, the legacy pattern names (`diagonal`, `cross_hatch`,
+- **D-A28** *(superseded 2026-10-02 by D-A39 — the code-level table is gone; frozen ids + aliases kept)* Until HF8, the legacy pattern names (`diagonal`, `cross_hatch`,
   `horizontal`, `concrete`) resolve to a code-level table of **built-in tile
   definitions** (read-only, frozen ids; the System Blocks `SYSTEM_DEFAULTS`
   idea). All Drafting at 3 mm printed spacing (`concrete` gets real
@@ -230,7 +230,7 @@ until that doc is approved.
 - **D-A37** *(user ruling 2026-10-02, HF2 smoke — absorbed in-session)* A
   **Hatch patterns folder** (System Settings › General › Data folder;
   default `<block library>/System/Hatches`) is the library source for
-  patterns: pickers list built-ins + the project's pattern blocks + every
+  patterns: pickers list the project's pattern blocks + every
   pattern block in that folder; picking a library pattern loads it into the
   project first, then stores its id (D-A29). Library `index.json` entries
   carry a `tile` flag. (Closes the gap that a library-only pattern could
