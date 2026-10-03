@@ -17,6 +17,7 @@ def _hatched_rect_def(pattern=hp.BUILTIN_DIAGONAL):
 
 
 def _render(scene, rect=QRectF(-700, -700, 1400, 1400), px=700):
+    # Aliased (no render hints) at DPR 1 — the pixel thresholds assume it.
     img = QImage(px, px, QImage.Format.Format_RGB32)
     img.fill(QColor("white"))
     p = QPainter(img)
@@ -59,6 +60,31 @@ def test_g3_rotated_instance_keeps_45_degree_hatch(qapp):
     lit = [(x, y) for x in range(200, 500) for y in range(200, 500) if _red(img, x, y)]
     assert len(lit) > 50
     along = sum(_red(img, x + 3, y - 3) for x, y in lit) / len(lit)   # 45° Y-up
+    assert along > 0.8
+
+
+def _along_45(img, lo=200, hi=500):
+    """(lit count, rate a lit pixel continues at (+3, -3) — a 45° Y-up line)."""
+    lit = [(x, y) for x in range(lo, hi) for y in range(lo, hi) if _red(img, x, y)]
+    return len(lit), sum(_red(img, x + 3, y - 3) for x, y in lit) / max(1, len(lit))
+
+
+def test_g3_rotated_2d_rectangle_keeps_45_degree_hatch(qapp):
+    """G3 / D-A11 through ``draw_fill``: a 30°-rotated hatched rectangle.
+
+    ``RectangleItem.paint`` rotates the painter (rotation is data), so the
+    ``to_scene`` it hands ``draw_fill`` must include that rotation or the
+    hatch turns with the rectangle (lines at 75°).
+    """
+    sc = Model_Space(scene_role="block_editor")
+    r = RectangleItem(QPointF(-500, -500), QPointF(500, 500))
+    r.fill_type, r.fill_pattern = "hatch", hp.BUILTIN_DIAGONAL
+    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    sc.addItem(r)
+    sc._draw_rects.append(r)
+    r.set_angle(30.0)
+    n, along = _along_45(_render(sc), 250, 450)
+    assert n > 50
     assert along > 0.8
 
 

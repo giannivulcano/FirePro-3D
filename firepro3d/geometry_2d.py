@@ -1294,10 +1294,13 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
+                # The painter frame is rotated: painter-local → item via the
+                # rotation, then item → scene (Qt row-vector order), so the
+                # hatch stays in scene axes (D-A11).
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+                          to_scene=self._rotation_transform() * self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
