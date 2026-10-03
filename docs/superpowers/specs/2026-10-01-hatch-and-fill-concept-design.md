@@ -292,7 +292,7 @@ the `referenced_ids` cycle guard; definitions without `tile` unchanged.
 | Alias | fixture `.fpd` `fill.pattern="diagonal"` + QSettings `section_pattern="diagonal"` | hatch pixels; stored ref round-trips to the frozen id |
 | D-A30 | paper viewport 1:50 vs 1:100, Drafting diagonal | printed spacing 3 mm on both |
 | Refusals | `set_mode("place_block")` + drop with a tiled block; tile-on for a placed block | mode not entered / drop rejected + status; tile stays `None` |
-| G12 | 200 hatched instances vs unfilled, one viewport render (`perf`, own process) | ≤ 1.5×; bench asserts stamped cell count > 0 |
+| G12 | 200 hatched instances vs unfilled, one viewport render (`perf`, own process) | hatched − unfilled ≤ 30 ms (≤ 0.15 ms/instance; D-A35 amended 2026-10-02); bench asserts stamped cell count > 0 |
 
 **Build order** — (1) probes: `block_tile` undo hook, PyMuPDF spacing
 extraction; (2) `RenderOp` + `_compile` + consumers + tuple-test rewrites;

@@ -161,7 +161,7 @@ until that doc is approved.
 **Bars & guards**
 - **D-A25** Perf bars: hover preview ≤ 50 ms/move on ~500 primitives (else
   compute on ≥150 ms pause); curve boundary ≤ 0.2 mm; PDF underlay with fills ≤
-  1.5× stroke-only frame time; 200 hatched block instances ≤ 1.5× unfilled;
+  1.5× stroke-only frame time; 200 hatched block instances ≤ 0.15 ms extra each (D-A35, amended);
   theme switch ≤ 500 ms for 1,000 token items.
 - **D-A27** Guard set G1–G12 (ring, mixed boundary + gap, angle invariance,
   scale incl. PDF, pattern edit propagation, type restyle, library round-trip,
@@ -201,7 +201,11 @@ until that doc is approved.
   placement entry. Turning the tile on for a block placed as a symbol is
   refused with the instance count.
 - **D-A35** G12 (HF2 bar): full-viewport frame time with 200 placed instances
-  each holding a hatched closed shape ≤ 1.5× the same scene unfilled; LOD tone
+  each holding a hatched closed shape costs ≤ 30 ms more than the same scene
+  unfilled (≤ 0.15 ms per hatched instance — *amended 2026-10-02 by user
+  ruling*: the original "≤ 1.5× unfilled" ratio got harder whenever plain
+  blocks got faster; measured ~18–20 ms at ship; batching hatched instances is
+  the filed follow-up if real projects lag); LOD tone
   (35 %) when a tile is < 2 device px or > 20k cells; the bench asserts its
   composition (pattern actually stamped).
 
