@@ -279,3 +279,47 @@ def test_offset_viewport_stamps_its_bottom_right(qapp):
         win.close()
         win.deleteLater()
         scene.cleanup()
+
+
+def _model_tile_scene():
+    """Model_Space + a registered 100x100 Model tile holding one line (0,0)-(100,0)."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.model_space import Model_Space
+    sc = Model_Space()
+    d = BlockDefinition.new(name="T100", library="Project", series="",
+                            primitives=[hp._line(0, 0, 100, 0)], origin=(0.0, 0.0))
+    d.set_tile({"w": 100, "h": 100, "row_shift": 0, "size": "model"}, notify=False)
+    d.set_primitives([hp._line(0, 0, 100, 0)])
+    sc.register_block_definition(d)
+    return sc, d
+
+
+def _stamped(sc, d, clip, scale):
+    img = _img()
+    p = QPainter(img)
+    p.scale(scale, scale)
+    hr.STATS["stamped_cells"] = 0
+    hr.paint_fill(p, clip, scene=sc, tile_ref=d.id, colour=QColor("#ff0000"))
+    p.end()
+    return hr.STATS["stamped_cells"]
+
+
+def test_fully_visible_fill_stamps_exact_cells(qapp):
+    """G12 ruling: a fill wholly on screen stamps exactly the cells covering
+    bbox + content overhang (floor/ceil), no 4-cell snapping."""
+    sc, d = _model_tile_scene()
+    # bbox (0,0)-(1000,500), cell 100, content x∈[0,100], y=0, origin (0,0):
+    #   j: floor((0+0-500)/100) = -5 .. ceil((0+0-0)/100) = 0   → 6 rows
+    #   i: floor((0-100-0)/100) = -1 .. ceil((1000-0-0)/100) = 10 → 12 cols
+    n = _stamped(sc, d, _rect(0, 0, 1000, 500), 0.4)      # 400x200 px of a 400x400 image
+    assert n == 12 * 6
+
+
+def test_partly_visible_fill_still_snaps_in_4_cell_steps(qapp):
+    """A fill the visible area cuts keeps the outward 4-cell snap (pan-stable)."""
+    sc, d = _model_tile_scene()
+    m = 4
+    for pan in (0.0, 30.0, 70.0):
+        clip = _rect(-5000 - pan, -5000, 20000, 20000)     # far larger than the 1000x1000 view
+        n = _stamped(sc, d, clip, 0.4)
+        assert n > 0 and n % (m * m) == 0

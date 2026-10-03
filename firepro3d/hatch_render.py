@@ -193,8 +193,10 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
     anchored at *origin*.
 
     Painter coords must be the pattern frame (scene axes). Only cells over
-    ``bounds ∩ visible area`` are stamped (snapped outward to multiples of
-    ``HATCH_VISIBLE_SNAP_CELLS``); the lattice stays anchored at *origin*, so
+    ``bounds ∩ visible area`` are stamped; when the visible area cuts the fill
+    the range is snapped outward to multiples of ``HATCH_VISIBLE_SNAP_CELLS``
+    (cache-stable panning), a fully visible fill uses the exact range. The
+    lattice stays anchored at *origin*, so
     the look does not depend on what is visible. The painter's pen and brush
     are left unchanged.
 
@@ -226,6 +228,13 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
     area = _visible_area(painter, bounds)
     if area.isEmpty() or not _finite_rect(area):
         return True
+    # Fully visible fill (area == bounds within a device px): exact cell
+    # range, no snapping — nothing pans across it. Only a fill the visible
+    # area cuts snaps outward, so panning it keeps hitting one cache entry.
+    tol = 1.0 / dev
+    snap = not area.adjusted(-tol, -tol, tol, tol).contains(bounds)
+    if not snap:
+        area = bounds
     cb = QRectF()                                     # content overhang (D-A33)
     for op in tile.render_ops():
         cb = cb.united(op.path.boundingRect())
@@ -235,9 +244,10 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
     j1 = math.ceil((oy + cb.bottom() - area.top()) / h)
     i0 = math.floor((area.left() - cb.right() - ox - max(0.0, shift)) / w)
     i1 = math.ceil((area.right() - cb.left() - ox - min(0.0, shift)) / w)
-    m = HATCH_VISIBLE_SNAP_CELLS                      # pan in steps -> cache hits
-    i0, j0 = (i0 // m) * m, (j0 // m) * m
-    i1, j1 = -(-(i1 + 1) // m) * m - 1, -(-(j1 + 1) // m) * m - 1
+    if snap:
+        m = HATCH_VISIBLE_SNAP_CELLS                  # pan in steps -> cache hits
+        i0, j0 = (i0 // m) * m, (j0 // m) * m
+        i1, j1 = -(-(i1 + 1) // m) * m - 1, -(-(j1 + 1) // m) * m - 1
     nx, ny = i1 - i0 + 1, j1 - j0 + 1
     if nx * ny > HATCH_LOD_MAX_CELLS:
         _tone(painter, bounds, colour)
