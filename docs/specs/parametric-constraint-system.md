@@ -1,7 +1,7 @@
 ---
 status: partial           # Sessions 1 (foundation + Horizontal) and 2 (Vertical + diagnostics) BUILT; Sessions 3-15 (§12) unbuilt. The legacy prototype (constraints.py) is RETIRED (§2).
-last-verified: 2026-10-02  # CS2 Account: D36-D42 + the CS2 P4 ruling added; §5.1 (D36), §7.1, §7.3 Vertical pinned + BUILT, §7.4 built (attribution order, red = admission), §8 copy, §9 measured, §10 ribbon/panel/canvas, §11 #5, §12 row 2, AC; prior 2026-10-02 CS1 Account (D28-D35); prior 2026-10-01; prior 2026-09-30; prior 2026-09-29
-verified-commit: 7853334  # CS2 close (feat/cs2-vertical-diagnostics); prior 2a22ba9 (CS1); prior 44325e5
+last-verified: 2026-10-03  # D18 perf Account: §7.2 BLAS/batched rows/drag session/build reuse, §7.4 certified full-rank path, §9 re-measured, D18 AC narrowed to the D35 body frame, D18 perf ruling; prior 2026-10-02 CS2 Account: D36-D42 + the CS2 P4 ruling added; §5.1 (D36), §7.1, §7.3 Vertical pinned + BUILT, §7.4 built (attribution order, red = admission), §8 copy, §9 measured, §10 ribbon/panel/canvas, §11 #5, §12 row 2, AC; prior 2026-10-02 CS1 Account (D28-D35); prior 2026-10-01; prior 2026-09-30; prior 2026-09-29
+verified-commit: d25614d  # D18 perf close (perf/d18-rect-heavy); prior 7853334 (CS2); prior 2a22ba9 (CS1); prior 44325e5
 applies-to:
   - firepro3d/sketch_model.py           # pure: ConstraintType enum (whole catalogue), REGISTRY, Constraint record, icon_for, remap_for_copy
   - firepro3d/sketch_solver.py          # pure numpy: NumpySolver (the v1 SketchSolver), System/Row/PointExpr, structure cache, BUILDERS
@@ -110,6 +110,8 @@ Session-2 delta decisions (2026-10-02 `/todo` CS2 run — Phase 2 FP1 questions,
 | D42 | **Vertical follows D30 like Horizontal** (kept for rotations ≡ 0 mod 180° and H/V mirror axes, dropped otherwise — no H↔V swap). A redundant add is admitted (D9), shown amber, and posts "Redundant constraint: already implied by others". |
 
 **CS2 P4 ruling (user, 2026-10-02):** per-entity DOF uses the **economy-SVD row-space basis** (`rank(I − Q_Sᵀ Q_S)`), never the full null-space basis; ordered Gram–Schmidt runs only on rank-deficient components. The rect-heavy one-component diagnostics cost (~170 ms) is folded into the open D18 rect-heavy perf task.
+
+**D18 perf ruling (user, 2026-10-03):** solves and diagnostics run on **one BLAS thread** (scoped, §7.2); **both D34 passes are kept** (no skip of the plain pass — it is the one that may tilt/resize); a component **certified full row rank** may take an `eigh(J Jᵀ)` row-space basis instead of the SVD (§7.4; same row space, so the P4 ruling's per-entity DOF is unchanged); the commit bar is measured as **solve + diagnostics** of a real edit. Shipped with the D35 body-drag frame of the rect-heavy case as the one open D18 case (§9).
 
 ## 2. Retired prototype (history)
 
@@ -298,6 +300,10 @@ Damped Gauss–Newton iterations starting from the goals until `F` meets the D18
 - **Equality substitution** (before solving): raw-variable equalities become **aliases** (`y₂ := y₁`) and constants become **fixes** (`y := 0`) instead of rows; contradictory fixes are reported as conflicts without iterating. Required, not an optimization (§9). Horizontal and Vertical emit them (§7.3); Coincident, Concentric and Fix will.
 - **Components:** union-find over shared free variables; only components containing a changed variable (plus any component reading a changed fix) are solved — everything else keeps its values bit-for-bit.
 - **Numerics:** relative Tikhonov damping (`λ` = a tiny fraction of the largest diagonal of `J W⁻¹ Jᵀ`, so a `W_PIN` solve is not biased off-manifold); the iteration stops early once every row is within `1e-3 × LIN_TOL`, and is capped. The substitution/component analysis is cached on the `System`, keyed on its content (aliases, fixes, row identities, size) — a drag reuses one System across frames and only refreshes `x`.
+- **Batched rows (D18, 2026-10-03):** an axis row (`Row.spec = ("axis", axis, a, b)`) whose ends are raw, constant or a registered **point family** (`PointExpr.fam`; rect handles = family `"rect"`) is evaluated one numpy call per family (`_RowBatch`, cached on the component); any other row uses its own `fn`, which stays the per-row reference (parity-tested to 1e-12). Arc and polygon handles have no family yet (per-row).
+- **One BLAS thread (D18):** `solve` / `diagnose` run under `one_blas_thread()` (OpenBLAS thread count set to 1 through ctypes and restored; re-entrant; a numpy build without the API is a no-op) — OpenBLAS's per-core default costs 3–13× on these ~300-sized dense LAPACK calls.
+- **Drag session state (D18):** a session tracks each slot's values as last written (`_drag_cur`) and its session-start values (`_drag_base`). A frame re-reads only the items the caller moved; a D35 reset frame physically restores only the moved items and uses the session-start values as the goals of the rest; write-back writes each item to exactly the value the stateless path would leave it at (settled against the frame's goal), and only when that differs from its tracked value. Hold-last-good restores the tracked last-good array.
+- **Build reuse (D18):** `ConstraintController._build` reuses the last System (re-reading `x`) while the constraint set and every slot's adapter `struct_key` (type + variable count; polygon side count + inscribed) and item identity are unchanged, so a commit's solve and its diagnostics share one structure; a drag session always builds fresh (`_build_fresh`), and undo restore / load drop the cache.
 - **Scaling:** angles are radians inside the solver. Angular residual rows (CS5+) are to be multiplied by `ANG_SCALE` (1000 mm) so mm and radian residuals are commensurate; CS1 has none.
 - **Collapse (D29/D36):** a converged solve that collapses a shape (a size to its floor, D29, or an edge to zero length, D36) is retried with sizes stiff, then reported as a conflict.
 - **Write-back tolerance:** settled **per variable** — a value within `POS_WRITE_TOL` (1e-7 mm; positions and sizes) or `ANG_WRITE_TOL` (1e-8 rad) of the item's old value keeps the old value, and an item with no variable beyond tolerance is not written at all. Solver noise never re-writes an unmoved item (a rect write would canonicalize its pivot) and an axis-aligned rect stays exactly axis-aligned.
@@ -336,6 +342,7 @@ Each session pins its row (argument meaning, helper fields, degenerate cases) be
 
 ### 7.4 Diagnostics (on commit, not per drag frame)
 
+- **Rank path (D18 ruling, 2026-10-03):** a component whose `J Jᵀ` has `λ_min ≥ max(CERT_RATIO·λ_max, 1e-12)` (`CERT_RATIO` = 1e-6, i.e. cond(J) ≤ 1e3) is **certified full row rank**: rank = rows, no dependent rows, `Q = Λ^-½ Vᵀ J` (orthonormal to ~2e-10 ≪ `NULL_TOL`). Every other component takes the economy SVD below (+ Gram–Schmidt when rank-deficient). Both paths give the same rank, redundant set and per-entity DOF (parity-tested, incl. rank-deficient and ill-conditioned fallbacks); `Diagnostics.dof_of_many` batches the per-entity eigen-solves.
 - **DOF** per component = variables − rank(J) (SVD, relative tolerance); substituted variables counted; the sketch DOF = all participating items' variables minus what the active constraints remove. **Fully defined** ⇔ DOF = 0 over a non-empty set of participating items — which includes grounding, because the origin/axes are constants (an empty sketch is under-defined, 0 DOF — D40). Sketch status precedence: any red constraint → Over-constrained; else DOF = 0 → Fully defined; else Under-defined · N DOF. Shown in the D40 block view (**built CS2**).
 - **Per-entity defined (D39 tint, D41 footer) — built CS2:** an entity's remaining DOF = `rank(I − Q_Sᵀ Q_S)` over its columns S, Q = the economy-SVD row-space basis (equivalently the null-space projection); fixed variables count 0, a rowless component's columns 1 each. Fully defined ⇔ 0.
 - **Redundant (amber) — built CS2:** a constraint all of whose equalities were already implied (aliases / fixes replayed through union-find in `cid_rank` order) **and** all of whose rows are dependent on earlier rows (ordered Gram–Schmidt, only on rank-deficient components, count reconciled with the SVD rank) and satisfied. Equalities are attributed before rows (they are substituted first), so a later equality that makes two earlier rows identical marks the later *row* amber — attribution is "newest" within each class, not across them.
@@ -376,10 +383,18 @@ Known divergence (filed): when an `edit()` rolls back a conflicting modify-tool 
 | Controller grip-drag frame (real scene) | ~3–4 ms | ≤ 8 ms ✓ |
 | Constrained D35 body-drag frame (modest sketch) | ~2.8 ms | ≤ 8 ms ✓ |
 | Commit (solve + diagnose) / open (load + first solve), synthetic block | ~4–7 ms / ~7–10 ms | ≤ 50 / ≤ 200 ms ✓ |
-| **Rect-heavy worst case** (one component: 100 rects + 100 lines, 299 Horizontal) | grip-drag frame **~19–20 ms**, D35 body-drag frame **~57–92 ms**; CS2 commit diagnostics **~170 ms** | ≤ 8 / ≤ 50 ms ✗ — **OPEN** |
 | CS2 commit (solve + diagnose incl. row basis / redundancy), D18 bench compositions | realistic ~5–13 ms, worst one-component ~14 ms, 150-row chain ~20–44 ms (host-dependent) | ≤ 50 ms ✓ |
 
-The rect-heavy case is a strict-xfail bench (drag frames, and since CS2 its diagnostics — `test_d18_rect_heavy_cs2_diagnostics`) tracked by the P1 follow-up "D18 rect-heavy drag perf" in `todo_open.md` (vectorised derived rows, skip the D34 second solve when no size/angle variable moves, no full-snapshot rewrite per D35 frame), to land before CS3. **The D18 acceptance criterion stays PARTIAL until it does.**
+**Rect-heavy worst case** (one component: 100 rects + 100 lines, 299 Horizontal — `tests/test_constraint_live_drag.py`), re-measured at the D18 perf close (2026-10-03, 5 standalone runs, 16-core host, ~2.6 GB free; before → after the §7.2 batched rows / one BLAS thread / drag session state / build reuse and the §7.4 certified rank path):
+
+| Case | Before | After | D18 bar |
+|---|---|---|---|
+| Grip-drag frame (`test_d18_rect_heavy_grip_drag_frame`) | ~19–29 ms | 3.0–4.7 ms | ≤ 8 ms ✓ |
+| D35 body-drag frame (`test_d18_rect_heavy_body_drag_frame`) | ~57–98 ms | 10.9–14.3 ms | ≤ 8 ms ✗ — **OPEN** (strict xfail) |
+| Diagnostics (`test_d18_rect_heavy_cs2_diagnostics`) | ~170–222 ms | 24–34 ms | ≤ 50 ms ✓ |
+| Commit = typed edit + diagnostics (`test_d18_rect_heavy_commit_bar`) | — | 37–47 ms | ≤ 50 ms ✓ |
+
+The body frame's remaining floor is ~4 dense 299×299 LU solves per frame (both D34 passes, kept by the 2026-10-03 ruling) plus the Qt writes of the ~193 items that really move each frame; warm-starting the plain pass from the translate result was measured and saves nothing (same 3 evaluations). Tracked by the follow-up "D18 rect-heavy D35 body-drag frame … sparse/banded solve" in `todo_open.md`. **The D18 acceptance criterion stays PARTIAL for that one case.** Geometry parity of the perf work is guarded by `tests/test_d18_parity.py` (drag sequences vs a golden recorded at the pre-perf base `8128f6a`).
 
 ## 10. User interface
 
@@ -433,7 +448,7 @@ The rect-heavy case is a strict-xfail bench (drag frames, and since CS2 its diag
 - [x] Drag, typed readout, property-panel and modify-tool edits all honour constraints; with no constraints, behaviour equals today's. *(CS1: every reachable seam, incl. D35 live drag; Trim/Extend/Break/Join remain unreachable.)*
 - [x] DOF badge, fully-defined state (grounding counted), per-entity tint, amber redundant and red conflicting states are correct; conflicts hold last-good geometry. *(CS2: D37–D41; the badge is the D40 panel badge.)*
 - [ ] D17 operation rules hold, including refusal of Move/Rotate/Scale on grounded selections. *(Partial: delete cascade, copy/mirror/array (D30/D42), explode cascade built; grounded refusal → CS3 — reachable since CS2 for a text / instance `ins`; meanwhile a move silently snaps back and a rotate rotates in place, §8.)*
-- [ ] D18 performance bars met on the synthetic 200/300 block (both worst-case and realistic compositions). *(Partial: realistic + one-component chain met incl. CS2 diagnostics; rect-heavy worst case open — drag and, since CS2, diagnostics — §9.)*
+- [ ] D18 performance bars met on the synthetic 200/300 block (both worst-case and realistic compositions). *(Partial: realistic + one-component chain met incl. CS2 diagnostics; rect-heavy worst case met for grip drag, diagnostics and commit since the 2026-10-03 D18 perf task — only its D35 body-drag frame (~11–14 ms) is open, §9.)*
 - [x] Unknown/unbuilt constraint records round-trip untouched. *(Also invalid and unreadable records — §6.3/§6.4.)*
 - [x] Every shipped constraint has an approved 40-unit two-token icon used on ribbon, canvas and panel. *(D25; was "48-unit" before the gate.)*
 
