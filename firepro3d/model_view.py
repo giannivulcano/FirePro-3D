@@ -1571,7 +1571,7 @@ class Model_View(QGraphicsView):
         if not getattr(target, "is_fillable", lambda: False)():
             return None
 
-        from .hatch_patterns import PATTERN_NAMES
+        from .hatch_patterns import tile_choices
 
         fill_menu = parent_menu.addMenu("Fill")
 
@@ -1592,11 +1592,10 @@ class Model_View(QGraphicsView):
         solid_act.triggered.connect(lambda _=False: _apply("solid"))
 
         hatch_menu = fill_menu.addMenu("Hatch")
-        for name in PATTERN_NAMES:
-            _name = name  # capture
-            act = hatch_menu.addAction(_name)
+        for name, ref in tile_choices(getattr(target.scene(), "block_registry", None)):
+            act = hatch_menu.addAction(name)
             act.triggered.connect(
-                lambda _=False, n=_name: _apply("hatch", n)
+                lambda _=False, r=ref: _apply("hatch", r)
             )
 
         return fill_menu

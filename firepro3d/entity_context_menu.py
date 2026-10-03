@@ -12,7 +12,7 @@ def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
     if target is None or not getattr(target, "is_fillable", lambda: False)():
         return
 
-    from .hatch_patterns import PATTERN_NAMES
+    from .hatch_patterns import tile_choices
 
     fill_menu = menu.addMenu("Fill")
 
@@ -30,10 +30,10 @@ def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
     fill_menu.addAction("Solid").triggered.connect(lambda _=False: _apply("solid"))
 
     hatch_menu = fill_menu.addMenu("Hatch")
-    for name in PATTERN_NAMES:
-        _n = name  # capture
-        hatch_menu.addAction(_n).triggered.connect(
-            lambda _=False, n=_n: _apply("hatch", n)
+    reg = getattr(target.scene(), "block_registry", None)
+    for name, ref in tile_choices(reg):
+        hatch_menu.addAction(name).triggered.connect(
+            lambda _=False, r=ref: _apply("hatch", r)
         )
 
 

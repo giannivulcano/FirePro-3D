@@ -132,8 +132,8 @@ class TestPlanContextMenu:
         )
 
     def test_hatch_submenu_contains_patterns(self, qapp):
-        """The Hatch sub-submenu contains known pattern names."""
-        from firepro3d.hatch_patterns import PATTERN_NAMES
+        """The Hatch sub-submenu lists every pattern choice (built-ins + project tiles)."""
+        from firepro3d.hatch_patterns import tile_choices
         ms, view = _make_scene_and_view(qapp)
         rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
         ms.addItem(rect)
@@ -151,10 +151,14 @@ class TestPlanContextMenu:
             "Hatch action with a patterns sub-submenu not found in Fill submenu"
         )
         pattern_texts = [a.text() for a in hatch_act.menu().actions() if not a.isSeparator()]
-        for name in PATTERN_NAMES:
+        for name, _ref in tile_choices(ms.block_registry):
             assert name in pattern_texts, (
                 f"Pattern '{name}' missing from Hatch submenu: {pattern_texts}"
             )
+        # Picking a pattern stores its id (D-A29).
+        act = next(a for a in hatch_act.menu().actions() if a.text() == "Horizontal")
+        act.trigger()
+        assert rect.fill_pattern == "builtin-hatch-horizontal"
 
 
 # ---------------------------------------------------------------------------

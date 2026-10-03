@@ -2715,7 +2715,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             QWidget, QVBoxLayout, QHBoxLayout,
         )
         from firepro3d import theme as _th
-        from firepro3d.hatch_patterns import PATTERN_NAMES
+        from firepro3d.hatch_patterns import tile_choices, canonical_ref
         from firepro3d.icons import themed_icon, LIGHT, DARK
 
         _syncing = [False]
@@ -2739,7 +2739,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         stroke_btn.setStyleSheet(_swatch_style("#ffffff"))
         fill_combo = QComboBox(); fill_combo.addItems(["none", "solid", "hatch"])
         fill_combo.setMaximumWidth(62); fill_combo.setToolTip("Fill type")
-        pattern_combo = QComboBox(); pattern_combo.addItems(list(PATTERN_NAMES))
+        pattern_combo = QComboBox()
+
+        def _fill_pattern_items():
+            pattern_combo.clear()
+            for name, ref in tile_choices(self.scene.block_registry):
+                pattern_combo.addItem(name, ref)
+
         pattern_combo.setMaximumWidth(78); pattern_combo.setToolTip("Hatch pattern")
         r1.addWidget(QLabel("Stroke:")); r1.addWidget(stroke_btn)
         r1.addWidget(QLabel("Fill:")); r1.addWidget(fill_combo); r1.addWidget(pattern_combo)
@@ -2784,8 +2790,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                     return vals.pop() if len(vals) == 1 else None
                 ft = uniform(lambda it: it.fill_type)
                 fill_combo.setCurrentText(ft if ft is not None else "")
+                _fill_pattern_items()
                 pat = uniform(lambda it: it.fill_pattern)
-                pattern_combo.setCurrentText(pat if pat is not None else "")
+                pattern_combo.setCurrentIndex(
+                    pattern_combo.findData(canonical_ref(pat)) if pat is not None else -1)
                 col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
                 if col:
                     fill_btn.setStyleSheet(_swatch_style(col))
@@ -2811,8 +2819,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         def _on_pattern(_i):
             if _syncing[0]:
                 return
-            new_val = pattern_combo.currentText()
-            apply = [t for t in _fillable_targets() if t.fill_pattern != new_val]
+            new_val = pattern_combo.currentData()
+            apply = [t for t in _fillable_targets()
+                     if canonical_ref(t.fill_pattern) != new_val]
             if not apply:
                 return
             self.scene.push_undo_state()
@@ -3052,197 +3061,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         offset_edit.valueChanged.connect(_on_offset_committed)
         g.add_widget(offset_container)
-
-    def _build_fill_group(self, page) -> None:
-        """Add a 'Fill' group (Fill type + Pattern + Colour + Opacity) to *page*.
-
-        The group is enabled only when ≥1 selected item returns True for
-        ``is_fillable()``.  All writes route through ``set_property()`` +
-        ``push_undo_state()``.  No-op gestures push NO undo step.
-
-        Args:
-            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
-        """
-        from PyQt6.QtWidgets import (
-            QComboBox, QLabel, QToolButton, QLineEdit,
-            QWidget, QVBoxLayout, QHBoxLayout,
-        )
-        from firepro3d import theme as _th
-        from firepro3d.hatch_patterns import PATTERN_NAMES
-
-        _syncing_fill = [False]  # mutable flag inside closures
-
-        g = page.add_group("Fill")
-
-        # ── Row 1: Fill type + Pattern ─────────────────────────────────────────
-        row1 = QWidget()
-        r1_lay = QHBoxLayout(row1)
-        r1_lay.setContentsMargins(2, 2, 2, 0)
-        r1_lay.setSpacing(4)
-
-        fill_combo = QComboBox()
-        fill_combo.addItems(["none", "solid", "hatch"])
-        fill_combo.setMaximumWidth(70)
-        fill_combo.setToolTip("Fill type")
-
-        pattern_combo = QComboBox()
-        pattern_combo.addItems(list(PATTERN_NAMES))
-        pattern_combo.setMaximumWidth(90)
-        pattern_combo.setToolTip("Hatch pattern")
-
-        r1_lay.addWidget(QLabel("Fill:"))
-        r1_lay.addWidget(fill_combo)
-        r1_lay.addWidget(QLabel("Pat:"))
-        r1_lay.addWidget(pattern_combo)
-
-        # ── Row 2: Colour swatch + Opacity ────────────────────────────────────
-        row2 = QWidget()
-        r2_lay = QHBoxLayout(row2)
-        r2_lay.setContentsMargins(2, 0, 2, 2)
-        r2_lay.setSpacing(4)
-
-        t = _th.detect()
-        color_btn = QToolButton()
-        color_btn.setToolTip("Fill colour")
-        color_btn.setFixedSize(28, 26)
-        color_btn.setStyleSheet(
-            f"QToolButton {{ border: 1px solid {t.border_strong}; background: #888888; }}"
-            f"QToolButton:hover {{ border-color: {t.accent_primary}; }}")
-        _fill_swatch = ["#888888"]  # store last colour
-
-        opacity_edit = QLineEdit("45")
-        opacity_edit.setMaximumWidth(40)
-        opacity_edit.setToolTip("Fill opacity 0–100 %")
-        r2_lay.addWidget(QLabel("Col:"))
-        r2_lay.addWidget(color_btn)
-        r2_lay.addWidget(QLabel("Opa%:"))
-        r2_lay.addWidget(opacity_edit)
-
-        # Pack both rows into the group
-        outer = QWidget()
-        out_lay = QVBoxLayout(outer)
-        out_lay.setContentsMargins(0, 0, 0, 0)
-        out_lay.setSpacing(2)
-        out_lay.addWidget(row1)
-        out_lay.addWidget(row2)
-        g.add_widget(outer)
-
-        # ── Helpers ────────────────────────────────────────────────────────────
-
-        def _fillable_targets():
-            return [it for it in self.scene.selectedItems()
-                    if callable(getattr(it, "is_fillable", None))
-                    and it.is_fillable()
-                    and hasattr(it, "set_property")]
-
-        def _set_swatch(hex_color: str):
-            _fill_swatch[0] = hex_color
-            t2 = _th.detect()
-            color_btn.setStyleSheet(
-                f"QToolButton {{ border: 1px solid {t2.border_strong}; "
-                f"background: {hex_color}; }}"
-                f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
-
-        def _sync_fill_group():
-            """Reflect current selection state into fill widgets."""
-            _syncing_fill[0] = True
-            try:
-                targets = _fillable_targets()
-                has_fill = bool(targets)
-                g.setEnabled(has_fill)
-                if not has_fill:
-                    return
-
-                def uniform(getter):
-                    vals = {getter(it) for it in targets}
-                    return vals.pop() if len(vals) == 1 else None
-
-                ft = uniform(lambda it: it.fill_type)
-                fill_combo.setCurrentText(ft if ft is not None else "")
-
-                pat = uniform(lambda it: it.fill_pattern)
-                pattern_combo.setCurrentText(pat if pat is not None else "")
-
-                col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
-                if col:
-                    _set_swatch(col)
-
-                opa = uniform(lambda it: round(it.fill_opacity * 100))
-                opacity_edit.setText("" if opa is None else str(opa))
-            finally:
-                _syncing_fill[0] = False
-
-        # Initial enable/sync
-        _sync_fill_group()
-
-        # ── Write handlers ─────────────────────────────────────────────────────
-
-        def _on_fill_type(index):
-            if _syncing_fill[0]:
-                return
-            new_val = fill_combo.currentText()
-            targets = _fillable_targets()
-            apply = [t for t in targets if t.fill_type != new_val]
-            if not apply:
-                _sync_fill_group()
-                return
-            self.scene.push_undo_state()
-            for t in apply:
-                t.set_property("Fill", new_val)
-            _sync_fill_group()
-
-        def _on_pattern(index):
-            if _syncing_fill[0]:
-                return
-            new_val = pattern_combo.currentText()
-            targets = _fillable_targets()
-            apply = [t for t in targets if t.fill_pattern != new_val]
-            if not apply:
-                return
-            self.scene.push_undo_state()
-            for t in apply:
-                t.set_property("Pattern", new_val)
-
-        def _on_colour():
-            targets = _fillable_targets()
-            if not targets:
-                return
-            existing = (
-                getattr(targets[0], "_display_fill_color", None) or "#888888"
-            )
-            hex_val = colour_picker.pick_colour(existing, page, "Fill")
-            if hex_val is not None:
-                apply = [t for t in targets
-                         if (getattr(t, "_display_fill_color", None) or "#888888")
-                         != hex_val]
-                if not apply:
-                    return
-                self.scene.push_undo_state()
-                for t in apply:
-                    t.set_property("Fill Colour", hex_val)
-                _set_swatch(hex_val)
-
-        def _on_opacity():
-            if _syncing_fill[0]:
-                return
-            try:
-                pct = float(opacity_edit.text())
-            except (ValueError, TypeError):
-                return
-            pct = max(0.0, min(100.0, pct))
-            targets = _fillable_targets()
-            apply = [t for t in targets
-                     if abs(t.fill_opacity * 100 - pct) > 0.5]
-            if not apply:
-                return
-            self.scene.push_undo_state()
-            for t in apply:
-                t.set_property("Fill Opacity", pct)
-
-        fill_combo.activated.connect(_on_fill_type)
-        pattern_combo.activated.connect(_on_pattern)
-        color_btn.clicked.connect(_on_colour)
-        opacity_edit.editingFinished.connect(_on_opacity)
 
     def _modify_icon(self, name):
         """Theme-matched ribbon icon for the Edit/Modify groups."""

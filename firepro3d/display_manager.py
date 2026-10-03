@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
                          QIcon)
-from PyQt6.QtCore import Qt, QSettings, QByteArray
+from PyQt6.QtCore import Qt, QSettings, QByteArray, QRectF
 from PyQt6.QtSvg import QSvgRenderer
 
 import os
@@ -197,7 +197,7 @@ def _compose_fill_value(mode: str, hex_color: str) -> str:
 
 
 def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
-                    pattern: str = "diagonal") -> QPixmap:
+                    pattern: str = "diagonal", registry=None) -> QPixmap:
     """Return a small pixmap showing solid or hatch swatch."""
     pix = QPixmap(w, h)
     pix.fill(QColor("transparent"))
@@ -205,12 +205,9 @@ def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     col = QColor(hex_color)
     if mode == "hatch":
-        from .hatch_patterns import make_hatch_brush
-        p.fillRect(0, 0, w, h, QColor("#2b2b2b"))
-        brush = make_hatch_brush(pattern, min(w, h), col)
-        p.setBrush(brush)
-        p.setPen(QPen(QColor(0, 0, 0, 0)))
-        p.drawRect(0, 0, w, h)
+        from .hatch_render import paint_swatch
+        paint_swatch(p, QRectF(0, 0, w, h), pattern, col, registry,
+                     background=QColor("#2b2b2b"))
     else:
         p.fillRect(0, 0, w, h, col)
     p.end()
@@ -770,10 +767,9 @@ class SectionPatternDialog(QDialog):
     """Compact dialog for picking a section hatch colour + pattern."""
 
     def __init__(self, current_color: str, current_pattern: str,
-                 current_scale: float = 1.0, parent=None):
+                 current_scale: float = 1.0, parent=None, registry=None):
         super().__init__(parent)
-        from .hatch_patterns import PATTERN_NAMES
-        self._pattern_names = PATTERN_NAMES
+        self._registry = registry
 
         self.setWindowTitle("Section Pattern")
         self.setFixedSize(280, 170)
@@ -786,8 +782,10 @@ class SectionPatternDialog(QDialog):
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Pattern:"))
         self._combo = QComboBox()
-        self._combo.addItems(self._pattern_names)
-        idx = self._combo.findText(current_pattern)
+        from .hatch_patterns import tile_choices, canonical_ref
+        for name, ref in tile_choices(registry):
+            self._combo.addItem(name, ref)
+        idx = self._combo.findData(canonical_ref(current_pattern))
         if idx >= 0:
             self._combo.setCurrentIndex(idx)
         row1.addWidget(self._combo, 1)
@@ -832,7 +830,7 @@ class SectionPatternDialog(QDialog):
         bbox.rejected.connect(self.reject)
         lay.addWidget(bbox)
 
-        self._combo.currentTextChanged.connect(lambda _: self._refresh_preview())
+        self._combo.currentIndexChanged.connect(lambda _: self._refresh_preview())
         self._refresh_preview()
 
     def _pick_color(self):
@@ -847,12 +845,13 @@ class SectionPatternDialog(QDialog):
 
     def _refresh_preview(self):
         pix = _make_fill_icon("hatch", self._cur_color, 60, 20,
-                              pattern=self._combo.currentText())
+                              pattern=self._combo.currentData(),
+                              registry=self._registry)
         self._preview.setPixmap(pix)
 
     def get_result(self) -> tuple[str, str, float]:
-        """Return (hex_color, pattern_name, scale)."""
-        return self._cur_color, self._combo.currentText(), self._scale_spin.value()
+        """Return (hex_color, pattern_ref, scale)."""
+        return self._cur_color, self._combo.currentData(), self._scale_spin.value()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1498,7 +1497,8 @@ class DisplayManager(QDialog):
             section_btn.setProperty("_color", section)
             section_btn.setProperty("_pattern", _sec_pat)
             section_btn.setProperty("_section_scale", section_scale)
-            pix = _make_fill_icon("hatch", section, 40, 20, pattern=_sec_pat)
+            pix = _make_fill_icon("hatch", section, 40, 20, pattern=_sec_pat,
+                                  registry=self._scene.block_registry)
             section_btn.setIcon(QIcon(pix))
             section_btn.setIconSize(pix.size())
             section_btn.setStyleSheet(
@@ -1658,7 +1658,11 @@ class DisplayManager(QDialog):
         cur_scale = btn.property("_section_scale") or 1.0
         if isinstance(cur_scale, str):
             cur_scale = float(cur_scale or "1.0")
-        dlg = SectionPatternDialog(cur_color, cur_pattern, cur_scale, self)
+        # Category settings are global QSettings (built-ins only); instance
+        # overrides are project-scoped (may reference project tiles).
+        reg = None if is_category else self._scene.block_registry
+        dlg = SectionPatternDialog(cur_color, cur_pattern, cur_scale, self,
+                                   registry=reg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_color, new_pattern, new_scale = dlg.get_result()
             btn.setProperty("_pattern", new_pattern)
@@ -1684,7 +1688,8 @@ class DisplayManager(QDialog):
             if pattern:
                 btn.setProperty("_pattern", pattern)
             pat = btn.property("_pattern") or "diagonal"
-            pix = _make_fill_icon("hatch", hex_color, 40, 20, pattern=pat)
+            pix = _make_fill_icon("hatch", hex_color, 40, 20, pattern=pat,
+                                  registry=self._scene.block_registry)
             btn.setIcon(QIcon(pix))
             btn.setIconSize(pix.size())
             btn.setText("")
@@ -2070,7 +2075,12 @@ class DisplayManager(QDialog):
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
         ],
+        "Drafting": ["Hatch"],
     }
+
+    # Paper categories where only the line weight is meaningful (D-A31): every
+    # other cell is disabled and skipped by the colour-mode loops.
+    _PS_LW_ONLY = frozenset({"Hatch"})
 
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
@@ -2271,6 +2281,16 @@ class DisplayManager(QDialog):
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_LABEL_HT,
                                             ht_edit)
 
+                if key in self._PS_LW_ONLY:
+                    for _w in (vis_cb, color_btn, opacity_spin):
+                        _w.setEnabled(False)
+                    color_btn.setStyleSheet(_disabled_ss)
+                    lw_combo.setToolTip(
+                        "Line weight of hatch pattern lines on sheets and PDF")
+                    tree_item.setToolTip(
+                        self._PS_COL_NAME,
+                        "Line weight of hatch pattern lines on sheets and PDF")
+
                 self._paper_cat_data[key] = {
                     "tree_item": tree_item,
                     "vis": vis_cb,
@@ -2334,6 +2354,8 @@ class DisplayManager(QDialog):
         from .paper_display import PaperColorMode, _HAS_FILL, _HAS_SECTION
         disable = (mode == PaperColorMode.FULL_COLOR)
         for key, widgets in self._paper_cat_data.items():
+            if key in self._PS_LW_ONLY:
+                continue
             widgets["color_btn"].setEnabled(not disable)
             if key in _HAS_FILL:
                 widgets["fill_btn"].setEnabled(not disable)

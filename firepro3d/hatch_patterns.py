@@ -171,23 +171,3 @@ def ref_from_value(value: str, registry=None) -> str:
         if value == name:
             return ref
     return canonical_ref(value)
-
-
-# Transitional (removed in HF2 Task 5): legacy importers still read these names.
-PATTERN_NAMES: list[str] = list(LEGACY_ALIAS)
-
-
-def make_hatch_brush(name: str, tile_size: int = 24, color=None,
-                     line_width: float = 1.0):
-    """Transitional (removed in HF2 Task 5): Qt brush for the legacy DM swatch.
-
-    Keeps the Display Manager swatch / pickers from raising ImportError (a
-    native abort inside paint) until they move to ``hatch_render.paint_swatch``.
-    """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QBrush, QColor
-    styles = {BUILTIN_DIAGONAL: Qt.BrushStyle.BDiagPattern,
-              BUILTIN_CROSS_HATCH: Qt.BrushStyle.DiagCrossPattern,
-              BUILTIN_HORIZONTAL: Qt.BrushStyle.HorPattern}
-    style = styles.get(canonical_ref(name), Qt.BrushStyle.BDiagPattern)
-    return QBrush(color or QColor(100, 100, 100), style)

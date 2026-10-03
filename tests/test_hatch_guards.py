@@ -93,3 +93,26 @@ def test_legacy_name_in_file_renders_hatch(qapp):
     sc = _placed(pattern="diagonal")
     img = _render(sc)
     assert sum(_red(img, x, y) for x in range(150, 550, 2) for y in range(150, 550, 2)) > 20
+
+
+def test_paper_tab_hatch_row_saves_line_weight(qapp):
+    """The DM Paper tab has a Hatch row; its weight persists and drives hatch_line_mm (D-A31)."""
+    from firepro3d import paper_display as pd
+    from firepro3d.display_manager import DisplayManager
+    dlg = DisplayManager(Model_Space())
+    try:
+        row = dlg._paper_cat_data["Hatch"]
+        assert row["lw_combo"].isEnabled()
+        assert not row["color_btn"].isEnabled()
+        pd._clear_hatch_mm()
+        before = pd.hatch_line_mm()
+        row["lw_combo"].setCurrentText("Very Heavy")
+        assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Very Heavy"
+        after = pd.hatch_line_mm()
+        assert after == 0.50 and after != before
+        # Colour-mode switch must not re-enable the inapplicable cells.
+        dlg._color_mode_combo.setCurrentIndex(2)
+        assert not row["color_btn"].isEnabled()
+    finally:
+        pd.save_paper_categories(pd.FACTORY_PAPER_CATEGORIES)
+        dlg.close()
