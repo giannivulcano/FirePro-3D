@@ -54,8 +54,8 @@ class TypeSpec:
 REGISTRY: dict[str, TypeSpec] = {
     "horizontal": TypeSpec("Horizontal", (("edge",), ("point", "point")), 1, True),
     "vertical": TypeSpec("Vertical", (("edge",), ("point", "point")), 1, True),
-    "coincident": TypeSpec("Coincident", (("point", "point"),), 2),
-    "point_on_curve": TypeSpec("Coincident", (("point", "edge"), ("point", "curve"), ("point", "axis")), 1),
+    "coincident": TypeSpec("Coincident", (("point", "point"),), 2, True),
+    "point_on_curve": TypeSpec("Coincident", (("point", "edge"), ("point", "curve"), ("point", "axis")), 1, True),
     "dim_distance": TypeSpec("Smart Dimension", (("edge",), ("point", "point")), 1),
     "dim_radius": TypeSpec("Smart Dimension", (("curve",),), 1),
     "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1),

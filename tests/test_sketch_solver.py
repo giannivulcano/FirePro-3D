@@ -708,3 +708,113 @@ def test_ill_conditioned_component_falls_back_to_svd():
     fast, slow = _diag_both(s)
     assert not fast._fast and fast.rank == 2
     _same_diag(fast, slow, [[0], [1], [0, 1], [2]])
+
+
+# ── CS3 Coincident / point-on-curve (§7.3 pinned 2026-10-03) ─────────────────
+
+def test_coincident_raw_points_alias_both_axes():
+    s = ss.System(x=np.array([1.0, 2.0, 5.0, 7.0]))
+    ss.BUILDERS["coincident"]("c", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    assert sorted((i, j) for i, j, _c in s.aliases) == [(0, 2), (1, 3)]
+    assert s.rows == []
+
+
+def test_coincident_origin_fixes_both_axes_to_zero():
+    s = ss.System(x=np.array([4.0, -3.0]))
+    ss.BUILDERS["coincident"]("c", (ss.raw_point(0, 1), ss.const_point(0, 0)), s)
+    assert sorted((i, v) for i, v, _c in s.fixes) == [(0, 0.0), (1, 0.0)]
+
+
+def test_coincident_derived_points_add_two_rows_zero_when_met():
+    s = ss.System(x=np.array([0, 0, 10, 0, 10, 0, 0, 0], float))
+    ss.BUILDERS["coincident"]("c", (_derived_point(0), _derived_point(4)), s)
+    assert len(s.rows) == 2
+    assert all(abs(r.fn(s.x)[0]) < 1e-12 for r in s.rows)      # both at (10, 0)
+    s.x[4] = 3.0
+    assert any(abs(r.fn(s.x)[0]) > 1e-6 for r in s.rows)
+
+
+def _on_line_sys(x):
+    s = ss.System(x=np.array(x, float))
+    ss.BUILDERS["point_on_curve"](
+        "p", (ss.raw_point(0, 1), (ss.raw_point(2, 3), ss.raw_point(4, 5))), s)
+    return s
+
+
+def test_point_on_line_residual_is_signed_distance_to_the_infinite_line():
+    s = _on_line_sys([50, 0, 0, 0, 10, 0])          # beyond the segment end: on
+    assert abs(s.rows[0].fn(s.x)[0]) < 1e-12
+    s2 = _on_line_sys([5, 3, 0, 0, 10, 0])
+    assert abs(abs(s2.rows[0].fn(s2.x)[0]) - 3.0) < 1e-12
+
+
+def _on_circle_sys(x):
+    s = ss.System(x=np.array(x, float))
+    ss.BUILDERS["point_on_curve"](
+        "p", (ss.raw_point(0, 1), ss.CurveExpr(center=ss.raw_point(2, 3), r=4)), s)
+    return s
+
+
+def test_point_on_circle_residual():
+    s = _on_circle_sys([30, 40, 0, 0, 50])
+    assert abs(s.rows[0].fn(s.x)[0]) < 1e-12
+    s2 = _on_circle_sys([30, 40, 0, 0, 45])
+    assert abs(s2.rows[0].fn(s2.x)[0] - 5.0) < 1e-12
+
+
+def _fd_check(row, x):
+    _r, g = row.fn(x)
+    for k, d in enumerate(row.deps):
+        xp, xm = x.copy(), x.copy()
+        xp[d] += 1e-6
+        xm[d] -= 1e-6
+        assert abs((row.fn(xp)[0] - row.fn(xm)[0]) / 2e-6 - g[k]) < 1e-5
+
+
+@pytest.mark.parametrize("make,n", [(_on_line_sys, 6), (_on_circle_sys, 5)])
+def test_point_on_curve_jacobian_matches_finite_differences(make, n):
+    rng = np.random.default_rng(11)
+    for _ in range(20):
+        x = rng.uniform(-50, 50, n)
+        if n == 5:
+            x[4] = abs(x[4]) + 5.0
+        s = make(x)
+        _fd_check(s.rows[0], s.x)
+
+
+def test_point_on_line_with_derived_ends_matches_finite_differences():
+    rng = np.random.default_rng(12)
+    for _ in range(10):
+        s = ss.System(x=rng.uniform(-50, 50, 10))
+        ss.BUILDERS["point_on_curve"](
+            "p", (ss.raw_point(8, 9), (_derived_point(0), _derived_point(4))), s)
+        _fd_check(s.rows[0], s.x)
+
+
+def test_point_on_zero_length_edge_is_a_zero_row():
+    s = _on_line_sys([5, 3, 1, 1, 1, 1])
+    r, g = s.rows[0].fn(s.x)
+    assert r == 0.0 and not np.any(g)
+
+
+@pytest.mark.parametrize("axis,fixed", [("x_axis", 1), ("y_axis", 0)])
+def test_point_on_axis_fixes_the_other_coordinate(axis, fixed):
+    s = ss.System(x=np.array([4.0, -3.0]))
+    ss.BUILDERS["point_on_curve"]("p", (ss.raw_point(0, 1), axis), s)
+    assert [(i, v) for i, v, _c in s.fixes] == [(fixed, 0.0)]
+
+
+def test_coincident_and_point_on_curve_dof_removed():
+    s = ss.System(x=np.array([1.0, 2.0, 5.0, 7.0]))
+    ss.BUILDERS["coincident"]("c", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 4 - 2
+    s2 = _on_circle_sys([30, 40, 0, 0, 45])
+    assert ss.NumpySolver().diagnose(s2).dof == 5 - 1
+
+
+def test_point_on_circle_solve_lands_on_the_circle():
+    s = _on_circle_sys([30, 40, 0, 0, 45])
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(5))
+    assert res.converged
+    p, c, r = res.x[:2], res.x[2:4], res.x[4]
+    assert abs(np.hypot(*(p - c)) - r) < 1e-6
