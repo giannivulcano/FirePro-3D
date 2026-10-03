@@ -125,6 +125,10 @@ _HAS_FILL = {"Sprinkler", "Water Supply", "Hydraulic Badge", "Wall", "Roof",
 # Which categories have section colour
 _HAS_SECTION = {"Wall", "Roof", "Floor"}
 
+# Categories where only the line weight is meaningful (D-A31): the Display
+# Manager disables every other cell and its colour-mode / reset loops skip them.
+_LW_ONLY = {"Hatch"}
+
 # Factory default line weight per category
 _FACTORY_LW = {
     "Pipe": "Medium", "Sprinkler": "Medium", "Fitting": "Medium",

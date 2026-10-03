@@ -99,9 +99,13 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
     """The DM Paper tab has a Hatch row; its weight persists and drives hatch_line_mm (D-A31)."""
     from firepro3d import paper_display as pd
     from firepro3d.display_manager import DisplayManager
+    cats0 = pd.load_paper_categories()
+    cats0["Hatch"]["color"] = "#123456"
+    pd.save_paper_categories(cats0)
     dlg = DisplayManager(Model_Space())
     try:
         row = dlg._paper_cat_data["Hatch"]
+        style0 = row["color_btn"].styleSheet()
         assert row["lw_combo"].isEnabled()
         assert not row["color_btn"].isEnabled()
         pd._clear_hatch_mm()
@@ -113,6 +117,52 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         # Colour-mode switch must not re-enable the inapplicable cells.
         dlg._color_mode_combo.setCurrentIndex(2)
         assert not row["color_btn"].isEnabled()
+        # B&W switch and Reset must not restyle or rewrite the Hatch colour (M1).
+        dlg._color_mode_combo.setCurrentIndex(1)
+        assert pd.load_paper_categories()["Hatch"]["color"] == "#123456"
+        assert row["color_btn"].styleSheet() == style0
+        dlg._reset_paper_space_tab()
+        assert row["color_btn"].styleSheet() == style0
+        assert not row["color_btn"].isEnabled()
     finally:
         pd.save_paper_categories(pd.FACTORY_PAPER_CATEGORIES)
         dlg.close()
+
+
+def _zig_registry():
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    sc = Model_Space()
+    d = BlockDefinition.new(
+        name="Zig", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
+        tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
+    sc.register_block_definition(d)
+    return sc.block_registry, d.id
+
+
+def test_section_dialog_keeps_unknown_stored_ref(qapp):
+    """An unresolvable stored ref survives OK, colour-only edit or untouched (I1)."""
+    from firepro3d.display_manager import SectionPatternDialog
+    dlg = SectionPatternDialog("#666666", "deleted-project-tile-uuid", 1.0,
+                               registry=None)
+    assert dlg.get_result()[1] == "deleted-project-tile-uuid"
+    dlg._cur_color = "#123456"
+    assert dlg.get_result() == ("#123456", "deleted-project-tile-uuid", 1.0)
+    # An explicit pick still wins.
+    dlg._combo.setCurrentIndex(dlg._combo.findData(hp.BUILTIN_BRICK))
+    assert dlg.get_result()[1] == hp.BUILTIN_BRICK
+
+
+def test_section_dialog_lists_project_tiles_only_with_registry(qapp):
+    """Instance dialogs (registry) list + return a project id; category ones do not (I2b)."""
+    from firepro3d.display_manager import SectionPatternDialog
+    reg, tid = _zig_registry()
+    dlg = SectionPatternDialog("#666666", "diagonal", 1.0, registry=reg)
+    labels = [dlg._combo.itemText(i) for i in range(dlg._combo.count())]
+    assert "Zig" in labels
+    assert dlg.get_result()[1] == hp.BUILTIN_DIAGONAL      # legacy name -> id
+    dlg._combo.setCurrentIndex(labels.index("Zig"))
+    assert dlg.get_result()[1] == tid
+    cat = SectionPatternDialog("#666666", "diagonal", 1.0, registry=None)
+    assert "Zig" not in [cat._combo.itemText(i) for i in range(cat._combo.count())]

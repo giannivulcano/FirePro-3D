@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import QMenu
 
 
-def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
+def _attach_fill_submenu(menu: QMenu, target) -> None:
     """Append a Fill submenu to *menu* when *target* is a fillable 2D shape.
 
     Mutations route through scene.push_undo_state() + target.set_property(),
@@ -140,7 +140,7 @@ def build_entity_context_menu(
     # ── Fill submenu (closed 2D shapes only) ──
     if target is not None and getattr(target, "is_fillable", lambda: False)():
         menu.addSeparator()
-        _attach_fill_submenu(menu, scene, target)
+        _attach_fill_submenu(menu, target)
 
     menu.addSeparator()
 

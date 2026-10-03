@@ -27,6 +27,7 @@ import os
 import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
+from .hatch_patterns import BUILTIN_DIAGONAL
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +198,7 @@ def _compose_fill_value(mode: str, hex_color: str) -> str:
 
 
 def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
-                    pattern: str = "diagonal", registry=None) -> QPixmap:
+                    pattern: str = BUILTIN_DIAGONAL, registry=None) -> QPixmap:
     """Return a small pixmap showing solid or hatch swatch."""
     pix = QPixmap(w, h)
     pix.fill(QColor("transparent"))
@@ -785,9 +786,14 @@ class SectionPatternDialog(QDialog):
         from .hatch_patterns import tile_choices, canonical_ref
         for name, ref in tile_choices(registry):
             self._combo.addItem(name, ref)
+        # An unknown stored ref (deleted project tile, foreign QSettings) is
+        # kept, never replaced: blank selection, get_result falls back to it.
+        self._orig_pattern = current_pattern
         idx = self._combo.findData(canonical_ref(current_pattern))
         if idx >= 0:
             self._combo.setCurrentIndex(idx)
+        elif current_pattern:
+            self._combo.setCurrentIndex(-1)
         row1.addWidget(self._combo, 1)
         lay.addLayout(row1)
 
@@ -843,15 +849,19 @@ class SectionPatternDialog(QDialog):
                 f"border-radius: 2px;")
             self._refresh_preview()
 
+    def _current_pattern(self):
+        """The picked pattern ref, else the original stored ref (kept if unknown)."""
+        return self._combo.currentData() or self._orig_pattern
+
     def _refresh_preview(self):
         pix = _make_fill_icon("hatch", self._cur_color, 60, 20,
-                              pattern=self._combo.currentData(),
+                              pattern=self._current_pattern(),
                               registry=self._registry)
         self._preview.setPixmap(pix)
 
     def get_result(self) -> tuple[str, str, float]:
         """Return (hex_color, pattern_ref, scale)."""
-        return self._cur_color, self._combo.currentData(), self._scale_spin.value()
+        return self._cur_color, self._current_pattern(), self._scale_spin.value()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1492,7 +1502,7 @@ class DisplayManager(QDialog):
         # ── Section colour+pattern swatch (for sectioned geometry) ─────
         section_btn = QPushButton()
         section_btn.setFixedSize(40, 20)
-        _sec_pat = section_pattern or "diagonal"
+        _sec_pat = section_pattern or BUILTIN_DIAGONAL
         if has_section and section:
             section_btn.setProperty("_color", section)
             section_btn.setProperty("_pattern", _sec_pat)
@@ -1654,7 +1664,7 @@ class DisplayManager(QDialog):
             widgets = data["widgets"]
         btn = widgets["section_btn"]
         cur_color = btn.property("_color") or "#666666"
-        cur_pattern = btn.property("_pattern") or "diagonal"
+        cur_pattern = btn.property("_pattern") or BUILTIN_DIAGONAL
         cur_scale = btn.property("_section_scale") or 1.0
         if isinstance(cur_scale, str):
             cur_scale = float(cur_scale or "1.0")
@@ -1687,7 +1697,7 @@ class DisplayManager(QDialog):
             btn.setProperty("_color", hex_color)
             if pattern:
                 btn.setProperty("_pattern", pattern)
-            pat = btn.property("_pattern") or "diagonal"
+            pat = btn.property("_pattern") or BUILTIN_DIAGONAL
             pix = _make_fill_icon("hatch", hex_color, 40, 20, pattern=pat,
                                   registry=self._scene.block_registry)
             btn.setIcon(QIcon(pix))
@@ -1837,6 +1847,7 @@ class DisplayManager(QDialog):
         from .paper_display import (
             FACTORY_PAPER_CATEGORIES, save_paper_categories,
             PaperColorMode, save_paper_color_mode, _HAS_FILL, _HAS_SECTION,
+            _LW_ONLY,
         )
         save_paper_color_mode(PaperColorMode.BW, self._settings)
         save_paper_categories(FACTORY_PAPER_CATEGORIES, self._settings)
@@ -1844,8 +1855,9 @@ class DisplayManager(QDialog):
         self._color_mode_combo.setCurrentIndex(1)  # B&W
         for key, widgets in self._paper_cat_data.items():
             factory = FACTORY_PAPER_CATEGORIES[key]
-            self._update_color_btn(widgets["color_btn"], factory["color"])
-            widgets["color_btn"].setProperty("_color", factory["color"])
+            if key not in _LW_ONLY:
+                self._update_color_btn(widgets["color_btn"], factory["color"])
+                widgets["color_btn"].setProperty("_color", factory["color"])
             if key in _HAS_FILL:
                 self._update_color_btn(widgets["fill_btn"], factory["fill"])
                 widgets["fill_btn"].setProperty("_color", factory["fill"])
@@ -2078,16 +2090,12 @@ class DisplayManager(QDialog):
         "Drafting": ["Hatch"],
     }
 
-    # Paper categories where only the line weight is meaningful (D-A31): every
-    # other cell is disabled and skipped by the colour-mode loops.
-    _PS_LW_ONLY = frozenset({"Hatch"})
-
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
         from .paper_display import (
             load_line_weights, load_paper_categories, load_paper_color_mode,
             save_paper_categories, save_paper_color_mode,
-            PaperColorMode, _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS,
+            PaperColorMode, _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY,
         )
         _t = th.detect()
 
@@ -2281,7 +2289,7 @@ class DisplayManager(QDialog):
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_LABEL_HT,
                                             ht_edit)
 
-                if key in self._PS_LW_ONLY:
+                if key in _LW_ONLY:
                     for _w in (vis_cb, color_btn, opacity_spin):
                         _w.setEnabled(False)
                     color_btn.setStyleSheet(_disabled_ss)
@@ -2319,7 +2327,7 @@ class DisplayManager(QDialog):
         from .paper_display import (
             PaperColorMode, save_paper_color_mode,
             save_paper_categories, load_paper_categories,
-            _HAS_FILL, _HAS_SECTION,
+            _HAS_FILL, _HAS_SECTION, _LW_ONLY,
         )
         mode_map = {0: PaperColorMode.FULL_COLOR,
                     1: PaperColorMode.BW,
@@ -2332,6 +2340,8 @@ class DisplayManager(QDialog):
             cats = load_paper_categories(self._settings)
             self._suppress = True
             for key, widgets in self._paper_cat_data.items():
+                if key in _LW_ONLY:
+                    continue
                 cats[key]["color"] = "#000000"
                 self._update_color_btn(widgets["color_btn"], "#000000")
                 widgets["color_btn"].setProperty("_color", "#000000")
@@ -2351,10 +2361,11 @@ class DisplayManager(QDialog):
 
     def _apply_color_mode_ui(self, mode):
         """Enable/disable colour columns based on color mode."""
-        from .paper_display import PaperColorMode, _HAS_FILL, _HAS_SECTION
+        from .paper_display import (
+            PaperColorMode, _HAS_FILL, _HAS_SECTION, _LW_ONLY)
         disable = (mode == PaperColorMode.FULL_COLOR)
         for key, widgets in self._paper_cat_data.items():
-            if key in self._PS_LW_ONLY:
+            if key in _LW_ONLY:
                 continue
             widgets["color_btn"].setEnabled(not disable)
             if key in _HAS_FILL:

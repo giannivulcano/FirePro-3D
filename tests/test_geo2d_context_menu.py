@@ -160,6 +160,27 @@ class TestPlanContextMenu:
         act.trigger()
         assert rect.fill_pattern == "builtin-hatch-horizontal"
 
+    def test_hatch_submenu_lists_and_stores_project_tile(self, qapp):
+        """A project tile on the scene is listed and picking it stores its block id."""
+        from firepro3d.block_definition import BlockDefinition
+        from firepro3d.geometry_2d import LineItem
+        ms, view = _make_scene_and_view(qapp)
+        d = BlockDefinition.new(
+            name="Zig", library="L", series="S", origin=(0.0, 0.0),
+            primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
+            tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
+        ms.register_block_definition(d)
+        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+        ms.addItem(rect)
+        rect.setSelected(True)
+        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
+        hatch_act = next(a for a in _find_submenu(menu, "Fill").actions()
+                         if "Hatch" in a.text() and a.menu())
+        act = next((a for a in hatch_act.menu().actions() if a.text() == "Zig"), None)
+        assert act is not None, [a.text() for a in hatch_act.menu().actions()]
+        act.trigger()
+        assert rect.fill_pattern == d.id
+
 
 # ---------------------------------------------------------------------------
 # PATH A: Model_Space._show_entity_context_menu (entity path)
