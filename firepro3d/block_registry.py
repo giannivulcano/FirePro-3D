@@ -10,6 +10,8 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 
 from __future__ import annotations
 
+from .hatch_patterns import canonical_ref, is_builtin_ref
+
 NESTED_TYPE = "block_instance"
 
 
@@ -32,7 +34,6 @@ def prim_refs(primitives) -> set[str]:
     Built-in pattern ids / legacy names are code-level (never in a store), so
     they are excluded — they can't be missing, bundled or part of a cycle.
     """
-    from .hatch_patterns import canonical_ref, is_builtin_ref
     out = set()
     for p in primitives:
         if p.get("type") == NESTED_TYPE and p.get("block_id"):

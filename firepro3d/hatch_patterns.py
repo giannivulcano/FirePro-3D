@@ -129,8 +129,13 @@ def resolve_tile(ref: str | None, registry=None):
 
 
 def tile_choices(registry=None) -> list[tuple[str, str]]:
-    """``[(display name, ref)]``: built-ins in fixed order, then the project's
-    valid tiled blocks by name. The single source for every pattern picker."""
+    """``[(label, ref)]``: built-ins in fixed order, then the project's valid
+    tiled blocks by name. The single source for every pattern picker.
+
+    Labels are unique: a project tile whose name collides with an earlier label
+    gets `` (project)`` appended (then `` (project 2)`` ...), so every ref is
+    reachable through ``ref_from_value``.
+    """
     out = list(((n, i) for i, n in _BUILTIN_NAMES))
     if registry is not None:
         project = []
@@ -138,12 +143,24 @@ def tile_choices(registry=None) -> list[tuple[str, str]]:
             d = registry.get(bid)
             if d is not None and d.tile and tile_is_valid(d):
                 project.append((d.name or bid, bid))
-        out.extend(sorted(project, key=lambda x: x[0].lower()))
+        used = {n for n, _ in out}
+        for name, bid in sorted(project, key=lambda x: x[0].lower()):
+            label, k = name, 1
+            while label in used:
+                k += 1
+                label = (f"{name} (project)" if k == 2
+                         else f"{name} (project {k - 1})")
+            used.add(label)
+            out.append((label, bid))
     return out
 
 
 def display_name(ref: str | None, registry=None) -> str:
     """Picker label for *ref* (falls back to the raw ref for an unknown one)."""
+    ref = canonical_ref(ref)
+    for name, r in tile_choices(registry):
+        if r == ref:
+            return name
     d = resolve_tile(ref, registry)
     return d.name if d is not None else (ref or "")
 

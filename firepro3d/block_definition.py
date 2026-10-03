@@ -273,7 +273,7 @@ class BlockDefinition:
     @property
     def tile(self) -> dict | None:
         """The pattern tile ``{w, h, row_shift, size}``; None = not a pattern."""
-        return self._tile
+        return dict(self._tile) if self._tile else None
 
     def set_tile(self, tile, *, notify: bool = True) -> None:
         """Replace the tile, bump the version (pattern caches key on it).

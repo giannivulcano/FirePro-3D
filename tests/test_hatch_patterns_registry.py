@@ -65,4 +65,40 @@ def test_pattern_reference_is_a_registry_dependency(qapp):
     assert pat.id in reg.closure(host.id)               # bundled with the host
     assert host.id in reg.users_of(pat.id)              # delete guard / G5 invalidation
     assert reg.would_cycle(pat.id, host.id)             # host can't go inside its pattern
-    assert hp.BUILTIN_DIAGONAL not in reg.missing_nested()  # built-ins are never "missing"
+
+
+def test_builtin_pattern_ref_is_never_reported_missing(qapp):
+    sc = Model_Space()
+    r = RectangleItem(QPointF(0, 0), QPointF(10, 10))
+    r.fill_type, r.fill_pattern = "hatch", "diagonal"
+    host = BlockDefinition.new(
+        name="Host", library="L", series="S", origin=(0, 0),
+        primitives=[r.to_dict(),
+                    {"type": "block_instance", "block_id": "gone",
+                     "pos": [0.0, 0.0], "rotation": 0.0}])
+    sc.register_block_definition(host)
+    missing = sc.block_registry.missing_nested()
+    assert missing == {"gone": {host.id}}      # nested symbol reported, builtin not
+
+
+def test_project_tile_named_like_builtin_is_pickable(qapp):
+    sc = Model_Space()
+    proj = _tile_def("Diagonal")
+    sc.register_block_definition(proj)
+    rect = RectangleItem(QPointF(0, 0), QPointF(10, 10))
+    sc.addItem(rect)
+    rect.fill_type = "hatch"
+    opts = rect.get_properties()["Pattern"]["options"]
+    assert "Diagonal" in opts and "Diagonal (project)" in opts
+    assert len(set(opts)) == len(opts)
+    rect.set_property("Pattern", "Diagonal (project)")
+    assert rect.fill_pattern == proj.id
+    assert rect.get_properties()["Pattern"]["value"] == "Diagonal (project)"
+    rect.set_property("Pattern", "Diagonal")
+    assert rect.fill_pattern == hp.BUILTIN_DIAGONAL
+
+
+def test_tile_dict_is_a_copy(qapp):
+    b = hp.builtin_tiles()[hp.BUILTIN_BRICK]
+    b.tile["w"] = 1.0
+    assert hp.builtin_tiles()[hp.BUILTIN_BRICK].tile["w"] == 225.0
