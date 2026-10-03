@@ -111,3 +111,45 @@ def test_main_window_edit_block_opens_editor_tab(qapp, _main_window_singleton):
         win.scene._block_definitions.pop(d.id, None)
         win.scene.blockDefinitionsChanged.emit()
         QApplication.processEvents()
+
+
+def test_library_pattern_leaf_is_loaded_then_emits(model_space, qapp, tmp_path):
+    """A tiled (pattern) leaf edits like any block: the shipped Diagonal,
+    library-only, loads into the project and then opens (D-A39)."""
+    from firepro3d import hatch_patterns as hp
+    hp.seed_hatch_folder(str(tmp_path / "System" / "Hatches"))
+    b = BlocksBrowser(model_space, root=str(tmp_path))
+    leaf = _leaf(b, hp.BUILTIN_DIAGONAL)
+    assert leaf is not None and hp.BUILTIN_DIAGONAL not in model_space._block_definitions
+    seen = []
+    b.editRequested.connect(
+        lambda i: seen.append((i, i in model_space._block_definitions)))
+    menu = b._build_context_menu(leaf)
+    assert [a.text() for a in menu.actions()] == ["Edit Block"]
+    menu.actions()[0].trigger()
+    assert seen == [(hp.BUILTIN_DIAGONAL, True)]
+    assert model_space._block_definitions[hp.BUILTIN_DIAGONAL].tile is not None
+
+
+def test_main_window_edit_block_opens_a_pattern(qapp, _main_window_singleton):
+    """The project's Diagonal (loaded on new, D-A39) opens in a Block Editor
+    tab with its pattern tile."""
+    from firepro3d import hatch_patterns as hp
+    win = _main_window_singleton
+    assert hp.BUILTIN_DIAGONAL in win.scene._block_definitions
+    QApplication.processEvents()
+    mgr = win.block_editor_manager
+    w = None
+    try:
+        leaf = _leaf(win.blocks_browser, hp.BUILTIN_DIAGONAL)
+        assert leaf is not None
+        win.blocks_browser._build_context_menu(leaf).actions()[0].trigger()
+        QApplication.processEvents()
+        w = mgr._open.get(hp.BUILTIN_DIAGONAL)
+        assert w is not None and win.central_tabs.indexOf(w) >= 0
+        assert w.editor_scene.block_tile is not None
+    finally:
+        if w is not None:
+            w._modified = False
+            mgr.close(w)
+        QApplication.processEvents()

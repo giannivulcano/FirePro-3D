@@ -287,13 +287,8 @@ def test_opening_an_old_file_loads_its_legacy_pattern(mw, tmp_path):
 
 # ── wiring: DM category change, sheets, folder setting change ───────────────
 
-def test_dm_category_pattern_change_loads_into_the_baseline(qapp, monkeypatch):
-    from firepro3d import display_manager as dm
-    hp.seed_hatch_folder()
-    sc = Model_Space()
-    dlg = dm.DisplayManager(sc)
-
-    class _Picked:                       # the user picks Brick and presses OK
+def _picked(dm, ref):
+    class _Picked:                       # the user picks *ref* and presses OK
         def __init__(self, *a, **k):
             pass
 
@@ -301,17 +296,39 @@ def test_dm_category_pattern_change_loads_into_the_baseline(qapp, monkeypatch):
             return dm.QDialog.DialogCode.Accepted
 
         def get_result(self):
-            return "#666666", hp.BUILTIN_BRICK, 1.0
+            return "#666666", ref, 1.0
+    return _Picked
 
-    monkeypatch.setattr(dm, "SectionPatternDialog", _Picked)
+
+def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
+    from firepro3d import display_manager as dm
+    hp.seed_hatch_folder()
+    sc = Model_Space()
+    dlg = dm.DisplayManager(sc)
+    monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
     try:
-        assert hp.BUILTIN_BRICK not in sc._block_definitions
         dlg._pick_section("Wall", is_category=True)
+        assert hp.BUILTIN_BRICK not in sc._block_definitions    # not before OK
+        dlg.accept()
         assert QSettings("GV", "FirePro3D").value(
             "display/Wall/section_pattern") == hp.BUILTIN_BRICK
         assert hp.resolve_tile(hp.BUILTIN_BRICK, sc.block_registry) is not None
         assert not sc.can_undo()
         assert hp.BUILTIN_BRICK in sc._undo_stack[0]["block_definitions"]
+    finally:
+        dlg.close()
+
+
+def test_dm_category_pattern_cancel_loads_nothing(qapp, monkeypatch):
+    from firepro3d import display_manager as dm
+    hp.seed_hatch_folder()
+    sc = Model_Space()
+    dlg = dm.DisplayManager(sc)
+    monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
+    try:
+        dlg._pick_section("Wall", is_category=True)
+        dlg.reject()
+        assert hp.BUILTIN_BRICK not in sc._block_definitions
     finally:
         dlg.close()
 
@@ -358,3 +375,44 @@ def test_settings_change_seeds_a_new_hatch_folder(qapp, make_model_space, tmp_pa
         assert _ids_in(str(target)) == {v[0] for v in _EXPECTED.values()}
     finally:
         dlg.deleteLater()
+
+
+def _seeded(folder):
+    return os.path.normcase(os.path.abspath(str(folder))) in hp._seeded_folders()
+
+
+def test_seed_never_rewrites_an_unreadable_index(qapp, tmp_path):
+    folder = tmp_path / "Hatches"
+    folder.mkdir()
+    corrupt = b'{"Mine.fpdb": {"id": "x", "name": "Mine"'      # truncated JSON
+    (folder / "index.json").write_bytes(corrupt)
+    copied = hp.seed_hatch_folder(str(folder))
+    assert (folder / "index.json").read_bytes() == corrupt      # user entries kept
+    assert len(copied) == 5 and _ids_in(str(folder)) == {v[0] for v in _EXPECTED.values()}
+    assert not _seeded(folder)                                  # retried next time
+
+
+def test_seed_marks_the_folder_only_when_complete(qapp, tmp_path, monkeypatch):
+    folder = tmp_path / "Hatches"
+    real_copy = hp.shutil.copyfile
+
+    def flaky(src, dst):
+        if os.path.basename(src) == "Brick.fpdb":
+            raise OSError("locked by antivirus")
+        return real_copy(src, dst)
+
+    monkeypatch.setattr(hp.shutil, "copyfile", flaky)
+    assert hp.BUILTIN_BRICK not in hp.seed_hatch_folder(str(folder))
+    assert not _seeded(folder)
+    monkeypatch.setattr(hp.shutil, "copyfile", real_copy)
+    assert hp.seed_hatch_folder(str(folder)) == [hp.BUILTIN_BRICK]   # retried
+    assert _seeded(folder)
+
+
+def test_shipped_files_are_read_once_per_process(qapp, monkeypatch):
+    first = hp.shipped_pattern_files()
+    reads = []
+    real = hp._read_json
+    monkeypatch.setattr(hp, "_read_json", lambda p: reads.append(p) or real(p))
+    assert hp.shipped_pattern_files() == first and len(first) == 5
+    assert reads == []

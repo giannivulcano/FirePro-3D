@@ -64,8 +64,17 @@ def _read_json(path: str):
         return json.load(fh)
 
 
+_SHIPPED_CACHE: list = []    # [(id, path)] — read-only app files, read once
+
+
 def shipped_pattern_files() -> list[tuple[str, str]]:
-    """``[(block id, .fpdb path)]`` of the shipped patterns, sorted by file name."""
+    """``[(block id, .fpdb path)]`` of the shipped patterns, sorted by file name.
+
+    The shipped files are read-only app data, so the scan runs once per
+    process (an unreadable folder is retried).
+    """
+    if _SHIPPED_CACHE:
+        return list(_SHIPPED_CACHE)
     folder = shipped_patterns_dir()
     out = []
     try:
@@ -81,6 +90,7 @@ def shipped_pattern_files() -> list[tuple[str, str]]:
             continue
         if bid:
             out.append((bid, path))
+    _SHIPPED_CACHE[:] = out
     return out
 
 
@@ -131,7 +141,10 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
     is already held by any ``.fpdb`` in the folder (the user's edited copy,
     whatever its file name) is skipped — never overwritten. A copy that would
     clash with a different block's file name is skipped too. The folder's
-    ``index.json`` gains an entry (with the ``tile`` flag) per copied file.
+    ``index.json`` gains an entry (with the ``tile`` flag) per copied file —
+    unless the existing index can't be read (corrupt / locked), which is
+    never rewritten. The folder is recorded as seeded only once every shipped
+    pattern is present and the index is sound, so a failed copy retries.
 
     Args:
         folder: Target folder; None = ``app_data.hatch_patterns_dir()``.
@@ -153,14 +166,15 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
     have = _folder_ids(folder)
     idx_path = os.path.join(folder, _INDEX)
     index: dict = {}
+    index_ok = True
     if os.path.isfile(idx_path):
         try:
             index = _read_json(idx_path)
             if not isinstance(index, dict):
-                index = {}
-        except Exception as exc:          # noqa: BLE001
-            _log_once(idx_path, exc)
-            index = {}
+                raise ValueError("index is not a mapping")
+        except Exception as exc:          # noqa: BLE001 — corrupt or locked
+            _log_once(idx_path, exc)      # never rewrite (would drop entries)
+            index_ok = False
     copied = []
     for bid, src in shipped_pattern_files():
         if bid in have:
@@ -180,16 +194,22 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
                         "tile": bool(data.get("tile"))}
         copied.append(bid)
     if copied:
-        tmp = idx_path + ".tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(index, fh, indent=2)
-            os.replace(tmp, idx_path)
-        except OSError as exc:
-            _log.warning("Hatch pattern index %s not written: %s", idx_path, exc)
+        if index_ok:
+            tmp = idx_path + ".tmp"
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(index, fh, indent=2)
+                os.replace(tmp, idx_path)
+            except OSError as exc:
+                index_ok = False
+                _log.warning("Hatch pattern index %s not written: %s", idx_path, exc)
         from . import block_library
         block_library._notify_changed()   # an open Blocks browser refreshes
-    _mark_seeded(folder)
+    # Seeded once only when complete: every shipped pattern is in the folder
+    # and the index is sound — a failed copy / unreadable index retries.
+    shipped = {bid for bid, _src in shipped_pattern_files()}
+    if index_ok and shipped and shipped <= (have | set(copied)):
+        _mark_seeded(folder)
     return copied
 
 

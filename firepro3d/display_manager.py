@@ -1682,11 +1682,6 @@ class DisplayManager(QDialog):
                 from .hatch_patterns import ensure_pattern_available
                 if not ensure_pattern_available(new_pattern, self._scene):
                     new_pattern = cur_pattern
-            else:
-                # D-A39: the category default draws in this project too — load
-                # the folder pattern as part of the baseline (no undo step).
-                from .hatch_patterns import load_patterns_outside_history
-                load_patterns_outside_history(self._scene, [new_pattern])
             btn.setProperty("_pattern", new_pattern)
             btn.setProperty("_section_scale", new_scale)
             self._update_swatch(btn, "section", new_color, pattern=new_pattern)
@@ -2681,6 +2676,12 @@ class DisplayManager(QDialog):
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
         self._settings.sync()
+
+        # D-A39: a category section pattern the user OK'd draws in this project
+        # too — load it (and any instance override's) from the Hatch patterns
+        # folder as part of the undo baseline. Not on Cancel: nothing to load.
+        from .hatch_patterns import ensure_project_patterns
+        ensure_project_patterns(self._scene)
 
         # Rebuild open elevation views so Level Datum / Grid Line / Elevation
         # Marker changes take effect immediately.
