@@ -648,3 +648,63 @@ def test_shared_deps_row_batches_like_fn():
     F1, v1 = ss._eval_vals(comp, s.x)
     assert comp.batch.groups and not comp.batch.generic
     assert np.allclose(F1, F0, atol=1e-12) and np.allclose(v1, v0, atol=1e-12)
+
+
+# ── D18 perf: certified full-rank diagnostics == the SVD path ──────────────
+
+def _diag_both(s):
+    """(fast, svd) Diagnostics for *s* (svd forced via CERT_RATIO=inf)."""
+    fast = ss.NumpySolver().diagnose(s)
+    old = ss.CERT_RATIO
+    ss.CERT_RATIO = float("inf")
+    try:
+        slow = ss.NumpySolver().diagnose(s)
+    finally:
+        ss.CERT_RATIO = old
+    return fast, slow
+
+
+def _same_diag(fast, slow, groups):
+    assert (fast.rank, fast.dof, fast.conflicts, fast.redundant) == (
+        slow.rank, slow.dof, slow.conflicts, slow.redundant)
+    assert fast.dof_of_many(groups) == [slow.dof_of(g) for g in groups]
+
+
+def test_fast_diagnostics_equal_svd_on_rect_heavy(qapp):
+    from tests.test_d18_parity import _rect_heavy
+    sc, n = _rect_heavy()
+    try:
+        ctl = sc.constraint_ctl
+        sys_, slots, _w = ctl._build(ctl.active())
+        sys_.cid_rank = {c.id: k for k, c in enumerate(ctl.active())}
+        groups = [list(range(off, off + ad.nvars(it))) for _u, (it, ad, off) in slots.items()]
+        fast, slow = _diag_both(sys_)
+        big = max(range(len(fast._st.comps)), key=lambda c: len(fast._st.comps[c].rows))
+        assert big in fast._fast                                # VC2: the certified path ran
+        assert not slow._fast
+        _same_diag(fast, slow, groups)
+    finally:
+        sc.cleanup()
+
+
+def test_rank_deficient_component_falls_back_to_svd():
+    """Two identical rows: no certificate -> SVD + Gram-Schmidt, same answer."""
+    s = ss.System(x=np.array([0.0, 1.0, 2.0]))
+    for cid in ("a", "b"):
+        s.rows.append(ss.Row(cid, (0, 1), lambda x: (x[1] - x[0] - 1.0, np.array([-1.0, 1.0]))))
+    s.cid_rank = {"a": 0, "b": 1}
+    fast, slow = _diag_both(s)
+    assert not fast._fast
+    assert fast.redundant == ["b"]
+    _same_diag(fast, slow, [[0, 1], [2], [0, 1, 2]])
+
+
+def test_ill_conditioned_component_falls_back_to_svd():
+    """cond(J) ~ 1e5 > the 1e3 certificate bound -> SVD path, same answer."""
+    s = ss.System(x=np.array([0.0, 0.0, 0.0]))
+    s.rows.append(ss.Row("a", (0, 1), lambda x: (x[0] + x[1], np.array([1.0, 1.0]))))
+    s.rows.append(ss.Row("b", (0, 1), lambda x: (x[0] + (1 + 1e-5) * x[1],
+                                                  np.array([1.0, 1.0 + 1e-5]))))
+    fast, slow = _diag_both(s)
+    assert not fast._fast and fast.rank == 2
+    _same_diag(fast, slow, [[0], [1], [0, 1], [2]])

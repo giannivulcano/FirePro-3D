@@ -1215,8 +1215,11 @@ class ConstraintController:
             sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
             d = self._solver.diagnose(sys_)
             redundant = frozenset(d.redundant)
-            for u, (it, ad, off) in slots.items():
-                item_dof[u] = d.dof_of(range(off, off + ad.nvars(it)))
+            ordered = list(slots.items())
+            dofs = d.dof_of_many([range(off, off + ad.nvars(it))
+                                  for _u, (it, ad, off) in ordered])
+            for (u, _slot), n in zip(ordered, dofs):
+                item_dof[u] = n
             dof = total - (len(sys_.x) - d.dof)
         conflict = frozenset(u for c in self.constraints if c.id in self.red
                              for u in (_safe_ref_uids(c) or ()))

@@ -631,8 +631,6 @@ def test_d18_rect_heavy_worst_case_drag_frames(qapp):
 
 
 @pytest.mark.perf
-@pytest.mark.xfail(strict=True, reason="D18 rect-heavy: 299x900 dense J -- folded "
-                   "into the P1 'D18 rect-heavy drag perf' task (user ruling 2026-10-02)")
 def test_d18_rect_heavy_cs2_diagnostics(qapp):
     """D18: controller diagnostics (CS2 row basis + redundancy) on the
     rect-heavy one-component case vs the 50 ms commit bar. The bench

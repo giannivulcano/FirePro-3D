@@ -25,6 +25,12 @@ STEP_TOL = 1e-10
 RES_STOP = 1e-3 * LIN_TOL   # stop once every row is this tight (§7.2)
 DEP_TOL = 1e-8          # ordered Gram-Schmidt: a row is dependent below this relative norm (CS2 §7.4)
 NULL_TOL = 1e-8         # a variable "moves" in a null-space direction above this
+# D18 (ruling 2026-10-03): a component whose Gram matrix J Jᵀ has
+# λ_min ≥ max(CERT_RATIO·λ_max, 1e-12) is certified full row rank
+# (cond(J) ≤ 1e3, σ_min ≥ 1e-6 -- far above the SVD rank cut-off), and its
+# row-space basis Q = Λ^-½ Vᵀ J is orthonormal to ~2e-10 (≪ NULL_TOL); any
+# other component takes the economy SVD + ordered Gram-Schmidt path.
+CERT_RATIO = 1e-6
 
 # D18 (2026-10-03 P4): OpenBLAS defaults to one thread per core; on the
 # solver's ~300-sized dense LAPACK calls that oversubscription costs 3-13x
@@ -176,36 +182,48 @@ class Diagnostics:
     redundant: list = field(default_factory=list)   # cids implied by earlier ones (§7.4, amber)
     _st: object = field(default=None, repr=False, compare=False)
     _rowb: dict = field(default_factory=dict, repr=False, compare=False)
+    _fast: set = field(default_factory=set, repr=False, compare=False)  # certified comps (D18)
 
     def dof_of(self, idx) -> int:
-        """DOF left among full-space variables *idx* (§7.4 per-entity).
+        """DOF left among full-space variables *idx* (§7.4 per-entity); see
+        :meth:`dof_of_many`."""
+        return self.dof_of_many([idx])[0]
+
+    def dof_of_many(self, groups) -> list:
+        """Per-entity DOF for each index group, batched (D18).
 
         A fixed variable contributes 0. Per component, with ``Q`` the
-        orthonormal row-space basis of J (economy SVD -- 2026-10-02 P4 ruling:
-        never the full null-space basis), the DOF of columns S is
-        ``rank(I - Q_S^T Q_S)``, the null-space projection restricted to S.
-        A rowless component's columns are each free (1).
+        orthonormal row-space basis of J (economy SVD or the certified eigh
+        basis -- 2026-10-02 P4 ruling: never the full null-space basis), the
+        DOF of columns S is ``rank(I - Q_S^T Q_S)``, the null-space projection
+        restricted to S. A rowless component's columns are each free (1).
+        Blocks of equal size share one stacked ``eigvalsh`` call.
         """
         st = self._st
+        out = [0] * len(groups)
         if st is None:
-            return 0
-        by_comp: dict[int, set] = {}
-        for i in idx:
-            i = int(i)
-            if st.var_col[i] < 0:
-                continue
-            by_comp.setdefault(int(st.var_comp[i]), set()).add(int(st.var_lcol[i]))
-        total = 0
-        for ci, lcs in by_comp.items():
-            Q = self._rowb.get(ci)
-            cols = sorted(lcs)
-            if Q is None:
-                total += len(cols)
-                continue
-            Qs = Q[:, cols]
-            ev = np.linalg.eigvalsh(np.eye(len(cols)) - Qs.T @ Qs)
-            total += int((ev > NULL_TOL).sum())
-        return total
+            return out
+        blocks: dict[int, list] = {}            # block size -> [(group k, Q_S)]
+        for k, idx in enumerate(groups):
+            by_comp: dict[int, set] = {}
+            for i in idx:
+                i = int(i)
+                if st.var_col[i] < 0:
+                    continue
+                by_comp.setdefault(int(st.var_comp[i]), set()).add(int(st.var_lcol[i]))
+            for ci, lcs in by_comp.items():
+                Q = self._rowb.get(ci)
+                cols = sorted(lcs)
+                if Q is None:
+                    out[k] += len(cols)
+                else:
+                    blocks.setdefault(len(cols), []).append((k, Q[:, cols]))
+        for m, items in blocks.items():
+            M = np.stack([np.eye(m) - q.T @ q for _k, q in items])
+            ev = np.linalg.eigvalsh(M)
+            for (k, _q), cnt in zip(items, (ev > NULL_TOL).sum(axis=1)):
+                out[k] += int(cnt)
+        return out
 
 
 class _UF:
@@ -548,6 +566,18 @@ def _dependent_rows(J: np.ndarray, ndep: int | None = None) -> np.ndarray:
     return dep
 
 
+def _certified_row_basis(J: np.ndarray):
+    """Orthonormal row-space basis of a certified full-row-rank *J*, else None
+    (see ``CERT_RATIO``)."""
+    nr, nc = J.shape
+    if nr == 0 or nr > nc:
+        return None
+    lam, V = np.linalg.eigh(J @ J.T)
+    if not (np.all(np.isfinite(lam)) and lam[0] >= max(CERT_RATIO * lam[-1], 1e-12)):
+        return None
+    return (V.T @ J) / np.sqrt(lam)[:, None]
+
+
 class NumpySolver:
     """The v1 ``SketchSolver`` (spec §7.1)."""
 
@@ -688,17 +718,25 @@ class NumpySolver:
         rank = 0
         rowb: dict[int, np.ndarray] = {}
         row_dep: dict[str, bool] = {}
+        fast: set = set()
         for ci, comp in enumerate(st.comps):
             if not comp.rows:
                 continue
             F, J = _eval_comp(comp, x)
-            _u, s, vt = np.linalg.svd(J, full_matrices=False)   # economy (P4)
-            tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
-            r = int((s > max(tol, 1e-9)).sum())
+            nr = len(comp.rows)
+            Q = _certified_row_basis(J)
+            if Q is not None:                                    # D18 full-rank path
+                r, dep = nr, np.zeros(nr, dtype=bool)
+                fast.add(ci)
+            else:
+                _u, s, vt = np.linalg.svd(J, full_matrices=False)   # economy (P4)
+                tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
+                r = int((s > max(tol, 1e-9)).sum())
+                Q = vt[:r]
+                dep = (_dependent_rows(J, nr - r) if r < nr
+                       else np.zeros(nr, dtype=bool))
             rank += r
-            rowb[ci] = vt[:r]
-            dep = (_dependent_rows(J, len(comp.rows) - r) if r < len(comp.rows)
-                   else np.zeros(len(comp.rows), dtype=bool))
+            rowb[ci] = Q
             for k, row in enumerate(comp.rows):
                 ok = bool(dep[k]) and abs(float(F[k])) <= LIN_TOL
                 row_dep[row.cid] = row_dep.get(row.cid, True) and ok
@@ -711,7 +749,7 @@ class NumpySolver:
                       if eq.get(c, True) and row_dep.get(c, True)),
                      key=lambda c: order.get(c, len(order)))
         return Diagnostics(st.ncols, rank, st.ncols - rank, list(st.conflicts),
-                           red, st, rowb)
+                           red, st, rowb, _fast=fast)
 
 
 # ── §7.3 residual catalogue — builders (one per IMPLEMENTED type) ─────────
