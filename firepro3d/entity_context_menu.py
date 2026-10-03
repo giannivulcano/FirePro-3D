@@ -31,7 +31,8 @@ def _attach_fill_submenu(menu: QMenu, target) -> None:
 
     hatch_menu = fill_menu.addMenu("Hatch")
     reg = getattr(target.scene(), "block_registry", None)
-    for name, ref in tile_choices(reg):
+    from .hatch_patterns import picker_exclude
+    for name, ref in tile_choices(reg, picker_exclude(target.scene())):
         hatch_menu.addAction(name).triggered.connect(
             lambda _=False, r=ref: _apply("hatch", r)
         )

@@ -1594,7 +1594,10 @@ class Model_View(QGraphicsView):
         solid_act.triggered.connect(lambda _=False: _apply("solid"))
 
         hatch_menu = fill_menu.addMenu("Hatch")
-        for name, ref in tile_choices(getattr(target.scene(), "block_registry", None)):
+        from .hatch_patterns import picker_exclude
+        _sc = target.scene()
+        for name, ref in tile_choices(getattr(_sc, "block_registry", None),
+                                      picker_exclude(_sc)):
             act = hatch_menu.addAction(name)
             act.triggered.connect(
                 lambda _=False, r=ref: _apply("hatch", r)

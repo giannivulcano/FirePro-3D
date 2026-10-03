@@ -1672,6 +1672,34 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Number of placed BlockInstances referencing *block_id*."""
         return sum(1 for i in self._block_instances if i.block_id == block_id)
 
+    def pattern_use_refusal(self, block_id) -> "str | None":
+        """Why *block_id* can't become a pattern tile (hatch D-A34), or None.
+
+        A pattern fills regions; it can't also be a symbol. Counted: placed
+        instances in this scene + definitions that nest it directly (a
+        transitive host always nests a direct host, so it is refused too).
+        The one rule shared by the Block Editor toggle and the save path.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The status message, or None when the block is unused as a symbol.
+        """
+        if block_id is None:
+            return None
+        from .block_registry import nested_ids
+        reg = self._block_registry
+        placed = self.instance_count(block_id)
+        nested = sum(1 for i in reg.ids()
+                     if (d := reg.get(i)) is not None and block_id in nested_ids(d))
+        if not (placed or nested):
+            return None
+        parts = ([f"{placed} placed"] if placed else []) + (
+            [f"{nested} nested in other blocks"] if nested else [])
+        return (f"Used as a symbol ({', '.join(parts)}) — remove those "
+                f"before making it a pattern")
+
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
 
@@ -2035,6 +2063,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
+        pattern_saved_msg = None
+        if tile:
+            # hatch D-A34 at save time (the toggle's check can go stale).
+            why = self.pattern_use_refusal(block_id)
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
+            if place_instance and block_id is None:
+                # User ruling 2026-10-02: a new pattern is registered but never
+                # placed; a Create-Block-from-selection source stays untouched.
+                pattern_saved_msg = (f"Saved pattern ‘{name}’ — patterns "
+                                     f"aren't placed; your original geometry is "
+                                     f"unchanged.")
+            place_instance, source_items = False, None
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
@@ -2071,6 +2113,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.place_block_instance(defn.id, (px, py), rotation=0.0)
         self.push_undo_state()
         self.update()  # section-cut walls/floors repaint against the new tile version (G5)
+        if pattern_saved_msg is not None:
+            self._show_status(pattern_saved_msg, 5000)
         return defn
 
     @staticmethod
@@ -7521,6 +7565,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
+        pattern_skipped = 0   # hatch D-A34: tiled blocks are never re-placed
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -7611,7 +7656,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
-                if self.get_block_definition(obj.get("block_id")) is not None:
+                _d = self.get_block_definition(obj.get("block_id"))
+                if _d is not None and _d.tile:
+                    pattern_skipped += 1          # became a pattern since the copy
+                elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],
                         (_p[0] + offset.x(), _p[1] + offset.y()),
@@ -7642,7 +7690,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
-        self._show_status(f"Pasted {len(data)} item(s)")
+        if pattern_skipped:
+            from . import block_library
+            self._show_status(block_library.PATTERN_REASON)
+        else:
+            self._show_status(f"Pasted {len(data)} item(s)")
         return new_items
 
     def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)

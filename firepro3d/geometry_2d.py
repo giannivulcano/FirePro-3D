@@ -189,11 +189,20 @@ class Geometry2DMixin:
                              "options": ["none", "solid", "hatch"],
                              "value": self.fill_type}
             if self.fill_type == "hatch":
-                from .hatch_patterns import tile_choices, display_name
+                from .hatch_patterns import (MISSING_PATTERN_LABEL, canonical_ref,
+                                             picker_exclude, tile_choices)
                 reg = self._tile_registry()
-                props["Pattern"] = {"type": "enum",
-                                    "options": [n for n, _ in tile_choices(reg)],
-                                    "value": display_name(self.fill_pattern, reg)}
+                choices = tile_choices(reg, picker_exclude(self.scene()))
+                options = [n for n, _ in choices]
+                ref = canonical_ref(self.fill_pattern)
+                value = next((n for n, r in choices if r == ref), None)
+                if value is None:
+                    # D-A36: an unresolvable stored ref shows as missing (not as
+                    # the first option) and is kept until the user picks one.
+                    options = [MISSING_PATTERN_LABEL] + options
+                    value = MISSING_PATTERN_LABEL
+                props["Pattern"] = {"type": "enum", "options": options,
+                                    "value": value}
             if self.fill_type in ("solid", "hatch"):
                 props["Fill Colour"] = {"type": "color",
                                         "value": self._display_fill_color or "#888888"}
@@ -212,8 +221,12 @@ class Geometry2DMixin:
             self.update()
             return True
         if key == "Pattern":
-            from .hatch_patterns import ref_from_value
-            self.fill_pattern = ref_from_value(str(value), self._tile_registry())
+            from .hatch_patterns import (MISSING_PATTERN_LABEL, picker_exclude,
+                                         ref_from_value)
+            if str(value) == MISSING_PATTERN_LABEL:
+                return True               # D-A36: never rewrite the stored ref
+            self.fill_pattern = ref_from_value(str(value), self._tile_registry(),
+                                               picker_exclude(self.scene()))
             self.update()
             return True
         if key == "Fill Colour":

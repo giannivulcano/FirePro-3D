@@ -44,6 +44,7 @@ from .pipe import Pipe
 from .wall import WallSegment
 from .block_instance import BlockInstance
 from .render_op import STROKE
+from .tile_frame import TILE_FRAME_TAG
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -502,7 +503,7 @@ _UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
 # Items that are never snap geometry themselves: the (0,0) origin cross (its
 # POSITION is offered as the ``origin`` kind by SnapEngine._origin_points, DD6)
 # and the Block Editor pattern-tile frame (an overlay, hatch D-A32).
-_NON_TARGET_TAGS = frozenset({"origin", "tile_frame"})
+_NON_TARGET_TAGS = frozenset({"origin", TILE_FRAME_TAG})
 # Scene distance (mm) within which a real snap candidate counts as lying ON an
 # origin point, so the winning ``origin`` result adopts its source (I-1).
 _ORIGIN_COINCIDE_EPS = 1e-6

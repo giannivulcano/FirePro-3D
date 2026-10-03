@@ -432,3 +432,122 @@ def test_clear_scene_resets_the_tile(qapp):
     assert sc.block_tile is None and sc.tile_frame_item() is None
     sc.set_block_tile({"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
     assert sc.tile_frame_item().scene() is sc
+
+
+# ── VC9 seam fixes: D-A34 at save / paste time, D-A36 panel, self-pickers ────
+
+def _status_sink(scene):
+    msgs = []
+    scene._show_status = lambda m, t=5000: msgs.append(m)
+    return msgs
+
+
+def test_seeded_pattern_save_places_nothing_and_keeps_the_source(qapp):
+    """(a) Create Block from a selection -> Pattern tile on -> Save: the
+    pattern is registered, no replacement instance, the source stays."""
+    proj = Model_Space()
+    src = LineItem(QPointF(100, 100), QPointF(110, 90))
+    proj.addItem(src)
+    proj._draw_lines.append(src)
+    msgs = _status_sink(proj)
+    w = BlockEditorWidget(proj)
+    w.seed_from_selection([src.to_dict()], source_items=[src])
+    assert w.toggle_pattern_tile()
+    defn = w.commit_block("Pat", "L", "S")
+    assert defn is not None and defn.tile is not None
+    assert proj.get_block_definition(defn.id) is defn
+    assert proj.instance_count(defn.id) == 0
+    assert src.scene() is proj and src in proj._draw_lines
+    assert msgs[-1] == ("Saved pattern \u2018Pat\u2019 \u2014 patterns aren't placed; "
+                        "your original geometry is unchanged.")
+
+
+def test_pattern_save_refused_when_placed_meanwhile(qapp):
+    """(b) Tile on while unplaced -> the block is placed in the plan -> Save
+    is refused with the toggle's message; nothing is committed."""
+    proj = Model_Space()
+    d = BlockDefinition.new(name="Sym", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()])
+    proj.register_block_definition(d)
+    w = BlockEditorWidget(proj, block_id=d.id)
+    w.seed_from_definition(d)
+    assert w.toggle_pattern_tile()
+    proj.place_block_instance(d.id, (0.0, 0.0))
+    msgs = _status_sink(proj)
+    v0 = d.version
+    assert w.commit_block("Sym", "L", "S") is None
+    assert d.tile is None and d.version == v0
+    assert msgs == ["Used as a symbol (1 placed) \u2014 remove those before "
+                    "making it a pattern"]
+
+
+def test_paste_skips_instances_of_a_block_that_became_a_pattern(qapp):
+    """(c) Copy an instance, remove it, make the block a pattern, paste: no
+    instance is re-created and the status says why."""
+    proj = Model_Space()
+    d = BlockDefinition.new(name="Sym", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()])
+    proj.register_block_definition(d)
+    inst = proj.place_block_instance(d.id, (0.0, 0.0))
+    inst.setSelected(True)
+    proj.copy_selected_items()
+    proj.delete_items([inst])
+    w = BlockEditorWidget(proj, block_id=d.id)
+    w.seed_from_definition(d)
+    assert w.toggle_pattern_tile()
+    assert w.commit_block("Sym", "L", "S") is not None
+    msgs = _status_sink(proj)
+    new = proj.paste_items(QPointF(50.0, 50.0))
+    assert new == [] and proj.instance_count(d.id) == 0
+    from firepro3d import block_library
+    assert msgs == [block_library.PATTERN_REASON]
+
+
+def _hatched_rect(scene, ref):
+    from firepro3d.geometry_2d import RectangleItem
+    r = RectangleItem(QPointF(0, 0), QPointF(40, -40))
+    scene.addItem(r)
+    r.fill_type, r.fill_pattern = "hatch", ref
+    return r
+
+
+def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp):
+    from firepro3d.hatch_patterns import BUILTIN_DIAGONAL, MISSING_PATTERN_LABEL
+    from firepro3d.property_manager import PropertyManager
+    proj = Model_Space()
+    r = _hatched_rect(proj, "deadbeef-no-such-tile")
+    pm = PropertyManager()
+    pm.show_properties([r])
+    qapp.processEvents()
+    combo = pm._prop_widgets["Pattern"]
+    assert combo.currentText() == MISSING_PATTERN_LABEL
+    r.set_property("Pattern", MISSING_PATTERN_LABEL)
+    assert r.fill_pattern == "deadbeef-no-such-tile"
+    r.set_property("Pattern", "Diagonal")
+    assert r.fill_pattern == BUILTIN_DIAGONAL
+
+
+def test_editor_pickers_exclude_the_edited_block_and_cycles(qapp):
+    tile = {"w": 5, "h": 5, "row_shift": 0, "size": "model"}
+    proj = Model_Space()
+    x = BlockDefinition.new(name="Xpat", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
+                            tile=tile)
+    proj.register_block_definition(x)
+    y = BlockDefinition.new(name="Ypat", library="L", series="S", origin=(0, 0),
+                            primitives=[{"type": "block_instance", "block_id": x.id,
+                                         "pos": [0.0, 0.0], "rotation": 0.0}],
+                            tile=tile)
+    proj.register_block_definition(y)
+    z = BlockDefinition.new(name="Zpat", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
+                            tile=tile)
+    proj.register_block_definition(z)
+    w = BlockEditorWidget(proj, block_id=x.id)
+    w.seed_from_definition(x)
+    r = _hatched_rect(w.editor_scene, z.id)
+    opts = r.get_properties()["Pattern"]["options"]
+    assert "Zpat" in opts
+    assert "Xpat" not in opts and "Ypat" not in opts      # self + would-cycle
+    plan = _hatched_rect(proj, z.id).get_properties()["Pattern"]["options"]
+    assert {"Xpat", "Ypat", "Zpat"} <= set(plan)

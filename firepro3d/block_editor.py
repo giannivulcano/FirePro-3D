@@ -471,25 +471,15 @@ class BlockEditorWidget(QWidget):
         Returns:
             True if the tile state changed.
         """
-        from .block_registry import nested_ids
         from .tile_frame import seed_tile
         sc = self.editor_scene
         if sc.block_tile is not None:
             sc.set_block_tile(None)
             return True
-        bid = self._edit_block_id
-        if bid is not None:
-            proj = self._project_scene
-            reg = proj.block_registry
-            placed = proj.instance_count(bid)
-            nested = sum(1 for i in reg.ids()
-                         if (d := reg.get(i)) is not None and bid in nested_ids(d))
-            if placed or nested:
-                parts = ([f"{placed} placed"] if placed else []) + (
-                    [f"{nested} nested in other blocks"] if nested else [])
-                sc._show_status(f"Used as a symbol ({', '.join(parts)}) — "
-                                f"remove those before making it a pattern", 5000)
-                return False
+        why = self._project_scene.pattern_use_refusal(self._edit_block_id)
+        if why is not None:
+            sc._show_status(why, 5000)
+            return False
         real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
         sc.set_block_tile(seed_tile(real))
         return True

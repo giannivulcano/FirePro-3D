@@ -27,6 +27,10 @@ LEGACY_ALIAS: dict[str, str] = {
 
 DEFAULT_TILE_REF = BUILTIN_DIAGONAL
 
+#: Picker label for a stored ref that resolves to no offered tile (D-A36): shown
+#: as the current value, never applied (``ref_from_value`` keeps the stored ref).
+MISSING_PATTERN_LABEL = "<missing pattern>"
+
 _SPACING_MM = 3.0   # printed perpendicular spacing of the Drafting test set (D-A28)
 
 # Picker order + display names (D-A28).
@@ -128,18 +132,41 @@ def resolve_tile(ref: str | None, registry=None):
     return None
 
 
-def tile_choices(registry=None) -> list[tuple[str, str]]:
+def picker_exclude(scene) -> frozenset:
+    """Tile ids a picker in *scene* must not offer: in a Block Editor, the
+    edited block and every tile that would nest it (a cycle the save refuses).
+
+    Args:
+        scene: The scene the picked fill lives in (or None).
+
+    Returns:
+        The excluded block ids (empty outside a Block Editor).
+    """
+    host = getattr(scene, "_editing_block_id", None) if scene is not None else None
+    reg = getattr(scene, "block_registry", None) if scene is not None else None
+    if host is None or reg is None:
+        return frozenset()
+    return frozenset({host} | {b for b in reg.ids() if reg.would_cycle(host, b)})
+
+
+def tile_choices(registry=None, exclude=()) -> list[tuple[str, str]]:
     """``[(label, ref)]``: built-ins in fixed order, then the project's valid
     tiled blocks by name. The single source for every pattern picker.
 
     Labels are unique: a project tile whose name collides with an earlier label
     gets `` (project)`` appended (then `` (project 2)`` ...), so every ref is
     reachable through ``ref_from_value``.
+
+    Args:
+        registry: Project block registry, or None (built-ins only).
+        exclude: Project tile ids to leave out (``picker_exclude``).
     """
     out = list(((n, i) for i, n in _BUILTIN_NAMES))
     if registry is not None:
         project = []
         for bid in registry.ids():
+            if bid in exclude:
+                continue
             d = registry.get(bid)
             if d is not None and d.tile and tile_is_valid(d):
                 project.append((d.name or bid, bid))
@@ -155,19 +182,19 @@ def tile_choices(registry=None) -> list[tuple[str, str]]:
     return out
 
 
-def display_name(ref: str | None, registry=None) -> str:
+def display_name(ref: str | None, registry=None, exclude=()) -> str:
     """Picker label for *ref* (falls back to the raw ref for an unknown one)."""
     ref = canonical_ref(ref)
-    for name, r in tile_choices(registry):
+    for name, r in tile_choices(registry, exclude):
         if r == ref:
             return name
     d = resolve_tile(ref, registry)
     return d.name if d is not None else (ref or "")
 
 
-def ref_from_value(value: str, registry=None) -> str:
+def ref_from_value(value: str, registry=None, exclude=()) -> str:
     """A picker label or a stored ref → the ref to store (D-A29: ids)."""
-    for name, ref in tile_choices(registry):
+    for name, ref in tile_choices(registry, exclude):
         if value == name:
             return ref
     return canonical_ref(value)
