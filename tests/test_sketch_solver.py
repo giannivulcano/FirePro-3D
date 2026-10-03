@@ -528,3 +528,183 @@ def test_dependent_rows_count_reconciles_with_svd_rank():
     J = np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 5e-9, 0.0]])
     assert int(ss._dependent_rows(J, ndep=1).sum()) == 1
     assert ss._dependent_rows(J, ndep=1)[1]          # the exact duplicate
+
+
+# ── D18 perf: scoped single-thread BLAS ────────────────────────────────────
+
+def test_one_blas_thread_scopes_nests_and_restores():
+    api = ss._blas_api()
+    if not api:
+        with ss.one_blas_thread():          # unavailable: a no-op, never raises
+            pass
+        pytest.skip("no OpenBLAS thread API in this numpy build")
+    get, set_ = api
+    before = get()
+    set_(3)
+    try:
+        with ss.one_blas_thread():
+            assert get() == 1
+            with ss.one_blas_thread():      # nested: no early restore
+                assert get() == 1
+            assert get() == 1
+        assert get() == 3
+    finally:
+        set_(before)
+
+
+def test_solve_and_diagnose_run_single_threaded():
+    api = ss._blas_api()
+    if not api:
+        pytest.skip("no OpenBLAS thread API in this numpy build")
+    get, set_ = api
+    seen = []
+
+    def fn(x):
+        seen.append(get())
+        return float(x[1] - x[0]), np.array([-1.0, 1.0])
+    s = ss.System(x=np.array([0.0, 2.0]))
+    s.rows.append(ss.Row("r", (0, 1), fn))
+    before = get()
+    set_(4)
+    try:
+        ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
+        ss.NumpySolver().diagnose(s)
+        assert get() == 4
+    finally:
+        set_(before)
+    assert seen and set(seen) == {1}
+
+
+# ── D18 perf: batched rows == per-row fn ───────────────────────────────────
+
+def _per_row(comp, x):
+    F, gs = [], []
+    for row in comp.rows:
+        r, g = row.fn(x)
+        F.append(r)
+        gs.append(np.asarray(g, dtype=float))
+    v = np.concatenate(gs)
+    return np.array(F), (v if comp.jmask is None else v[comp.jmask])
+
+
+def test_batched_rows_equal_per_row_fn_rect_heavy(qapp):
+    from tests.test_d18_parity import _rect_heavy
+    sc, n = _rect_heavy()
+    try:
+        sys_, _s, _w = sc.constraint_ctl._build(sc.constraint_ctl.active())
+        st = ss._structure(sys_)
+        rng = np.random.default_rng(7)
+        x = sys_.x + rng.normal(0, 0.01, len(sys_.x))      # off the manifold, tilted rects
+        x[st.fixed_vars] = st.fixed_vals
+        for comp in st.comps:
+            if not comp.rows:
+                continue
+            F0, v0 = _per_row(comp, x)
+            F1, v1 = ss._eval_vals(comp, x)
+            assert comp.batch is not None and comp.batch.groups      # really batched
+            assert np.allclose(F1, F0, rtol=0, atol=1e-12)
+            assert np.allclose(v1, v0, rtol=0, atol=1e-12)
+    finally:
+        sc.cleanup()
+
+
+def test_batched_rows_equal_per_row_fn_mixed(qapp):
+    """Generic fallback (arc / polygon rows), const ends (origin) and raw +
+    rect batch rows in one component."""
+    from tests.test_d18_parity import _mixed
+    sc, n = _mixed()
+    try:
+        sys_, _s, _w = sc.constraint_ctl._build(sc.constraint_ctl.active())
+        st = ss._structure(sys_)
+        x = np.array(sys_.x)
+        x[st.fixed_vars] = st.fixed_vals
+        kinds = set()
+        for comp in st.comps:
+            if not comp.rows:
+                continue
+            F0, v0 = _per_row(comp, x)
+            F1, v1 = ss._eval_vals(comp, x)
+            kinds |= {"generic"} if comp.batch.generic else set()
+            kinds |= {"batched"} if comp.batch.groups else set()
+            assert np.allclose(F1, F0, rtol=0, atol=1e-12)
+            assert np.allclose(v1, v0, rtol=0, atol=1e-12)
+        assert kinds == {"generic", "batched"}                      # VC2: both paths ran
+    finally:
+        sc.cleanup()
+
+
+def test_shared_deps_row_batches_like_fn():
+    """A Horizontal on a rect EDGE: both ends read the same 5 vars (deduped deps)."""
+    from firepro3d.sketch_adapters import _RECT_LOCAL, _rect_point_fn
+    pa = ss.PointExpr(idx=(0, 1, 2, 3, 4), fn=_rect_point_fn(*_RECT_LOCAL["tl"]),
+                      fam=("rect", _RECT_LOCAL["tl"]))
+    pb = ss.PointExpr(idx=(0, 1, 2, 3, 4), fn=_rect_point_fn(*_RECT_LOCAL["tr"]),
+                      fam=("rect", _RECT_LOCAL["tr"]))
+    s = ss.System(x=np.array([10.0, 20.0, 50.0, 30.0, 0.3]))
+    ss.build_horizontal("h", (pa, pb), s)
+    st = ss._structure(s)
+    comp = st.comps[0]
+    F0, v0 = _per_row(comp, s.x)
+    F1, v1 = ss._eval_vals(comp, s.x)
+    assert comp.batch.groups and not comp.batch.generic
+    assert np.allclose(F1, F0, atol=1e-12) and np.allclose(v1, v0, atol=1e-12)
+
+
+# ── D18 perf: certified full-rank diagnostics == the SVD path ──────────────
+
+def _diag_both(s):
+    """(fast, svd) Diagnostics for *s* (svd forced via CERT_RATIO=inf)."""
+    fast = ss.NumpySolver().diagnose(s)
+    old = ss.CERT_RATIO
+    ss.CERT_RATIO = float("inf")
+    try:
+        slow = ss.NumpySolver().diagnose(s)
+    finally:
+        ss.CERT_RATIO = old
+    return fast, slow
+
+
+def _same_diag(fast, slow, groups):
+    assert (fast.rank, fast.dof, fast.conflicts, fast.redundant) == (
+        slow.rank, slow.dof, slow.conflicts, slow.redundant)
+    assert fast.dof_of_many(groups) == [slow.dof_of(g) for g in groups]
+
+
+def test_fast_diagnostics_equal_svd_on_rect_heavy(qapp):
+    from tests.test_d18_parity import _rect_heavy
+    sc, n = _rect_heavy()
+    try:
+        ctl = sc.constraint_ctl
+        sys_, slots, _w = ctl._build(ctl.active())
+        sys_.cid_rank = {c.id: k for k, c in enumerate(ctl.active())}
+        groups = [list(range(off, off + ad.nvars(it))) for _u, (it, ad, off) in slots.items()]
+        fast, slow = _diag_both(sys_)
+        big = max(range(len(fast._st.comps)), key=lambda c: len(fast._st.comps[c].rows))
+        assert big in fast._fast                                # VC2: the certified path ran
+        assert not slow._fast
+        _same_diag(fast, slow, groups)
+    finally:
+        sc.cleanup()
+
+
+def test_rank_deficient_component_falls_back_to_svd():
+    """Two identical rows: no certificate -> SVD + Gram-Schmidt, same answer."""
+    s = ss.System(x=np.array([0.0, 1.0, 2.0]))
+    for cid in ("a", "b"):
+        s.rows.append(ss.Row(cid, (0, 1), lambda x: (x[1] - x[0] - 1.0, np.array([-1.0, 1.0]))))
+    s.cid_rank = {"a": 0, "b": 1}
+    fast, slow = _diag_both(s)
+    assert not fast._fast
+    assert fast.redundant == ["b"]
+    _same_diag(fast, slow, [[0, 1], [2], [0, 1, 2]])
+
+
+def test_ill_conditioned_component_falls_back_to_svd():
+    """cond(J) ~ 1e5 > the 1e3 certificate bound -> SVD path, same answer."""
+    s = ss.System(x=np.array([0.0, 0.0, 0.0]))
+    s.rows.append(ss.Row("a", (0, 1), lambda x: (x[0] + x[1], np.array([1.0, 1.0]))))
+    s.rows.append(ss.Row("b", (0, 1), lambda x: (x[0] + (1 + 1e-5) * x[1],
+                                                  np.array([1.0, 1.0 + 1e-5]))))
+    fast, slow = _diag_both(s)
+    assert not fast._fast and fast.rank == 2
+    _same_diag(fast, slow, [[0], [1], [0, 1], [2]])

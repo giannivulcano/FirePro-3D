@@ -6,6 +6,10 @@ union-find component partitioning, and SVD diagnostics. No Qt.
 """
 from __future__ import annotations
 
+import contextlib
+import ctypes
+import glob
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -21,6 +25,62 @@ STEP_TOL = 1e-10
 RES_STOP = 1e-3 * LIN_TOL   # stop once every row is this tight (§7.2)
 DEP_TOL = 1e-8          # ordered Gram-Schmidt: a row is dependent below this relative norm (CS2 §7.4)
 NULL_TOL = 1e-8         # a variable "moves" in a null-space direction above this
+# D18 (ruling 2026-10-03): a component whose Gram matrix J Jᵀ has
+# λ_min ≥ max(CERT_RATIO·λ_max, 1e-12) is certified full row rank
+# (cond(J) ≤ 1e3, σ_min ≥ 1e-6 -- far above the SVD rank cut-off), and its
+# row-space basis Q = Λ^-½ Vᵀ J is orthonormal to ~2e-10 (≪ NULL_TOL); any
+# other component takes the economy SVD + ordered Gram-Schmidt path.
+CERT_RATIO = 1e-6
+
+# D18 (2026-10-03 P4): OpenBLAS defaults to one thread per core; on the
+# solver's ~300-sized dense LAPACK calls that oversubscription costs 3-13x
+# (16-thread host: SVD 138 ms vs 49 ms single-threaded). Solves and
+# diagnostics drop to one BLAS thread for their duration (global OpenBLAS
+# setting, restored on exit; a numpy build without the API is a no-op).
+_BLAS = None            # (get, set) ctypes functions; False = unavailable
+_blas_depth = 0
+
+
+def _blas_api():
+    """The bundled OpenBLAS ``(get_num_threads, set_num_threads)``, or False."""
+    global _BLAS
+    if _BLAS is None:
+        _BLAS = False
+        base = os.path.dirname(np.__file__)
+        dirs = (os.path.join(base, os.pardir, "numpy.libs"), os.path.join(base, ".dylibs"))
+        try:
+            for d in dirs:
+                for path in glob.glob(os.path.join(d, "*openblas*")):
+                    lib = ctypes.CDLL(path)
+                    for pre in ("scipy_openblas", "openblas"):
+                        for suf in ("64_", ""):
+                            get = getattr(lib, f"{pre}_get_num_threads{suf}", None)
+                            put = getattr(lib, f"{pre}_set_num_threads{suf}", None)
+                            if get is not None and put is not None:
+                                get.restype, get.argtypes = ctypes.c_int, []
+                                put.restype, put.argtypes = None, [ctypes.c_int]
+                                _BLAS = (get, put)
+                                return _BLAS
+        except OSError:
+            _BLAS = False
+    return _BLAS
+
+
+@contextlib.contextmanager
+def one_blas_thread():
+    """Run the body with OpenBLAS at one thread; re-entrant; restores on exit."""
+    global _blas_depth
+    api = _blas_api() if _blas_depth == 0 else None
+    prev = api[0]() if api else 1
+    if prev != 1:
+        api[1](1)
+    _blas_depth += 1
+    try:
+        yield
+    finally:
+        _blas_depth -= 1
+        if prev != 1:
+            api[1](prev)
 
 
 @dataclass(frozen=True)
@@ -29,12 +89,16 @@ class PointExpr:
 
     Exactly one form: ``const`` (a ground), ``raw`` (the point IS two variables
     — substitutable), or ``idx`` + ``fn`` (derived;
-    ``fn(x[list(idx)]) -> (p[2], dp[2, len(idx)])``).
+    ``fn(x[list(idx)]) -> (p[2], dp[2, len(idx)])``). A derived point may
+    also carry ``fam`` = ``(name, params)``, naming a registered batched point
+    family (:func:`register_point_family`) that computes the same point for
+    many rows at once (D18); ``fn`` stays the per-point reference.
     """
     idx: tuple = ()
     fn: Callable | None = None
     raw: tuple | None = None
     const: tuple | None = None
+    fam: tuple | None = None      # (family name, params): batched form of ``fn`` (D18)
 
     @property
     def deps(self) -> tuple:
@@ -59,12 +123,27 @@ def const_point(px: float, py: float) -> PointExpr:
     return PointExpr(const=(float(px), float(py)))
 
 
+POINT_FAMILIES: dict = {}
+
+
+def register_point_family(name: str, fn: Callable) -> None:
+    """Register a batched point family: ``fn(V (k, m), P (k, p)) ->
+    (pts (k, 2), dp (k, 2, m))`` -- row i equals the matching
+    ``PointExpr.fn(V[i])`` (parity-tested)."""
+    POINT_FAMILIES[name] = fn
+
+
+def _raw_batch(V, _P):
+    return V, np.broadcast_to(np.eye(2), (len(V), 2, 2))
+
+
 @dataclass
 class Row:
     """One residual: ``fn(x) -> (r, grad)``; ``grad`` follows ``deps``."""
     cid: str
     deps: tuple
     fn: Callable
+    spec: tuple | None = None     # ("axis", axis, a, b): batchable form (D18)
 
 
 @dataclass
@@ -103,36 +182,48 @@ class Diagnostics:
     redundant: list = field(default_factory=list)   # cids implied by earlier ones (§7.4, amber)
     _st: object = field(default=None, repr=False, compare=False)
     _rowb: dict = field(default_factory=dict, repr=False, compare=False)
+    _fast: set = field(default_factory=set, repr=False, compare=False)  # certified comps (D18)
 
     def dof_of(self, idx) -> int:
-        """DOF left among full-space variables *idx* (§7.4 per-entity).
+        """DOF left among full-space variables *idx* (§7.4 per-entity); see
+        :meth:`dof_of_many`."""
+        return self.dof_of_many([idx])[0]
+
+    def dof_of_many(self, groups) -> list:
+        """Per-entity DOF for each index group, batched (D18).
 
         A fixed variable contributes 0. Per component, with ``Q`` the
-        orthonormal row-space basis of J (economy SVD -- 2026-10-02 P4 ruling:
-        never the full null-space basis), the DOF of columns S is
-        ``rank(I - Q_S^T Q_S)``, the null-space projection restricted to S.
-        A rowless component's columns are each free (1).
+        orthonormal row-space basis of J (economy SVD or the certified eigh
+        basis -- 2026-10-02 P4 ruling: never the full null-space basis), the
+        DOF of columns S is ``rank(I - Q_S^T Q_S)``, the null-space projection
+        restricted to S. A rowless component's columns are each free (1).
+        Blocks of equal size share one stacked ``eigvalsh`` call.
         """
         st = self._st
+        out = [0] * len(groups)
         if st is None:
-            return 0
-        by_comp: dict[int, set] = {}
-        for i in idx:
-            i = int(i)
-            if st.var_col[i] < 0:
-                continue
-            by_comp.setdefault(int(st.var_comp[i]), set()).add(int(st.var_lcol[i]))
-        total = 0
-        for ci, lcs in by_comp.items():
-            Q = self._rowb.get(ci)
-            cols = sorted(lcs)
-            if Q is None:
-                total += len(cols)
-                continue
-            Qs = Q[:, cols]
-            ev = np.linalg.eigvalsh(np.eye(len(cols)) - Qs.T @ Qs)
-            total += int((ev > NULL_TOL).sum())
-        return total
+            return out
+        blocks: dict[int, list] = {}            # block size -> [(group k, Q_S)]
+        for k, idx in enumerate(groups):
+            by_comp: dict[int, set] = {}
+            for i in idx:
+                i = int(i)
+                if st.var_col[i] < 0:
+                    continue
+                by_comp.setdefault(int(st.var_comp[i]), set()).add(int(st.var_lcol[i]))
+            for ci, lcs in by_comp.items():
+                Q = self._rowb.get(ci)
+                cols = sorted(lcs)
+                if Q is None:
+                    out[k] += len(cols)
+                else:
+                    blocks.setdefault(len(cols), []).append((k, Q[:, cols]))
+        for m, items in blocks.items():
+            M = np.stack([np.eye(m) - q.T @ q for _k, q in items])
+            ev = np.linalg.eigvalsh(M)
+            for (k, _q), cnt in zip(items, (ev > NULL_TOL).sum(axis=1)):
+                out[k] += int(cnt)
+        return out
 
 
 class _UF:
@@ -162,7 +253,7 @@ class _Component:
     than the dense product).
     """
     __slots__ = ("vars", "var_lcol", "ncols", "rows", "jidx", "jmask", "fgroups",
-                 "ja", "jc", "pe", "pf", "pidx", "pc")
+                 "ja", "jc", "pe", "pf", "pidx", "pc", "batch")
 
     def __init__(self, ncols: int):
         self.ncols = ncols
@@ -174,6 +265,84 @@ class _Component:
         self.fgroups = set()    # fixed groups its rows read
         self.ja = self.jc = None                   # COO entry row / local col
         self.pe = self.pf = self.pidx = self.pc = None   # same-column entry pairs
+        self.batch = None       # _RowBatch, built on first eval (lives with the cached structure)
+
+
+class _RowBatch:
+    """Vectorised residuals + gradient values of one component's rows (D18).
+
+    Axis rows (``Row.spec == ("axis", axis, a, b)``) whose ends are raw,
+    const or a registered point family are evaluated one numpy call per
+    family; every other row falls back to its own ``fn``. The output order
+    equals the per-row concatenation (``_eval_vals`` contract).
+    """
+    __slots__ = ("nr", "total", "F0", "groups", "generic")
+
+    def __init__(self, rows):
+        nr = len(rows)
+        lens = np.array([len(r.deps) for r in rows], dtype=np.intp)
+        offs = np.concatenate(([0], np.cumsum(lens)))
+        self.nr, self.total = nr, int(offs[-1])
+        self.F0 = np.zeros(nr)
+        self.generic = []
+        acc: dict = {}
+        for a, row in enumerate(rows):
+            ends = _batch_ends(row)
+            if ends is None:
+                self.generic.append((a, row, int(offs[a])))
+                continue
+            axis, pa, pb = ends
+            pos = {d: k for k, d in enumerate(row.deps)}
+            for sign, p in ((-1.0, pa), (1.0, pb)):
+                if p.const is not None:
+                    self.F0[a] += sign * p.const[axis]
+                    continue
+                name, par = ("raw", ()) if p.raw is not None else p.fam
+                g = acc.setdefault((name, len(p.deps)), ([], [], [], [], [], []))
+                g[0].append(p.deps)
+                g[1].append(par)
+                g[2].append(a)
+                g[3].append(sign)
+                g[4].append(axis)
+                g[5].append([int(offs[a]) + pos[d] for d in p.deps])
+        self.groups = []
+        for (name, _m), (idx, par, ra, sg, ax, tg) in acc.items():
+            fn = _raw_batch if name == "raw" else POINT_FAMILIES[name]
+            k = len(idx)
+            self.groups.append((fn, np.array(idx, dtype=np.intp),
+                                np.array(par, dtype=float).reshape(k, -1),
+                                np.array(ra, dtype=np.intp), np.array(sg),
+                                np.array(ax, dtype=np.intp), np.array(tg, dtype=np.intp),
+                                np.arange(k)))
+
+    def eval(self, x):
+        """``(F, v)``: residuals and the unmasked concatenated gradients."""
+        nr, total = self.nr, self.total
+        F = self.F0.copy()
+        v = np.zeros(total)
+        for fn, idx, par, ra, sg, ax, tg, k in self.groups:
+            pts, dp = fn(x[idx], par)
+            F += np.bincount(ra, weights=sg * pts[k, ax], minlength=nr)
+            v += np.bincount(tg.ravel(), weights=(sg[:, None] * dp[k, ax, :]).ravel(),
+                             minlength=total)
+        for a, row, off in self.generic:
+            r, g = row.fn(x)
+            F[a] = r
+            v[off:off + len(g)] = g
+        return F, v
+
+
+def _batch_ends(row):
+    """``(axis, a, b)`` when *row* is a batchable axis row, else None."""
+    spec = row.spec
+    if not spec or spec[0] != "axis":
+        return None
+    _kind, axis, pa, pb = spec
+    for p in (pa, pb):
+        if p.const is None and p.raw is None and (
+                p.fam is None or p.fam[0] not in POINT_FAMILIES):
+            return None
+    return axis, pa, pb
 
 
 class _Structure:
@@ -308,14 +477,11 @@ def _structure(sys: System) -> _Structure:
 
 
 def _eval_vals(comp: _Component, x: np.ndarray):
-    """Residuals ``F`` and the sparse Jacobian values (parallel to ``ja``/``jc``)."""
-    F = np.empty(len(comp.rows))
-    gs = []
-    for a, row in enumerate(comp.rows):
-        r, g = row.fn(x)
-        F[a] = r
-        gs.append(g)
-    v = np.concatenate(gs).astype(float, copy=False)
+    """Residuals ``F`` and the sparse Jacobian values (parallel to ``ja``/``jc``),
+    batched per point family (D18; generic rows use their own ``fn``)."""
+    if comp.batch is None:
+        comp.batch = _RowBatch(comp.rows)
+    F, v = comp.batch.eval(x)
     if comp.jmask is not None:
         v = v[comp.jmask]
     return F, v
@@ -400,6 +566,18 @@ def _dependent_rows(J: np.ndarray, ndep: int | None = None) -> np.ndarray:
     return dep
 
 
+def _certified_row_basis(J: np.ndarray):
+    """Orthonormal row-space basis of a certified full-row-rank *J*, else None
+    (see ``CERT_RATIO``)."""
+    nr, nc = J.shape
+    if nr == 0 or nr > nc:
+        return None
+    lam, V = np.linalg.eigh(J @ J.T)
+    if not (np.all(np.isfinite(lam)) and lam[0] >= max(CERT_RATIO * lam[-1], 1e-12)):
+        return None
+    return (V.T @ J) / np.sqrt(lam)[:, None]
+
+
 class NumpySolver:
     """The v1 ``SketchSolver`` (spec §7.1)."""
 
@@ -426,6 +604,11 @@ class NumpySolver:
         Raises:
             ValueError: A weight is not > 0.
         """
+        with one_blas_thread():
+            return self._solve(sys, goals, weights, active)
+
+    def _solve(self, sys: System, goals, weights, active) -> SolveResult:
+        """Body of :meth:`solve` (run under :func:`one_blas_thread`)."""
         w_full = np.asarray(weights, dtype=float)
         if not np.all(w_full > 0):
             raise ValueError("solver weights must all be > 0")
@@ -458,6 +641,7 @@ class NumpySolver:
 
         # -- per-component projection (§7.2) ---------------------------------
         maxima: list[float] = []      # reduced with np.max: NaN must propagate
+        recheck: list = []            # components that stopped without the tight check
         for ci in comp_ids:
             comp = st.comps[ci]
             mv, lc, nc = comp.vars, comp.var_lcol, comp.ncols
@@ -504,7 +688,9 @@ class NumpySolver:
                 if float(np.max(np.abs(dz))) < STEP_TOL * scale:
                     break
             if not tight:
-                checked.extend(comp.rows)       # step-tol / cap / divergence: re-check at x
+                recheck.append(comp)
+        for comp in recheck:                 # step-tol / cap / divergence: re-check at x
+            maxima.append(float(np.max(np.abs(_eval_vals(comp, x)[0]))))
         if checked:
             maxima.extend(abs(float(row.fn(x)[0])) for row in checked)
         worst = float(np.max(maxima)) if maxima else 0.0
@@ -521,23 +707,36 @@ class NumpySolver:
         are all dependent on earlier rows (and satisfied). Equalities are
         attributed before rows (they are substituted first).
         """
+        with one_blas_thread():
+            return self._diagnose(sys)
+
+    def _diagnose(self, sys: System) -> Diagnostics:
+        """Body of :meth:`diagnose` (run under :func:`one_blas_thread`)."""
         st = _structure(sys)
         x = np.array(sys.x, dtype=float)
         x[st.fixed_vars] = st.fixed_vals
         rank = 0
         rowb: dict[int, np.ndarray] = {}
         row_dep: dict[str, bool] = {}
+        fast: set = set()
         for ci, comp in enumerate(st.comps):
             if not comp.rows:
                 continue
             F, J = _eval_comp(comp, x)
-            _u, s, vt = np.linalg.svd(J, full_matrices=False)   # economy (P4)
-            tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
-            r = int((s > max(tol, 1e-9)).sum())
+            nr = len(comp.rows)
+            Q = _certified_row_basis(J)
+            if Q is not None:                                    # D18 full-rank path
+                r, dep = nr, np.zeros(nr, dtype=bool)
+                fast.add(ci)
+            else:
+                _u, s, vt = np.linalg.svd(J, full_matrices=False)   # economy (P4)
+                tol = max(J.shape) * np.finfo(float).eps * (s[0] if s.size else 0.0)
+                r = int((s > max(tol, 1e-9)).sum())
+                Q = vt[:r]
+                dep = (_dependent_rows(J, nr - r) if r < nr
+                       else np.zeros(nr, dtype=bool))
             rank += r
-            rowb[ci] = vt[:r]
-            dep = (_dependent_rows(J, len(comp.rows) - r) if r < len(comp.rows)
-                   else np.zeros(len(comp.rows), dtype=bool))
+            rowb[ci] = Q
             for k, row in enumerate(comp.rows):
                 ok = bool(dep[k]) and abs(float(F[k])) <= LIN_TOL
                 row_dep[row.cid] = row_dep.get(row.cid, True) and ok
@@ -550,7 +749,7 @@ class NumpySolver:
                       if eq.get(c, True) and row_dep.get(c, True)),
                      key=lambda c: order.get(c, len(order)))
         return Diagnostics(st.ncols, rank, st.ncols - rank, list(st.conflicts),
-                           red, st, rowb)
+                           red, st, rowb, _fast=fast)
 
 
 # ── §7.3 residual catalogue — builders (one per IMPLEMENTED type) ─────────
@@ -584,7 +783,7 @@ def _axis_equal(axis: int, cid: str, ends, sys: System) -> None:
             g[pos[d]] += db[axis, c]
         return float(pb[axis] - pa[axis]), g
 
-    sys.rows.append(Row(cid, deps, fn))
+    sys.rows.append(Row(cid, deps, fn, spec=("axis", axis, a, b)))
 
 
 def build_horizontal(cid: str, ends, sys: System) -> None:

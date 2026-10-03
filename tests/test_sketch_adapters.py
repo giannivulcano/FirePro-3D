@@ -198,6 +198,19 @@ def test_rect_edges_follow_the_local_frame(qapp):
 
 # ── D28 / D34 weights ───────────────────────────────────────────────────────
 
+def test_nvars_equals_len_read_for_every_adapter(qapp):
+    """D18: nvars is answered without a read -- it must still equal it."""
+    for key, make in _MAKERS.items():
+        it = make()
+        ad = adapter_for(it)
+        if ad is None:
+            continue
+        assert ad.nvars(it) == len(ad.read(it)), key
+    pl = _polyline()
+    pl.append_point(QPointF(77, 11))
+    assert adapter_for(pl).nvars(pl) == len(adapter_for(pl).read(pl))
+
+
 def test_angle_variables_carry_the_d28_weight(qapp):
     """D28: angles ANG_W. D34 (fix round A, VC5 -- this test's size entries
     were 1 before the ruling): sizes (rect w/h, circle / arc r, polygon R,

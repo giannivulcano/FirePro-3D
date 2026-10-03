@@ -26,7 +26,7 @@ from PyQt6.QtCore import QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
-from .sketch_adapters import adapter_for
+from .sketch_adapters import ANG_WRITE_TOL, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
                             const_point)
 from .theme import M
@@ -207,6 +207,7 @@ class ConstraintController:
         self.red: set[str] = set()
         self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
         self._diag = None              # (key, SketchDiag)
+        self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
         # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
@@ -220,6 +221,9 @@ class ConstraintController:
         self._drag_snap = None
         self._last_good = None
         self._drag_ctx = None
+        self._drag_cur = None                  # session: slot values as last written (D18)
+        self._drag_base = None                 # session: slot values at begin_drag
+        self._drag_layout = None               # session: _slot_layout (D18)
         self._painted: dict = {}               # id(view) -> last glyph/glow QRect
         if self.enabled:
             scene.selectionChanged.connect(self._on_selection_changed)
@@ -425,6 +429,29 @@ class ConstraintController:
 
     # ── system build ─────────────────────────────────────────────────────
     def _build(self, cons):
+        """:meth:`_build_fresh`, reusing the last System when the constraint
+        set and the items' structure are unchanged -- only x is re-read (D18
+        commit bar: the commit solve and its diagnostics share one build).
+        Callers must not keep mutating a returned System's ``x`` across
+        builds (a drag session uses :meth:`_build_fresh`)."""
+        by = self.item_by_uid()
+        try:
+            key = (tuple((c.id, c.type, repr(c.refs)) for c in cons),
+                   tuple((u, id(by[u]), adapter_for(by[u]).struct_key(by[u]))
+                         for c in cons for u in (_safe_ref_uids(c) or ())))
+        except KeyError:
+            return self._build_fresh(cons)
+        hit = self._build_cache
+        if hit is not None and hit[0] == key:
+            _k, sys_, slots, base = hit
+            for _u, (it, ad, off) in slots.items():
+                sys_.x[off:off + ad.nvars(it)] = ad.read(it)
+            return sys_, slots, base
+        sys_, slots, base = self._build_fresh(cons)
+        self._build_cache = (key, sys_, slots, base)
+        return sys_, slots, base
+
+    def _build_fresh(self, cons):
         """(System, slots ``uid -> (item, adapter, offset)``, base weights)."""
         by = self.item_by_uid()
         slots, x, w = {}, [], []
@@ -466,7 +493,7 @@ class ConstraintController:
 
     # ── solve + write-back (one write per item, §3) ──────────────────────
     def _solve(self, *, edited=(), pin=None, ctx=None, focus=None,
-               typed=None) -> bool:
+               typed=None, reset: bool = False) -> bool:
         """One solve + write-back.
 
         Args:
@@ -480,6 +507,9 @@ class ConstraintController:
             typed: ``{uid: [local var index]}`` -- a TYPED edit's changed
                 variables (D31): pinned at ``W_PIN`` and required to land
                 within ``TYPED_TOL`` of the typed value, else the solve fails.
+            reset: A D35 reset frame -- the session-start values are the goals
+                of every item the caller did not move (D18; the snapshot is
+                not rewritten).
 
         Only the components holding *edited* / *focus* variables are solved
         (§7.2 components). With neither given, every component is; with a
@@ -496,8 +526,18 @@ class ConstraintController:
             sys_, slots, base = self._build(cons)
         else:
             sys_, slots, base = ctx
-            for _u, (it, ad, off) in slots.items():
-                sys_.x[off:off + ad.nvars(it)] = ad.read(it)
+            cur = self._drag_cur
+            moved = []
+            for it in edited:                  # only the items the caller moved (D18)
+                slot = slots.get(getattr(it, "_uid", None))
+                if slot is not None:
+                    _it, ad, off = slot
+                    vals = ad.read(_it)
+                    cur[off:off + len(vals)] = vals
+                    moved.append((off, len(vals)))
+            sys_.x[:] = self._drag_base if reset else cur
+            for off, n in moved:
+                sys_.x[off:off + n] = cur[off:off + n]
         weights = base.copy()
         edited_uids = {getattr(i, "_uid", None) for i in edited}
         honour = self._var_indices(slots, edited_uids)   # the edit's own vars
@@ -532,7 +572,10 @@ class ConstraintController:
             if slot is not None and any(
                     abs(x[slot[2] + k] - sys_.x[slot[2] + k]) > TYPED_TOL for k in ks):
                 return False                    # the typed value can't be honoured
-        self._write(slots, sys_.x, x)
+        if ctx is None:
+            self._write(slots, sys_.x, x)
+        else:
+            self._write_tracked(slots, sys_.x, x, self._drag_cur)
         return True
 
     def _solve_x(self, sys_, slots, weights, active, honour=()):
@@ -622,6 +665,45 @@ class ConstraintController:
             new = x_new[off:off + n]
             if ad.changed(it, old, new):
                 ad.write(it, np.array(ad.settled(it, old, new), dtype=float))
+
+    def _write_tracked(self, slots, goal, x_new, cur) -> None:
+        """Drag-session write-back (D18). Each item's target is exactly what
+        the stateless path leaves it at -- ``ad.settled`` against this
+        frame's goal when the solve changed it (``ad.changed``), else the goal
+        itself -- and it is written only when that differs from its tracked
+        value *cur* (updated in place), so a reset frame never rewrites the
+        snapshot. Decided over whole arrays (the base-adapter tolerance rules,
+        which no adapter overrides) via the session's slot layout."""
+        items, starts, var_item, tol = self._drag_layout
+        if not items:
+            return
+        moved = np.abs(x_new - goal) > tol           # beyond the write tolerance
+        settled = np.where(moved, x_new, goal)
+        changed = np.logical_or.reduceat(moved, starts)
+        tgt = np.where(changed[var_item], settled, goal)
+        need = np.logical_or.reduceat(tgt != cur, starts)
+        for k in np.flatnonzero(need):
+            it, ad, off, n = items[k]
+            ad.write(it, tgt[off:off + n].copy())
+        cur[:] = tgt
+
+    @staticmethod
+    def _slot_layout(slots, nx: int) -> tuple:
+        """``(items, starts, var_item, tol)`` for :meth:`_write_tracked`:
+        per-slot ``(item, adapter, offset, n)``, ascending start offsets, each
+        variable's slot index and write tolerance (``ANG_WRITE_TOL`` for the
+        adapter's angle variables, else ``POS_WRITE_TOL``)."""
+        items, starts = [], []
+        var_item = np.zeros(nx, dtype=np.intp)
+        tol = np.full(nx, POS_WRITE_TOL)
+        for _u, (it, ad, off) in slots.items():
+            n = ad.nvars(it)
+            var_item[off:off + n] = len(items)
+            for i in ad.angle_vars(it):
+                tol[off + i] = ANG_WRITE_TOL
+            items.append((it, ad, off, n))
+            starts.append(off)
+        return items, np.array(starts, dtype=np.intp), var_item, tol
 
     @staticmethod
     def _collapses(slots, x_old, x_new) -> bool:
@@ -719,6 +801,7 @@ class ConstraintController:
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
+        self._drag_cur = self._drag_base = self._drag_layout = None
         self._drag_extra = []
 
     @property
@@ -739,23 +822,22 @@ class ConstraintController:
         if not (self.enabled and self.touches(items)):
             return
         self._drag_snap = self._snapshot(items)
-        self._drag_ctx = self._build(self.active())
+        self._drag_ctx = self._build_fresh(self.active())   # never the cached System
+        self._drag_base = self._drag_ctx[0].x.copy()
+        self._drag_cur = self._drag_base.copy()
         slots = self._drag_ctx[1]
+        self._drag_layout = self._slot_layout(slots, len(self._drag_base))
         # Adapter-backed selection items outside the solve (unconstrained):
         # part of last-good so a held conflict holds the whole selection.
         self._drag_extra = [(k, it) for k, (it, _v) in self._drag_snap.items()
                             if k not in slots]
         self._last_good = self._good_state()
 
-    def _good_state(self) -> dict:
-        """Current values of the session's items. From the cached slots (=
-        every constrained item) plus the body selection's extras: no per-frame
-        rescan of the scene lists (D18 drag bar)."""
-        good = {u: (it, list(ad.read(it)))
-                for u, (it, ad, _off) in self._drag_ctx[1].items()}
-        for k, it in self._drag_extra:
-            good[k] = (it, list(adapter_for(it).read(it)))
-        return good
+    def _good_state(self):
+        """Last-good record: the tracked slot values (an array copy -- no
+        per-frame rescan or read, D18) plus the body selection's extras."""
+        extras = [(k, it, list(adapter_for(it).read(it))) for k, it in self._drag_extra]
+        return (self._drag_cur.copy(), extras)
 
     def drag(self, item, grip_index: int) -> None:
         """One drag frame: *item*'s grip was applied; pin it and re-solve."""
@@ -774,9 +856,10 @@ class ConstraintController:
                 translate-first applies).
             apply: Zero-arg callable that applies the frame's delta to the
                 real geometry (the release bake's own path).
-            reset: Restore the session snapshot first, so *apply* applies the
-                gesture's TOTAL delta (a body move); False = *apply* is
-                incremental (a resize).
+            reset: Restore the moved items to the session snapshot first
+                (the rest take the snapshot as their goals, D18), so *apply*
+                applies the gesture's TOTAL delta (a body move); False =
+                *apply* is incremental (a resize).
 
         Returns:
             True when solved (written back, now last-good). False = a
@@ -787,17 +870,24 @@ class ConstraintController:
         if self._drag_snap is None:
             apply()
             return True
-        if reset:
-            self._restore(self._drag_snap)
+        if reset:                      # only the moved items go back physically (D18)
+            keys = {getattr(it, "_uid", None) or id(it) for it in items}
+            self._restore({k: v for k, v in self._drag_snap.items() if k in keys})
         apply()
-        if self._solve(edited=list(items), ctx=self._drag_ctx):
+        if self._solve(edited=list(items), ctx=self._drag_ctx, reset=reset):
             self._last_good = self._good_state()
             return True
         return False
 
     def hold_last_good(self) -> None:
         """D10: restore the session's last good state and report the conflict."""
-        self._restore(self._last_good)
+        if self._last_good is not None:
+            cur, extras = self._last_good
+            snap = {u: (it, list(cur[off:off + ad.nvars(it)]))
+                    for u, (it, ad, off) in self._drag_ctx[1].items()}
+            snap.update({k: (it, vals) for k, it, vals in extras})
+            self._restore(snap)
+            self._drag_cur[:] = cur
         self._report_conflict()
 
     def end_drag(self) -> None:
@@ -1149,8 +1239,11 @@ class ConstraintController:
             sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
             d = self._solver.diagnose(sys_)
             redundant = frozenset(d.redundant)
-            for u, (it, ad, off) in slots.items():
-                item_dof[u] = d.dof_of(range(off, off + ad.nvars(it)))
+            ordered = list(slots.items())
+            dofs = d.dof_of_many([range(off, off + ad.nvars(it))
+                                  for _u, (it, ad, off) in ordered])
+            for (u, _slot), n in zip(ordered, dofs):
+                item_dof[u] = n
             dof = total - (len(sys_.x) - d.dof)
         conflict = frozenset(u for c in self.constraints if c.id in self.red
                              for u in (_safe_ref_uids(c) or ()))
@@ -1198,6 +1291,7 @@ class ConstraintController:
         order (``_admit_in_order``)."""
         if not self.enabled:
             return
+        self._build_cache = None   # items were rebuilt: an id() may be reused
         by = self.item_by_uid()
         self.constraints = [self._adopt(r, by) for r in records or []]
         self.selected_id = self.hover_id = None

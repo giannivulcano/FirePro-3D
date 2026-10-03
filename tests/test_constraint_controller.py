@@ -1196,6 +1196,24 @@ def _polygon(sc, **kw):
     return p
 
 
+def test_build_cache_never_serves_a_changed_polygon(qapp):
+    """D18 build cache: a polygon side-count change is a structural miss;
+    an unchanged sketch reuses the System with x re-read."""
+    sc = _scene()
+    p = _polygon(sc, sides=5, radius_mm=40.0)
+    ln = _line(sc, (0, 100), (50, 120))
+    ctl = sc.constraint_ctl
+    ctl.add("horizontal", [{"uid": p._uid, "h": "v0"}, {"uid": ln._uid, "h": "p1"}])
+    s1, slots, _b = ctl._build(ctl.active())
+    ln.translate(0.0, 7.0)
+    s1b, _sl, _b = ctl._build(ctl.active())
+    off = slots[ln._uid][2]
+    assert s1b is s1 and s1.x[off + 1] == pytest.approx(ln._pt1.y())   # x re-read
+    p._sides = 7
+    s2, _sl, _b = ctl._build(ctl.active())
+    assert s2 is not s1
+
+
 def test_polygon_handles_are_pick_candidates(qapp):
     from firepro3d.constraint_controller import PickState
     sc = _scene()
