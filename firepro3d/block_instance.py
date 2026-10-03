@@ -49,6 +49,7 @@ class BlockInstance(QGraphicsObject):
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
+        self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -141,7 +142,21 @@ class BlockInstance(QGraphicsObject):
         return combined
 
     def _posed_path(self) -> QPainterPath:
-        return self.pose_transform().map(self._local_path())
+        """Pose-mapped combined path, memoised on (compiled ops, pose).
+
+        boundingRect / shape / paint ask for it several times per frame; the
+        key is the definition's compiled op list (a new list on every content
+        change, held here so its identity can't be recycled) plus the pose, so
+        a stale path can't be served and no explicit invalidation is needed.
+        """
+        ops = self.render_ops()
+        pose = (self._pose_x, self._pose_y, self._pose_rot)
+        c = self._posed_cache
+        if c is not None and c[0] is ops and c[1] == pose and ops:
+            return c[2]
+        path = self.pose_transform().map(self._local_path())
+        self._posed_cache = (ops, pose, path)
+        return path
 
     def geometric_rect(self) -> QRectF:
         """Pen-free posed geometry bounds (for origin / bbox computations)."""
@@ -153,7 +168,9 @@ class BlockInstance(QGraphicsObject):
         return r.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        return self._posed_path()
+        # Copy (implicitly shared, O(1)): callers may mutate what shape()
+        # returns; the memoised path must stay intact.
+        return QPainterPath(self._posed_path())
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):

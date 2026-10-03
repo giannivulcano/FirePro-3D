@@ -2555,6 +2555,9 @@ class PaperScene(QGraphicsScene):
 
     navigate_to_view = pyqtSignal(str, str)
     sheetModified = pyqtSignal()
+    # Hatch renderer fast path (see Model_Space._hatch_paper_scale): a sheet's
+    # own items are never inside a viewport render, so this stays None.
+    _hatch_paper_scale = None
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()

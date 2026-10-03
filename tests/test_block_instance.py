@@ -51,3 +51,43 @@ def test_missing_definition_does_not_crash(qapp):
     inst = BlockInstance(block_id="deadbeef", resolver={}.get)
     assert inst.render_ops() == []
     _ = inst.boundingRect()  # must not raise
+
+
+def test_posed_path_memo_tracks_pose_content_and_nesting(qapp):
+    """The memoised posed path never serves stale geometry: pose edits,
+    definition edits and nested-child edits all show; shape() mutation is safe."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    sc = Model_Space()
+    child = BlockDefinition.new(name="C", library="L", series="S", origin=(0.0, 0.0),
+                                primitives=[LineItem(QPointF(0, 0), QPointF(50, 0)).to_dict()])
+    sc.register_block_definition(child)
+    d = BlockDefinition.new(name="P", library="L", series="S", origin=(0.0, 0.0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict(),
+                                        {"type": "block_instance", "block_id": child.id,
+                                         "pos": [0.0, 500.0], "rotation": 0.0}])
+    sc.register_block_definition(d)
+    inst = sc.place_block_instance(d.id, (0.0, 0.0))
+    r0 = inst.geometric_rect()
+    assert (r0.width(), r0.height()) == (100.0, 500.0)
+    inst.translate(10.0, 20.0)                              # pose
+    assert inst.geometric_rect() == r0.translated(10.0, 20.0)
+    inst.set_block_rotation(90.0)
+    r1 = inst.geometric_rect()
+    assert abs(r1.width() - 500.0) < 1e-6 and abs(r1.height() - 100.0) < 1e-6
+    inst.set_block_rotation(0.0)
+    d.set_primitives([LineItem(QPointF(0, 0), QPointF(300, 0)).to_dict()])   # content
+    assert inst.geometric_rect().width() == 300.0
+    child.set_primitives([LineItem(QPointF(0, 0), QPointF(700, 0)).to_dict()])
+    sc.block_registry.invalidate(child.id)                  # nested-child edit
+    d.set_primitives(d.primitives + [{"type": "block_instance", "block_id": child.id,
+                                      "pos": [0.0, 500.0], "rotation": 0.0}])
+    assert inst.geometric_rect().width() == 700.0
+    child.set_primitives([LineItem(QPointF(0, 0), QPointF(800, 0)).to_dict()])
+    sc.block_registry.invalidate(child.id)                  # parent ops dropped, version kept
+    assert inst.geometric_rect().width() == 800.0
+    shp = inst.shape()
+    shp.translate(1e6, 0.0)                                 # caller mutates shape()
+    assert inst.geometric_rect().left() == 10.0
+

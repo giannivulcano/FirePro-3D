@@ -161,6 +161,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
     UNDO_MAX = 50
+    # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
+    # set/cleared by paper_display). Declared so the per-paint read in
+    # hatch_render hits: a missing attribute on a sip scene costs ~10 us.
+    _hatch_paper_scale = None
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
