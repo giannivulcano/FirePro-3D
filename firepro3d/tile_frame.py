@@ -42,7 +42,8 @@ def seed_tile(items) -> dict:
         items: The block's real (non-scaffold) primitives / nested instances.
 
     Returns:
-        A tile dict ``{"w", "h", "row_shift", "size"}`` (Drafting).
+        A tile dict ``{"w", "h", "row_shift", "size"}`` (Model — D-A38: the
+        tile is what you drew, in real mm; Drafting is an explicit choice).
     """
     from .geometry_import import geometric_bounds
     items = list(items)
@@ -53,7 +54,7 @@ def seed_tile(items) -> dict:
         w = r.right() if r.right() > 0 else r.width()
         h = -r.top() if r.top() < 0 else r.height()
         w, h = max(w, _MIN_TILE), max(h, _MIN_TILE)
-    return {"w": float(w), "h": float(h), "row_shift": 0.0, "size": "drafting"}
+    return {"w": float(w), "h": float(h), "row_shift": 0.0, "size": "model"}
 
 
 def _fmt(scene, mm: float) -> str:

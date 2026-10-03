@@ -1675,6 +1675,12 @@ class DisplayManager(QDialog):
                                    registry=reg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_color, new_pattern, new_scale = dlg.get_result()
+            if not is_category:
+                # D-A37: a library pattern loads into the project before its
+                # id is stored; a failed load keeps the previous pattern.
+                from .hatch_patterns import ensure_pattern_available
+                if not ensure_pattern_available(new_pattern, self._scene):
+                    new_pattern = cur_pattern
             btn.setProperty("_pattern", new_pattern)
             btn.setProperty("_section_scale", new_scale)
             self._update_swatch(btn, "section", new_color, pattern=new_pattern)

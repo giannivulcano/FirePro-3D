@@ -9,7 +9,10 @@ lazily so there is no import cycle through ``block_definition``.
 """
 from __future__ import annotations
 
+import json
+import logging
 import math
+import os
 
 BUILTIN_DIAGONAL = "builtin-hatch-diagonal"
 BUILTIN_CROSS_HATCH = "builtin-hatch-cross-hatch"
@@ -149,17 +152,161 @@ def picker_exclude(scene) -> frozenset:
     return frozenset({host} | {b for b in reg.ids() if reg.would_cycle(host, b)})
 
 
-def tile_choices(registry=None, exclude=()) -> list[tuple[str, str]]:
-    """``[(label, ref)]``: built-ins in fixed order, then the project's valid
-    tiled blocks by name. The single source for every pattern picker.
+_log = logging.getLogger(__name__)
+_LIB_CACHE: dict = {}        # abs folder -> (stamp, [(name, id, path)])
+_PARSE_CACHE: dict = {}      # (.fpdb path, mtime_ns) -> (is_tile, id, name) | None
+_LOGGED: set = set()         # paths already logged as unreadable (log once)
 
-    Labels are unique: a project tile whose name collides with an earlier label
-    gets `` (project)`` appended (then `` (project 2)`` ...), so every ref is
-    reachable through ``ref_from_value``.
+
+def _log_once(path: str, exc) -> None:
+    if path not in _LOGGED:
+        _LOGGED.add(path)
+        _log.warning("Hatch pattern library: unreadable %s: %s", path, exc)
+
+
+def _scan_dirs(folder: str) -> list[str]:
+    """*folder*, its subfolders and their subfolders (a Series, a Library or a
+    Library root all work as the patterns folder), sorted for determinism."""
+    dirs, level = [folder], [folder]
+    for _depth in range(2):
+        nxt = []
+        for d in level:
+            try:
+                subs = sorted(e.path for e in os.scandir(d) if e.is_dir())
+            except OSError:
+                continue
+            nxt.extend(subs)
+        dirs.extend(nxt)
+        level = nxt
+    return dirs
+
+
+def _dir_stamp(dirs: list[str]) -> tuple:
+    """Cache key: every index.json / .fpdb path in *dirs* with its mtime."""
+    stamp = []
+    for d in dirs:
+        try:
+            entries = sorted(os.scandir(d), key=lambda e: e.name)
+        except OSError:
+            continue
+        for e in entries:
+            low = e.name.lower()
+            if e.is_file() and (low == "index.json" or low.endswith(".fpdb")):
+                try:
+                    stamp.append((e.path, e.stat().st_mtime_ns))
+                except OSError:
+                    continue
+    return tuple(stamp)
+
+
+def _parse_fpdb(path: str, mtime_ns: int):
+    """``(is_tile, id, name)`` read from the .fpdb itself (index lacked
+    ``tile``), cached per (path, mtime); None if unreadable."""
+    key = (path, mtime_ns)
+    if key in _PARSE_CACHE:
+        return _PARSE_CACHE[key]
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        res = (bool(data.get("tile")), data.get("id") or "", data.get("name") or "")
+    except Exception as exc:          # noqa: BLE001 — skip silently, log once
+        _log_once(path, exc)
+        res = None
+    _PARSE_CACHE[key] = res
+    return res
+
+
+def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
+    """Pattern blocks in the Hatch patterns folder (D-A37).
+
+    Scans *folder* (default ``app_data.hatch_patterns_dir()``) plus two levels
+    of subfolders. Each Series ``index.json`` entry's ``tile`` flag decides;
+    an older entry without the flag (or a ``.fpdb`` with no entry) is parsed
+    once. Cached on the folder + every index.json/.fpdb mtime, so a newly
+    saved pattern appears without a restart. Unreadable files are skipped
+    (logged once). Never called from paint paths.
 
     Args:
-        registry: Project block registry, or None (built-ins only).
-        exclude: Project tile ids to leave out (``picker_exclude``).
+        folder: Folder to scan; None = the configured Hatch patterns folder.
+
+    Returns:
+        ``[(name, block_id, .fpdb path)]`` sorted by name; first id wins.
+    """
+    if folder is None:
+        from .app_data import hatch_patterns_dir
+        folder = hatch_patterns_dir()
+    folder = os.path.abspath(folder)
+    if not os.path.isdir(folder):
+        return []
+    dirs = _scan_dirs(folder)
+    stamp = _dir_stamp(dirs)
+    hit = _LIB_CACHE.get(folder)
+    if hit is not None and hit[0] == stamp:
+        return list(hit[1])
+    mtimes = dict(stamp)
+    out, seen = [], set()
+    for d in dirs:
+        idx_path = os.path.join(d, "index.json")
+        index: dict = {}
+        if os.path.isfile(idx_path):
+            try:
+                with open(idx_path, "r", encoding="utf-8") as fh:
+                    index = json.load(fh)
+                if not isinstance(index, dict):
+                    raise ValueError("index is not a mapping")
+            except Exception as exc:  # noqa: BLE001
+                _log_once(idx_path, exc)
+                index = {}
+        try:
+            names = sorted(e.name for e in os.scandir(d)
+                           if e.is_file() and e.name.lower().endswith(".fpdb"))
+        except OSError:
+            continue
+        for fname in names:
+            path = os.path.join(d, fname)
+            meta = index.get(fname)
+            if isinstance(meta, dict) and "tile" in meta and meta.get("id"):
+                is_tile = bool(meta["tile"])
+                bid, name = meta["id"], meta.get("name") or fname[:-5]
+            else:
+                parsed = _parse_fpdb(path, mtimes.get(path, 0))
+                if parsed is None:
+                    continue
+                is_tile, bid, name = parsed
+                name = name or fname[:-5]
+            if is_tile and bid and bid not in seen:
+                seen.add(bid)
+                out.append((name, bid, path))
+    out.sort(key=lambda x: x[0].lower())
+    _LIB_CACHE[folder] = (stamp, out)
+    return list(out)
+
+
+def _unique(name: str, used: set, tag: str) -> str:
+    label, k = name, 1
+    while label in used:
+        k += 1
+        label = f"{name} ({tag})" if k == 2 else f"{name} ({tag} {k - 1})"
+    used.add(label)
+    return label
+
+
+def tile_choices(registry=None, exclude=(),
+                 include_library=True) -> list[tuple[str, str]]:
+    """``[(label, ref)]``: built-ins in fixed order, then the project's valid
+    tiled blocks by name, then the Hatch patterns folder's pattern blocks not
+    already in the project (D-A37). The single source for every pattern picker.
+
+    Labels are unique: a project tile whose name collides with an earlier label
+    gets `` (project)`` appended (then `` (project 2)`` ...), a library one
+    `` (library)``, so every ref is reachable through ``ref_from_value``.
+
+    Args:
+        registry: Project block registry, or None (built-ins only — e.g. the
+            global category defaults, which can't reference a project block).
+        exclude: Tile ids to leave out (``picker_exclude``).
+        include_library: Append the library patterns (only with a registry:
+            picking one loads it into that project — ``ensure_pattern_available``).
     """
     out = list(((n, i) for i, n in _BUILTIN_NAMES))
     if registry is not None:
@@ -172,14 +319,44 @@ def tile_choices(registry=None, exclude=()) -> list[tuple[str, str]]:
                 project.append((d.name or bid, bid))
         used = {n for n, _ in out}
         for name, bid in sorted(project, key=lambda x: x[0].lower()):
-            label, k = name, 1
-            while label in used:
-                k += 1
-                label = (f"{name} (project)" if k == 2
-                         else f"{name} (project {k - 1})")
-            used.add(label)
-            out.append((label, bid))
+            out.append((_unique(name, used, "project"), bid))
+        if include_library:
+            for name, bid, _path in library_patterns():
+                if bid in exclude or bid in BUILTIN_IDS or registry.get(bid) is not None:
+                    continue
+                out.append((_unique(name, used, "library"), bid))
     return out
+
+
+def ensure_pattern_available(ref: str | None, scene) -> bool:
+    """Load a library pattern into the project before its id is stored (D-A37).
+
+    A built-in, a pattern already in the project registry, or a ref that is no
+    library pattern (kept as-is per D-A36) needs nothing. A library-only
+    pattern is loaded into the PROJECT scene (a Block Editor scene's
+    ``_block_registry_owner``) as one undoable batch via
+    ``blocks_browser.ensure_block_loaded``. UI paths only — never paint.
+
+    Args:
+        ref: The picked pattern ref (id or legacy name).
+        scene: The scene the picked fill lives in (plan or Block Editor).
+
+    Returns:
+        False only when *ref* is a library pattern that failed to load (the
+        caller must not store it); True otherwise.
+    """
+    ref = canonical_ref(ref)
+    if not ref or ref in BUILTIN_IDS or scene is None:
+        return True
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    reg = getattr(project, "block_registry", None)
+    if reg is None or reg.get(ref) is not None:
+        return True
+    for name, bid, path in library_patterns():
+        if bid == ref:
+            from .blocks_browser import ensure_block_loaded
+            return ensure_block_loaded(project, bid, path, name)
+    return True
 
 
 def display_name(ref: str | None, registry=None, exclude=()) -> str:

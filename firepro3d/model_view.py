@@ -1573,7 +1573,7 @@ class Model_View(QGraphicsView):
         if not getattr(target, "is_fillable", lambda: False)():
             return None
 
-        from .hatch_patterns import tile_choices
+        from .hatch_patterns import canonical_ref, tile_choices
 
         fill_menu = parent_menu.addMenu("Fill")
 
@@ -1582,9 +1582,13 @@ class Model_View(QGraphicsView):
             if sc is None:
                 return
             sc.push_undo_state()
-            target.set_property("Fill", fill_type)
             if pattern is not None:
+                # The Pattern setter loads a library pattern first (D-A37,
+                # ensure_pattern_available); a refused load leaves the fill.
                 target.set_property("Pattern", pattern)
+                if canonical_ref(getattr(target, "fill_pattern", None)) != pattern:
+                    return
+            target.set_property("Fill", fill_type)
             target.update()
 
         none_act = fill_menu.addAction("None")

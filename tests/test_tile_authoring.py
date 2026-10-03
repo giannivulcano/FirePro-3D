@@ -20,7 +20,7 @@ def test_toggle_seeds_frame_from_content_extents(qapp):
     proj, w = _editor_with([LineItem(QPointF(0, 0), QPointF(20, -8)).to_dict()])
     assert w.toggle_pattern_tile()
     t = w.editor_scene.block_tile
-    assert (t["w"], t["h"], t["row_shift"], t["size"]) == (20.0, 8.0, 0.0, "drafting")
+    assert (t["w"], t["h"], t["row_shift"], t["size"]) == (20.0, 8.0, 0.0, "model")  # D-A38
     assert w.editor_scene.tile_frame_item() is not None
 
 
@@ -382,7 +382,7 @@ def test_retyping_the_same_value_pushes_no_undo_step(qapp):
     proj, w, sc, frame, line = _framed_line()
     pos0 = sc._undo_pos
     set_tile_property(sc, w, "Width", 20.0)
-    set_tile_property(sc, w, "Size", "Drafting")
+    set_tile_property(sc, w, "Size", "Model")   # the D-A38 seed
     assert sc._undo_pos == pos0
 
 

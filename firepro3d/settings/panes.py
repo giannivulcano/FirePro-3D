@@ -27,6 +27,7 @@ from firepro3d.constants import (
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, BLOCK_DIR_KEY as _BLOCK_DIR_KEY,
+    HATCH_DIR_KEY as _HATCH_DIR_KEY,
     migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
@@ -1029,6 +1030,32 @@ class GeneralPane(SettingsPane):
         blk_row.addWidget(blk_browse)
         blk_row.addWidget(blk_reset)
         dv.addLayout(blk_row)
+
+        # Hatch patterns folder (D-A37) — the library source every pattern
+        # picker lists; overrides ``<block library>/System/Hatches``.
+        hatch_hint = QLabel(
+            "Hatch patterns (optional): a folder of hatch pattern blocks "
+            "offered in every pattern picker. Leave blank to use "
+            "<block library>/System/Hatches.")
+        hatch_hint.setWordWrap(True)
+        dv.addWidget(hatch_hint)
+        hatch_row = QHBoxLayout()
+        self._hatch_dir_edit = QLineEdit()
+        self._hatch_dir_edit.setPlaceholderText("(block library)/System/Hatches")
+        self._hatch_dir_edit.setToolTip(
+            "Folder of hatch pattern blocks offered in every pattern picker "
+            "(default: <block library>/System/Hatches)")
+        hatch_browse = QPushButton("Browse…")
+        hatch_browse.setToolTip("Choose the hatch patterns folder")
+        hatch_browse.clicked.connect(self._pick_hatch_dir)
+        hatch_reset = QPushButton("Reset")
+        hatch_reset.setToolTip(
+            "Use the default (<block library>/System/Hatches)")
+        hatch_reset.clicked.connect(self._hatch_dir_edit.clear)
+        hatch_row.addWidget(self._hatch_dir_edit, 1)
+        hatch_row.addWidget(hatch_browse)
+        hatch_row.addWidget(hatch_reset)
+        dv.addLayout(hatch_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -1055,6 +1082,15 @@ class GeneralPane(SettingsPane):
             self, "Choose block library folder", start)
         if chosen:
             self._block_dir_edit.setText(chosen)
+
+    def _pick_hatch_dir(self) -> None:
+        start = (self._hatch_dir_edit.text().strip()
+                 or self._block_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose hatch patterns folder", start)
+        if chosen:
+            self._hatch_dir_edit.setText(chosen)
 
     def migrate_prompt_if_needed(self) -> None:
         """After Apply/OK: if the data root changed and the old root still holds
@@ -1117,6 +1153,9 @@ class GeneralPane(SettingsPane):
         blk = s.value(_BLOCK_DIR_KEY, "", type=str) or ""
         self._block_dir_snapshot = blk
         self._block_dir_edit.setText(blk)
+        hatch = s.value(_HATCH_DIR_KEY, "", type=str) or ""
+        self._hatch_dir_snapshot = hatch
+        self._hatch_dir_edit.setText(hatch)
 
     def apply(self) -> None:
         """Write checkbox states + the data-folder/title-block overrides.
@@ -1134,6 +1173,7 @@ class GeneralPane(SettingsPane):
         s.setValue(_DATA_ROOT_KEY, self._data_folder_edit.text().strip())
         s.setValue(_TB_DIR_KEY, self._tb_dir_edit.text().strip())
         s.setValue(_BLOCK_DIR_KEY, self._block_dir_edit.text().strip())
+        s.setValue(_HATCH_DIR_KEY, self._hatch_dir_edit.text().strip())
 
     def revert(self) -> None:
         """Restore snapshot values to checkboxes + the path fields."""
@@ -1143,6 +1183,7 @@ class GeneralPane(SettingsPane):
         self._data_folder_edit.setText(getattr(self, "_data_folder_snapshot", ""))
         self._tb_dir_edit.setText(getattr(self, "_tb_dir_snapshot", ""))
         self._block_dir_edit.setText(getattr(self, "_block_dir_snapshot", ""))
+        self._hatch_dir_edit.setText(getattr(self, "_hatch_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.

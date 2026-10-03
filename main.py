@@ -2825,8 +2825,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if not apply:
                 return
             self.scene.push_undo_state()
+            # The Pattern setter loads a library pattern into the project
+            # first (D-A37, hatch_patterns.ensure_pattern_available).
             for t in apply:
                 t.set_property("Pattern", new_val)
+            _sync()     # a refused load / a newly loaded project tile
 
         def _on_fill_colour():
             targets = _fillable_targets()

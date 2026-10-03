@@ -222,11 +222,17 @@ class Geometry2DMixin:
             return True
         if key == "Pattern":
             from .hatch_patterns import (MISSING_PATTERN_LABEL, picker_exclude,
-                                         ref_from_value)
+                                         ref_from_value, ensure_pattern_available)
             if str(value) == MISSING_PATTERN_LABEL:
                 return True               # D-A36: never rewrite the stored ref
+            old = self.fill_pattern
             self.fill_pattern = ref_from_value(str(value), self._tile_registry(),
                                                picker_exclude(self.scene()))
+            # D-A37: a library pattern loads into the project first. Set before
+            # the load so its one undo snapshot carries the new ref too; a
+            # failed load keeps the stored ref.
+            if not ensure_pattern_available(self.fill_pattern, self.scene()):
+                self.fill_pattern = old
             self.update()
             return True
         if key == "Fill Colour":
