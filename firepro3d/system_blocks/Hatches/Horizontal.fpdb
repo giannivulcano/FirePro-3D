@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "builtin-hatch-horizontal",
+  "version": 1,
+  "name": "Horizontal",
+  "library": "System",
+  "series": "Hatches",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        3.0,
+        0.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "a1a4e12bd65a4cacbf1193e04c30b593"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": {
+    "w": 3.0,
+    "h": 3.0,
+    "row_shift": 0.0,
+    "size": "drafting"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "id": "builtin-hatch-brick",
+  "version": 1,
+  "name": "Brick",
+  "library": "System",
+  "series": "Hatches",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        225.0,
+        0.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "ad0838fe054d4f8499355f56f12acf10"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        0.0,
+        -75.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "671322f68bbd4cfcbd1fcbf789c42712"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": {
+    "w": 225.0,
+    "h": 75.0,
+    "row_shift": 112.5,
+    "size": "model"
+  }
+}

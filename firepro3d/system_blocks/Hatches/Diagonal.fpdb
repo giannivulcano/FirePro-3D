@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "builtin-hatch-diagonal",
+  "version": 1,
+  "name": "Diagonal",
+  "library": "System",
+  "series": "Hatches",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        4.242640687119286,
+        -4.242640687119286
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "5236c19f97904723b94edd7cd1e6d2a6"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": {
+    "w": 4.242640687119286,
+    "h": 4.242640687119286,
+    "row_shift": 0.0,
+    "size": "drafting"
+  }
+}
