@@ -209,11 +209,35 @@ until that doc is approved.
   (35 %) when a tile is < 2 device px or > 20k cells; the bench asserts its
   composition (pattern actually stamped).
 
-- **D-A36** *(as-proposed, pending the HF2 smoke gate)* A pattern picker
+- **D-A39** *(user ruling 2026-10-02, HF2 smoke — supersedes D-A28's
+  code-level table)* **Blocks only.** The five patterns (Diagonal, Cross
+  Hatch, Horizontal, Concrete, Brick) ship as real `.fpdb` blocks with the
+  app (same frozen ids) and are copied into the Hatch patterns folder
+  (D-A37) on first run when missing — never overwriting a user's edited
+  copy; the folder is seeded once (a deleted shipped pattern is not
+  re-seeded). Legacy names still alias to the frozen ids (D-A29). On project
+  new / open, every pattern the project references (2D fills, block
+  definitions, Display Manager category + instance section patterns) that
+  isn't already a project definition is loaded from the folder — outside the
+  undo history. Pickers list blocks only (project + folder). A reference that
+  still can't resolve draws the tone (never vanish, D-A36).
+- **D-A36** *(ratified by the user 2026-10-02)* A pattern picker
   never rewrites a stored reference it can't resolve (deleted project tile,
   another project's id in QSettings): it shows no selection and keeps the
   stored ref unless the user explicitly picks another pattern; the renderer
   draws the tone for it (D-A28 "never vanish").
+
+- **D-A37** *(user ruling 2026-10-02, HF2 smoke — absorbed in-session)* A
+  **Hatch patterns folder** (System Settings › General › Data folder;
+  default `<block library>/System/Hatches`) is the library source for
+  patterns: pickers list built-ins + the project's pattern blocks + every
+  pattern block in that folder; picking a library pattern loads it into the
+  project first, then stores its id (D-A29). Library `index.json` entries
+  carry a `tile` flag. (Closes the gap that a library-only pattern could
+  never reach a picker — patterns load on place, and can't be placed.)
+- **D-A38** *(user ruling 2026-10-02, amends D-A32)* Turning Pattern tile on
+  seeds **Size = Model** (the tile is what you drew, in real mm); Drafting is
+  an explicit choice for patterns authored at printed size.
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
