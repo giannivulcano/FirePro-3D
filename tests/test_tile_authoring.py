@@ -1,5 +1,6 @@
 """Block Editor pattern-tile authoring (hatch D-A32/D-A34, HD4a)."""
 from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QColor
 
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_editor import BlockEditorWidget
@@ -216,3 +217,101 @@ def test_pattern_badge_is_cached_per_dpr(qapp):
     assert b is not a
     pm = b.pixmap(blocks_browser._BADGE_PX, blocks_browser._BADGE_PX)
     assert not pm.isNull()
+
+
+def test_frame_body_drag_pushes_no_undo_step(qapp):
+    """The frame is anchored at the origin (D-A32): a body drag moves nothing,
+    so it must not leave an empty step on the undo stack."""
+    proj, w = _editor_with([LineItem(QPointF(0, 0), QPointF(20, -8)).to_dict()])
+    w.toggle_pattern_tile()
+    sc = w.editor_scene
+    frame = sc.tile_frame_item()
+    frame.setSelected(True)
+    qapp.processEvents()
+    m = sc._live_manip()
+    n0, pos0 = len(sc._undo_stack), sc._undo_pos
+    nm = Qt.KeyboardModifier.NoModifier
+    m._begin("move", QPointF(10, -8), QPointF(0, 0))
+    m._update(QPointF(40, -30), nm, QPointF(200, 200))
+    m._finish(QPointF(40, -30), nm)
+    assert (len(sc._undo_stack), sc._undo_pos) == (n0, pos0)
+    assert frame.grip_points()[0] == QPointF(20.0, -8.0)
+    assert frame.transform().isIdentity()
+
+
+# ── G5: editing a pattern repaints every user (hatch HD4a) ───────────────────
+
+def _g5_scene():
+    """Pattern Zig (Model 5 mm) used by a ±200 mm hatched host instance at the
+    origin, plus an unrelated plain instance far away."""
+    from firepro3d import hatch_render
+    from firepro3d.geometry_2d import RectangleItem
+    proj, w = _editor_with([LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()])
+    w.toggle_pattern_tile()
+    sc = w.editor_scene
+    sc.set_block_tile({**sc.block_tile, "size": "model"})
+    pat = w.commit_block("Zig", "L", "S")
+    r = RectangleItem(QPointF(-200, -200), QPointF(200, 200))
+    r.fill_type, r.fill_pattern = "hatch", pat.id
+    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    host_def = BlockDefinition.new(name="Host", library="L", series="S",
+                                   origin=(0, 0), primitives=[r.to_dict()])
+    proj.register_block_definition(host_def)
+    host = proj.place_block_instance(host_def.id, (0.0, 0.0))
+    plain = BlockDefinition.new(name="Plain", library="L", series="S", origin=(0, 0),
+                                primitives=[LineItem(QPointF(0, 0), QPointF(50, 0)).to_dict()])
+    proj.register_block_definition(plain)
+    far = proj.place_block_instance(plain.id, (5000.0, 5000.0))
+    s0 = hatch_render.STATS["stamped_cells"]
+    before = _g5_snap(proj)
+    assert hatch_render.STATS["stamped_cells"] > s0, "composition: no cells stamped"
+    assert any(QColor(before.pixel(x, 200)).red() > 200
+               and QColor(before.pixel(x, 200)).green() < 90
+               for x in range(400)), "composition: the host's hatch never rendered"
+    return proj, w, host, far, before
+
+
+def _g5_snap(proj):
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QImage, QPainter
+    img = QImage(400, 400, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    proj.render(p, QRectF(0, 0, 400, 400), QRectF(-400, -400, 800, 800))
+    p.end()
+    return img
+
+
+def _g5_edit_and_record(qapp, proj, w):
+    """Commit a pattern edit through the Block Editor; return the union of the
+    scene's ``changed`` rects it caused."""
+    from PyQt6.QtCore import QRectF
+    qapp.processEvents()                       # flush pending updates first
+    rects = []
+    proj.changed.connect(lambda rs: rects.extend(rs))
+    w._add_primitive(LineItem(QPointF(0, -2.5), QPointF(5, -2.5)))
+    w.commit_block("Zig", "L", "S")
+    qapp.processEvents()
+    u = QRectF()
+    for r in rects:
+        u = u.united(r)
+    return u
+
+
+def test_g5_pattern_edit_repaints_plan_users(qapp):
+    proj, w, host, far, before = _g5_scene()
+    u = _g5_edit_and_record(qapp, proj, w)
+    assert u.intersects(host.sceneBoundingRect()), "the pattern's user was not repainted"
+    assert _g5_snap(proj) != before, "the next paint does not show the edit"
+
+
+def test_g5_users_repaint_without_the_whole_scene_fallback(qapp, monkeypatch):
+    """Pins the registry path (``users_of`` via ``referenced_ids`` ->
+    ``on_definition_changed``) on its own: with the commit's whole-scene
+    ``update()`` suppressed, the host still repaints and the unrelated far
+    instance does not."""
+    proj, w, host, far, before = _g5_scene()
+    monkeypatch.setattr(proj, "update", lambda *a, **k: None)
+    u = _g5_edit_and_record(qapp, proj, w)
+    assert u.intersects(host.sceneBoundingRect()), "the pattern's user was not repainted"
+    assert not u.intersects(far.sceneBoundingRect()), "an unrelated block repainted"

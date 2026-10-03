@@ -1195,7 +1195,13 @@ class SelectionManipulator(QGraphicsObject):
         The single home for the move commit, shared by the released-drag path
         (:meth:`_finish`) and the typed-commit path (:meth:`_on_hud_committed`)
         so they can never diverge on constraint solving or the undo push.
+        Items declaring ``MANIP_ANCHORED = True`` (wrapped only to show their
+        grips, e.g. the Block Editor tile frame) never move; a move of nothing
+        but anchored items is a no-op — no bake, no undo step.
         """
+        items = [it for it in items if not getattr(it, "MANIP_ANCHORED", False)]
+        if not items:
+            return
         sc = self.scene()
         # Constraint seam (§8): the edit context solves on exit, before the
         # commit hook's undo push.

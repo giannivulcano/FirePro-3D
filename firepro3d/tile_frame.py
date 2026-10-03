@@ -25,7 +25,9 @@ TILE_FRAME_TAG = "tile_frame"
 _MIN_TILE = 0.1             # mm — a grip / typed value can't collapse the tile
 _EMPTY_TILE = 10.0          # mm — seeded W = H for an empty block (D-A32)
 _PREVIEW_OPACITY = 0.35     # repeat-preview opacity (mockup gate, variant A)
-_PREVIEW_SCALE = 1.0        # preview cells are tile-local mm: they abut the frame
+# The repeat preview shows the tile at its authored size so the cells abut the
+# frame (ratified HF2 T7); D-A30's 1:100 applies to hatch FILLS in the editor.
+_PREVIEW_SCALE = 1.0
 _FRAME_DASH = [5, 4]        # dash pattern in pen widths (= px at the 1 px cosmetic pen)
 _FRAME_PEN_PX = 1.0         # cosmetic frame / preview pen width
 _HIT_PX = 8.0               # frame pick stroke width, screen px
@@ -139,6 +141,10 @@ class TileFrameItem(QGraphicsItem):
     Args:
         scene: The Block Editor ``Model_Space`` whose ``block_tile`` this draws.
     """
+
+    #: Anchored at the block origin (D-A32): a manipulator body move bakes
+    #: nothing and pushes no undo step (``SelectionManipulator._bake_move``).
+    MANIP_ANCHORED = True
 
     def __init__(self, scene):
         super().__init__()
