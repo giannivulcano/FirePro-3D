@@ -205,6 +205,12 @@ until that doc is approved.
   (35 %) when a tile is < 2 device px or > 20k cells; the bench asserts its
   composition (pattern actually stamped).
 
+- **D-A36** *(as-proposed, pending the HF2 smoke gate)* A pattern picker
+  never rewrites a stored reference it can't resolve (deleted project tile,
+  another project's id in QSettings): it shows no selection and keeps the
+  stored ref unless the user explicitly picks another pattern; the renderer
+  draws the tone for it (D-A28 "never vanish").
+
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
 - `2d-geometry.md` fill section → per-item fill dissolved (D-A16); link here.
