@@ -23,7 +23,7 @@ import math
 from collections import OrderedDict
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QTransform
 
 from .constants import (DRAFTING_CANVAS_SCALE, HATCH_LATTICE_CACHE_MAX_CELLS,
                         HATCH_LOD_MAX_CELLS, HATCH_LOD_MIN_CELL_PX,
@@ -260,6 +260,12 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(colour))
         painter.drawPath(fills)
+    if pen.isCosmetic():
+        # Canvas: a 1 px cosmetic line at a fractional device position would
+        # AA-split over 2 px and read as a dim line beside a crisp one; draw
+        # the lattice aliased so every line peaks alike. Paper/PDF (true-mm
+        # pens) keep AA. Restored by the enclosing save()/restore().
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawPath(strokes)

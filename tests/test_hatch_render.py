@@ -343,3 +343,27 @@ def test_partly_visible_fill_still_snaps_in_4_cell_steps(qapp):
         clip = _rect(-5000 - pan, -5000, 20000, 20000)     # far larger than the 1000x1000 view
         n = _stamped(sc, d, clip, 0.4)
         assert n > 0 and n % (m * m) == 0
+
+
+def test_canvas_hatch_lines_keep_one_peak_intensity_under_aa(qapp, shipped_hatches):
+    """Every canvas hatch line peaks at the same intensity with the view's
+    Antialiasing hint on (Model_View sets it): a cosmetic 1 px pen at a
+    fractional device position would otherwise straddle two pixels and read
+    as a dim line next to a crisp one (HF2 review)."""
+    img = _img()
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)   # as Model_View
+    p.scale(0.0417, 0.0417)                                # 300 mm rows → 12.51 px
+    hr.paint_fill(p, _rect(0, 0, 9000, 9000), scene=_CanvasCtx(shipped_hatches()),
+                  tile_ref="horizontal", colour=QColor("#ff0000"))
+    p.end()
+    peaks, run = [], []
+    for y in range(5, 370):
+        ink = 255 - QColor(img.pixel(200, y)).green()      # red line on white
+        if ink > 20:
+            run.append(ink)
+        elif run:
+            peaks.append(max(run))
+            run = []
+    assert len(peaks) >= 20, peaks
+    assert min(peaks) >= 0.9 * max(peaks), peaks
