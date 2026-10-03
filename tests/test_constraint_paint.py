@@ -523,3 +523,27 @@ def test_tinted_reference_line_keeps_its_dashes(be, themed):
     span = b.x() - a.x()
     assert on > 0.3 * span, (on, span)          # tinted
     assert gaps > 0.15 * span, (gaps, span)     # still dashed
+
+
+# ── CS3: point-on-curve glyph + glow ─────────────────────────────────────────
+
+def test_point_on_curve_glyph_anchors_at_the_point_and_glows_the_circle(be):
+    import math
+    from PyQt6.QtCore import QRectF
+    from firepro3d.geometry_2d import CircleItem
+    v, sc = be
+    circ = CircleItem(QPointF(0, 0), 50); sc.addItem(circ); sc._draw_circles.append(circ)
+    ln = LineItem(QPointF(50, 0), QPointF(150, 60)); sc.addItem(ln); sc._draw_lines.append(ln)
+    c = sc.constraint_ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p1"},
+                                                 {"uid": circ._uid, "h": "curve"}])
+    assert c is not None
+    by = sc.constraint_ctl.item_by_uid()
+    a = cp._anchor(v, c, by)
+    p = QPointF(v.mapFromScene(ln._pt1))
+    assert math.hypot(a.x() - p.x(), a.y() - p.y()) < 40          # beside the point
+    path = cp._refs_path(v, c.refs, by, QRectF(v.viewport().rect()),
+                         QPointF(v.mapFromScene(QPointF(0, 0))))
+    # The circle's full outline (the point's glow dot sits on its right rim).
+    r, o = path.boundingRect(), QPointF(v.mapFromScene(circ._center))
+    assert r.left() == pytest.approx(o.x() - circ._radius, abs=1.0)
+    assert r.height() == pytest.approx(2 * circ._radius, abs=1.0)

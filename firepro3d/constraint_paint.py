@@ -64,7 +64,9 @@ def _ref_geom(ref, by, held=None):
 
     Returns:
         ``("point", QPointF)``, ``("edge", (QPointF, QPointF))``,
-        ``("axis", "x_axis" | "y_axis")`` or None when it does not resolve.
+        ``("curve", (QPointF centre, float r))`` (CS3: a circle / arc's full
+        circle), ``("axis", "x_axis" | "y_axis")`` or None when it does not
+        resolve.
     """
     if not isinstance(ref, dict):
         return None
@@ -93,6 +95,10 @@ def _ref_geom(ref, by, held=None):
     if h in eds:
         a, b = eds[h]
         return "edge", (_p(a), _p(b))
+    crs = ad.curves(it, 0)
+    if h in crs:
+        cv = crs[h]
+        return "curve", (_p(cv.center), float(x[cv.r]))
     return None
 
 
@@ -118,7 +124,11 @@ def _anchor(view, c, by, held=None) -> QPointF | None:
     """Viewport-px centre of *c*'s glyph: 12 px off its geometry (plus half
     the box) on the side away from the entity centroid (D27)."""
     geoms = [(r, _ref_geom(r, by, held)) for r in c.refs]
-    geoms = [(r, g) for r, g in geoms if g is not None and g[0] != "axis"]
+    geoms = [(r, g) for r, g in geoms if g is not None and g[0] in ("point", "edge")]
+    if c.type in ("coincident", "point_on_curve"):
+        # CS3: the glyph sits beside the POINT, not the target edge's midpoint.
+        pts = [(r, g) for r, g in geoms if g[0] == "point"]
+        geoms = pts or geoms
     if not geoms:
         return None
     d = M.CONSTRAINT_GLYPH_OFFSET_PX + _box_px() / 2.0
@@ -332,6 +342,12 @@ def _refs_path(view, refs, by, vp, o, held=None) -> QPainterPath:
         elif kind == "edge":
             path.moveTo(QPointF(view.mapFromScene(val[0])))
             path.lineTo(QPointF(view.mapFromScene(val[1])))
+        elif kind == "curve":
+            cen, rad = val
+            vc = QPointF(view.mapFromScene(cen))
+            rim = QPointF(view.mapFromScene(QPointF(cen.x() + rad, cen.y())))
+            rp = math.hypot(rim.x() - vc.x(), rim.y() - vc.y())
+            path.addEllipse(vc, rp, rp)
         elif val == "x_axis":
             path.moveTo(vp.left(), o.y() + 0.5)
             path.lineTo(vp.right(), o.y() + 0.5)

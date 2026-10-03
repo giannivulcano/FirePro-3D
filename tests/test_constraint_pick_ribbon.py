@@ -6,6 +6,8 @@ the pick markers and the hovered-edge glow (D27).
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent
@@ -18,7 +20,7 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
-CONSTRAIN_LABELS = {"Horizontal", "Vertical", "Show Constraints",
+CONSTRAIN_LABELS = {"Horizontal", "Vertical", "Coincident", "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
 
@@ -184,7 +186,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert titles[i + 1:] == ["CONSTRAIN", "INSPECT"]
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
-        == {"Horizontal", "Vertical"}           # no greyed placeholders (D15)
+        == {"Horizontal", "Vertical", "Coincident"}   # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -556,3 +558,98 @@ def test_vertical_enable_tracks_selection(win_with_editor, qapp):
     sc.clearSelection(); ln.setSelected(True)
     qapp.processEvents(); win._refresh_constrain_buttons()
     assert b.isEnabled()                                     # one line: selection-first
+
+
+# ── CS3 Coincident pick grammar ──────────────────────────────────────────────
+
+def _pick(win, *pts):
+    v = _view(win)
+    for p in pts:
+        _click(v, _vp(v, *p))
+
+
+def test_coincident_button_always_enters_pick_mode_and_clears_selection(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    ln = _line(sc, (-100, 0), (100, 30))
+    ln.setSelected(True)
+    QApplication.processEvents()
+    b = _btn(win, "Coincident")
+    assert b.isEnabled() and b.toolTip()
+    instr = []
+    sc.instructionChanged.connect(instr.append)
+    try:
+        b.click()
+        QApplication.processEvents()
+    finally:
+        sc.instructionChanged.disconnect(instr.append)
+    assert sc.mode == "constrain_coincident"
+    assert sc.selectedItems() == []
+    assert sc.constraint_ctl.constraints == []
+    assert instr[-1] == ("Coincident: pick a point, then a point, edge, "
+                         "circle/arc or axis (0/2) · Esc to cancel")
+
+
+def test_pick_point_then_point_adds_coincident(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (-100, 0), (-30, 10)); b = _line(sc, (30, -10), (100, 0))
+    _btn(win, "Coincident").click()
+    _pick(win, (-30, 10), (30, -10))
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "coincident"
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((b._pt1.x(), b._pt1.y()), abs=1e-6)
+    assert sc.mode == "select"
+
+
+def test_pick_edge_first_then_point_stores_point_first(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    base = _line(sc, (-150, 0), (150, 0))
+    ln = _line(sc, (40, 60), (90, 120))
+    _btn(win, "Coincident").click()
+    _pick(win, (-60, 0), (40, 60))         # the edge (far from points), then ln.p1
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "point_on_curve"
+    assert c.refs == [{"uid": ln._uid, "h": "p1"}, {"uid": base._uid, "h": "edge"}]
+
+
+def test_pick_point_then_x_axis(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    ln = _line(sc, (20, 40), (90, 70))
+    _btn(win, "Coincident").click()
+    _pick(win, (20, 40), (-120, 0))         # the X axis, nothing else near
+    (c,) = sc.constraint_ctl.constraints
+    assert c.refs[1] == {"ref": "x_axis"}
+    assert ln._pt1.y() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_pick_point_then_circle_outline(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    circ = CircleItem(QPointF(0, 0), 60); sc.addItem(circ); sc._draw_circles.append(circ)
+    ln = _line(sc, (100, 20), (160, 70))
+    _btn(win, "Coincident").click()
+    _pick(win, (100, 20), (0, -60))         # top of the circle outline
+    (c,) = sc.constraint_ctl.constraints
+    assert c.refs[1] == {"uid": circ._uid, "h": "curve"}
+    p, cc = ln._pt1, circ._center
+    assert math.hypot(p.x() - cc.x(), p.y() - cc.y()) == pytest.approx(circ._radius, abs=1e-6)
+
+
+def test_two_non_points_are_never_paired(win_with_editor):
+    """After an edge first pick only points hover."""
+    win = win_with_editor
+    sc = _editor_scene(win)
+    _line(sc, (-150, 0), (150, 0)); _line(sc, (-150, 50), (150, 50))
+    _btn(win, "Coincident").click()
+    instr = []
+    sc.instructionChanged.connect(instr.append)
+    try:
+        _pick(win, (-60, 0), (-60, 50))
+    finally:
+        sc.instructionChanged.disconnect(instr.append)
+    assert sc.constraint_ctl.constraints == []
+    assert sc.mode == "constrain_coincident"
+    assert instr[-1] == "Coincident: pick a point (1/2) · Esc to cancel"

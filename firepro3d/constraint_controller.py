@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from PyQt6 import sip
-from PyQt6.QtCore import QPointF, QRectF, QTimer, Qt
+from PyQt6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
@@ -106,19 +106,25 @@ class PickState:
     """D21 hover-marker pick mode for one constraint type.
 
     Every participating primitive's §5.1 point handles (and the origin) show
-    as hollow square markers; the hover is the nearest point within
+    as hollow square markers. H / V: the hover is the nearest point within
     ``CONSTRAINT_PICK_POINT_TOL_PX`` or — before the first point pick — the
     nearest edge within ``CONSTRAINT_PICK_EDGE_TOL_PX`` (viewport px).
+    Coincident (CS3): a point plus a point / origin / edge / circle-arc curve
+    / X-Y axis, in either order -- two non-points never pair. Hover priority:
+    points > edges + curves > axes (each within its px tolerance).
     """
 
     def __init__(self, ctl, ctype: str):
         self.ctl, self.ctype = ctl, ctype
         self.picks: list[dict] = []
+        self.kinds: list[str] = []
         self.hover: dict | None = None
-        self.hover_kind: str | None = None      # "point" / "edge"
+        self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
 
     def _candidates(self):
-        """``(kind, ref, a, b)`` scene-space; ``b`` is None for a point."""
+        """``(kind, ref, a, b)`` scene-space: point ``(p, None)``, edge
+        ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``."""
+        coincident = self.ctype == "coincident"
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -130,46 +136,108 @@ class PickState:
             for name, (a, b) in ad.edges(it, 0).items():
                 yield ("edge", {"uid": uid, "h": name},
                        QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
+            if coincident:
+                for name, cv in ad.curves(it, 0).items():
+                    yield ("curve", {"uid": uid, "h": name},
+                           QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
+        if coincident:
+            yield "axis", {"ref": "x_axis"}, None, None
+            yield "axis", {"ref": "y_axis"}, None, None
+
+    def _allowed(self, kind: str) -> bool:
+        if self.ctype != "coincident":
+            return kind == "point" or (kind == "edge" and not self.picks)
+        return kind == "point" or not self.picks or self.kinds[0] == "point"
+
+    @staticmethod
+    def _curve_vp(view, centre, r) -> tuple:
+        """(viewport centre, viewport radius) of a curve candidate."""
+        vc = QPointF(view.mapFromScene(centre))
+        rim = QPointF(view.mapFromScene(QPointF(centre.x() + r, centre.y())))
+        return vc, math.dist(_xy(vc), _xy(rim))
+
+    @classmethod
+    def _dist(cls, view, vp_pt, kind, a, b) -> float:
+        """Viewport-px distance to a point / edge / curve candidate (axes are
+        measured inline in :meth:`hover_at`). A curve is its drawn outline:
+        a circle all round, an arc only within its span."""
+        if kind == "point":
+            return math.dist(_xy(vp_pt), _xy(view.mapFromScene(a)))
+        if kind == "edge":
+            return _seg_dist(vp_pt, view.mapFromScene(a), view.mapFromScene(b))
+        r, it = b
+        vc, rp = cls._curve_vp(view, a, r)
+        d = abs(math.dist(_xy(vp_pt), _xy(vc)) - rp)
+        span = getattr(it, "_span_deg", None)
+        if span is not None and span < 360.0:          # an arc: its drawn span only
+            sp = view.mapToScene(QPoint(int(round(vp_pt.x())), int(round(vp_pt.y()))))
+            t = math.degrees(math.atan2(-(sp.y() - a.y()), sp.x() - a.x()))
+            if (t - it._start_deg) % 360.0 > span:
+                return math.inf
+        return d
 
     def hover_at(self, view, vp_pt) -> dict | None:
-        """Nearest point within tol; else (no picks yet) nearest edge."""
-        cands = list(self._candidates())
+        """Nearest allowed candidate: points (point tol) > edges / curves
+        (edge tol) > axes (edge tol)."""
+        cands = [c for c in self._candidates() if self._allowed(c[0])]
+        o = view.mapFromScene(QPointF(0.0, 0.0))
         best = None
-        for kind, ref, a, _b in cands:
-            if kind != "point":
-                continue
-            d = math.dist(_xy(vp_pt), _xy(view.mapFromScene(a)))
-            if d <= M.CONSTRAINT_PICK_POINT_TOL_PX and (best is None or d < best[0]):
-                best = (d, ref, kind)
-        if best is None and not self.picks:
+        for kinds, tol in ((("point",), M.CONSTRAINT_PICK_POINT_TOL_PX),
+                           (("edge", "curve"), M.CONSTRAINT_PICK_EDGE_TOL_PX),
+                           (("axis",), M.CONSTRAINT_PICK_EDGE_TOL_PX)):
             for kind, ref, a, b in cands:
-                if kind != "edge":
+                if kind not in kinds:
                     continue
-                d = _seg_dist(vp_pt, view.mapFromScene(a), view.mapFromScene(b))
-                if d <= M.CONSTRAINT_PICK_EDGE_TOL_PX and (best is None or d < best[0]):
+                if kind == "axis":
+                    d = (abs(vp_pt.y() - o.y()) if ref["ref"] == "x_axis"
+                         else abs(vp_pt.x() - o.x()))
+                else:
+                    d = self._dist(view, vp_pt, kind, a, b)
+                if d <= tol and (best is None or d < best[0]):
                     best = (d, ref, kind)
+            if best is not None:
+                break
         self.hover = best[1] if best else None
         self.hover_kind = best[2] if best else None
         return self.hover
 
     def status(self) -> str:
         label = sm.REGISTRY[self.ctype].label
-        return f"{label}: pick 2 points or 1 edge ({len(self.picks)}/2) · Esc to cancel"
+        n = len(self.picks)
+        if self.ctype == "coincident":
+            what = ("pick a point" if n and self.kinds[0] != "point" else
+                    "pick a point, then a point, edge, circle/arc or axis")
+            return f"{label}: {what} ({n}/2) · Esc to cancel"
+        return f"{label}: pick 2 points or 1 edge ({n}/2) · Esc to cancel"
 
     def paint(self, painter, view, t) -> None:
-        """Hover-edge glow, then the markers: hollow ``muted`` squares, filled
-        ``accent`` for the hovered (enlarged) and already-picked handles."""
+        """Hover / picked edge, curve and axis glow, then the markers: hollow
+        ``muted`` squares, filled ``accent`` for the hovered (enlarged) and
+        already-picked handles."""
         half = M.CONSTRAINT_PICK_MARKER_HALF_PX
         cands = list(self._candidates())
+        o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
+        vpr = QRectF(view.viewport().rect())
         for kind, ref, a, b in cands:
-            if kind == "edge" and ref == self.hover:
-                pen = QPen(t.color("accent", M.CONSTRAINT_PICK_EDGE_GLOW_ALPHA),
-                           M.CONSTRAINT_PICK_EDGE_GLOW_W_PX)
-                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+            if kind == "point" or not (ref == self.hover or ref in self.picks):
+                continue
+            pen = QPen(t.color("accent", M.CONSTRAINT_PICK_EDGE_GLOW_ALPHA),
+                       M.CONSTRAINT_PICK_EDGE_GLOW_W_PX)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if kind == "edge":
                 painter.drawLine(QPointF(view.mapFromScene(a)), QPointF(view.mapFromScene(b)))
+            elif kind == "curve":
+                vc, rp = self._curve_vp(view, a, b[0])
+                painter.drawEllipse(vc, rp, rp)
+            elif ref["ref"] == "x_axis":
+                painter.drawLine(QPointF(vpr.left(), o.y() + 0.5),
+                                 QPointF(vpr.right(), o.y() + 0.5))
+            else:
+                painter.drawLine(QPointF(o.x() + 0.5, vpr.top()),
+                                 QPointF(o.x() + 0.5, vpr.bottom()))
         for kind, ref, a, _b in cands:
             if kind != "point":
                 continue
@@ -1107,9 +1175,12 @@ class ConstraintController:
     def pick_press(self, view, vp_pt) -> bool:
         """Accumulate a pick; add the constraint once the arity is met.
 
-        An edge (only offered before the first point pick) completes at once;
-        points accumulate to two. A second pick naming the same handle is
-        refused with the status "Pick a different point" (§7.3 Horizontal).
+        H / V: an edge (only offered before the first point pick) completes
+        at once; points accumulate to two. Coincident (CS3): two picks, at
+        least one a point; two points add ``coincident``, a point plus an
+        edge / curve / axis adds ``point_on_curve`` stored point-first. A
+        second pick naming the same handle is refused with the status "Pick a
+        different point" (§7.3 Horizontal).
 
         Returns:
             True when the constraint was added (the session has ended).
@@ -1120,19 +1191,25 @@ class ConstraintController:
         ref = p.hover_at(view, vp_pt)
         if ref is None:
             return False
-        if p.hover_kind == "edge":
+        ctype = p.ctype
+        if ctype != "coincident" and p.hover_kind == "edge":
             refs = [ref]
         else:
             if ref in p.picks:
                 self._status(PICK_SAME_POINT_STATUS)
                 return False
             p.picks.append(ref)
+            p.kinds.append(p.hover_kind)
             if len(p.picks) < 2:
                 self._scene.instructionChanged.emit(p.status())
                 self._repaint()
                 return False
             refs = list(p.picks)
-        ctype = p.ctype
+            if ctype == "coincident":
+                if p.kinds[0] != "point":           # stored point-first (CS3 pin)
+                    refs.reverse()
+                both_points = p.kinds[0] == p.kinds[1] == "point"
+                ctype = "coincident" if both_points else "point_on_curve"
         self.pick = None
         self._scene.set_mode("select")
         self.add(ctype, refs)

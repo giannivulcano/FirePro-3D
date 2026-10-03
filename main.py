@@ -2503,6 +2503,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Constraint pick modes (parametric-constraint-system.md D21)
         "constrain_horizontal": "Horizontal",
         "constrain_vertical": "Vertical",
+        "constrain_coincident": "Coincident",
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
@@ -4895,6 +4896,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("vertical", checked),
             checkable=True)
         self._block_mode_buttons["constrain_vertical"] = b_v
+        b_c = gc.add_small_button(
+            "Coincident", self._modify_icon(icon_for("coincident")),
+            lambda checked: self._be_constrain("coincident", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_coincident"] = b_c
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -4919,6 +4925,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._be_delete_constraints)
         self._be_constrain_buttons = {"Horizontal": b_h,
                                       "Vertical": b_v,
+                                      "Coincident": b_c,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -4926,6 +4933,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                           "or pick 2 points / 1 edge")
         _editor_only(b_v, "Vertical — make the selected line vertical, "
                           "or pick 2 points / 1 edge")
+        _editor_only(b_c, "Coincident — join two points, or put a point on an "
+                          "edge, circle/arc or the X/Y axis (pick both)")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -4951,6 +4960,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._sync_mode_buttons(sc.mode)
             return
         if ctl is None or not ctl.enabled:
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctype == "coincident":
+            # CS3 ruling: handle-level picks only -- always pick mode.
+            sc.clearSelection()
+            sc.set_mode(mode)
             self._sync_mode_buttons(sc.mode)
             return
         refs = ctl.selection_refs(ctype)
