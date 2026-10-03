@@ -1,6 +1,6 @@
 ---
 status: proposal         # greenfield — nothing below is built; D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7, ratified in the brainstorm)
-last-verified: 2026-10-02
+last-verified: 2026-10-02  # + 2026-10-03 HF2 Account pointer only (RenderOp / referenced_ids exist, 53e1773); the rest unchanged
 verified-commit: 18df05d
 applies-to:               # planned modules (none exist yet) + the seams they change
   - firepro3d/stroke_style.py        # planned — cascade resolution
@@ -51,6 +51,12 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - No arc-length walker exists (`pointAtPercent`/`percentAtLength` unused).
 - `block_registry.nested_ids` scans only `block_instance` records.
 - Pipe `"Line Type"` is an enum (Branch/Main) choosing a draw width.
+
+> **Since HF2 (2026-10-03, `53e1773`):** the typed `RenderOp` now exists
+> (`render_op.py`; compile contract → `block-system.md` "Pattern-tile capability (HF2)") — LT3's
+> `StrokeOp` extends its `stroke` kind rather than adding a type; and
+> `block_registry.referenced_ids` (nested records + pattern refs) now exists — LD5 adds
+> linetype / end-type refs to it.
 
 ## Design Decisions (as-intended — ratified 2026-10-02 grill Q1–Q23)
 

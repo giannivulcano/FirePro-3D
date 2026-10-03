@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-09-28  # batch A dead-code sweep; prior 2026-09-24
-verified-commit: d34aeb0   # batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-10-03  # HF2 Account: §4.5b Hatch patterns row (paths/hatch_dir) + paths/hatch_seeded + post-apply seeding; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-24
+verified-commit: 53e1773   # HF2 Account (§4.5b hatch rows); prior d34aeb0 batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
@@ -101,7 +101,7 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 ### 4.5b Data-folder location + migration (General pane; Task E, 2026-09-15)
 - **Data folder** (`paths/user_data_root`) relocates the whole data root; **Title block library** (`paths/titleblock_dir`, **E2**) is a dedicated override *just* for the title-block `<uuid>.json` files. Precedence (`app_data.titleblock_library_dir`): explicit title-block override → `<data root>/titleblocks` → default. Both fields live in `GeneralPane`; blank = inherit.
 - **Block library** (`paths/block_dir`, 2026-09-23, block polish) — a third `GeneralPane` row mirroring the title-block row (Browse / reset; placeholder `(data folder)/blocks`). Precedence (`app_data.block_library_dir`): explicit block override → `<data root>/blocks`. Both dedicated overrides read through the shared `app_data._configured_dir(key)` helper. Block-library consumers → `block-system.md`.
-- **Hatch patterns** (`paths/hatch_dir`, 2026-10-02, hatch D-A37) — a fourth `GeneralPane` row mirroring the Block library row (Browse / Reset; placeholder `(block library)/System/Hatches`). Precedence (`app_data.hatch_patterns_dir`): explicit override → `<block library>/System/Hatches`. Not data-root migrated on its own (the default rides the `blocks` migration; an explicit override is never moved). Picker consumers → `hatch-and-fill.md` D-A37.
+- **Hatch patterns** (`paths/hatch_dir`, 2026-10-02, hatch D-A37) — a fourth `GeneralPane` row mirroring the Block library row (Browse / Reset; placeholder `(block library)/System/Hatches`). Precedence (`app_data.hatch_patterns_dir`): explicit override → `<block library>/System/Hatches`. Not data-root migrated on its own (the default rides the `blocks` migration; an explicit override is never moved). Picker consumers → `hatch-and-fill.md` D-A37. After Apply/OK (following the E3 migration prompt) the dialog seeds a not-yet-seeded folder with the shipped patterns; the folders already seeded are recorded under `paths/hatch_seeded` (a list; bookkeeping only, no UI). Seeding rules → `hatch-and-fill.md` D-A39.
 - **Migrate-on-change (E3):** changing the data folder used to silently strand existing content (`app_data` docstring: "existing content is NOT moved"). Now the **System Settings dialog** — after `_apply_all()` (Apply/OK), **not** inside `pane.apply()` — calls `GeneralPane.migrate_prompt_if_needed()`, which offers **Copy / Move / Leave** to bring the whole data root's content (`app_data._MIGRATABLE`: titleblocks/, blocks/, sprinklers.json, default.fpdt) to the new folder via `app_data.migrate_data_root` (best-effort, **never clobbers** an existing destination item; Move deletes the source after copy). Kept out of `apply()` so headless `apply()` never blocks on a modal.
 
 ### 4.6 Ribbon + icons

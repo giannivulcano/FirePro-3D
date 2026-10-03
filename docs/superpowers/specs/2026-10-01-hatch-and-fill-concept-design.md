@@ -1,9 +1,12 @@
 ---
-status: proposal          # concept ratified 2026-10-01 (grill Q1–Q27 + brainstorm sections 1–6); unbuilt — slices HF1–HF9
-last-verified: 2026-10-01
-verified-commit: 3a95a3f
+status: partial           # HF2 built 2026-10-03 (HD4/HD4a); HF1, HF3–HF9 unbuilt. Concept ratified 2026-10-01 (grill Q1–Q27 + brainstorm sections 1–6). HD4a "Built-ins + alias" code table superseded by D-A39 (blocks only) — as-built lives in specs/hatch-and-fill.md §1–§3
+last-verified: 2026-10-03  # HF2 Account (status + supersession note only; design text left as approved)
+verified-commit: 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py
+  - firepro3d/hatch_render.py       # HF2
+  - firepro3d/render_op.py          # HF2
+  - firepro3d/tile_frame.py         # HF2
   - firepro3d/displayable_item.py
   - firepro3d/geometry_2d.py
   - firepro3d/block_definition.py

@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-17
+last-verified: 2026-09-17  # + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
 verified-commit: 6a36206
 applies-to:
   - firepro3d/scene_io.py
@@ -74,8 +74,9 @@ and continue; missing underlay files warn via `themed_warn` but do not abort).
 ### §4 — Legacy migrations (load-only)
 
 Load silently accommodates older files: the pre-2026 `construction_lines` key is
-dropped; a legacy `HatchItem` block is migrated by re-creating filled
-`PolylineItem`s; title-block address keys are migrated one-way. These are
+dropped; a legacy `HatchItem` (`hatches`) block is no longer migrated — it is
+clean-dropped (§5; the polyline-recreating migration was retired under C8);
+title-block address keys are migrated one-way. These are
 load-only — save never writes the legacy shapes.
 
 ### §5 — Clean-drop invariant (containment C8 — built)

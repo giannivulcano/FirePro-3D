@@ -1,7 +1,7 @@
 ---
-status: partial           # S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
-last-verified: 2026-10-02  # CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
+last-verified: 2026-10-03  # HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 53e1773   # HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -119,8 +119,8 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 ### The flyweight core
 
 - **`BlockDefinition`** owns the block's identity + captured geometry. On construction/load it
-  **compiles** its 2D primitives once into a cached, origin-relative render-op list
-  `[(QPen, QPainterPath), …]` (definition-local coordinates). It never lives in the scene.
+  **compiles** its 2D primitives once into a cached, origin-relative list of typed `RenderOp`s
+  (definition-local coordinates; see "Pattern-tile capability (HF2)"). It never lives in the scene.
 - **`BlockInstance`** is a **single lightweight `QGraphicsItem`** (no child items). It holds its
   definition's `id`, resolves the definition from the scene registry, and in `paint()` applies its
   `(pos, rotation)` transform and strokes the **shared** render-ops. `boundingRect()`/`shape()`
@@ -728,6 +728,37 @@ Guards: `tests/test_nested_block_compile.py`, `tests/test_block_drag_drop.py`,
 `tests/test_block_explode.py`, `tests/test_block_library_bundle.py`,
 `tests/test_block_usage_counts.py`, `tests/test_block_instance_delete.py`,
 `tests/test_block_editor_fit.py`, `tests/test_block_placement.py`.
+
+### Pattern-tile capability (HF2)
+
+Built on `hf2-pattern-renderer` (`53e1773`). Pattern semantics, the renderer, the Hatch patterns
+folder and the shipped patterns are owned by [`hatch-and-fill.md`](hatch-and-fill.md) (D-A9,
+D-A32–D-A34, D-A39) — not restated here. Block-system-owned facts:
+
+- **`BlockDefinition.tile`** — optional `{"w", "h", "row_shift", "size"}` (or None); a block with a
+  tile *is* a pattern (a capability, not a kind). Additive `.fpdb` / embed key — **no `schema`
+  bump**; absent ⇒ None. `set_tile` bumps the version and invalidates like a content edit. Library
+  `index.json` entries gain a `tile` flag (readers tolerate older entries without it).
+- **Typed compile** — `render_ops()` returns shared `RenderOp`s
+  (`firepro3d/render_op.py`, file governed by `hatch-and-fill.md`; LT3 extends it) of kind `stroke` / `fill` / `pattern` / `text`;
+  a primitive's per-item `fill` compiles to a `fill` or `pattern` op ahead of its stroke, and
+  `BlockInstance.paint` dispatches on `kind` (fill/pattern ops through the hatch renderer). Nested
+  flattening maps each op's path (and pattern origin) through the nested pose.
+- **Dependencies** — `block_registry.referenced_ids(defn)` = nested records **plus** primitive
+  hatch-fill pattern refs (legacy names canonicalised); `closure`, `bundle_for`, `would_cycle`,
+  `users_of` / `users_map` and `invalidate` all follow it, so a pattern is bundled with, cycle-checked
+  against and invalidates its users like a nested block.
+- **Pattern blocks are never symbols** — placing one is refused with a status message
+  (`block_library.PATTERN_REASON`) at the shared `set_mode("place_block")` entry and again at the
+  placement click; paste skips them; Block Editor save of a tile on a block placed as a symbol is
+  refused (`Model_Space.pattern_use_refusal`, instance count), and a newly saved pattern is
+  registered but never placed.
+- **Blocks browser** — tiled leaves carry a pattern badge; right-click a leaf → **Edit Block** (loads
+  a library-only leaf into the project first, then opens it in a Block Editor tab; no placement).
+  Block Editor tile authoring (toggle, frame, panel) → `hatch-and-fill.md` D-A32.
+
+Guards: `tests/test_render_op_compile.py`, `tests/test_pattern_placement_refusal.py`,
+`tests/test_blocks_browser_edit_menu.py`, `tests/test_tile_authoring.py`.
 
 ### Deferred (v2.x)
 
