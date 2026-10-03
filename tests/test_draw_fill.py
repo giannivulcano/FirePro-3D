@@ -14,11 +14,20 @@ def _closed_rect_path(x, y, w, h):
     return p
 
 
-def _render(fill_type, colour="#ff0000", alpha=115, pattern="diagonal"):
+def _render(fill_type, colour="#ff0000", alpha=115, pattern="diagonal",
+            mm_per_px=1.0):
+    """Fill a 40 px box; *mm_per_px* sets the world size it represents.
+
+    Hatch tiles are world-scale (D-A30: Drafting tiles at an assumed 1:100 on
+    the model canvas, so the diagonal's lines are 300 mm apart) — a hatch
+    test must draw a box large enough in mm to contain a line.
+    """
     img = QImage(50, 50, QImage.Format.Format_ARGB32)
     img.fill(QColor("white"))
     painter = QPainter(img)
-    path = _closed_rect_path(5, 5, 40, 40)
+    painter.scale(1.0 / mm_per_px, 1.0 / mm_per_px)
+    path = _closed_rect_path(5 * mm_per_px, 5 * mm_per_px,
+                             40 * mm_per_px, 40 * mm_per_px)
     draw_fill(painter, path, None, fill_type, pattern, colour, alpha=alpha)
     painter.end()
     return img
@@ -39,7 +48,7 @@ def test_none_fill_leaves_background(qapp):
 
 
 def test_hatch_fill_marks_some_interior_pixels(qapp):
-    img = _render("hatch", "#000000", pattern="diagonal")
+    img = _render("hatch", "#000000", pattern="diagonal", mm_per_px=20.0)
     # at least some interior pixel differs from white (hatch lines present)
     found = any(img.pixelColor(x, 25) != QColor("white") for x in range(6, 44))
     assert found

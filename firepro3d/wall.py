@@ -367,7 +367,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                pattern=pattern,
                                line_width=pen.widthF() or 1.0,
                                section_fill=sec_fill,
-                               hatch_scale=h_scale)
+                               hatch_scale=h_scale,
+                               to_scene=self.sceneTransform())
 
         # Selection highlight
         if self.isSelected():

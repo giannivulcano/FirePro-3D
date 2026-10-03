@@ -177,21 +177,12 @@ def ref_from_value(value: str, registry=None) -> str:
 PATTERN_NAMES: list[str] = list(LEGACY_ALIAS)
 
 
-def is_svg(name: str) -> bool:
-    """Transitional (removed in HF2 Task 4): SVG patterns no longer exist."""
-    return False
-
-
-def draw_svg_hatch(*args, **kwargs) -> None:
-    """Transitional (removed in HF2 Task 4): never reached (``is_svg`` is False)."""
-
-
 def make_hatch_brush(name: str, tile_size: int = 24, color=None,
                      line_width: float = 1.0):
-    """Transitional (removed in HF2 Task 4): Qt brush for the legacy paint path.
+    """Transitional (removed in HF2 Task 5): Qt brush for the legacy DM swatch.
 
-    Keeps ``displayable_item._apply_hatch_pattern`` / the DM swatch from raising
-    ImportError (a native abort inside paint) until the tile renderer lands.
+    Keeps the Display Manager swatch / pickers from raising ImportError (a
+    native abort inside paint) until they move to ``hatch_render.paint_swatch``.
     """
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QBrush, QColor

@@ -619,7 +619,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -1295,7 +1296,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -1658,7 +1660,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -2002,7 +2005,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -2317,7 +2321,8 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -2593,7 +2598,8 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -3024,7 +3030,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):

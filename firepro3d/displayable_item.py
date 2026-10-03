@@ -19,47 +19,10 @@ interfering with the Qt graphics item constructor chain.  Call
 
 from __future__ import annotations
 
-import math
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform, QPolygonF
+from PyQt6.QtGui import QColor, QTransform
 from .constants import DEFAULT_LEVEL
 
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
-
-
-def _apply_hatch_pattern(painter, clip_path: "QPainterPath", scene,
-                          pattern: str, hatch_col: "QColor",
-                          line_width: float = 1.0,
-                          hatch_scale: float = 1.0):
-    """Internal helper: draw hatch lines for *pattern* clipped to *clip_path*.
-
-    Handles both SVG and built-in Qt brush patterns.  Caller is responsible
-    for any outer save/restore; this function manages its own painter state.
-
-    *scene* may be ``None`` — falls back to viewport scale 1.0.
-    """
-    from .hatch_patterns import make_hatch_brush, is_svg, draw_svg_hatch
-
-    views = scene.views() if scene else []
-    scale = abs(views[0].transform().m11()) if views else 1.0
-
-    if is_svg(pattern):
-        # SVG patterns — draw as true vector lines (perfectly crisp).
-        # draw_svg_hatch manages its own save/restore and clip.
-        draw_svg_hatch(painter, clip_path, scene, pattern, hatch_col,
-                       line_width=line_width, hatch_scale=hatch_scale)
-    else:
-        # Built-in Qt patterns — resolution-independent brush fill.
-        painter.save()
-        # IntersectClip: respect any outer clip (e.g. paper-viewport crop rect).
-        painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
-        brush = make_hatch_brush(pattern, 24, hatch_col)
-        inv = 1.0 / max(scale, 1e-6) * hatch_scale
-        brush.setTransform(QTransform().scale(inv, inv))
-        painter.setPen(QPen(QColor(0, 0, 0, 0)))
-        painter.setBrush(brush)
-        painter.drawRect(clip_path.boundingRect())
-        painter.restore()
 
 
 def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
@@ -67,80 +30,55 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
                        pattern: str = "diagonal",
                        line_width: float = 1.0,
                        section_fill: "QColor | None" = None,
-                       hatch_scale: float = 1.0):
-    """Fill *clip_path* with a section hatch overlay.
+                       hatch_scale: float = 1.0,
+                       to_scene=None):
+    """Section-cut fill + hatch (walls / floor slabs) via ``hatch_render``.
 
-    *section_fill*  — solid fill colour for the section body (replaces
-                      the element's normal fill).  If ``None``, no fill.
-    *color*         — hatch-line colour (should match the element's
-                      normal line colour).
-    *line_width*    — hatch-line weight in screen pixels.
-    *hatch_scale*   — multiplier for pattern density (1.0 = default).
-    *pattern*       — pattern name from ``hatch_patterns``.
+    Args:
+        painter: Active painter (item coords).
+        clip_path: Section boundary; empty → nothing.
+        scene: The item's scene (drafting factor / registry) or None.
+        color: Hatch line colour (None → the section-hatch grey).
+        pattern: Tile ref or legacy name.
+        line_width: Canvas hatch line width in px.
+        section_fill: Solid body colour, or None for no body fill.
+        hatch_scale: Pattern Scale multiplier.
+        to_scene: Item→scene transform (pattern in scene axes, anchored at
+            the container origin).
     """
-    if clip_path.isEmpty():
-        return
-
-    hatch_col = color or _SECTION_HATCH_COLOR
-
-    painter.save()
-    # IntersectClip (not the default ReplaceClip): the section fill/hatch must
-    # respect any outer clip already on the painter — e.g. a paper viewport's
-    # ``fitted`` crop rect. ReplaceClip discarded it, so a section-cut wall
-    # straddling the crop edge bled its solid fill outside the viewport box.
-    painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
-
-    # 1. Solid section-fill background
-    if section_fill is not None:
-        painter.setPen(QPen(QColor(0, 0, 0, 0)))
-        painter.setBrush(QBrush(section_fill))
-        painter.drawRect(clip_path.boundingRect())
-
-    painter.restore()
-
-    # 2. Hatch lines on top (delegates to shared helper)
-    _apply_hatch_pattern(painter, clip_path, scene, pattern, hatch_col,
-                         line_width=line_width, hatch_scale=hatch_scale)
+    from .hatch_render import paint_fill
+    paint_fill(painter, clip_path, scene=scene, background=section_fill,
+               tile_ref=pattern or "diagonal",
+               colour=color or _SECTION_HATCH_COLOR, scale=hatch_scale,
+               line_width_px=line_width, to_scene=to_scene)
 
 
 def draw_fill(painter, closed_path: "QPainterPath | None", scene,
               fill_type: str, pattern: str, colour: str,
-              alpha: int = 115):
-    """Render a 2-D closed-shape fill (solid or hatch) into *painter*.
+              alpha: int = 115, to_scene=None):
+    """Per-item 2D fill (solid or hatch) via ``hatch_render`` (HF3 retires it).
 
-    Parameters
-    ----------
-    painter     : active QPainter (caller owns begin/end)
-    closed_path : filled region; silently returns when None or empty
-    scene       : QGraphicsScene or None (used only for viewport-scale lookup)
-    fill_type   : ``"none"`` — no fill (early-out)
-                  ``"solid"`` — semi-transparent flat colour
-                  ``"hatch"`` — tiled hatch pattern
-    pattern     : hatch pattern name (see ``hatch_patterns.PATTERN_NAMES``);
-                  ignored for ``"solid"``/``"none"``
-    colour      : CSS colour string (``"#rrggbb"``) for the fill
-    alpha       : opacity 0-255 applied to the colour (default 115 ≈ 45 %)
+    Args:
+        painter: Active painter (item coords).
+        closed_path: Fill boundary; None/empty → nothing.
+        scene: The item's scene (drafting factor / registry) or None.
+        fill_type: ``"none"`` | ``"solid"`` | ``"hatch"``.
+        pattern: Tile ref or legacy name (hatch only).
+        colour: ``"#rrggbb"`` fill colour.
+        alpha: 0–255 opacity for both solid and hatch.
+        to_scene: Item→scene transform (pattern anchored at the scene origin).
     """
-    if closed_path is None or closed_path.isEmpty():
+    if closed_path is None or closed_path.isEmpty() or fill_type == "none":
         return
-    if fill_type == "none":
-        return
-
-    fill_col = QColor(colour)
-
+    from .hatch_render import paint_fill
+    col = QColor(colour)
+    col.setAlpha(alpha)
     if fill_type == "solid":
-        fill_col.setAlpha(alpha)
-        painter.save()
-        # IntersectClip: honour any outer viewport crop.
-        painter.setClipPath(closed_path, Qt.ClipOperation.IntersectClip)
-        painter.setPen(QPen(QColor(0, 0, 0, 0)))
-        painter.setBrush(QBrush(fill_col))
-        painter.drawRect(closed_path.boundingRect())
-        painter.restore()
-
+        paint_fill(painter, closed_path, scene=scene, background=col,
+                   to_scene=to_scene)
     elif fill_type == "hatch":
-        fill_col.setAlpha(alpha)
-        _apply_hatch_pattern(painter, closed_path, scene, pattern, fill_col)
+        paint_fill(painter, closed_path, scene=scene, tile_ref=pattern,
+                   colour=col, to_scene=to_scene)
 
 
 def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,

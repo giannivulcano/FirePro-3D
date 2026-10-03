@@ -306,10 +306,10 @@ def test_opacity_alpha_value_used_in_draw_fill(qapp):
     original_draw_fill = di_mod.draw_fill
 
     def spy_draw_fill(painter, closed_path, scene, fill_type, pattern, colour,
-                      alpha=115):
+                      alpha=115, to_scene=None):
         captured_alphas.append(alpha)
         return original_draw_fill(painter, closed_path, scene, fill_type,
-                                  pattern, colour, alpha)
+                                  pattern, colour, alpha, to_scene=to_scene)
 
     # Patch into the geometry_2d local namespace
     import firepro3d.displayable_item as _di
