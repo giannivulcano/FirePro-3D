@@ -1,6 +1,6 @@
 """HF2 guards (VC3): placed-block hatch (H1), angle invariance (G3), legacy alias."""
 from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QColor, QImage, QPainter
+from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath
 
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
@@ -166,3 +166,89 @@ def test_section_dialog_lists_project_tiles_only_with_registry(qapp):
     assert dlg.get_result()[1] == tid
     cat = SectionPatternDialog("#666666", "diagonal", 1.0, registry=None)
     assert "Zig" not in [cat._combo.itemText(i) for i in range(cat._combo.count())]
+
+
+def _vp_render_spacing(paper_scale):
+    """Printed spacing (mm) of a horizontal hatch through a real plan viewport.
+
+    Drives the real ``vp.paint`` -> ``apply_paper_overrides`` -> scene render
+    -> ``restore_model_display`` path and returns the median row gap.
+    """
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
+    from firepro3d.level_manager import LevelManager, PlanViewManager
+    from tests._paper_iso_helpers import _DetailMgrStub
+    ms = Model_Space()
+    lm, pvm = LevelManager(), PlanViewManager()
+    pvm.create("Level 1", lm)
+    resolver = ViewResolver(ms, pvm, _DetailMgrStub(), None, level_manager=lm)
+    r = RectangleItem(QPointF(0, 0), QPointF(5000, 5000))
+    r.level = "Level 1"
+    r.fill_type, r.fill_pattern = "hatch", "horizontal"
+    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    ms._draw_rects.append(r)
+    ms.addItem(r)
+    ms.active_level = "Level 1"
+    ms.active_view_key = "plan:Plan: Level 1"
+    lm.apply_to_scene(ms, "Level 1")
+    data = SheetViewData("plan", "Plan: Level 1", "P", paper_scale, 0, 0, 0, 0)
+    vp = PaperScene(Sheet.create_default(), resolver).add_viewport(data)
+    data.crop_rect = QRectF(0, 0, 5000, 5000)
+    vp._recompute_size_from_scale()
+    px_per_mm = 10
+    img = QImage(int(data.w * px_per_mm) + 20, int(data.h * px_per_mm) + 20,
+                 QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    p.scale(px_per_mm, px_per_mm)
+    vp.paint(p, None, None)
+    p.end()
+    assert ms._hatch_paper_scale is None          # cleared after the paint returns
+    x = img.width() // 2
+    ys, prev = [], False
+    for y in range(img.height()):
+        cur = _red(img, x, y)
+        if cur and not prev:
+            ys.append(y)
+        prev = cur
+    assert len(ys) >= 5, f"too few hatch rows ({len(ys)})"
+    gaps = sorted(b - a for a, b in zip(ys, ys[1:]))
+    return gaps[len(gaps) // 2] / px_per_mm
+
+
+def test_d_a30_drafting_spacing_is_printed_size_at_any_viewport_scale(qapp):
+    s100, s50 = _vp_render_spacing(0.01), _vp_render_spacing(0.02)
+    assert abs(s100 - 3.0) < 0.3 and abs(s50 - 3.0) < 0.3
+
+
+def test_g4_pdf_spacing_doubles_with_scale(qapp, tmp_path):
+    import fitz
+    from PyQt6.QtCore import QMarginsF
+    from PyQt6.QtGui import QPageLayout, QPageSize, QPdfWriter
+    from firepro3d import hatch_render as hr
+
+    class _Ctx:                                   # a paper-viewport render window at 1:1
+        _hatch_paper_scale = 1.0
+
+    def spacing(scale):
+        path = tmp_path / f"g4_{scale}.pdf"
+        w = QPdfWriter(str(path))
+        w.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        w.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+        w.setResolution(72)                       # 1 device px = 1 pt
+        p = QPainter(w)
+        pt_per_mm = 72 / 25.4
+        p.scale(pt_per_mm, pt_per_mm)             # painter units = mm
+        clip = QPainterPath()
+        clip.addRect(QRectF(10, 10, 150, 150))
+        hr.paint_fill(p, clip, scene=_Ctx(), tile_ref="horizontal",
+                      colour=QColor("#000000"), scale=scale)
+        p.end()
+        doc = fitz.open(str(path))
+        ys = sorted({round(it[1].y, 2) for d in doc[0].get_drawings()
+                     for it in d["items"] if it[0] == "l"
+                     and abs(it[1].y - it[2].y) < 1e-3})
+        assert len(ys) >= 5, f"too few vector rows ({len(ys)})"
+        gaps = [b - a for a, b in zip(ys, ys[1:])]
+        return sorted(gaps)[len(gaps) // 2] / pt_per_mm
+    s1, s2 = spacing(1.0), spacing(2.0)
+    assert abs(s1 - 3.0) < 0.15 and abs(s2 / s1 - 2.0) < 0.1
