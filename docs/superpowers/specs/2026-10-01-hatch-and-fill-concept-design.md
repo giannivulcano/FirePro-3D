@@ -203,8 +203,9 @@ def paint_fill(painter, clip_scene_path, *, scene,
 5. Cell range = (clip bbox ∩ visible paint area) grown by the content's
    overhang past the frame (D-A33), snapped to the lattice anchored at
    `origin` and widened to 4-cell steps so panning reuses cache entries.
-   Visible area = the device rect mapped back through the inverse device
-   transform, ∩ `clipBoundingRect()` (user ruling 2026-10-02, HF2 Task 3
+   Visible area = the device rect mapped back through the inverse of
+   `combinedTransform()` (not `deviceTransform()`, which carries a widget's
+   offset in its window — review C1), ∩ `clipBoundingRect()` (user ruling 2026-10-02, HF2 Task 3
    review I2: a large fill shows real hatch when zoomed in; the 20k cap
    counts visible cells only).
 6. Cached lattice path keyed `(identity of the tile's compiled op list, eff

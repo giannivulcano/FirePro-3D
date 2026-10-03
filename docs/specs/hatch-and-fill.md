@@ -183,7 +183,10 @@ until that doc is approved.
   pass, no format bump).
 - **D-A30** *(amends D-A10's interim)* Until SB1c, Drafting tiles use the
   **paper viewport's real scale** on paper/PDF and an assumed **1:100** on
-  the model canvas.
+  the model canvas — **including the Block Editor** (user ruling
+  2026-10-02, HF2 Task 4: the editor preview equals the placed block on a
+  1:100 plan; a small symbol that needs a visible hatch uses a Model
+  pattern; Drafting-in-model is the interim HF9 replaces).
 - **D-A31** Pattern lines on paper/PDF use a new **"Hatch"** paper category
   line weight (default 0.13 mm, user-editable).
 - **D-A32** Tile UI: Block Editor ribbon "Pattern tile" toggle → dashed canvas
