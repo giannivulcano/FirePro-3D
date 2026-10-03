@@ -140,6 +140,15 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
                      tile_ref=item.fill_pattern, origin=QPointF(-ox, -oy))]
 
 
+def _norm_tile(tile) -> dict | None:
+    """Normalised tile dict, or None (hatch HD4a tile schema)."""
+    if not tile:
+        return None
+    return {"w": float(tile.get("w", 0.0)), "h": float(tile.get("h", 0.0)),
+            "row_shift": float(tile.get("row_shift", 0.0)),
+            "size": "model" if tile.get("size") == "model" else "drafting"}
+
+
 class BlockDefinition:
     """A named, reusable 2D block definition.
 
@@ -160,7 +169,7 @@ class BlockDefinition:
                  series: str, scale_mode: str, origin: tuple[float, float],
                  attributes: list, primitives: list[dict],
                  render_mode: str = "default", geoms: list[dict] | None = None,
-                 constraints: list | None = None):
+                 constraints: list | None = None, tile: dict | None = None):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -174,6 +183,9 @@ class BlockDefinition:
         # Sketch constraint records (parametric-constraint-system.md §6.3);
         # additive key, absent => [] (no schema bump).
         self.constraints: list[dict] = list(constraints or [])
+        # Pattern-tile capability (hatch D-A9/HD4a): {"w","h","row_shift","size"}
+        # or None. Additive key — absent => None (no schema bump).
+        self._tile: dict | None = _norm_tile(tile)
         # Reference definitions (render_mode="reference") own the curve-preserving,
         # layer-tagged import geom-dict list. This is the geometry data model for
         # imported references — rendered by the batched underlay builder (which
@@ -197,12 +209,13 @@ class BlockDefinition:
     def new(cls, *, name: str, library: str, series: str,
             primitives: list[dict], origin: tuple[float, float],
             render_mode: str = "default",
-            constraints: list | None = None) -> "BlockDefinition":
+            constraints: list | None = None,
+            tile: dict | None = None) -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
                    attributes=[], primitives=primitives, render_mode=render_mode,
-                   constraints=constraints)
+                   constraints=constraints, tile=tile)
 
     @classmethod
     def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
@@ -256,6 +269,27 @@ class BlockDefinition:
         """Drop the compiled render ops + text snap points (next read recompiles)."""
         self._render_ops = None
         self._text_snap_pts = None
+
+    @property
+    def tile(self) -> dict | None:
+        """The pattern tile ``{w, h, row_shift, size}``; None = not a pattern."""
+        return self._tile
+
+    def set_tile(self, tile, *, notify: bool = True) -> None:
+        """Replace the tile, bump the version (pattern caches key on it).
+
+        Args:
+            tile: New tile dict or None.
+            notify: Bump the version and repaint backref instances. False when
+                the caller follows with ``set_primitives``, which does both
+                (one edit = one version bump).
+        """
+        self._tile = _norm_tile(tile)
+        self.invalidate_cache()
+        if notify:
+            self.version += 1
+            for inst in list(self._instances):
+                inst.on_definition_changed()
 
     def render_ops(self) -> list[RenderOp]:
         """Return the cached, shared ``RenderOp`` list.
@@ -437,6 +471,7 @@ class BlockDefinition:
             "primitives": list(self.primitives),
             "render_mode": self.render_mode,
             "constraints": [dict(c) for c in self.constraints],
+            "tile": dict(self._tile) if self._tile else None,
         }
 
     @classmethod
@@ -452,4 +487,5 @@ class BlockDefinition:
             primitives=data.get("primitives", []),
             render_mode=data.get("render_mode", "default"),
             constraints=data.get("constraints", []),
+            tile=data.get("tile"),
         )

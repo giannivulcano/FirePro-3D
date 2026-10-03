@@ -31,6 +31,9 @@ class RenderOp:
         tile_ref: Pattern tile block id or legacy alias (pattern only).
         origin: Pattern origin, definition-local (pattern only).
         scale: Pattern scale multiplier (pattern only).
+
+    Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
+    in place; build a new op (``mapped``).
     """
 
     kind: str

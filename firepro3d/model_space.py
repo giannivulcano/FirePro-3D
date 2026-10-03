@@ -1931,7 +1931,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None):
+                                constraints=None, tile=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -1964,6 +1964,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             constraints: The editor's sketch constraint records
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
+            tile: Pattern tile dict or None (hatch D-A32).
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -1975,15 +1976,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
-                                       constraints=list(constraints or []))
+                                       constraints=list(constraints or []),
+                                       tile=tile)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
             if defn is None:
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.
-            nested = {p.get("block_id") for p in primitives
-                      if p.get("type") == "block_instance"}
+            from .block_registry import prim_refs
+            nested = prim_refs(primitives)
             if any(self._block_registry.would_cycle(block_id, n) for n in nested):
                 from . import block_library
                 why = block_library.LOOP_REASON
@@ -1992,6 +1994,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.name, defn.library, defn.series = name, library, series
             defn.origin = (ox, oy)
             defn.constraints = list(constraints or [])
+            defn.set_tile(tile, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -2004,6 +2007,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                       if place_at is not None else (ox, oy))
             self.place_block_instance(defn.id, (px, py), rotation=0.0)
         self.push_undo_state()
+        self.update()  # section-cut walls/floors repaint against the new tile version (G5)
         return defn
 
     @staticmethod

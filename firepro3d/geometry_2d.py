@@ -20,11 +20,11 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
                          QPolygonF, QTransform)
 from .displayable_item import DisplayableItemMixin
-from .hatch_patterns import PATTERN_NAMES
+from .hatch_patterns import DEFAULT_TILE_REF
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 
-_DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
+_DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
 
 # Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
 # that needs to reject a vanishingly short segment (2d-geometry.md §8).
@@ -125,6 +125,11 @@ class Geometry2DMixin:
         sc = self.scene()
         return getattr(sc, "scale_manager", None) if sc else None
 
+    def _tile_registry(self):
+        """The block registry pattern pickers resolve project tiles through."""
+        sc = self.scene()
+        return getattr(sc, "block_registry", None) if sc else None
+
     def _parse_dim(self, value):
         """Parse a display-formatted or raw numeric value to mm (float or None)."""
         if isinstance(value, (int, float)):
@@ -184,9 +189,11 @@ class Geometry2DMixin:
                              "options": ["none", "solid", "hatch"],
                              "value": self.fill_type}
             if self.fill_type == "hatch":
+                from .hatch_patterns import tile_choices, display_name
+                reg = self._tile_registry()
                 props["Pattern"] = {"type": "enum",
-                                    "options": list(PATTERN_NAMES),
-                                    "value": self.fill_pattern}
+                                    "options": [n for n, _ in tile_choices(reg)],
+                                    "value": display_name(self.fill_pattern, reg)}
             if self.fill_type in ("solid", "hatch"):
                 props["Fill Colour"] = {"type": "color",
                                         "value": self._display_fill_color or "#888888"}
@@ -205,7 +212,8 @@ class Geometry2DMixin:
             self.update()
             return True
         if key == "Pattern":
-            self.fill_pattern = str(value)
+            from .hatch_patterns import ref_from_value
+            self.fill_pattern = ref_from_value(str(value), self._tile_registry())
             self.update()
             return True
         if key == "Fill Colour":
@@ -250,7 +258,8 @@ class Geometry2DMixin:
         f = data.get("fill")
         if f:
             self.fill_type = f.get("type", "none")
-            self.fill_pattern = f.get("pattern", _DEFAULT_FILL_PATTERN)
+            from .hatch_patterns import canonical_ref
+            self.fill_pattern = canonical_ref(f.get("pattern", _DEFAULT_FILL_PATTERN))
             self._display_fill_color = f.get("color")
             self.fill_opacity = f.get("opacity", 0.45)
 

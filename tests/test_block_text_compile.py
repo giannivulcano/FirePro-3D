@@ -1,7 +1,5 @@
 """Guard tests: BlockDefinition compiles a TextItem primitive into a FILLED
 outlined-glyph render op (containment C5.4)."""
-from PyQt6.QtCore import Qt  # noqa: E402
-
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.text_item import TextItem, TextAnnotationData
 

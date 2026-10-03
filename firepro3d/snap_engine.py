@@ -43,6 +43,7 @@ from .gridline import GridlineItem
 from .pipe import Pipe
 from .wall import WallSegment
 from .block_instance import BlockInstance
+from .render_op import STROKE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -1527,7 +1528,7 @@ class SnapEngine:
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
                 for _op in (_defn.render_ops() if _defn is not None else []):
-                    if _op.kind != "stroke":
+                    if _op.kind != STROKE:
                         continue   # text glyphs / fill clips are never endpoint targets (S6)
                     path = _op.path
                     for i in range(path.elementCount()):

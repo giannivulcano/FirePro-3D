@@ -1,239 +1,185 @@
-"""Hatch-pattern registry.
+"""Hatch pattern registry: built-in tile blocks, legacy aliases, picker source.
 
-**Built-in patterns** (diagonal, cross_hatch, horizontal) use Qt's
-``Qt.BrushStyle`` enums — resolution-independent vectors.
-
-**Custom SVG patterns** are loaded from ``graphics/hatch_patterns/*.svg``.
-Line geometry is extracted from the SVG and drawn as real vector lines
-at paint time, clipped to the element shape.  This gives the same
-crispness as the built-in patterns at any zoom level.
-
-SVGs should use a 24×24 viewBox with ``<line>`` or ``<path>`` elements
-using black strokes.  Lines that exit one edge should re-enter the
-opposite edge for seamless tiling.
-
-Call ``make_hatch_brush()`` for built-in patterns or
-``get_pattern_lines()`` + ``draw_svg_hatch()`` for SVG patterns.
+hatch-and-fill.md D-A28 / D-A29, concept HD4a. A pattern is a Block definition
+with a ``tile``. Built-ins are code-level, read-only definitions with frozen
+ids (HF8 replaces their content with shipped System > Hatches blocks; this
+table stays the never-vanish fallback). Pure data at import time —
+``geometry_2d`` imports this module — the built-in definitions are built
+lazily so there is no import cycle through ``block_definition``.
 """
 from __future__ import annotations
 
-import os
-import re
 import math
-from functools import lru_cache
-from xml.etree import ElementTree
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
+BUILTIN_DIAGONAL = "builtin-hatch-diagonal"
+BUILTIN_CROSS_HATCH = "builtin-hatch-cross-hatch"
+BUILTIN_HORIZONTAL = "builtin-hatch-horizontal"
+BUILTIN_CONCRETE = "builtin-hatch-concrete"
+BUILTIN_BRICK = "builtin-hatch-brick"
 
-
-# ── Locate SVG folder ─────────────────────────────────────────────────────────
-
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_SVG_DIR = os.path.join(_THIS_DIR, "graphics", "hatch_patterns")
-
-
-# ── Qt built-in (vector) patterns ─────────────────────────────────────────────
-
-_BUILTIN_STYLES: dict[str, Qt.BrushStyle] = {
-    "diagonal":    Qt.BrushStyle.BDiagPattern,
-    "cross_hatch": Qt.BrushStyle.DiagCrossPattern,
-    "horizontal":  Qt.BrushStyle.HorPattern,
+#: Legacy pattern names (QSettings, DM overrides, old files) → built-in id.
+LEGACY_ALIAS: dict[str, str] = {
+    "diagonal": BUILTIN_DIAGONAL,
+    "cross_hatch": BUILTIN_CROSS_HATCH,
+    "horizontal": BUILTIN_HORIZONTAL,
+    "concrete": BUILTIN_CONCRETE,
 }
 
+DEFAULT_TILE_REF = BUILTIN_DIAGONAL
 
-# ── SVG line extraction ───────────────────────────────────────────────────────
+_SPACING_MM = 3.0   # printed perpendicular spacing of the Drafting test set (D-A28)
 
-_NS = {"svg": "http://www.w3.org/2000/svg"}
+# Picker order + display names (D-A28).
+_BUILTIN_NAMES: list[tuple[str, str]] = [
+    (BUILTIN_DIAGONAL, "Diagonal"),
+    (BUILTIN_CROSS_HATCH, "Cross Hatch"),
+    (BUILTIN_HORIZONTAL, "Horizontal"),
+    (BUILTIN_CONCRETE, "Concrete"),
+    (BUILTIN_BRICK, "Brick"),
+]
+BUILTIN_IDS = frozenset(i for i, _ in _BUILTIN_NAMES)
 
-
-def _parse_viewbox(root) -> tuple[float, float]:
-    """Return (width, height) from the viewBox attribute."""
-    vb = root.get("viewBox", "0 0 24 24")
-    parts = vb.replace(",", " ").split()
-    if len(parts) >= 4:
-        return float(parts[2]), float(parts[3])
-    return 24.0, 24.0
-
-
-def _extract_lines(svg_path: str) -> tuple[float, float, list[tuple[float, float, float, float]]]:
-    """Parse an SVG file and return (tile_w, tile_h, [(x1,y1,x2,y2), ...]).
-
-    Coordinates are in SVG viewBox units.  Only ``<line>`` elements are
-    supported (the most common for hatch patterns).
-    """
-    tree = ElementTree.parse(svg_path)
-    root = tree.getroot()
-    tw, th = _parse_viewbox(root)
-
-    lines: list[tuple[float, float, float, float]] = []
-
-    # Find all <line> elements (with or without namespace)
-    for tag in ("line", "{http://www.w3.org/2000/svg}line"):
-        for elem in root.iter(tag):
-            x1 = float(elem.get("x1", "0"))
-            y1 = float(elem.get("y1", "0"))
-            x2 = float(elem.get("x2", "0"))
-            y2 = float(elem.get("y2", "0"))
-            lines.append((x1, y1, x2, y2))
-
-    return tw, th, lines
+_BUILTINS: dict | None = None
 
 
-@lru_cache(maxsize=64)
-def _cached_pattern_data(svg_path: str):
-    """Cached SVG parse result."""
-    return _extract_lines(svg_path)
+def canonical_ref(ref: str | None) -> str | None:
+    """A legacy name mapped to its built-in id; any other ref unchanged."""
+    if not ref:
+        return ref
+    return LEGACY_ALIAS.get(ref, ref)
 
 
-# ── Discover available patterns ───────────────────────────────────────────────
-
-def _discover_svg_patterns() -> dict[str, str]:
-    """Scan the SVG folder and return {name: filepath} for each .svg."""
-    patterns: dict[str, str] = {}
-    if not os.path.isdir(_SVG_DIR):
-        return patterns
-    for fname in sorted(os.listdir(_SVG_DIR)):
-        if fname.lower().endswith(".svg"):
-            name = os.path.splitext(fname)[0]
-            patterns[name] = os.path.join(_SVG_DIR, fname)
-    return patterns
+def is_builtin_ref(ref: str | None) -> bool:
+    """True if *ref* (id or legacy name) names a built-in tile."""
+    return canonical_ref(ref) in BUILTIN_IDS
 
 
-_SVG_PATTERNS: dict[str, str] = _discover_svg_patterns()
+def _line(x1, y1, x2, y2) -> dict:
+    from PyQt6.QtCore import QPointF
+    from .geometry_2d import LineItem
+    return LineItem(QPointF(x1, y1), QPointF(x2, y2)).to_dict()
 
 
-def refresh_patterns():
-    """Re-scan the SVG folder (call after the user adds new files)."""
-    global _SVG_PATTERNS, PATTERN_NAMES
-    _SVG_PATTERNS.clear()
-    _SVG_PATTERNS.update(_discover_svg_patterns())
-    _cached_pattern_data.cache_clear()
-    PATTERN_NAMES.clear()
-    PATTERN_NAMES.extend(list(_BUILTIN_STYLES.keys()))
-    for name in _SVG_PATTERNS:
-        if name not in _BUILTIN_STYLES:
-            PATTERN_NAMES.append(name)
+def _dot(x, y, r=0.2) -> dict:
+    from PyQt6.QtCore import QPointF
+    from .geometry_2d import CircleItem
+    return CircleItem(QPointF(x, y), r).to_dict()
 
 
-# ── Public constants ──────────────────────────────────────────────────────────
-
-PATTERN_NAMES: list[str] = list(_BUILTIN_STYLES.keys())
-for _n in _SVG_PATTERNS:
-    if _n not in _BUILTIN_STYLES:
-        PATTERN_NAMES.append(_n)
-
-DEFAULT_PATTERNS: dict[str, str] = {
-    "Wall":  "diagonal",
-    "Roof":  "diagonal",
-    "Floor": "diagonal",
-}
+def _tri(pts) -> list[dict]:
+    (a, b, c) = pts
+    return [_line(*a, *b), _line(*b, *c), _line(*c, *a)]
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+def _builtin_specs() -> list[tuple[str, dict, list[dict]]]:
+    """(id, tile, primitives). Tile frame = (0,0)→(w,−h): scene y-down, so −h
+    is screen-up (D-A32). The diagonal rises to the right on screen (45° Y-up)."""
+    d = _SPACING_MM * math.sqrt(2.0)
+    s = _SPACING_MM
+    drafting = lambda w, h, shift=0.0: {"w": w, "h": h, "row_shift": shift,
+                                        "size": "drafting"}
+    concrete = (_tri([(1.0, -1.0), (2.0, -1.2), (1.4, -2.0)])
+                + _tri([(4.0, -3.5), (5.0, -3.8), (4.3, -4.6)])
+                + [_dot(3.0, -1.5), _dot(1.5, -4.5), _dot(5.0, -1.0), _dot(2.6, -5.2)])
+    return [
+        (BUILTIN_DIAGONAL, drafting(d, d), [_line(0, 0, d, -d)]),
+        (BUILTIN_CROSS_HATCH, drafting(d, d), [_line(0, 0, d, -d), _line(0, -d, d, 0)]),
+        (BUILTIN_HORIZONTAL, drafting(s, s), [_line(0, 0, s, 0)]),
+        (BUILTIN_CONCRETE, drafting(6.0, 6.0), concrete),
+        (BUILTIN_BRICK, {"w": 225.0, "h": 75.0, "row_shift": 112.5, "size": "model"},
+         [_line(0, 0, 225.0, 0), _line(0, 0, 0, -75.0)]),
+    ]
 
-def is_builtin(name: str) -> bool:
-    """Return True if *name* maps to a Qt built-in BrushStyle."""
-    return name in _BUILTIN_STYLES
+
+def builtin_tiles() -> dict:
+    """``{frozen id: BlockDefinition}`` of the built-in tiles (built once)."""
+    global _BUILTINS
+    if _BUILTINS is None:
+        from .block_definition import BlockDefinition
+        names = dict(_BUILTIN_NAMES)
+        _BUILTINS = {
+            bid: BlockDefinition(id=bid, version=1, name=names[bid],
+                                 library="System", series="Hatches",
+                                 scale_mode="real_size", origin=(0.0, 0.0),
+                                 attributes=[], primitives=prims, tile=tile)
+            for bid, tile, prims in _builtin_specs()
+        }
+    return _BUILTINS
+
+
+def tile_is_valid(defn) -> bool:
+    """A usable tile: positive W×H and at least one compiled op (edge: empty tile)."""
+    t = getattr(defn, "tile", None)
+    return bool(t) and t["w"] > 0 and t["h"] > 0 and bool(defn.render_ops())
+
+
+def resolve_tile(ref: str | None, registry=None):
+    """Tile definition for *ref*: alias → built-ins → project registry; else None."""
+    ref = canonical_ref(ref)
+    if not ref:
+        return None
+    b = builtin_tiles().get(ref)
+    if b is not None:
+        return b
+    if registry is not None:
+        d = registry.get(ref)
+        if d is not None and d.tile:
+            return d
+    return None
+
+
+def tile_choices(registry=None) -> list[tuple[str, str]]:
+    """``[(display name, ref)]``: built-ins in fixed order, then the project's
+    valid tiled blocks by name. The single source for every pattern picker."""
+    out = list(((n, i) for i, n in _BUILTIN_NAMES))
+    if registry is not None:
+        project = []
+        for bid in registry.ids():
+            d = registry.get(bid)
+            if d is not None and d.tile and tile_is_valid(d):
+                project.append((d.name or bid, bid))
+        out.extend(sorted(project, key=lambda x: x[0].lower()))
+    return out
+
+
+def display_name(ref: str | None, registry=None) -> str:
+    """Picker label for *ref* (falls back to the raw ref for an unknown one)."""
+    d = resolve_tile(ref, registry)
+    return d.name if d is not None else (ref or "")
+
+
+def ref_from_value(value: str, registry=None) -> str:
+    """A picker label or a stored ref → the ref to store (D-A29: ids)."""
+    for name, ref in tile_choices(registry):
+        if value == name:
+            return ref
+    return canonical_ref(value)
+
+
+# Transitional (removed in HF2 Task 5): legacy importers still read these names.
+PATTERN_NAMES: list[str] = list(LEGACY_ALIAS)
 
 
 def is_svg(name: str) -> bool:
-    """Return True if *name* is a custom SVG pattern."""
-    return name in _SVG_PATTERNS and name not in _BUILTIN_STYLES
+    """Transitional (removed in HF2 Task 4): SVG patterns no longer exist."""
+    return False
 
 
-def make_hatch_brush(name: str, tile_size: int = 24,
-                     color: QColor | None = None,
-                     line_width: float = 1.0) -> QBrush:
-    """Return a QBrush for built-in patterns.
+def draw_svg_hatch(*args, **kwargs) -> None:
+    """Transitional (removed in HF2 Task 4): never reached (``is_svg`` is False)."""
 
-    For SVG patterns, use ``draw_svg_hatch()`` instead.
+
+def make_hatch_brush(name: str, tile_size: int = 24, color=None,
+                     line_width: float = 1.0):
+    """Transitional (removed in HF2 Task 4): Qt brush for the legacy paint path.
+
+    Keeps ``displayable_item._apply_hatch_pattern`` / the DM swatch from raising
+    ImportError (a native abort inside paint) until the tile renderer lands.
     """
-    col = color or QColor(100, 100, 100)
-    style = _BUILTIN_STYLES.get(name, Qt.BrushStyle.BDiagPattern)
-    return QBrush(col, style)
-
-
-def draw_svg_hatch(painter: QPainter, clip_path, scene,
-                   name: str, color: QColor,
-                   line_width: float = 1.0,
-                   hatch_scale: float = 1.0):
-    """Draw an SVG hatch pattern as true vector lines, clipped to *clip_path*.
-
-    Lines are cosmetic (constant screen size regardless of zoom).
-    """
-    svg_path = _SVG_PATTERNS.get(name)
-    if svg_path is None:
-        return
-
-    tw, th, lines = _cached_pattern_data(svg_path)
-    if not lines:
-        return
-
-    # Compute zoom-aware tile size in scene units
-    views = scene.views() if scene else []
-    scale = abs(views[0].transform().m11()) if views else 1.0
-    inv = 1.0 / max(scale, 1e-6)
-    tile_w = tw * inv * hatch_scale
-    tile_h = th * inv * hatch_scale
-
-    pen = QPen(color, line_width)
-    pen.setCosmetic(True)
-
-    painter.save()
-    painter.setClipPath(clip_path)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    # Tile lines across the bounding rect
-    rect = clip_path.boundingRect()
-    x0 = rect.left() - tile_w
-    y0 = rect.top() - tile_h
-    x_end = rect.right() + tile_w
-    y_end = rect.bottom() + tile_h
-
-    # Scale factor from SVG viewBox coords to scene tile coords
-    sx = tile_w / tw
-    sy = tile_h / th
-
-    ty = y0
-    while ty < y_end:
-        tx = x0
-        while tx < x_end:
-            for lx1, ly1, lx2, ly2 in lines:
-                painter.drawLine(
-                    QPointF(tx + lx1 * sx, ty + ly1 * sy),
-                    QPointF(tx + lx2 * sx, ty + ly2 * sy))
-            tx += tile_w
-        ty += tile_h
-
-    painter.restore()
-
-
-def make_hatch_tile(name: str, tile_size: int = 24,
-                    color: QColor | None = None,
-                    line_width: float = 1.0) -> QPixmap | None:
-    """Return a QPixmap preview tile for the display manager swatch."""
-    col = color or QColor(100, 100, 100)
-
-    svg_path = _SVG_PATTERNS.get(name)
-    if svg_path is None:
-        return None
-
-    tw, th, lines = _cached_pattern_data(svg_path)
-    if not lines:
-        return None
-
-    pix = QPixmap(tile_size, tile_size)
-    pix.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    pen = QPen(col, max(line_width, 1.0))
-    p.setPen(pen)
-    sx = tile_size / tw
-    sy = tile_size / th
-    for lx1, ly1, lx2, ly2 in lines:
-        p.drawLine(QPointF(lx1 * sx, ly1 * sy),
-                   QPointF(lx2 * sx, ly2 * sy))
-    p.end()
-    return pix
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QColor
+    styles = {BUILTIN_DIAGONAL: Qt.BrushStyle.BDiagPattern,
+              BUILTIN_CROSS_HATCH: Qt.BrushStyle.DiagCrossPattern,
+              BUILTIN_HORIZONTAL: Qt.BrushStyle.HorPattern}
+    style = styles.get(canonical_ref(name), Qt.BrushStyle.BDiagPattern)
+    return QBrush(color or QColor(100, 100, 100), style)
