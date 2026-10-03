@@ -494,6 +494,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.feature_browser.featureActivated.connect(self._on_feature_activated)
         self.blocks_browser = BlocksBrowser(self.scene)
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
+        self.blocks_browser.editRequested.connect(self._edit_block_from_browser)
         # Refuse (e.g. a cycle) BEFORE an italic leaf is loaded — like a drag.
         self.blocks_browser.activation_guard = self._block_activation_refusal
 
@@ -5080,6 +5081,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         dlg = block_open_dialog.BlockOpenDialog(self.scene, self)
         if dlg.exec() and dlg.chosen_id():
             self.block_editor_manager.edit_definition(dlg.chosen_id())
+
+    def _edit_block_from_browser(self, block_id: str):
+        """Blocks browser right-click Edit Block: open the definition's editor tab."""
+        self._commit_text_edits()
+        self.block_editor_manager.edit_definition(block_id)
 
     def _be_save(self):
         w = self._active_editor_widget()

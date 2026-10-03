@@ -15,7 +15,7 @@ import json
 from PyQt6.QtCore import QByteArray, QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (QAbstractItemView, QWidget, QVBoxLayout, QTreeWidget,
-                             QTreeWidgetItem, QFrame)
+                             QTreeWidgetItem, QFrame, QMenu)
 
 from . import block_library
 from .mime_types import MIME_BLOCK
@@ -154,6 +154,7 @@ class BlocksBrowser(QWidget):
     """
 
     blockActivated = pyqtSignal(str)
+    editRequested = pyqtSignal(str)       # block id (project definition)
 
     def __init__(self, scene, parent: QWidget | None = None, *,
                  root: str | None = None) -> None:
@@ -175,6 +176,8 @@ class BlocksBrowser(QWidget):
         self._tree.setIndentation(16)
         from firepro3d.ui_kit import browser_tree_qss
         self._tree.setStyleSheet(browser_tree_qss())
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemDoubleClicked.connect(self._on_item_activated)
         layout.addWidget(self._tree)
@@ -280,3 +283,43 @@ class BlocksBrowser(QWidget):
                                             item.text(0), self._lib_root, self):
             return
         self.blockActivated.emit(block_id)
+
+    # ── context menu ──────────────────────────────────────────────────────
+
+    def _build_context_menu(self, item: QTreeWidgetItem | None) -> QMenu | None:
+        """Right-click menu for a block leaf (``Edit Block``); None for folders.
+
+        Args:
+            item: The tree item under the cursor (None = empty space).
+
+        Returns:
+            The ``QMenu``, or None when *item* is not a block leaf.
+        """
+        if item is None:
+            return None
+        block_id = item.data(0, _ROLE_ID)
+        if not isinstance(block_id, str) or not block_id:
+            return None                              # folder row
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        act = menu.addAction("Edit Block")
+        tip = "Open this block in a Block Editor tab"
+        act.setToolTip(tip)
+        act.setStatusTip(tip)
+        act.triggered.connect(lambda _=False, it=item: self._edit_item(it))
+        return menu
+
+    def _on_context_menu(self, pos) -> None:
+        menu = self._build_context_menu(self._tree.itemAt(pos))
+        if menu is not None:
+            menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _edit_item(self, item: QTreeWidgetItem) -> None:
+        """Make the leaf a project definition (loading a library-only one),
+        then emit ``editRequested``. No placement guard: editing never places."""
+        block_id = item.data(0, _ROLE_ID)
+        path = item.data(0, _ROLE_PATH)
+        if not ensure_block_loaded(self._scene, block_id, path, item.text(0),
+                                   self._lib_root, self):
+            return
+        self.editRequested.emit(block_id)
