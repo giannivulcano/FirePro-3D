@@ -573,3 +573,78 @@ def test_solve_and_diagnose_run_single_threaded():
     finally:
         set_(before)
     assert seen and set(seen) == {1}
+
+
+# ── D18 perf: batched rows == per-row fn ───────────────────────────────────
+
+def _per_row(comp, x):
+    F, gs = [], []
+    for row in comp.rows:
+        r, g = row.fn(x)
+        F.append(r)
+        gs.append(np.asarray(g, dtype=float))
+    v = np.concatenate(gs)
+    return np.array(F), (v if comp.jmask is None else v[comp.jmask])
+
+
+def test_batched_rows_equal_per_row_fn_rect_heavy(qapp):
+    from tests.test_d18_parity import _rect_heavy
+    sc, n = _rect_heavy()
+    try:
+        sys_, _s, _w = sc.constraint_ctl._build(sc.constraint_ctl.active())
+        st = ss._structure(sys_)
+        rng = np.random.default_rng(7)
+        x = sys_.x + rng.normal(0, 0.01, len(sys_.x))      # off the manifold, tilted rects
+        x[st.fixed_vars] = st.fixed_vals
+        for comp in st.comps:
+            if not comp.rows:
+                continue
+            F0, v0 = _per_row(comp, x)
+            F1, v1 = ss._eval_vals(comp, x)
+            assert comp.batch is not None and comp.batch.groups      # really batched
+            assert np.allclose(F1, F0, rtol=0, atol=1e-12)
+            assert np.allclose(v1, v0, rtol=0, atol=1e-12)
+    finally:
+        sc.cleanup()
+
+
+def test_batched_rows_equal_per_row_fn_mixed(qapp):
+    """Generic fallback (arc / polygon rows), const ends (origin) and raw +
+    rect batch rows in one component."""
+    from tests.test_d18_parity import _mixed
+    sc, n = _mixed()
+    try:
+        sys_, _s, _w = sc.constraint_ctl._build(sc.constraint_ctl.active())
+        st = ss._structure(sys_)
+        x = np.array(sys_.x)
+        x[st.fixed_vars] = st.fixed_vals
+        kinds = set()
+        for comp in st.comps:
+            if not comp.rows:
+                continue
+            F0, v0 = _per_row(comp, x)
+            F1, v1 = ss._eval_vals(comp, x)
+            kinds |= {"generic"} if comp.batch.generic else set()
+            kinds |= {"batched"} if comp.batch.groups else set()
+            assert np.allclose(F1, F0, rtol=0, atol=1e-12)
+            assert np.allclose(v1, v0, rtol=0, atol=1e-12)
+        assert kinds == {"generic", "batched"}                      # VC2: both paths ran
+    finally:
+        sc.cleanup()
+
+
+def test_shared_deps_row_batches_like_fn():
+    """A Horizontal on a rect EDGE: both ends read the same 5 vars (deduped deps)."""
+    from firepro3d.sketch_adapters import _RECT_LOCAL, _rect_point_fn
+    pa = ss.PointExpr(idx=(0, 1, 2, 3, 4), fn=_rect_point_fn(*_RECT_LOCAL["tl"]),
+                      fam=("rect", _RECT_LOCAL["tl"]))
+    pb = ss.PointExpr(idx=(0, 1, 2, 3, 4), fn=_rect_point_fn(*_RECT_LOCAL["tr"]),
+                      fam=("rect", _RECT_LOCAL["tr"]))
+    s = ss.System(x=np.array([10.0, 20.0, 50.0, 30.0, 0.3]))
+    ss.build_horizontal("h", (pa, pb), s)
+    st = ss._structure(s)
+    comp = st.comps[0]
+    F0, v0 = _per_row(comp, s.x)
+    F1, v1 = ss._eval_vals(comp, s.x)
+    assert comp.batch.groups and not comp.batch.generic
+    assert np.allclose(F1, F0, atol=1e-12) and np.allclose(v1, v0, atol=1e-12)

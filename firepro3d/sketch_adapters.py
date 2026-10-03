@@ -14,7 +14,7 @@ import numpy as np
 from PyQt6.QtCore import QPointF, QRectF
 
 from .geometry_2d import ARC_MIN_RADIUS, CIRCLE_MIN_RADIUS, RECT_MIN_SIZE
-from .sketch_solver import ANG_SCALE, PointExpr, raw_point
+from .sketch_solver import ANG_SCALE, PointExpr, raw_point, register_point_family
 
 # D28 (user, 2026-10-01): angle variables are stiff -- 1 rad costs as much as
 # 1000 mm of travel.
@@ -209,6 +209,28 @@ def _rect_point_fn(su, sv):
     return fn
 
 
+def _rect_point_batch(V, P):
+    """Batched ``_rect_point_fn``: V (k, 5) = cx cy w h th, P (k, 2) = su sv."""
+    cx, cy, w, h, th = V.T
+    su, sv = P.T
+    u, vv = su * w / 2.0, sv * h / 2.0
+    c, s = np.cos(th), np.sin(th)
+    pts = np.stack([cx + u * c + vv * s, cy - u * s + vv * c], axis=1)
+    dp = np.zeros((len(V), 2, 5))
+    dp[:, 0, 0] = 1.0
+    dp[:, 0, 2] = su / 2.0 * c
+    dp[:, 0, 3] = sv / 2.0 * s
+    dp[:, 0, 4] = -u * s + vv * c
+    dp[:, 1, 1] = 1.0
+    dp[:, 1, 2] = -su / 2.0 * s
+    dp[:, 1, 3] = sv / 2.0 * c
+    dp[:, 1, 4] = -u * c - vv * s
+    return pts, dp
+
+
+register_point_family("rect", _rect_point_batch)
+
+
 class _RectAdapter(_Adapter):
     """vars cx cy w h th (scene centre; th = Y-up CCW radians). Write-back
     canonicalises the pivot to the centre (pivot=None) — identical scene
@@ -232,7 +254,7 @@ class _RectAdapter(_Adapter):
 
     def points(self, it, off):
         idx = tuple(range(off, off + 5))
-        return {name: PointExpr(idx=idx, fn=_rect_point_fn(su, sv))
+        return {name: PointExpr(idx=idx, fn=_rect_point_fn(su, sv), fam=("rect", (su, sv)))
                 for name, (su, sv) in _RECT_LOCAL.items()}
 
     def edges(self, it, off):

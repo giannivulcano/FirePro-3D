@@ -83,12 +83,16 @@ class PointExpr:
 
     Exactly one form: ``const`` (a ground), ``raw`` (the point IS two variables
     — substitutable), or ``idx`` + ``fn`` (derived;
-    ``fn(x[list(idx)]) -> (p[2], dp[2, len(idx)])``).
+    ``fn(x[list(idx)]) -> (p[2], dp[2, len(idx)])``). A derived point may
+    also carry ``fam`` = ``(name, params)``, naming a registered batched point
+    family (:func:`register_point_family`) that computes the same point for
+    many rows at once (D18); ``fn`` stays the per-point reference.
     """
     idx: tuple = ()
     fn: Callable | None = None
     raw: tuple | None = None
     const: tuple | None = None
+    fam: tuple | None = None      # (family name, params): batched form of ``fn`` (D18)
 
     @property
     def deps(self) -> tuple:
@@ -113,12 +117,27 @@ def const_point(px: float, py: float) -> PointExpr:
     return PointExpr(const=(float(px), float(py)))
 
 
+POINT_FAMILIES: dict = {}
+
+
+def register_point_family(name: str, fn: Callable) -> None:
+    """Register a batched point family: ``fn(V (k, m), P (k, p)) ->
+    (pts (k, 2), dp (k, 2, m))`` -- row i equals the matching
+    ``PointExpr.fn(V[i])`` (parity-tested)."""
+    POINT_FAMILIES[name] = fn
+
+
+def _raw_batch(V, _P):
+    return V, np.broadcast_to(np.eye(2), (len(V), 2, 2))
+
+
 @dataclass
 class Row:
     """One residual: ``fn(x) -> (r, grad)``; ``grad`` follows ``deps``."""
     cid: str
     deps: tuple
     fn: Callable
+    spec: tuple | None = None     # ("axis", axis, a, b): batchable form (D18)
 
 
 @dataclass
@@ -216,7 +235,7 @@ class _Component:
     than the dense product).
     """
     __slots__ = ("vars", "var_lcol", "ncols", "rows", "jidx", "jmask", "fgroups",
-                 "ja", "jc", "pe", "pf", "pidx", "pc")
+                 "ja", "jc", "pe", "pf", "pidx", "pc", "batch")
 
     def __init__(self, ncols: int):
         self.ncols = ncols
@@ -228,6 +247,84 @@ class _Component:
         self.fgroups = set()    # fixed groups its rows read
         self.ja = self.jc = None                   # COO entry row / local col
         self.pe = self.pf = self.pidx = self.pc = None   # same-column entry pairs
+        self.batch = None       # _RowBatch, built on first eval (lives with the cached structure)
+
+
+class _RowBatch:
+    """Vectorised residuals + gradient values of one component's rows (D18).
+
+    Axis rows (``Row.spec == ("axis", axis, a, b)``) whose ends are raw,
+    const or a registered point family are evaluated one numpy call per
+    family; every other row falls back to its own ``fn``. The output order
+    equals the per-row concatenation (``_eval_vals`` contract).
+    """
+    __slots__ = ("nr", "total", "F0", "groups", "generic")
+
+    def __init__(self, rows):
+        nr = len(rows)
+        lens = np.array([len(r.deps) for r in rows], dtype=np.intp)
+        offs = np.concatenate(([0], np.cumsum(lens)))
+        self.nr, self.total = nr, int(offs[-1])
+        self.F0 = np.zeros(nr)
+        self.generic = []
+        acc: dict = {}
+        for a, row in enumerate(rows):
+            ends = _batch_ends(row)
+            if ends is None:
+                self.generic.append((a, row, int(offs[a])))
+                continue
+            axis, pa, pb = ends
+            pos = {d: k for k, d in enumerate(row.deps)}
+            for sign, p in ((-1.0, pa), (1.0, pb)):
+                if p.const is not None:
+                    self.F0[a] += sign * p.const[axis]
+                    continue
+                name, par = ("raw", ()) if p.raw is not None else p.fam
+                g = acc.setdefault((name, len(p.deps)), ([], [], [], [], [], []))
+                g[0].append(p.deps)
+                g[1].append(par)
+                g[2].append(a)
+                g[3].append(sign)
+                g[4].append(axis)
+                g[5].append([int(offs[a]) + pos[d] for d in p.deps])
+        self.groups = []
+        for (name, _m), (idx, par, ra, sg, ax, tg) in acc.items():
+            fn = _raw_batch if name == "raw" else POINT_FAMILIES[name]
+            k = len(idx)
+            self.groups.append((fn, np.array(idx, dtype=np.intp),
+                                np.array(par, dtype=float).reshape(k, -1),
+                                np.array(ra, dtype=np.intp), np.array(sg),
+                                np.array(ax, dtype=np.intp), np.array(tg, dtype=np.intp),
+                                np.arange(k)))
+
+    def eval(self, x):
+        """``(F, v)``: residuals and the unmasked concatenated gradients."""
+        nr, total = self.nr, self.total
+        F = self.F0.copy()
+        v = np.zeros(total)
+        for fn, idx, par, ra, sg, ax, tg, k in self.groups:
+            pts, dp = fn(x[idx], par)
+            F += np.bincount(ra, weights=sg * pts[k, ax], minlength=nr)
+            v += np.bincount(tg.ravel(), weights=(sg[:, None] * dp[k, ax, :]).ravel(),
+                             minlength=total)
+        for a, row, off in self.generic:
+            r, g = row.fn(x)
+            F[a] = r
+            v[off:off + len(g)] = g
+        return F, v
+
+
+def _batch_ends(row):
+    """``(axis, a, b)`` when *row* is a batchable axis row, else None."""
+    spec = row.spec
+    if not spec or spec[0] != "axis":
+        return None
+    _kind, axis, pa, pb = spec
+    for p in (pa, pb):
+        if p.const is None and p.raw is None and (
+                p.fam is None or p.fam[0] not in POINT_FAMILIES):
+            return None
+    return axis, pa, pb
 
 
 class _Structure:
@@ -362,14 +459,11 @@ def _structure(sys: System) -> _Structure:
 
 
 def _eval_vals(comp: _Component, x: np.ndarray):
-    """Residuals ``F`` and the sparse Jacobian values (parallel to ``ja``/``jc``)."""
-    F = np.empty(len(comp.rows))
-    gs = []
-    for a, row in enumerate(comp.rows):
-        r, g = row.fn(x)
-        F[a] = r
-        gs.append(g)
-    v = np.concatenate(gs).astype(float, copy=False)
+    """Residuals ``F`` and the sparse Jacobian values (parallel to ``ja``/``jc``),
+    batched per point family (D18; generic rows use their own ``fn``)."""
+    if comp.batch is None:
+        comp.batch = _RowBatch(comp.rows)
+    F, v = comp.batch.eval(x)
     if comp.jmask is not None:
         v = v[comp.jmask]
     return F, v
@@ -517,6 +611,7 @@ class NumpySolver:
 
         # -- per-component projection (§7.2) ---------------------------------
         maxima: list[float] = []      # reduced with np.max: NaN must propagate
+        recheck: list = []            # components that stopped without the tight check
         for ci in comp_ids:
             comp = st.comps[ci]
             mv, lc, nc = comp.vars, comp.var_lcol, comp.ncols
@@ -563,7 +658,9 @@ class NumpySolver:
                 if float(np.max(np.abs(dz))) < STEP_TOL * scale:
                     break
             if not tight:
-                checked.extend(comp.rows)       # step-tol / cap / divergence: re-check at x
+                recheck.append(comp)
+        for comp in recheck:                 # step-tol / cap / divergence: re-check at x
+            maxima.append(float(np.max(np.abs(_eval_vals(comp, x)[0]))))
         if checked:
             maxima.extend(abs(float(row.fn(x)[0])) for row in checked)
         worst = float(np.max(maxima)) if maxima else 0.0
@@ -648,7 +745,7 @@ def _axis_equal(axis: int, cid: str, ends, sys: System) -> None:
             g[pos[d]] += db[axis, c]
         return float(pb[axis] - pa[axis]), g
 
-    sys.rows.append(Row(cid, deps, fn))
+    sys.rows.append(Row(cid, deps, fn, spec=("axis", axis, a, b)))
 
 
 def build_horizontal(cid: str, ends, sys: System) -> None:
