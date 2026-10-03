@@ -591,17 +591,11 @@ def _rect_heavy(sc):
 
 
 @pytest.mark.perf
-@pytest.mark.xfail(strict=True, reason=(
-    "D18 rect-heavy worst case — perf follow-up before CS3 (vectorised derived "
-    "rows, skip D34 second pass when no size/angle moves, no full-snapshot "
-    "rewrite per frame)"))
-def test_d18_rect_heavy_worst_case_drag_frames(qapp):
-    """Grip-drag frame (ctl.drag) and D35 body-drag frame (ctl.drag_frame
-    with the release bake's translate) on the rect-heavy component vs 8 ms."""
-    from firepro3d.selection_manipulator import bake_translate
+def test_d18_rect_heavy_grip_drag_frame(qapp):
+    """Grip-drag frame (ctl.drag) on the rect-heavy component vs 8 ms."""
     sc = Model_Space(scene_role="block_editor")
     try:
-        rs, _ls = _rect_heavy(sc)
+        rs, ls = _rect_heavy(sc)
         ctl = sc.constraint_ctl
         it = rs[50]
         ctl.begin_drag(it)
@@ -613,6 +607,28 @@ def test_d18_rect_heavy_worst_case_drag_frames(qapp):
             ctl.drag(it, 4)
             grip.append((time.perf_counter() - t) * 1e3)
         ctl.end_drag()
+        assert ls[50]._pt1.y() == pytest.approx(QPointF(it.grip_points()[4]).y(), abs=1e-6)
+        g = sorted(grip)[len(grip) // 2]
+        print(f"rect-heavy grip-drag frame median {g:.2f} ms")
+        assert g <= 8.0, g
+    finally:
+        sc.cleanup()
+
+
+@pytest.mark.perf
+@pytest.mark.xfail(strict=True, reason=(
+    "D18 rect-heavy D35 body frame ~10-13 ms (2026-10-03, after the D18 perf "
+    "task): floor = ~4 dense 299x299 LU solves (both D34 passes) + Qt writes "
+    "of the ~193 items that really move; follow-up: sparse/banded solve"))
+def test_d18_rect_heavy_body_drag_frame(qapp):
+    """D35 body-drag frame (ctl.drag_frame with the release bake's translate)
+    on the rect-heavy component vs 8 ms."""
+    from firepro3d.selection_manipulator import bake_translate
+    sc = Model_Space(scene_role="block_editor")
+    try:
+        rs, _ls = _rect_heavy(sc)
+        ctl = sc.constraint_ctl
+        it = rs[50]
         ctl.begin_drag([it])
         body = []
         for k in range(1, 22):
@@ -621,11 +637,9 @@ def test_d18_rect_heavy_worst_case_drag_frames(qapp):
             ctl.drag_frame([it], lambda: bake_translate(it, d, d), reset=True)
             body.append((time.perf_counter() - t) * 1e3)
         ctl.end_drag()
-        g = sorted(grip)[len(grip) // 2]
         b = sorted(body)[len(body) // 2]
-        print(f"rect-heavy grip-drag frame median {g:.2f} ms; "
-              f"body-drag frame median {b:.2f} ms")
-        assert g <= 8.0 and b <= 8.0, (g, b)
+        print(f"rect-heavy body-drag frame median {b:.2f} ms")
+        assert b <= 8.0, b
     finally:
         sc.cleanup()
 
