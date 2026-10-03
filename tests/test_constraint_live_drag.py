@@ -699,3 +699,28 @@ def test_d18_rect_heavy_commit_bar(qapp):
         assert ms <= 50.0, f"commit {ms:.1f} ms"
     finally:
         sc.cleanup()
+
+
+# ── CS3: a drag never snaps onto a partner the solve is moving ───────────────
+
+def test_constrained_body_drag_never_snaps_to_a_partners_stale_spot(be):
+    """Filed CS1 VC9 R2 (absorbed CS3): an H-tied partner end moves with the
+    drag every frame; its PRESS-time spot must not stay a handle-snap target
+    (here it lies 4 px from where the dragged end belongs)."""
+    v, sc = be
+    sc._snap_enabled = True                    # the bug is a snap pull-back
+    a = _line(sc, (300, 100), (400, 100))
+    c = _line(sc, (450, 100), (550, 160))
+    assert sc.constraint_ctl.add("horizontal", [{"uid": a._uid, "h": "p2"},
+                                                {"uid": c._uid, "h": "p1"}])
+    a.setSelected(True)
+    QApplication.processEvents()
+    grab = QPointF(325, 100)                   # body, off every grip
+    _press(v, grab)
+    for off in ((12, 0), (25, 0), (38, 0), (50, 4)):
+        _move(v, grab + QPointF(*off))
+    # Without the fix a.p2 snaps onto c.p1's stale (450, 100): y pulled to 100.
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((450.0, 104.0), abs=0.05)
+    assert c._pt1.y() == pytest.approx(a._pt2.y(), abs=1e-6)
+    _release(v, grab + QPointF(50, 4))
+    assert a._pt2.y() == pytest.approx(104.0, abs=0.05)

@@ -60,6 +60,10 @@ class _RecCtl:
     def cancel_pick(self):
         """set_mode ends any D21 pick session (not a geometry seam: unrecorded)."""
 
+    def drag_partners(self, items):
+        """CS3 handle/cursor-snap exclusion set; none here (unrecorded)."""
+        return []
+
     def refuse_grounded(self, items):
         """D17 (CS3) predicate at tool entry / commits; never refuses here
         (not a geometry seam: unrecorded)."""

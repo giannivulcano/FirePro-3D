@@ -61,14 +61,19 @@ class HandleSnapSession:
         exclude_moving: When True (default) the moving items are not snap
             targets. Duplicate passes False: its originals stay put and
             remain targets (scene-tools.md D6).
+        also_exclude: Items that are never targets but are NOT handle
+            sources -- a constrained drag's partners, which the solve moves
+            every frame (parametric-constraint-system.md §8, CS3).
     """
 
     def __init__(self, engine, scene, view, moving, anchor: QPointF,
-                 extra_handles=(), exclude_moving: bool = True):
+                 extra_handles=(), exclude_moving: bool = True,
+                 also_exclude=()):
         self._engine = engine
         self._scene = scene
         self._exclude_moving = exclude_moving
         self._moving = set(moving)
+        self._not_targets = (self._moving if exclude_moving else set()) | set(also_exclude)
         self._anchor0 = QPointF(anchor)
         self._handles = self._build_handles(engine, moving, anchor,
                                             extra_handles)
@@ -192,7 +197,7 @@ class HandleSnapSession:
         for item in items:
             if item in skip:
                 continue
-            if self._exclude_moving and self._is_moving(item):
+            if self._is_excluded(item):
                 continue
             if not _se.is_snap_target(item, skip_pipes=engine.skip_pipes):
                 continue
@@ -214,18 +219,19 @@ class HandleSnapSession:
                 grid.setdefault((floor(px / c), floor(py / c)), []).append(
                     ("origin", p, None, None))
 
-    def _is_moving(self, item) -> bool:
-        """Whether *item* or any ancestor is in the moving set.
+    def _is_excluded(self, item) -> bool:
+        """Whether *item* or any ancestor is never a target: a moving item
+        (when ``exclude_moving``) or an ``also_exclude`` item.
 
         Args:
             item: A scene item.
 
         Returns:
-            True for a moving item or one of its children.
+            True for an excluded item or one of its children.
         """
         p = item
         while p is not None:
-            if p in self._moving:
+            if p in self._not_targets:
                 return True
             p = p.parentItem()
         return False

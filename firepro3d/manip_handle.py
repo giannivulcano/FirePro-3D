@@ -251,8 +251,14 @@ class GripHandle(Handle):
         # excluding this item; else grid).
         self._prev_grip_item = getattr(sc, "_grip_item", None)
         self._prev_grip_dragging = getattr(sc, "_grip_dragging", False)
+        self._prev_grip_partners = getattr(sc, "_grip_partners", frozenset())
         sc._grip_item = self.item
         sc._grip_dragging = True
+        # CS3: the items the solve moves with this grip are never cursor-snap
+        # targets (they sit one frame behind -- the drag would stick).
+        ctl0 = getattr(sc, "constraint_ctl", None)
+        sc._grip_partners = (frozenset(ctl0.drag_partners([self.item]))
+                             if ctl0 is not None else frozenset())
         # Snapshot every grip point for an exact Esc restore.
         self._snapshot = list(self.item.grip_points())
         self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
@@ -357,6 +363,7 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+        sc._grip_partners = getattr(self, "_prev_grip_partners", frozenset())
 
 
 class TranslateGripHandle(GripHandle):
@@ -404,8 +411,11 @@ class TranslateGripHandle(GripHandle):
             view = m._view() if hasattr(m, "_view") else None
             if engine is not None and view is not None:
                 from .handle_snap import HandleSnapSession
+                ctl = getattr(sc, "constraint_ctl", None)
+                partners = ctl.drag_partners([self.item]) if ctl is not None else []
                 self._hs = HandleSnapSession(engine, sc, view, [self.item],
-                                             self._snapshot[self.index])
+                                             self._snapshot[self.index],
+                                             also_exclude=partners)
         return getattr(self, "_hs", None)
 
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:

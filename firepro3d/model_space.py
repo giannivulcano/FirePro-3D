@@ -420,6 +420,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_dragging: bool = False
+        # Constraint partners the solve moves with the grip: never snap targets (CS3)
+        self._grip_partners: frozenset = frozenset()
         # Gridline body drag (perpendicular constraint)
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
@@ -1211,6 +1213,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
         self._grip_dragging = False
+        self._grip_partners = frozenset()
         # ALIGN active-item: arm the seam for EVERY point-asking placement mode
         # (spec 2026-08-26 universal client scope — see ``_ALIGN_PLACEMENT_MODES``).
         # New-item placement modes have no scene item to self-exclude, so they
@@ -2895,6 +2898,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
+    def _not_grip_partner(self, item) -> bool:
+        """``find`` item_filter during a grip drag: False for an item the
+        constraint solve moves with the grip (``_grip_partners``, CS3)."""
+        return item not in self._grip_partners
+
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
         together in a single ``find()``, underlay geometry included), else the
@@ -2990,6 +2998,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             exclude=(self._grip_item if self._grip_dragging
                      else self._offset_source if self.mode == "offset_side"
                      else None),
+            # CS3: a grip's constraint partners move with it every frame.
+            item_filter=(self._not_grip_partner
+                         if self._grip_dragging and self._grip_partners else None),
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,

@@ -1416,8 +1416,10 @@ class SelectionManipulator(QGraphicsObject):
         if engine is None or view is None:
             return None
         from .handle_snap import HandleSnapSession
+        ctl = getattr(sc, "constraint_ctl", None)
+        partners = ctl.drag_partners(self._items) if ctl is not None else []
         return HandleSnapSession(engine, sc, view, list(self._items),
-                                 self._start_scene)
+                                 self._start_scene, also_exclude=partners)
 
     def _set_handle_marker(self, res) -> None:
         """Publish (or clear) the S2 handle-snap marker on the scene.

@@ -436,6 +436,25 @@ class ConstraintController:
         uids = self.constrained_uids()
         return any(getattr(it, "_uid", None) in uids for it in items)
 
+    def drag_partners(self, items) -> list:
+        """Items a drag of *items* can move through the solve: everything
+        constraint-connected to them (active constraints, transitively),
+        *items* excluded. A drag's handle-snap session never targets them --
+        they move every frame, so their spots are stale (CS3; was CS1 VC9 R2).
+        """
+        if not self.enabled:
+            return []
+        uids = {getattr(it, "_uid", None) for it in items} - {None}
+        cons = self.active()
+        if not uids or not cons:
+            return []
+        by = self.item_by_uid()
+        out = []
+        for group in self._groups(cons):
+            if group & uids:
+                out += [by[u] for u in group - uids if u in by]
+        return out
+
     def refuse_grounded(self, items) -> bool:
         """D17 (CS3 ruling): True -- with ``GROUNDED_STATUS`` posted -- when
         any of *items* is fully defined (its own D41 state, per-item DOF 0).
