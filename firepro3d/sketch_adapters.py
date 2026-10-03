@@ -90,6 +90,7 @@ class _Adapter:
         raise NotImplementedError
 
     def nvars(self, item) -> int:
+        """Variable count; subclasses answer without a read (D18 drag bar)."""
         return len(self.read(item))
 
     def var_weights(self, item) -> list:
@@ -171,6 +172,9 @@ class _LineAdapter(_Adapter):
     def __init__(self, key):
         self.type_key = key
 
+    def nvars(self, it):
+        return 4
+
     def read(self, it):
         return [it._pt1.x(), it._pt1.y(), it._pt2.x(), it._pt2.y()]
 
@@ -212,6 +216,9 @@ class _RectAdapter(_Adapter):
 
     type_key = "draw_rectangle"
 
+    def nvars(self, it):
+        return 5
+
     def read(self, it):
         r = it.rect()
         c = it._rotation_transform().map(r.center())
@@ -245,6 +252,9 @@ class _CircleAdapter(_Adapter):
 
     type_key = "draw_circle"
 
+    def nvars(self, it):
+        return 3
+
     def read(self, it):
         return [it._center.x(), it._center.y(), float(it._radius)]
 
@@ -277,6 +287,9 @@ class _ArcAdapter(_Adapter):
     """vars cx cy r ts te (radians, Y-up CCW). Endpoint = c + r(cos t, -sin t)."""
 
     type_key = "arc"
+
+    def nvars(self, it):
+        return 5
 
     def read(self, it):
         ts = math.radians(it._start_deg)
@@ -325,6 +338,9 @@ class _PolylineAdapter(_Adapter):
 
     type_key = "polyline"
 
+    def nvars(self, it):
+        return 2 * len(it._points)
+
     def read(self, it):
         out = []
         for p in it._points:
@@ -371,6 +387,9 @@ class _CenterRotAdapter(_Adapter):
 
     def __init__(self, key, fields, floors):
         self.type_key, self._fields, self._floors = key, fields, floors
+
+    def nvars(self, it):
+        return 2 + len(self._fields)
 
     def read(self, it):
         vals = [it._center.x(), it._center.y()]
@@ -444,6 +463,9 @@ class _InsAdapter(_Adapter):
 
     def __init__(self, key):
         self.type_key = key
+
+    def nvars(self, it):
+        return 2
 
     def read(self, it):
         if self.type_key == "text":
