@@ -521,6 +521,9 @@ class SceneIOMixin:
                 self.removeItem(inst)
         self._block_instances = []
         self._block_definitions.clear()   # keep the registry's store identity
+        # Block Editor pattern tile (hatch D-A32): clear() below deletes the frame.
+        self.block_tile = None
+        self._tile_frame = None
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
         self._draw_rect_side_pt = None

@@ -132,6 +132,10 @@ def set_tile_property(scene, editor, key, value) -> None:
         if mm is None:
             return
         t[field] = max(mm, _MIN_TILE) if field in ("w", "h") else max(mm, 0.0)
+    # 0 <= row shift <= W on every path (the shift grip clamps the same way).
+    t["row_shift"] = min(t["row_shift"], t["w"])
+    if t == scene.block_tile:
+        return                          # re-committed value: no duplicate step
     scene.set_block_tile(t)
 
 

@@ -124,6 +124,11 @@ class ModifyToolsController:
             # manip_scale_about (text, blocks, pipes, walls, gridlines… don't).
             s._show_status(self.nothing_to_hint(tool), 3000)
             return False
+        if tool == "move" and not self._transformable(sel):
+            # Only anchored overlays (the Block Editor tile frame) selected:
+            # nothing can move, so no mode and no empty undo step.
+            s._show_status("Nothing to move", 3000)
+            return False
         if tool == "array" and not self._array_copyable(sel):
             # Review I3: paste_items can't re-create walls, rooms, floors,
             # roofs or design areas — refuse up front, not "Nothing arrayed".
@@ -184,8 +189,8 @@ class ModifyToolsController:
         for it in items or ():
             if isinstance(it, Sprinkler) and it.node is not None:
                 it = it.node
-            if id(it) in seen:
-                continue
+            if id(it) in seen or getattr(it, "MANIP_ANCHORED", False):
+                continue                   # anchored overlays never move
             if (isinstance(it, Node) or hasattr(it, "translate")
                     or hasattr(it, "manip_translate")):
                 seen.add(id(it))

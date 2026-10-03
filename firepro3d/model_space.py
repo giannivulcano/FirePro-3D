@@ -978,7 +978,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         # The Block Editor tile frame is an overlay, never deletable geometry
         # (D-A32): the "Pattern tile" toggle owns its lifetime.
-        selected = [i for i in items if i.data(0) != "tile_frame"]
+        from .tile_frame import TILE_FRAME_TAG
+        selected = [i for i in items if i.data(0) != TILE_FRAME_TAG]
         if not selected:
             return
         selected_set = set(selected)
@@ -1621,8 +1622,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             push_undo: Push one undo step (False inside a grip drag or an
                 undo restore — the caller owns the step).
         """
+        from PyQt6 import sip
         from .tile_frame import TileFrameItem
-        if self._tile_frame is not None and self._tile_frame.scene() is not self:
+        f = self._tile_frame
+        if f is not None and (sip.isdeleted(f) or f.scene() is not self):
             self._tile_frame = None          # swept out of the scene elsewhere
         if self._tile_frame is not None:
             self._tile_frame.prepare_tile_change()   # bounds follow the tile
@@ -7453,7 +7456,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def copy_selected_items(self):
         """Immediate copy (copy-to-level / internal callers): versioned payload
         with base = the selection's bounding-box centre (scene-tools.md D4)."""
-        items = list(self.selectedItems())
+        from .tile_frame import TILE_FRAME_TAG
+        # The tile frame is never copied, so it never shifts the base point.
+        items = [it for it in self.selectedItems() if it.data(0) != TILE_FRAME_TAG]
         rect = QRectF()
         for it in items:
             rect = rect.united(it.sceneBoundingRect())
@@ -7654,6 +7659,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for item in self._selected_items:
             if isinstance(item, Sprinkler) and item.node is not None:
                 item = item.node
+            if getattr(item, "MANIP_ANCHORED", False):
+                continue                   # anchored overlay (tile frame)
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)

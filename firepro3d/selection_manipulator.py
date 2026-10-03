@@ -393,6 +393,7 @@ class SelectionManipulator(QGraphicsObject):
         self._last_from_center: bool = False   # Ctrl state of the last resize drag frame
         self._items0: List[Tuple[QGraphicsItem, QTransform,
                                  QTransform, QTransform]] = []
+        self._anchored_only = False   # gesture over MANIP_ANCHORED items only
         self._D = QTransform()
         self._held_snap = None
         self._handle_snap = None      # S2 HandleSnapSession (per move gesture)
@@ -1022,9 +1023,19 @@ class SelectionManipulator(QGraphicsObject):
     # ------------------------------------------------------------- dragging --
 
     def _snapshot_items(self) -> None:
-        """Capture per-item pre-drag transforms. Byte copy of the loop from _begin."""
+        """Capture per-item pre-drag transforms. Byte copy of the loop from _begin.
+
+        ``MANIP_ANCHORED`` items (wrapped only for their grips, e.g. the Block
+        Editor tile frame) are left out, so no gesture ever transforms them;
+        ``_anchored_only`` records a selection of nothing else (its frame box
+        stays put too, see :meth:`_apply`).
+        """
         self._items0 = []
+        self._anchored_only = bool(self._items) and all(
+            getattr(it, "MANIP_ANCHORED", False) for it in self._items)
         for it in self._items:
+            if getattr(it, "MANIP_ANCHORED", False):
+                continue
             s0 = it.sceneTransform()
             inv, ok = s0.inverted()
             if ok:
@@ -1138,6 +1149,8 @@ class SelectionManipulator(QGraphicsObject):
         if self._live is not None:
             self._live_apply(d)
             return
+        if self._anchored_only:
+            return                      # nothing movable: the box stays put too
         self.setTransform(self._B0 * d)
         for it, s0, s0_inv, t0 in self._items0:
             it.setTransform(s0 * d * s0_inv * t0)

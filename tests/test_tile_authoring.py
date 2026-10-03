@@ -67,10 +67,15 @@ def test_tile_on_refused_for_a_placed_symbol(qapp):
                             primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()])
     proj.register_block_definition(d)
     proj.place_block_instance(d.id, (0.0, 0.0))
+    proj.place_block_instance(d.id, (50.0, 0.0))
     w = BlockEditorWidget(proj, block_id=d.id)
     w.seed_from_definition(d)
+    msgs = []
+    w.editor_scene._show_status = lambda m, t=5000: msgs.append(m)
     assert w.toggle_pattern_tile() is False
     assert w.editor_scene.block_tile is None
+    assert msgs == ["Used as a symbol (2 placed) — remove those before "
+                    "making it a pattern"]
 
 
 def test_tile_on_refused_for_a_nested_symbol(qapp):
@@ -82,10 +87,15 @@ def test_tile_on_refused_for_a_nested_symbol(qapp):
                                primitives=[{"type": "block_instance", "block_id": d.id,
                                             "pos": [0.0, 0.0], "rotation": 0.0}])
     proj.register_block_definition(host)
+    proj.place_block_instance(d.id, (0.0, 0.0))
     w = BlockEditorWidget(proj, block_id=d.id)
     w.seed_from_definition(d)
+    msgs = []
+    w.editor_scene._show_status = lambda m, t=5000: msgs.append(m)
     assert w.toggle_pattern_tile() is False
     assert w.editor_scene.block_tile is None
+    assert msgs == ["Used as a symbol (1 placed, 1 nested in other blocks) "
+                    "— remove those before making it a pattern"]
 
 
 def test_frame_survives_delete_and_is_not_gathered(qapp):
@@ -109,11 +119,22 @@ def test_frame_survives_delete_and_is_not_gathered(qapp):
 
 
 def test_frame_is_not_a_snap_target(qapp):
-    from firepro3d import snap_engine
+    """The real snap engine finds nothing on the frame's corner / edges (only
+    the frame there; the origin cross is far away at this zoom)."""
+    from PyQt6.QtGui import QTransform
+    from firepro3d.snap_engine import SnapEngine
     proj, w = _editor_with()
     w.toggle_pattern_tile()
-    frame = w.editor_scene.tile_frame_item()
-    assert frame.data(0) in snap_engine._NON_TARGET_TAGS
+    sc = w.editor_scene
+    sc.set_block_tile({**sc.block_tile, "w": 100.0, "h": 100.0})
+    eng = SnapEngine()
+    for pt in (QPointF(100, -100), QPointF(100, -50), QPointF(50, -100)):
+        assert eng.find(pt, sc, QTransform()) is None, pt
+    # The engine's shared eligibility rule refuses it (also HandleSnapSession's
+    # gate): the end-to-end query above has no extractor for the frame's type,
+    # so this is the seam the "tile_frame" tag actually pins.
+    from firepro3d.snap_engine import is_snap_target
+    assert not is_snap_target(sc.tile_frame_item(), skip_pipes=False)
 
 
 def test_manipulator_renders_frame_grips_after_real_selection(qapp):
@@ -315,3 +336,99 @@ def test_g5_users_repaint_without_the_whole_scene_fallback(qapp, monkeypatch):
     u = _g5_edit_and_record(qapp, proj, w)
     assert u.intersects(host.sceneBoundingRect()), "the pattern's user was not repainted"
     assert not u.intersects(far.sceneBoundingRect()), "an unrelated block repainted"
+
+
+# ── review fix round (I1, M1-M3, M6, M7) ─────────────────────────────────────
+
+def _framed_line():
+    proj, w = _editor_with([LineItem(QPointF(0, 0), QPointF(20, -8)).to_dict()])
+    w.toggle_pattern_tile()
+    sc = w.editor_scene
+    return proj, w, sc, sc.tile_frame_item(), w.gather_primitives()[0]
+
+
+def test_frame_stays_put_during_a_live_body_drag(qapp):
+    proj, w, sc, frame, line = _framed_line()
+    frame.setSelected(True)
+    qapp.processEvents()
+    m = sc._live_manip()
+    nm = Qt.KeyboardModifier.NoModifier
+    m._begin("move", QPointF(10, -8), QPointF(0, 0))
+    m._update(QPointF(40, -30), nm, QPointF(200, 200))
+    assert frame.transform().isIdentity(), "frame slid with the cursor"
+    assert m.transform().isIdentity(), "manipulator box slid with the cursor"
+    m._finish(QPointF(40, -30), nm)
+
+
+def test_mixed_frame_and_line_drag_moves_only_the_line_live(qapp):
+    proj, w, sc, frame, line = _framed_line()
+    frame.setSelected(True)
+    line.setSelected(True)
+    qapp.processEvents()
+    m = sc._live_manip()
+    nm = Qt.KeyboardModifier.NoModifier
+    p0 = line.grip_points()[0]
+    m._begin("move", QPointF(10, -4), QPointF(0, 0))
+    m._update(QPointF(20, -4), nm, QPointF(200, 200))
+    assert frame.transform().isIdentity()
+    assert abs(line.sceneTransform().map(p0).x() - (p0.x() + 10)) < 1e-6
+    m._finish(QPointF(20, -4), nm)
+    assert abs(line.grip_points()[0].x() - (p0.x() + 10)) < 1e-6
+    assert frame.grip_points()[0] == QPointF(20.0, -8.0)
+
+
+def test_retyping_the_same_value_pushes_no_undo_step(qapp):
+    from firepro3d.tile_frame import set_tile_property
+    proj, w, sc, frame, line = _framed_line()
+    pos0 = sc._undo_pos
+    set_tile_property(sc, w, "Width", 20.0)
+    set_tile_property(sc, w, "Size", "Drafting")
+    assert sc._undo_pos == pos0
+
+
+def test_typed_edits_keep_row_shift_within_width(qapp):
+    from firepro3d.tile_frame import set_tile_property
+    proj, w, sc, frame, line = _framed_line()
+    set_tile_property(sc, w, "Row shift", 50.0)          # past W = 20
+    assert sc.block_tile["row_shift"] == 20.0
+    set_tile_property(sc, w, "Row shift", 15.0)
+    set_tile_property(sc, w, "Width", 5.0)               # W shrinks under it
+    assert (sc.block_tile["w"], sc.block_tile["row_shift"]) == (5.0, 5.0)
+
+
+def test_move_tool_skips_the_anchored_frame(qapp):
+    proj, w, sc, frame, line = _framed_line()
+    frame.setSelected(True)
+    pos0 = sc._undo_pos
+    assert sc._modify_ctl._transformable([frame]) == []
+    assert sc._modify_ctl.start("move") is False      # nothing to move
+    assert sc.mode != "move"
+    assert sc._undo_pos == pos0
+    # Mixed selection: Move acts on the line only.
+    line.setSelected(True)
+    assert sc._modify_ctl._transformable(sc.selectedItems()) == [line]
+    assert frame.grip_points()[0] == QPointF(20.0, -8.0)
+
+
+def test_copy_base_point_ignores_the_frame(qapp):
+    import json
+    from PyQt6.QtWidgets import QApplication
+    proj, w, sc, frame, line = _framed_line()
+    # A tile larger than the line: the frame's bounds centre differs from the line's.
+    sc.set_block_tile({**sc.block_tile, "w": 100.0, "h": 50.0})
+    line.setSelected(True)
+    sc.copy_selected_items()
+    want = json.loads(QApplication.clipboard().text())["base"]
+    frame.setSelected(True)
+    sc.copy_selected_items()
+    payload = json.loads(QApplication.clipboard().text())
+    assert payload["base"] == want
+    assert len(payload["items"]) == 1
+
+
+def test_clear_scene_resets_the_tile(qapp):
+    proj, w, sc, frame, line = _framed_line()
+    sc._clear_scene()
+    assert sc.block_tile is None and sc.tile_frame_item() is None
+    sc.set_block_tile({"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
+    assert sc.tile_frame_item().scene() is sc
