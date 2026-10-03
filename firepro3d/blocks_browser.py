@@ -15,13 +15,50 @@ import json
 from PyQt6.QtCore import QByteArray, QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (QAbstractItemView, QWidget, QVBoxLayout, QTreeWidget,
-                             QTreeWidgetItem, QFrame)
+                             QTreeWidgetItem, QFrame, QMenu)
 
 from . import block_library
 from .mime_types import MIME_BLOCK
 
 _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
+
+
+_BADGE_PX = 14                               # pattern badge size (logical px)
+_BADGE_CACHE: dict = {}                      # (muted colour, dpr) -> QIcon
+
+
+def _pattern_badge(dpr: float = 1.0):
+    """Small hatch glyph for tiled (pattern) blocks (D-A34).
+
+    Cached per (theme muted colour, device pixel ratio) — the tree rebuilds
+    on every library change, so a fresh swatch per leaf would repeat work.
+
+    Args:
+        dpr: The browser widget's ``devicePixelRatioF()`` (crisp on HiDPI).
+
+    Returns:
+        The badge ``QIcon``.
+    """
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QIcon, QPainter, QPixmap
+    from .hatch_render import paint_swatch
+    from . import theme as th
+    muted = th.detect().muted
+    key = (muted, float(dpr))
+    icon = _BADGE_CACHE.get(key)
+    if icon is not None:
+        return icon
+    side = max(1, round(_BADGE_PX * dpr))
+    pix = QPixmap(side, side)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    paint_swatch(p, QRectF(0, 0, side, side), "diagonal", QColor(muted))
+    p.end()
+    pix.setDevicePixelRatio(dpr)
+    icon = QIcon(pix)
+    _BADGE_CACHE[key] = icon
+    return icon
 
 
 def library_only_entries(scene, root: str | None = None
@@ -117,6 +154,7 @@ class BlocksBrowser(QWidget):
     """
 
     blockActivated = pyqtSignal(str)
+    editRequested = pyqtSignal(str)       # block id (project definition)
 
     def __init__(self, scene, parent: QWidget | None = None, *,
                  root: str | None = None) -> None:
@@ -138,6 +176,8 @@ class BlocksBrowser(QWidget):
         self._tree.setIndentation(16)
         from firepro3d.ui_kit import browser_tree_qss
         self._tree.setStyleSheet(browser_tree_qss())
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemDoubleClicked.connect(self._on_item_activated)
         layout.addWidget(self._tree)
@@ -209,8 +249,14 @@ class BlocksBrowser(QWidget):
                     leaf = QTreeWidgetItem(s_item, [name])
                     leaf.setData(0, _ROLE_ID, block_id)
                     if path is None:
-                        leaf.setToolTip(0, "Drag onto a canvas or double-click "
-                                           "to place")
+                        d = self._scene.get_block_definition(block_id)
+                        if d is not None and d.tile:
+                            leaf.setIcon(0, _pattern_badge(self.devicePixelRatioF()))
+                            leaf.setToolTip(0, "Pattern block — used by hatch "
+                                               "fills; it can't be placed")
+                        else:
+                            leaf.setToolTip(0, "Drag onto a canvas or double-click "
+                                               "to place")
                     else:
                         leaf.setData(0, _ROLE_PATH, path)
                         leaf.setFont(0, f_lib)
@@ -237,3 +283,43 @@ class BlocksBrowser(QWidget):
                                             item.text(0), self._lib_root, self):
             return
         self.blockActivated.emit(block_id)
+
+    # ── context menu ──────────────────────────────────────────────────────
+
+    def _build_context_menu(self, item: QTreeWidgetItem | None) -> QMenu | None:
+        """Right-click menu for a block leaf (``Edit Block``); None for folders.
+
+        Args:
+            item: The tree item under the cursor (None = empty space).
+
+        Returns:
+            The ``QMenu``, or None when *item* is not a block leaf.
+        """
+        if item is None:
+            return None
+        block_id = item.data(0, _ROLE_ID)
+        if not isinstance(block_id, str) or not block_id:
+            return None                              # folder row
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        act = menu.addAction("Edit Block")
+        tip = "Open this block in a Block Editor tab"
+        act.setToolTip(tip)
+        act.setStatusTip(tip)
+        act.triggered.connect(lambda _=False, it=item: self._edit_item(it))
+        return menu
+
+    def _on_context_menu(self, pos) -> None:
+        menu = self._build_context_menu(self._tree.itemAt(pos))
+        if menu is not None:
+            menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _edit_item(self, item: QTreeWidgetItem) -> None:
+        """Make the leaf a project definition (loading a library-only one),
+        then emit ``editRequested``. No placement guard: editing never places."""
+        block_id = item.data(0, _ROLE_ID)
+        path = item.data(0, _ROLE_PATH)
+        if not ensure_block_loaded(self._scene, block_id, path, item.text(0),
+                                   self._lib_root, self):
+            return
+        self.editRequested.emit(block_id)

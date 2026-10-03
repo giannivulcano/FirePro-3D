@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import QMenu
 
 
-def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
+def _attach_fill_submenu(menu: QMenu, target) -> None:
     """Append a Fill submenu to *menu* when *target* is a fillable 2D shape.
 
     Mutations route through scene.push_undo_state() + target.set_property(),
@@ -12,7 +12,7 @@ def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
     if target is None or not getattr(target, "is_fillable", lambda: False)():
         return
 
-    from .hatch_patterns import PATTERN_NAMES
+    from .hatch_patterns import canonical_ref, tile_choices
 
     fill_menu = menu.addMenu("Fill")
 
@@ -21,19 +21,24 @@ def _attach_fill_submenu(menu: QMenu, scene, target) -> None:
         if sc is None:
             return
         sc.push_undo_state()
-        target.set_property("Fill", fill_type)
         if pattern is not None:
+            # The Pattern setter loads a library pattern first (D-A37,
+            # ensure_pattern_available); a refused load leaves the fill as is.
             target.set_property("Pattern", pattern)
+            if canonical_ref(getattr(target, "fill_pattern", None)) != pattern:
+                return
+        target.set_property("Fill", fill_type)
         target.update()
 
     fill_menu.addAction("None").triggered.connect(lambda _=False: _apply("none"))
     fill_menu.addAction("Solid").triggered.connect(lambda _=False: _apply("solid"))
 
     hatch_menu = fill_menu.addMenu("Hatch")
-    for name in PATTERN_NAMES:
-        _n = name  # capture
-        hatch_menu.addAction(_n).triggered.connect(
-            lambda _=False, n=_n: _apply("hatch", n)
+    reg = getattr(target.scene(), "block_registry", None)
+    from .hatch_patterns import picker_exclude
+    for name, ref in tile_choices(reg, picker_exclude(target.scene())):
+        hatch_menu.addAction(name).triggered.connect(
+            lambda _=False, r=ref: _apply("hatch", r)
         )
 
 
@@ -140,7 +145,7 @@ def build_entity_context_menu(
     # ── Fill submenu (closed 2D shapes only) ──
     if target is not None and getattr(target, "is_fillable", lambda: False)():
         menu.addSeparator()
-        _attach_fill_submenu(menu, scene, target)
+        _attach_fill_submenu(menu, target)
 
     menu.addSeparator()
 

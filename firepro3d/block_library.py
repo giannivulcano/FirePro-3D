@@ -2,7 +2,7 @@
 
 Layout: ``<root>/<Library>/<Series>/<name>.fpdb`` (a BlockDefinition.to_dict())
 plus a per-Series ``index.json`` mapping filename -> {id, name, version,
-thumbnail}. Mirrors titleblock_template's atomic-write + tolerant-load + version
+thumbnail, tile}. Mirrors titleblock_template's atomic-write + tolerant-load + version
 divergence, over a folder tree with human-readable filenames. Thumbnails are
 reserved (S4). See docs/specs/block-system.md.
 """
@@ -20,6 +20,8 @@ _log = logging.getLogger(__name__)
 _INDEX = "index.json"
 # Load-summary refusal reason for a file that would nest a block in itself.
 LOOP_REASON = "a block can't contain itself"
+# Place / drag refusal for a tiled (pattern) block (hatch D-A34).
+PATTERN_REASON = "Pattern blocks fill regions — they can't be placed"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
@@ -200,8 +202,11 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         rec["bundled"] = dict(bundled)
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
+    # ``tile`` flags pattern blocks (hatch D-A37) so the pattern-picker scan
+    # needn't parse every file; readers tolerate older entries without it.
     index[filename] = {"id": definition.id, "name": definition.name,
-                       "version": definition.version, "thumbnail": None}
+                       "version": definition.version, "thumbnail": None,
+                       "tile": bool(definition.tile)}
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
     _notify_changed()
     return path

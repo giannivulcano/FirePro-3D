@@ -10,6 +10,8 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 
 from __future__ import annotations
 
+from .hatch_patterns import canonical_ref
+
 NESTED_TYPE = "block_instance"
 
 
@@ -24,6 +26,30 @@ def nested_ids(defn) -> set[str]:
     """
     return {p.get("block_id") for p in defn.primitives
             if p.get("type") == NESTED_TYPE and p.get("block_id")}
+
+
+def prim_refs(primitives) -> set[str]:
+    """Block ids a primitive list depends on: nested records + pattern refs.
+
+    Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
+    are ordinary blocks): bundled with the host, cycle-checked, counted as a
+    user. Legacy names are mapped to their frozen ids.
+    """
+    out = set()
+    for p in primitives:
+        if p.get("type") == NESTED_TYPE and p.get("block_id"):
+            out.add(p["block_id"])
+        f = p.get("fill")
+        if isinstance(f, dict) and f.get("type") == "hatch":
+            ref = canonical_ref(f.get("pattern"))
+            if ref:
+                out.add(ref)
+    return out
+
+
+def referenced_ids(defn) -> set[str]:
+    """Every block id *defn* depends on (nested + pattern; hatch HD4a, LT LD5)."""
+    return prim_refs(defn.primitives)
 
 
 class BlockRegistry:
@@ -82,7 +108,7 @@ class BlockRegistry:
 
     # ── dependency graph (by id) ─────────────────────────────────────────
     def closure(self, block_id: str, extra: dict | None = None) -> set[str]:
-        """Every id reachable from *block_id* through nested records.
+        """Every id reachable from *block_id* through nested records and pattern references.
 
         Args:
             block_id: Start definition id (not included unless on a cycle).
@@ -99,7 +125,7 @@ class BlockRegistry:
             d = (extra or {}).get(cur) or self._store.get(cur)
             if d is None:
                 continue
-            for child in nested_ids(d):
+            for child in referenced_ids(d):
                 if child not in seen:
                     seen.add(child)
                     stack.append(child)
@@ -138,7 +164,7 @@ class BlockRegistry:
         return {**{d.id: d for d in bundled}, **self._store, defn.id: defn}
 
     def users_of(self, block_id: str) -> set[str]:
-        """Definitions that nest *block_id* directly or transitively.
+        """Definitions that use *block_id* (nested record or pattern reference), directly or transitively.
 
         Args:
             block_id: The nested definition id.
@@ -179,7 +205,7 @@ class BlockRegistry:
                 return set()
             active.add(i)
             out: set[str] = set()
-            for child in nested_ids(d):
+            for child in referenced_ids(d):
                 out.add(child)
                 out |= walk(child)
             active.discard(i)

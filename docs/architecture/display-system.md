@@ -27,7 +27,7 @@ Every entity that participates in the display system inherits `DisplayableItemMi
 | `_display_overrides` | `dict` | Per-instance overrides from Display Manager |
 | `_is_section_cut` | `bool` | Set by LevelManager when item straddles cut plane |
 | `_display_section_color` | `str \| None` | Section-cut hatch colour |
-| `_display_section_pattern` | `str \| None` | Section-cut hatch pattern name |
+| `_display_section_pattern` | `str \| None` | Section-cut hatch pattern (tile block id or legacy name — see `hatch-and-fill.md`) |
 | `_display_section_scale` | `float` | Section-cut pattern density multiplier |
 
 ## Category definitions
@@ -127,11 +127,7 @@ The `_set_svg_tint()` convenience function applies this to any item that has a `
 
 ## Section-cut hatching
 
-When a wall or floor slab straddles the view's cut plane (i.e., `_is_section_cut` is True), the `draw_section_hatch()` function in `displayable_item.py` fills the item's clip path with a hatch pattern. This supports:
-
-- Built-in Qt brush patterns (diagonal, crosshatch)
-- SVG-based vector patterns (drawn as crisp lines at any zoom level)
-- Configurable hatch colour, line weight, and scale
+When a wall or floor slab straddles the view's cut plane (i.e., `_is_section_cut` is True), the `draw_section_hatch()` adapter in `displayable_item.py` fills the item's clip path with the item's Display Manager section colour, pattern and scale. The pattern is a pattern-tile block reference drawn by the shared hatch renderer (`hatch_render.py`); patterns, rendering and the Hatch patterns folder are owned by [`hatch-and-fill.md`](../specs/hatch-and-fill.md) — see there rather than restating it here.
 
 ## Display Manager dialog
 

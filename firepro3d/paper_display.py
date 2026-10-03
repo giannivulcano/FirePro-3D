@@ -53,6 +53,7 @@ def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
 def save_line_weights(defs: list[LineWeightDef],
                       settings: QSettings | None = None):
     """Persist line weight definitions to QSettings."""
+    _clear_hatch_mm()
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     data = json.dumps([asdict(d) for d in defs])
@@ -113,7 +114,7 @@ _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Roof", "Room", "Floor",
     "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
-    "Construction",
+    "Construction", "Hatch",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
@@ -124,6 +125,10 @@ _HAS_FILL = {"Sprinkler", "Water Supply", "Hydraulic Badge", "Wall", "Roof",
 # Which categories have section colour
 _HAS_SECTION = {"Wall", "Roof", "Floor"}
 
+# Categories where only the line weight is meaningful (D-A31): the Display
+# Manager disables every other cell and its colour-mode / reset loops skip them.
+_LW_ONLY = {"Hatch"}
+
 # Factory default line weight per category
 _FACTORY_LW = {
     "Pipe": "Medium", "Sprinkler": "Medium", "Fitting": "Medium",
@@ -132,6 +137,7 @@ _FACTORY_LW = {
     "Grid Line": "Medium", "Level Datum": "Very Light",
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
     "Construction": "Light",
+    "Hatch": "Very Light",
 }
 
 
@@ -202,6 +208,7 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
 def save_paper_categories(cats: dict[str, dict],
                           settings: QSettings | None = None):
     """Persist paper-space category overrides to QSettings."""
+    _clear_hatch_mm()
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     for key in _CATEGORY_KEYS:
@@ -277,6 +284,27 @@ def resolve_line_weight_mm(name: str,
         if d.name == name:
             return d.width_mm
     return 0.25
+
+
+_HATCH_MM: float | None = None
+
+
+def hatch_line_mm() -> float:
+    """Paper width (mm) of pattern lines — the "Hatch" category weight (D-A31).
+
+    Cached: paint calls it per fill. ``save_paper_categories`` /
+    ``save_line_weights`` clear the cache.
+    """
+    global _HATCH_MM
+    if _HATCH_MM is None:
+        cat = load_paper_categories().get("Hatch", {})
+        _HATCH_MM = resolve_line_weight_mm(cat.get("line_weight", "Very Light"))
+    return _HATCH_MM
+
+
+def _clear_hatch_mm() -> None:
+    global _HATCH_MM
+    _HATCH_MM = None
 
 
 def _is_detail_marker(item) -> bool:
@@ -575,6 +603,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     color_mode = load_paper_color_mode()
     cats = load_paper_categories()
     saved: list[dict] = []
+    # Drafting-tile scale for the hatch renderer during THIS viewport render
+    # (D-A30); cleared by restore_model_display. First entry → cleared even if
+    # the pass fails part-way.
+    scene._hatch_paper_scale = paper_scale
+    saved.append({"hatch_scene": scene})
     try:
         items = scene.items(source_rect)
 
@@ -778,6 +811,9 @@ def restore_model_display(saved: list[dict]):
     from PyQt6.QtGui import QColor, QBrush, QPen
 
     for entry in saved:
+        if "hatch_scene" in entry:
+            entry["hatch_scene"]._hatch_paper_scale = None
+            continue
         if "underlay_group" in entry:
             # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
             for ch in entry["children"]:

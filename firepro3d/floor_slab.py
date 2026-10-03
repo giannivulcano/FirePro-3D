@@ -242,9 +242,11 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             draw_section_hatch(painter, clip, self.scene(),
                                color=line_col,
                                pattern=pattern,
+                               # canvas cosmetic px width (paper uses hatch_line_mm)
                                line_width=pen.widthF() or 1.0,
                                section_fill=sec_fill,
-                               hatch_scale=h_scale)
+                               hatch_scale=h_scale,
+                               to_scene=self.sceneTransform())
 
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)

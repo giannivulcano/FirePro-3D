@@ -27,8 +27,9 @@ def _left_bleed_pixels(vp, data, margin=40):
                for x in range(0, margin - 1) for y in range(img.height()))
 
 
-def test_section_cut_wall_fill_does_not_bleed_past_crop(qapp):
+def test_section_cut_wall_fill_does_not_bleed_past_crop(qapp, shipped_hatches):
     ms = Model_Space()
+    shipped_hatches(ms)                       # D-A39: the wall's Diagonal is a project block
     lm = LevelManager(); pvm = PlanViewManager(); pvm.create("Level 1", lm)
     # Wall straddles the crop's left edge (x<0 is OUTSIDE crop 0..1000).
     w = make_wall(ms, (-4000, 500), (600, 500), "Level 1")

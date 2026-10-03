@@ -85,8 +85,8 @@ def test_block_with_text_emits_box_points_not_glyph_vertices(qapp):
         eng = scene._snap_engine
         eng.snap_endpoint = eng.snap_midpoint = eng.snap_center = True
         # The block really carries a filled glyph op (else the guard is vacuous).
-        assert any(pen.style() == Qt.PenStyle.NoPen and path.elementCount() > 0
-                   for pen, _b, path in inst.render_ops())
+        assert any(op.kind == "text" and op.path.elementCount() > 0
+                   for op in inst.render_ops())
         coll = eng._collect(inst)
         kinds = [k for k, _p, _n in coll]
         assert kinds.count("endpoint") == 2 + 4        # line ends + text corners, 0 glyph vertices

@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "id": "builtin-hatch-concrete",
+  "version": 1,
+  "name": "Concrete",
+  "library": "System",
+  "series": "Hatches",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        1.0,
+        -1.0
+      ],
+      "pt2": [
+        2.0,
+        -1.2
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "82f3f32fd208488baffd069b900f93a3"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        2.0,
+        -1.2
+      ],
+      "pt2": [
+        1.4,
+        -2.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "36ff7cde8dde464fb0caa6ea5d6d0bf9"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        1.4,
+        -2.0
+      ],
+      "pt2": [
+        1.0,
+        -1.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "28f2d3c575984bb1b2d1f1c6dcaab8c3"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        4.0,
+        -3.5
+      ],
+      "pt2": [
+        5.0,
+        -3.8
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "4822debe883643f1ada83ceede38c431"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        5.0,
+        -3.8
+      ],
+      "pt2": [
+        4.3,
+        -4.6
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "98e265edb2c640fa80ca8e2b24b82925"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        4.3,
+        -4.6
+      ],
+      "pt2": [
+        4.0,
+        -3.5
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "89ba0bfeed8f46329c9ce2dc90e2860f"
+    },
+    {
+      "type": "draw_circle",
+      "cx": 3.0,
+      "cy": -1.5,
+      "radius": 0.2,
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "dfefc91daff946c28f9edd6d9b9337af"
+    },
+    {
+      "type": "draw_circle",
+      "cx": 1.5,
+      "cy": -4.5,
+      "radius": 0.2,
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "bfd5059d200a4987b8153e2f91066703"
+    },
+    {
+      "type": "draw_circle",
+      "cx": 5.0,
+      "cy": -1.0,
+      "radius": 0.2,
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "472e3919935145698b9cfb7ec6faeadb"
+    },
+    {
+      "type": "draw_circle",
+      "cx": 2.6,
+      "cy": -5.2,
+      "radius": 0.2,
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "e2f33cdfe70e43078f50b33b9f7181a2"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": {
+    "w": 6.0,
+    "h": 6.0,
+    "row_shift": 0.0,
+    "size": "drafting"
+  }
+}

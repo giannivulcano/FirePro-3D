@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "id": "builtin-hatch-cross-hatch",
+  "version": 1,
+  "name": "Cross Hatch",
+  "library": "System",
+  "series": "Hatches",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        4.242640687119286,
+        -4.242640687119286
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "64e657cb69ba4b74ae4b0e7032414d76"
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        -4.242640687119286
+      ],
+      "pt2": [
+        4.242640687119286,
+        0.0
+      ],
+      "color": "#ffffff",
+      "lineweight": 1.0,
+      "uid": "8dc1ae7d90a64a8d82a2aa0f940fa10c"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": {
+    "w": 4.242640687119286,
+    "h": 4.242640687119286,
+    "row_shift": 0.0,
+    "size": "drafting"
+  }
+}

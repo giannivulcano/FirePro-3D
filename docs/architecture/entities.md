@@ -20,7 +20,7 @@
 - `firepro3d/block_definition.py`, `firepro3d/block_instance.py` -- Block flyweight (definition + placed instance)
 - `firepro3d/detail_view.py` -- Detail markers (`DetailMarker`, `DetailViewManager`)
 - `firepro3d/sketch_model.py`, `firepro3d/constraint_controller.py` (+ `sketch_solver.py`, `sketch_adapters.py`, `constraint_paint.py`) -- Block Editor parametric constraints (records, solver, Qt shell)
-- `firepro3d/annotations.py` -- Legacy `Annotation` base + the retired-hatch load migration helper
+- `firepro3d/annotations.py` -- Legacy `Annotation` base (its former hatch-migration helper is dead code — [`hatch-and-fill.md`](../specs/hatch-and-fill.md) H9)
 
 ## DisplayableItemMixin
 
@@ -208,7 +208,8 @@ model, paper sheets and blocks (containment C5). It replaced the retired
 
 The model dimension tool and `DimensionAnnotation` were retired (containment
 C1/C8), as was `HatchItem` — fills are now properties of the 2D geometry items
-(`fill_type` / `fill_pattern` / `fill_opacity` on `Geometry2DMixin`).
+(`fill_type` / `fill_pattern` / `fill_opacity` on `Geometry2DMixin`); patterns and fill
+rendering → [`hatch-and-fill.md`](../specs/hatch-and-fill.md).
 
 ### 2D geometry
 

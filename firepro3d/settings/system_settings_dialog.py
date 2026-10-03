@@ -109,6 +109,11 @@ class SystemSettingsDialog(HouseDialog):
         gen = self._panes.get("general")
         if gen is not None and hasattr(gen, "migrate_prompt_if_needed"):
             gen.migrate_prompt_if_needed()
+        # Hatch D-A39: a not-yet-seeded Hatch patterns folder (new override,
+        # block library or data root) gets the shipped patterns — after the
+        # migration, which only copies into an absent destination.
+        from ..hatch_patterns import seed_hatch_folder
+        seed_hatch_folder()
 
     def _on_ok(self) -> None:
         self._apply_all()

@@ -20,11 +20,11 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
                          QPolygonF, QTransform)
 from .displayable_item import DisplayableItemMixin
-from .hatch_patterns import PATTERN_NAMES
+from .hatch_patterns import DEFAULT_TILE_REF
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 
-_DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
+_DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
 
 # Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
 # that needs to reject a vanishingly short segment (2d-geometry.md §8).
@@ -125,6 +125,11 @@ class Geometry2DMixin:
         sc = self.scene()
         return getattr(sc, "scale_manager", None) if sc else None
 
+    def _tile_registry(self):
+        """The block registry pattern pickers resolve project tiles through."""
+        sc = self.scene()
+        return getattr(sc, "block_registry", None) if sc else None
+
     def _parse_dim(self, value):
         """Parse a display-formatted or raw numeric value to mm (float or None)."""
         if isinstance(value, (int, float)):
@@ -184,9 +189,20 @@ class Geometry2DMixin:
                              "options": ["none", "solid", "hatch"],
                              "value": self.fill_type}
             if self.fill_type == "hatch":
-                props["Pattern"] = {"type": "enum",
-                                    "options": list(PATTERN_NAMES),
-                                    "value": self.fill_pattern}
+                from .hatch_patterns import (MISSING_PATTERN_LABEL, canonical_ref,
+                                             picker_exclude, tile_choices)
+                reg = self._tile_registry()
+                choices = tile_choices(reg, picker_exclude(self.scene()))
+                options = [n for n, _ in choices]
+                ref = canonical_ref(self.fill_pattern)
+                value = next((n for n, r in choices if r == ref), None)
+                if value is None:
+                    # D-A36: an unresolvable stored ref shows as missing (not as
+                    # the first option) and is kept until the user picks one.
+                    options = [MISSING_PATTERN_LABEL] + options
+                    value = MISSING_PATTERN_LABEL
+                props["Pattern"] = {"type": "enum", "options": options,
+                                    "value": value}
             if self.fill_type in ("solid", "hatch"):
                 props["Fill Colour"] = {"type": "color",
                                         "value": self._display_fill_color or "#888888"}
@@ -205,7 +221,18 @@ class Geometry2DMixin:
             self.update()
             return True
         if key == "Pattern":
-            self.fill_pattern = str(value)
+            from .hatch_patterns import (MISSING_PATTERN_LABEL, picker_exclude,
+                                         ref_from_value, ensure_pattern_available)
+            if str(value) == MISSING_PATTERN_LABEL:
+                return True               # D-A36: never rewrite the stored ref
+            old = self.fill_pattern
+            self.fill_pattern = ref_from_value(str(value), self._tile_registry(),
+                                               picker_exclude(self.scene()))
+            # D-A37: a library pattern loads into the project first. Set before
+            # the load so its one undo snapshot carries the new ref too; a
+            # failed load keeps the stored ref.
+            if not ensure_pattern_available(self.fill_pattern, self.scene()):
+                self.fill_pattern = old
             self.update()
             return True
         if key == "Fill Colour":
@@ -250,7 +277,8 @@ class Geometry2DMixin:
         f = data.get("fill")
         if f:
             self.fill_type = f.get("type", "none")
-            self.fill_pattern = f.get("pattern", _DEFAULT_FILL_PATTERN)
+            from .hatch_patterns import canonical_ref
+            self.fill_pattern = canonical_ref(f.get("pattern", _DEFAULT_FILL_PATTERN))
             self._display_fill_color = f.get("color")
             self.fill_opacity = f.get("opacity", 0.45)
 
@@ -610,7 +638,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -1284,9 +1313,13 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
+                # The painter frame is rotated: painter-local → item via the
+                # rotation, then item → scene (Qt row-vector order), so the
+                # hatch stays in scene axes (D-A11).
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self._rotation_transform() * self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -1649,7 +1682,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -1993,7 +2027,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -2308,7 +2343,8 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -2584,7 +2620,8 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):
@@ -3015,7 +3052,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
                           self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)))
+                          alpha=int(round(self.fill_opacity * 255)),
+                          to_scene=self.sceneTransform())
         super().paint(painter, option, widget)
         if self.isSelected():
             if not _manip_wraps(self):

@@ -102,10 +102,11 @@ def test_solid_fill_rectangle_plots_on_paper(qapp):
 # Test B — hatch-filled shape plots on paper
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_hatch_fill_circle_plots_on_paper(qapp):
+def test_hatch_fill_circle_plots_on_paper(qapp, shipped_hatches):
     """A CircleItem with fill_type='hatch' must produce non-white interior
     pixels when rendered through a paper viewport."""
     ms = Model_Space()
+    shipped_hatches(ms)                   # D-A39: Diagonal is a project block
     lm = LevelManager()
     pvm = PlanViewManager()
     pvm.create("Level 1", lm)

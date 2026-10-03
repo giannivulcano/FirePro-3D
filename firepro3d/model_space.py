@@ -161,6 +161,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
     UNDO_MAX = 50
+    # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
+    # set/cleared by paper_display). Declared so the per-paint read in
+    # hatch_render hits: a missing attribute on a sip scene costs ~10 us.
+    _hatch_paper_scale = None
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
@@ -258,6 +262,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
+        # Block Editor pattern tile (hatch D-A32): {"w","h","row_shift","size"}
+        # or None. In the undo snapshot; the frame item mirrors it.
+        self.block_tile: dict | None = None
+        self._tile_frame = None          # TileFrameItem while a tile is set
+        self._tile_editor = None         # owning BlockEditorWidget (set by it)
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state: one click places at 0° and the
         # mode re-arms until Esc.  A low-opacity BlockInstance is the ghost.
@@ -572,6 +581,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # this mark the scene dirty until mark_saved() clears it.
         self._dirty = False
         self.selectionChanged.connect(self._on_selection_changed)
+        if self.scene_role == "block_editor":
+            # Pattern-tile repeat preview follows every committed content edit.
+            self.sceneModified.connect(self._on_tile_content_changed)
         # Scene-level selection manipulator (frame + rigid transforms) —
         # governing spec docs/specs/selection-manipulator.md.  One undo entry
         # per baked gesture via push_undo_state.
@@ -968,7 +980,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Args:
             items: Scene items to delete; an empty iterable is a no-op.
         """
-        selected = list(items)
+        # The Block Editor tile frame is an overlay, never deletable geometry
+        # (D-A32): the "Pattern tile" toggle owns its lifetime.
+        from .tile_frame import TILE_FRAME_TAG
+        selected = [i for i in items if i.data(0) != TILE_FRAME_TAG]
         if not selected:
             return
         selected_set = set(selected)
@@ -1140,6 +1155,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Constraint pick modes exist only in a Block Editor scene (D2);
             # refused here, the shared entry every ribbon/shortcut path hits.
             return
+        if mode == "place_block" and isinstance(template, str):
+            defn = self.get_block_definition(template)
+            if defn is not None and defn.tile:
+                # hatch D-A34: a pattern block fills regions - never a symbol.
+                # Refused at the shared entry every ribbon / browser / drag path hits.
+                from . import block_library
+                self._show_status(block_library.PATTERN_REASON, 5000)
+                return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
         # primitive pre-selected so all downstream logic sees mode == "wall".
@@ -1591,6 +1614,46 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._block_registry_owner = owner
         registry.attach_scene(self)
 
+    def tile_frame_item(self):
+        """The Block Editor tile frame, or None (no tile / not an editor)."""
+        return self._tile_frame
+
+    def set_block_tile(self, tile, *, push_undo: bool = True) -> None:
+        """Set / clear the edited block's pattern tile and sync the frame (D-A32).
+
+        Args:
+            tile: Tile dict or None.
+            push_undo: Push one undo step (False inside a grip drag or an
+                undo restore — the caller owns the step).
+        """
+        from PyQt6 import sip
+        from .tile_frame import TileFrameItem
+        f = self._tile_frame
+        if f is not None and (sip.isdeleted(f) or f.scene() is not self):
+            self._tile_frame = None          # swept out of the scene elsewhere
+        if self._tile_frame is not None:
+            self._tile_frame.prepare_tile_change()   # bounds follow the tile
+        self.block_tile = dict(tile) if tile else None
+        if self.block_tile is None:
+            if self._tile_frame is not None:
+                self._tile_frame.setSelected(False)
+                self.removeItem(self._tile_frame)
+                self._tile_frame = None
+        else:
+            if self._tile_frame is None:
+                self._tile_frame = TileFrameItem(self)
+                self.addItem(self._tile_frame)
+            self._tile_frame.invalidate_preview()
+        if push_undo:
+            self.push_undo_state()           # emits sceneModified
+        # push_undo=False: the owner of the step (grip commit hook / undo /
+        # seed re-baseline) pushes or emits — no per-drag-frame signal storm.
+
+    def _on_tile_content_changed(self) -> None:
+        """sceneModified (editor role): rebuild the repeat preview lazily."""
+        if self._tile_frame is not None:
+            self._tile_frame.invalidate_preview()
+
     @property
     def block_registry(self):
         """The ``BlockRegistry`` this scene resolves blocks through."""
@@ -1608,6 +1671,34 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""
         return sum(1 for i in self._block_instances if i.block_id == block_id)
+
+    def pattern_use_refusal(self, block_id) -> "str | None":
+        """Why *block_id* can't become a pattern tile (hatch D-A34), or None.
+
+        A pattern fills regions; it can't also be a symbol. Counted: placed
+        instances in this scene + definitions that nest it directly (a
+        transitive host always nests a direct host, so it is refused too).
+        The one rule shared by the Block Editor toggle and the save path.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The status message, or None when the block is unused as a symbol.
+        """
+        if block_id is None:
+            return None
+        from .block_registry import nested_ids
+        reg = self._block_registry
+        placed = self.instance_count(block_id)
+        nested = sum(1 for i in reg.ids()
+                     if (d := reg.get(i)) is not None and block_id in nested_ids(d))
+        if not (placed or nested):
+            return None
+        parts = ([f"{placed} placed"] if placed else []) + (
+            [f"{nested} nested in other blocks"] if nested else [])
+        return (f"Used as a symbol ({', '.join(parts)}) — remove those "
+                f"before making it a pattern")
 
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
@@ -1752,6 +1843,40 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.push_undo_state()
             self.blockDefinitionsChanged.emit()
         return summary
+
+    def load_blocks_outside_history(self, paths, root: str | None = None) -> list[str]:
+        """Embed `.fpdb` files as part of the undo BASELINE (hatch D-A39).
+
+        Same collision / bundle / cycle rules as :meth:`load_blocks_from_files`,
+        but no undo step is pushed and the dirty flag is kept: every new
+        definition is written into every existing undo snapshot instead, so no
+        undo / redo can unload it. Used for the patterns a project references
+        on new / open (``hatch_patterns.ensure_project_patterns``).
+
+        Args:
+            paths: `.fpdb` file paths.
+            root: Block-library root override (None = the configured library).
+
+        Returns:
+            The block ids that became project definitions (bundled deps too).
+        """
+        import copy
+        before = set(self._block_definitions)
+        dirty = getattr(self, "_dirty", False)
+        self._history_suspended = True
+        try:
+            self.load_blocks_from_files(paths, root=root)
+        finally:
+            self._history_suspended = False
+            self._dirty = dirty
+        added = {bid: d.to_dict() for bid, d in self._block_definitions.items()
+                 if bid not in before}
+        for state in self._undo_stack:
+            defs = state.setdefault("block_definitions", {})
+            for bid, rec in added.items():
+                if bid not in defs:
+                    defs[bid] = copy.deepcopy(rec)
+        return sorted(added)
 
     def _load_would_cycle(self, bundled, defn) -> bool:
         """True if loading *defn* with its *bundled* definitions forms a cycle.
@@ -1931,7 +2056,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None):
+                                constraints=None, tile=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -1964,6 +2089,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             constraints: The editor's sketch constraint records
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
+            tile: Pattern tile dict or None (hatch D-A32).
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -1971,19 +2097,34 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
+        pattern_saved_msg = None
+        if tile:
+            # hatch D-A34 at save time (the toggle's check can go stale).
+            why = self.pattern_use_refusal(block_id)
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
+            if place_instance and block_id is None:
+                # User ruling 2026-10-02: a new pattern is registered but never
+                # placed; a Create-Block-from-selection source stays untouched.
+                pattern_saved_msg = (f"Saved pattern ‘{name}’ — patterns "
+                                     f"aren't placed; your original geometry is "
+                                     f"unchanged.")
+            place_instance, source_items = False, None
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
-                                       constraints=list(constraints or []))
+                                       constraints=list(constraints or []),
+                                       tile=tile)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
             if defn is None:
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.
-            nested = {p.get("block_id") for p in primitives
-                      if p.get("type") == "block_instance"}
+            from .block_registry import prim_refs
+            nested = prim_refs(primitives)
             if any(self._block_registry.would_cycle(block_id, n) for n in nested):
                 from . import block_library
                 why = block_library.LOOP_REASON
@@ -1992,6 +2133,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.name, defn.library, defn.series = name, library, series
             defn.origin = (ox, oy)
             defn.constraints = list(constraints or [])
+            defn.set_tile(tile, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -2004,6 +2146,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                       if place_at is not None else (ox, oy))
             self.place_block_instance(defn.id, (px, py), rotation=0.0)
         self.push_undo_state()
+        self.update()  # section-cut walls/floors repaint against the new tile version (G5)
+        if pattern_saved_msg is not None:
+            self._show_status(pattern_saved_msg, 5000)
         return defn
 
     @staticmethod
@@ -2205,6 +2350,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                    for bid, d in self._block_definitions.items()},
             "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self.constraint_ctl.capture(),
+            # Block Editor pattern tile (hatch D-A32); None elsewhere.
+            "block_tile":         dict(self.block_tile) if self.block_tile else None,
         }
 
     def _restore_network(self, state: dict):
@@ -2494,6 +2641,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ── Constraints (after every item is recreated) ───────────────
             self.constraint_ctl.restore(state.get("constraints", []))
 
+            # ── Pattern tile (Block Editor, D-A32) ────────────────────────
+            if state.get("block_tile") or self.block_tile is not None:
+                self.set_block_tile(state.get("block_tile"), push_undo=False)
+
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
             apply_saved_display_settings(self)
@@ -2518,7 +2669,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def push_undo_state(self):
         """Snapshot current network state onto the undo stack."""
-        if self._in_undo_restore:
+        if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
         state = self._capture_network()
         # Discard redo history beyond current position
@@ -5960,6 +6111,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
         if self._place_block_id is None:
             return
+        defn = self.get_block_definition(self._place_block_id)
+        if defn is not None and defn.tile:
+            # hatch D-A34: the block became a pattern (Block Editor save) while
+            # this mode was armed — refuse at the click and leave the mode.
+            from . import block_library
+            self._show_status(block_library.PATTERN_REASON, 5000)
+            self.set_mode(None)
+            return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
                                   rotation=0.0, level=self.active_level)
         self.push_undo_state()
@@ -7379,7 +7538,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def copy_selected_items(self):
         """Immediate copy (copy-to-level / internal callers): versioned payload
         with base = the selection's bounding-box centre (scene-tools.md D4)."""
-        items = list(self.selectedItems())
+        from .tile_frame import TILE_FRAME_TAG
+        # The tile frame is never copied, so it never shifts the base point.
+        items = [it for it in self.selectedItems() if it.data(0) != TILE_FRAME_TAG]
         rect = QRectF()
         for it in items:
             rect = rect.united(it.sceneBoundingRect())
@@ -7438,6 +7599,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
+        pattern_skipped = 0   # hatch D-A34: tiled blocks are never re-placed
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -7528,7 +7690,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
-                if self.get_block_definition(obj.get("block_id")) is not None:
+                _d = self.get_block_definition(obj.get("block_id"))
+                if _d is not None and _d.tile:
+                    pattern_skipped += 1          # became a pattern since the copy
+                elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],
                         (_p[0] + offset.x(), _p[1] + offset.y()),
@@ -7559,7 +7724,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
-        self._show_status(f"Pasted {len(data)} item(s)")
+        if pattern_skipped:
+            from . import block_library
+            self._show_status(block_library.PATTERN_REASON)
+        else:
+            self._show_status(f"Pasted {len(data)} item(s)")
         return new_items
 
     def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
@@ -7580,6 +7749,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for item in self._selected_items:
             if isinstance(item, Sprinkler) and item.node is not None:
                 item = item.node
+            if getattr(item, "MANIP_ANCHORED", False):
+                continue                   # anchored overlay (tile frame)
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)

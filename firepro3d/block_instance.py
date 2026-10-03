@@ -22,6 +22,7 @@ from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
+from .render_op import STROKE, FILL, PATTERN, TEXT
 
 _PLACEHOLDER_MM = 200.0
 
@@ -48,6 +49,7 @@ class BlockInstance(QGraphicsObject):
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
+        self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -135,12 +137,26 @@ class BlockInstance(QGraphicsObject):
                 combined.moveTo(-h, -h)
                 combined.lineTo(h, h)
             return combined
-        for _pen, _brush, path in ops:
-            combined.addPath(path)
+        for op in ops:
+            combined.addPath(op.path)
         return combined
 
     def _posed_path(self) -> QPainterPath:
-        return self.pose_transform().map(self._local_path())
+        """Pose-mapped combined path, memoised on (compiled ops, pose).
+
+        boundingRect / shape / paint ask for it several times per frame; the
+        key is the definition's compiled op list (a new list on every content
+        change, held here so its identity can't be recycled) plus the pose, so
+        a stale path can't be served and no explicit invalidation is needed.
+        """
+        ops = self.render_ops()
+        pose = (self._pose_x, self._pose_y, self._pose_rot)
+        c = self._posed_cache
+        if c is not None and c[0] is ops and c[1] == pose and ops:
+            return c[2]
+        path = self.pose_transform().map(self._local_path())
+        self._posed_cache = (ops, pose, path)
+        return path
 
     def geometric_rect(self) -> QRectF:
         """Pen-free posed geometry bounds (for origin / bbox computations)."""
@@ -152,7 +168,9 @@ class BlockInstance(QGraphicsObject):
         return r.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        return self._posed_path()
+        # Copy (implicitly shared, O(1)): callers may mutate what shape()
+        # returns; the memoised path must stay intact.
+        return QPainterPath(self._posed_path())
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):
@@ -167,26 +185,46 @@ class BlockInstance(QGraphicsObject):
                 painter.drawPath(self._posed_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
-        for pen, brush, path in ops:
-            is_text = pen.style() == Qt.PenStyle.NoPen  # filled glyph outline op
-            p = QPen(pen)
-            p.setCosmetic(True)
-            b = QBrush(brush)
-            if is_text:
-                # Text op: the fill (brush) carries the colour; the pen is NoPen,
-                # so selection/override tint must apply to the BRUSH, not the pen.
+        selected = self.isSelected()
+        for op in ops:
+            if op.kind in (FILL, PATTERN):
+                self._paint_fill_op(painter, pose, op)
+                continue
+            if op.kind == TEXT:
+                # Text op: the fill carries the colour, so selection/override
+                # tint applies to the BRUSH.
+                b = QBrush(QColor(op.colour or "#ffffff"))
                 if override is not None:
                     b.setColor(override)
-                if self.isSelected():
+                if selected:
                     b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(b)
             else:
+                p = QPen(op.pen)
+                p.setCosmetic(True)
                 if override is not None:
                     p.setColor(override)
-                if self.isSelected():
+                if selected:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
-            painter.setPen(p)
-            painter.setBrush(b)
-            painter.drawPath(pose.map(path))
+                painter.setPen(p)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(pose.map(op.path))
+
+    def _paint_fill_op(self, painter, pose, op) -> None:
+        """Fill / pattern op: boundary posed, pattern stamped in scene axes (D-A11)."""
+        from .hatch_render import paint_fill
+        col = QColor(op.colour or "#888888")
+        col.setAlpha(op.alpha)
+        if op.kind == FILL:
+            paint_fill(painter, pose.map(op.path), scene=self.scene(),
+                       background=col, to_scene=self.sceneTransform())
+        else:
+            origin = pose.map(op.origin if op.origin is not None else QPointF(0, 0))
+            paint_fill(painter, pose.map(op.path), scene=self.scene(),
+                       tile_ref=op.tile_ref, colour=col,
+                       origin=self.sceneTransform().map(origin), scale=op.scale,
+                       to_scene=self.sceneTransform())
 
     def _display_pen_color(self) -> Optional[QColor]:
         """Hook for display-manager 'Blocks' category colour + pre-highlight.

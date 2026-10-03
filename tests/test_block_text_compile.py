@@ -1,7 +1,5 @@
 """Guard tests: BlockDefinition compiles a TextItem primitive into a FILLED
 outlined-glyph render op (containment C5.4)."""
-from PyQt6.QtCore import Qt  # noqa: E402
-
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.text_item import TextItem, TextAnnotationData
 
@@ -17,12 +15,9 @@ def test_definition_compiles_text_into_filled_render_op(qapp):
         primitives=[_text_prim()], origin=(0.0, 0.0),
     )
     ops = definition.render_ops()
-    # 3-tuple shape:
-    assert all(len(op) == 3 for op in ops)
-    text_ops = [(pen, brush, p) for (pen, brush, p) in ops
-                if brush.style() != Qt.BrushStyle.NoBrush]
+    text_ops = [op for op in ops if op.kind == "text"]
     assert text_ops, "expected at least one filled (text) render op"
-    assert not text_ops[0][2].isEmpty()
+    assert not text_ops[0].path.isEmpty()
 
 
 def test_text_primitive_type_is_registered(qapp):

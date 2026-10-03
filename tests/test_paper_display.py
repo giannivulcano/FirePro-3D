@@ -87,11 +87,15 @@ class TestPaperColorMode:
 
 
 class TestPaperCategories:
-    def test_factory_defaults_all_15_categories(self):
+    def test_factory_defaults_all_16_categories(self):
         # 14 model-mirrored categories + the paper-only "Construction" category
-        # (bug #3: construction/draw geometry plots via a pen-only paper category).
+        # (bug #3: construction/draw geometry plots via a pen-only paper category)
+        # + the paper-only Hatch pattern-line weight (hatch D-A31).
         cats = FACTORY_PAPER_CATEGORIES
-        assert len(cats) == 15
+        assert len(cats) == 16
+
+    def test_factory_hatch_category_is_very_light(self):
+        assert FACTORY_PAPER_CATEGORIES["Hatch"]["line_weight"] == "Very Light"
 
     def test_factory_construction_pen_only(self):
         """Construction is a paper-only, pen-only category (color #000000, no fill)."""

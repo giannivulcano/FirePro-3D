@@ -43,6 +43,8 @@ from .gridline import GridlineItem
 from .pipe import Pipe
 from .wall import WallSegment
 from .block_instance import BlockInstance
+from .render_op import STROKE
+from .tile_frame import TILE_FRAME_TAG
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -498,9 +500,10 @@ ALIGN_SNAP_TYPES = frozenset({"align_intersection", "align_path"})
 _WEAK_SNAP_TYPES: frozenset[str] = frozenset({"nearest"})
 
 _UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
-# Items that are never snap geometry themselves: the (0,0) origin cross. Its
-# POSITION is offered as the ``origin`` kind by SnapEngine._origin_points (DD6).
-_NON_TARGET_TAGS = frozenset({"origin"})
+# Items that are never snap geometry themselves: the (0,0) origin cross (its
+# POSITION is offered as the ``origin`` kind by SnapEngine._origin_points, DD6)
+# and the Block Editor pattern-tile frame (an overlay, hatch D-A32).
+_NON_TARGET_TAGS = frozenset({"origin", TILE_FRAME_TAG})
 # Scene distance (mm) within which a real snap candidate counts as lying ON an
 # origin point, so the winning ``origin`` result adopts its source (I-1).
 _ORIGIN_COINCIDE_EPS = 1e-6
@@ -1526,9 +1529,10 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _pen, _brush, path in (_defn.render_ops() if _defn is not None else []):
-                    if _pen.style() == Qt.PenStyle.NoPen:
-                        continue   # text op = filled glyph outline — never snap targets (S6)
+                for _op in (_defn.render_ops() if _defn is not None else []):
+                    if _op.kind != STROKE:
+                        continue   # text glyphs / fill clips are never endpoint targets (S6)
+                    path = _op.path
                     for i in range(path.elementCount()):
                         el = path.elementAt(i)
                         if el.type in _on_curve:

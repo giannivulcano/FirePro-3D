@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-02  # arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: 467b62e   # arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -119,6 +119,9 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   (default 0.45, solid only), fill colour on `_display_color`'s sibling
   `_display_fill_color`. `is_fillable()` is true iff `get_closed_path()` returns
   non-None. Fill is rendered in each item's own `paint()` via `draw_fill()`.
+  `fill_pattern` (serialized as `fill.pattern`) is a **pattern tile block id**; legacy
+  pattern names are read through the alias table and canonicalised on load. Registry,
+  picker (unresolvable-ref rule) and renderer → `hatch-and-fill.md` D-A29 / D-A36 (Rule A).
 - Property rows (`_geom2d_properties`) + setter (`_geom2d_set`) + dual-path
   serialization stamps (`_geom2d_to_dict`/`_geom2d_from_dict`).
 - `_uid` — stable primitive id (uuid4 hex, CS1 2026-10-02): minted at construction,
@@ -188,8 +191,9 @@ vertex (the FloorSlab model):
   both adjoining segments.
 - **Back-compat (required):** `from_dict` migrates legacy coincident-first/last
   polylines (no `closed` key, first≈last within 1e-3) → flagged closed with the
-  duplicate dropped. The `scene_io` legacy-`HatchItem` migration builds a filled
-  closed polyline via `close()`. Both preserve fill.
+  duplicate dropped (fill preserved). The former `scene_io` legacy-`HatchItem`
+  migration is retired: legacy `hatches` are clean-dropped on load (containment C8;
+  `scene-io.md` §5; hatch-and-fill H12).
 - Consumers that copy a polyline (offset `tool_geometry.offset_item`,
   `update_preview`) forward the flag.
 

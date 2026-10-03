@@ -648,6 +648,8 @@ class Model_View(QGraphicsView):
                     "a block", host_name, 1)
             return defn, pool, (f"{defn.name} contains {host_name} — "
                                 f"{block_library.LOOP_REASON}")
+        if getattr(defn, "tile", None):
+            return defn, pool, block_library.PATTERN_REASON
         return defn, pool, None
 
     def _begin_block_drag(self, sc, payload, defn, pool) -> None:
@@ -1571,7 +1573,7 @@ class Model_View(QGraphicsView):
         if not getattr(target, "is_fillable", lambda: False)():
             return None
 
-        from .hatch_patterns import PATTERN_NAMES
+        from .hatch_patterns import canonical_ref, tile_choices
 
         fill_menu = parent_menu.addMenu("Fill")
 
@@ -1580,9 +1582,13 @@ class Model_View(QGraphicsView):
             if sc is None:
                 return
             sc.push_undo_state()
-            target.set_property("Fill", fill_type)
             if pattern is not None:
+                # The Pattern setter loads a library pattern first (D-A37,
+                # ensure_pattern_available); a refused load leaves the fill.
                 target.set_property("Pattern", pattern)
+                if canonical_ref(getattr(target, "fill_pattern", None)) != pattern:
+                    return
+            target.set_property("Fill", fill_type)
             target.update()
 
         none_act = fill_menu.addAction("None")
@@ -1592,11 +1598,13 @@ class Model_View(QGraphicsView):
         solid_act.triggered.connect(lambda _=False: _apply("solid"))
 
         hatch_menu = fill_menu.addMenu("Hatch")
-        for name in PATTERN_NAMES:
-            _name = name  # capture
-            act = hatch_menu.addAction(_name)
+        from .hatch_patterns import picker_exclude
+        _sc = target.scene()
+        for name, ref in tile_choices(getattr(_sc, "block_registry", None),
+                                      picker_exclude(_sc)):
+            act = hatch_menu.addAction(name)
             act.triggered.connect(
-                lambda _=False, n=_name: _apply("hatch", n)
+                lambda _=False, r=ref: _apply("hatch", r)
             )
 
         return fill_menu

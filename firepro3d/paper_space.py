@@ -2555,6 +2555,9 @@ class PaperScene(QGraphicsScene):
 
     navigate_to_view = pyqtSignal(str, str)
     sheetModified = pyqtSignal()
+    # Hatch renderer fast path (see Model_Space._hatch_paper_scale): a sheet's
+    # own items are never inside a viewport render, so this stays None.
+    _hatch_paper_scale = None
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()
@@ -2582,6 +2585,21 @@ class PaperScene(QGraphicsScene):
         self._manip_geom_at_press: dict = {}
         self._manipulator = None
         self._setup()   # builds items AND (re)creates the manipulator
+
+    @property
+    def block_registry(self):
+        """The project's ``BlockRegistry`` (via the resolver), or None.
+
+        A sheet holds no block definitions of its own; its 2D fills resolve
+        their pattern blocks through the project (hatch D-A39).
+        """
+        return getattr(self._block_registry_owner, "block_registry", None)
+
+    @property
+    def _block_registry_owner(self):
+        """The project scene that owns :attr:`block_registry` (library loads
+        land there — ``hatch_patterns.ensure_pattern_available``), or None."""
+        return getattr(self._resolver, "_scene", None)
 
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).

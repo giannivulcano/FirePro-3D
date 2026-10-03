@@ -174,7 +174,7 @@ def test_e2e_save_close_reopen_and_frozen_instance(win_with_editor):
     try:
         ops = inst.render_ops()
         assert len(ops) == 1
-        r = ops[0][2].boundingRect()
+        r = ops[0].path.boundingRect()
         assert r.height() == pytest.approx(0.0, abs=1e-6)          # level
         assert r.width() == pytest.approx(100.0, abs=1e-6)
     finally:

@@ -273,6 +273,9 @@ class BlockEditorWidget(QWidget):
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
         self._edit_block_id = block_id       # mirrored onto the scene (drop cycle host)
+        # The tile frame's preview / panel reach the editor's primitives and
+        # its toggle through the scene (hatch D-A32).
+        self.editor_scene._tile_editor = self
         # Resolve nested blocks through the PROJECT registry (D4): the editor's
         # own _block_definitions stays private to its undo snapshot.
         self.editor_scene.borrow_block_registry(project_scene.block_registry,
@@ -424,6 +427,8 @@ class BlockEditorWidget(QWidget):
         # baseline holds them and Ctrl+Z can never undo them away
         # (parametric-constraint-system §6.5, §8).
         self.editor_scene.constraint_ctl.load(defn.constraints)
+        # The pattern tile joins the baseline too (hatch D-A32).
+        self.editor_scene.set_block_tile(defn.tile, push_undo=False)
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
         if migrated:
@@ -454,6 +459,30 @@ class BlockEditorWidget(QWidget):
             self._translate_all(-c.x(), -c.y())
         self._rebaseline_undo()
         self.fit_view_to_block()
+
+    def toggle_pattern_tile(self) -> bool:
+        """Ribbon / panel "Pattern tile" toggle (hatch D-A32 / D-A34).
+
+        On: seeds the frame from the content extents (one undo step); refused
+        with a status message while the saved block is placed as a symbol
+        anywhere in the project (instances, or nested in another definition).
+        Off: clears the tile (one undo step).
+
+        Returns:
+            True if the tile state changed.
+        """
+        from .tile_frame import seed_tile
+        sc = self.editor_scene
+        if sc.block_tile is not None:
+            sc.set_block_tile(None)
+            return True
+        why = self._project_scene.pattern_use_refusal(self._edit_block_id)
+        if why is not None:
+            sc._show_status(why, 5000)
+            return False
+        real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
+        sc.set_block_tile(seed_tile(real))
+        return True
 
     def gather_primitives(self):
         """Return the editor scene's construction primitives (stable list order).
@@ -515,7 +544,8 @@ class BlockEditorWidget(QWidget):
             place_instance=do_replace,
             source_items=self._seed_source_items if do_replace else None,
             place_at=(base.x(), base.y()) if base is not None else None,
-            constraints=self.editor_scene.constraint_ctl.to_records())
+            constraints=self.editor_scene.constraint_ctl.to_records(),
+            tile=self.editor_scene.block_tile)
         if defn is None:
             return None
         self._edit_block_id = defn.id

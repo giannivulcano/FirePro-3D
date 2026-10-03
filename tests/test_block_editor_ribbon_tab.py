@@ -173,7 +173,8 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
     assert type(block["Manager"]) is RibbonSmallButton
     assert type(block["Insert"]) is RibbonSmallButton
     defn = _buttons(_group(page, "Definition"))
-    assert set(defn) == {"Save", "Save As", "Import", "Edit Attributes"}
+    assert set(defn) == {"Save", "Save As", "Import", "Edit Attributes",
+                         "Pattern Tile"}       # hatch D-A32 (HF2 Task 7)
     smalls = page.findChildren(RibbonSmallButton)
     larges = [b for b in page.findChildren(QToolButton)
               if not isinstance(b, RibbonSmallButton)]
@@ -385,6 +386,29 @@ def test_entering_editor_drops_plan_contextual_and_leaving_restores_its_base(mw,
         assert _titles(mw)[-1] == PAGE
     finally:
         _remove_pipe(mw, pipe)
+        qapp.processEvents()
+
+
+# ── HF2 Task 7: Pattern Tile toggle (hatch D-A32) ────────────────────────────
+
+def test_pattern_tile_button_toggles_and_follows_undo(mw, qapp):
+    w = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    try:
+        btn = _buttons(_group(_page(mw, PAGE), "Definition"))["Pattern Tile"]
+        assert btn.isEnabled() and btn.isCheckable() and not btn.isChecked()
+        assert "pattern" in btn.toolTip().lower()
+        QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
+        qapp.processEvents()
+        assert w.editor_scene.block_tile is not None
+        assert w.editor_scene.tile_frame_item() is not None
+        assert btn.isChecked()
+        w.editor_scene.undo()                              # undo the toggle
+        qapp.processEvents()
+        assert w.editor_scene.block_tile is None
+        assert not btn.isChecked()
+    finally:
+        mw.block_editor_manager.close(w)
         qapp.processEvents()
 
 
