@@ -1866,3 +1866,26 @@ def test_rotate_commit_refuses_and_pushes_no_undo(qapp):
     assert len(sc._undo_stack) == n
     assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-9)
     assert t._angle == angle0
+
+
+def test_d4_migrated_definition_with_coincident_to_origin_opens_satisfied(qapp):
+    """D4 seam (closed CS3): migrate THEN load + solve keeps an origin-tied
+    constraint satisfied (p1 sat on the old origin)."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    project = Model_Space()
+    ln = LineItem(QPointF(10, 20), QPointF(110, 70))       # p1 on the OLD origin
+    defn = BlockDefinition.new(
+        name="B", library="L", series="S", primitives=[ln.to_dict()],
+        origin=(10.0, 20.0),
+        constraints=[{"id": "c-o", "type": "coincident",
+                      "refs": [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}]}])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    w.seed_from_definition(defn)
+    sc = w.editor_scene
+    (l,) = sc._draw_lines
+    assert (l._pt1.x(), l._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert (l._pt2.x(), l._pt2.y()) == pytest.approx((100.0, 50.0), abs=1e-9)
+    assert sc.constraint_ctl.red == set()
+    assert [c.id for c in sc.constraint_ctl.active()] == ["c-o"]
