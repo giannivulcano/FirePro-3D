@@ -173,7 +173,8 @@ until that doc is approved.
   `horizontal`, `concrete`) resolve to a code-level table of **built-in tile
   definitions** (read-only, frozen ids; the System Blocks `SYSTEM_DEFAULTS`
   idea). All Drafting at 3 mm printed spacing (`concrete` gets real
-  geometry) + one Model test pattern (brick 215×65 stretcher bond). Shown in
+  geometry) + one Model test pattern (brick 215×65 stretcher bond — with
+  10 mm joints the tile is 225×75, row shift 112.5). Shown in
   pattern pickers only — not in the Blocks browser, not openable. HF8 swaps
   their content for shipped System blocks; the table stays the fallback.
 - **D-A29** A stored pattern reference is a **tile block id**; reads also

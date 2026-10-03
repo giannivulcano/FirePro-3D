@@ -200,10 +200,18 @@ def paint_fill(painter, clip_scene_path, *, scene,
 4. LOD: device scale = `hypot(m11, m12)` of `painter.deviceTransform()`
    (rotation-safe; paper/PDF-correct; no `views()[0]` — H6). Cell < 2 px or
    > 20k cells → 35 % tone fill, return.
-5. Cell range = clip bbox grown by the content's overhang past the frame
-   (D-A33), snapped to the lattice anchored at `origin`.
-6. Cached lattice path keyed `(tile id, tile version, eff w, eff h, nx, ny,
-   row parity)` — union of the tile's stroke paths offset per cell, row shift
+5. Cell range = (clip bbox ∩ visible paint area) grown by the content's
+   overhang past the frame (D-A33), snapped to the lattice anchored at
+   `origin` and widened to 4-cell steps so panning reuses cache entries.
+   Visible area = the device rect mapped back through the inverse device
+   transform, ∩ `clipBoundingRect()` (user ruling 2026-10-02, HF2 Task 3
+   review I2: a large fill shows real hatch when zoomed in; the 20k cap
+   counts visible cells only).
+6. Cached lattice path keyed `(identity of the tile's compiled op list, eff
+   scale, nx, ny, row parity)` — not the tile version, which undo can
+   restore to a number already cached with other content (Task 3 review
+   I1); the cache is bounded by a total-cells budget
+   (`HATCH_LATTICE_CACHE_MAX_CELLS`), not an entry count — union of the tile's stroke paths offset per cell, row shift
    on odd rows — then `translate(first cell)` → `drawPath` (no path copy).
    Unrotated copies of one block share an entry.
 7. Pen: canvas cosmetic `line_width_px`; paper/PDF = "Hatch" paper category mm
