@@ -14,7 +14,7 @@ import numpy as np
 from PyQt6.QtCore import QPointF, QRectF
 
 from .geometry_2d import ARC_MIN_RADIUS, CIRCLE_MIN_RADIUS, RECT_MIN_SIZE
-from .sketch_solver import ANG_SCALE, PointExpr, raw_point, register_point_family
+from .sketch_solver import ANG_SCALE, CurveExpr, PointExpr, raw_point, register_point_family
 
 # D28 (user, 2026-10-01): angle variables are stiff -- 1 rad costs as much as
 # 1000 mm of travel.
@@ -151,6 +151,11 @@ class _Adapter:
         return {}
 
     def edges(self, item, off: int) -> dict:
+        return {}
+
+    def curves(self, item, off: int) -> dict:
+        """``{name: CurveExpr}`` -- the ``curve`` handle kind (§5.1, CS3:
+        circle / arc only; point-on-curve uses the FULL circle)."""
         return {}
 
     def grip_handle(self, item, index: int):
@@ -292,6 +297,9 @@ class _CircleAdapter(_Adapter):
     def size_floors(self, it):
         return {2: CIRCLE_MIN_RADIUS}
 
+    def curves(self, it, off):
+        return {"curve": CurveExpr(center=raw_point(off, off + 1), r=off + 2)}
+
     def write(self, it, v):
         it._center = QPointF(float(v[0]), float(v[1]))
         r = float(v[2])
@@ -350,6 +358,9 @@ class _ArcAdapter(_Adapter):
         def end(k):
             return PointExpr(idx=(off, off + 1, off + 2, off + k), fn=_arc_point_fn)
         return {"center": raw_point(off, off + 1), "start": end(3), "end": end(4)}
+
+    def curves(self, it, off):
+        return {"curve": CurveExpr(center=raw_point(off, off + 1), r=off + 2)}
 
     def write(self, it, v):
         cx, cy, r, ts, te = (float(t) for t in v)

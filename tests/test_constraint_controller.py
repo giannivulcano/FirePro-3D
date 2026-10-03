@@ -1658,3 +1658,146 @@ def test_review_m1_non_participating_item_has_no_state_footer(qapp):
     sp = SplineItem([QPointF(0, 0), QPointF(50, 40), QPointF(100, 0), QPointF(150, 30)])
     sc.addItem(sp); sc._draw_splines.append(sp)
     assert sc.constraint_ctl.item_state_text(getattr(sp, "_uid", None)) == ("", "")
+
+
+# ── CS3 Coincident (controller) ──────────────────────────────────────────────
+
+def _circle(sc, c, r):
+    from firepro3d.geometry_2d import CircleItem
+    it = CircleItem(QPointF(*c), r)
+    sc.addItem(it); sc._draw_circles.append(it)
+    return it
+
+
+def _arc(sc, c, r, s, span):
+    from firepro3d.geometry_2d import ArcItem
+    it = ArcItem(QPointF(*c), r, s, span)
+    sc.addItem(it); sc._draw_arcs.append(it)
+    return it
+
+
+def _cross(a, b, p):
+    """Signed distance of *p* from the infinite line a->b (mm)."""
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    return ((p.x() - a.x()) * dy - (p.y() - a.y()) * dx) / math.hypot(dx, dy)
+
+
+def test_coincident_joins_two_line_ends_least_change(qapp):
+    sc = _scene()
+    a = _line(sc, (-100, 0), (-10, 4)); b = _line(sc, (10, -4), (100, 0))
+    c = sc.constraint_ctl.add("coincident", [{"uid": a._uid, "h": "p2"},
+                                             {"uid": b._uid, "h": "p1"}])
+    assert c is not None and c.id not in sc.constraint_ctl.red
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert (b._pt1.x(), b._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+def test_coincident_point_to_origin(qapp):
+    sc = _scene()
+    a = _line(sc, (5, 7), (80, 40))
+    sc.constraint_ctl.add("coincident", [{"uid": a._uid, "h": "p1"}, {"ref": "origin"}])
+    assert (a._pt1.x(), a._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+def test_point_on_circle_and_arc_curve_handles(qapp):
+    sc = _scene()
+    circ = _circle(sc, (0, 0), 50)
+    arc = _arc(sc, (200, 0), 40, 10.0, 60.0)
+    ln = _line(sc, (80, 0), (150, 30))
+    ctl = sc.constraint_ctl
+    assert ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p1"},
+                                      {"uid": circ._uid, "h": "curve"}]) is not None
+    p, c = ln._pt1, circ._center
+    assert math.hypot(p.x() - c.x(), p.y() - c.y()) == pytest.approx(circ._radius, abs=1e-6)
+    assert ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p2"},
+                                      {"uid": arc._uid, "h": "curve"}]) is not None
+    p, c = ln._pt2, arc._center
+    assert math.hypot(p.x() - c.x(), p.y() - c.y()) == pytest.approx(arc._radius, abs=1e-6)
+    assert ctl.red == set()
+
+
+def test_point_on_edge_is_the_infinite_line(qapp):
+    sc = _scene()
+    base = _line(sc, (0, 0), (10, 0))
+    ln = _line(sc, (60, 9), (90, 40))
+    sc.constraint_ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p1"},
+                                             {"uid": base._uid, "h": "edge"}])
+    # Least change moves both; the point lands on base's INFINITE line,
+    # well beyond the segment's end (no segment bound).
+    assert _cross(base._pt1, base._pt2, ln._pt1) == pytest.approx(0.0, abs=1e-6)
+    assert ln._pt1.x() > max(base._pt1.x(), base._pt2.x()) + 20.0
+
+
+@pytest.mark.parametrize("axis,coord", [("x_axis", "y"), ("y_axis", "x")])
+def test_point_on_axis(qapp, axis, coord):
+    sc = _scene()
+    ln = _line(sc, (20, 30), (90, 60))
+    sc.constraint_ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p1"}, {"ref": axis}])
+    assert getattr(ln._pt1, coord)() == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("refs", [
+    lambda ln, arc: [{"uid": ln._uid, "h": "p1"}, {"uid": ln._uid, "h": "edge"}],
+    lambda ln, arc: [{"uid": arc._uid, "h": "end"}, {"uid": arc._uid, "h": "curve"}],
+    lambda ln, arc: [{"ref": "origin"}, {"ref": "x_axis"}],
+], ids=["line_end_on_own_edge", "arc_end_on_own_curve", "origin_on_axis"])
+def test_identically_satisfied_point_on_curve_is_refused(qapp, refs):
+    from firepro3d.constraint_controller import TRIVIAL_STATUS
+    sc = _scene()
+    ln = _line(sc, (0, 0), (50, 20)); arc = _arc(sc, (0, 0), 30, 0.0, 90.0)
+    msgs = []
+    sc._show_status = lambda m, *a, **k: msgs.append(m)
+    assert sc.constraint_ctl.add("point_on_curve", refs(ln, arc)) is None
+    assert sc.constraint_ctl.constraints == []
+    assert msgs[-1] == TRIVIAL_STATUS
+
+
+def test_polyline_vertex_on_a_non_adjacent_own_segment_is_admitted(qapp):
+    from firepro3d.geometry_2d import PolylineItem
+    sc = _scene()
+    pl = PolylineItem(QPointF(0, 0))
+    for p in ((100, 0), (100, 50), (30, 20)):
+        pl.append_point(QPointF(*p))
+    sc.addItem(pl); sc._polylines.append(pl)
+    c = sc.constraint_ctl.add("point_on_curve", [{"uid": pl._uid, "h": "v3"},
+                                                 {"uid": pl._uid, "h": "s0"}])
+    assert c is not None and sc.constraint_ctl.red == set()
+    v = pl._points
+    assert _cross(v[0], v[1], v[3]) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_coincident_two_ends_of_one_line_is_red_and_held(qapp):
+    """D29/D36: collapsing the line is a conflict (admitted, red, held)."""
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 30))
+    c = sc.constraint_ctl.add("coincident", [{"uid": ln._uid, "h": "p1"},
+                                             {"uid": ln._uid, "h": "p2"}])
+    assert c is not None and sc.constraint_ctl.red == {c.id}
+    assert (ln._pt2.x(), ln._pt2.y()) == pytest.approx((100.0, 30.0), abs=1e-9)
+
+
+def test_coincident_triangle_third_is_redundant(qapp):
+    sc = _scene()
+    a = _line(sc, (0, 0), (10, 0)); b = _line(sc, (10, 0), (20, 5)); c = _line(sc, (10, 0), (5, 9))
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": a._uid, "h": "p2"}, {"uid": b._uid, "h": "p1"}])
+    ctl.add("coincident", [{"uid": b._uid, "h": "p1"}, {"uid": c._uid, "h": "p1"}])
+    third = ctl.add("coincident", [{"uid": a._uid, "h": "p2"}, {"uid": c._uid, "h": "p1"}])
+    assert third.id in ctl.diagnostics().redundant
+    assert ctl.red == set()
+
+
+def test_rotated_and_mirrored_copies_keep_coincident(qapp):
+    sc = _scene()
+    a = _line(sc, (0, 0), (10, 0)); b = _line(sc, (10, 0), (20, 5))
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": a._uid, "h": "p2"}, {"uid": b._uid, "h": "p1"}])
+    ctl.add("point_on_curve", [{"uid": b._uid, "h": "p2"}, {"uid": a._uid, "h": "edge"}])
+    recs = ctl.internal_records([a, b])
+    a2 = _line(sc, (0, 0), (0, 10)); b2 = _line(sc, (0, 10), (-5, 20))
+    ctl.paste_records(recs, {a._uid: a2._uid, b._uid: b2._uid}, rotation_deg=37.0)
+    a3 = _line(sc, (0, 0), (10, 0)); b3 = _line(sc, (10, 0), (20, -5))
+    ctl.paste_records(recs, {a._uid: a3._uid, b._uid: b3._uid},
+                      mirror_axis=(QPointF(0, 0), QPointF(3, 1)))
+    for x in (a2, a3):
+        assert sorted(c.type for c in ctl.constraints_on(x)) == ["coincident", "point_on_curve"]

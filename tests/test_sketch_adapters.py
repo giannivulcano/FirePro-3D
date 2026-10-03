@@ -383,3 +383,12 @@ def test_type_keys_match_to_dict(qapp):
         assert adapter_for(it).type_key == it.to_dict()["type"], key
     b = _block()
     assert adapter_for(b).type_key == b.to_nested_dict()["type"]
+
+
+def test_circle_and_arc_expose_a_curve_handle():
+    from firepro3d.sketch_solver import CurveExpr
+    for it in (CircleItem(QPointF(5, 5), 20), ArcItem(QPointF(3, 4), 10.0, 20.0, 110.0)):
+        cv = adapter_for(it).curves(it, 7)["curve"]
+        assert isinstance(cv, CurveExpr) and cv.center.raw == (7, 8) and cv.r == 9
+    ln = LineItem(QPointF(0, 0), QPointF(1, 1))
+    assert adapter_for(ln).curves(ln, 0) == {}

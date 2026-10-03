@@ -39,6 +39,7 @@ _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
+TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
 TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 # D34 translate-first pass (_solve_x): it is taken outright when it holds the
 # edit within HONOUR_TOL; otherwise only when it moves the edit at most
@@ -391,6 +392,8 @@ class ConstraintController:
             return "point"
         if h in ad.edges(it, 0):
             return "edge"
+        if h in ad.curves(it, 0):
+            return "curve"
         return None
 
     def _valid(self, c, by=None) -> bool:
@@ -413,6 +416,24 @@ class ConstraintController:
             by = self.item_by_uid()
         kinds = tuple(self._ref_kind(r, by) for r in c.refs)
         return None not in kinds and kinds in spec.patterns
+
+    def _identically_satisfied(self, c) -> bool:
+        """CS3 pin: a point_on_curve whose residual is zero for ANY values of
+        its items (a line's own end on its edge, an arc's own end on its
+        curve, the origin on an axis) adds nothing -- refused at add. Probed
+        numerically: three positive perturbations of every variable (keeps
+        radii positive) all leave every row at zero."""
+        if c.type != "point_on_curve":
+            return False
+        sys_, _slots, _w = self._build_fresh([c])
+        if sys_.aliases or sys_.fixes:
+            return False
+        rng = np.random.default_rng(0)
+        for _ in range(3):
+            x = sys_.x + rng.uniform(0.5, 5.0, len(sys_.x))
+            if any(abs(r.fn(x)[0]) > 1e-9 for r in sys_.rows):
+                return False
+        return True
 
     def _adopt(self, record, by) -> sm.Constraint:
         """A stored / pasted record as a Constraint. Unreadable or invalid
@@ -470,12 +491,21 @@ class ConstraintController:
 
     def _resolve(self, ref, slots):
         if sm.is_ground(ref):
-            if ref["ref"] == "origin":
+            g = ref["ref"]
+            if g == "origin":
                 return const_point(0.0, 0.0)
-            raise ValueError(f"ground {ref['ref']!r} is not a point")
+            if g in ("x_axis", "y_axis"):
+                return g                       # build_point_on_curve's axis target
+            raise ValueError(f"unknown ground {g!r}")
         it, ad, off = slots[ref["uid"]]
+        h = ref["h"]
         pts = ad.points(it, off)
-        return pts[ref["h"]] if ref["h"] in pts else ad.edges(it, off)[ref["h"]]
+        if h in pts:
+            return pts[h]
+        eds = ad.edges(it, off)
+        if h in eds:
+            return eds[h]
+        return ad.curves(it, off)[h]
 
     def _ends(self, c, slots):
         res = [self._resolve(r, slots) for r in c.refs]
@@ -978,6 +1008,9 @@ class ConstraintController:
         if not self._valid(c):
             self._status(INVALID_STATUS)
             return None
+        if self._identically_satisfied(c):
+            self._status(TRIVIAL_STATUS)
+            return None
         self.constraints.append(c)
         ok = self._solve(focus=sm.ref_uids(c))
         if not ok:
@@ -1393,7 +1426,8 @@ class ConstraintController:
         across a horizontal / vertical axis; any other rotation or mirror axis
         drops them (no H<->V swap), and the copy keeps its transformed
         geometry (it is not re-solved). Translation-only copies keep
-        everything. (The Symmetric rule lands with its session.)
+        everything. Coincident / point-on-curve are kept under every
+        transform (CS3). (The Symmetric rule lands with its session.)
 
         Args:
             records: ``internal_records`` output (constraint dicts).
