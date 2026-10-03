@@ -295,12 +295,12 @@ until that doc is approved.
   definitions, Display Manager category + instance section patterns) that
   isn't already a project definition is loaded from the folder — outside the
   undo history. Pickers list blocks only (project + folder). A reference that
-  still can't resolve draws the tone (never vanish, D-A36).
+  still can't resolve draws the tone (never vanish, D-A36). *As built:* the folder is re-seeded after System Settings Apply/OK when the Hatch patterns folder changes to a not-yet-seeded folder, and a Display Manager category pattern is loaded into the project when the dialog is accepted (OK), not on pick.
 - **D-A36** *(ratified by the user 2026-10-02)* A pattern picker
   never rewrites a stored reference it can't resolve (deleted project tile,
   another project's id in QSettings): it shows no selection and keeps the
   stored ref unless the user explicitly picks another pattern; the renderer
-  draws the tone for it (D-A28 "never vanish").
+  draws the tone for it ("never vanish", D-A39).
 
 - **D-A37** *(user ruling 2026-10-02, HF2 smoke — absorbed in-session)* A
   **Hatch patterns folder** (System Settings › General › Data folder;

@@ -489,6 +489,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: passes alone; fails in a mixed subset at `9900dac` and identically at base. Same family as the real-input flakes above.
 - [ ] [type:maint] API docs page list missing hatch_render / render_op / tile_frame [P4] [subject:Documentation]
   - Details: HF2 seam review M9 (if the Account pass didn't already add them). `docs/`.
+- [ ] [type:maint] Docs drift found by the HF2 Account audit (pre-HF2) [P4] [subject:Documentation]
+  - Details: `docs/architecture/io.md` save diagram still lists "dimensions, notes" and "hatches, constraints" serialization retired under C8; `docs/specs/2026-09-17-containment-implementation-design.md` still describes `render_ops` as `(QPen, QPainterPath)` tuples (now typed `RenderOp`). Also: HD4a step 8 describes "By block" pattern colour + tile fill ops as tone — not built (see the B&W/By-block follow-up).
 - [ ] [type:bug] DXF HATCH imports nothing — `virtual_entities()` doesn't exist on ezdxf 1.4.2 `Hatch`; the AttributeError is swallowed [P2] [subject:CAD]
   - Details: proven 2026-10-01 (`hasattr(Hatch,'virtual_entities') == False`; sweep D: solid + ANSI31 fixtures import empty). `dxf_import_worker.py` composite branch (`INSERT/DIMENSION/HATCH…` → `entity.virtual_entities()`). Stopgap until HF7: emit `hatch.paths` boundary outlines (+ pattern lines via `ezdxf.render.hatching`). Also DXF SOLID imports as a bowtie (vertex order 0-1-3-2). Reproduce first.
 - [ ] [type:feature] Import AutoCAD `.PAT` files → pattern-tile blocks [P3] [subject:CAD]

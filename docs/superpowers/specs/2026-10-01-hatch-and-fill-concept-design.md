@@ -205,7 +205,7 @@ def paint_fill(painter, clip_scene_path, *, scene,
    > 20k cells → 35 % tone fill, return.
 5. Cell range = (clip bbox ∩ visible paint area) grown by the content's
    overhang past the frame (D-A33), snapped to the lattice anchored at
-   `origin` and widened to 4-cell steps so panning reuses cache entries.
+   `origin`; when the visible area cuts the fill (the panning case) the range is widened to 4-cell steps so panning reuses cache entries, while a fully visible fill stamps its exact cells (user ruling 2026-10-02, `afb2322`).
    Visible area = the device rect mapped back through the inverse of
    `combinedTransform()` (not `deviceTransform()`, which carries a widget's
    offset in its window — review C1), ∩ `clipBoundingRect()` (user ruling 2026-10-02, HF2 Task 3
