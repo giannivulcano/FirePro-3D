@@ -937,6 +937,7 @@ class ConstraintController:
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
+        self._frame_start = None
         self._drag_cur = self._drag_base = self._drag_layout = None
         self._drag_extra = []
 
@@ -979,6 +980,7 @@ class ConstraintController:
         """One drag frame: *item*'s grip was applied; pin it and re-solve."""
         if self._drag_snap is None:
             return
+        self._frame_start = self._last_good     # rewind_frame target (CS3)
         if self._solve(edited=(item,), pin=(item, grip_index), ctx=self._drag_ctx):
             self._last_good = self._good_state()
         else:
@@ -1017,14 +1019,28 @@ class ConstraintController:
 
     def hold_last_good(self) -> None:
         """D10: restore the session's last good state and report the conflict."""
-        if self._last_good is not None:
-            cur, extras = self._last_good
+        self._restore_good(self._last_good)
+        self._report_conflict()
+
+    def rewind_frame(self) -> None:
+        """Quietly restore the state at the START of the last grip frame
+        (before its :meth:`drag` solve) and make it last-good again, so the
+        grip can re-apply its own rule at the position the constraints allow
+        (CS3 smoke ruling)."""
+        start = getattr(self, "_frame_start", None)
+        if start is not None:
+            self._restore_good(start)
+            self._last_good = start
+
+    def _restore_good(self, good) -> None:
+        """Write a ``_good_state`` record back to the items."""
+        if good is not None:
+            cur, extras = good
             snap = {u: (it, list(cur[off:off + ad.nvars(it)]))
                     for u, (it, ad, off) in self._drag_ctx[1].items()}
             snap.update({k: (it, vals) for k, it, vals in extras})
             self._restore(snap)
             self._drag_cur[:] = cur
-        self._report_conflict()
 
     def end_drag(self) -> None:
         """Close the drag session (the caller then pushes undo)."""

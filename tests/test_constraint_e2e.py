@@ -623,3 +623,52 @@ def test_e2e_d17_move_of_a_fully_defined_text_is_refused(win_with_editor):
     assert sc.mode != "move"
     assert GROUNDED_STATUS in msgs
     assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+# ── CS3 smoke fix: a grip's own rule applies where the constraints allow ─────
+
+def _locked(sc, it, lst, h, target=None):
+    sc.addItem(it); getattr(sc, lst).append(it)
+    ctype = "coincident" if target is None else "point_on_curve"
+    assert sc.constraint_ctl.add(ctype, [{"uid": it._uid, "h": h},
+                                         {"ref": target or "origin"}]) is not None
+    return it
+
+
+@pytest.mark.parametrize("make,lst,h,grip", [
+    (lambda g: g.ArcItem(QPointF(0, 0), 60, 20, 100), "_draw_arcs", "center", 0),
+    (lambda g: g.ArcItem(QPointF(-60, 0), 60, 0, 90), "_draw_arcs", "start", 1),
+    (lambda g: g.RectangleItem(QPointF(0, 0), QPointF(80, 50)), "_draw_rects", "tl", 0),
+], ids=["arc_centre", "arc_start", "rect_corner"])
+def test_e2e_dragging_a_locked_grip_changes_nothing(win_with_editor, make, lst, h, grip):
+    """User ruling (CS3 smoke): a grip the constraints lock does nothing --
+    its rule (arc reshape, rect resize) never leaks radius / angle / size."""
+    from firepro3d import geometry_2d as g
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    it = _locked(sc, make(g), lst, h)
+
+    def geom():                     # observable: every grip point (an arc's
+        return [c for p in it.grip_points() for c in (p.x(), p.y())]  # angles wrap)
+    before = geom()
+    sc.clearSelection(); it.setSelected(True); QApplication.processEvents()
+    g0 = QPointF(it.grip_points()[grip])
+    _drag(view, g0, g0 + QPointF(30, 20), steps=10)
+    assert geom() == pytest.approx(before, abs=1e-6)
+
+
+def test_e2e_partly_locked_rect_corner_slides_and_keeps_the_opposite_corner(win_with_editor):
+    """tl on the X axis: the corner slides along the axis to the cursor's x and
+    the rect's own resize rule (opposite corner fixed) applies there."""
+    from firepro3d import geometry_2d as g
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    r = _locked(sc, g.RectangleItem(QPointF(0, 0), QPointF(80, 50)), "_draw_rects",
+                "tl", target="x_axis")
+    br0 = QPointF(r.grip_points()[4])
+    sc.clearSelection(); r.setSelected(True); QApplication.processEvents()
+    _drag(view, QPointF(r.grip_points()[0]), QPointF(30, 20), steps=10)
+    tl, br = QPointF(r.grip_points()[0]), QPointF(r.grip_points()[4])
+    assert (tl.x(), tl.y()) == pytest.approx((30.0, 0.0), abs=1.0)
+    assert tl.y() == pytest.approx(0.0, abs=1e-6)
+    assert (br.x(), br.y()) == pytest.approx((br0.x(), br0.y()), abs=1e-6)
