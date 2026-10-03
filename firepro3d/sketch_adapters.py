@@ -266,7 +266,9 @@ class _RectAdapter(_Adapter):
         w, h = max(w, RECT_MIN_SIZE), max(h, RECT_MIN_SIZE)
         it.prepareGeometryChange()
         it.setRect(QRectF(cx - w / 2.0, cy - h / 2.0, w, h))
-        it.set_angle(math.degrees(th), None)
+        deg = math.degrees(th)
+        if it._angle != deg or it._pivot is not None:   # D18: setRect already repaints
+            it.set_angle(deg, None)
 
 
 class _CircleAdapter(_Adapter):

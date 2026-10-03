@@ -26,7 +26,7 @@ from PyQt6.QtCore import QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
-from .sketch_adapters import adapter_for
+from .sketch_adapters import ANG_WRITE_TOL, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
                             const_point)
 from .theme import M
@@ -222,6 +222,7 @@ class ConstraintController:
         self._drag_ctx = None
         self._drag_cur = None                  # session: slot values as last written (D18)
         self._drag_base = None                 # session: slot values at begin_drag
+        self._drag_layout = None               # session: _slot_layout (D18)
         self._painted: dict = {}               # id(view) -> last glyph/glow QRect
         if self.enabled:
             scene.selectionChanged.connect(self._on_selection_changed)
@@ -641,21 +642,44 @@ class ConstraintController:
             if ad.changed(it, old, new):
                 ad.write(it, np.array(ad.settled(it, old, new), dtype=float))
 
-    @staticmethod
-    def _write_tracked(slots, goal, x_new, cur) -> None:
+    def _write_tracked(self, slots, goal, x_new, cur) -> None:
         """Drag-session write-back (D18). Each item's target is exactly what
         the stateless path leaves it at -- ``ad.settled`` against this
-        frame's goal when the solve changed it, else the goal itself -- and it
-        is written only when that differs from its tracked value *cur*
-        (updated in place), so a reset frame never rewrites the snapshot."""
+        frame's goal when the solve changed it (``ad.changed``), else the goal
+        itself -- and it is written only when that differs from its tracked
+        value *cur* (updated in place), so a reset frame never rewrites the
+        snapshot. Decided over whole arrays (the base-adapter tolerance rules,
+        which no adapter overrides) via the session's slot layout."""
+        items, starts, var_item, tol = self._drag_layout
+        if not items:
+            return
+        moved = np.abs(x_new - goal) > tol           # beyond the write tolerance
+        settled = np.where(moved, x_new, goal)
+        changed = np.logical_or.reduceat(moved, starts)
+        tgt = np.where(changed[var_item], settled, goal)
+        need = np.logical_or.reduceat(tgt != cur, starts)
+        for k in np.flatnonzero(need):
+            it, ad, off, n = items[k]
+            ad.write(it, tgt[off:off + n].copy())
+        cur[:] = tgt
+
+    @staticmethod
+    def _slot_layout(slots, nx: int) -> tuple:
+        """``(items, starts, var_item, tol)`` for :meth:`_write_tracked`:
+        per-slot ``(item, adapter, offset, n)``, ascending start offsets, each
+        variable's slot index and write tolerance (``ANG_WRITE_TOL`` for the
+        adapter's angle variables, else ``POS_WRITE_TOL``)."""
+        items, starts = [], []
+        var_item = np.zeros(nx, dtype=np.intp)
+        tol = np.full(nx, POS_WRITE_TOL)
         for _u, (it, ad, off) in slots.items():
             n = ad.nvars(it)
-            old, new = goal[off:off + n], x_new[off:off + n]
-            tgt = (np.array(ad.settled(it, old, new), dtype=float)
-                   if ad.changed(it, old, new) else np.array(old, dtype=float))
-            if not np.array_equal(tgt, cur[off:off + n]):
-                ad.write(it, tgt)
-                cur[off:off + n] = tgt
+            var_item[off:off + n] = len(items)
+            for i in ad.angle_vars(it):
+                tol[off + i] = ANG_WRITE_TOL
+            items.append((it, ad, off, n))
+            starts.append(off)
+        return items, np.array(starts, dtype=np.intp), var_item, tol
 
     @staticmethod
     def _collapses(slots, x_old, x_new) -> bool:
@@ -753,7 +777,7 @@ class ConstraintController:
 
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
-        self._drag_cur = self._drag_base = None
+        self._drag_cur = self._drag_base = self._drag_layout = None
         self._drag_extra = []
 
     @property
@@ -778,6 +802,7 @@ class ConstraintController:
         self._drag_base = self._drag_ctx[0].x.copy()
         self._drag_cur = self._drag_base.copy()
         slots = self._drag_ctx[1]
+        self._drag_layout = self._slot_layout(slots, len(self._drag_base))
         # Adapter-backed selection items outside the solve (unconstrained):
         # part of last-good so a held conflict holds the whole selection.
         self._drag_extra = [(k, it) for k, (it, _v) in self._drag_snap.items()
