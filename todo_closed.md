@@ -2,6 +2,20 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS3 Coincident (+ D17 refusal, D4 seam) — 2026-10-03
+
+- [x] [type:feature] CS3 — Coincident (point↔point, point↔origin, point-on-curve / point-on-axis) [P1] [subject:CAD] [done:2026-10-03]
+  - Details: spec §7.3. The primary way to keep drawn shapes joined (D8: snaps never constrain) — make it one click + two picks. Depends CS2.
+  - Build: branch `feat/cs3-coincident` (base `ae9c3c0`, Medium/feature batch with the D4 maint task; FP3 deltas + FP1 rulings D43–D45; build forks D46 (snap partners, absorbed the CS1 VC9 R2 bug) and D47 (smoke: grip rule at the reachable position)). Delivered: `coincident` + `point_on_curve` builders (`CurveExpr`, infinite-line / full-circle rows, axis = substitution), circle/arc `curve` handles, curve/axis refs, identically-satisfied refusal, Coincident pick grammar (either order, point-first storage, points > edges+curves > axes) + curve/axis hover glow + point-anchored glyph, ribbon button (always pick mode), D17 `refuse_grounded` (fully defined; tool entry + Move/Rotate/Scale commits), `drag_partners` excluded from handle-snap + grip cursor snap, `GripHandle._solve_frame` + `rewind_frame`. Evidence: §11 guards + D17/D46/D47 guards each shown RED with the change reverted; VC6 chunks a-d 1596 (+7 alone) / e-l 1013 / m-r 1867 (+3 pre-existing, VC7-proven at base) / s-z 109+101+2065; perf 15 + 1 xfail (commit bench A/B vs base = host noise: HEAD 52.6/37.6/41.0 vs base 44.4/38.8/41.1 ms); user smoke passed (arc-centre leak found + fixed in-session).
+
+- [x] [type:maint] D4 migration (`BlockEditorWidget._translate_all`) needs a controller seam before CS3 [P2] [subject:CAD] [done:2026-10-03]
+  - Details: CS1 Task 7 review. Opening a definition translates every seeded item before constraints load; once CS3 adds origin-tied constraints (Coincident-to-origin) the migration must translate through the controller (or load constraints first and solve). CS3 precondition. `block_editor.py`.
+  - Build: closed with no code change (maint, baseline 331 green before/after): the open path already migrates, then `load` + first solve with stable uids, and no producer pairs a non-zero origin with constraints. Guard `test_d4_migrated_definition_with_coincident_to_origin_opens_satisfied` (RED with load moved before the migration). Spec §6.5 updated.
+
+- [x] [type:bug] D35 live body drag snaps to constrained partners' STALE positions (handle-snap targets collected once at press) [P3] [subject:CAD] [done:2026-10-03]
+  - Details: CS1 VC9 R2. Partners are moved by the solver every frame but stay snap targets at their press-time spots. `selection_manipulator.py` handle-snap session.
+  - Build: absorbed into CS3 by user ruling (D46): `ConstraintController.drag_partners` -> `HandleSnapSession(also_exclude=)` for the D35 body drag. Guard `test_constrained_body_drag_never_snaps_to_a_partners_stale_spot` (RED without it).
+
 ## Hatch & Fill — HF2 pattern renderer + pattern-tile blocks — 2026-10-03
 
 - [x] [type:feature] HF2 — World-unit pattern renderer + pattern-tile blocks: `BlockDefinition.tile {w,h,row_shift,size}`, Block Editor tile frame + live repeat preview, tiled renderer (IntersectClip, origin, scale, LOD tone, cell cap) replacing Qt brush patterns/SVG parser/`views()[0]`, `RenderOp` compile with fill/pattern ops (fixes H1–H6) [P2] [subject:CAD] [done:2026-10-03]

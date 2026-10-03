@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import glob
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable
@@ -121,6 +122,14 @@ def raw_point(ix: int, iy: int) -> PointExpr:
 
 def const_point(px: float, py: float) -> PointExpr:
     return PointExpr(const=(float(px), float(py)))
+
+
+@dataclass(frozen=True)
+class CurveExpr:
+    """A circle / arc's FULL circle for point-on-curve (§7.3, CS3): its
+    ``center`` PointExpr and the radius variable index ``r``."""
+    center: PointExpr
+    r: int
 
 
 POINT_FAMILIES: dict = {}
@@ -797,4 +806,84 @@ def build_vertical(cid: str, ends, sys: System) -> None:
     _axis_equal(0, cid, ends, sys)
 
 
-BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical}
+_EPS_LEN = 1e-9       # a shorter edge has no direction: its on-line row is 0
+
+
+def _point_row(cid: str, pts, extra, f, sys: System) -> None:
+    """Append one residual row over PointExprs *pts* (+ raw variable indices
+    *extra*). ``f(P, E) -> (r, dP, dE)``: P (k, 2) the points, E the extra
+    values; dP (k, 2) = dr/dP, dE = dr/dE (chained through each point's dp)."""
+    deps = tuple(dict.fromkeys(sum((p.deps for p in pts), ()) + tuple(extra)))
+    pos = {d: k for k, d in enumerate(deps)}
+
+    def fn(x):
+        evs = [p.eval(x) for p in pts]
+        P = np.array([e[0] for e in evs], dtype=float)
+        E = np.array([x[i] for i in extra], dtype=float)
+        r, dP, dE = f(P, E)
+        g = np.zeros(len(deps))
+        for p, (_v, dp), dpk in zip(pts, evs, dP):
+            gp = np.asarray(dpk) @ dp
+            for c, d in enumerate(p.deps):
+                g[pos[d]] += gp[c]
+        for k, i in enumerate(extra):
+            g[pos[i]] += dE[k]
+        return float(r), g
+
+    sys.rows.append(Row(cid, deps, fn))
+
+
+def _on_line(P, _E):
+    """Signed distance of p from the INFINITE line a->b: cross(p-a, d)/|d|."""
+    p, a, b = P
+    d, u = b - a, p - a
+    L = math.hypot(d[0], d[1])
+    if L < _EPS_LEN:
+        return 0.0, np.zeros((3, 2)), np.zeros(0)
+    C = u[0] * d[1] - u[1] * d[0]
+    dC_dp = np.array([d[1], -d[0]])
+    dC_da = np.array([u[1] - d[1], d[0] - u[0]])
+    dC_db = np.array([-u[1], u[0]])
+    k = C / L ** 3
+    return C / L, np.array([dC_dp / L, dC_da / L + k * d, dC_db / L - k * d]), np.zeros(0)
+
+
+def _on_circle(P, E):
+    """|p - c| - r (a point on a circle, or on an arc's full circle)."""
+    p, c = P
+    v = p - c
+    n = math.hypot(v[0], v[1])
+    if n < 1e-12:
+        return -float(E[0]), np.zeros((2, 2)), np.array([-1.0])
+    u = v / n
+    return n - float(E[0]), np.array([u, -u]), np.array([-1.0])
+
+
+def build_coincident(cid: str, ends, sys: System) -> None:
+    """Coincident (pinned 2026-10-03, CS3): ``refs`` = [point, point | origin],
+    order not significant. Equal X AND Y -- ``_axis_equal`` twice (raw/raw
+    alias, raw/origin fix, else a row each)."""
+    _axis_equal(0, cid, ends, sys)
+    _axis_equal(1, cid, ends, sys)
+
+
+def build_point_on_curve(cid: str, ends, sys: System) -> None:
+    """Point-on-curve (pinned 2026-10-03, CS3): ``refs`` = [point, target],
+    stored point-first. Target: an edge -> on its INFINITE line (signed
+    cross / |d|); a curve (circle / arc ``CurveExpr``) -> on its FULL circle;
+    ``"x_axis"`` / ``"y_axis"`` -> y := 0 / x := 0 (``_axis_equal`` vs the
+    origin, so a raw point is substituted)."""
+    p, t = ends
+    if t == "x_axis":
+        _axis_equal(1, cid, (p, const_point(0.0, 0.0)), sys)
+    elif t == "y_axis":
+        _axis_equal(0, cid, (p, const_point(0.0, 0.0)), sys)
+    elif isinstance(t, CurveExpr):
+        _point_row(cid, (p, t.center), (t.r,), _on_circle, sys)
+    else:
+        a, b = t
+        _point_row(cid, (p, a, b), (), _on_line, sys)
+
+
+BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
+            "coincident": build_coincident, "point_on_curve": build_point_on_curve}

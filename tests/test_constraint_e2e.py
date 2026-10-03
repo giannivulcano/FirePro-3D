@@ -7,6 +7,8 @@ are the Task 12 ones (``tests/test_constraint_pick_ribbon.py``).
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
@@ -497,3 +499,176 @@ def test_e2e_undo_of_a_red_add_and_redo_restores_red(win_with_editor):
     assert ctl.red == {vid}
     (l,) = [x for x in sc._draw_lines if x._uid == uid]
     assert _ys(l) == pytest.approx((15.0, 15.0), abs=1e-6)
+
+
+# ── CS3 Coincident §11 #2-#4 + D17 (real window, real ribbon, posted picks) ──
+
+def _pick(win, *scene_pts):
+    view = win._test_editor.view
+    win._be_constrain_buttons["Coincident"].click()
+    QApplication.processEvents()
+    for p in scene_pts:
+        _click(view, view.mapFromScene(QPointF(*p)))
+
+
+def test_e2e_coincident_joined_ends_follow_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _line(sc, (-100, 0), (-10, 4)); b = _line(sc, (10, -4), (100, 0))
+    _pick(win, (-10, 4), (10, -4))
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    _drag(view, QPointF(0, 0), QPointF(0, 40))          # a.p2 grip (the joined end)
+    assert a._pt2.y() == pytest.approx(40.0, abs=1.0)
+    assert (b._pt1.x(), b._pt1.y()) == pytest.approx((a._pt2.x(), a._pt2.y()), abs=1e-6)
+
+
+def test_e2e_point_stays_on_circle_when_the_centre_is_dragged(win_with_editor):
+    from firepro3d.geometry_2d import CircleItem
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    circ = CircleItem(QPointF(0, 0), 60); sc.addItem(circ); sc._draw_circles.append(circ)
+    ln = _line(sc, (100, 20), (160, 70))
+    _pick(win, (100, 20), (0, -60))
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["point_on_curve"]
+    sc.clearSelection(); circ.setSelected(True); QApplication.processEvents()
+    c0 = QPointF(circ._center)
+    _drag(view, c0, c0 + QPointF(-40, 0))
+    assert circ._center.x() == pytest.approx(c0.x() - 40, abs=1.0)
+    p, c = ln._pt1, circ._center
+    assert math.hypot(p.x() - c.x(), p.y() - c.y()) == pytest.approx(circ._radius, abs=1e-6)
+
+
+def test_e2e_point_on_x_axis_survives_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    ln = _line(sc, (20, 40), (90, 70))
+    _pick(win, (20, 40), (-120, 0))
+    assert ln._pt1.y() == pytest.approx(0.0, abs=1e-6)
+    sc.clearSelection(); ln.setSelected(True); QApplication.processEvents()
+    _drag(view, QPointF(ln._pt1), QPointF(60, 50))       # would lift it off the axis
+    assert ln._pt1.y() == pytest.approx(0.0, abs=1e-6)
+    assert ln._pt1.x() == pytest.approx(60.0, abs=1.0)
+
+
+def test_e2e_coincident_save_close_reopen_and_frozen_instance(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    a = _line(sc, (-60, 0), (-5, 3)); b = _line(sc, (5, -3), (60, 0))
+    _pick(win, (-5, 3), (5, -3))
+    ua, ub = a._uid, b._uid
+    sc.clearSelection()
+    defn = w.commit_block("cs3-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {l._uid: l for l in sc2._draw_lines}
+    assert (by[ua]._pt2.x(), by[ua]._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert (by[ub]._pt1.x(), by[ub]._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert [c.type for c in sc2.constraint_ctl.active()] == ["coincident"]
+    assert [c["type"] for c in defn.constraints] == ["coincident"]
+    # A placed instance renders the solved (frozen) geometry: the joined ends
+    # meet, so the compiled pair spans -60..60 at the base.
+    inst = win.scene.place_block_instance(defn.id, (0, 0))
+    try:
+        ops = inst.render_ops()
+        assert len(ops) >= 1
+        r = ops[0].path.boundingRect()
+        for op in ops[1:]:
+            r = r.united(op.path.boundingRect())
+        assert (r.left(), r.right()) == pytest.approx((-60.0, 60.0), abs=1e-6)
+    finally:
+        win.scene.remove_block_instance(inst)
+
+
+def test_e2e_undo_redo_of_a_coincident_add(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _line(sc, (-100, 0), (-10, 4)); b = _line(sc, (10, -4), (100, 0))
+    ua = a._uid
+    sc.push_undo_state()
+
+    def cur():
+        (l,) = [x for x in sc._draw_lines if x._uid == ua]
+        return l
+    _pick(win, (-10, 4), (10, -4))
+    assert (cur()._pt2.x(), cur()._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Z)
+    assert (cur()._pt2.x(), cur()._pt2.y()) == pytest.approx((-10.0, 4.0), abs=1e-6)
+    assert sc.constraint_ctl.constraints == []
+    _ctrl(view, Qt.Key.Key_Y)
+    assert (cur()._pt2.x(), cur()._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
+
+
+def test_e2e_d17_move_of_a_fully_defined_text_is_refused(win_with_editor):
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    win = win_with_editor
+    sc = win._active_scene()
+    t = TextItem(TextAnnotationData(text="A", x=30.0, y=40.0, height_mm=20.0))
+    sc.addItem(t); sc._texts.append(t)
+    _pick(win, (0, 0), (30, 40))                        # origin, then the text's ins
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
+    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    msgs = []
+    sc._show_status = lambda m, *a, **k: msgs.append(m)
+    sc.clearSelection(); t.setSelected(True); QApplication.processEvents()
+    win._be_modify_buttons["Move"].click()
+    QApplication.processEvents()
+    assert sc.mode != "move"
+    assert GROUNDED_STATUS in msgs
+    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+# ── CS3 smoke fix: a grip's own rule applies where the constraints allow ─────
+
+def _locked(sc, it, lst, h, target=None):
+    sc.addItem(it); getattr(sc, lst).append(it)
+    ctype = "coincident" if target is None else "point_on_curve"
+    assert sc.constraint_ctl.add(ctype, [{"uid": it._uid, "h": h},
+                                         {"ref": target or "origin"}]) is not None
+    return it
+
+
+@pytest.mark.parametrize("make,lst,h,grip", [
+    (lambda g: g.ArcItem(QPointF(0, 0), 60, 20, 100), "_draw_arcs", "center", 0),
+    (lambda g: g.ArcItem(QPointF(-60, 0), 60, 0, 90), "_draw_arcs", "start", 1),
+    (lambda g: g.RectangleItem(QPointF(0, 0), QPointF(80, 50)), "_draw_rects", "tl", 0),
+], ids=["arc_centre", "arc_start", "rect_corner"])
+def test_e2e_dragging_a_locked_grip_changes_nothing(win_with_editor, make, lst, h, grip):
+    """User ruling (CS3 smoke): a grip the constraints lock does nothing --
+    its rule (arc reshape, rect resize) never leaks radius / angle / size."""
+    from firepro3d import geometry_2d as g
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    it = _locked(sc, make(g), lst, h)
+
+    def geom():                     # observable: every grip point (an arc's
+        return [c for p in it.grip_points() for c in (p.x(), p.y())]  # angles wrap)
+    before = geom()
+    sc.clearSelection(); it.setSelected(True); QApplication.processEvents()
+    g0 = QPointF(it.grip_points()[grip])
+    _drag(view, g0, g0 + QPointF(30, 20), steps=10)
+    assert geom() == pytest.approx(before, abs=1e-6)
+
+
+def test_e2e_partly_locked_rect_corner_slides_and_keeps_the_opposite_corner(win_with_editor):
+    """tl on the X axis: the corner slides along the axis to the cursor's x and
+    the rect's own resize rule (opposite corner fixed) applies there."""
+    from firepro3d import geometry_2d as g
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    r = _locked(sc, g.RectangleItem(QPointF(0, 0), QPointF(80, 50)), "_draw_rects",
+                "tl", target="x_axis")
+    br0 = QPointF(r.grip_points()[4])
+    sc.clearSelection(); r.setSelected(True); QApplication.processEvents()
+    _drag(view, QPointF(r.grip_points()[0]), QPointF(30, 20), steps=10)
+    tl, br = QPointF(r.grip_points()[0]), QPointF(r.grip_points()[4])
+    assert (tl.x(), tl.y()) == pytest.approx((30.0, 0.0), abs=1.0)
+    assert tl.y() == pytest.approx(0.0, abs=1e-6)
+    assert (br.x(), br.y()) == pytest.approx((br0.x(), br0.y()), abs=1e-6)

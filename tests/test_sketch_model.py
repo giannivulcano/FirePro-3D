@@ -10,9 +10,9 @@ def test_catalogue_declares_every_session_type():
             "dim_radius", "dim_diameter", "dim_angle"} == names
 
 
-def test_horizontal_and_vertical_are_implemented_after_cs2():
+def test_built_types_after_cs3():
     assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
-        "horizontal", "vertical"]
+        "horizontal", "vertical", "coincident", "point_on_curve"]
 
 
 def test_vertical_accepts_edge_or_two_points():
@@ -41,9 +41,15 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "coincident",
-         "refs": [{"uid": "a", "h": "p1"}, {"uid": "b", "h": "p1"}]})
-    assert built_later.inert          # declared but not implemented (CS3)
+        {"id": "x2", "type": "concentric",
+         "refs": [{"uid": "a", "h": "curve"}, {"uid": "b", "h": "curve"}]})
+    assert built_later.inert          # declared but not implemented (CS6)
+
+
+def test_registry_coincident_types_built():
+    assert sm.REGISTRY["coincident"].implemented
+    assert sm.REGISTRY["point_on_curve"].implemented
+    assert sm.REGISTRY["point_on_curve"].label == "Coincident"
 
 
 def test_ref_helpers():

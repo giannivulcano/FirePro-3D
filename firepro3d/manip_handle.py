@@ -251,8 +251,14 @@ class GripHandle(Handle):
         # excluding this item; else grid).
         self._prev_grip_item = getattr(sc, "_grip_item", None)
         self._prev_grip_dragging = getattr(sc, "_grip_dragging", False)
+        self._prev_grip_partners = getattr(sc, "_grip_partners", frozenset())
         sc._grip_item = self.item
         sc._grip_dragging = True
+        # CS3: the items the solve moves with this grip are never cursor-snap
+        # targets (they sit one frame behind -- the drag would stick).
+        ctl0 = getattr(sc, "constraint_ctl", None)
+        sc._grip_partners = (frozenset(ctl0.drag_partners([self.item]))
+                             if ctl0 is not None else frozenset())
         # Snapshot every grip point for an exact Esc restore.
         self._snapshot = list(self.item.grip_points())
         self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
@@ -278,8 +284,38 @@ class GripHandle(Handle):
         self._after_apply(m, applied)                   # hook: sibling / propagation
         ctl = getattr(sc, "constraint_ctl", None)
         if ctl is not None:
-            ctl.drag(self.item, self.index)
+            self._solve_frame(m, ctl, mods)
         m._reflow_live()
+
+    # A grabbed handle the solve left within this of where the grip put it was
+    # honoured (a W_PIN solve leaks ~1e-9 x the frame offset).
+    _HONOUR_TOL = 1e-6
+    _REACH_PASSES = 2
+
+    def _solve_frame(self, m, ctl, mods) -> None:
+        """Solve one grip frame; a grip's own rule applies where the
+        constraints allow (CS3 smoke ruling, parametric-constraint-system §8).
+
+        When the solve moved the grabbed handle off the point the grip put it
+        at (a constraint blocks it), the frame is rewound and the grip's rule
+        (arc reshape, rect resize, ...) re-applied AT the solved position, so
+        its side effects never leak: a fully locked handle changes nothing; a
+        partly locked one slides along its free direction.
+        """
+        applied = QPointF(self.item.grip_points()[self.index])
+        ctl.drag(self.item, self.index)
+        if not getattr(ctl, "dragging", False):
+            return
+        for _ in range(self._REACH_PASSES):
+            got = QPointF(self.item.grip_points()[self.index])
+            if (abs(got.x() - applied.x()) <= self._HONOUR_TOL
+                    and abs(got.y() - applied.y()) <= self._HONOUR_TOL):
+                return
+            ctl.rewind_frame()
+            self._apply(got, mods)
+            applied = QPointF(self.item.grip_points()[self.index])
+            self._after_apply(m, applied)
+            ctl.drag(self.item, self.index)
 
     def on_release(self, m, scene_pos: QPointF, mods) -> None:
         sc = m.scene()
@@ -301,7 +337,7 @@ class GripHandle(Handle):
                 self._after_apply(m, self.item.grip_points()[self.index])
         ctl = getattr(sc, "constraint_ctl", None)
         if moved and ctl is not None:
-            ctl.drag(self.item, self.index)   # solve the release frame
+            self._solve_frame(m, ctl, mods)   # solve the release frame
         self._clear_grip_state(sc)
         m._end_drag()
         # End the constraint drag session before the commit hook pushes undo,
@@ -357,6 +393,7 @@ class GripHandle(Handle):
     def _clear_grip_state(self, sc) -> None:
         sc._grip_item = getattr(self, "_prev_grip_item", None)
         sc._grip_dragging = getattr(self, "_prev_grip_dragging", False)
+        sc._grip_partners = getattr(self, "_prev_grip_partners", frozenset())
 
 
 class TranslateGripHandle(GripHandle):
@@ -404,8 +441,11 @@ class TranslateGripHandle(GripHandle):
             view = m._view() if hasattr(m, "_view") else None
             if engine is not None and view is not None:
                 from .handle_snap import HandleSnapSession
+                ctl = getattr(sc, "constraint_ctl", None)
+                partners = ctl.drag_partners([self.item]) if ctl is not None else []
                 self._hs = HandleSnapSession(engine, sc, view, [self.item],
-                                             self._snapshot[self.index])
+                                             self._snapshot[self.index],
+                                             also_exclude=partners)
         return getattr(self, "_hs", None)
 
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:

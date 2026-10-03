@@ -420,6 +420,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_dragging: bool = False
+        # Constraint partners the solve moves with the grip: never snap targets (CS3)
+        self._grip_partners: frozenset = frozenset()
         # Gridline body drag (perpendicular constraint)
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
@@ -1155,6 +1157,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Constraint pick modes exist only in a Block Editor scene (D2);
             # refused here, the shared entry every ribbon/shortcut path hits.
             return
+        if (mode in ("move", "rotate", "scale")
+                and self.constraint_ctl.refuse_grounded(self.selectedItems())):
+            # D17 (CS3): fully defined geometry is never transformed; refused
+            # at the same shared entry (the commits re-check, move_items /
+            # commit_rotate / commit_scale).
+            return
         if mode == "place_block" and isinstance(template, str):
             defn = self.get_block_definition(template)
             if defn is not None and defn.tile:
@@ -1205,6 +1213,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
         self._grip_dragging = False
+        self._grip_partners = frozenset()
         # ALIGN active-item: arm the seam for EVERY point-asking placement mode
         # (spec 2026-08-26 universal client scope — see ``_ALIGN_PLACEMENT_MODES``).
         # New-item placement modes have no scene item to self-exclude, so they
@@ -2889,6 +2898,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
+    def _not_grip_partner(self, item) -> bool:
+        """``find`` item_filter during a grip drag: False for an item the
+        constraint solve moves with the grip (``_grip_partners``, CS3)."""
+        return item not in self._grip_partners
+
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
         together in a single ``find()``, underlay geometry included), else the
@@ -2984,6 +2998,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             exclude=(self._grip_item if self._grip_dragging
                      else self._offset_source if self.mode == "offset_side"
                      else None),
+            # CS3: a grip's constraint partners move with it every frame.
+            item_filter=(self._not_grip_partner
+                         if self._grip_dragging and self._grip_partners else None),
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,
@@ -4163,6 +4180,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "place_block":              "_move_place_block",
         "constrain_horizontal":     "_move_constrain_pick",
         "constrain_vertical":       "_move_constrain_pick",
+        "constrain_coincident":     "_move_constrain_pick",
     }
 
     # Mode -> name of the method that redraws the placement preview from an
@@ -4793,6 +4811,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "place_block":              "_press_place_block",
         "constrain_horizontal":     "_press_constrain_pick",
         "constrain_vertical":       "_press_constrain_pick",
+        "constrain_coincident":     "_press_constrain_pick",
     }
 
     # ── Constraint pick mode (parametric-constraint-system.md D21) ────────
@@ -7741,6 +7760,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
 
     def move_items(self, offset):
+        """Translate the selection by *offset* (the Move tool commit).
+
+        Returns:
+            False when D17 refused it (a fully defined item -- nothing moved,
+            the caller pushes no undo step); None with an empty selection;
+            True otherwise.
+        """
         if not self._selected_items:
             return
         # Resolve any Sprinkler items to their parent Node
@@ -7754,6 +7780,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)
+        if self.constraint_ctl.refuse_grounded(resolved):     # D17 (CS3)
+            self._selected_items = None
+            return False
         # §8: the moved set's handles become drag goals; the controller
         # re-solves on exit (before the caller's undo push).
         with self.constraint_ctl.edit(resolved):
@@ -7769,6 +7798,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     item.manip_translate(offset.x(), offset.y())
                     item.setSelected(True)
         self._selected_items = None   # clear after use
+        return True
 
     def clipboard_payload(self):
         """The versioned FirePro3D clipboard payload (scene-tools.md I1).
