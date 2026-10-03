@@ -211,8 +211,6 @@
 
 One constraint type per session, in order (spec §12). Every session: §11 guard tests (math / real-scene E2E drag / save-reopen / undo / diagnostics pixel-sampled / ribbon+icon) → full suite → user smoke + approval → flip the spec's §7.3/§12 row to built + stamp `verified-commit` → reconcile smoke deltas → only then the next session. Decisions D1–D20 + B1–B4 are ratified (2026-09-29 grill); do not re-litigate — a session pins only its own catalogue row (ref order, helper fields, degenerate cases) before building.
 
-- [ ] [type:feature] CS3 — Coincident (point↔point, point↔origin, point-on-curve / point-on-axis) [P1] [subject:CAD]
-  - Details: spec §7.3. The primary way to keep drawn shapes joined (D8: snaps never constrain) — make it one click + two picks. Depends CS2.
 - [ ] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD]
   - Details: spec D7/D12, §10. Persisted dims reuse `readout_paint` + the readout HUD editor; label placement picks aligned/Δx/Δy; a permanent dim suppresses its transient readout. Depends CS3.
 - [ ] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P1] [subject:CAD]
@@ -237,6 +235,10 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: spec §7.3. Depends CS13.
 - [ ] [type:feature] CS15 — Smart Dimension: point–line distance [P1] [subject:CAD]
   - Details: spec §7.3 (signed, side in `helper`). Depends CS14. After CS15 the spec `status` → current.
+- [ ] [type:feature] Splines in the constraint system — endpoints first (Coincident / H / V on spline end points), point-on-spline later [P3] [subject:CAD]
+  - Details: user question at the CS3 smoke (2026-10-03). Splines are excluded by D5 (no adapter, no handles, no pick markers). First cut: a spline adapter exposing its two end points (derived from control points; fit vs control-point splines differ — decide in the grill) so Coincident joins a spline to other geometry; point-on-spline needs a curve residual + projection. Spec §5.1/D5 amendment. `sketch_adapters.py`, `constraint_controller.py`.
+- [ ] [type:maint] D17 Scale-commit refusal guard once a scalable primitive can be fully defined (CS4 dims / CS8 Fix) [P3] [subject:Testing]
+  - Details: CS3 wired `refuse_grounded` into `commit_scale`, but no CS1–CS3 sketch can fully define a scalable item (Scale skips text / instances), so only the tool-entry refusal is guarded. Add a commit-level guard (fully defined rect via dims/Fix -> commit_scale refused, no undo push). Spec §8 Move/Rotate/Scale row.
 - [ ] [type:maint] Retire the Align tool (Shift+L, mode `"align"`, `_execute_align`) — redundant with Move + the snap system [P3] [subject:CAD]
   - Details: user, 2026-09-29 constraint grill (D2). ALIGN *tracking* in the snap system stays — only the Align modify tool goes. The padlock/`AlignmentConstraint` half is retired by CS1; if this runs first, retire both. Whole-repo grep (`"align"` mode, `_press_align`, `_execute_align`, Shift+L shortcut, `tests/test_align_tool.py`, `docs/superpowers/specs/2026-04-30-align-tool-design.md`, `scene-tools.md`). Confirm with the user that nothing else rides on the tool before removal.
 - [ ] [type:bug] Explode drops a closed polyline's closing segment [P3] [subject:CAD]
@@ -261,16 +263,12 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: CS2 VC10 review B5: `test_tint_token_for_defined_is_ink` seeds the diagnostics cache (paint mapping only); the only real defined-state guard is on text, which is never tinted. Place a nested block instance, H + V its `ins` to the origin, pixel-sample its HALO outline = `ink` in both themes. `tests/test_constraint_paint.py`.
 - [ ] [type:feature] Solver globalisation — line search / trust region so a single large jump converges [P2] [subject:CAD]
   - Details: CS2 (2026-10-02): a second case — Vertical on an axis-aligned rectangle's top edge starts at a singular point (d(x_tr - x_tl)/dθ = 0 at θ = 0), so the solve shrinks w (D29) and fails -> red, although a 90° rotation satisfies it. CS1 Task 3/4b reviews: on nonlinear row chains a single pinned jump ≳30 mm (typed edit, transform, fast mouse) stalls (residual 2–22 mm; MAX_ITERS doesn't help) → hold-last-good instead of applying. Frame-by-frame mouse drags are fine. Needed once CS3+ add nonlinear types. `sketch_solver.py`.
-- [ ] [type:bug] D35 live body drag snaps to constrained partners' STALE positions (handle-snap targets collected once at press) [P3] [subject:CAD]
-  - Details: CS1 VC9 R2. Partners are moved by the solver every frame but stay snap targets at their press-time spots. `selection_manipulator.py` handle-snap session.
 - [ ] [type:bug] D35 live resize accumulates solver drift over a long gesture (incremental re-scaling of last frame's corrections) [P3] [subject:CAD]
   - Details: CS1 VC9 R3. Esc is exact; only the committed result drifts. Fix: apply each frame's TOTAL scale to the session snapshot. Only reachable for box-native (Text) resize today. `selection_manipulator.py`.
 - [ ] [type:bug] A rolled-back constrained transform still pushes an empty undo step [P3] [subject:CAD]
   - Details: CS1 Task 10 review M1: when `ctl.edit()` rolls back (conflict), the tool's own `push_undo_state()` still records an unchanged step. `constraint_controller.py` edit seam + modify_tools commit sites.
 - [ ] [type:bug] Join / geometry Explode / Break remove items via `removeItem` directly, bypassing the constraint cascade [P3] [subject:CAD]
   - Details: CS1 Task 8/VC9 review. Unreachable in the Block Editor today (no button/shortcut) — wire `constraint_ctl.on_items_removed` (+ "N constraints removed") when any of them is exposed. `scene_tools.py`.
-- [ ] [type:maint] D4 migration (`BlockEditorWidget._translate_all`) needs a controller seam before CS3 [P2] [subject:CAD]
-  - Details: CS1 Task 7 review. Opening a definition translates every seeded item before constraints load; once CS3 adds origin-tied constraints (Coincident-to-origin) the migration must translate through the controller (or load constraints first and solve). CS3 precondition. `block_editor.py`.
 - [ ] [type:bug] Align multi-select branch assumes the target is first in the group (`[target] + group[1:]`) [P3] [subject:CAD]
   - Details: CS1 Task 8 fix round: if the target isn't first, one selected item is dropped and the target can move twice. Pre-existing. `scene_tools._execute_align`.
 - [ ] [type:maint] Lazy uid minting for throwaway compile items [P3] [subject:Architecture]
