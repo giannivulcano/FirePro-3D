@@ -1801,3 +1801,68 @@ def test_rotated_and_mirrored_copies_keep_coincident(qapp):
                       mirror_axis=(QPointF(0, 0), QPointF(3, 1)))
     for x in (a2, a3):
         assert sorted(c.type for c in ctl.constraints_on(x)) == ["coincident", "point_on_curve"]
+
+
+# ── CS3 D17: refuse Move / Rotate / Scale of fully defined geometry ──────────
+
+def _text(sc, x, y):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text="A", x=x, y=y, height_mm=20.0))
+    sc.addItem(t); sc._texts.append(t)
+    return t
+
+
+def _grounded_text(sc):
+    t = _text(sc, 30.0, 40.0)
+    assert sc.constraint_ctl.add("coincident", [{"uid": t._uid, "h": "ins"},
+                                                {"ref": "origin"}]) is not None
+    assert sc.constraint_ctl.item_state_text(t._uid)[1] == "defined"
+    return t
+
+
+def test_move_items_refuses_a_fully_defined_selection(qapp):
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    sc = _scene()
+    t = _grounded_text(sc)
+    msgs = []
+    sc._show_status = lambda m, *a, **k: msgs.append(m)
+    sc._selected_items = [t]
+    assert sc.move_items(QPointF(25, 0)) is False
+    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert msgs[-1] == GROUNDED_STATUS
+
+
+@pytest.mark.parametrize("mode", ["move", "rotate", "scale"])
+def test_tool_entry_refused_on_fully_defined_selection(qapp, mode):
+    sc = _scene()
+    t = _grounded_text(sc)
+    t.setSelected(True)
+    sc.set_mode(mode)
+    assert sc.mode != mode
+
+
+def test_partly_grounded_selection_still_moves(qapp):
+    sc = _scene()
+    ln = _line(sc, (0, 0), (100, 0))
+    sc.constraint_ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    ln.setSelected(True)
+    sc.set_mode("move")
+    assert sc.mode == "move"
+    sc._selected_items = [ln]
+    assert sc.move_items(QPointF(0, 10)) is not False
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert ln._pt2.y() == pytest.approx(10.0, abs=1e-6)
+
+
+def test_rotate_commit_refuses_and_pushes_no_undo(qapp):
+    sc = _scene()
+    t = _grounded_text(sc)
+    sc.push_undo_state()
+    n = len(sc._undo_stack)
+    angle0 = t._angle
+    sc._selected_items = [t]
+    sc._rotate_pivot = QPointF(100, 100)
+    assert sc._modify_ctl.commit_rotate(45.0) is False
+    assert len(sc._undo_stack) == n
+    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert t._angle == angle0

@@ -40,6 +40,8 @@ CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
+GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated or scaled "
+                   "-- delete or suppress a constraint first")      # D17 (CS3)
 TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 # D34 translate-first pass (_solve_x): it is taken outright when it holds the
 # edit within HONOUR_TOL; otherwise only when it moves the edit at most
@@ -433,6 +435,23 @@ class ConstraintController:
         """Whether any of *items* is referenced by an active constraint."""
         uids = self.constrained_uids()
         return any(getattr(it, "_uid", None) in uids for it in items)
+
+    def refuse_grounded(self, items) -> bool:
+        """D17 (CS3 ruling): True -- with ``GROUNDED_STATUS`` posted -- when
+        any of *items* is fully defined (its own D41 state, per-item DOF 0).
+        A partly grounded item is not refused: the solve moves it along its
+        free DOF. The one predicate behind the Move / Rotate / Scale entry
+        (``Model_Space.set_mode``) and their commits."""
+        if not self.enabled or not items:
+            return False
+        uids = {getattr(it, "_uid", None) for it in items} & self.constrained_uids()
+        if not uids:
+            return False
+        d = self.diagnostics()
+        if any(u in d.item_dof and d.state(u) == "defined" for u in uids):
+            self._status(GROUNDED_STATUS)
+            return True
+        return False
 
     def constraints_on(self, item) -> list:
         """Every constraint (active or not) that references *item*."""

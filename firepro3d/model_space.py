@@ -1155,6 +1155,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Constraint pick modes exist only in a Block Editor scene (D2);
             # refused here, the shared entry every ribbon/shortcut path hits.
             return
+        if (mode in ("move", "rotate", "scale")
+                and self.constraint_ctl.refuse_grounded(self.selectedItems())):
+            # D17 (CS3): fully defined geometry is never transformed; refused
+            # at the same shared entry (the commits re-check, move_items /
+            # commit_rotate / commit_scale).
+            return
         if mode == "place_block" and isinstance(template, str):
             defn = self.get_block_definition(template)
             if defn is not None and defn.tile:
@@ -7743,6 +7749,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
 
     def move_items(self, offset):
+        """Translate the selection by *offset* (the Move tool commit).
+
+        Returns:
+            False when D17 refused it (a fully defined item -- nothing moved,
+            the caller pushes no undo step); None with an empty selection;
+            True otherwise.
+        """
         if not self._selected_items:
             return
         # Resolve any Sprinkler items to their parent Node
@@ -7756,6 +7769,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)
+        if self.constraint_ctl.refuse_grounded(resolved):     # D17 (CS3)
+            self._selected_items = None
+            return False
         # §8: the moved set's handles become drag goals; the controller
         # re-solves on exit (before the caller's undo push).
         with self.constraint_ctl.edit(resolved):
@@ -7771,6 +7787,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     item.manip_translate(offset.x(), offset.y())
                     item.setSelected(True)
         self._selected_items = None   # clear after use
+        return True
 
     def clipboard_payload(self):
         """The versioned FirePro3D clipboard payload (scene-tools.md I1).

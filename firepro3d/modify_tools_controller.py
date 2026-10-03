@@ -588,8 +588,14 @@ class ModifyToolsController:
                 self.commit_duplicate(offset)
                 return
             moved = list(s._selected_items or [])
-            if s.mode == "move":
-                s.move_items(offset)
+            if s.mode == "move" and s.move_items(offset) is False:
+                # D17 (CS3) refused: nothing moved, no undo step; end the tool.
+                s.node_start_pos = None
+                s._move_ghost = []
+                s._move_ghost_base = []
+                s.set_mode(None)
+                self._reselect(moved)
+                return
             s.push_undo_state()
             s.node_start_pos = None
             s._move_ghost = []
@@ -761,7 +767,15 @@ class ModifyToolsController:
             self.commit_duplicate(params["offset"])
             return True
         moved = list(s._selected_items or [])
-        s.move_items(params["offset"])
+        if s.move_items(params["offset"]) is False:
+            # D17 (CS3) refused: nothing moved, no undo step; end the tool.
+            s.node_start_pos = None
+            s._move_ghost = []
+            s._move_ghost_base = []
+            s.clear_placement_state()
+            s.set_mode(None)
+            self._reselect(moved)
+            return True
         s.push_undo_state()
         s.node_start_pos = None
         s._move_ghost = []
@@ -830,6 +844,18 @@ class ModifyToolsController:
         """Normalise a sweep to (-180, 180]."""
         d = (d + 180.0) % 360.0 - 180.0
         return 180.0 if d == -180.0 else d
+
+    def _end_refused(self, items) -> None:
+        """End a Rotate / Scale commit that D17 refused (CS3): no change, no
+        undo step, back to Select with *items* reselected (the refusal status
+        is already posted by ``refuse_grounded``)."""
+        s = self._scene
+        s._move_ghost = []
+        s._move_ghost_base = []
+        s.clear_placement_state()
+        s._selected_items = []
+        s.set_mode(None)
+        self._reselect(items)
 
     def _rotatable(self, items) -> list:
         """The transformable *items* that can rotate right now.
@@ -944,6 +970,9 @@ class ModifyToolsController:
                 if it.scene() is s:
                     it.setSelected(True)
             s._show_status("Nothing to rotate", 3000)
+            return False
+        if s.constraint_ctl.refuse_grounded(targets):          # D17 (CS3)
+            self._end_refused(items)
             return False
         # Constraint seam (§8): solved on exit, before the undo push.
         with s.constraint_ctl.edit(targets):
@@ -1226,6 +1255,9 @@ class ModifyToolsController:
         # Factor 1 changes nothing: end the tool like a commit, but push no
         # undo step (P1 DD4 review M4).
         targets = [] if noop else self._scalable(items)
+        if s.constraint_ctl.refuse_grounded(targets):          # D17 (CS3)
+            self._end_refused(items)
+            return False
         with s.constraint_ctl.edit(targets):
             for it in targets:
                 it.manip_scale_about(QPointF(base), factor)

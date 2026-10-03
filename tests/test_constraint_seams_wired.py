@@ -60,6 +60,11 @@ class _RecCtl:
     def cancel_pick(self):
         """set_mode ends any D21 pick session (not a geometry seam: unrecorded)."""
 
+    def refuse_grounded(self, items):
+        """D17 (CS3) predicate at tool entry / commits; never refuses here
+        (not a geometry seam: unrecorded)."""
+        return False
+
     def on_items_removed(self, items):
         self.events.append(("removed", list(items)))
         return 0
