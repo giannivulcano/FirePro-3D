@@ -116,15 +116,19 @@ def _finite_rect(r: QRectF) -> bool:
 def _visible_area(painter, bounds: QRectF) -> QRectF:
     """*bounds* ∩ the painter's visible area, in painter coords.
 
-    Visible area = the device rect mapped back through the inverse device
-    transform, ∩ ``clipBoundingRect()`` when clipping is on (which already
-    holds the fill's IntersectClip and any outer viewport crop). The device
-    rect is scaled by the device pixel ratio, which can only over-cover.
+    Visible area = the device rect mapped back through the inverse of
+    ``combinedTransform()`` (world × window/viewport), ∩ ``clipBoundingRect()``
+    when clipping is on (which already holds the fill's IntersectClip and any
+    outer viewport crop). Not ``deviceTransform()``: on a widget painter that
+    also carries the backing-store redirection offset (where the viewport sits
+    in its top-level window), while ``device()`` is the widget itself — the
+    area would shift up-left by that offset (review C1). The device rect is
+    scaled by the device pixel ratio, which can only over-cover.
     """
     area = QRectF(bounds)
     dev = painter.device()
     if dev is not None:
-        inv, ok = painter.deviceTransform().inverted()
+        inv, ok = painter.combinedTransform().inverted()
         if ok:
             dpr = max(1.0, float(dev.devicePixelRatioF()))
             area = area.intersected(inv.mapRect(

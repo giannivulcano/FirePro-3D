@@ -214,3 +214,68 @@ def test_tone_leaves_painter_state(qapp):
     assert p.pen().color() == QColor("#00ff00") and p.pen().width() == 3
     assert p.brush().color() == QColor("#0000ff")
     p.end()
+
+
+def test_offset_viewport_stamps_its_bottom_right(qapp):
+    """C1: a canvas viewport sitting far inside its window (below a ribbon,
+    right of a dock) still gets hatch cells over its bottom-right quadrant.
+    Real QGraphicsView + real BlockInstance pattern op + window grab."""
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QGraphicsView, QGridLayout, QWidget
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.geometry_2d import RectangleItem
+    from firepro3d.model_space import Model_Space
+
+    scene = Model_Space()
+    r = RectangleItem(QPointF(-100000, -100000), QPointF(100000, 100000))
+    r.fill_type = "hatch"
+    r.fill_pattern = "diagonal"                            # 424 mm cells at 1:100
+    r._display_fill_color = "#ff0000"
+    d = BlockDefinition.new(name="Slab", library="Project", series="",
+                            primitives=[r.to_dict()], origin=(0.0, 0.0))
+    scene.register_block_definition(d)
+    scene.place_block_instance(d.id, (0.0, 0.0))
+
+    win = QWidget()
+    lay = QGridLayout(win)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(0)
+    top, left = QWidget(), QWidget()
+    top.setFixedHeight(350)                                # "ribbon"
+    left.setFixedWidth(350)                                # "dock"
+    view = QGraphicsView(scene)
+    view.setFixedSize(500, 400)
+    lay.addWidget(top, 0, 0, 1, 2)
+    lay.addWidget(left, 1, 0)
+    lay.addWidget(view, 1, 1)
+    try:
+        win.show()
+        QTest.qWaitForWindowExposed(win)
+        view.resetTransform()
+        view.scale(0.05, 0.05)                             # cell ≈ 21 px
+        view.centerOn(0.0, 0.0)
+        qapp.processEvents()
+        img = win.grab().toImage()
+        vp = view.viewport()
+        o = vp.mapTo(win, QPoint(0, 0))
+        dpr = img.devicePixelRatio()
+        assert o.x() >= 300 and o.y() >= 300               # scenario really offset
+        w, h = vp.width(), vp.height()
+
+        def red_in(x0, y0, x1, y1):
+            n = 0
+            for x in range(x0, x1, 2):
+                for y in range(y0, y1, 2):
+                    c = QColor(img.pixel(int((o.x() + x) * dpr), int((o.y() + y) * dpr)))
+                    n += c.red() > 150 and c.green() < 100 and c.blue() < 100
+            return n
+
+        tl = red_in(0, 0, w // 2, h // 2)
+        br = red_in(w // 2, h // 2, w - 2, h - 2)
+        # Measured (step-2 sampling, strict red): fixed (tl 29, br 47); deviceTransform bug (12, 0).
+        assert br > 15 and tl > 15, (tl, br)
+    finally:
+        win.close()
+        win.deleteLater()
+        scene.cleanup()
