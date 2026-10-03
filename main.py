@@ -4704,6 +4704,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # re-show it while nothing is selected.
         sc.constraint_ctl.panel_fallback = self._get_active_view_info
         sc.sceneModified.connect(self._refresh_block_view)
+        # Pattern Tile button follows panel toggles and undo/redo (D-A32).
+        sc.sceneModified.connect(self._sync_tile_button)
         # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
         sc.instructionChanged.connect(self.footer.set_instruction)
@@ -4810,6 +4812,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
                                 self._be_edit_attributes),
             "Edit block attributes (coming soon)")
+        self._be_tile_btn = _editor_only(
+            gd.add_small_button("Pattern Tile", _I("pattern_tile_icon.svg"),
+                                self._be_toggle_tile, checkable=True),
+            "Pattern tile — make this block a hatch pattern (repeats on a "
+            "tile, fills regions, can't be placed as a symbol)")
 
         # --- 2D Geometry (editor-only) ---
         g = page.add_group("2D Geometry")
@@ -5024,6 +5031,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Re-sync the mode buttons for the (new) active scene: lights the
         # editor's running tool on entry, clears the page's buttons on leave.
         self._sync_mode_buttons(getattr(self._active_scene(), "mode", None))
+        self._sync_tile_button()
 
     def _show_block_editor_ribbon(self):
         """An editor tab became current: switch to the Block Editor page and
@@ -5085,6 +5093,29 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if w is not None:
             w.begin_import()
 
+    def _be_toggle_tile(self, checked: bool = True):
+        """Ribbon "Pattern Tile" (``toggled``): set the active block's tile
+        on/off (hatch D-A32); a refused toggle (D-A34) snaps the check back."""
+        w = self._active_editor_widget()
+        if w is not None and bool(checked) != (w.editor_scene.block_tile is not None):
+            w.toggle_pattern_tile()
+        self._sync_tile_button()
+
+    def _sync_tile_button(self) -> None:
+        """Check the Pattern Tile button iff the active editor's block is a tile."""
+        from PyQt6 import sip
+        btn = getattr(self, "_be_tile_btn", None)
+        if btn is None or sip.isdeleted(btn):
+            return
+        w = self._active_editor_widget()
+        # Silent: the button is wired on ``toggled`` (ribbon _wire), so a
+        # programmatic check must not re-enter _be_toggle_tile.
+        blocked = btn.blockSignals(True)
+        try:
+            btn.setChecked(bool(w is not None and w.editor_scene.block_tile is not None))
+        finally:
+            btn.blockSignals(blocked)
+
     def _be_edit_attributes(self):
         pass   # wired later — block attribute authoring
 
@@ -5117,7 +5148,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if isinstance(w, BlockEditorWidget):
             from firepro3d.block_properties_info import BlockPropertiesInfo
             name = tab_text[len("Block: "):] if tab_text.startswith("Block: ") else tab_text
-            return BlockPropertiesInfo(w.editor_scene, name)
+            return BlockPropertiesInfo(w.editor_scene, name, editor=w)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
             pv = self.plan_view_mgr.get(tab_text)

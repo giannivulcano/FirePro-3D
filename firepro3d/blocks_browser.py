@@ -24,18 +24,41 @@ _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
 
 
-def _pattern_badge():
-    """Small hatch glyph for tiled (pattern) blocks (D-A34)."""
+_BADGE_PX = 14                               # pattern badge size (logical px)
+_BADGE_CACHE: dict = {}                      # (muted colour, dpr) -> QIcon
+
+
+def _pattern_badge(dpr: float = 1.0):
+    """Small hatch glyph for tiled (pattern) blocks (D-A34).
+
+    Cached per (theme muted colour, device pixel ratio) — the tree rebuilds
+    on every library change, so a fresh swatch per leaf would repeat work.
+
+    Args:
+        dpr: The browser widget's ``devicePixelRatioF()`` (crisp on HiDPI).
+
+    Returns:
+        The badge ``QIcon``.
+    """
     from PyQt6.QtCore import QRectF
     from PyQt6.QtGui import QIcon, QPainter, QPixmap
     from .hatch_render import paint_swatch
     from . import theme as th
-    pix = QPixmap(14, 14)
+    muted = th.detect().muted
+    key = (muted, float(dpr))
+    icon = _BADGE_CACHE.get(key)
+    if icon is not None:
+        return icon
+    side = max(1, round(_BADGE_PX * dpr))
+    pix = QPixmap(side, side)
     pix.fill(QColor(0, 0, 0, 0))
     p = QPainter(pix)
-    paint_swatch(p, QRectF(0, 0, 14, 14), "diagonal", QColor(th.detect().muted))
+    paint_swatch(p, QRectF(0, 0, side, side), "diagonal", QColor(muted))
     p.end()
-    return QIcon(pix)
+    pix.setDevicePixelRatio(dpr)
+    icon = QIcon(pix)
+    _BADGE_CACHE[key] = icon
+    return icon
 
 
 def library_only_entries(scene, root: str | None = None
@@ -225,7 +248,7 @@ class BlocksBrowser(QWidget):
                     if path is None:
                         d = self._scene.get_block_definition(block_id)
                         if d is not None and d.tile:
-                            leaf.setIcon(0, _pattern_badge())
+                            leaf.setIcon(0, _pattern_badge(self.devicePixelRatioF()))
                             leaf.setToolTip(0, "Pattern block — used by hatch "
                                                "fills; it can't be placed")
                         else:

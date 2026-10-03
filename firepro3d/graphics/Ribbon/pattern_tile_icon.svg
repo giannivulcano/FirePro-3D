@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="48" height="48" viewBox="0 0 48 48" version="1.1" fill="none"
+     xmlns="http://www.w3.org/2000/svg">
+  <!-- Pattern tile (HF2 D-A32, mockup variant A approved 2026-10-02).
+       Two-token (icon-style-guide §5.1): #1a1a1a -> ink (the dashed tile
+       frame), #004cff -> accent (the repeating hatch). -->
+  <rect x="10" y="10" width="28" height="28"
+        style="fill:none;stroke:#1a1a1a;stroke-width:2;stroke-dasharray:4 3"/>
+  <path d="M10 26 L22 38 M10 14 L34 38 M14 10 L38 34 M26 10 L38 22"
+        style="fill:none;stroke:#004cff;stroke-width:2;stroke-linecap:round"/>
+</svg>

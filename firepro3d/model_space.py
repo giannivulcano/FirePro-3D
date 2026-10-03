@@ -258,6 +258,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
+        # Block Editor pattern tile (hatch D-A32): {"w","h","row_shift","size"}
+        # or None. In the undo snapshot; the frame item mirrors it.
+        self.block_tile: dict | None = None
+        self._tile_frame = None          # TileFrameItem while a tile is set
+        self._tile_editor = None         # owning BlockEditorWidget (set by it)
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state: one click places at 0° and the
         # mode re-arms until Esc.  A low-opacity BlockInstance is the ghost.
@@ -572,6 +577,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # this mark the scene dirty until mark_saved() clears it.
         self._dirty = False
         self.selectionChanged.connect(self._on_selection_changed)
+        if self.scene_role == "block_editor":
+            # Pattern-tile repeat preview follows every committed content edit.
+            self.sceneModified.connect(self._on_tile_content_changed)
         # Scene-level selection manipulator (frame + rigid transforms) —
         # governing spec docs/specs/selection-manipulator.md.  One undo entry
         # per baked gesture via push_undo_state.
@@ -968,7 +976,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Args:
             items: Scene items to delete; an empty iterable is a no-op.
         """
-        selected = list(items)
+        # The Block Editor tile frame is an overlay, never deletable geometry
+        # (D-A32): the "Pattern tile" toggle owns its lifetime.
+        selected = [i for i in items if i.data(0) != "tile_frame"]
         if not selected:
             return
         selected_set = set(selected)
@@ -1145,8 +1155,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if defn is not None and defn.tile:
                 # hatch D-A34: a pattern block fills regions - never a symbol.
                 # Refused at the shared entry every ribbon / browser / drag path hits.
-                self._show_status("Pattern blocks fill regions — they "
-                                  "can't be placed", 5000)
+                from . import block_library
+                self._show_status(block_library.PATTERN_REASON, 5000)
                 return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
@@ -1598,6 +1608,44 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._block_registry = registry
         self._block_registry_owner = owner
         registry.attach_scene(self)
+
+    def tile_frame_item(self):
+        """The Block Editor tile frame, or None (no tile / not an editor)."""
+        return self._tile_frame
+
+    def set_block_tile(self, tile, *, push_undo: bool = True) -> None:
+        """Set / clear the edited block's pattern tile and sync the frame (D-A32).
+
+        Args:
+            tile: Tile dict or None.
+            push_undo: Push one undo step (False inside a grip drag or an
+                undo restore — the caller owns the step).
+        """
+        from .tile_frame import TileFrameItem
+        if self._tile_frame is not None and self._tile_frame.scene() is not self:
+            self._tile_frame = None          # swept out of the scene elsewhere
+        if self._tile_frame is not None:
+            self._tile_frame.prepare_tile_change()   # bounds follow the tile
+        self.block_tile = dict(tile) if tile else None
+        if self.block_tile is None:
+            if self._tile_frame is not None:
+                self._tile_frame.setSelected(False)
+                self.removeItem(self._tile_frame)
+                self._tile_frame = None
+        else:
+            if self._tile_frame is None:
+                self._tile_frame = TileFrameItem(self)
+                self.addItem(self._tile_frame)
+            self._tile_frame.invalidate_preview()
+        if push_undo:
+            self.push_undo_state()           # emits sceneModified
+        # push_undo=False: the owner of the step (grip commit hook / undo /
+        # seed re-baseline) pushes or emits — no per-drag-frame signal storm.
+
+    def _on_tile_content_changed(self) -> None:
+        """sceneModified (editor role): rebuild the repeat preview lazily."""
+        if self._tile_frame is not None:
+            self._tile_frame.invalidate_preview()
 
     @property
     def block_registry(self):
@@ -2217,6 +2265,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                    for bid, d in self._block_definitions.items()},
             "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self.constraint_ctl.capture(),
+            # Block Editor pattern tile (hatch D-A32); None elsewhere.
+            "block_tile":         dict(self.block_tile) if self.block_tile else None,
         }
 
     def _restore_network(self, state: dict):
@@ -2505,6 +2555,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             # ── Constraints (after every item is recreated) ───────────────
             self.constraint_ctl.restore(state.get("constraints", []))
+
+            # ── Pattern tile (Block Editor, D-A32) ────────────────────────
+            if state.get("block_tile") or self.block_tile is not None:
+                self.set_block_tile(state.get("block_tile"), push_undo=False)
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
@@ -5971,6 +6025,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
         if self._place_block_id is None:
+            return
+        defn = self.get_block_definition(self._place_block_id)
+        if defn is not None and defn.tile:
+            # hatch D-A34: the block became a pattern (Block Editor save) while
+            # this mode was armed — refuse at the click and leave the mode.
+            from . import block_library
+            self._show_status(block_library.PATTERN_REASON, 5000)
+            self.set_mode(None)
             return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
                                   rotation=0.0, level=self.active_level)

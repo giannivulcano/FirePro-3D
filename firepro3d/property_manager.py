@@ -529,6 +529,12 @@ class PropertyManager(QWidget):
                     widget.insertItem(0, "< mixed >")
                     widget.setCurrentIndex(0)
 
+            # Row tooltip (project rule: every field explains itself).
+            tip = meta.get("tooltip")
+            if tip and widget is not None:
+                widget.setToolTip(tip)
+            lbl = QLabel(key)
+            lbl.setToolTip(tip or "")
             suffix = meta.get("suffix")
             if suffix and widget is not None:
                 row_layout = QHBoxLayout()
@@ -539,9 +545,9 @@ class PropertyManager(QWidget):
                 row_layout.addWidget(suffix_lbl)
                 container = QWidget()
                 container.setLayout(row_layout)
-                self._form.addRow(QLabel(key), container)
+                self._form.addRow(lbl, container)
             else:
-                self._form.addRow(QLabel(key), widget)
+                self._form.addRow(lbl, widget)
 
         # ── Legacy Level assignment (nodes, pipes, sprinklers) ────────────
         # Only show if the item doesn't already expose level_ref properties

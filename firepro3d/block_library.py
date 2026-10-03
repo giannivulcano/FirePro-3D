@@ -20,6 +20,8 @@ _log = logging.getLogger(__name__)
 _INDEX = "index.json"
 # Load-summary refusal reason for a file that would nest a block in itself.
 LOOP_REASON = "a block can't contain itself"
+# Place / drag refusal for a tiled (pattern) block (hatch D-A34).
+PATTERN_REASON = "Pattern blocks fill regions — they can't be placed"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
