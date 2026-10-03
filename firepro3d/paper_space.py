@@ -2586,6 +2586,21 @@ class PaperScene(QGraphicsScene):
         self._manipulator = None
         self._setup()   # builds items AND (re)creates the manipulator
 
+    @property
+    def block_registry(self):
+        """The project's ``BlockRegistry`` (via the resolver), or None.
+
+        A sheet holds no block definitions of its own; its 2D fills resolve
+        their pattern blocks through the project (hatch D-A39).
+        """
+        return getattr(self._block_registry_owner, "block_registry", None)
+
+    @property
+    def _block_registry_owner(self):
+        """The project scene that owns :attr:`block_registry` (library loads
+        land there — ``hatch_patterns.ensure_pattern_available``), or None."""
+        return getattr(self._resolver, "_scene", None)
+
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).
 

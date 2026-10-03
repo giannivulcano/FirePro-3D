@@ -28,7 +28,7 @@ from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from .constants import (DRAFTING_CANVAS_SCALE, HATCH_LATTICE_CACHE_MAX_CELLS,
                         HATCH_LOD_MAX_CELLS, HATCH_LOD_MIN_CELL_PX,
                         HATCH_LOD_TONE, HATCH_VISIBLE_SNAP_CELLS)
-from .hatch_patterns import resolve_tile, tile_is_valid
+from .hatch_patterns import preview_tile, resolve_tile, tile_is_valid
 from .render_op import STROKE
 
 _log = logging.getLogger(__name__)
@@ -338,7 +338,9 @@ def paint_swatch(painter, rect: QRectF, tile_ref: str | None, colour: QColor,
         rect: Swatch rect.
         tile_ref: Pattern tile id / legacy name.
         colour: Pattern colour.
-        registry: Project block registry for project tiles, or None.
+        registry: Project block registry for project tiles, or None. A
+            pattern not in it previews from the Hatch patterns folder /
+            shipped file (``preview_tile``; swatches only, D-A39).
         background: Optional swatch background.
     """
     painter.save()
@@ -346,7 +348,7 @@ def paint_swatch(painter, rect: QRectF, tile_ref: str | None, colour: QColor,
         painter.setClipRect(rect)
         if background is not None:
             painter.fillRect(rect, background)
-        tile = resolve_tile(tile_ref, registry)
+        tile = preview_tile(tile_ref, registry)
         if tile is None or not tile_is_valid(tile):
             _tone(painter, rect, colour)
             return

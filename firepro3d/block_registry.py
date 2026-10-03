@@ -10,7 +10,7 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 
 from __future__ import annotations
 
-from .hatch_patterns import canonical_ref, is_builtin_ref
+from .hatch_patterns import canonical_ref
 
 NESTED_TYPE = "block_instance"
 
@@ -31,8 +31,9 @@ def nested_ids(defn) -> set[str]:
 def prim_refs(primitives) -> set[str]:
     """Block ids a primitive list depends on: nested records + pattern refs.
 
-    Built-in pattern ids / legacy names are code-level (never in a store), so
-    they are excluded — they can't be missing, bundled or part of a cycle.
+    Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
+    are ordinary blocks): bundled with the host, cycle-checked, counted as a
+    user. Legacy names are mapped to their frozen ids.
     """
     out = set()
     for p in primitives:
@@ -41,7 +42,7 @@ def prim_refs(primitives) -> set[str]:
         f = p.get("fill")
         if isinstance(f, dict) and f.get("type") == "hatch":
             ref = canonical_ref(f.get("pattern"))
-            if ref and not is_builtin_ref(ref):
+            if ref:
                 out.add(ref)
     return out
 

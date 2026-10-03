@@ -1668,8 +1668,9 @@ class DisplayManager(QDialog):
         cur_scale = btn.property("_section_scale") or 1.0
         if isinstance(cur_scale, str):
             cur_scale = float(cur_scale or "1.0")
-        # Category settings are global QSettings (built-ins only); instance
-        # overrides are project-scoped (may reference project tiles).
+        # Category settings are global QSettings: they list the Hatch patterns
+        # folder only (registry None, D-A39); instance overrides are
+        # project-scoped (project tiles + the folder).
         reg = None if is_category else self._scene.block_registry
         dlg = SectionPatternDialog(cur_color, cur_pattern, cur_scale, self,
                                    registry=reg)
@@ -1681,6 +1682,11 @@ class DisplayManager(QDialog):
                 from .hatch_patterns import ensure_pattern_available
                 if not ensure_pattern_available(new_pattern, self._scene):
                     new_pattern = cur_pattern
+            else:
+                # D-A39: the category default draws in this project too — load
+                # the folder pattern as part of the baseline (no undo step).
+                from .hatch_patterns import load_patterns_outside_history
+                load_patterns_outside_history(self._scene, [new_pattern])
             btn.setProperty("_pattern", new_pattern)
             btn.setProperty("_section_scale", new_scale)
             self._update_swatch(btn, "section", new_color, pattern=new_pattern)

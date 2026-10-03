@@ -1844,6 +1844,40 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.blockDefinitionsChanged.emit()
         return summary
 
+    def load_blocks_outside_history(self, paths, root: str | None = None) -> list[str]:
+        """Embed `.fpdb` files as part of the undo BASELINE (hatch D-A39).
+
+        Same collision / bundle / cycle rules as :meth:`load_blocks_from_files`,
+        but no undo step is pushed and the dirty flag is kept: every new
+        definition is written into every existing undo snapshot instead, so no
+        undo / redo can unload it. Used for the patterns a project references
+        on new / open (``hatch_patterns.ensure_project_patterns``).
+
+        Args:
+            paths: `.fpdb` file paths.
+            root: Block-library root override (None = the configured library).
+
+        Returns:
+            The block ids that became project definitions (bundled deps too).
+        """
+        import copy
+        before = set(self._block_definitions)
+        dirty = getattr(self, "_dirty", False)
+        self._history_suspended = True
+        try:
+            self.load_blocks_from_files(paths, root=root)
+        finally:
+            self._history_suspended = False
+            self._dirty = dirty
+        added = {bid: d.to_dict() for bid, d in self._block_definitions.items()
+                 if bid not in before}
+        for state in self._undo_stack:
+            defs = state.setdefault("block_definitions", {})
+            for bid, rec in added.items():
+                if bid not in defs:
+                    defs[bid] = copy.deepcopy(rec)
+        return sorted(added)
+
     def _load_would_cycle(self, bundled, defn) -> bool:
         """True if loading *defn* with its *bundled* definitions forms a cycle.
 
@@ -2635,7 +2669,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def push_undo_state(self):
         """Snapshot current network state onto the undo stack."""
-        if self._in_undo_restore:
+        if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
         state = self._capture_network()
         # Discard redo history beyond current position

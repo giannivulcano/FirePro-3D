@@ -692,6 +692,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.restore_settings()
         self._splash_progress(100, "Ready")
 
+        # Hatch D-A39: copy the shipped patterns into the Hatch patterns folder
+        # (once per folder) before the first project loads them from there.
+        from firepro3d.hatch_patterns import seed_hatch_folder
+        seed_hatch_folder()
+
         # New-project setup — mirrors new_file() without the save prompt
         self.scene._clear_scene()
         self.level_widget.populate()
@@ -709,6 +714,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # _clear_scene + the template replaced scene.scale_manager after View3D
         # was built — seat the live one (I9).
         self.view_3d.reset_for_project(self.scene.scale_manager)
+
+        # Hatch D-A39: every referenced pattern (category section patterns,
+        # the wall/floor/roof default) loads from the folder into the baseline.
+        from firepro3d.hatch_patterns import ensure_project_patterns
+        ensure_project_patterns(self.scene)
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -3860,6 +3870,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.paper_display import apply_paper_display_from_project
         paper_ds = getattr(self.scene, '_loaded_paper_display', None)
         apply_paper_display_from_project(paper_ds)
+        # Hatch D-A39: patterns the file references but doesn't embed (2D /
+        # block fills, DM category + instance section patterns) load from the
+        # Hatch patterns folder as part of the undo baseline (no undo step).
+        from firepro3d.hatch_patterns import ensure_project_patterns
+        ensure_project_patterns(self.scene)
         # Rebuild elevation markers (cleared during scene load)
         self._create_elevation_markers()
         # Refresh detail views in project browser
@@ -4069,6 +4084,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Re-seat the keep-alive 3D view on the new project (I9) — after the
         # template, which replaces scene.scale_manager.
         self.view_3d.reset_for_project(self.scene.scale_manager)
+
+        # Hatch D-A39: load the referenced patterns into the baseline.
+        from firepro3d.hatch_patterns import ensure_project_patterns
+        ensure_project_patterns(self.scene)
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []

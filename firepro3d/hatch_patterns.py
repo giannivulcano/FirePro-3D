@@ -1,26 +1,32 @@
-"""Hatch pattern registry: built-in tile blocks, legacy aliases, picker source.
+"""Hatch pattern registry: frozen pattern ids, legacy aliases, picker source.
 
-hatch-and-fill.md D-A28 / D-A29, concept HD4a. A pattern is a Block definition
-with a ``tile``. Built-ins are code-level, read-only definitions with frozen
-ids (HF8 replaces their content with shipped System > Hatches blocks; this
-table stays the never-vanish fallback). Pure data at import time —
-``geometry_2d`` imports this module — the built-in definitions are built
-lazily so there is no import cycle through ``block_definition``.
+hatch-and-fill.md D-A29 / D-A37 / D-A39, concept HD4a. A pattern is a Block
+definition with a ``tile``. **Blocks only (D-A39):** there is no code-level
+pattern table. The five standard patterns (Diagonal, Cross Hatch, Horizontal,
+Concrete, Brick) ship as real ``.fpdb`` blocks under
+``firepro3d/system_blocks/Hatches`` (frozen ids below), are copied into the
+Hatch patterns folder once (``seed_hatch_folder``) and are loaded into a
+project from that folder on new / open (``ensure_project_patterns``). A ref
+resolves through the project block registry only; one that can't resolve
+draws the tone (D-A36). Pure data at import time — ``geometry_2d`` imports
+this module — so Qt / block imports stay inside the functions.
 """
 from __future__ import annotations
 
 import json
 import logging
-import math
 import os
+import shutil
 
+# Frozen ids of the shipped patterns (D-A39: ordinary block ids — the files
+# live in firepro3d/system_blocks/Hatches; the ids predate the shipped files).
 BUILTIN_DIAGONAL = "builtin-hatch-diagonal"
 BUILTIN_CROSS_HATCH = "builtin-hatch-cross-hatch"
 BUILTIN_HORIZONTAL = "builtin-hatch-horizontal"
 BUILTIN_CONCRETE = "builtin-hatch-concrete"
 BUILTIN_BRICK = "builtin-hatch-brick"
 
-#: Legacy pattern names (QSettings, DM overrides, old files) → built-in id.
+#: Legacy pattern names (QSettings, DM overrides, old files) → frozen id (D-A29).
 LEGACY_ALIAS: dict[str, str] = {
     "diagonal": BUILTIN_DIAGONAL,
     "cross_hatch": BUILTIN_CROSS_HATCH,
@@ -34,84 +40,157 @@ DEFAULT_TILE_REF = BUILTIN_DIAGONAL
 #: as the current value, never applied (``ref_from_value`` keeps the stored ref).
 MISSING_PATTERN_LABEL = "<missing pattern>"
 
-_SPACING_MM = 3.0   # printed perpendicular spacing of the Drafting test set (D-A28)
+#: QSettings key: the Hatch patterns folders already seeded (D-A39 "once").
+HATCH_SEEDED_KEY = "paths/hatch_seeded"
 
-# Picker order + display names (D-A28).
-_BUILTIN_NAMES: list[tuple[str, str]] = [
-    (BUILTIN_DIAGONAL, "Diagonal"),
-    (BUILTIN_CROSS_HATCH, "Cross Hatch"),
-    (BUILTIN_HORIZONTAL, "Horizontal"),
-    (BUILTIN_CONCRETE, "Concrete"),
-    (BUILTIN_BRICK, "Brick"),
-]
-BUILTIN_IDS = frozenset(i for i, _ in _BUILTIN_NAMES)
-
-_BUILTINS: dict | None = None
+_INDEX = "index.json"
 
 
 def canonical_ref(ref: str | None) -> str | None:
-    """A legacy name mapped to its built-in id; any other ref unchanged."""
+    """A legacy name mapped to its frozen id; any other ref unchanged."""
     if not ref:
         return ref
     return LEGACY_ALIAS.get(ref, ref)
 
 
-def is_builtin_ref(ref: str | None) -> bool:
-    """True if *ref* (id or legacy name) names a built-in tile."""
-    return canonical_ref(ref) in BUILTIN_IDS
+def shipped_patterns_dir() -> str:
+    """The app's read-only folder of shipped pattern ``.fpdb`` files (D-A39)."""
+    from .assets import system_blocks_path
+    return system_blocks_path("Hatches")
 
 
-def _line(x1, y1, x2, y2) -> dict:
-    from PyQt6.QtCore import QPointF
-    from .geometry_2d import LineItem
-    return LineItem(QPointF(x1, y1), QPointF(x2, y2)).to_dict()
+def _read_json(path: str):
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
 
 
-def _dot(x, y, r=0.2) -> dict:
-    from PyQt6.QtCore import QPointF
-    from .geometry_2d import CircleItem
-    return CircleItem(QPointF(x, y), r).to_dict()
+def shipped_pattern_files() -> list[tuple[str, str]]:
+    """``[(block id, .fpdb path)]`` of the shipped patterns, sorted by file name."""
+    folder = shipped_patterns_dir()
+    out = []
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.lower().endswith(".fpdb"))
+    except OSError:
+        return out
+    for n in names:
+        path = os.path.join(folder, n)
+        try:
+            bid = _read_json(path).get("id")
+        except Exception as exc:          # noqa: BLE001 — a broken ship file
+            _log_once(path, exc)
+            continue
+        if bid:
+            out.append((bid, path))
+    return out
 
 
-def _tri(pts) -> list[dict]:
-    (a, b, c) = pts
-    return [_line(*a, *b), _line(*b, *c), _line(*c, *a)]
+def _seeded_folders() -> list[str]:
+    from PyQt6.QtCore import QSettings
+    raw = QSettings("GV", "FirePro3D").value(HATCH_SEEDED_KEY, [])
+    if isinstance(raw, str):
+        raw = [raw] if raw else []
+    return [os.path.normcase(os.path.abspath(p)) for p in (raw or []) if p]
 
 
-def _builtin_specs() -> list[tuple[str, dict, list[dict]]]:
-    """(id, tile, primitives). Tile frame = (0,0)→(w,−h): scene y-down, so −h
-    is screen-up (D-A32). The diagonal rises to the right on screen (45° Y-up)."""
-    d = _SPACING_MM * math.sqrt(2.0)
-    s = _SPACING_MM
-    drafting = lambda w, h, shift=0.0: {"w": w, "h": h, "row_shift": shift,
-                                        "size": "drafting"}
-    concrete = (_tri([(1.0, -1.0), (2.0, -1.2), (1.4, -2.0)])
-                + _tri([(4.0, -3.5), (5.0, -3.8), (4.3, -4.6)])
-                + [_dot(3.0, -1.5), _dot(1.5, -4.5), _dot(5.0, -1.0), _dot(2.6, -5.2)])
-    return [
-        (BUILTIN_DIAGONAL, drafting(d, d), [_line(0, 0, d, -d)]),
-        (BUILTIN_CROSS_HATCH, drafting(d, d), [_line(0, 0, d, -d), _line(0, -d, d, 0)]),
-        (BUILTIN_HORIZONTAL, drafting(s, s), [_line(0, 0, s, 0)]),
-        (BUILTIN_CONCRETE, drafting(6.0, 6.0), concrete),
-        (BUILTIN_BRICK, {"w": 225.0, "h": 75.0, "row_shift": 112.5, "size": "model"},
-         [_line(0, 0, 225.0, 0), _line(0, 0, 0, -75.0)]),
-    ]
+def _mark_seeded(folder: str) -> None:
+    from PyQt6.QtCore import QSettings
+    s = QSettings("GV", "FirePro3D")
+    seen = _seeded_folders()
+    key = os.path.normcase(os.path.abspath(folder))
+    if key not in seen:
+        seen.append(key)
+    s.setValue(HATCH_SEEDED_KEY, seen)
+    s.sync()
 
 
-def builtin_tiles() -> dict:
-    """``{frozen id: BlockDefinition}`` of the built-in tiles (built once)."""
-    global _BUILTINS
-    if _BUILTINS is None:
-        from .block_definition import BlockDefinition
-        names = dict(_BUILTIN_NAMES)
-        _BUILTINS = {
-            bid: BlockDefinition(id=bid, version=1, name=names[bid],
-                                 library="System", series="Hatches",
-                                 scale_mode="real_size", origin=(0.0, 0.0),
-                                 attributes=[], primitives=prims, tile=tile)
-            for bid, tile, prims in _builtin_specs()
-        }
-    return _BUILTINS
+def _folder_ids(folder: str) -> set[str]:
+    """Every block id held by an ``.fpdb`` in *folder* (+ two subfolder levels),
+    read from the files themselves (an index can be stale or missing)."""
+    ids = set()
+    for d in _scan_dirs(folder):
+        try:
+            names = [e.path for e in os.scandir(d)
+                     if e.is_file() and e.name.lower().endswith(".fpdb")]
+        except OSError:
+            continue
+        for path in names:
+            try:
+                bid = _read_json(path).get("id")
+            except Exception:             # noqa: BLE001 — unreadable: not ours
+                continue
+            if bid:
+                ids.add(bid)
+    return ids
+
+
+def seed_hatch_folder(folder: str | None = None) -> list[str]:
+    """Copy the shipped patterns into the Hatch patterns folder, once (D-A39).
+
+    Runs once per folder (recorded under ``HATCH_SEEDED_KEY``): a shipped
+    pattern the user later deletes is not re-seeded. A shipped pattern whose id
+    is already held by any ``.fpdb`` in the folder (the user's edited copy,
+    whatever its file name) is skipped — never overwritten. A copy that would
+    clash with a different block's file name is skipped too. The folder's
+    ``index.json`` gains an entry (with the ``tile`` flag) per copied file.
+
+    Args:
+        folder: Target folder; None = ``app_data.hatch_patterns_dir()``.
+
+    Returns:
+        The block ids copied (empty when the folder was already seeded).
+    """
+    if folder is None:
+        from .app_data import hatch_patterns_dir
+        folder = hatch_patterns_dir()
+    folder = os.path.abspath(folder)
+    if os.path.normcase(folder) in _seeded_folders():
+        return []
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError as exc:
+        _log.warning("Hatch patterns folder %s not writable: %s", folder, exc)
+        return []
+    have = _folder_ids(folder)
+    idx_path = os.path.join(folder, _INDEX)
+    index: dict = {}
+    if os.path.isfile(idx_path):
+        try:
+            index = _read_json(idx_path)
+            if not isinstance(index, dict):
+                index = {}
+        except Exception as exc:          # noqa: BLE001
+            _log_once(idx_path, exc)
+            index = {}
+    copied = []
+    for bid, src in shipped_pattern_files():
+        if bid in have:
+            continue
+        fname = os.path.basename(src)
+        dst = os.path.join(folder, fname)
+        if os.path.exists(dst):
+            continue                      # a different block owns the name
+        try:
+            shutil.copyfile(src, dst)
+            data = _read_json(src)
+        except (OSError, ValueError) as exc:
+            _log.warning("Hatch pattern seed %s failed: %s", fname, exc)
+            continue
+        index[fname] = {"id": bid, "name": data.get("name") or fname[:-5],
+                        "version": data.get("version", 1), "thumbnail": None,
+                        "tile": bool(data.get("tile"))}
+        copied.append(bid)
+    if copied:
+        tmp = idx_path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(index, fh, indent=2)
+            os.replace(tmp, idx_path)
+        except OSError as exc:
+            _log.warning("Hatch pattern index %s not written: %s", idx_path, exc)
+        from . import block_library
+        block_library._notify_changed()   # an open Blocks browser refreshes
+    _mark_seeded(folder)
+    return copied
 
 
 def tile_is_valid(defn) -> bool:
@@ -121,17 +200,58 @@ def tile_is_valid(defn) -> bool:
 
 
 def resolve_tile(ref: str | None, registry=None):
-    """Tile definition for *ref*: alias → built-ins → project registry; else None."""
+    """Tile definition for *ref*: alias → the project registry; else None.
+
+    Blocks only (D-A39): there is no code-level fallback — an unloaded ref
+    resolves to None and the renderer draws the tone (D-A36).
+    """
+    ref = canonical_ref(ref)
+    if not ref or registry is None:
+        return None
+    d = registry.get(ref)
+    if d is not None and d.tile:
+        return d
+    return None
+
+
+_PREVIEW_CACHE: dict = {}    # (.fpdb path, mtime_ns) -> BlockDefinition | None
+
+
+def _file_tile(path: str):
+    """A pattern definition read from *path* for previews (cached per mtime)."""
+    try:
+        key = (path, os.stat(path).st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _PREVIEW_CACHE:
+        from .block_library import load_block_file
+        d = load_block_file(path)
+        _PREVIEW_CACHE[key] = d if d is not None and d.tile else None
+    return _PREVIEW_CACHE[key]
+
+
+def preview_tile(ref: str | None, registry=None):
+    """Tile definition for a picker / badge swatch (never the renderer).
+
+    The project registry first; else the Hatch patterns folder's copy (a
+    library pattern a picker offers before it is loaded); else the shipped
+    file. Swatches only — canvas / sheet / PDF rendering resolves through
+    :func:`resolve_tile` (blocks loaded in the project, D-A39).
+    """
+    d = resolve_tile(ref, registry)
+    if d is not None:
+        return d
     ref = canonical_ref(ref)
     if not ref:
         return None
-    b = builtin_tiles().get(ref)
-    if b is not None:
-        return b
-    if registry is not None:
-        d = registry.get(ref)
-        if d is not None and d.tile:
-            return d
+    for _name, bid, path in library_patterns():
+        if bid == ref:
+            d = _file_tile(path)
+            if d is not None:
+                return d
+    for bid, path in shipped_pattern_files():
+        if bid == ref:
+            return _file_tile(path)
     return None
 
 
@@ -293,22 +413,24 @@ def _unique(name: str, used: set, tag: str) -> str:
 
 def tile_choices(registry=None, exclude=(),
                  include_library=True) -> list[tuple[str, str]]:
-    """``[(label, ref)]``: built-ins in fixed order, then the project's valid
-    tiled blocks by name, then the Hatch patterns folder's pattern blocks not
-    already in the project (D-A37). The single source for every pattern picker.
+    """``[(label, ref)]``: the project's valid tiled blocks by name, then the
+    Hatch patterns folder's pattern blocks not already in the project (D-A37).
+    Blocks only (D-A39) — the single source for every pattern picker.
 
-    Labels are unique: a project tile whose name collides with an earlier label
-    gets `` (project)`` appended (then `` (project 2)`` ...), a library one
-    `` (library)``, so every ref is reachable through ``ref_from_value``.
+    Labels are unique: a name colliding with an earlier label gets
+    `` (project)`` / `` (library)`` appended (then `` (project 2)`` ...), so
+    every ref is reachable through ``ref_from_value``.
 
     Args:
-        registry: Project block registry, or None (built-ins only — e.g. the
-            global category defaults, which can't reference a project block).
+        registry: Project block registry, or None (folder patterns only — the
+            global Display Manager category defaults, which can't reference a
+            project-only block).
         exclude: Tile ids to leave out (``picker_exclude``).
-        include_library: Append the library patterns (only with a registry:
-            picking one loads it into that project — ``ensure_pattern_available``).
+        include_library: Append the folder patterns (picking one loads it into
+            the project — ``ensure_pattern_available``).
     """
-    out = list(((n, i) for i, n in _BUILTIN_NAMES))
+    out: list[tuple[str, str]] = []
+    used: set = set()
     if registry is not None:
         project = []
         for bid in registry.ids():
@@ -317,23 +439,23 @@ def tile_choices(registry=None, exclude=(),
             d = registry.get(bid)
             if d is not None and d.tile and tile_is_valid(d):
                 project.append((d.name or bid, bid))
-        used = {n for n, _ in out}
         for name, bid in sorted(project, key=lambda x: x[0].lower()):
             out.append((_unique(name, used, "project"), bid))
-        if include_library:
-            for name, bid, _path in library_patterns():
-                if bid in exclude or bid in BUILTIN_IDS or registry.get(bid) is not None:
-                    continue
-                out.append((_unique(name, used, "library"), bid))
+    if include_library:
+        for name, bid, _path in library_patterns():
+            if bid in exclude or (registry is not None
+                                  and registry.get(bid) is not None):
+                continue
+            out.append((_unique(name, used, "library"), bid))
     return out
 
 
 def ensure_pattern_available(ref: str | None, scene) -> bool:
     """Load a library pattern into the project before its id is stored (D-A37).
 
-    A built-in, a pattern already in the project registry, or a ref that is no
-    library pattern (kept as-is per D-A36) needs nothing. A library-only
-    pattern is loaded into the PROJECT scene (a Block Editor scene's
+    A pattern already in the project registry, or a ref that is no library
+    pattern (kept as-is per D-A36) needs nothing. A library-only pattern is
+    loaded into the PROJECT scene (a Block Editor scene's
     ``_block_registry_owner``) as one undoable batch via
     ``blocks_browser.ensure_block_loaded``. UI paths only — never paint.
 
@@ -346,7 +468,7 @@ def ensure_pattern_available(ref: str | None, scene) -> bool:
         caller must not store it); True otherwise.
     """
     ref = canonical_ref(ref)
-    if not ref or ref in BUILTIN_IDS or scene is None:
+    if not ref or scene is None:
         return True
     project = getattr(scene, "_block_registry_owner", None) or scene
     reg = getattr(project, "block_registry", None)
@@ -359,13 +481,112 @@ def ensure_pattern_available(ref: str | None, scene) -> bool:
     return True
 
 
+def _fill_ref(primitive) -> str | None:
+    f = primitive.get("fill") if isinstance(primitive, dict) else None
+    if isinstance(f, dict) and f.get("type") == "hatch":
+        return canonical_ref(f.get("pattern"))
+    return None
+
+
+def project_pattern_refs(scene) -> set[str]:
+    """Every pattern ref a project uses or will draw with (D-A39).
+
+    Collected (canonical ids): 2D items' hatch ``fill_pattern``; every block
+    definition's primitive hatch fills; each item's Display Manager section
+    pattern (``_display_section_pattern`` + a per-instance
+    ``_display_overrides`` value); every Display Manager category
+    ``section_pattern`` (QSettings / factory, via the DM reader); and
+    ``DEFAULT_TILE_REF`` — the pattern walls / floors / roofs fall back to.
+
+    Args:
+        scene: The project ``Model_Space``.
+
+    Returns:
+        The set of canonical refs (loaded or not).
+    """
+    refs: set = {DEFAULT_TILE_REF}
+    for item in scene.items():
+        if getattr(item, "fill_type", None) == "hatch":
+            refs.add(canonical_ref(getattr(item, "fill_pattern", None)))
+        refs.add(canonical_ref(getattr(item, "_display_section_pattern", None)))
+        ov = getattr(item, "_display_overrides", None)
+        if isinstance(ov, dict):
+            refs.add(canonical_ref(ov.get("section_pattern")))
+    store = getattr(scene, "_block_definitions", None) or {}
+    for defn in list(store.values()):
+        for p in getattr(defn, "primitives", ()) or ():
+            refs.add(_fill_ref(p))
+    try:
+        from .display_manager import _CATEGORIES, _read_category_from_settings
+        for cat in _CATEGORIES:
+            if cat.get("section_pattern") is None:
+                continue
+            refs.add(canonical_ref(
+                _read_category_from_settings(cat["key"]).get("section_pattern")))
+    except Exception:                     # noqa: BLE001 — DM unavailable headless
+        _log.debug("Display Manager categories unreadable", exc_info=True)
+    refs.discard(None)
+    refs.discard("")
+    return {r for r in refs if isinstance(r, str)}
+
+
+def load_patterns_outside_history(scene, refs) -> list[str]:
+    """Load the folder patterns among *refs* the project lacks — no undo step.
+
+    The loaded definitions join every existing undo snapshot (the baseline),
+    so Ctrl+Z can never unload them (D-A39). Refs not in the Hatch patterns
+    folder are left alone (they draw the tone, D-A36).
+
+    Args:
+        scene: The project ``Model_Space`` (a Block Editor scene's
+            ``_block_registry_owner`` is used when given an editor scene).
+        refs: Pattern refs (ids or legacy names).
+
+    Returns:
+        The block ids that became project definitions.
+    """
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    store = getattr(project, "_block_definitions", None)
+    if store is None or not hasattr(project, "load_blocks_outside_history"):
+        return []
+    want = {canonical_ref(r) for r in refs if r} - set(store)
+    if not want:
+        return []
+    paths = [path for _name, bid, path in library_patterns() if bid in want]
+    if not paths:
+        return []
+    return project.load_blocks_outside_history(paths)
+
+
+def ensure_project_patterns(scene) -> list[str]:
+    """Load every pattern the project references from the folder (D-A39).
+
+    Call on project new (before the undo baseline reset) and after project
+    open (after the display settings are applied). Repeats until nothing new
+    loads, so a pattern whose own fills use another pattern is followed.
+
+    Args:
+        scene: The project ``Model_Space``.
+
+    Returns:
+        The block ids loaded.
+    """
+    loaded: list = []
+    for _round in range(8):               # nested pattern-in-pattern depth cap
+        got = load_patterns_outside_history(scene, project_pattern_refs(scene))
+        if not got:
+            break
+        loaded.extend(got)
+    return loaded
+
+
 def display_name(ref: str | None, registry=None, exclude=()) -> str:
     """Picker label for *ref* (falls back to the raw ref for an unknown one)."""
     ref = canonical_ref(ref)
     for name, r in tile_choices(registry, exclude):
         if r == ref:
             return name
-    d = resolve_tile(ref, registry)
+    d = preview_tile(ref, registry)
     return d.name if d is not None else (ref or "")
 
 
