@@ -1,4 +1,4 @@
-"""Built-in tiles, legacy alias and registry refs (hatch D-A28/D-A29, HD4a)."""
+"""Shipped pattern blocks, legacy alias and registry refs (hatch D-A29/D-A39, HD4a)."""
 from PyQt6.QtCore import QPointF
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
@@ -13,13 +13,14 @@ def _tile_def(name="P", tile=None):
         tile=tile or {"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
 
 
-def test_legacy_names_resolve_to_builtin_tiles(qapp):
+def test_legacy_names_resolve_to_builtin_tiles(qapp, shipped_hatches):
+    reg = shipped_hatches()               # D-A39: the shipped .fpdb blocks
     for name in ("diagonal", "cross_hatch", "horizontal", "concrete"):
-        t = hp.resolve_tile(name, None)
+        t = hp.resolve_tile(name, reg)
         assert t is not None and t.tile is not None, name
         assert t.id == hp.LEGACY_ALIAS[name]
         assert t.render_ops(), f"{name} tile has no geometry"
-    brick = hp.resolve_tile(hp.BUILTIN_BRICK, None)
+    brick = hp.resolve_tile(hp.BUILTIN_BRICK, reg)
     assert brick.tile["size"] == "model" and brick.tile["row_shift"] == 112.5
 
 
@@ -32,15 +33,20 @@ def test_tile_round_trips_through_to_dict(qapp):
     assert plain.tile is None
 
 
-def test_tile_choices_lists_builtins_then_project_tiles(qapp):
+def test_tile_choices_lists_project_then_folder_tiles(qapp):
+    """D-A39 (supersedes D-A28's built-in section): blocks only — the
+    project's tiles by name, then the Hatch patterns folder's by name."""
+    hp.seed_hatch_folder()
     sc = Model_Space()
     sc.register_block_definition(_tile_def("Zig"))
     sc.register_block_definition(BlockDefinition.new(
         name="Symbol", library="L", series="S", origin=(0, 0),
         primitives=[LineItem(QPointF(0, 0), QPointF(1, 0)).to_dict()]))
     names = [n for n, _ in hp.tile_choices(sc.block_registry)]
-    assert names[:5] == ["Diagonal", "Cross Hatch", "Horizontal", "Concrete", "Brick"]
-    assert "Zig" in names and "Symbol" not in names
+    assert names == ["Zig", "Brick", "Concrete", "Cross Hatch", "Diagonal", "Horizontal"]
+    assert "Symbol" not in names
+    # registry None (global DM category defaults): the folder only.
+    assert [n for n, _ in hp.tile_choices(None)] == names[1:]
 
 
 def test_legacy_fill_pattern_canonicalised_on_load(qapp):
@@ -81,8 +87,9 @@ def test_builtin_pattern_ref_is_never_reported_missing(qapp):
     assert missing == {"gone": {host.id}}      # nested symbol reported, builtin not
 
 
-def test_project_tile_named_like_builtin_is_pickable(qapp):
+def test_project_tile_named_like_builtin_is_pickable(qapp, shipped_hatches):
     sc = Model_Space()
+    shipped_hatches(sc)                   # the shipped Diagonal is loaded first
     proj = _tile_def("Diagonal")
     sc.register_block_definition(proj)
     rect = RectangleItem(QPointF(0, 0), QPointF(10, 10))
@@ -98,7 +105,8 @@ def test_project_tile_named_like_builtin_is_pickable(qapp):
     assert rect.fill_pattern == hp.BUILTIN_DIAGONAL
 
 
-def test_tile_dict_is_a_copy(qapp):
-    b = hp.builtin_tiles()[hp.BUILTIN_BRICK]
+def test_tile_dict_is_a_copy(qapp, shipped_hatches):
+    reg = shipped_hatches()
+    b = reg.get(hp.BUILTIN_BRICK)
     b.tile["w"] = 1.0
-    assert hp.builtin_tiles()[hp.BUILTIN_BRICK].tile["w"] == 225.0
+    assert reg.get(hp.BUILTIN_BRICK).tile["w"] == 225.0

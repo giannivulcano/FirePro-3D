@@ -14,8 +14,17 @@ def _closed_rect_path(x, y, w, h):
     return p
 
 
+class _Canvas:
+    """Model-canvas stand-in whose project holds *registry* (hatch D-A39:
+    patterns resolve through the project's block registry only)."""
+    _hatch_paper_scale = None
+
+    def __init__(self, registry=None):
+        self.block_registry = registry
+
+
 def _render(fill_type, colour="#ff0000", alpha=115, pattern="diagonal",
-            mm_per_px=1.0):
+            mm_per_px=1.0, registry=None):
     """Fill a 40 px box; *mm_per_px* sets the world size it represents.
 
     Hatch tiles are world-scale (D-A30: Drafting tiles at an assumed 1:100 on
@@ -28,7 +37,8 @@ def _render(fill_type, colour="#ff0000", alpha=115, pattern="diagonal",
     painter.scale(1.0 / mm_per_px, 1.0 / mm_per_px)
     path = _closed_rect_path(5 * mm_per_px, 5 * mm_per_px,
                              40 * mm_per_px, 40 * mm_per_px)
-    draw_fill(painter, path, None, fill_type, pattern, colour, alpha=alpha)
+    draw_fill(painter, path, _Canvas(registry), fill_type, pattern, colour,
+              alpha=alpha)
     painter.end()
     return img
 
@@ -47,8 +57,9 @@ def test_none_fill_leaves_background(qapp):
     assert img.pixelColor(25, 25) == QColor("white")
 
 
-def test_hatch_fill_marks_some_interior_pixels(qapp):
-    img = _render("hatch", "#000000", pattern="diagonal", mm_per_px=20.0)
+def test_hatch_fill_marks_some_interior_pixels(qapp, shipped_hatches):
+    img = _render("hatch", "#000000", pattern="diagonal", mm_per_px=20.0,
+                  registry=shipped_hatches())
     # at least some interior pixel differs from white (hatch lines present)
     found = any(img.pixelColor(x, 25) != QColor("white") for x in range(6, 44))
     assert found

@@ -125,6 +125,38 @@ def _isolate_block_library(_isolate_qsettings, tmp_path_factory):
 
 
 @pytest.fixture
+def shipped_hatches(qapp):
+    """Loader for the five shipped hatch-pattern blocks (hatch D-A39).
+
+    There is no code-level pattern table: a pattern resolves only once its
+    block is in the project registry. Returns ``load(scene=None)``:
+
+    - with a project ``Model_Space``: loads the shipped ``.fpdb`` files into
+      its registry through the real outside-history path
+      (``Model_Space.load_blocks_outside_history``) and returns
+      ``scene.block_registry``;
+    - with None: returns a standalone ``BlockRegistry`` holding them (for
+      renderer tests whose stand-in scene carries a ``block_registry``).
+    """
+    from firepro3d.block_library import load_block_file
+    from firepro3d.block_registry import BlockRegistry
+    from firepro3d.hatch_patterns import shipped_pattern_files
+
+    def load(scene=None):
+        files = shipped_pattern_files()
+        assert len(files) == 5, files
+        if scene is None:
+            reg = BlockRegistry({})
+            for _bid, path in files:
+                reg.add(load_block_file(path))
+            return reg
+        scene.load_blocks_outside_history([p for _bid, p in files])
+        return scene.block_registry
+
+    return load
+
+
+@pytest.fixture
 def real_qsettings():
     """The unpatched QSettings class — lets the isolation guard test read the
     REAL registry to prove nothing leaked there (#312)."""

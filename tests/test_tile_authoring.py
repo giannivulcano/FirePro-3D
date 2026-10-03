@@ -511,10 +511,11 @@ def _hatched_rect(scene, ref):
     return r
 
 
-def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp):
+def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp, shipped_hatches):
     from firepro3d.hatch_patterns import BUILTIN_DIAGONAL, MISSING_PATTERN_LABEL
     from firepro3d.property_manager import PropertyManager
     proj = Model_Space()
+    shipped_hatches(proj)                 # D-A39: Diagonal is a project block
     r = _hatched_rect(proj, "deadbeef-no-such-tile")
     pm = PropertyManager()
     pm.show_properties([r])

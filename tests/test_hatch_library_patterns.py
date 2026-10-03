@@ -104,8 +104,8 @@ def test_library_pattern_is_listed_and_symbol_is_not(hatch_dir):
     assert labels.get("Zig") == p.id
     assert s.id not in labels.values()
     assert p.id not in ms._block_definitions          # listing never loads
-    # Category defaults (no registry) stay built-ins only.
-    assert p.id not in {r for _n, r in hp.tile_choices(None)}
+    # Category defaults (no registry) list the folder (D-A39, was built-ins only).
+    assert p.id in {r for _n, r in hp.tile_choices(None)}
 
 
 def test_series_folder_itself_works_as_the_patterns_folder(qapp, tmp_path):

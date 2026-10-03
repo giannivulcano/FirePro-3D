@@ -131,10 +131,11 @@ class TestPlanContextMenu:
             f"actions={_menu_action_texts(menu)}"
         )
 
-    def test_hatch_submenu_contains_patterns(self, qapp):
-        """The Hatch sub-submenu lists every pattern choice (built-ins + project tiles)."""
+    def test_hatch_submenu_contains_patterns(self, qapp, shipped_hatches):
+        """The Hatch sub-submenu lists every pattern choice (project + folder tiles)."""
         from firepro3d.hatch_patterns import tile_choices
         ms, view = _make_scene_and_view(qapp)
+        shipped_hatches(ms)               # D-A39: the shipped patterns are project blocks
         rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
         ms.addItem(rect)
         rect.setSelected(True)

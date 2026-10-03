@@ -9,8 +9,24 @@ from firepro3d import hatch_render as hr
 
 class _PaperCtx:
     """Stand-in for a scene inside a paper-viewport render window."""
-    def __init__(self, s):
+    def __init__(self, s, registry=None):
         self._hatch_paper_scale = s
+        self.block_registry = registry
+
+
+class _CanvasCtx:
+    """Stand-in for a model-canvas scene whose project holds the shipped
+    patterns (D-A39: patterns resolve through the project registry only)."""
+    _hatch_paper_scale = None
+
+    def __init__(self, registry):
+        self.block_registry = registry
+
+
+def _line(x1, y1, x2, y2) -> dict:
+    """A serialized line primitive (the tile content of the test tiles)."""
+    from firepro3d.geometry_2d import LineItem
+    return LineItem(QPointF(x1, y1), QPointF(x2, y2)).to_dict()
 
 
 def _img(w=400, h=400):
@@ -41,12 +57,13 @@ def _row_runs(img, x):
     return ys
 
 
-def test_horizontal_spacing_tracks_scale(qapp):
+def test_horizontal_spacing_tracks_scale(qapp, shipped_hatches):
+    ctx = _CanvasCtx(shipped_hatches())
     def spacing(scale):
         img = _img()
         p = QPainter(img)
-        # scene=None → model canvas: Drafting 3 mm × 1:100 = 300 units × scale
-        hr.paint_fill(p, _rect(10, 10, 380, 380), scene=None,
+        # model canvas: Drafting 3 mm × 1:100 = 300 units × scale
+        hr.paint_fill(p, _rect(10, 10, 380, 380), scene=ctx,
                       tile_ref="horizontal", colour=QColor("#ff0000"),
                       origin=QPointF(0, 0), scale=scale)
         p.end()
@@ -66,11 +83,12 @@ def test_clip_is_intersected_not_replaced(qapp):
     assert _red(img, 50, 50) and not _red(img, 300, 50)    # H5
 
 
-def test_lod_tone_when_cells_are_sub_pixel(qapp):
+def test_lod_tone_when_cells_are_sub_pixel(qapp, shipped_hatches):
     img = _img()
     p = QPainter(img)
     p.scale(0.05, 0.05)                                    # 3 mm cell → 0.15 px
-    hr.paint_fill(p, _rect(0, 0, 8000, 8000), scene=_PaperCtx(1.0),
+    hr.paint_fill(p, _rect(0, 0, 8000, 8000),
+                  scene=_PaperCtx(1.0, shipped_hatches()),
                   tile_ref="diagonal", colour=QColor("#ff0000"))
     p.end()
     c = QColor(img.pixel(200, 200))
@@ -95,7 +113,7 @@ def test_drafting_factor_contexts(qapp):
     assert hr.drafting_factor(_PaperCtx(0.02)) == 50.0
 
 
-def test_pattern_never_rotates_with_the_painter_frame(qapp):
+def test_pattern_never_rotates_with_the_painter_frame(qapp, shipped_hatches):
     """to_scene rotated 30°: lines stay at 45° on screen (G3 at renderer level)."""
     from PyQt6.QtGui import QTransform
     img = _img()
@@ -104,7 +122,7 @@ def test_pattern_never_rotates_with_the_painter_frame(qapp):
     p.setTransform(rot)                                    # item frame = rotated
     inv, _ = rot.inverted()
     clip = inv.map(_rect(20, 20, 360, 360))                # same screen square
-    hr.paint_fill(p, clip, scene=None, tile_ref="diagonal",
+    hr.paint_fill(p, clip, scene=_CanvasCtx(shipped_hatches()), tile_ref="diagonal",
                   colour=QColor("#ff0000"), scale=0.1, to_scene=rot)   # ~42 px cells
     p.end()
     lit = [(x, y) for x in range(30, 370, 2) for y in range(30, 370, 2) if _red(img, x, y)]
@@ -120,7 +138,7 @@ def test_lattice_cache_follows_content_through_undo(qapp):
     from firepro3d.block_definition import BlockDefinition
     from firepro3d.model_space import Model_Space
     s = Model_Space()
-    line = hp._line
+    line = _line
     d = BlockDefinition.new(name="T", library="Project", series="",
                             primitives=[line(0, 0, 40, 0)], origin=(0.0, 0.0))
     d.set_tile({"w": 40, "h": 40, "row_shift": 0, "size": "model"}, notify=False)
@@ -154,12 +172,13 @@ def test_lattice_cache_follows_content_through_undo(qapp):
     assert rising_fraction(render()) < 0.2                 # C drawn, not stale B
 
 
-def test_large_fill_stamps_visible_cells_not_tone(qapp):
+def test_large_fill_stamps_visible_cells_not_tone(qapp, shipped_hatches):
     """I2: 200 m × 200 m diagonal fill, 2 m window on screen → real lines."""
     img = _img()
     p = QPainter(img)
     p.scale(0.2, 0.2)                                      # 2000 mm → 400 px
-    hr.paint_fill(p, _rect(-100000, -100000, 200000, 200000), scene=None,
+    hr.paint_fill(p, _rect(-100000, -100000, 200000, 200000),
+                  scene=_CanvasCtx(shipped_hatches()),
                   tile_ref="diagonal", colour=QColor("#ff0000"))
     p.end()
     reds = sum(_red(img, x, y) for x in range(0, 400, 2) for y in range(0, 400, 2))
@@ -168,12 +187,12 @@ def test_large_fill_stamps_visible_cells_not_tone(qapp):
     assert reds > 100 and whites > 10000                   # lines, not a uniform tone
 
 
-def test_lattice_cache_is_bounded_by_cells(qapp, monkeypatch):
+def test_lattice_cache_is_bounded_by_cells(qapp, monkeypatch, shipped_hatches):
     """I3: LRU eviction by Σ(nx·ny), oversize entries never cached."""
     monkeypatch.setattr(hr, "HATCH_LATTICE_CACHE_MAX_CELLS", 100)
     hr._LATTICE.clear()
     hr._LATTICE_CELLS[0] = 0
-    tile = hp.resolve_tile("horizontal")
+    tile = hp.resolve_tile("horizontal", shipped_hatches())
     t = tile.tile
     hr._lattice(tile, t, 1.0, 5, 8, 0)                     # A: 40
     hr._lattice(tile, t, 1.0, 8, 5, 0)                     # B: 40
@@ -188,19 +207,19 @@ def test_lattice_cache_is_bounded_by_cells(qapp, monkeypatch):
     hr._LATTICE_CELLS[0] = 0
 
 
-def test_non_finite_bounds_draw_nothing(qapp):
+def test_non_finite_bounds_draw_nothing(qapp, shipped_hatches):
     """M5: an infinite bound never raises inside paint."""
     img = _img()
     p = QPainter(img)
     pen = QPen(QColor("#ff0000"))
-    tile = hp.resolve_tile("horizontal")
+    tile = hp.resolve_tile("horizontal", shipped_hatches())
     assert hr.stamp_lattice(p, QRectF(0, 0, math.inf, 100), tile, 100.0,
                             QPointF(0, 0), pen, QColor("#ff0000")) is False
     p.end()
     assert QColor(img.pixel(50, 50)) == QColor("white")
 
 
-def test_tone_leaves_painter_state(qapp):
+def test_tone_leaves_painter_state(qapp, shipped_hatches):
     """M4: the LOD-tone return path restores pen and brush."""
     from PyQt6.QtGui import QBrush
     img = _img()
@@ -208,7 +227,7 @@ def test_tone_leaves_painter_state(qapp):
     p.setPen(QPen(QColor("#00ff00"), 3))
     p.setBrush(QBrush(QColor("#0000ff")))
     p.scale(0.01, 0.01)                                    # sub-pixel cells → tone
-    tile = hp.resolve_tile("diagonal")
+    tile = hp.resolve_tile("diagonal", shipped_hatches())
     assert hr.stamp_lattice(p, QRectF(0, 0, 1000, 1000), tile, 1.0, QPointF(0, 0),
                             QPen(QColor("#ff0000")), QColor("#ff0000")) is False
     assert p.pen().color() == QColor("#00ff00") and p.pen().width() == 3
@@ -216,7 +235,7 @@ def test_tone_leaves_painter_state(qapp):
     p.end()
 
 
-def test_offset_viewport_stamps_its_bottom_right(qapp):
+def test_offset_viewport_stamps_its_bottom_right(qapp, shipped_hatches):
     """C1: a canvas viewport sitting far inside its window (below a ribbon,
     right of a dock) still gets hatch cells over its bottom-right quadrant.
     Real QGraphicsView + real BlockInstance pattern op + window grab."""
@@ -228,6 +247,7 @@ def test_offset_viewport_stamps_its_bottom_right(qapp):
     from firepro3d.model_space import Model_Space
 
     scene = Model_Space()
+    shipped_hatches(scene)
     r = RectangleItem(QPointF(-100000, -100000), QPointF(100000, 100000))
     r.fill_type = "hatch"
     r.fill_pattern = "diagonal"                            # 424 mm cells at 1:100
@@ -287,9 +307,9 @@ def _model_tile_scene():
     from firepro3d.model_space import Model_Space
     sc = Model_Space()
     d = BlockDefinition.new(name="T100", library="Project", series="",
-                            primitives=[hp._line(0, 0, 100, 0)], origin=(0.0, 0.0))
+                            primitives=[_line(0, 0, 100, 0)], origin=(0.0, 0.0))
     d.set_tile({"w": 100, "h": 100, "row_shift": 0, "size": "model"}, notify=False)
-    d.set_primitives([hp._line(0, 0, 100, 0)])
+    d.set_primitives([_line(0, 0, 100, 0)])
     sc.register_block_definition(d)
     return sc, d
 

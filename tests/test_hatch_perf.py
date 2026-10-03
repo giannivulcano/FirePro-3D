@@ -23,9 +23,10 @@ _RECT = QRectF(-1250, -1250, 50000, 25000)
 _G12_BUDGET_MS = 30.0   # 200 instances x 0.15 ms (D-A35, amended 2026-10-02)
 
 
-def _scene(filled):
+def _scene(filled, load_patterns):
     """Build 200 placed instances of a 2000x1000 mm rect (hatched if *filled*)."""
     sc = Model_Space(scene_role="block_editor")
+    load_patterns(sc)                    # D-A39: Diagonal is a project block
     r = RectangleItem(QPointF(0, 0), QPointF(2000, 1000))
     if filled:
         r.fill_type, r.fill_pattern = "hatch", "diagonal"
@@ -53,8 +54,8 @@ def _frame_ms(sc):
     return statistics.median(times) * 1000
 
 
-def test_g12_200_hatched_instances_within_per_instance_budget(qapp):
-    plain, hatched = _scene(False), _scene(True)
+def test_g12_200_hatched_instances_within_per_instance_budget(qapp, shipped_hatches):
+    plain, hatched = _scene(False, shipped_hatches), _scene(True, shipped_hatches)
     assert len(hatched._block_instances) == 200
     _frame_ms(hatched)                               # warm the lattice cache
     hr.STATS["stamped_cells"] = 0
