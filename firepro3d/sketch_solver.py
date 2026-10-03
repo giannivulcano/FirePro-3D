@@ -6,6 +6,10 @@ union-find component partitioning, and SVD diagnostics. No Qt.
 """
 from __future__ import annotations
 
+import contextlib
+import ctypes
+import glob
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -21,6 +25,56 @@ STEP_TOL = 1e-10
 RES_STOP = 1e-3 * LIN_TOL   # stop once every row is this tight (§7.2)
 DEP_TOL = 1e-8          # ordered Gram-Schmidt: a row is dependent below this relative norm (CS2 §7.4)
 NULL_TOL = 1e-8         # a variable "moves" in a null-space direction above this
+
+# D18 (2026-10-03 P4): OpenBLAS defaults to one thread per core; on the
+# solver's ~300-sized dense LAPACK calls that oversubscription costs 3-13x
+# (16-thread host: SVD 138 ms vs 49 ms single-threaded). Solves and
+# diagnostics drop to one BLAS thread for their duration (global OpenBLAS
+# setting, restored on exit; a numpy build without the API is a no-op).
+_BLAS = None            # (get, set) ctypes functions; False = unavailable
+_blas_depth = 0
+
+
+def _blas_api():
+    """The bundled OpenBLAS ``(get_num_threads, set_num_threads)``, or False."""
+    global _BLAS
+    if _BLAS is None:
+        _BLAS = False
+        base = os.path.dirname(np.__file__)
+        dirs = (os.path.join(base, os.pardir, "numpy.libs"), os.path.join(base, ".dylibs"))
+        try:
+            for d in dirs:
+                for path in glob.glob(os.path.join(d, "*openblas*")):
+                    lib = ctypes.CDLL(path)
+                    for pre in ("scipy_openblas", "openblas"):
+                        for suf in ("64_", ""):
+                            get = getattr(lib, f"{pre}_get_num_threads{suf}", None)
+                            put = getattr(lib, f"{pre}_set_num_threads{suf}", None)
+                            if get is not None and put is not None:
+                                get.restype, get.argtypes = ctypes.c_int, []
+                                put.restype, put.argtypes = None, [ctypes.c_int]
+                                _BLAS = (get, put)
+                                return _BLAS
+        except OSError:
+            _BLAS = False
+    return _BLAS
+
+
+@contextlib.contextmanager
+def one_blas_thread():
+    """Run the body with OpenBLAS at one thread; re-entrant; restores on exit."""
+    global _blas_depth
+    api = _blas_api() if _blas_depth == 0 else None
+    prev = api[0]() if api else 1
+    if prev != 1:
+        api[1](1)
+    _blas_depth += 1
+    try:
+        yield
+    finally:
+        _blas_depth -= 1
+        if prev != 1:
+            api[1](prev)
 
 
 @dataclass(frozen=True)
@@ -426,6 +480,11 @@ class NumpySolver:
         Raises:
             ValueError: A weight is not > 0.
         """
+        with one_blas_thread():
+            return self._solve(sys, goals, weights, active)
+
+    def _solve(self, sys: System, goals, weights, active) -> SolveResult:
+        """Body of :meth:`solve` (run under :func:`one_blas_thread`)."""
         w_full = np.asarray(weights, dtype=float)
         if not np.all(w_full > 0):
             raise ValueError("solver weights must all be > 0")
@@ -521,6 +580,11 @@ class NumpySolver:
         are all dependent on earlier rows (and satisfied). Equalities are
         attributed before rows (they are substituted first).
         """
+        with one_blas_thread():
+            return self._diagnose(sys)
+
+    def _diagnose(self, sys: System) -> Diagnostics:
+        """Body of :meth:`diagnose` (run under :func:`one_blas_thread`)."""
         st = _structure(sys)
         x = np.array(sys.x, dtype=float)
         x[st.fixed_vars] = st.fixed_vals

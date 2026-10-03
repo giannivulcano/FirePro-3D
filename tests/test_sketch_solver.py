@@ -528,3 +528,48 @@ def test_dependent_rows_count_reconciles_with_svd_rank():
     J = np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 5e-9, 0.0]])
     assert int(ss._dependent_rows(J, ndep=1).sum()) == 1
     assert ss._dependent_rows(J, ndep=1)[1]          # the exact duplicate
+
+
+# ── D18 perf: scoped single-thread BLAS ────────────────────────────────────
+
+def test_one_blas_thread_scopes_nests_and_restores():
+    api = ss._blas_api()
+    if not api:
+        with ss.one_blas_thread():          # unavailable: a no-op, never raises
+            pass
+        pytest.skip("no OpenBLAS thread API in this numpy build")
+    get, set_ = api
+    before = get()
+    set_(3)
+    try:
+        with ss.one_blas_thread():
+            assert get() == 1
+            with ss.one_blas_thread():      # nested: no early restore
+                assert get() == 1
+            assert get() == 1
+        assert get() == 3
+    finally:
+        set_(before)
+
+
+def test_solve_and_diagnose_run_single_threaded():
+    api = ss._blas_api()
+    if not api:
+        pytest.skip("no OpenBLAS thread API in this numpy build")
+    get, set_ = api
+    seen = []
+
+    def fn(x):
+        seen.append(get())
+        return float(x[1] - x[0]), np.array([-1.0, 1.0])
+    s = ss.System(x=np.array([0.0, 2.0]))
+    s.rows.append(ss.Row("r", (0, 1), fn))
+    before = get()
+    set_(4)
+    try:
+        ss.NumpySolver().solve(s, s.x.copy(), np.ones(2))
+        ss.NumpySolver().diagnose(s)
+        assert get() == 4
+    finally:
+        set_(before)
+    assert seen and set(seen) == {1}
