@@ -342,3 +342,9 @@ ARRAY_DEFAULT_MEMORY = {
 # preview drops the HALO glow and paints one merged 1 px trace
 # (transform_ghost.LiteGhostPath); the commit itself stays uncapped (D11).
 ARRAY_GHOST_FULL_MAX = 200
+
+# ── Hatch renderer (hatch-and-fill.md D-A30 / D-A35) ──────────────────────────
+DRAFTING_CANVAS_SCALE = 100.0   # assumed plan scale (1:N) for Drafting tiles on the model canvas until SB1c
+HATCH_LOD_MIN_CELL_PX = 2.0     # a tile cell smaller than this on the device draws the tone
+HATCH_LOD_MAX_CELLS = 20000     # more cells than this per fill draws the tone
+HATCH_LOD_TONE = 0.35           # tone opacity (× the pattern colour's alpha)
