@@ -293,6 +293,7 @@ class Theme:
     warn: str
     danger: str
     constraint_free: str      # D26: under-defined constraint tint (blue, never accent)
+    dimension: str            # CS4 D48: driving-dim text (violet; colour gate 2026-10-03)
 
     # Layer 2: semantic aliases (derived; shared by all variants)
     @property
@@ -394,6 +395,7 @@ DARK = Theme(
     selection_hover="#00BFFF",
     ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
     constraint_free="#5B8CFF",
+    dimension="#B48CFF",
 )
 
 LIGHT = Theme(
@@ -406,6 +408,7 @@ LIGHT = Theme(
     selection_hover="#0091D6",
     ok="#2f9e63", warn="#b46500", danger="#c42b1c",
     constraint_free="#2357D9",
+    dimension="#7A3FD1",
 )
 
 
