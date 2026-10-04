@@ -226,10 +226,12 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     if bundled:
         rec["schema"] = 2
         rec["bundled"] = dict(bundled)
-    from .paper_display import resolve_line_weight_mm
+    from .paper_display import project_line_weights
     used = used_weight_names([rec, *(bundled or {}).values()])
-    if used:
-        rec["weights"] = {n: resolve_line_weight_mm(n) for n in sorted(used)}
+    table = {d.name: d.width_mm for d in project_line_weights()}
+    weights = {n: table[n] for n in sorted(used) if n in table}
+    if weights:                       # unknown names are never fabricated
+        rec["weights"] = weights
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
     # ``tile`` flags pattern blocks (hatch D-A37) so the pattern-picker scan

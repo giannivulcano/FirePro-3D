@@ -138,3 +138,11 @@ def test_load_adding_nothing_leaves_scene_clean(qapp):
     sc.mark_saved()
     assert sc.load_blocks_from_files([path])["skipped"]        # project has X40
     assert not sc.is_dirty()
+
+
+def test_unknown_weight_name_not_fabricated(qapp):
+    _project_with()
+    rec = _read(block_library.save_to_library(_text_def("Nope")))
+    assert "weights" not in rec
+    rec = _read(block_library.save_to_library(_text_def("X40", "Two")))
+    assert rec["weights"] == {"X40": 0.40}
