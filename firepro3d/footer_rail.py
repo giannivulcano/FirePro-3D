@@ -204,7 +204,7 @@ class FooterRail(QWidget):
         s2.addWidget(self.node_chip)
         root.addLayout(s2)
 
-        # ── Sub-rail 3: toggles (SNAP + osnaps + chevron + ALIGN + HALO) ──────
+        # ── Sub-rail 3: toggles (SNAP + osnaps + chevron + ALIGN + HALO + THIN) ──
         root.addWidget(_vsep())
         s3 = QHBoxLayout()
         s3.setContentsMargins(*M.FOOTER_SUBRAIL_MARGIN)
@@ -239,6 +239,15 @@ class FooterRail(QWidget):
         self.halo_pill.setCheckable(True)
         self.halo_pill.setStyleSheet(_pill_style(True))
         s3.addWidget(self.halo_pill)
+
+        self.thin_pill = QToolButton()
+        self.thin_pill.setText("THIN")
+        self.thin_pill.setCheckable(True)
+        self.thin_pill.setToolTip(
+            "Thin Lines - draw every weighted line 1 px on screen "
+            "(model and Block Editor views; sheets and PDF unchanged)")
+        self.thin_pill.setStyleSheet(_pill_style(False))
+        s3.addWidget(self.thin_pill)
         root.addLayout(s3)
 
     # ── osnap API (used by tests + main wiring) ──────────────────────────────
@@ -285,3 +294,7 @@ class FooterRail(QWidget):
     def set_halo_on(self, on: bool) -> None:
         self.halo_pill.setChecked(on)
         self.halo_pill.setStyleSheet(_pill_style(on))
+
+    def set_thin_on(self, on: bool) -> None:
+        self.thin_pill.setChecked(on)
+        self.thin_pill.setStyleSheet(_pill_style(on))

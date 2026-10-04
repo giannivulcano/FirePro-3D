@@ -1511,6 +1511,7 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
     Returns:
         An ordered property dict in PropertyManager meta format.
     """
+    from .paper_display import weight_names
     return {
         "Font": {"type": "font", "value": data.font_family or "Arial"},
         "Height": {"type": "dimension", "value": data.height_mm,
@@ -1532,7 +1533,7 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
         "Line Type": {"type": "enum", "value": data.border_line_type,
                       "options": ["solid", "dashed", "dotted", "dashdot"]},
         "Border Weight": {"type": "enum", "value": data.border_weight,
-                          "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"]},
+                          "options": weight_names()},
         "Corner": {"type": "enum", "value": data.border_corner,
                    "options": ["square", "round", "chamfer"]},
         "Leader": {"type": "label", "value": "None"},

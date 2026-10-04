@@ -10,11 +10,13 @@ tab in the Display Manager dialog.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, asdict
 from enum import Enum
 
 from PyQt6.QtCore import QSettings
 
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Line weight definitions
@@ -75,6 +77,133 @@ def validate_line_weight_width(width_mm: float) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Project weight table (linetypes.md LT1-3 / H1)
+# ---------------------------------------------------------------------------
+# The LIVE named-weight table is project-scoped: saved in the .fpd and bundled
+# into .fpdb files. QSettings (load_line_weights / save_line_weights) is only
+# the TEMPLATE new projects and table-less files copy. Lazily seeded from the
+# template so headless callers (and tests that patch load_line_weights) work.
+
+_PROJECT_LW: list[LineWeightDef] | None = None
+_THIN_LINES = False
+# >0 while a paper pass (apply_paper_overrides .. restore_model_display) is
+# live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
+_THIN_SUSPEND = 0
+
+
+def project_line_weights() -> list[LineWeightDef]:
+    """The live project weight table (seeded from the template on first use).
+
+    Callers must not mutate the result (or its defs); use
+    ``set_project_line_weights`` to change the table.
+    """
+    if _PROJECT_LW is None:
+        set_project_line_weights(load_line_weights())   # copies the defs
+    return _PROJECT_LW
+
+
+def set_project_line_weights(defs: list[LineWeightDef]) -> None:
+    """Replace the live project table (copies *defs*)."""
+    global _PROJECT_LW
+    _PROJECT_LW = [LineWeightDef(d.name, float(d.width_mm)) for d in defs]
+    _clear_hatch_mm()
+
+
+def reset_project_line_weights() -> None:
+    """Re-seed the project table from the template (New Project / old files)."""
+    set_project_line_weights(load_line_weights())
+
+
+def weight_names() -> list[str]:
+    """Project weight names sorted by width — the source for every picker."""
+    return [d.name for d in sorted(project_line_weights(),
+                                   key=lambda d: d.width_mm)]
+
+
+def merge_project_line_weights(weights: dict) -> list[str]:
+    """Add bundled ``{name: mm}`` weights the project lacks (project wins).
+
+    Returns the names added. Invalid widths are skipped.
+    """
+    have = {d.name for d in project_line_weights()}
+    added = []
+    for name, mm in (weights or {}).items():
+        try:
+            mm = float(mm)
+        except (TypeError, ValueError):
+            continue
+        if name in have or not name or not validate_line_weight_width(mm):
+            continue
+        added.append(LineWeightDef(str(name), mm))
+        have.add(name)
+    if added:
+        set_project_line_weights([*project_line_weights(), *added])
+    return [d.name for d in added]
+
+
+# ---------------------------------------------------------------------------
+# Canvas mapping + Thin Lines (linetypes.md LT1-7 / LT1-8, D-L14)
+# ---------------------------------------------------------------------------
+
+def set_thin_lines(on: bool) -> None:
+    """Global Thin Lines view toggle (model + Block Editor views, never paper)."""
+    global _THIN_LINES
+    _THIN_LINES = bool(on)
+
+
+def thin_lines() -> bool:
+    """True while Thin Lines is on (the user toggle, pass-independent)."""
+    return _THIN_LINES
+
+
+def thin_lines_active() -> bool:
+    """True when Thin Lines applies to strokes painted/baked right now.
+
+    False during a paper pass even with the toggle on, so canvas-mapped pens
+    a viewport plots (text borders, unweighted PDF-underlay widths) keep
+    their non-thin width on sheets and PDF (LT1-8).
+    """
+    return _THIN_LINES and _THIN_SUSPEND == 0
+
+
+def canvas_weight_px(width_mm: float) -> float:
+    """Cosmetic canvas width for a named weight's mm value.
+
+    px = mm x ``UNDERLAY_MM_TO_PX_HINT``; <= ``UNDERLAY_FAST_PATH_SNAP_PX``
+    snaps to <= 1.0 (Qt's fast cosmetic stroker); Thin Lines -> 1.0
+    (except during a paper pass -- see ``thin_lines_active``).
+    """
+    if thin_lines_active():
+        return 1.0
+    from .constants import UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX
+    px = width_mm * UNDERLAY_MM_TO_PX_HINT
+    if px <= UNDERLAY_FAST_PATH_SNAP_PX:
+        px = min(px, 1.0)
+    return px
+
+
+def _parse_weight_list(raw) -> list[LineWeightDef] | None:
+    """``[{"name", "width_mm"}, ...]`` -> defs, or None when absent/malformed."""
+    if not raw:
+        return None
+    out: list[LineWeightDef] = []
+    seen: set[str] = set()
+    try:
+        for e in raw:
+            try:
+                name, mm = str(e["name"]), float(e["width_mm"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not name or name in seen or not validate_line_weight_width(mm):
+                continue
+            seen.add(name)
+            out.append(LineWeightDef(name, mm))
+    except TypeError:                      # raw not iterable
+        return None
+    return out or None
+
+
+# ---------------------------------------------------------------------------
 # Color mode
 # ---------------------------------------------------------------------------
 
@@ -114,7 +243,7 @@ _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Roof", "Room", "Floor",
     "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
-    "Construction", "Hatch",
+    "Construction", "Hatch", "Blocks",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
@@ -138,6 +267,7 @@ _FACTORY_LW = {
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
     "Construction": "Light",
     "Hatch": "Very Light",
+    "Blocks": "Light",          # paper-only, no fill/section (linetypes.md LT1-2)
 }
 
 
@@ -243,11 +373,17 @@ def get_paper_display_for_save() -> dict:
     return {
         "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
+        "line_weights": [asdict(d) for d in project_line_weights()],
     }
 
 
 def apply_paper_display_from_project(data: dict | None):
     """Apply paper display settings loaded from a project file."""
+    parsed = _parse_weight_list((data or {}).get("line_weights"))
+    if parsed is None:
+        reset_project_line_weights()       # old file / no paper_display -> template
+    else:
+        set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
@@ -278,8 +414,13 @@ def apply_paper_display_from_project(data: dict | None):
 
 def resolve_line_weight_mm(name: str,
                            settings: QSettings | None = None) -> float:
-    """Resolve a line weight name to its mm width.  Falls back to 0.25mm."""
-    defs = load_line_weights(settings)
+    """Resolve a line weight name to its mm width.  Falls back to 0.25mm.
+
+    Reads the live PROJECT table; an explicit *settings* reads that template
+    store instead (Display Manager / tests).
+    """
+    defs = (load_line_weights(settings) if settings is not None
+            else project_line_weights())
     for d in defs:
         if d.name == name:
             return d.width_mm
@@ -343,6 +484,9 @@ def _category_for_item(item) -> str | None:
         return "Grid Line"
     if isinstance(item, HydraulicNodeBadge):
         return "Hydraulic Badge"
+    from .block_instance import BlockInstance
+    if isinstance(item, BlockInstance):
+        return "Blocks"
     # Detect by class name to avoid circular imports
     cls_name = type(item).__name__
     if cls_name == "RoofItem":
@@ -482,6 +626,24 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
     pipe.update()
 
 
+def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
+    """Paper overrides for a BlockInstance (linetypes.md LT1-2 / H5).
+
+    Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
+    (divided by ``paper_scale``, the §9.9.1 pattern of ``_apply_pipe``); B&W /
+    Custom force the category colour onto stroke + text ops, Full Color keeps
+    the authored colours. Compiled op pens are never mutated (flyweight: one
+    compile is shared by every instance) -- ``BlockInstance.paint`` reads these
+    two hooks instead. Fill / pattern ops stay under the hatch rules.
+    """
+    from PyQt6.QtGui import QColor
+    inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+    inst._paper_pen_color = (QColor(cat["color"])
+                             if color_mode != PaperColorMode.FULL_COLOR else None)
+    inst.setOpacity(cat["opacity"] / 100.0)
+    inst.update()
+
+
 def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
     """Apply paper overrides to a GridlineItem — colors + true-scale geometry (§9.9.1)."""
     from PyQt6.QtGui import QColor, QBrush
@@ -608,13 +770,20 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     # the pass fails part-way.
     scene._hatch_paper_scale = paper_scale
     saved.append({"hatch_scene": scene})
+    # Thin Lines never plots (LT1-8): suspend it for the pass so paint-time
+    # canvas pens (text borders) resolve their real width; lifted by restore.
+    global _THIN_SUSPEND
+    _THIN_SUSPEND += 1
+    saved.append({"thin_suspend": True})
     try:
         items = scene.items(source_rect)
 
         for item in items:
             if not item.isVisible():
                 continue
-            if getattr(type(item), "PAPER_EXCLUDED", False):
+            # Instance-aware: class flags (manipulator, markers) and per-item
+            # flags (the block placement ghost) both exclude.
+            if getattr(item, "PAPER_EXCLUDED", False):
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
                 item.setVisible(False)
@@ -675,6 +844,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["marker"] = _save_marker_state(item, "_marker_color")
             elif cat_key == "Detail Marker":
                 entry["marker"] = _save_marker_state(item, "_tag_color")
+            elif cat_key == "Blocks":
+                entry["block_paper"] = (item._paper_pen_width,
+                                        item._paper_pen_color)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -701,6 +873,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
             elif cat_key == "Detail Marker":
                 _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+            elif cat_key == "Blocks":
+                _apply_block(item, cat, color_mode, lw_mm, paper_scale)
             elif cat_key == "Construction":
                 _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
@@ -785,6 +959,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     pen.setWidthF(resolve_line_weight_mm(weight_name)
                                   / max(paper_scale, 1e-9))
                     pen.setCosmetic(False)  # true mm on paper (§9.9.1 pattern)
+                elif _THIN_LINES and child.data(7) is not None:
+                    # Unweighted PDF width was baked at 1 px by Thin Lines;
+                    # plot the non-thin source width (suspended above).
+                    from .model_space import _pdf_width_to_px
+                    pen.setWidthF(_pdf_width_to_px(float(child.data(7))))
                 child.setPen(pen)
 
     except Exception:
@@ -810,9 +989,19 @@ def restore_model_display(saved: list[dict]):
     from .gridline import GridlineItem
     from PyQt6.QtGui import QColor, QBrush, QPen
 
+    global _THIN_SUSPEND
     for entry in saved:
         if "hatch_scene" in entry:
             entry["hatch_scene"]._hatch_paper_scale = None
+            continue
+        if "thin_suspend" in entry:
+            if entry["thin_suspend"]:            # lift once per pass
+                entry["thin_suspend"] = False
+                if _THIN_SUSPEND <= 0:
+                    _log.warning("restore_model_display: Thin Lines "
+                                 "suspension counter unbalanced (%d)",
+                                 _THIN_SUSPEND)
+                _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
             continue
         if "underlay_group" in entry:
             # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
@@ -889,6 +1078,12 @@ def restore_model_display(saved: list[dict]):
                 item.setPen(ms["pen"])
             if ms.get("brush") is not None:
                 item.setBrush(ms["brush"])
+            item.update()
+
+        elif cat_key == "Blocks":
+            # Paint hooks only (H5); opacity/visibility restored above.
+            item._paper_pen_width, item._paper_pen_color = entry.get(
+                "block_paper", (None, None))
             item.update()
 
         elif cat_key == "Construction":

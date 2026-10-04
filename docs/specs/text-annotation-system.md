@@ -509,8 +509,10 @@ Landed:
   Panel rows added: V Align (`icon_enum` + authored `align_top/middle/bottom.svg`),
   Padding, Corner Radius.
 - **Border pen is cosmetic on the model surface** (constant device width at all
-  zooms, matching the sibling 2D primitives; named weight → device px via
-  `_BORDER_WEIGHT_PX`), true-mm on paper.
+  zooms, matching the sibling 2D primitives; named weight → device px via the
+  shared `paper_display.canvas_weight_px` mapping — `linetypes.md` LT1-7, which
+  retired `_BORDER_WEIGHT_PX` 2026-10-04), true-mm on paper. Border Weight
+  pickers list the project weight table (`linetypes.md` LT1-6).
 - **Model-placement defaults** (`_press_text`, real-size scene mm): white ink,
   `DEFAULT_MODEL_TEXT_HEIGHT_MM=100`, solid border on, `border_weight="Medium"`,
   `DEFAULT_MODEL_TEXT_PADDING_MM=15`. Paper defaults unchanged (3/16", black, 1 mm).

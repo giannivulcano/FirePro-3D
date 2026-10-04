@@ -247,7 +247,7 @@ paper/categories/{category_key}/opacity       = 100
 }
 ```
 
-Saved via the existing `get_display_settings_for_save()` / `apply_project_display_settings()` pattern in `scene_io.py`. Line weight definitions are NOT saved per-project — they are global (QSettings only).
+Saved via the existing `get_display_settings_for_save()` / `apply_project_display_settings()` pattern in `scene_io.py`. Line weight definitions are NOT saved per-project — they are global (QSettings only). **Superseded 2026-10-04:** the weight table is project-scoped (`paper_display.line_weights` in the `.fpd`; QSettings = new-project template) — see `docs/specs/linetypes.md` LT1-3. Paper *categories* still follow the pattern above.
 
 ### 7.3 Load Priority
 

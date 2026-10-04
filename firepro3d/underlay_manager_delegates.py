@@ -347,9 +347,10 @@ class WeightDelegate(_BaseDelegate):
         if layer is None and not self._appearance_editable(index):
             return False
 
-        # Lazy import + call to avoid QSettings access at module import time.
-        from .paper_display import load_line_weights
-        names = [lw.name for lw in load_line_weights()]
+        # Lazy import (keeps paper_display out of module import time); names
+        # come from the live project weight table, not the QSettings template.
+        from .paper_display import weight_names
+        names = weight_names()
 
         current = self._current_name(index)
         menu = make_menu(option.widget)

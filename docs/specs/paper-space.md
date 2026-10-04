@@ -247,6 +247,10 @@ Existing project files without a `"sheets"` key load normally with an empty shee
      paper) and reads `self.pen()` directly, so the pass sets its **pen colour** (black
      in BW) and normalises the width to true on-paper mm (`lw_mm / paper_scale`, like
      gridlines/underlays) — otherwise it plots as a sub-pixel hairline at scale.
+     Placed blocks take the paper-only **"Blocks"** category (weight, B&W colour,
+     selection never plots; the pass also suspends Thin Lines) — contract owned by
+     `linetypes.md` LT1-2 / LT1-8. Named weights are project-scoped (`linetypes.md`
+     LT1-3).
 6. `restore_model_display()` restores every mutated item after the render (level
    isolation restored synchronously in a `finally` — export-safe, no event loop).
 7. Draw sheet-view border (hairline; house selection style when selected).

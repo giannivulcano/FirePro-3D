@@ -41,7 +41,6 @@ from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
-                       UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
@@ -96,18 +95,14 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
 
     No effective weight -> exactly UNDERLAY_LINE_WIDTH_PX (today's look).
-    Named weight -> width_mm * UNDERLAY_MM_TO_PX_HINT, still cosmetic.
+    Named weight -> ``paper_display.canvas_weight_px`` (mm x hint, fast-path
+    snap, Thin Lines -> 1 px), still cosmetic.
     """
     colour = QColor(record.effective_layer_colour(layer))
     weight_name = record.effective_layer_weight(layer)
     if weight_name:
-        from .paper_display import resolve_line_weight_mm
-        width_px = resolve_line_weight_mm(weight_name) * UNDERLAY_MM_TO_PX_HINT
-        # Near-1px hints snap to 1.0: Qt's fast cosmetic stroker only takes
-        # widths <= 1.0 (see UNDERLAY_LINE_WIDTH_PX); ~1px hints are visually
-        # identical but ~20x cheaper to stroke over a dense underlay.
-        if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
-            width_px = min(width_px, 1.0)
+        from .paper_display import resolve_line_weight_mm, canvas_weight_px
+        width_px = canvas_weight_px(resolve_line_weight_mm(weight_name))
     else:
         width_px = UNDERLAY_LINE_WIDTH_PX
     pen = QPen(colour, width_px)
@@ -115,21 +110,24 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     return pen
 
 
+def _thin() -> bool:
+    from .paper_display import thin_lines_active
+    return thin_lines_active()
+
+
 def _pdf_width_to_px(pt_width: float) -> float:
     """PDF stroke width (points) -> cosmetic px, floored at the default width.
 
-    Preserves the source line-width *hierarchy* while keeping thin lines at
-    least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
+    Uses ``paper_display.canvas_weight_px`` (mm x hint, fast-path snap, Thin
+    Lines -> 1 px). Preserves the source line-width *hierarchy* while keeping
+    thin lines at least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
     """
     if pt_width <= 0.0:
         return UNDERLAY_LINE_WIDTH_PX
+    from .paper_display import canvas_weight_px
     width_mm = pt_width * 25.4 / 72.0
-    width_px = max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
-    # Near-1px results snap to 1.0 for Qt's fast cosmetic-stroker path
-    # (widths > 1.0 stroke ~20x slower; see UNDERLAY_LINE_WIDTH_PX).
-    if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
-        width_px = min(width_px, 1.0)
-    return width_px
+    return max(UNDERLAY_LINE_WIDTH_PX if not _thin() else 1.0,
+               canvas_weight_px(width_mm))
 
 
 class _PlacementSentinel:
@@ -1786,6 +1784,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._load_would_cycle(bundled, lib_def):
             return False
         self._add_bundled(bundled, lib_def)              # project copy wins
+        self._merge_bundled_weights(path)
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -1827,6 +1826,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 continue
             existing = self._block_definitions.get(defn.id)
             if existing is not None:
+                self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 if existing.version == defn.version:
                     summary["skipped"].append(defn.name)
@@ -1843,6 +1843,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if clash:
                 summary["refused"].append(defn.name)
                 continue
+            self._merge_bundled_weights(path)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
@@ -1901,6 +1902,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         merged = reg.merged_with_file(bundled, defn)
         pool = {d.id for d in [*bundled, defn]}
         return any(i in reg.closure(i, merged) for i in pool)
+
+    def _merge_bundled_weights(self, path) -> None:
+        """Add a library file's bundled named weights the project lacks
+        (project wins -- linetypes.md LT1-4)."""
+        from . import block_library
+        from .paper_display import merge_project_line_weights
+        added = merge_project_line_weights(block_library.read_bundled_weights(path))
+        if added:
+            # Weights live outside undo, but they travel with the project: a
+            # merge that added names must dirty it (no undo state pushed).
+            self._dirty = True
+            self.sceneModified.emit()
+            # Underlay pens bake at build: layers that fell back for a name
+            # this merge just added must pick up its real width.
+            for record, _group in list(self.underlays):
+                self.repen_underlay(record)
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).
@@ -6119,6 +6136,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                           resolver=self.get_block_definition, level=self.active_level)
         g.setOpacity(0.5)
         g.setFlag(g.GraphicsItemFlag.ItemIsSelectable, False)
+        # Authoring preview -- never plots (a real BlockInstance would
+        # otherwise take the paper "Blocks" category, linetypes.md LT1-2).
+        g.PAPER_EXCLUDED = True
         self.addItem(g)
         self._place_block_ghost = g
 

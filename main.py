@@ -604,12 +604,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "halo/priority_band_px", halo_selection.HALO_PRIORITY_BAND_PX, type=int)
         self.footer.set_halo_on(_halo_on)
 
+        # Thin Lines (LT1-8): global view toggle, a user preference. Restored
+        # before any underlay is built (startup has none; project open and
+        # crash recovery run later), so build-time pens bake the right width.
+        from firepro3d.paper_display import set_thin_lines
+        _thin_on = self.settings.value("view/thin_lines", False, type=bool)
+        set_thin_lines(_thin_on)
+        self.footer.set_thin_on(_thin_on)
+
         # Footer interactions → active scene / dialogs.
         self.footer.snap_pill.clicked.connect(
             lambda: self._active_scene().toggle_snap())
         self.footer.align_pill.clicked.connect(
             lambda: self._active_scene().set_align_enabled())
         self.footer.halo_pill.clicked.connect(self._toggle_halo)
+        self.footer.thin_pill.clicked.connect(self._toggle_thin_lines)
         self.footer.snapSettingsRequested.connect(
             lambda: self._open_system_settings(pane="ux"))
 
@@ -705,6 +714,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._create_elevation_markers()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        # LT1-3: a new project's weight table copies the template.
+        from firepro3d.paper_display import reset_project_line_weights
+        reset_project_line_weights()
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # Render the linked default title block on the startup sheet (Task A);
@@ -2529,6 +2541,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         for v in self.scene.views():
             v.viewport().update()
 
+    def _toggle_thin_lines(self, *args):
+        """Flip the global Thin Lines view toggle from the footer pill (LT1-8)."""
+        from firepro3d.paper_display import set_thin_lines
+        on = self.footer.thin_pill.isChecked()
+        set_thin_lines(on)
+        self.settings.setValue("view/thin_lines", on)
+        self.footer.set_thin_on(on)
+        self._refresh_weight_canvases()
+
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout on the footer."""
         self.footer.set_node_snap(text)
@@ -3692,12 +3713,47 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _open_display_manager(self):
         """Open the Display Manager dialog (replaces FSVisibilityDialog)."""
-        from firepro3d.display_manager import DisplayManager
         from firepro3d.paper_space import PaperSpaceWidget
         ctx = "paper" if isinstance(self.central_tabs.currentWidget(),
                                      PaperSpaceWidget) else "model"
-        dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
+        dlg = self._make_display_manager(ctx)
         dlg.exec()  # live preview handles apply/revert internally
+
+    def _make_display_manager(self, ctx: str):
+        """Build the Display Manager wired to MainWindow (split out so tests
+        drive the real connections without the modal exec())."""
+        from firepro3d.display_manager import DisplayManager
+        dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
+        dlg.lineWeightsChanged.connect(self._on_line_weights_changed)
+        return dlg
+
+    def _on_line_weights_changed(self):
+        """Weight table edited (linetypes.md LT1-3): dirty the project, re-pen
+        underlays, repaint canvases. Not undoable (Display Manager edits
+        never are)."""
+        self._modified = True
+        self._update_title()
+        self._refresh_weight_canvases()
+
+    def _refresh_weight_canvases(self):
+        """Re-apply every pen that goes through the canvas weight mapping.
+
+        Underlay screen pens are baked at build time, so they are re-penned;
+        text borders / block strokes resolve weights at paint time and only
+        need a repaint (model, paper sheet, open Block Editors).
+        """
+        for record, _group in list(getattr(self.scene, "underlays", [])):
+            self.scene.repen_underlay(record)
+        scenes = [self.scene]
+        psw = getattr(self, "paper_space_widget", None)
+        if psw is not None and getattr(psw, "paper_scene", None) is not None:
+            scenes.append(psw.paper_scene)
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is not None:
+            scenes.extend(w.editor_scene for w in mgr.open_editors())
+        for sc in scenes:
+            for v in sc.views():
+                v.viewport().update()
 
     def _open_level_dialog(self):
         """Open the Level Manager dialog."""
@@ -3872,6 +3928,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.paper_display import apply_paper_display_from_project
         paper_ds = getattr(self.scene, '_loaded_paper_display', None)
         apply_paper_display_from_project(paper_ds)
+        # load_from_file baked cached-underlay pens against the PREVIOUS
+        # project's weight table; re-pen now that the file's table is live.
+        self._refresh_weight_canvases()
         # Hatch D-A39: patterns the file references but doesn't embed (2D /
         # block fills, DM category + instance section patterns) load from the
         # Hatch patterns folder as part of the undo baseline (no undo step).
@@ -4079,6 +4138,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Apply saved display defaults to the new project
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        # LT1-3: a new project's weight table copies the template.
+        from firepro3d.paper_display import reset_project_line_weights
+        reset_project_line_weights()
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.

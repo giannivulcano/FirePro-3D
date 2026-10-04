@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
                          QIcon)
-from PyQt6.QtCore import Qt, QSettings, QByteArray, QRectF
+from PyQt6.QtCore import Qt, QSettings, QByteArray, QRectF, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
 import os
@@ -871,6 +871,11 @@ class SectionPatternDialog(QDialog):
 class DisplayManager(QDialog):
     """Modal dialog providing Revit-style display settings for fire-
     suppression model items."""
+
+    # The PROJECT line-weight table changed (linetypes.md LT1-3 / H3).
+    # MainWindow dirties the project and re-pens weight-mapped canvases;
+    # deliberately not ``sceneModified`` (that fans out to 3D/elevation).
+    lineWeightsChanged = pyqtSignal()
 
     def __init__(self, scene, parent=None, active_context: str = "model"):
         super().__init__(parent)
@@ -1886,11 +1891,14 @@ class DisplayManager(QDialog):
         self._apply_paper_preview()
 
     def _reset_line_weights_tab(self):
-        """Reset Line Weights tab to factory defaults."""
-        from .paper_display import FACTORY_LINE_WEIGHTS, save_line_weights, LineWeightDef
+        """Reset the PROJECT weight table to factory defaults (LT1-3).
+
+        Never writes the template; "Set as Default" does that.
+        """
+        from .paper_display import FACTORY_LINE_WEIGHTS, LineWeightDef
         self._lw_defs = [LineWeightDef(d.name, d.width_mm)
                          for d in FACTORY_LINE_WEIGHTS]
-        save_line_weights(self._lw_defs, self._settings)
+        self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
@@ -1903,7 +1911,10 @@ class DisplayManager(QDialog):
         elif idx == 1:
             self._settings.sync()  # paper space already in QSettings
         elif idx == 2:
-            self._settings.sync()  # line weights already in QSettings
+            # The tab edits the PROJECT table; this writes the template that
+            # new projects / table-less files copy (LT1-3).
+            from .paper_display import save_line_weights
+            save_line_weights(self._lw_defs, self._settings)
 
     def _set_model_as_default(self):
         """Save current Model tab category settings as defaults for new projects.
@@ -2094,13 +2105,13 @@ class DisplayManager(QDialog):
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
         ],
-        "Drafting": ["Hatch"],
+        "Drafting": ["Hatch", "Blocks"],
     }
 
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
         from .paper_display import (
-            load_line_weights, load_paper_categories, load_paper_color_mode,
+            weight_names, load_paper_categories, load_paper_color_mode,
             save_paper_categories, save_paper_color_mode,
             PaperColorMode, _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY,
         )
@@ -2159,8 +2170,7 @@ class DisplayManager(QDialog):
 
         # Load data
         cats = load_paper_categories(self._settings)
-        lw_defs = load_line_weights(self._settings)
-        lw_names = [d.name for d in lw_defs]
+        lw_names = weight_names()          # the PROJECT table (LT1-3)
 
         self._paper_cat_data: dict[str, dict] = {}
 
@@ -2469,12 +2479,8 @@ class DisplayManager(QDialog):
 
     def _build_line_weights_tab(self) -> QWidget:
         """Build the Line Weights definition tab."""
-        from .paper_display import (
-            load_line_weights, save_line_weights, LineWeightDef,
-            FACTORY_LINE_WEIGHTS, validate_line_weight_name,
-            validate_line_weight_width, load_paper_categories,
-        )
-        from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+        from .paper_display import project_line_weights, LineWeightDef
+        from PyQt6.QtWidgets import QTableWidget
 
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -2492,9 +2498,15 @@ class DisplayManager(QDialog):
         self._lw_table.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
 
-        self._lw_defs = load_line_weights(self._settings)
+        # Edits the live PROJECT table (LT1-3); copies so the dialog never
+        # mutates project_line_weights()'s result in place.
+        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
+                         for d in project_line_weights()]
         self._lw_snapshot = [LineWeightDef(d.name, d.width_mm)
                              for d in self._lw_defs]
+        # (old, new) renames in order -- reject() replays them backwards.
+        self._lw_renames: list[tuple[str, str]] = []
+        self._lw_edited = False            # set by _commit_lw_defs
         self._populate_lw_table()
 
         self._lw_table.cellChanged.connect(self._on_lw_cell_changed)
@@ -2525,12 +2537,32 @@ class DisplayManager(QDialog):
             self._lw_table.setItem(row, 1, width_item)
         self._suppress = False
 
-    def _line_weight_in_use(self, name: str) -> bool:
-        """True if *name* is referenced by a paper category or an underlay.
+    def _text_weight_refs(self):
+        """Yield ``(name, ref)`` for every text border-weight reference:
+        sheet annotations (all sheets), model-plan texts (``_texts``) + text
+        primitives of project block
+        definitions (linetypes.md LT1-5)."""
+        for sheet in getattr(self._scene, "_sheets", []) or []:
+            for ann in getattr(sheet, "annotations", []):
+                yield ann.border_weight, ("ann", ann)
+        for item in getattr(self._scene, "_texts", []) or []:
+            yield item._data.border_weight, ("item", item)
+        reg = getattr(self._scene, "block_registry", None)
+        if reg is not None:
+            for bid in reg.ids():
+                defn = reg.get(bid)
+                for prim in getattr(defn, "primitives", []) or []:
+                    if prim.get("type") == "text" and "border_weight" in prim:
+                        yield prim["border_weight"], ("prim", (bid, prim))
 
-        Underlay references (§16.6): the per-underlay default
-        ``line_weight_name`` and per-layer
-        ``layer_overrides[layer]["line_weight"]``.
+    def _line_weight_in_use(self, name: str) -> bool:
+        """True if *name* is referenced anywhere by name.
+
+        Reference kinds: paper categories; underlays (§16.6: the per-underlay
+        default ``line_weight_name`` and per-layer
+        ``layer_overrides[layer]["line_weight"]``); sheet text annotations
+        (all sheets); model-plan texts (``_texts``); text primitives of project
+        block definitions.
         """
         from .paper_display import load_paper_categories
         cats = load_paper_categories(self._settings)
@@ -2542,6 +2574,8 @@ class DisplayManager(QDialog):
             for ov in data.layer_overrides.values():
                 if ov.get("line_weight") == name:
                     return True
+        if any(name == n for n, _ref in self._text_weight_refs()):
+            return True
         return False
 
     def _propagate_lw_rename(self, old: str, new: str):
@@ -2558,19 +2592,39 @@ class DisplayManager(QDialog):
             for ov in data.layer_overrides.values():
                 if ov.get("line_weight") == old:
                     ov["line_weight"] = new
+        touched_defs = set()
+        for cur, (kind, ref) in list(self._text_weight_refs()):
+            if cur != old:
+                continue
+            if kind == "ann":
+                ref.border_weight = new     # live paper TextItems alias this data
+            elif kind == "item":
+                ref._data.border_weight = new
+                ref.update()
+            else:
+                bid, prim = ref
+                prim["border_weight"] = new
+                touched_defs.add(bid)
+        reg = getattr(self._scene, "block_registry", None)
+        for bid in touched_defs:
+            reg.invalidate(bid)
 
     def _on_lw_cell_changed(self, row, col):
         if self._suppress or row >= len(self._lw_defs):
             return
         from .paper_display import (
             validate_line_weight_name, validate_line_weight_width,
-            save_line_weights,
         )
         old_def = self._lw_defs[row]
         text = self._lw_table.item(row, col).text().strip()
         if col == 0:  # Name changed
             others = [d for i, d in enumerate(self._lw_defs) if i != row]
-            if not validate_line_weight_name(text, others):
+            # A name something already references (a ref to a name not in the
+            # table, e.g. an old file) is refused: renaming onto it would let
+            # a later Cancel rewrite that pre-existing ref to the old name.
+            if (not validate_line_weight_name(text, others)
+                    or (text != old_def.name
+                        and self._line_weight_in_use(text))):
                 self._suppress = True
                 self._lw_table.item(row, 0).setText(old_def.name)
                 self._suppress = False
@@ -2578,6 +2632,7 @@ class DisplayManager(QDialog):
             old_name = old_def.name
             old_def.name = text
             self._propagate_lw_rename(old_name, text)
+            self._lw_renames.append((old_name, text))
         else:  # Width changed
             try:
                 new_width = float(text)
@@ -2592,33 +2647,42 @@ class DisplayManager(QDialog):
                 self._suppress = False
                 return
             old_def.width_mm = new_width
-        save_line_weights(self._lw_defs, self._settings)
+        self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
+    def _commit_lw_defs(self):
+        """Push the edited table to the PROJECT (LT1-3) and notify MainWindow.
+
+        Never writes the QSettings template (only "Set as Default" does).
+        """
+        from .paper_display import set_project_line_weights
+        set_project_line_weights(self._lw_defs)
+        self._lw_edited = True
+        self.lineWeightsChanged.emit()
+
     def _on_lw_add(self):
-        from .paper_display import save_line_weights, LineWeightDef
+        from .paper_display import LineWeightDef
         idx = len(self._lw_defs) + 1
         name = f"Custom {idx}"
         while any(d.name == name for d in self._lw_defs):
             idx += 1
             name = f"Custom {idx}"
         self._lw_defs.append(LineWeightDef(name, 0.20))
-        save_line_weights(self._lw_defs, self._settings)
+        self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
     def _on_lw_remove(self):
-        from .paper_display import save_line_weights
         row = self._lw_table.currentRow()
         if row < 0 or row >= len(self._lw_defs):
             return
         if self._line_weight_in_use(self._lw_defs[row].name):
             return
         self._lw_defs.pop(row)
-        save_line_weights(self._lw_defs, self._settings)
+        self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
@@ -2633,9 +2697,8 @@ class DisplayManager(QDialog):
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
-        from .paper_display import load_line_weights, load_paper_categories
-        lw_defs = load_line_weights(self._settings)
-        lw_names = [d.name for d in lw_defs]
+        from .paper_display import weight_names, load_paper_categories
+        lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
         self._suppress = True
         for key, widgets in self._paper_cat_data.items():
@@ -2694,19 +2757,24 @@ class DisplayManager(QDialog):
     def reject(self):
         """Cancel — revert all changes."""
         self._restore_snapshot()
+        # Weights first: un-renaming rewrites paper categories, so the
+        # categories snapshot below must land after it and win (LT1-3).
+        # Only when the table was edited: a no-op Cancel must not dirty.
+        if getattr(self, "_lw_edited", False):
+            from .paper_display import set_project_line_weights
+            for old, new in reversed(self._lw_renames):
+                self._propagate_lw_rename(new, old)     # incl. underlay refs
+            set_project_line_weights(self._lw_snapshot)
+            self.lineWeightsChanged.emit()
         if hasattr(self, "_paper_settings_snapshot"):
             from .paper_display import (
                 save_paper_categories, save_paper_color_mode, PaperColorMode,
-                save_line_weights,
             )
             save_paper_categories(self._paper_settings_snapshot["categories"],
                                   self._settings)
             save_paper_color_mode(
                 PaperColorMode(self._paper_settings_snapshot["color_mode"]),
                 self._settings)
-        if hasattr(self, "_lw_snapshot"):
-            from .paper_display import save_line_weights
-            save_line_weights(self._lw_snapshot, self._settings)
         super().reject()
 
 

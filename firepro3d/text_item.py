@@ -437,22 +437,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         path.lineTo(l, t + rad); path.closeSubpath()
         return path
 
-    # Named border weight → cosmetic device-px width on the model / Block-Editor
-    # surface (constant at all zooms, matching the sibling 2D primitives, whose
-    # default lineweight is 1.0px cosmetic).  The paper surface uses the true mm
-    # weight instead (it plots).  "Light" == 1.0 mirrors the primitive default.
-    _BORDER_WEIGHT_PX = {
-        "Very Light": 0.5, "Light": 1.0, "Medium": 1.5,
-        "Heavy": 2.0, "Very Heavy": 3.0,
-    }
-
     def _frame_pen(self) -> "QPen":
         """Pen for the border: text colour + line-type, aligned with the sibling
         2D primitives.
 
         On the model / Block-Editor surface the pen is **cosmetic** (constant
         device width at all zooms) — the named paper line-weights are sub-pixel at
-        editor zoom, so they map to fixed device-px widths (``_BORDER_WEIGHT_PX``).
+        editor zoom, so they map to device-px widths via
+        ``paper_display.canvas_weight_px`` (mm x hint; Thin Lines -> 1 px).
         On the paper surface the true named mm weight is used (divided by scale
         like the other paper pens) so the border still plots at its real width.
         """
@@ -466,8 +458,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             scale = self.scale() or 1.0
             pen.setWidthF(max(resolve_line_weight_mm(self._data.border_weight) / scale, 1e-4))
         else:
+            from .paper_display import resolve_line_weight_mm, canvas_weight_px
             pen.setCosmetic(True)
-            pen.setWidthF(self._BORDER_WEIGHT_PX.get(self._data.border_weight, 1.0))
+            pen.setWidthF(canvas_weight_px(
+                resolve_line_weight_mm(self._data.border_weight)))
         return pen
 
     def boundingRect(self) -> QRectF:
@@ -1105,6 +1099,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             from .paper_space import _text_panel_properties
             return _text_panel_properties(self._data)
+        from .paper_display import weight_names
         d = self._data
         props = {
             "Text":     {"type": "header", "value": "Text"},
@@ -1128,7 +1123,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                           "options": ["none", "solid", "dashed", "dotted", "dashdot"],
                           "value": ("none" if not d.border else d.border_line_type)},
             "Border Weight": {"type": "enum",
-                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                              "options": weight_names(),
                               "value": d.border_weight},
             "Corner":   {"type": "icon_enum", "value": d.border_corner,
                          "options": [("square", "corner_square.svg"),
