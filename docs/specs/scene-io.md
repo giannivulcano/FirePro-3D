@@ -48,7 +48,9 @@ design areas) or on each item's `to_dict`/`from_dict` (geometry, walls, blocks�
 ### §2 — Save
 
 `save_to_file` writes a single JSON object (`payload`) with `version` =
-`Model_Space.SAVE_VERSION` and `project_info`, `scale`, `display_settings`,
+`Model_Space.SAVE_VERSION` (10 since LT2 — informational; primitive migration is
+key-presence driven, and `load_from_file` installs the file's weight table + aliases
+before any parse — see [`linetypes.md`](linetypes.md) "LT2" H-a / H-g) and `project_info`, `scale`, `display_settings`,
 `paper_display`, `levels`, `plan_views`, `active_level`, and the entity
 collections: `nodes`, `pipes`, `annotations` (dimensions + notes), `underlays`,
 `water_supply`, `design_areas`, the construction-geometry keys (`polylines`,

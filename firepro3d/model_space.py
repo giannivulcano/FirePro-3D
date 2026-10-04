@@ -157,7 +157,7 @@ def _record_levels(params, active: str) -> list[str]:
 
 class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
+    SAVE_VERSION = 10  # v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display). Declared so the per-paint read in
@@ -265,6 +265,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.block_tile: dict | None = None
         self._tile_frame = None          # TileFrameItem while a tile is set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
+        # Callable -> open Block Editors' scenes, registered on the project
+        # scene by BlockEditorManager; the Display Manager weight-rename walker
+        # reads it (linetypes.md LT2-8). None = no editors manager.
+        self._editor_scenes_provider = None
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state: one click places at 0° and the
         # mode re-arms until Esc.  A low-opacity BlockInstance is the ghost.
@@ -4915,6 +4919,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               color=QColor(pl.pen().color()),
                               lineweight=getattr(pl, "_lineweight",
                                                  pl.pen().widthF()))
+            from .stroke_style import copy_style
+            copy_style(pl, placed)
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)

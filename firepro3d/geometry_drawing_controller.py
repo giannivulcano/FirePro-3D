@@ -417,6 +417,7 @@ class GeometryDrawingController:
         from .geometry_2d import EllipseItem
         prev = EllipseItem(s._ellipse_center, rx, 0.5, s._ellipse_rot,
                            s._geom_color_lw()[0], 2)
+        prev._ghost_pen = True       # keep the width-2 preview pen at paint
         prev.setZValue(200)
         s.addItem(prev)
         s._ellipse_preview = prev
@@ -613,6 +614,7 @@ class GeometryDrawingController:
             _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
             _ghost.setCosmetic(True)
             pl.setPen(_ghost)
+            pl._ghost_pen = True     # paint must not re-derive (LT2 H-c)
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
@@ -1609,6 +1611,7 @@ class GeometryDrawingController:
         pen = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
+        ghost._ghost_pen = True      # keep the width-1 dashed ghost at paint
         ghost.setZValue(200)
         ghost.setFlag(ghost.GraphicsItemFlag.ItemIsSelectable, False)
         s.addItem(ghost)
@@ -1735,6 +1738,7 @@ class GeometryDrawingController:
         if s._spline_preview is None:
             prev = SplineItem(list(s._spline_points), 3, None, None,
                               s._geom_color_lw()[0], 2)
+            prev._ghost_pen = True   # keep the width-2 preview pen at paint
             prev.setZValue(200)
             s.addItem(prev)
             s._spline_preview = prev

@@ -477,7 +477,7 @@ def _spline_copy(src, cps):
     """
     data = src.to_dict()
     new = SplineItem([], src._degree, None, None,
-                     data.get("color", "#ffffff"), data.get("lineweight", 1.0))
+                     data.get("style", {}).get("colour", "#ffffff"), 1.0)
     new._geom2d_from_dict(data)
     new._control_points = [QPointF(p) for p in cps]
     new._degree = src._degree

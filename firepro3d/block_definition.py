@@ -7,6 +7,7 @@ consumed by every BlockInstance. See docs/specs/block-system.md.
 
 from __future__ import annotations
 
+import copy
 import uuid
 
 from PyQt6.QtCore import QPointF
@@ -147,6 +148,20 @@ def _norm_tile(tile) -> dict | None:
     return {"w": float(tile.get("w", 0.0)), "h": float(tile.get("h", 0.0)),
             "row_shift": float(tile.get("row_shift", 0.0)),
             "size": "model" if tile.get("size") == "model" else "drafting"}
+
+
+def _load_prim(p):
+    """Return a fresh, LT2-migrated copy of a stored primitive dict."""
+    from .stroke_style import STYLED_TYPES, migrate_primitive
+    from .paper_display import canonical_weight_name
+    if not isinstance(p, dict):
+        return p
+    if p.get("type") in STYLED_TYPES:
+        return migrate_primitive(p)
+    out = copy.deepcopy(p)
+    if out.get("type") == "text" and out.get("border_weight"):
+        out["border_weight"] = canonical_weight_name(out["border_weight"])
+    return out
 
 
 class BlockDefinition:
@@ -378,7 +393,9 @@ class BlockDefinition:
                 ops.append(RenderOp(TEXT, path, colour=item.data.color))
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
-            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen())))
+            st = getattr(item, "style", None)
+            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
+                                weight=st["weight"] if st else None))
         return ops
 
     def _resolve_nested(self, prim):
@@ -468,7 +485,7 @@ class BlockDefinition:
             "scale_mode": self.scale_mode,
             "origin": [self.origin[0], self.origin[1]],
             "attributes": list(self.attributes),
-            "primitives": list(self.primitives),
+            "primitives": copy.deepcopy(self.primitives),
             "render_mode": self.render_mode,
             "constraints": [dict(c) for c in self.constraints],
             "tile": dict(self._tile) if self._tile else None,
@@ -484,7 +501,7 @@ class BlockDefinition:
             scale_mode=data.get("scale_mode", "real_size"),
             origin=(origin[0], origin[1]),
             attributes=data.get("attributes", []),
-            primitives=data.get("primitives", []),
+            primitives=[_load_prim(p) for p in data.get("primitives", [])],
             render_mode=data.get("render_mode", "default"),
             constraints=data.get("constraints", []),
             tile=data.get("tile"),

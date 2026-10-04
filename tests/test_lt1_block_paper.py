@@ -274,15 +274,16 @@ def _row_run(img, x):
 
 
 def test_model_canvas_block_render_unchanged(qapp):
-    """LT1-1: canvas blocks keep authored cosmetic px; a paper pass leaves no trace."""
+    """LT2-4: canvas blocks draw By Block at the Model Blocks weight (Light = 1 px); a paper pass leaves no trace."""
     ms = _scene_with_blocks()
     inst = ms._block_instances[0]
     assert inst._paper_pen_width is None and inst._paper_pen_color is None
     before = _render_model(ms)
-    # Authored 3 px cosmetic: ~3 lit px at any zoom (paper weight would be
+    # By Block at the factory Model Blocks weight "Light" -> 1 cosmetic px at
+    # any zoom; the authored 3 px pen width is ignored (paper weight would be
     # 0.18 mm = 0.018 px here and colour black).
     # Column x=320 is clear of the origin cross at the crop centre (x=200).
-    assert 2 <= _row_run(before, 320) <= 4
+    assert _row_run(before, 320) == 1
     saved = pd.apply_paper_overrides(ms, _crop(0.02), paper_scale=0.02)
     pd.restore_model_display(saved)
     assert _render_model(ms) == before

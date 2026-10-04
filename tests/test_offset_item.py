@@ -136,14 +136,15 @@ def test_style_inherited(qapp):
     for name in ("line", "polyline_closed", "rect", "circle", "arc",
                  "polygon", "ellipse", "spline"):
         src = _make(name)
-        pen = src.pen(); pen.setColor(QColor("#ff0000")); pen.setWidthF(3.0)
-        src.setPen(pen)
+        src.style["colour"] = "#ff0000"
+        src.style["weight"] = "Heavy"
+        src._sync_stroke_pen()
         if src.is_fillable():
             src.fill_type = "solid"
             src._display_fill_color = "#00ff00"
         new = tg.offset_item(src, 5.0)
-        assert new.pen().color().name() == "#ff0000", name
-        assert new.pen().widthF() == pytest.approx(3.0), name
+        assert new.style == src.style, name
+        assert new.style["weight"] == "Heavy", name
         if src.is_fillable():
             assert new.fill_type == "solid", name
             assert new._display_fill_color == "#00ff00", name

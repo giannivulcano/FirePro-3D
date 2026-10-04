@@ -134,6 +134,10 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   `constants.DEFAULT_GEOMETRY_LINEWEIGHT` (was a hard-coded 2.0) — the weight for every committed
   tool-drawn primitive **and** Block-Editor-imported ones (`geom_dicts_to_primitives(...,
   lineweight=)`). Placement ghosts keep their own preview pens (§3.6).
+  **Superseded for the 8 stroke primitives by LT2 (2026-10-04):** the px
+  `lineweight` / `color` keys are replaced by a `style` record and the pen is
+  derived at paint — see [`linetypes.md`](linetypes.md) "LT2" (LT2-1–LT2-4,
+  H-a–H-c). ReferenceLineItem / TextItem are unchanged.
 
 ### 1.2 Per-item reflect / scale (scene-tools P1 batch DD1, as-built 2026-10-01)
 

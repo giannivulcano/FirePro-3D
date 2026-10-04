@@ -342,6 +342,11 @@ arbitration risk; which one survives is a grill question (§8), not decided here
 | P11 | Entity pick | `SceneTools._find_geometry_at` (shape-contains + grip distance) | `_press_offset` (`items(pos)` + isinstance filter) and `_find_entity_at` (context menu) | three pick rules, three type lists |
 | P12 | Geometry collector | `SceneTools._all_geometry_items` (per-type lists, text last) | the "2D Geometry" category collectors (`2d-geometry.md` §-ref) | see `project_geo2d_parallel_list_collectors` |
 
+> **Style through edits (LT2, 2026-10-04):** every derive site builds its new item, then calls
+> `stroke_style.copy_style` (never `pen()` colour/width); free ends from break / trim / fillet /
+> chamfer reset to By Linetype and Join takes the sources' outer ends — the end table is owned
+> by [`linetypes.md`](linetypes.md) "LT2" (LT2-3, H-b).
+
 ## 5. Modification schema (per target tool)
 
 For each tool: **as-built** step sequence and HUD, then the **as-proposed,

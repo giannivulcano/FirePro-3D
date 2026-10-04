@@ -252,7 +252,11 @@ _COL_SECTION = 4
 _COL_SCALE   = 5
 _COL_OPACITY = 6
 _COL_FONT    = 7
-_COL_RESET   = 8
+_COL_LW      = 8
+_COL_RESET   = 9
+
+# Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
+_MODEL_BLOCKS_KEY = "Blocks"
 
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
@@ -927,6 +931,8 @@ class DisplayManager(QDialog):
 
     def _take_snapshot(self):
         """Capture the current visual state of every FS item for cancel-revert."""
+        from .paper_display import model_blocks_weight
+        self._model_blocks_snapshot = model_blocks_weight()
         for item in self._iter_all_items():
             entry: dict = {
                 "visible": item.isVisible(),
@@ -1061,6 +1067,18 @@ class DisplayManager(QDialog):
                 _set_svg_tint(f.symbol, snap.get("display_color"),
                               snap.get("display_fill_color"))
                 f.align_fitting()
+
+        # Model "Blocks" weight (LT2-6)
+        if hasattr(self, "_model_blocks_snapshot"):
+            from .paper_display import model_blocks_weight, set_model_blocks_weight
+            if model_blocks_weight() != self._model_blocks_snapshot:
+                # Raw: runs before reject() restores the table + aliases.
+                set_model_blocks_weight(self._model_blocks_snapshot,
+                                        canonical=False)
+                self._settings.setValue(
+                    f"display/{_MODEL_BLOCKS_KEY}/line_weight",
+                    self._model_blocks_snapshot)
+                self.lineWeightsChanged.emit()
 
         # Force scene repaint
         self._scene.update()
@@ -1247,9 +1265,10 @@ class DisplayManager(QDialog):
 
         # ── Tree widget ──────────────────────────────────────────────
         self._tree = QTreeWidget()
-        self._tree.setColumnCount(9)
+        self._tree.setColumnCount(10)
         self._tree.setHeaderLabels(
-            ["Name", "Vis", "Colour", "Fill", "Section", "Scale", "Opacity", "Font", ""])
+            ["Name", "Vis", "Colour", "Fill", "Section", "Scale", "Opacity",
+             "Font", "Line Weight", ""])
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(20)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1264,6 +1283,7 @@ class DisplayManager(QDialog):
         hdr.setSectionResizeMode(_COL_SCALE, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_OPACITY, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_FONT, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(_COL_LW, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_RESET, QHeaderView.ResizeMode.Fixed)
         self._tree.setColumnWidth(_COL_VIS, 40)
         self._tree.setColumnWidth(_COL_COLOR, 60)
@@ -1272,12 +1292,14 @@ class DisplayManager(QDialog):
         self._tree.setColumnWidth(_COL_SCALE, 90)
         self._tree.setColumnWidth(_COL_OPACITY, 90)
         self._tree.setColumnWidth(_COL_FONT, 70)
+        self._tree.setColumnWidth(_COL_LW, 100)
         self._tree.setColumnWidth(_COL_RESET, 40)
 
         # Suppress preview signals during init so scene isn't changed.
         # Snapshot was already taken in __init__ before _build_ui().
         self._suppress = True
         self._populate_tree()
+        self._add_model_blocks_row()
         # Expand all group headers; collapse every category (child) node
         for i in range(self._tree.topLevelItemCount()):
             grp = self._tree.topLevelItem(i)
@@ -1448,6 +1470,57 @@ class DisplayManager(QDialog):
                     "item_ref": obj,
                     "category": key,
                 }
+
+    def _add_model_blocks_row(self):
+        """Weight-only "Blocks" row (linetypes.md LT2-6): the canvas weight of
+        By Block block linework. Not a _CATEGORIES entry -- block colours,
+        visibility and opacity stay authored / per instance."""
+        from .paper_display import model_blocks_weight, weight_names
+        parent = None
+        for i in range(self._tree.topLevelItemCount()):
+            grp = self._tree.topLevelItem(i)
+            if grp.text(_COL_NAME) == "Annotation & Geometry":
+                parent = grp
+        row = QTreeWidgetItem(parent or self._tree)
+        row.setText(_COL_NAME, _MODEL_BLOCKS_KEY)
+        f = QFont()
+        f.setBold(True)
+        row.setFont(_COL_NAME, f)
+        row.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        row.setToolTip(_COL_NAME, "Blocks: line weight only (block colours, "
+                                  "visibility and opacity stay authored)")
+        combo = QComboBox()
+        combo.addItems(weight_names())
+        combo.setCurrentText(model_blocks_weight())
+        combo.setToolTip("Canvas line weight of block linework drawn By Block "
+                         "(Thin Lines still applies)")
+        combo.currentTextChanged.connect(self._on_model_blocks_weight)
+        self._tree.setItemWidget(row, _COL_LW, combo)
+        self._model_blocks_combo = combo
+
+    def _on_model_blocks_weight(self, name: str):
+        if self._suppress or not name:
+            return
+        from .paper_display import set_model_blocks_weight
+        set_model_blocks_weight(name)
+        self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/line_weight", name)
+        self.lineWeightsChanged.emit()         # dirty + repaint (LT1 H3)
+
+    def _refresh_model_blocks_combo(self):
+        """Re-fill the Blocks combo from the project table (rename / add /
+        remove / reset) without firing ``_on_model_blocks_weight``."""
+        combo = getattr(self, "_model_blocks_combo", None)
+        if combo is None:
+            return
+        from .paper_display import model_blocks_weight, weight_names
+        was = self._suppress
+        self._suppress = True
+        try:
+            combo.clear()
+            combo.addItems(weight_names())
+            combo.setCurrentText(model_blocks_weight())
+        finally:
+            self._suppress = was
 
     def _make_row_widgets(self, tree_item: QTreeWidgetItem,
                           visible: bool, color: str,
@@ -1853,6 +1926,9 @@ class DisplayManager(QDialog):
         finally:
             self._suppress = False
         self._apply_preview()
+        # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
+        from .paper_display import MODEL_BLOCKS_FACTORY_WEIGHT
+        self._model_blocks_combo.setCurrentText(MODEL_BLOCKS_FACTORY_WEIGHT)
 
     def _reset_paper_space_tab(self):
         """Reset Paper Space tab to B&W factory defaults."""
@@ -1955,6 +2031,12 @@ class DisplayManager(QDialog):
                 self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
+        from .paper_display import model_blocks_weight
+        self._settings.setValue(
+            f"display/{_MODEL_BLOCKS_KEY}/default_line_weight",
+            model_blocks_weight())
+        self._settings.setValue(
+            f"display/{_MODEL_BLOCKS_KEY}/line_weight", model_blocks_weight())
         self._settings.sync()
 
     # ------------------------------------------------------------------
@@ -2507,6 +2589,9 @@ class DisplayManager(QDialog):
         # (old, new) renames in order -- reject() replays them backwards.
         self._lw_renames: list[tuple[str, str]] = []
         self._lw_edited = False            # set by _commit_lw_defs
+        # Rename aliases are part of the Cancel snapshot (H-g).
+        from .paper_display import weight_aliases
+        self._lw_alias_snapshot = weight_aliases()
         self._populate_lw_table()
 
         self._lw_table.cellChanged.connect(self._on_lw_cell_changed)
@@ -2537,16 +2622,28 @@ class DisplayManager(QDialog):
             self._lw_table.setItem(row, 1, width_item)
         self._suppress = False
 
-    def _text_weight_refs(self):
-        """Yield ``(name, ref)`` for every text border-weight reference:
-        sheet annotations (all sheets), model-plan texts (``_texts``) + text
-        primitives of project block
-        definitions (linetypes.md LT1-5)."""
+    def _weight_refs(self):
+        """Yield ``(name, (kind, ref))`` for every live by-name weight ref:
+        sheet annotations; model-plan texts; project definition text
+        primitives and stroke ``style.weight``; open Block Editors' texts and
+        styled raw items, and the project scene's styled geometry
+        (linetypes.md LT1-5 / LT2-8).
+        """
+        from .stroke_style import is_named_weight
         for sheet in getattr(self._scene, "_sheets", []) or []:
             for ann in getattr(sheet, "annotations", []):
                 yield ann.border_weight, ("ann", ann)
-        for item in getattr(self._scene, "_texts", []) or []:
-            yield item._data.border_weight, ("item", item)
+        scenes = [self._scene]
+        prov = getattr(self._scene, "_editor_scenes_provider", None)
+        if callable(prov):
+            scenes.extend(sc for sc in prov() if sc is not self._scene)
+        for sc in scenes:
+            for item in getattr(sc, "_texts", []) or []:
+                yield item._data.border_weight, ("item", item)
+            for item in sc.items():
+                st = getattr(item, "style", None)
+                if isinstance(st, dict) and is_named_weight(st.get("weight")):
+                    yield st["weight"], ("raw", item)
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
             for bid in reg.ids():
@@ -2554,6 +2651,9 @@ class DisplayManager(QDialog):
                 for prim in getattr(defn, "primitives", []) or []:
                     if prim.get("type") == "text" and "border_weight" in prim:
                         yield prim["border_weight"], ("prim", (bid, prim))
+                    st = prim.get("style")
+                    if isinstance(st, dict) and is_named_weight(st.get("weight")):
+                        yield st["weight"], ("sprim", (bid, st))
 
     def _line_weight_in_use(self, name: str) -> bool:
         """True if *name* is referenced anywhere by name.
@@ -2561,10 +2661,15 @@ class DisplayManager(QDialog):
         Reference kinds: paper categories; underlays (§16.6: the per-underlay
         default ``line_weight_name`` and per-layer
         ``layer_overrides[layer]["line_weight"]``); sheet text annotations
-        (all sheets); model-plan texts (``_texts``); text primitives of project
-        block definitions.
+        (all sheets); model-plan texts (``_texts``); text primitives and
+        stroke ``style.weight`` of project block definitions; open Block
+        Editors' items; the Model "Blocks" weight (LT2-6 / LT2-8). Holder
+        names are compared canonically (an alias key counts as its target).
         """
-        from .paper_display import load_paper_categories
+        from .paper_display import (canonical_weight_name,
+                                    load_paper_categories, model_blocks_weight)
+        if model_blocks_weight() == name:
+            return True
         cats = load_paper_categories(self._settings)
         if any(v.get("line_weight") == name for v in cats.values()):
             return True
@@ -2574,13 +2679,22 @@ class DisplayManager(QDialog):
             for ov in data.layer_overrides.values():
                 if ov.get("line_weight") == name:
                     return True
-        if any(name == n for n, _ref in self._text_weight_refs()):
+        if any(canonical_weight_name(n) == name
+               for n, _ref in self._weight_refs()):
             return True
         return False
 
     def _propagate_lw_rename(self, old: str, new: str):
         """Follow a weight rename through every by-name reference."""
-        from .paper_display import load_paper_categories, save_paper_categories
+        from .paper_display import (load_paper_categories, model_blocks_weight,
+                                    save_paper_categories,
+                                    set_model_blocks_weight)
+        if model_blocks_weight() == old:
+            # Raw: the Cancel replay writes a pre-rename (alias-key) name
+            # before the table + aliases are restored.
+            set_model_blocks_weight(new, canonical=False)
+            self._settings.setValue(
+                f"display/{_MODEL_BLOCKS_KEY}/line_weight", new)
         cats = load_paper_categories(self._settings)
         for cat_vals in cats.values():
             if cat_vals.get("line_weight") == old:
@@ -2593,7 +2707,7 @@ class DisplayManager(QDialog):
                 if ov.get("line_weight") == old:
                     ov["line_weight"] = new
         touched_defs = set()
-        for cur, (kind, ref) in list(self._text_weight_refs()):
+        for cur, (kind, ref) in list(self._weight_refs()):
             if cur != old:
                 continue
             if kind == "ann":
@@ -2601,6 +2715,13 @@ class DisplayManager(QDialog):
             elif kind == "item":
                 ref._data.border_weight = new
                 ref.update()
+            elif kind == "raw":
+                ref.style["weight"] = new
+                ref.update()
+            elif kind == "sprim":
+                bid, st = ref
+                st["weight"] = new
+                touched_defs.add(bid)
             else:
                 bid, prim = ref
                 prim["border_weight"] = new
@@ -2617,14 +2738,28 @@ class DisplayManager(QDialog):
         )
         old_def = self._lw_defs[row]
         text = self._lw_table.item(row, col).text().strip()
+        renamed = None
         if col == 0:  # Name changed
+            from .paper_display import canonical_weight_name, is_alias_key
             others = [d for i, d in enumerate(self._lw_defs) if i != row]
+            # Renaming back onto an old name of THIS weight is allowed (its
+            # refs are this weight's own); any other alias key is refused --
+            # no hijack of the renamed-away references (LT2-8 / H-g).
+            rename_back = (is_alias_key(text)
+                           and canonical_weight_name(text) == old_def.name)
+            hijack = is_alias_key(text) and not rename_back
             # A name something already references (a ref to a name not in the
             # table, e.g. an old file) is refused: renaming onto it would let
             # a later Cancel rewrite that pre-existing ref to the old name.
-            if (not validate_line_weight_name(text, others)
-                    or (text != old_def.name
-                        and self._line_weight_in_use(text))):
+            in_use = (text != old_def.name and not rename_back
+                      and self._line_weight_in_use(text))
+            if hijack:
+                # Non-modal refusal message at the edited cell (H-g).
+                self._show_lw_refusal(row, (
+                    f"“{text}” was renamed to "
+                    f"“{canonical_weight_name(text)}” in this "
+                    f"project — choose another name"))
+            if not validate_line_weight_name(text, others) or hijack or in_use:
                 self._suppress = True
                 self._lw_table.item(row, 0).setText(old_def.name)
                 self._suppress = False
@@ -2633,6 +2768,7 @@ class DisplayManager(QDialog):
             old_def.name = text
             self._propagate_lw_rename(old_name, text)
             self._lw_renames.append((old_name, text))
+            renamed = (old_name, text)
         else:  # Width changed
             try:
                 new_width = float(text)
@@ -2648,9 +2784,23 @@ class DisplayManager(QDialog):
                 return
             old_def.width_mm = new_width
         self._commit_lw_defs()
+        if renamed is not None:
+            # After the table commit: the table must already hold the new
+            # name (set_project_line_weights drops alias keys that are live).
+            from .paper_display import record_weight_rename
+            record_weight_rename(*renamed)
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
+
+    def _show_lw_refusal(self, row: int, text: str) -> None:
+        """Non-modal tooltip at the Name cell of *row* (headless-safe)."""
+        from PyQt6.QtWidgets import QToolTip
+        tbl = self._lw_table
+        item = tbl.item(row, 0)
+        rect = tbl.visualItemRect(item) if item is not None else tbl.rect()
+        pos = tbl.viewport().mapToGlobal(rect.bottomLeft())
+        QToolTip.showText(pos, text, tbl.viewport(), rect)
 
     def _commit_lw_defs(self):
         """Push the edited table to the PROJECT (LT1-3) and notify MainWindow.
@@ -2663,10 +2813,11 @@ class DisplayManager(QDialog):
         self.lineWeightsChanged.emit()
 
     def _on_lw_add(self):
-        from .paper_display import LineWeightDef
+        from .paper_display import LineWeightDef, is_alias_key
         idx = len(self._lw_defs) + 1
         name = f"Custom {idx}"
-        while any(d.name == name for d in self._lw_defs):
+        # Never generate an alias key -- it would hijack old refs (H-g).
+        while any(d.name == name for d in self._lw_defs) or is_alias_key(name):
             idx += 1
             name = f"Custom {idx}"
         self._lw_defs.append(LineWeightDef(name, 0.20))
@@ -2714,6 +2865,7 @@ class DisplayManager(QDialog):
                 idx = combo.findText(cat_lw)
                 combo.setCurrentIndex(max(0, idx))
         self._suppress = False
+        self._refresh_model_blocks_combo()
 
     # ------------------------------------------------------------------
     # Accept / Reject
@@ -2738,6 +2890,9 @@ class DisplayManager(QDialog):
                 self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
+        from .paper_display import model_blocks_weight
+        self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/line_weight",
+                                model_blocks_weight())
         self._settings.sync()
 
         # D-A39: a category section pattern the user OK'd draws in this project
@@ -2761,10 +2916,13 @@ class DisplayManager(QDialog):
         # categories snapshot below must land after it and win (LT1-3).
         # Only when the table was edited: a no-op Cancel must not dirty.
         if getattr(self, "_lw_edited", False):
-            from .paper_display import set_project_line_weights
+            from .paper_display import (set_project_line_weights,
+                                        set_weight_aliases)
             for old, new in reversed(self._lw_renames):
                 self._propagate_lw_rename(new, old)     # incl. underlay refs
             set_project_line_weights(self._lw_snapshot)
+            # After the table: set_project_line_weights prunes live-name keys.
+            set_weight_aliases(self._lw_alias_snapshot)
             self.lineWeightsChanged.emit()
         if hasattr(self, "_paper_settings_snapshot"):
             from .paper_display import (
@@ -2802,6 +2960,9 @@ def apply_saved_display_settings(scene):
         # Write back so Display Manager shows these values
         _write_category_to_settings(key, vals, settings)
         _apply_to_scene_items(scene, key, vals, respect_overrides=True)
+    # Not the user default: this also runs at every undo restore (LT2-6).
+    _apply_model_blocks_weight(None, settings, prefer_default=False,
+                               use_user_default=False)
     settings.sync()
 
 
@@ -2827,6 +2988,35 @@ def apply_default_display_settings(scene):
         _write_category_to_settings(key, vals, settings)
 
         _apply_to_scene_items(scene, key, vals, respect_overrides=False)
+    _apply_model_blocks_weight(None, settings, prefer_default=True)
+
+
+def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
+                               prefer_default: bool,
+                               use_user_default: bool = True) -> None:
+    """Resolve the Model "Blocks" weight (linetypes.md LT2-6): user default
+    -> project -> current QSettings -> factory.
+
+    Args:
+        project: the project ``display_settings`` dict (Open), or None.
+        settings: the QSettings store.
+        prefer_default: New Project -- skip the current key (default ->
+            factory).
+        use_user_default: consult the "Set as Default" key. False on the
+            ``apply_saved_display_settings`` path, which also runs at every
+            model undo restore: it keeps the current project value instead of
+            flipping it to the user default (current -> factory).
+    """
+    from .paper_display import model_blocks_weight, set_model_blocks_weight
+    key = _MODEL_BLOCKS_KEY
+    name = (settings.value(f"display/{key}/default_line_weight")
+            if use_user_default else None)
+    if not name and project:
+        name = (project.get(key) or {}).get("line_weight")
+    if not name and not prefer_default:
+        name = settings.value(f"display/{key}/line_weight")
+    set_model_blocks_weight(name or None)      # canonical (alias key -> live)
+    settings.setValue(f"display/{key}/line_weight", model_blocks_weight())
 
 
 def get_display_settings_for_save() -> dict:
@@ -2841,6 +3031,8 @@ def get_display_settings_for_save() -> dict:
         # Strip None values for clean serialisation
         entry = {k: v for k, v in vals.items() if v is not None}
         result[key] = entry
+    from .paper_display import model_blocks_weight
+    result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight()}
     return result
 
 
@@ -2872,6 +3064,7 @@ def apply_project_display_settings(scene, display_dict: dict):
         _write_category_to_settings(key, vals, settings)
 
         _apply_to_scene_items(scene, key, vals, respect_overrides=True)
+    _apply_model_blocks_weight(display_dict, settings, prefer_default=False)
     settings.sync()
 
 

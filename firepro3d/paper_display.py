@@ -65,10 +65,24 @@ def save_line_weights(defs: list[LineWeightDef],
 
 def validate_line_weight_name(name: str,
                               existing: list[LineWeightDef]) -> bool:
-    """Return True if *name* is valid (non-empty, unique)."""
+    """Return True if *name* is valid (non-empty, unique, not reserved).
+
+    The style keywords (By Block / By Linetype / Continuous, in keyword or
+    display spelling, any case) are reserved: a row so named would collide
+    with the keyword everywhere a weight is read (LT2-8).
+    """
     if not name or not name.strip():
         return False
+    if name.strip().lower() in _reserved_weight_names():
+        return False
     return all(lw.name != name.strip() for lw in existing)
+
+
+def _reserved_weight_names() -> frozenset[str]:
+    """Lower-cased names a weight row may never take."""
+    from .stroke_style import BY_BLOCK, BY_LINETYPE, CONTINUOUS
+    keys = (BY_BLOCK, BY_LINETYPE, CONTINUOUS)
+    return frozenset({*keys, *(k.replace("_", " ") for k in keys)})
 
 
 def validate_line_weight_width(width_mm: float) -> bool:
@@ -90,6 +104,87 @@ _THIN_LINES = False
 # live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
 _THIN_SUSPEND = 0
 
+# Rename aliases (linetypes.md LT2-8 / H-g): old name -> current name, so a
+# reference written before a rename (undo snapshot, clipboard, paper command,
+# library file, open editor) still resolves. Project-scoped (.fpd), reset with
+# the table on New / table-less Open.
+_WEIGHT_ALIASES: dict[str, str] = {}
+# Display Manager Model "Blocks" weight (LT2-4/LT2-6) -- the canvas weight of
+# By Block strokes. Cached here so paint never reads QSettings.
+_MODEL_BLOCKS_WEIGHT: str | None = None
+MODEL_BLOCKS_FACTORY_WEIGHT = "Light"     # 0.18 mm -> exactly 1.0 canvas px
+
+
+def model_blocks_weight() -> str:
+    """The Model-tab "Blocks" weight name (factory "Light")."""
+    return _MODEL_BLOCKS_WEIGHT or MODEL_BLOCKS_FACTORY_WEIGHT
+
+
+def set_model_blocks_weight(name: str | None, *, canonical: bool = True) -> None:
+    """Set the Model "Blocks" weight (None -> factory).
+
+    A renamed-away name is stored canonical (H-g), so the in-use check and
+    the combo see the live row name. ``canonical=False`` is only for the
+    Display Manager Cancel replay, which restores a pre-rename name BEFORE
+    the table and aliases are restored.
+    """
+    global _MODEL_BLOCKS_WEIGHT
+    if not name:
+        _MODEL_BLOCKS_WEIGHT = None
+    else:
+        _MODEL_BLOCKS_WEIGHT = (canonical_weight_name(str(name)) if canonical
+                                else str(name))
+
+
+def weight_aliases() -> dict[str, str]:
+    """A copy of the project rename-alias map."""
+    return dict(_WEIGHT_ALIASES)
+
+
+def set_weight_aliases(aliases: dict | None) -> None:
+    """Replace the alias map (Cancel snapshot restore / project load).
+
+    Keeps the invariant "an alias key is never a live table name" (as
+    ``set_project_line_weights`` does): keys that are live rows of the
+    CURRENT table are dropped. Every caller installs the table first
+    (``apply_project_weights``, Cancel restore, reset), so the current table
+    is the one the aliases belong to.
+    """
+    global _WEIGHT_ALIASES
+    live = {d.name for d in (_PROJECT_LW or ())}
+    _WEIGHT_ALIASES = {str(k): str(v) for k, v in (aliases or {}).items()
+                       if k and v and k != v and str(k) not in live}
+    _clear_hatch_mm()
+
+
+def record_weight_rename(old: str, new: str) -> None:
+    """Record a table rename *old* -> *new* (call after the table changed).
+
+    Collapses chains (X->old becomes X->new) and drops an entry keyed by
+    *new* (renaming back makes *new* a live name again).
+    """
+    if not old or not new or old == new:
+        return
+    aliases = {k: (new if v == old else v) for k, v in _WEIGHT_ALIASES.items()}
+    aliases.pop(new, None)
+    aliases[old] = new
+    set_weight_aliases(aliases)
+
+
+def canonical_weight_name(name: str) -> str:
+    """Follow the alias chain from *name* (cycle-guarded); identity if none."""
+    seen = set()
+    cur = name
+    while cur in _WEIGHT_ALIASES and cur not in seen:
+        seen.add(cur)
+        cur = _WEIGHT_ALIASES[cur]
+    return cur
+
+
+def is_alias_key(name: str) -> bool:
+    """True if *name* is an old (renamed-away) weight name."""
+    return name in _WEIGHT_ALIASES
+
 
 def project_line_weights() -> list[LineWeightDef]:
     """The live project weight table (seeded from the template on first use).
@@ -103,15 +198,26 @@ def project_line_weights() -> list[LineWeightDef]:
 
 
 def set_project_line_weights(defs: list[LineWeightDef]) -> None:
-    """Replace the live project table (copies *defs*)."""
-    global _PROJECT_LW
+    """Replace the live project table (copies *defs*).
+
+    Keeps the invariant "an alias key is never a live table name": any rename
+    alias whose old name is now a table row is dropped (the name is live again).
+    """
+    global _PROJECT_LW, _WEIGHT_ALIASES
     _PROJECT_LW = [LineWeightDef(d.name, float(d.width_mm)) for d in defs]
+    live = {d.name for d in _PROJECT_LW}
+    _WEIGHT_ALIASES = {k: v for k, v in _WEIGHT_ALIASES.items()
+                       if k not in live}
     _clear_hatch_mm()
 
 
 def reset_project_line_weights() -> None:
-    """Re-seed the project table from the template (New Project / old files)."""
+    """Re-seed the project table from the template (New Project / old files).
+
+    Also clears the rename aliases (they are project-scoped, LT2-8).
+    """
     set_project_line_weights(load_line_weights())
+    set_weight_aliases({})
 
 
 def weight_names() -> list[str]:
@@ -125,7 +231,7 @@ def merge_project_line_weights(weights: dict) -> list[str]:
 
     Returns the names added. Invalid widths are skipped.
     """
-    have = {d.name for d in project_line_weights()}
+    have = {d.name for d in project_line_weights()} | set(_WEIGHT_ALIASES)
     added = []
     for name, mm in (weights or {}).items():
         try:
@@ -164,6 +270,18 @@ def thin_lines_active() -> bool:
     their non-thin width on sheets and PDF (LT1-8).
     """
     return _THIN_LINES and _THIN_SUSPEND == 0
+
+
+def paper_pass_active() -> bool:
+    """True while a paper pass is live (apply_paper_overrides ..
+    restore_model_display).
+
+    Paint-time canvas pen derivation (``Geometry2DMixin._sync_stroke_pen``)
+    must leave the pen alone during the pass: re-deriving there would resolve
+    the non-thin width and flip it back on the next model paint, a setPen /
+    scene.changed ping-pong against the paper echo guard (LT2 H-c).
+    """
+    return _THIN_SUSPEND > 0
 
 
 def canvas_weight_px(width_mm: float) -> float:
@@ -374,16 +492,30 @@ def get_paper_display_for_save() -> dict:
         "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
         "line_weights": [asdict(d) for d in project_line_weights()],
+        "line_weight_aliases": weight_aliases(),
     }
 
 
-def apply_paper_display_from_project(data: dict | None):
-    """Apply paper display settings loaded from a project file."""
-    parsed = _parse_weight_list((data or {}).get("line_weights"))
+def apply_project_weights(data: dict | None) -> None:
+    """Install a project file's weight table, then its rename aliases.
+
+    Called at the top of ``load_from_file`` (before any definition / text
+    parse canonicalises weight names -- else the PREVIOUS project's aliases
+    would rewrite this file's names) and again by
+    ``apply_paper_display_from_project`` (same values; idempotent).
+    """
+    data = data if isinstance(data, dict) else {}
+    parsed = _parse_weight_list(data.get("line_weights"))
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
     else:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
+        set_weight_aliases(data.get("line_weight_aliases"))
+
+
+def apply_paper_display_from_project(data: dict | None):
+    """Apply paper display settings loaded from a project file."""
+    apply_project_weights(data)
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
@@ -419,8 +551,11 @@ def resolve_line_weight_mm(name: str,
     Reads the live PROJECT table; an explicit *settings* reads that template
     store instead (Display Manager / tests).
     """
-    defs = (load_line_weights(settings) if settings is not None
-            else project_line_weights())
+    if settings is not None:
+        defs = load_line_weights(settings)
+    else:
+        defs = project_line_weights()
+        name = canonical_weight_name(name)
     for d in defs:
         if d.name == name:
             return d.width_mm
@@ -638,6 +773,7 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     """
     from PyQt6.QtGui import QColor
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+    inst._paper_scale = paper_scale          # named op weights (LT2-5)
     inst._paper_pen_color = (QColor(cat["color"])
                              if color_mode != PaperColorMode.FULL_COLOR else None)
     inst.setOpacity(cat["opacity"] / 100.0)
@@ -846,7 +982,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["marker"] = _save_marker_state(item, "_tag_color")
             elif cat_key == "Blocks":
                 entry["block_paper"] = (item._paper_pen_width,
-                                        item._paper_pen_color)
+                                        item._paper_pen_color,
+                                        item._paper_scale)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -1082,8 +1219,8 @@ def restore_model_display(saved: list[dict]):
 
         elif cat_key == "Blocks":
             # Paint hooks only (H5); opacity/visibility restored above.
-            item._paper_pen_width, item._paper_pen_color = entry.get(
-                "block_paper", (None, None))
+            (item._paper_pen_width, item._paper_pen_color,
+             item._paper_scale) = entry.get("block_paper", (None, None, None))
             item.update()
 
         elif cat_key == "Construction":

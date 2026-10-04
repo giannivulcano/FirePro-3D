@@ -139,6 +139,10 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - **Theming/state applied at paint time:** definitions are colour-neutral; the display-manager
   colour, pre-highlight, and selection styling are applied as a pen override when the instance
   paints — so one shared geometry still respects per-instance/theme state.
+- **Stroke weights (LT2, 2026-10-04):** stroke ops carry an unresolved `RenderOp.weight` and
+  `BlockInstance.paint` resolves canvas px / paper mm per op (flyweight unchanged);
+  `BlockDefinition.from_dict` migrates + canonicalises stored primitives and `to_dict` deep-copies
+  them — contract in [`linetypes.md`](linetypes.md) "LT2" (H-a, H-c′/H-d).
 
 ### Runtime home & integration seams (on `Model_Space`)
 

@@ -372,8 +372,9 @@ def test_committed_item_inherits_style(qapp, name):
     view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, name)
-        pen = item.pen(); pen.setColor(QColor("#ab12cd")); pen.setWidthF(2.5)
-        item.setPen(pen)
+        item.style["colour"] = "#ab12cd"
+        item.style["weight"] = "Heavy"
+        item._sync_stroke_pen()
         if item.is_fillable():
             item.fill_type = "hatch"
             item.fill_pattern = "ANSI31"
@@ -384,8 +385,8 @@ def test_committed_item_inherits_style(qapp, name):
         _type_distance(scene, "5")
         new = getattr(scene, attr)[-1]
         assert new is not item and new.scene() is scene
-        assert new.pen().color().name() == "#ab12cd"
-        assert new.pen().widthF() == pytest.approx(2.5)
+        assert new.style == item.style
+        assert new.style["weight"] == "Heavy"
         if item.is_fillable():
             assert (new.fill_type, new.fill_pattern, new._display_fill_color,
                     new.fill_opacity) == ("hatch", "ANSI31", "#00ff00",

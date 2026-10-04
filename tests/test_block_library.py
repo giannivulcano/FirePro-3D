@@ -4,6 +4,7 @@ import json
 import pytest
 
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.stroke_style import migrate_primitive
 from firepro3d import block_library as bl
 
 
@@ -36,7 +37,7 @@ def test_list_and_load_round_trip(tmp_path):
     assert e["library"] == "Typical Detail" and e["series"] == "Wall Joints"
     assert e["name"] == "Corner" and e["id"] == d.id
     loaded = bl.load_block(e["library"], e["series"], e["filename"], root=str(tmp_path))
-    assert loaded.id == d.id and loaded.primitives == d.primitives
+    assert loaded.id == d.id and loaded.primitives == [migrate_primitive(p) for p in d.primitives]
 
 
 def test_source_status(tmp_path):
@@ -93,7 +94,7 @@ def test_load_block_file_reads_arbitrary_path(tmp_path):
     loaded = bl2.load_block_file(str(p))
     assert loaded is not None
     assert loaded.id == d.id and loaded.name == "Loose"
-    assert loaded.primitives == d.primitives
+    assert loaded.primitives == [migrate_primitive(p) for p in d.primitives]
 
 
 def test_load_block_file_missing_and_corrupt(tmp_path):

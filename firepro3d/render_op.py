@@ -31,6 +31,9 @@ class RenderOp:
         tile_ref: Pattern tile block id or legacy alias (pattern only).
         origin: Pattern origin, definition-local (pattern only).
         scale: Pattern scale multiplier (pattern only).
+        weight: Unresolved stroke weight -- a named weight, ``"by_block"``
+            or ``"by_linetype"``; None for reference-mode / placeholder ops
+            (stroke only, LT2 H-c').
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -44,6 +47,7 @@ class RenderOp:
     tile_ref: str | None = None
     origin: QPointF | None = None
     scale: float = 1.0
+    weight: str | None = None
 
     def mapped(self, t: QTransform) -> "RenderOp":
         """This op with ``path`` (and ``origin``) mapped through *t*."""

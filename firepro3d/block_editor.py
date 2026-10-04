@@ -809,6 +809,10 @@ class BlockEditorManager:
         # editor scene into the interaction envelope (Escape/status/mode-sync/
         # property panel). Called with the BlockEditorWidget after its tab lands.
         self.on_open = None
+        # Rename walker hook (linetypes.md LT2-8): the Display Manager rewrites
+        # weight names in open editors' live items through this provider.
+        project_scene._editor_scenes_provider = (
+            lambda: [w.editor_scene for w in self.open_editors()])
 
     def _created(self, w: BlockEditorWidget) -> BlockEditorWidget:
         """Wire the save hook, then invoke the shell adoption hook (if any)."""

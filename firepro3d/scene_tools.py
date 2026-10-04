@@ -20,6 +20,7 @@ Tools included:
 from __future__ import annotations
 
 import contextlib
+import copy
 import math
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPen, QBrush, QColor
@@ -35,8 +36,17 @@ from .node import Node
 
 from . import geometry_intersect as gi
 from . import tool_geometry
+from .stroke_style import BY_LINETYPE, copy_style
 from .arc_math import yup_angle
+
 from .tool_geometry import extract_edges  # re-exported for existing importers
+
+
+def _fresh_end(item, end: str) -> None:
+    """Reset one end of an in-place-trimmed item to By Linetype (LT2-3)."""
+    st = getattr(item, "style", None)
+    if st is not None:
+        st[end]["end"] = BY_LINETYPE
 
 
 # ``extract_edges`` moved to ``tool_geometry.py`` (Model_Space decomposition,
@@ -113,6 +123,7 @@ class SceneTools:
         TOL = 1.0  # tolerance in scene units
         # Extract segments as ordered point lists
         segments = []
+        seg_items = [i for i in items]       # source item per segment
         for item in items:
             if isinstance(item, LineItem):
                 segments.append([QPointF(item._pt1), QPointF(item._pt2)])
@@ -120,6 +131,9 @@ class SceneTools:
                 segments.append([QPointF(p) for p in item._points])
         # Greedy chain builder
         chain = list(segments.pop(0))
+        # Source (item, reversed-into-chain) of the chain's first / last
+        # segment -- the outer ends take their end settings (LT2-3).
+        head_src = tail_src = (seg_items.pop(0), False)
         changed = True
         while changed and segments:
             changed = False
@@ -130,16 +144,20 @@ class SceneTools:
                     return abs(a.x()-b.x()) < TOL and abs(a.y()-b.y()) < TOL
                 if _close(tail, s_head):
                     chain.extend(seg[1:])
-                    segments.pop(i); changed = True; break
+                    tail_src = (seg_items[i], False)
+                    segments.pop(i); seg_items.pop(i); changed = True; break
                 elif _close(tail, s_tail):
                     chain.extend(reversed(seg[:-1]))
-                    segments.pop(i); changed = True; break
+                    tail_src = (seg_items[i], True)
+                    segments.pop(i); seg_items.pop(i); changed = True; break
                 elif _close(head, s_tail):
                     chain = seg[:-1] + chain
-                    segments.pop(i); changed = True; break
+                    head_src = (seg_items[i], False)
+                    segments.pop(i); seg_items.pop(i); changed = True; break
                 elif _close(head, s_head):
                     chain = list(reversed(seg[1:])) + chain
-                    segments.pop(i); changed = True; break
+                    head_src = (seg_items[i], True)
+                    segments.pop(i); seg_items.pop(i); changed = True; break
         if segments:
             self._scene._show_status("Cannot join: endpoints do not match", 3000)
             return
@@ -147,6 +165,12 @@ class SceneTools:
         color = items[0].pen().color().name()
         lw = items[0].pen().widthF()
         pl = PolylineItem(chain[0], color=color, lineweight=lw)
+        copy_style(items[0], pl)
+        for end, (src, rev) in (("start", head_src), ("finish", tail_src)):
+            src_st = getattr(src, "style", None)
+            if src_st is not None and pl.style is not None:
+                src_end = ("finish" if end == "start" else "start") if rev else end
+                pl.style[end] = copy.deepcopy(src_st[src_end])
         for pt in chain[1:]:
             pl.append_point(pt)
         pl.finalize()
@@ -179,6 +203,7 @@ class SceneTools:
                 for i in range(len(pts) - 1):
                     ln = LineItem(QPointF(pts[i]), QPointF(pts[i+1]),
                                   color=color, lineweight=lw)
+                    copy_style(item, ln)
                     self._scene.addItem(ln)
                     self._scene._draw_lines.append(ln)
                 if item.scene() is self._scene:
@@ -192,6 +217,7 @@ class SceneTools:
                 for i in range(4):
                     ln = LineItem(QPointF(corners[i]), QPointF(corners[(i+1)%4]),
                                   color=color, lineweight=lw)
+                    copy_style(item, ln)
                     self._scene.addItem(ln)
                     self._scene._draw_lines.append(ln)
                 if item.scene() is self._scene:
@@ -220,6 +246,8 @@ class SceneTools:
             lw = item.pen().widthF()
             l1 = LineItem(QPointF(item._pt1), proj1, color=color, lineweight=lw)
             l2 = LineItem(proj2, QPointF(item._pt2), color=color, lineweight=lw)
+            copy_style(item, l1, fresh_ends=("finish",))
+            copy_style(item, l2, fresh_ends=("start",))
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_lines:
@@ -235,6 +263,7 @@ class SceneTools:
             arc = ArcItem(QPointF(item._center), item._radius, a2, span,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
+            copy_style(item, arc, fresh_ends=("start", "finish"))
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_circles:
@@ -252,6 +281,8 @@ class SceneTools:
             lw = item.pen().widthF()
             l1 = LineItem(QPointF(item._pt1), proj, color=color, lineweight=lw)
             l2 = LineItem(proj, QPointF(item._pt2), color=color, lineweight=lw)
+            copy_style(item, l1, fresh_ends=("finish",))
+            copy_style(item, l2, fresh_ends=("start",))
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_lines:
@@ -265,6 +296,7 @@ class SceneTools:
                           a + 0.5, 359.0,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
+            copy_style(item, arc, fresh_ends=("start", "finish"))
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_circles:
@@ -286,6 +318,8 @@ class SceneTools:
                          item._start_deg + rel, s - rel,
                          color=item.pen().color().name(),
                          lineweight=item.pen().widthF())
+            copy_style(item, a1, fresh_ends=("finish",))
+            copy_style(item, a2, fresh_ends=("start",))
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
             if item in self._scene._draw_arcs:
@@ -308,13 +342,16 @@ class SceneTools:
         arc = ArcItem(data["center"], data["radius"], data["start"], data["span"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
+        copy_style(data["item1"], arc, fresh_ends=("start", "finish"))
         self._scene.addItem(arc)
         self._scene._draw_arcs.append(arc)
         # Trim lines to tangent points
         setattr(data["item1"], data["near1"], QPointF(data["tp1"]))
+        _fresh_end(data["item1"], "start" if data["near1"] == "_pt1" else "finish")
         item1 = data["item1"]
         item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
         setattr(data["item2"], data["near2"], QPointF(data["tp2"]))
+        _fresh_end(data["item2"], "start" if data["near2"] == "_pt1" else "finish")
         item2 = data["item2"]
         item2.setLine(item2._pt1.x(), item2._pt1.y(), item2._pt2.x(), item2._pt2.y())
 
@@ -329,12 +366,15 @@ class SceneTools:
         ln = LineItem(data["cp1"], data["cp2"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
+        copy_style(data["item1"], ln, fresh_ends=("start", "finish"))
         self._scene.addItem(ln)
         self._scene._draw_lines.append(ln)
         setattr(data["item1"], data["near1"], QPointF(data["cp1"]))
+        _fresh_end(data["item1"], "start" if data["near1"] == "_pt1" else "finish")
         item1 = data["item1"]
         item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
         setattr(data["item2"], data["near2"], QPointF(data["cp2"]))
+        _fresh_end(data["item2"], "start" if data["near2"] == "_pt1" else "finish")
         item2 = data["item2"]
         item2.setLine(item2._pt1.x(), item2._pt1.y(), item2._pt2.x(), item2._pt2.y())
 
@@ -554,8 +594,10 @@ class SceneTools:
                 d2 = math.hypot(pos.x() - grips[2].x(), pos.y() - grips[2].y())
                 if d0 < d2:
                     item.apply_grip(0, hit)  # move p1 to intersection
+                    _fresh_end(item, "start")
                 else:
                     item.apply_grip(2, hit)  # move p2 to intersection
+                    _fresh_end(item, "finish")
                 self._scene.push_undo_state()
                 self._scene._show_status("Trimmed line")
 
@@ -624,6 +666,7 @@ class SceneTools:
                 color = item.pen().color().name()
                 lw = item.pen().widthF()
                 arc = ArcItem(center, r, start, span, color, lw)
+                copy_style(item, arc, fresh_ends=("start", "finish"))
                 self._scene.addItem(arc)
                 self._scene._draw_arcs.append(arc)
 
@@ -663,9 +706,11 @@ class SceneTools:
                     # Click is before trim point — keep from trim to end
                     item._start_deg = trim_angle
                     item._span_deg = span - rel_trim
+                    _fresh_end(item, "start")
                 else:
                     # Click is after trim point — keep from start to trim
                     item._span_deg = rel_trim
+                    _fresh_end(item, "finish")
 
                 item._rebuild_path()
                 self._scene.push_undo_state()

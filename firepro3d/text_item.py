@@ -97,6 +97,9 @@ class TextAnnotationData:
     type: str = "text"                           # discriminator for future annotation types
 
     def to_dict(self) -> dict:
+        # Saves canonical weight names (linetypes.md LT2-8 / H-g): a name an
+        # undo / paper command restored after a rename writes as the new name.
+        from .paper_display import canonical_weight_name
         return {
             "type": self.type, "text": self.text,
             "x": self.x, "y": self.y,
@@ -107,7 +110,8 @@ class TextAnnotationData:
             "color": self.color, "align": self.align, "valign": self.valign,
             "fill_color": self.fill_color, "fill_opacity": self.fill_opacity,
             "cell_padding_mm": self.cell_padding_mm,
-            "border": self.border, "border_weight": self.border_weight,
+            "border": self.border,
+            "border_weight": canonical_weight_name(self.border_weight),
             "border_line_type": self.border_line_type, "border_corner": self.border_corner,
             "border_corner_radius_mm": self.border_corner_radius_mm,
             "angle": self.angle,
@@ -115,6 +119,7 @@ class TextAnnotationData:
 
     @classmethod
     def from_dict(cls, d: dict) -> "TextAnnotationData":
+        from .paper_display import canonical_weight_name   # H-g
         return cls(
             text=d.get("text", ""),
             x=d.get("x", 0.0), y=d.get("y", 0.0),
@@ -132,7 +137,7 @@ class TextAnnotationData:
             fill_opacity=float(d.get("fill_opacity", 100.0)),
             cell_padding_mm=float(d.get("cell_padding_mm", TEXT_BOX_MARGIN_MM)),
             border=bool(d.get("border", False)),
-            border_weight=d.get("border_weight", "Medium"),
+            border_weight=canonical_weight_name(d.get("border_weight", "Medium")),
             border_line_type=d.get("border_line_type", "solid"),
             border_corner=d.get("border_corner", "square"),
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
