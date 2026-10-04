@@ -1908,7 +1908,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         (project wins -- linetypes.md LT1-4)."""
         from . import block_library
         from .paper_display import merge_project_line_weights
-        merge_project_line_weights(block_library.read_bundled_weights(path))
+        added = merge_project_line_weights(block_library.read_bundled_weights(path))
+        if added:
+            # Weights live outside undo, but they travel with the project: a
+            # merge that added names must dirty it (no undo state pushed).
+            self._dirty = True
+            self.sceneModified.emit()
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).

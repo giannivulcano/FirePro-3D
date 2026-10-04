@@ -113,3 +113,28 @@ def test_loaded_weight_drives_text_border_width(qapp):
     item = TextItem(TextAnnotationData(text="X", border=True, border_weight="X40"))
     item._force_device_independent = True            # paper-surface text
     assert abs(item._frame_pen().widthF() - 0.40 / (item.scale() or 1.0)) < 1e-9
+
+
+def test_same_version_reload_adding_weights_dirties_project(qapp):
+    _project_with()
+    defn = _text_def("X40")
+    path = block_library.save_to_library(defn)
+    sc = Model_Space()
+    sc.register_block_definition(BlockDefinition.from_dict(defn.to_dict()))
+    _other_project()
+    sc.mark_saved()
+    assert not sc.is_dirty()
+    assert sc.load_blocks_from_files([path])["skipped"]        # same version
+    assert pd.resolve_line_weight_mm("X40") == 0.40
+    assert sc.is_dirty()
+
+
+def test_load_adding_nothing_leaves_scene_clean(qapp):
+    _project_with()
+    defn = _text_def("X40")
+    path = block_library.save_to_library(defn)
+    sc = Model_Space()
+    sc.register_block_definition(BlockDefinition.from_dict(defn.to_dict()))
+    sc.mark_saved()
+    assert sc.load_blocks_from_files([path])["skipped"]        # project has X40
+    assert not sc.is_dirty()
