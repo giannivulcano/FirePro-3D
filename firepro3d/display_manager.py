@@ -2537,12 +2537,28 @@ class DisplayManager(QDialog):
             self._lw_table.setItem(row, 1, width_item)
         self._suppress = False
 
-    def _line_weight_in_use(self, name: str) -> bool:
-        """True if *name* is referenced by a paper category or an underlay.
+    def _text_weight_refs(self):
+        """Yield ``(name, ref)`` for every text border-weight reference:
+        sheet annotations (all sheets) + text primitives of project block
+        definitions (linetypes.md LT1-5)."""
+        for sheet in getattr(self._scene, "_sheets", []) or []:
+            for ann in getattr(sheet, "annotations", []):
+                yield ann.border_weight, ("ann", ann)
+        reg = getattr(self._scene, "block_registry", None)
+        if reg is not None:
+            for bid in reg.ids():
+                defn = reg.get(bid)
+                for prim in getattr(defn, "primitives", []) or []:
+                    if prim.get("type") == "text" and "border_weight" in prim:
+                        yield prim["border_weight"], ("prim", (bid, prim))
 
-        Underlay references (§16.6): the per-underlay default
-        ``line_weight_name`` and per-layer
-        ``layer_overrides[layer]["line_weight"]``.
+    def _line_weight_in_use(self, name: str) -> bool:
+        """True if *name* is referenced anywhere by name.
+
+        Reference kinds: paper categories; underlays (§16.6: the per-underlay
+        default ``line_weight_name`` and per-layer
+        ``layer_overrides[layer]["line_weight"]``); sheet text annotations
+        (all sheets); text primitives of project block definitions.
         """
         from .paper_display import load_paper_categories
         cats = load_paper_categories(self._settings)
@@ -2554,6 +2570,8 @@ class DisplayManager(QDialog):
             for ov in data.layer_overrides.values():
                 if ov.get("line_weight") == name:
                     return True
+        if any(name == n for n, _ref in self._text_weight_refs()):
+            return True
         return False
 
     def _propagate_lw_rename(self, old: str, new: str):
@@ -2570,6 +2588,19 @@ class DisplayManager(QDialog):
             for ov in data.layer_overrides.values():
                 if ov.get("line_weight") == old:
                     ov["line_weight"] = new
+        touched_defs = set()
+        for cur, (kind, ref) in list(self._text_weight_refs()):
+            if cur != old:
+                continue
+            if kind == "ann":
+                ref.border_weight = new     # live paper TextItems alias this data
+            else:
+                bid, prim = ref
+                prim["border_weight"] = new
+                touched_defs.add(bid)
+        reg = getattr(self._scene, "block_registry", None)
+        for bid in touched_defs:
+            reg.invalidate(bid)
 
     def _on_lw_cell_changed(self, row, col):
         if self._suppress or row >= len(self._lw_defs):

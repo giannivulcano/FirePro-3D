@@ -403,7 +403,8 @@ def resolve_line_weight_mm(name: str,
     Reads the live PROJECT table; an explicit *settings* reads that template
     store instead (Display Manager / tests).
     """
-    defs = load_line_weights(settings) if settings is not None         else project_line_weights()
+    defs = (load_line_weights(settings) if settings is not None
+            else project_line_weights())
     for d in defs:
         if d.name == name:
             return d.width_mm

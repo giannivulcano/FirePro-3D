@@ -3695,7 +3695,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _open_display_manager(self):
         """Open the Display Manager dialog (replaces FSVisibilityDialog)."""
-        from firepro3d.display_manager import DisplayManager
         from firepro3d.paper_space import PaperSpaceWidget
         ctx = "paper" if isinstance(self.central_tabs.currentWidget(),
                                      PaperSpaceWidget) else "model"
