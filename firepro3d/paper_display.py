@@ -90,6 +90,69 @@ _THIN_LINES = False
 # live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
 _THIN_SUSPEND = 0
 
+# Rename aliases (linetypes.md LT2-8 / H-g): old name -> current name, so a
+# reference written before a rename (undo snapshot, clipboard, paper command,
+# library file, open editor) still resolves. Project-scoped (.fpd), reset with
+# the table on New / table-less Open.
+_WEIGHT_ALIASES: dict[str, str] = {}
+# Display Manager Model "Blocks" weight (LT2-4/LT2-6) -- the canvas weight of
+# By Block strokes. Cached here so paint never reads QSettings.
+_MODEL_BLOCKS_WEIGHT: str | None = None
+MODEL_BLOCKS_FACTORY_WEIGHT = "Light"     # 0.18 mm -> exactly 1.0 canvas px
+
+
+def model_blocks_weight() -> str:
+    """The Model-tab "Blocks" weight name (factory "Light")."""
+    return _MODEL_BLOCKS_WEIGHT or MODEL_BLOCKS_FACTORY_WEIGHT
+
+
+def set_model_blocks_weight(name: str | None) -> None:
+    """Set the Model "Blocks" weight (None -> factory)."""
+    global _MODEL_BLOCKS_WEIGHT
+    _MODEL_BLOCKS_WEIGHT = str(name) if name else None
+
+
+def weight_aliases() -> dict[str, str]:
+    """A copy of the project rename-alias map."""
+    return dict(_WEIGHT_ALIASES)
+
+
+def set_weight_aliases(aliases: dict | None) -> None:
+    """Replace the alias map (Cancel snapshot restore / project load)."""
+    global _WEIGHT_ALIASES
+    _WEIGHT_ALIASES = {str(k): str(v) for k, v in (aliases or {}).items()
+                       if k and v and k != v}
+    _clear_hatch_mm()
+
+
+def record_weight_rename(old: str, new: str) -> None:
+    """Record a table rename *old* -> *new* (call after the table changed).
+
+    Collapses chains (X->old becomes X->new) and drops an entry keyed by
+    *new* (renaming back makes *new* a live name again).
+    """
+    if not old or not new or old == new:
+        return
+    aliases = {k: (new if v == old else v) for k, v in _WEIGHT_ALIASES.items()}
+    aliases.pop(new, None)
+    aliases[old] = new
+    set_weight_aliases(aliases)
+
+
+def canonical_weight_name(name: str) -> str:
+    """Follow the alias chain from *name* (cycle-guarded); identity if none."""
+    seen = set()
+    cur = name
+    while cur in _WEIGHT_ALIASES and cur not in seen:
+        seen.add(cur)
+        cur = _WEIGHT_ALIASES[cur]
+    return cur
+
+
+def is_alias_key(name: str) -> bool:
+    """True if *name* is an old (renamed-away) weight name."""
+    return name in _WEIGHT_ALIASES
+
 
 def project_line_weights() -> list[LineWeightDef]:
     """The live project weight table (seeded from the template on first use).
@@ -110,8 +173,12 @@ def set_project_line_weights(defs: list[LineWeightDef]) -> None:
 
 
 def reset_project_line_weights() -> None:
-    """Re-seed the project table from the template (New Project / old files)."""
+    """Re-seed the project table from the template (New Project / old files).
+
+    Also clears the rename aliases (they are project-scoped, LT2-8).
+    """
     set_project_line_weights(load_line_weights())
+    set_weight_aliases({})
 
 
 def weight_names() -> list[str]:
@@ -125,7 +192,7 @@ def merge_project_line_weights(weights: dict) -> list[str]:
 
     Returns the names added. Invalid widths are skipped.
     """
-    have = {d.name for d in project_line_weights()}
+    have = {d.name for d in project_line_weights()} | set(_WEIGHT_ALIASES)
     added = []
     for name, mm in (weights or {}).items():
         try:
@@ -374,6 +441,7 @@ def get_paper_display_for_save() -> dict:
         "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
         "line_weights": [asdict(d) for d in project_line_weights()],
+        "line_weight_aliases": weight_aliases(),
     }
 
 
@@ -384,6 +452,7 @@ def apply_paper_display_from_project(data: dict | None):
         reset_project_line_weights()       # old file / no paper_display -> template
     else:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
+        set_weight_aliases((data or {}).get("line_weight_aliases"))
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
@@ -419,8 +488,11 @@ def resolve_line_weight_mm(name: str,
     Reads the live PROJECT table; an explicit *settings* reads that template
     store instead (Display Manager / tests).
     """
-    defs = (load_line_weights(settings) if settings is not None
-            else project_line_weights())
+    if settings is not None:
+        defs = load_line_weights(settings)
+    else:
+        defs = project_line_weights()
+        name = canonical_weight_name(name)
     for d in defs:
         if d.name == name:
             return d.width_mm
