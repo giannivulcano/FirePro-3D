@@ -41,7 +41,6 @@ from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
-                       UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
@@ -96,18 +95,14 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
 
     No effective weight -> exactly UNDERLAY_LINE_WIDTH_PX (today's look).
-    Named weight -> width_mm * UNDERLAY_MM_TO_PX_HINT, still cosmetic.
+    Named weight -> ``paper_display.canvas_weight_px`` (mm x hint, fast-path
+    snap, Thin Lines -> 1 px), still cosmetic.
     """
     colour = QColor(record.effective_layer_colour(layer))
     weight_name = record.effective_layer_weight(layer)
     if weight_name:
-        from .paper_display import resolve_line_weight_mm
-        width_px = resolve_line_weight_mm(weight_name) * UNDERLAY_MM_TO_PX_HINT
-        # Near-1px hints snap to 1.0: Qt's fast cosmetic stroker only takes
-        # widths <= 1.0 (see UNDERLAY_LINE_WIDTH_PX); ~1px hints are visually
-        # identical but ~20x cheaper to stroke over a dense underlay.
-        if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
-            width_px = min(width_px, 1.0)
+        from .paper_display import resolve_line_weight_mm, canvas_weight_px
+        width_px = canvas_weight_px(resolve_line_weight_mm(weight_name))
     else:
         width_px = UNDERLAY_LINE_WIDTH_PX
     pen = QPen(colour, width_px)
@@ -115,21 +110,24 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     return pen
 
 
+def _thin() -> bool:
+    from .paper_display import thin_lines
+    return thin_lines()
+
+
 def _pdf_width_to_px(pt_width: float) -> float:
     """PDF stroke width (points) -> cosmetic px, floored at the default width.
 
-    Preserves the source line-width *hierarchy* while keeping thin lines at
-    least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
+    Uses ``paper_display.canvas_weight_px`` (mm x hint, fast-path snap, Thin
+    Lines -> 1 px). Preserves the source line-width *hierarchy* while keeping
+    thin lines at least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
     """
     if pt_width <= 0.0:
         return UNDERLAY_LINE_WIDTH_PX
+    from .paper_display import canvas_weight_px
     width_mm = pt_width * 25.4 / 72.0
-    width_px = max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
-    # Near-1px results snap to 1.0 for Qt's fast cosmetic-stroker path
-    # (widths > 1.0 stroke ~20x slower; see UNDERLAY_LINE_WIDTH_PX).
-    if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
-        width_px = min(width_px, 1.0)
-    return width_px
+    return max(UNDERLAY_LINE_WIDTH_PX if not _thin() else 1.0,
+               canvas_weight_px(width_mm))
 
 
 class _PlacementSentinel:

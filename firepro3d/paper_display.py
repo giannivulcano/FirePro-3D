@@ -136,6 +136,36 @@ def merge_project_line_weights(weights: dict) -> list[str]:
     return [d.name for d in added]
 
 
+# ---------------------------------------------------------------------------
+# Canvas mapping + Thin Lines (linetypes.md LT1-7 / LT1-8, D-L14)
+# ---------------------------------------------------------------------------
+
+def set_thin_lines(on: bool) -> None:
+    """Global Thin Lines view toggle (model + Block Editor views, never paper)."""
+    global _THIN_LINES
+    _THIN_LINES = bool(on)
+
+
+def thin_lines() -> bool:
+    """True while Thin Lines is on."""
+    return _THIN_LINES
+
+
+def canvas_weight_px(width_mm: float) -> float:
+    """Cosmetic canvas width for a named weight's mm value.
+
+    px = mm x ``UNDERLAY_MM_TO_PX_HINT``; <= ``UNDERLAY_FAST_PATH_SNAP_PX``
+    snaps to <= 1.0 (Qt's fast cosmetic stroker); Thin Lines -> 1.0.
+    """
+    if _THIN_LINES:
+        return 1.0
+    from .constants import UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX
+    px = width_mm * UNDERLAY_MM_TO_PX_HINT
+    if px <= UNDERLAY_FAST_PATH_SNAP_PX:
+        px = min(px, 1.0)
+    return px
+
+
 def _parse_weight_list(raw) -> list[LineWeightDef] | None:
     """``[{"name", "width_mm"}, ...]`` -> defs, or None when absent/malformed."""
     if not raw:
