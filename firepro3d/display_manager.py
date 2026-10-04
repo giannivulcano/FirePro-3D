@@ -2624,12 +2624,10 @@ class DisplayManager(QDialog):
         """Yield ``(name, (kind, ref))`` for every live by-name weight ref:
         sheet annotations; model-plan texts; project definition text
         primitives and stroke ``style.weight``; open Block Editors' texts and
-        styled raw items (linetypes.md LT1-5 / LT2-8).
-
-        Model-plan primitives' ``style.weight`` is not walked: it resolves
-        and saves canonically through the alias map (H-g).
+        styled raw items, and the project scene's styled geometry
+        (linetypes.md LT1-5 / LT2-8).
         """
-        from .stroke_style import BY_BLOCK, BY_LINETYPE
+        from .stroke_style import is_named_weight
         for sheet in getattr(self._scene, "_sheets", []) or []:
             for ann in getattr(sheet, "annotations", []):
                 yield ann.border_weight, ("ann", ann)
@@ -2640,12 +2638,9 @@ class DisplayManager(QDialog):
         for sc in scenes:
             for item in getattr(sc, "_texts", []) or []:
                 yield item._data.border_weight, ("item", item)
-            if sc is self._scene:
-                continue
             for item in sc.items():
                 st = getattr(item, "style", None)
-                if isinstance(st, dict) and st.get("weight") not in (
-                        None, BY_BLOCK, BY_LINETYPE):
+                if isinstance(st, dict) and is_named_weight(st.get("weight")):
                     yield st["weight"], ("raw", item)
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
@@ -2655,8 +2650,7 @@ class DisplayManager(QDialog):
                     if prim.get("type") == "text" and "border_weight" in prim:
                         yield prim["border_weight"], ("prim", (bid, prim))
                     st = prim.get("style")
-                    if isinstance(st, dict) and st.get("weight") not in (
-                            None, BY_BLOCK, BY_LINETYPE):
+                    if isinstance(st, dict) and is_named_weight(st.get("weight")):
                         yield st["weight"], ("sprim", (bid, st))
 
     def _line_weight_in_use(self, name: str) -> bool:
@@ -2755,6 +2749,12 @@ class DisplayManager(QDialog):
             # a later Cancel rewrite that pre-existing ref to the old name.
             in_use = (text != old_def.name and not rename_back
                       and self._line_weight_in_use(text))
+            if hijack:
+                # Non-modal refusal message at the edited cell (H-g).
+                self._show_lw_refusal(row, (
+                    f"“{text}” was renamed to "
+                    f"“{canonical_weight_name(text)}” in this "
+                    f"project — choose another name"))
             if not validate_line_weight_name(text, others) or hijack or in_use:
                 self._suppress = True
                 self._lw_table.item(row, 0).setText(old_def.name)
@@ -2788,6 +2788,15 @@ class DisplayManager(QDialog):
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
+
+    def _show_lw_refusal(self, row: int, text: str) -> None:
+        """Non-modal tooltip at the Name cell of *row* (headless-safe)."""
+        from PyQt6.QtWidgets import QToolTip
+        tbl = self._lw_table
+        item = tbl.item(row, 0)
+        rect = tbl.visualItemRect(item) if item is not None else tbl.rect()
+        pos = tbl.viewport().mapToGlobal(rect.bottomLeft())
+        QToolTip.showText(pos, text, tbl.viewport(), rect)
 
     def _commit_lw_defs(self):
         """Push the edited table to the PROJECT (LT1-3) and notify MainWindow.

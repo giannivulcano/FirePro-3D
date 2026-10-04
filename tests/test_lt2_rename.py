@@ -265,3 +265,145 @@ def test_paper_format_undo_across_rename_resolves_new(qapp):
     cmd.undo()
     assert pd.resolve_line_weight_mm(data.border_weight) == pytest.approx(0.40)
     assert data.to_dict()["border_weight"] == "B"
+
+
+# -- Review round: project-scene geometry, refusal message, more holders ----
+
+def _plan_line_scene():
+    """A weight referenced ONLY by a styled LineItem in the project scene."""
+    ms = Model_Space()
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.style["weight"] = "A"
+    ms.addItem(ln); ms._draw_lines.append(ln)
+    return ms, ln
+
+
+def test_plan_geometry_weight_is_in_use(qapp):
+    ms, _ln = _plan_line_scene()
+    d = DisplayManager(ms, active_context="paper")
+    assert d._line_weight_in_use("A")
+    row = [x.name for x in d._lw_defs].index("A")
+    d._lw_table.setCurrentCell(row, 0)
+    n = len(d._lw_defs)
+    d._on_lw_remove()                                  # refused
+    assert len(d._lw_defs) == n and "A" in [x.name for x in d._lw_defs]
+    d.reject()
+
+
+def test_plan_geometry_follows_rename(qapp):
+    ms, ln = _plan_line_scene()
+    _dm_rename(ms, "A", "B").accept()
+    assert ln.style["weight"] == "B"
+
+
+def _spy_tooltip(monkeypatch):
+    from PyQt6.QtWidgets import QToolTip
+    calls = []
+    monkeypatch.setattr(QToolTip, "showText",
+                        staticmethod(lambda *a, **k: calls.append(a)))
+    return calls
+
+
+def test_hijack_refusal_shows_message(qapp, monkeypatch):
+    calls = _spy_tooltip(monkeypatch)
+    ms, _defn, _t = _scene()
+    d = _dm_rename(ms, "A", "B")
+    assert calls == []
+    row = [x.name for x in d._lw_defs].index("Heavy")
+    d._lw_table.item(row, 0).setText("A")              # hijack -> refused
+    assert len(calls) == 1
+    assert calls[0][1] == ("“A” was renamed to “B” in this "
+                           "project — choose another name")
+    calls.clear()
+    row = [x.name for x in d._lw_defs].index("B")
+    d._lw_table.item(row, 0).setText("A")              # rename-back: no message
+    assert calls == []
+    d.reject()
+
+
+def test_block_editor_undo_across_rename(qapp):
+    ms, defn, _t = _scene()
+    ed = BlockEditorWidget(ms, block_id=defn.id)
+    ed.seed_from_dicts(defn.primitives)               # baseline snapshot (A)
+    es = ed.editor_scene
+    ms._editor_scenes_provider = lambda: [es]
+    _dm_rename(ms, "A", "B").accept()
+    es.push_undo_state(); es.undo()
+    ln, tx = es._draw_lines[0], es._texts[0]
+    assert pd.resolve_line_weight_mm(ln.style["weight"]) == pytest.approx(0.40)
+    assert pd.resolve_line_weight_mm(tx._data.border_weight) == pytest.approx(0.40)
+    assert ln.to_dict()["style"]["weight"] == "B"
+    assert tx.to_dict()["border_weight"] == "B"
+
+
+def test_paper_delete_undo_across_rename(qapp):
+    from firepro3d.paper_commands import (DeleteTextAnnotationCommand,
+                                          _find_text_item)
+    from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
+    scene = PaperScene(Sheet.create_default(),
+                       ViewResolver(None, None, None, None))
+    data = TextAnnotationData(text="S", border=True, border_weight="A")
+    scene._do_add_annotation(data)
+    cmd = DeleteTextAnnotationCommand(scene, data)
+    cmd.redo()
+    _dm_rename(Model_Space(), "A", "B").accept()
+    cmd.undo()
+    assert _find_text_item(scene, data) is not None
+    assert pd.resolve_line_weight_mm(data.border_weight) == pytest.approx(0.40)
+    assert data.to_dict()["border_weight"] == "B"
+
+
+def _json_weights(node, out):
+    """Collect every ``border_weight`` and ``style.weight`` value in a JSON tree."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "border_weight":
+                out.append(v)
+            elif k == "style" and isinstance(v, dict) and "weight" in v:
+                out.append(v["weight"])
+            _json_weights(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _json_weights(v, out)
+    return out
+
+
+def test_fpd_save_writes_new_names(qapp, tmp_path):
+    """.fpd save after a DM rename: the definition's text + line style save
+    as B and the alias map is persisted. (Standalone model texts are not
+    written to .fpd under containment C8, so they are not a .fpd holder.)"""
+    import json
+    ms, defn, _t = _scene()
+    _dm_rename(ms, "A", "B").accept()
+    path = tmp_path / "p.fpd"
+    ms.save_to_file(str(path))
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    assert doc["paper_display"]["line_weight_aliases"] == {"A": "B"}
+    prims = doc["block_definitions"][defn.id]["primitives"]
+    assert prims[0]["style"]["weight"] == "B"
+    assert prims[1]["border_weight"] == "B"
+    assert "A" not in _json_weights(doc, [])
+
+
+def test_text_paste_of_pre_rename_copy(qapp):
+    """Copy (the Ctrl+C write) before the rename, paste after."""
+    ms = Model_Space()
+    t = TextItem(TextAnnotationData(text="P", border=True, border_weight="A"))
+    ms.addItem(t); ms._texts.append(t)
+    assert ms._modify_ctl.write_clipboard([t], QPointF(0, 0)) == 1
+    _dm_rename(ms, "A", "B").accept()
+    new = ms.paste_items(QPointF(0, 50))
+    pasted = [i for i in new if isinstance(i, TextItem)]
+    assert pasted and pasted[0]._data.border_weight == "B"
+
+
+def test_library_replace_after_rename(qapp):
+    from firepro3d import block_library
+    _ms, defn, _t = _scene()
+    path = block_library.save_to_library(defn)
+    _dm_rename(Model_Space(), "A", "B").accept()
+    sc = Model_Space()
+    sc.load_blocks_from_files([path])
+    assert "A" not in pd.weight_names()
+    prims = sc.block_registry.get(defn.id).primitives
+    assert prims[0]["style"]["weight"] == "B"
+    assert prims[1]["border_weight"] == "B"

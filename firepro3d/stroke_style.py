@@ -106,6 +106,12 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
         sync()
 
 
+def is_named_weight(w) -> bool:
+    """True for a by-name weight reference (a non-empty string that is not
+    ``by_block`` / ``by_linetype``) -- the refs a rename must follow (LT2-8)."""
+    return isinstance(w, str) and bool(w) and w not in (BY_BLOCK, BY_LINETYPE)
+
+
 def canvas_weight_name(weight: str) -> str:
     """The named weight a canvas stroke resolves to (LT2-4).
 

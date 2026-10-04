@@ -265,6 +265,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.block_tile: dict | None = None
         self._tile_frame = None          # TileFrameItem while a tile is set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
+        # Callable -> open Block Editors' scenes, registered on the project
+        # scene by BlockEditorManager; the Display Manager weight-rename walker
+        # reads it (linetypes.md LT2-8). None = no editors manager.
+        self._editor_scenes_provider = None
         self._block_instances: list = []     # placed BlockInstance items
         # place_block placement mode state: one click places at 0° and the
         # mode re-arms until Esc.  A low-opacity BlockInstance is the ghost.
