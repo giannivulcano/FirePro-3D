@@ -78,3 +78,49 @@ def test_live_paper_text_border_keeps_width_after_rename(qapp):
     _rename(d, "SheetW", "SheetW2")
     pen_mm = item._frame_pen().widthF() * (item.scale() or 1.0)
     assert abs(pen_mm - 0.41) < 1e-6      # not the 0.25 mm fallback
+
+
+def _model_text(ms, weight):
+    item = TextItem(TextAnnotationData(text="M", border=True,
+                                       border_weight=weight))
+    item._force_device_independent = True     # paper-surface sizing path
+    ms.addItem(item)
+    ms._texts.append(item)
+    return item
+
+
+def _mm(item):
+    return item._frame_pen().widthF() * (item.scale() or 1.0)
+
+
+def test_model_text_weight_refused_renamed_and_cancelled(qapp):
+    pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
+                                 LineWeightDef("ModelW", 0.43)])
+    ms = Model_Space()
+    item = _model_text(ms, "ModelW")
+    d = DisplayManager(ms, active_context="model")
+    d._lw_table.setCurrentCell(_row(d, "ModelW"), 0)
+    d._on_lw_remove()
+    assert "ModelW" in pd.weight_names()
+    _rename(d, "ModelW", "ModelW2")
+    assert item._data.border_weight == "ModelW2"
+    assert abs(_mm(item) - 0.43) < 1e-6
+    d.reject()
+    assert item._data.border_weight == "ModelW"
+    assert abs(_mm(item) - 0.43) < 1e-6
+
+
+def test_rename_onto_referenced_ghost_name_refused(qapp):
+    pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS])
+    ms = Model_Space()
+    sheet = Sheet.create_default()
+    sheet.annotations.append(TextAnnotationData(text="G", border=True,
+                                                border_weight="Ghost"))
+    ms._sheets = [sheet]
+    d = DisplayManager(ms, active_context="paper")
+    assert "Ghost" not in pd.weight_names()
+    _rename(d, "Heavy", "Ghost")
+    assert "Heavy" in [x.name for x in d._lw_defs]
+    assert d._lw_table.item(_row(d, "Heavy"), 0).text() == "Heavy"
+    assert "Ghost" not in [x.name for x in d._lw_defs]
+    assert sheet.annotations[0].border_weight == "Ghost"

@@ -2539,11 +2539,14 @@ class DisplayManager(QDialog):
 
     def _text_weight_refs(self):
         """Yield ``(name, ref)`` for every text border-weight reference:
-        sheet annotations (all sheets) + text primitives of project block
+        sheet annotations (all sheets), model-plan texts (``_texts``) + text
+        primitives of project block
         definitions (linetypes.md LT1-5)."""
         for sheet in getattr(self._scene, "_sheets", []) or []:
             for ann in getattr(sheet, "annotations", []):
                 yield ann.border_weight, ("ann", ann)
+        for item in getattr(self._scene, "_texts", []) or []:
+            yield item._data.border_weight, ("item", item)
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
             for bid in reg.ids():
@@ -2558,7 +2561,8 @@ class DisplayManager(QDialog):
         Reference kinds: paper categories; underlays (§16.6: the per-underlay
         default ``line_weight_name`` and per-layer
         ``layer_overrides[layer]["line_weight"]``); sheet text annotations
-        (all sheets); text primitives of project block definitions.
+        (all sheets); model-plan texts (``_texts``); text primitives of project
+        block definitions.
         """
         from .paper_display import load_paper_categories
         cats = load_paper_categories(self._settings)
@@ -2594,6 +2598,9 @@ class DisplayManager(QDialog):
                 continue
             if kind == "ann":
                 ref.border_weight = new     # live paper TextItems alias this data
+            elif kind == "item":
+                ref._data.border_weight = new
+                ref.update()
             else:
                 bid, prim = ref
                 prim["border_weight"] = new
@@ -2612,7 +2619,12 @@ class DisplayManager(QDialog):
         text = self._lw_table.item(row, col).text().strip()
         if col == 0:  # Name changed
             others = [d for i, d in enumerate(self._lw_defs) if i != row]
-            if not validate_line_weight_name(text, others):
+            # A name something already references (a ref to a name not in the
+            # table, e.g. an old file) is refused: renaming onto it would let
+            # a later Cancel rewrite that pre-existing ref to the old name.
+            if (not validate_line_weight_name(text, others)
+                    or (text != old_def.name
+                        and self._line_weight_in_use(text))):
                 self._suppress = True
                 self._lw_table.item(row, 0).setText(old_def.name)
                 self._suppress = False
