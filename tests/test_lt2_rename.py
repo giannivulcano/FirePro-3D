@@ -40,7 +40,7 @@ def test_chain_collapses_and_rename_back_drops_alias():
 
 def test_cycle_guard_terminates():
     pd.set_weight_aliases({"X": "Y", "Y": "X"})
-    assert pd.canonical_weight_name("X") in ("X", "Y")
+    assert pd.canonical_weight_name("X") == "X"
 
 
 def test_aliases_persist_and_reset():
@@ -66,3 +66,18 @@ def test_model_blocks_weight_default_light():
     pd.set_model_blocks_weight("Heavy")
     assert pd.model_blocks_weight() == "Heavy"
     pd.set_model_blocks_weight(None)
+
+
+def test_new_live_row_named_like_an_alias_key_wins():
+    _rename("A", "B")
+    pd.set_project_line_weights([*pd.project_line_weights(),
+                                 LineWeightDef("A", 0.77)])
+    assert pd.canonical_weight_name("A") == "A"
+    assert pd.resolve_line_weight_mm("A") == pytest.approx(0.77)
+    assert pd.resolve_line_weight_mm("B") == pytest.approx(0.40)
+
+
+def test_apply_none_clears_aliases():
+    _rename("A", "B")
+    pd.apply_paper_display_from_project(None)
+    assert pd.weight_aliases() == {}

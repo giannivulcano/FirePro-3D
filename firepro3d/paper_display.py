@@ -166,9 +166,16 @@ def project_line_weights() -> list[LineWeightDef]:
 
 
 def set_project_line_weights(defs: list[LineWeightDef]) -> None:
-    """Replace the live project table (copies *defs*)."""
-    global _PROJECT_LW
+    """Replace the live project table (copies *defs*).
+
+    Keeps the invariant "an alias key is never a live table name": any rename
+    alias whose old name is now a table row is dropped (the name is live again).
+    """
+    global _PROJECT_LW, _WEIGHT_ALIASES
     _PROJECT_LW = [LineWeightDef(d.name, float(d.width_mm)) for d in defs]
+    live = {d.name for d in _PROJECT_LW}
+    _WEIGHT_ALIASES = {k: v for k, v in _WEIGHT_ALIASES.items()
+                       if k not in live}
     _clear_hatch_mm()
 
 

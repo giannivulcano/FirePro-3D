@@ -14,7 +14,7 @@ def test_default_style_is_continuous_by_block():
     }
 
 
-def test_normalize_fills_missing_and_rejects_bad_keywords():
+def test_normalize_fills_missing_and_defaults_empty_weight():
     st = ss.normalize_style({"weight": "Heavy", "colour": "#00FF00",
                              "start": {"visible": False}})
     assert st["linetype"] == "continuous"
@@ -84,3 +84,12 @@ def test_weight_name_for_by_block_is_model_blocks(monkeypatch):
     assert ss.canvas_weight_name("by_block") == "Heavy"
     assert ss.canvas_weight_name("by_linetype") == "Heavy"
     assert ss.canvas_weight_name("Light") == "Light"
+
+
+def test_canvas_px_real_path():
+    from firepro3d import paper_display as pd
+    pd.reset_project_line_weights()
+    pd.set_model_blocks_weight(None)
+    assert ss.canvas_px("by_block") == 1.0
+    assert ss.canvas_px("Heavy") == pd.canvas_weight_px(
+        pd.resolve_line_weight_mm("Heavy"))
