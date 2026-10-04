@@ -34,6 +34,7 @@ class RenderOp:
         weight: Unresolved stroke weight -- a named weight, ``"by_block"``
             or ``"by_linetype"``; None for reference-mode / placeholder ops
             (stroke only, LT2 H-c').
+
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
     """

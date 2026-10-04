@@ -192,6 +192,7 @@ class BlockInstance(QGraphicsObject):
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
         selected = self.isSelected()
+        from .stroke_style import canvas_px    # once per paint, not per op
         for op in ops:
             if op.kind in (FILL, PATTERN):
                 self._paint_fill_op(painter, pose, op)
@@ -218,7 +219,6 @@ class BlockInstance(QGraphicsObject):
                 else:
                     p.setCosmetic(True)           # canvas (LT2-4)
                     if op.weight is not None:
-                        from .stroke_style import canvas_px
                         p.setWidthF(canvas_px(op.weight))
                 if override is not None:
                     p.setColor(override)
