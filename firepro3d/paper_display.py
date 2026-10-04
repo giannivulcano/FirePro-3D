@@ -84,6 +84,9 @@ def validate_line_weight_width(width_mm: float) -> bool:
 
 _PROJECT_LW: list[LineWeightDef] | None = None
 _THIN_LINES = False
+# >0 while a paper pass (apply_paper_overrides .. restore_model_display) is
+# live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
+_THIN_SUSPEND = 0
 
 
 def project_line_weights() -> list[LineWeightDef]:
@@ -147,17 +150,28 @@ def set_thin_lines(on: bool) -> None:
 
 
 def thin_lines() -> bool:
-    """True while Thin Lines is on."""
+    """True while Thin Lines is on (the user toggle, pass-independent)."""
     return _THIN_LINES
+
+
+def thin_lines_active() -> bool:
+    """True when Thin Lines applies to strokes painted/baked right now.
+
+    False during a paper pass even with the toggle on, so canvas-mapped pens
+    a viewport plots (text borders, unweighted PDF-underlay widths) keep
+    their non-thin width on sheets and PDF (LT1-8).
+    """
+    return _THIN_LINES and _THIN_SUSPEND == 0
 
 
 def canvas_weight_px(width_mm: float) -> float:
     """Cosmetic canvas width for a named weight's mm value.
 
     px = mm x ``UNDERLAY_MM_TO_PX_HINT``; <= ``UNDERLAY_FAST_PATH_SNAP_PX``
-    snaps to <= 1.0 (Qt's fast cosmetic stroker); Thin Lines -> 1.0.
+    snaps to <= 1.0 (Qt's fast cosmetic stroker); Thin Lines -> 1.0
+    (except during a paper pass -- see ``thin_lines_active``).
     """
-    if _THIN_LINES:
+    if thin_lines_active():
         return 1.0
     from .constants import UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX
     px = width_mm * UNDERLAY_MM_TO_PX_HINT
@@ -754,6 +768,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     # the pass fails part-way.
     scene._hatch_paper_scale = paper_scale
     saved.append({"hatch_scene": scene})
+    # Thin Lines never plots (LT1-8): suspend it for the pass so paint-time
+    # canvas pens (text borders) resolve their real width; lifted by restore.
+    global _THIN_SUSPEND
+    _THIN_SUSPEND += 1
+    saved.append({"thin_suspend": True})
     try:
         items = scene.items(source_rect)
 
@@ -938,6 +957,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     pen.setWidthF(resolve_line_weight_mm(weight_name)
                                   / max(paper_scale, 1e-9))
                     pen.setCosmetic(False)  # true mm on paper (§9.9.1 pattern)
+                elif _THIN_LINES and child.data(7) is not None:
+                    # Unweighted PDF width was baked at 1 px by Thin Lines;
+                    # plot the non-thin source width (suspended above).
+                    from .model_space import _pdf_width_to_px
+                    pen.setWidthF(_pdf_width_to_px(float(child.data(7))))
                 child.setPen(pen)
 
     except Exception:
@@ -963,9 +987,15 @@ def restore_model_display(saved: list[dict]):
     from .gridline import GridlineItem
     from PyQt6.QtGui import QColor, QBrush, QPen
 
+    global _THIN_SUSPEND
     for entry in saved:
         if "hatch_scene" in entry:
             entry["hatch_scene"]._hatch_paper_scale = None
+            continue
+        if "thin_suspend" in entry:
+            if entry["thin_suspend"]:            # lift once per pass
+                entry["thin_suspend"] = False
+                _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
             continue
         if "underlay_group" in entry:
             # Underlay-stage entry (§16.5) — pens/brushes then group visibility.

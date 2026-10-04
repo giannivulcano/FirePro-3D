@@ -111,8 +111,8 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
 
 
 def _thin() -> bool:
-    from .paper_display import thin_lines
-    return thin_lines()
+    from .paper_display import thin_lines_active
+    return thin_lines_active()
 
 
 def _pdf_width_to_px(pt_width: float) -> float:

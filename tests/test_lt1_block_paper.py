@@ -114,9 +114,11 @@ def _block_strokes(pdf, scale):
         doc.close()
 
 
+@pytest.mark.parametrize("thin", [False, True])           # LT1-8: never plots
 @pytest.mark.parametrize("scale", [0.02, 0.01])          # 1:50 and 1:100
-def test_block_plots_at_blocks_weight(qapp, tmp_path, scale):
+def test_block_plots_at_blocks_weight(qapp, tmp_path, scale, thin):
     save_paper_color_mode(PaperColorMode.BW)
+    pd.set_thin_lines(thin)
     strokes = _block_strokes(
         _export(tmp_path, _scene_with_blocks(), scale, "b.pdf"), scale)
     assert len(strokes) == 1, strokes

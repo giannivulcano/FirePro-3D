@@ -604,12 +604,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "halo/priority_band_px", halo_selection.HALO_PRIORITY_BAND_PX, type=int)
         self.footer.set_halo_on(_halo_on)
 
+        # Thin Lines (LT1-8): global view toggle, a user preference. Restored
+        # before any underlay is built (startup has none; project open and
+        # crash recovery run later), so build-time pens bake the right width.
+        from firepro3d.paper_display import set_thin_lines
+        _thin_on = self.settings.value("view/thin_lines", False, type=bool)
+        set_thin_lines(_thin_on)
+        self.footer.set_thin_on(_thin_on)
+
         # Footer interactions → active scene / dialogs.
         self.footer.snap_pill.clicked.connect(
             lambda: self._active_scene().toggle_snap())
         self.footer.align_pill.clicked.connect(
             lambda: self._active_scene().set_align_enabled())
         self.footer.halo_pill.clicked.connect(self._toggle_halo)
+        self.footer.thin_pill.clicked.connect(self._toggle_thin_lines)
         self.footer.snapSettingsRequested.connect(
             lambda: self._open_system_settings(pane="ux"))
 
@@ -2531,6 +2540,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.scene.halo_clear()
         for v in self.scene.views():
             v.viewport().update()
+
+    def _toggle_thin_lines(self, *args):
+        """Flip the global Thin Lines view toggle from the footer pill (LT1-8)."""
+        from firepro3d.paper_display import set_thin_lines
+        on = self.footer.thin_pill.isChecked()
+        set_thin_lines(on)
+        self.settings.setValue("view/thin_lines", on)
+        self.footer.set_thin_on(on)
+        self._refresh_weight_canvases()
 
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout on the footer."""

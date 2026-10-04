@@ -107,10 +107,12 @@ def _reset_project_line_weights():
     from firepro3d import paper_display as pd
     pd._PROJECT_LW = None
     pd._THIN_LINES = False
+    pd._THIN_SUSPEND = 0
     pd._clear_hatch_mm()
     yield
     pd._PROJECT_LW = None
     pd._THIN_LINES = False
+    pd._THIN_SUSPEND = 0
     pd._clear_hatch_mm()
 
 
