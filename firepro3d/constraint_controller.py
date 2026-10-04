@@ -26,7 +26,7 @@ from PyQt6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
-from .sketch_adapters import ANG_WRITE_TOL, POS_WRITE_TOL, adapter_for
+from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
                             const_point)
 from .theme import M
@@ -89,6 +89,10 @@ def _safe_ref_uids(c) -> set | None:
 
 
 PICK_SAME_POINT_STATUS = "Pick a different point"
+DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
+                        "sketch")                                    # D52
+DIM_ZERO_STATUS = "Pick two separate points"
+DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
 
 
 def _xy(p) -> tuple[float, float]:
@@ -420,7 +424,8 @@ class ConstraintController:
         by = set(self.item_by_uid())
         out = []
         for c in self.constraints:
-            if not c.enabled or c.inert or c.id in self.red:
+            if (not c.enabled or c.inert or c.id in self.red
+                    or (c.type in sm.VALUED and not c.driving)):    # D7/D52 Reference
                 continue
             uids = _safe_ref_uids(c)
             if uids is not None and uids <= by:
@@ -520,6 +525,11 @@ class ConstraintController:
             return False
         if by is None:
             by = self.item_by_uid()
+        if c.type in sm.VALUED:                 # §6.3: a dim needs D > 0
+            v = c.value
+            if (isinstance(v, bool) or not isinstance(v, (int, float))
+                    or not math.isfinite(v) or v <= 0.0):
+                return False
         kinds = tuple(self._ref_kind(r, by) for r in c.refs)
         return None not in kinds and kinds in spec.patterns
 
@@ -563,7 +573,7 @@ class ConstraintController:
         builds (a drag session uses :meth:`_build_fresh`)."""
         by = self.item_by_uid()
         try:
-            key = (tuple((c.id, c.type, repr(c.refs)) for c in cons),
+            key = (tuple((c.id, c.type, repr(c.refs), c.value, c.driving) for c in cons),
                    tuple((u, id(by[u]), adapter_for(by[u]).struct_key(by[u]))
                          for c in cons for u in (_safe_ref_uids(c) or ())))
         except KeyError:
@@ -592,7 +602,8 @@ class ConstraintController:
                     w.extend(ad.var_weights(it))
         sys_ = System(x=np.array(x, dtype=float))
         for c in cons:
-            BUILDERS[c.type](c.id, self._ends(c, slots), sys_)
+            kw = {"value": float(c.value)} if c.type in sm.VALUED else {}
+            BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
         return sys_, slots, np.array(w, dtype=float)
 
     def _resolve(self, ref, slots):
@@ -892,7 +903,7 @@ class ConstraintController:
 
     # ── edit seams (§8) ──────────────────────────────────────────────────
     @contextlib.contextmanager
-    def edit(self, items, *, typed: bool = False):
+    def edit(self, items, *, typed: bool = False, scale: float | None = None):
         """Wrap a typed / panel / transform mutation of *items*.
 
         The mutated items' new values become ``W_EDIT`` goals and the rest
@@ -904,19 +915,40 @@ class ConstraintController:
         empty *items* (e.g. Scale by 1) or untouched items is a pure no-op.
         On failure the WHOLE edit is rolled back (D10) — every adapter-backed
         item in *items*, constrained or not, plus every constrained item — and
-        the status bar reports the conflict.
+        the status bar reports the conflict. *scale* (D54, the Scale tool
+        only): every driving dim whose refs all lie inside *items* is
+        multiplied by it before the solve and restored on a rollback.
         """
         items = list(items)
         if not items or not self.enabled or not self.touches(items):
             yield
             return
         snap = self._snapshot(items)
+        scaled = self._scale_dims(items, scale) if scale is not None else []
         yield
         pins = self._typed_pins(items, snap) if typed else None
         if not self._solve(edited=items, typed=pins):
             self._restore(snap)
+            for c, v in scaled:
+                c.value = v
             self._report_conflict(reassert=True)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
+
+    def _scale_dims(self, items, factor) -> list:
+        """D54: ``[(dim, old value)]`` for the driving dims internal to *items*
+        (no ground refs), each multiplied by *factor*."""
+        uids = {getattr(i, "_uid", None) for i in items} - {None}
+        out = []
+        for c in self.constraints:
+            if (c.type not in sm.VALUED or c.inert or not c.driving
+                    or c.value is None):
+                continue
+            us = _safe_ref_uids(c)
+            if (us and us <= uids and isinstance(c.refs, list)
+                    and not any(sm.is_ground(r) for r in c.refs)):
+                out.append((c, c.value))
+                c.value = c.value * float(factor)
+        return out
 
     @staticmethod
     def _typed_pins(items, snap) -> dict:
@@ -1112,8 +1144,13 @@ class ConstraintController:
                 self.red.add(c.id)
 
     # ── model ops ────────────────────────────────────────────────────────
-    def add(self, ctype: str, refs: list):
+    def add(self, ctype: str, refs: list, *, value: float | None = None):
         """Add a constraint and apply it (D22 least change).
+
+        A dim (``sm.VALUED``) takes *value*, else its current measured length
+        (D50); two coincident points are refused (status "Pick two separate
+        points"); a dim that would be redundant at creation is admitted as
+        Reference (D52, status).
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step.
@@ -1127,6 +1164,12 @@ class ConstraintController:
         if not self.enabled or spec is None or not spec.implemented:
             return None
         c = sm.Constraint.new(ctype, refs)
+        if ctype in sm.VALUED:
+            m = self.measure(c)
+            c.value = value if value is not None else m
+            if m is not None and m <= DEGEN_EPS:
+                self._status(DIM_ZERO_STATUS)
+                return None
         if not self._valid(c):
             self._status(INVALID_STATUS)
             return None
@@ -1137,9 +1180,15 @@ class ConstraintController:
         ok = self._solve(focus=sm.ref_uids(c))
         if not ok:
             self.red.add(c.id)               # D38: the newcomer is the culprit
+        reference = False
+        if ok and ctype in sm.VALUED and c.id in self.diagnostics().redundant:
+            c.driving = False                # D52: never over-define at creation
+            reference = True
         self._committed(skip=(c.id,))
         if not ok:
             self._report_conflict()          # nothing written: hold last good
+        elif reference:
+            self._status(DIM_REFERENCE_STATUS)
         elif c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)   # D42
         return c
@@ -1173,6 +1222,92 @@ class ConstraintController:
                 self._committed(skip=(c.id,) if bad else ())
                 if bad:
                     self._report_conflict()
+
+    # ── dims (CS4, D50-D55) ──────────────────────────────────────────────
+    def dim_ends(self, c, by=None, held=None):
+        """Scene ``(a, b)`` a distance dim measures (its edge's ends, or its
+        two points; the origin counts), else None."""
+        from .constraint_paint import _ref_geom
+        if not isinstance(c.refs, list):
+            return None
+        by = self.item_by_uid() if by is None else by
+        gs = [_ref_geom(r, by, held) for r in c.refs]
+        if len(gs) == 1 and gs[0] is not None and gs[0][0] == "edge":
+            return gs[0][1]
+        if len(gs) == 2 and all(g is not None and g[0] == "point" for g in gs):
+            return gs[0][1], gs[1][1]
+        return None
+
+    def measure(self, c) -> float | None:
+        """The geometry's current length for a distance dim (Reference text)."""
+        e = self.dim_ends(c)
+        if e is None:
+            return None
+        a, b = e
+        return math.hypot(b.x() - a.x(), b.y() - a.y())
+
+    def set_value(self, cid: str, value: float) -> bool:
+        """Drive a dim to *value* mm (D53/D55). An edge with a readout moves by
+        the readout's typed setter (its D6 anchor law) under D31 exactness;
+        otherwise least change. Unhonourable -> nothing changes, conflict
+        status, no undo step. True when applied (one undo step)."""
+        from .constraint_dims import readout_for
+        c = self.find(cid)
+        if c is None or c.inert or c.type not in sm.VALUED or not c.driving:
+            return False
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(v) or v <= 0.0:
+            return False
+        hit = readout_for(self, c)
+        old, was_red = c.value, c.id in self.red
+        items = [hit[0]] if hit is not None else []
+        snap = self._snapshot(items)
+        c.value = v
+        self.red.discard(c.id)
+        if hit is not None:
+            hit[1].apply(v)
+            ok = self._solve(edited=items, typed=self._typed_pins(items, snap))
+        else:
+            ok = self._solve(focus=_safe_ref_uids(c) or set())
+        if not ok:
+            self._restore(snap)
+            c.value = old
+            if was_red:
+                self.red.add(c.id)
+            self._commit_gen += 1
+            self._report_conflict()
+            self._repaint()
+            return False
+        self._committed()
+        return True
+
+    def set_driving(self, cid: str, driving: bool) -> None:
+        """Driving <-> Reference (D7/D52). Re-driving starts from the current
+        length (no jump); one that over-defines goes red / amber per D9."""
+        c = self.find(cid)
+        driving = bool(driving)
+        if (c is None or c.inert or c.type not in sm.VALUED
+                or c.driving == driving):
+            return
+        c.driving = driving
+        bad = False
+        if driving:
+            m = self.measure(c)
+            if m is not None and m > 0.0:
+                c.value = m
+            bad = not self._solve(focus=_safe_ref_uids(c) or set())
+            if bad:
+                self.red.add(c.id)
+        else:
+            self.red.discard(c.id)
+        self._committed(skip=(c.id,) if bad else ())
+        if bad:
+            self._report_conflict()
+        elif driving and c.id in self.diagnostics().redundant:
+            self._status(REDUNDANT_STATUS)
 
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""
@@ -1385,7 +1520,7 @@ class ConstraintController:
         participating item uids): never recomputed per drag frame (§7.4)."""
         items = self.items()
         key = (self._commit_gen,
-               tuple((c.id, c.enabled) for c in self.constraints),
+               tuple((c.id, c.enabled, c.driving, c.value) for c in self.constraints),
                frozenset(self.red),
                tuple(sorted(str(getattr(i, "_uid", "")) for i in items)))
         if self._diag is not None and self._diag[0] == key:
