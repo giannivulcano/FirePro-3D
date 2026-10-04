@@ -58,6 +58,47 @@ def readout_for(ctl, c, by=None):
     return None
 
 
+def _point_id(ref):
+    """Hashable identity of one point ref (a primitive handle or a ground)."""
+    if sm.is_ground(ref):
+        return ("ref", ref.get("ref"))
+    return ("uid", ref.get("uid"), ref.get("h"))
+
+
+def measure_key(c, by):
+    """What a distance dim measures, canonically (D56: one dim per measure).
+
+    An edge is its two endpoint handles (a line's ``edge`` == its ``p1``/
+    ``p2``; a polyline ``s<i>`` == ``v<i>``/``v<i+1>``), so the edge and its
+    own ends compare equal; a rect's opposite edges share one width / height;
+    every side of a regular polygon is the same length. Two points compare as
+    an unordered pair. None when the refs do not resolve.
+    """
+    from .geometry_2d import LineItem, PolylineItem, RectangleItem
+    refs = c.refs if isinstance(c.refs, list) else []
+    if not all(isinstance(r, dict) for r in refs):
+        return None
+    if len(refs) == 2:
+        return frozenset((_point_id(refs[0]), _point_id(refs[1])))
+    if len(refs) != 1 or sm.is_ground(refs[0]):
+        return None
+    uid, h = refs[0].get("uid"), refs[0].get("h")
+    it = by.get(uid)
+    if it is None or not isinstance(h, str):
+        return None
+    if isinstance(it, LineItem) and h == "edge":
+        return frozenset((("uid", uid, "p1"), ("uid", uid, "p2")))
+    if isinstance(it, RectangleItem) and h in _RECT_KEYS:
+        return ("rect", uid, _RECT_KEYS[h])
+    if isinstance(it, PolylineItem) and h.startswith("s") and h[1:].isdigit():
+        i, n = int(h[1:]), len(getattr(it, "_points", ()))
+        j = (i + 1) % n if n else i + 1
+        return frozenset((("uid", uid, f"v{i}"), ("uid", uid, f"v{j}")))
+    if h.startswith("s") and h[1:].isdigit():          # regular polygon side
+        return ("polygon_side", uid)
+    return ("uid", uid, h)
+
+
 def dimmed_keys(ctl) -> set:
     """``{(uid, readout key)}`` every dim already shows (D51: the transient
     readout of the same value is suppressed)."""

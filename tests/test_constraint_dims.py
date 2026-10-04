@@ -80,20 +80,26 @@ def test_two_point_dim_least_change(qapp):
     assert b._pt1.x() == pytest.approx(80.0, abs=1e-6)
 
 
+def _implied_pair(sc, ctl):
+    """A line with p1 on the origin and a 300 edge dim, then a dim origin->p2:
+    the same length, implied through Coincident (not a literal repeat, D56)."""
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("coincident", [E(ln, "p1"), {"ref": "origin"}])
+    c = ctl.add("dim_distance", [E(ln)])
+    c2 = ctl.add("dim_distance", [{"ref": "origin"}, E(ln, "p2")])
+    return ln, c, c2
+
+
 def test_redundant_dim_is_auto_reference_d52(qapp):
     sc = _scene(); ctl = sc.constraint_ctl
-    ln = _line(sc, (0, 0), (300, 0))
-    ctl.add("dim_distance", [E(ln)])
-    c2 = ctl.add("dim_distance", [E(ln)])
+    _ln, _c, c2 = _implied_pair(sc, ctl)
     assert c2 is not None and not c2.driving and c2.id not in ctl.red
 
 
 def test_unhonourable_value_is_rejected_d53(qapp):
-    """Two driving dims on one edge: neither can change alone."""
+    """Two driving dims fixing one length: neither can change alone."""
     sc = _scene(); ctl = sc.constraint_ctl
-    ln = _line(sc, (0, 0), (300, 0))
-    c = ctl.add("dim_distance", [E(ln)])
-    c2 = ctl.add("dim_distance", [E(ln)])                  # auto-Reference (D52)
+    ln, c, c2 = _implied_pair(sc, ctl)                     # c2 auto-Reference (D52)
     ctl.set_driving(c2.id, True)                           # redundant: amber, admitted
     assert c2.driving and c2.id not in ctl.red
     n = len(sc._undo_stack)
@@ -399,3 +405,31 @@ def test_short_edge_dim_is_still_pickable_f7(be):
     (e,) = cd.dim_entries(v, ctl)
     assert not e.layout.fits
     assert cp.dim_at(v, ctl, e.layout.center) == c.id
+
+
+# -- D56 (smoke ruling 2026-10-03): a repeat of an existing measurement is refused
+
+@pytest.mark.parametrize("second", [
+    lambda ln, r, pl: [E(ln)],                               # same edge
+    lambda ln, r, pl: [E(ln, "p1"), E(ln, "p2")],            # the edge's own ends
+    lambda ln, r, pl: [E(ln, "p2"), E(ln, "p1")],            # ... either order
+])
+def test_repeat_of_a_line_dim_is_refused_d56(qapp, second):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("dim_distance", [E(ln)])
+    n = len(sc._undo_stack)
+    assert ctl.add("dim_distance", second(ln, None, None)) is None
+    assert len(ctl.constraints) == 1 and len(sc._undo_stack) == n
+
+
+def test_rect_opposite_edge_and_two_point_repeats_are_refused_d56(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    r = _rect(sc, (0, 0), (400, 200))
+    a = _line(sc, (0, 300), (0, 350)); b = _line(sc, (100, 300), (100, 350))
+    assert ctl.add("dim_distance", [E(r, "top")]) is not None
+    assert ctl.add("dim_distance", [E(r, "bottom")]) is None          # same width
+    assert ctl.add("dim_distance", [E(r, "left")]) is not None        # height is new
+    assert ctl.add("dim_distance", [E(a, "p1"), E(b, "p1")]) is not None
+    assert ctl.add("dim_distance", [E(b, "p1"), E(a, "p1")]) is None  # same points
+    assert len(ctl.constraints) == 3

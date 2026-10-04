@@ -94,6 +94,7 @@ DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define th
 DIM_ZERO_STATUS = "Pick two separate points"
 DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
 DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
+DIM_REPEAT_STATUS = "Already dimensioned"                                # D56
 
 
 def _xy(p) -> tuple[float, float]:
@@ -1182,6 +1183,9 @@ class ConstraintController:
             if m is not None and m <= DEGEN_EPS:
                 self._status(DIM_ZERO_STATUS)
                 return None
+            if self._repeats_a_dim(c):
+                self._status(DIM_REPEAT_STATUS)       # D56: one dim per measure
+                return None
         if not self._valid(c):
             self._status(INVALID_STATUS)
             return None
@@ -1249,6 +1253,19 @@ class ConstraintController:
         if len(gs) == 2 and all(g is not None and g[0] == "point" for g in gs):
             return gs[0][1], gs[1][1]
         return None
+
+    def _repeats_a_dim(self, c) -> bool:
+        """D56 (smoke ruling 2026-10-03): *c* measures exactly what an
+        existing dim already measures (same edge, the edge's own ends, a
+        rect's opposite edge, the same two points). A dim merely implied
+        through other constraints is not a repeat -- D52 makes it Reference."""
+        from .constraint_dims import is_dim, measure_key
+        by = self.item_by_uid()
+        key = measure_key(c, by)
+        if key is None:
+            return False
+        return any(d.type == c.type and is_dim(d) and measure_key(d, by) == key
+                   for d in self.constraints)
 
     def measure(self, c) -> float | None:
         """The geometry's current length for a distance dim (Reference text)."""
