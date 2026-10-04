@@ -333,12 +333,13 @@ def test_quantized_arc_ends_exactly_on_its_source_endpoints():
                 or (_close(s, p3, tol) and _close(e, p0, tol))), (s, e, p0, p3)
 
 
-def test_editor_import_uses_the_standard_primitive_lineweight(qapp, monkeypatch):
+def test_editor_import_uses_the_standard_primitive_lineweight(qapp):
     # User smoke 2026-09-23: imported geometry drew thinner than drawn
-    # primitives (factory fell back to the constructor's 1.0).
+    # primitives. LT2 (H-b): the weight is now the record's By Block default
+    # (the px lineweight is retired), so imported == the default style.
     from firepro3d.model_space import Model_Space
     from firepro3d.block_editor import BlockEditorWidget
-    from firepro3d.constants import DEFAULT_GEOMETRY_LINEWEIGHT
+    from firepro3d.stroke_style import default_style
     w = BlockEditorWidget(Model_Space())
     geoms = [{"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
              {"kind": "circle", "x": 0, "y": 0, "w": 10, "h": 10},
@@ -349,11 +350,10 @@ def test_editor_import_uses_the_standard_primitive_lineweight(qapp, monkeypatch)
               "pos_cx": 0, "pos_cy": 0, "rotation": 0},
              {"kind": "spline", "control_points": [(0, 0), (3, 5), (6, -5), (9, 0)],
               "degree": 3, "knots": None, "weights": None}]
-    assert w.editor_scene._geom_color_lw()[1] == DEFAULT_GEOMETRY_LINEWEIGHT
-    # A distinct weight, so the guard can't pass on the factory's own default.
-    monkeypatch.setattr(w.editor_scene, "_geom_color_lw", lambda: ("#ffffff", 3.0))
+    colour = w.editor_scene._geom_color_lw()[0]
     w._add_imported_geoms(geoms, 1.0)
-    drawn_lw = 3.0
     prims = w.gather_primitives()
     assert len(prims) == 6
-    assert {round(p.pen().widthF(), 6) for p in prims} == {drawn_lw}
+    for p in prims:
+        assert p.style == default_style(colour), type(p).__name__
+        assert p.style["weight"] == "by_block"

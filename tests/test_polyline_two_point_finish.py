@@ -94,22 +94,24 @@ def test_three_point_finish_still_commits_a_polyline(qapp, how):
         close_view(view, scene)
 
 
-def test_two_point_line_keeps_colour_and_lineweight(qapp, monkeypatch):
-    """Non-default colour/lineweight from the real placement source
-    (``_geom_color_lw``, read by ``_press_polyline``) survive the conversion —
-    the defaults would equal LineItem's ctor defaults and prove nothing."""
+def test_two_point_line_keeps_style(qapp):
+    """LT2-3: the authored style record (non-default colour / weight) survives
+    the 2-vertex polyline -> LineItem conversion."""
     view, scene = make_view(role="block_editor")
     try:
-        monkeypatch.setattr(scene, "_geom_color_lw", lambda: ("#ff3366", 2.5))
         scene.set_mode("polyline")
         click(view, QPointF(0, 0))
         click(view, QPointF(1000, 0))
+        pl = scene._polyline_active
+        pl.style["colour"] = "#ff3366"
+        pl.style["weight"] = "Heavy"
+        authored = {k: (dict(v) if isinstance(v, dict) else v)
+                    for k, v in pl.style.items()}
         QTest.keyClick(view, Qt.Key.Key_Return)
         QApplication.processEvents()
         ln = scene._draw_lines[-1]
         assert type(ln) is LineItem
-        assert ln.pen().color() == QColor("#ff3366"), ln.pen().color().name()
-        assert ln.pen().widthF() == pytest.approx(2.5), ln.pen().widthF()
+        assert ln.style == authored
     finally:
         close_view(view, scene)
 

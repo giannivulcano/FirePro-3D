@@ -3783,6 +3783,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .constants import DEFAULT_GEOMETRY_LINEWEIGHT
         return "#ffffff", DEFAULT_GEOMETRY_LINEWEIGHT
 
+    def _geom_style(self) -> dict:
+        """The style record for new primitives (D-L18 default; the sticky
+        ribbon current style is LT4)."""
+        from .stroke_style import default_style
+        return default_style(self._geom_color_lw()[0])
+
     def _ensure_underlay_caches(self, *args, **kwargs):
         """Back-compat shell → :class:`UnderlayController`."""
         return self._underlay_ctl._ensure_underlay_caches(*args, **kwargs)
@@ -4915,6 +4921,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               color=QColor(pl.pen().color()),
                               lineweight=getattr(pl, "_lineweight",
                                                  pl.pen().widthF()))
+            from .stroke_style import copy_style
+            copy_style(pl, placed)
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)
