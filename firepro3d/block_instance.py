@@ -54,6 +54,8 @@ class BlockInstance(QGraphicsObject):
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
         self._paper_pen_color: Optional[QColor] = None
+        # Paper mm per model mm during a viewport pass (LT2-5); None on canvas.
+        self._paper_scale: Optional[float] = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -212,9 +214,12 @@ class BlockInstance(QGraphicsObject):
                 p = QPen(op.pen)
                 if self._paper_pen_width is not None:
                     p.setCosmetic(False)          # true mm on paper (LT1-2)
-                    p.setWidthF(self._paper_pen_width)
+                    p.setWidthF(self._paper_op_width(op))
                 else:
-                    p.setCosmetic(True)           # canvas: authored px (LT1-1)
+                    p.setCosmetic(True)           # canvas (LT2-4)
+                    if op.weight is not None:
+                        from .stroke_style import canvas_px
+                        p.setWidthF(canvas_px(op.weight))
                 if override is not None:
                     p.setColor(override)
                 if selected and self._paper_pen_width is None:
@@ -224,6 +229,19 @@ class BlockInstance(QGraphicsObject):
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))
+
+    def _paper_op_width(self, op) -> float:
+        """Non-cosmetic paper width for a stroke op (LT2-5).
+
+        By Block / By Linetype / unweighted ops take the category weight
+        (``_paper_pen_width``); a named weight plots at its own mm divided by
+        the viewport scale (the §9.9.1 pattern).
+        """
+        w = op.weight
+        if w is None or w in ("by_block", "by_linetype") or not self._paper_scale:
+            return self._paper_pen_width
+        from .paper_display import resolve_line_weight_mm
+        return resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
         """Fill / pattern op: boundary posed, pattern stamped in scene axes (D-A11)."""

@@ -393,7 +393,9 @@ class BlockDefinition:
                 ops.append(RenderOp(TEXT, path, colour=item.data.color))
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
-            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen())))
+            st = getattr(item, "style", None)
+            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
+                                weight=st["weight"] if st else None))
         return ops
 
     def _resolve_nested(self, prim):

@@ -729,6 +729,7 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     """
     from PyQt6.QtGui import QColor
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+    inst._paper_scale = paper_scale          # named op weights (LT2-5)
     inst._paper_pen_color = (QColor(cat["color"])
                              if color_mode != PaperColorMode.FULL_COLOR else None)
     inst.setOpacity(cat["opacity"] / 100.0)
@@ -937,7 +938,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["marker"] = _save_marker_state(item, "_tag_color")
             elif cat_key == "Blocks":
                 entry["block_paper"] = (item._paper_pen_width,
-                                        item._paper_pen_color)
+                                        item._paper_pen_color,
+                                        item._paper_scale)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -1173,8 +1175,8 @@ def restore_model_display(saved: list[dict]):
 
         elif cat_key == "Blocks":
             # Paint hooks only (H5); opacity/visibility restored above.
-            item._paper_pen_width, item._paper_pen_color = entry.get(
-                "block_paper", (None, None))
+            (item._paper_pen_width, item._paper_pen_color,
+             item._paper_scale) = entry.get("block_paper", (None, None, None))
             item.update()
 
         elif cat_key == "Construction":
