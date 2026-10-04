@@ -99,25 +99,45 @@ def measure_key(c, by):
     return ("uid", uid, h)
 
 
-def dimmed_keys(ctl) -> set:
-    """``{(uid, readout key)}`` every dim already shows (D51: the transient
-    readout of the same value is suppressed)."""
-    out = set()
-    if ctl is None or not getattr(ctl, "enabled", False):
-        return out
-    by = None
-    for c in ctl.constraints:
-        if not is_dim(c) or not isinstance(c.refs, list) or len(c.refs) != 1:
-            continue
-        r = c.refs[0]
-        if not isinstance(r, dict) or sm.is_ground(r):
-            continue
-        by = ctl.item_by_uid() if by is None else by
-        it = by.get(r.get("uid"))
-        key = readout_key(it, r.get("h")) if it is not None else None
-        if key is not None:
-            out.add((r.get("uid"), key))
-    return out
+def is_edge_readout(key) -> bool:
+    """D57: a selection readout of an edge length (line ``length``, rect
+    ``width`` / ``height``, polyline ``seg:<i>``) -- Smart Dimension owns these
+    in the Block Editor, so the transient readout no longer shows them."""
+    return isinstance(key, str) and (key in ("length", "width", "height")
+                                     or key.startswith("seg:"))
+
+
+_RECT_SIDES = {frozenset(("tl", "tr")): "top", frozenset(("tr", "br")): "right",
+               frozenset(("br", "bl")): "bottom", frozenset(("bl", "tl")): "left"}
+
+
+def edge_for_points(refs, by):
+    """The edge ref whose two ends are exactly the two point *refs* (a line's
+    ``p1``/``p2``, a rect's adjacent corners, a polyline ``v<i>``/``v<i+1>``),
+    else None -- a two-point dim on them IS that edge's dim (smoke 2026-10-03)."""
+    from .geometry_2d import LineItem, PolylineItem, RectangleItem
+    if (len(refs) != 2 or not all(isinstance(r, dict) for r in refs)
+            or any(sm.is_ground(r) for r in refs)
+            or refs[0].get("uid") != refs[1].get("uid")):
+        return None
+    uid = refs[0].get("uid")
+    it = by.get(uid)
+    hs = frozenset((refs[0].get("h"), refs[1].get("h")))
+    if isinstance(it, LineItem) and hs == {"p1", "p2"}:
+        return {"uid": uid, "h": "edge"}
+    if isinstance(it, RectangleItem) and hs in _RECT_SIDES:
+        return {"uid": uid, "h": _RECT_SIDES[hs]}
+    if isinstance(it, PolylineItem):
+        n = len(getattr(it, "_points", ()))
+        try:
+            i, j = sorted(int(h[1:]) for h in hs if h and h.startswith("v"))
+        except (TypeError, ValueError):
+            return None
+        if j == i + 1:
+            return {"uid": uid, "h": f"s{i}"}
+        if it.is_closed() and i == 0 and j == n - 1:
+            return {"uid": uid, "h": f"s{n - 1}"}
+    return None
 
 
 @dataclass

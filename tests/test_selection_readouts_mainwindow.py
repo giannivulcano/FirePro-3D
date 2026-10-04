@@ -58,6 +58,7 @@ def test_display_unit_reaches_open_editor(win, editor):
     win._set_display_unit(DisplayUnit.IMPERIAL)
     ln = LineItem(QPointF(-150, 0), QPointF(150, 0))
     esc.addItem(ln)
+    esc.readouts.show_edge_lengths = True   # machinery test: pre-D57 line readout
     ln.setSelected(True)
     text = esc.readouts.layouts(editor.view)[0].layout.text
     assert "'" in text or '"' in text, text
@@ -95,6 +96,7 @@ def test_tab_switch_cancels_readout_edit(win, editor):
     ln = LineItem(QPointF(-150, 0), QPointF(150, 0))
     esc.addItem(ln)
     esc.set_mode("select")
+    esc.readouts.show_edge_lengths = True   # machinery test: pre-D57 line readout
     ln.setSelected(True)
     esc.readouts.begin_edit(editor.view, esc.readouts.layouts(editor.view)[0])
     assert esc.readouts.is_editing()

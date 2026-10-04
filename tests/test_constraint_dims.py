@@ -241,14 +241,27 @@ def test_reference_text_is_parenthesised_and_muted(be):
     assert cd.dim_colour(ctl, c, ctl.diagnostics(), t) == t.color("muted")
 
 
-def test_duplicate_transient_readout_is_suppressed_d51(be):
-    v, sc = be; ctl = sc.constraint_ctl
+def test_no_transient_linear_readouts_d57(be):
+    """D57 (smoke ruling 2026-10-03): Smart Dimension owns lengths -- the
+    selection readouts no longer show length / width / height / segment;
+    angular + radius readouts stay until CS5."""
+    from firepro3d.geometry_2d import ArcItem, PolylineItem
+    v, sc = be
     ln = _line(sc, (0, 0), (300, 0))
-    ln.setSelected(True)
-    assert [s.key for _i, s in sc.readouts.entries()] == ["length"]
-    ctl.add("dim_distance", [E(ln)])
-    ln.setSelected(True)
-    assert [s.key for _i, s in sc.readouts.entries()] == []
+    r = _rect(sc, (0, 100), (400, 300))
+    pl = PolylineItem(QPointF(0, 400))
+    for q in (QPointF(100, 430), QPointF(200, 400)):
+        pl.append_point(q)
+    sc.addItem(pl); sc._polylines.append(pl)
+    arc = ArcItem(QPointF(600, 0), 50.0, 0.0, 90.0)
+    sc.addItem(arc); sc._draw_arcs.append(arc)
+    for it in (ln, r, pl, arc):
+        it.setSelected(True)
+    keys = sorted(s.key for _i, s in sc.readouts.entries())
+    assert not any(k in ("length", "width", "height") or k.startswith("seg:")
+                   for k in keys)
+    assert "radius" in keys and "angle" in keys          # arc keeps its readouts
+    assert "ang:1" in keys                               # polyline vertex angle stays
 
 
 def test_dim_hud_commit_drives_the_constraint(be):
@@ -433,3 +446,50 @@ def test_rect_opposite_edge_and_two_point_repeats_are_refused_d56(qapp):
     assert ctl.add("dim_distance", [E(a, "p1"), E(b, "p1")]) is not None
     assert ctl.add("dim_distance", [E(b, "p1"), E(a, "p1")]) is None  # same points
     assert len(ctl.constraints) == 3
+
+
+# -- Smoke round 2 (2026-10-03): own-ends normalisation, rect message, no snap --
+
+def test_two_point_dim_on_an_edges_own_ends_is_stored_as_the_edge(qapp):
+    from firepro3d.geometry_2d import PolylineItem
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln, "p2"), E(ln, "p1")])
+    assert c.refs == [E(ln)]
+    r = _rect(sc, (0, 100), (400, 300))
+    c2 = ctl.add("dim_distance", [E(r, "tr"), E(r, "tl")])
+    assert c2.refs == [E(r, "top")]
+    pl = PolylineItem(QPointF(0, 400))
+    for q in (QPointF(100, 430), QPointF(200, 400)):
+        pl.append_point(q)
+    sc.addItem(pl); sc._polylines.append(pl)
+    c3 = ctl.add("dim_distance", [E(pl, "v2"), E(pl, "v1")])
+    assert c3.refs == [E(pl, "s1")]
+    assert ctl.set_value(c.id, 250.0)                     # edge anchor law (D55)
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+
+
+def test_rect_opposite_side_status_names_the_shared_width(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    msgs = []
+    sc._show_status = lambda m, *_a: msgs.append(m)
+    r = _rect(sc, (0, 0), (400, 200))
+    ctl.add("dim_distance", [E(r, "top")])
+    assert ctl.add("dim_distance", [E(r, "bottom")]) is None
+    assert "opposite sides share one width" in msgs[-1]
+    ctl.add("dim_distance", [E(r, "right")])
+    assert ctl.add("dim_distance", [E(r, "left")]) is None
+    assert "opposite sides share one height" in msgs[-1]
+
+
+@pytest.mark.parametrize("mode", ["constrain_dim_distance", "constrain_horizontal",
+                                  "constrain_vertical", "constrain_coincident"])
+def test_constraint_pick_modes_do_not_snap(be, mode):
+    v, sc = be
+    _line(sc, (0, 0), (300, 0))
+    sc.set_mode(mode)
+    raw = QPointF(302.0, 1.5)                              # beside the endpoint
+    out = sc.get_effective_position(raw)
+    assert (out.x(), out.y()) == (raw.x(), raw.y())
+    assert sc._snap_result is None
+    sc.set_mode("select")

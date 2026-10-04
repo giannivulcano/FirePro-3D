@@ -2919,8 +2919,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return QPointF(scene_pos)
         # Flip / Mirror (P1 DD4): the axis step picks an existing straight
         # segment through axis_picker, so cursor SNAP and ALIGN are off — no
-        # snap glyph (snapping-engine §3: no contextual snap-by-tool).
-        if self.mode in ("flip", "mirror"):
+        # snap glyph (snapping-engine §3: no contextual snap-by-tool). The
+        # constraint pick modes (D21 markers, raw cursor) likewise (CS4 smoke).
+        if self.mode in ("flip", "mirror") or (
+                isinstance(self.mode, str) and self.mode.startswith("constrain_")):
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None

@@ -885,6 +885,7 @@ def test_readout_typed_edit_solves_before_the_undo_push(qapp):
     try:
         sc.scale_manager = ScaleManager()
         sc.set_mode("select")
+        sc.readouts.show_edge_lengths = True   # §8 readout seam (pre-D57 opt-in)
         r, ln = _rect_and_follower(sc)
         sc.clearSelection(); r.setSelected(True)
         qapp.processEvents()

@@ -95,6 +95,8 @@ DIM_ZERO_STATUS = "Pick two separate points"
 DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
 DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
 DIM_REPEAT_STATUS = "Already dimensioned"                                # D56
+DIM_RECT_REPEAT_STATUS = ("Already dimensioned -- a rectangle's opposite sides "
+                          "share one {}")                                # D56
 
 
 def _xy(p) -> tuple[float, float]:
@@ -1176,6 +1178,11 @@ class ConstraintController:
         spec = sm.REGISTRY.get(ctype)
         if not self.enabled or spec is None or not spec.implemented:
             return None
+        if ctype == "dim_distance":
+            from .constraint_dims import edge_for_points
+            edge = edge_for_points(refs, self.item_by_uid())
+            if edge is not None:
+                refs = [edge]                   # an edge's own ends == that edge
         c = sm.Constraint.new(ctype, refs)
         if ctype in sm.VALUED:
             m = self.measure(c)
@@ -1183,8 +1190,11 @@ class ConstraintController:
             if m is not None and m <= DEGEN_EPS:
                 self._status(DIM_ZERO_STATUS)
                 return None
-            if self._repeats_a_dim(c):
-                self._status(DIM_REPEAT_STATUS)       # D56: one dim per measure
+            rep = self._repeats_a_dim(c)
+            if rep is not None:                       # D56: one dim per measure
+                self._status(DIM_RECT_REPEAT_STATUS.format(rep[2])
+                             if isinstance(rep, tuple) and rep[0] == "rect"
+                             else DIM_REPEAT_STATUS)
                 return None
         if not self._valid(c):
             self._status(INVALID_STATUS)
@@ -1254,18 +1264,23 @@ class ConstraintController:
             return gs[0][1], gs[1][1]
         return None
 
-    def _repeats_a_dim(self, c) -> bool:
+    def _repeats_a_dim(self, c):
         """D56 (smoke ruling 2026-10-03): *c* measures exactly what an
         existing dim already measures (same edge, the edge's own ends, a
         rect's opposite edge, the same two points). A dim merely implied
-        through other constraints is not a repeat -- D52 makes it Reference."""
+        through other constraints is not a repeat -- D52 makes it Reference.
+
+        Returns:
+            The repeated measure key, or None.
+        """
         from .constraint_dims import is_dim, measure_key
         by = self.item_by_uid()
         key = measure_key(c, by)
         if key is None:
-            return False
-        return any(d.type == c.type and is_dim(d) and measure_key(d, by) == key
-                   for d in self.constraints)
+            return None
+        hit = any(d.type == c.type and is_dim(d) and measure_key(d, by) == key
+                  for d in self.constraints)
+        return key if hit else None
 
     def measure(self, c) -> float | None:
         """The geometry's current length for a distance dim (Reference text)."""

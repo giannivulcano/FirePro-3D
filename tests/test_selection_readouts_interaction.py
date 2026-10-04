@@ -27,6 +27,7 @@ def be(qapp):
     v.setFocus()
     sc.set_mode("select")
     QApplication.processEvents()
+    sc.readouts.show_edge_lengths = True   # machinery test: pre-D57 line readout
     yield v, sc
     if sc.readouts.is_editing():
         sc.readouts.cancel_edit()
