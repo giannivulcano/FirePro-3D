@@ -113,6 +113,7 @@ per host style/scale); QPen dash patterns (two paths, width-multiple units).
 - Canvas: width = mm × `constants.UNDERLAY_MM_TO_PX_HINT`, cosmetic; view-level
   **Thin Lines** toggle → 1 px (D-L14). Retire the duplicate
   `_BORDER_WEIGHT_PX` / `frame_group` weight copies onto this mapping.
+  *(LT1 BUILT 2026-10-04 — as-built contract in `linetypes.md` "LT1".)*
 - Paper/PDF: width = mm ÷ viewport scale. Lengths: Drafting = printed mm
   (× scale inside viewports, gridline normalisation); Model = real mm;
   Drafting in model view falls back to real size until SB1c (D-L3).

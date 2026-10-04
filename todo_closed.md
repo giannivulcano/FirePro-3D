@@ -2,6 +2,16 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes -- LT1 project weights + Blocks paper category + Thin Lines -- 2026-10-04
+
+- [x] [type:feature] LT1 — Project-scoped named weights (`.fpd`; QSettings = template; `.fpdb` bundles used weights, project wins) + Display Manager "Blocks" category weight + `_category_for_item` BlockInstance case + canvas px = mm × `UNDERLAY_MM_TO_PX_HINT` + view-level Thin Lines toggle [P2] [subject:CAD] [done:2026-10-04]
+  - Details: concept LD4; D-L5, D-L13, D-L14, D-L17. Fixes block linework plotting cosmetic on PDF. Retire `text_item._BORDER_WEIGHT_PX` + `frame_group` weight copies onto the shared mapping. Guards G4 (category half), G8 (weights half). `paper_display.py`, `display_manager.py`, `scene_io.py`, `block_library.py`, `model_view.py`. Amend the paper-space DM design §7.2. Tier Large.
+  - Build: branch `feat/lt1-project-weights` (base `7e1dfe3`; feature/Large; grill Q1-Q13 + approved how H1-H10 (FP3 deltas-only); subagent-driven, 8 tasks, per-task spec+quality reviews + one VC9 seam round; verified `d031637`). Delivered: project weight table in `.fpd` (QSettings = template; Open never writes it; New/old file copy the template); paper-only Blocks category (Light; B&W colour on strokes + text; selection never plots; placement ghost paper-excluded); one `canvas_weight_px` mapping (underlays, PDF underlays, text borders; `_BORDER_WEIGHT_PX` retired); pickers + underlay menu read the table; Line Weights tab edits the project (`lineWeightsChanged` -> dirty + re-pen; Set as Default -> template; Cancel reverts renames); in-use/rename cover sheet, model-plan and definition texts + refuse renaming onto a referenced name (user-ratified LT1-5 amendment); `.fpdb` `weights` bundle (project wins; merge dirties + re-pens); THIN footer pill (global, persisted, paper-pass suspension keeps sheets/PDF identical). Seam fix: re-pen underlays after project open. Guards T1-T8 in `tests/test_lt1_*.py`. VC6: 6852 passed / exit 0 (+ perf 16 passed). Smoke passed (user).
+
+- [x] [type:bug] Blocks drawn with the default white pen are invisible on sheets and in PDF export [P2] [subject:CAD] [done:2026-10-04]
+  - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
+  - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
+
 ## Block Editor constraint system — CS4 Smart Dimension: linear (+ D17 Scale-commit guard) — 2026-10-03
 
 - [x] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD] [done:2026-10-03]

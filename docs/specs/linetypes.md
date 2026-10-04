@@ -1,8 +1,11 @@
 ---
-status: proposal         # greenfield — nothing below is built; D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7, ratified in the brainstorm)
-last-verified: 2026-10-02  # + 2026-10-03 HF2 Account pointer only (RenderOp / referenced_ids exist, 53e1773); the rest unchanged
-verified-commit: 18df05d
-applies-to:               # planned modules (none exist yet) + the seams they change
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+last-verified: 2026-10-04  # LT1 Account; D-L sections beyond LT1 unchanged
+verified-commit: d031637
+applies-to:               # LT1 seams (built) + planned modules (LT2+)
+  - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category
+  - firepro3d/block_instance.py      # LT1: paper pen hooks only (rest owned by block-system.md)
+  - firepro3d/display_manager.py     # LT1: Line Weights tab, weight in-use / rename (rest owned by display-system)
   - firepro3d/stroke_style.py        # planned — cascade resolution
   - firepro3d/path_walk.py           # planned — arc-length walker + axis phase
   - firepro3d/linetype_render.py     # planned — expansion renderer
@@ -170,8 +173,11 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 
 > Slice contract for LT1 (concept LD4). The *what* was settled in the LT1
 > Phase-2 grill (Q1–Q13) and the *how* (H1–H10) was approved as one batch,
-> both on 2026-10-03. Decisions marked *as-proposed* rest on a probe that is
-> still open (P4) and become locked once that probe passes as plan step 1.
+> both on 2026-10-03. **BUILT 2026-10-04** on `feat/lt1-project-weights`
+> (verified `d031637`); every P4 probe passed and every H item below is locked
+> as-built. Build-time refinements, each user-ratified: H3's signal, LT1-5's
+> model-plan texts + rename-onto-referenced refusal, and LT1-8's paper-pass
+> suspension.
 
 ### What (grill Q1–Q13)
 
@@ -194,11 +200,18 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **LT1-4 `.fpdb` weights.** An optional `weights: {name: mm}` key carries the
   names used by the definition and its bundled nested definitions (LT1: text
   `border_weight`). No used names → no key; no schema bump. On load, missing
-  names are added and the project silently wins conflicts. A name in neither
-  falls back to `resolve_line_weight_mm`'s default.
+  names are added and the project silently wins conflicts; a merge that adds
+  names dirties the project (not undoable) and re-pens its underlays. Only
+  names present in the project table are written (an unknown name is never
+  fabricated). A name in neither falls back to `resolve_line_weight_mm`'s
+  default.
 - **LT1-5 In-use / rename** cover paper categories (incl. Blocks), underlays,
-  sheet texts (all sheets) and text primitives in project block definitions.
-  Library files on disk are not rewritten.
+  sheet texts (all sheets), model-plan texts (`Model_Space._texts`) and text
+  primitives in project block definitions. Renaming onto a name something
+  already references is refused (it would let Cancel rewrite that reference).
+  Library files on disk are not rewritten. *Known gaps (filed):* texts in an
+  open Block Editor, and undo snapshots taken before a rename, keep the old
+  name.
 - **LT1-6 Pickers.** Every Border Weight picker lists the live table, sorted
   by width (custom weights included).
 - **LT1-7 One canvas mapping** (D-L14): px = mm × `UNDERLAY_MM_TO_PX_HINT`;
@@ -209,7 +222,11 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   "view-level" means a view display toggle, not per-tab state) on the footer
   rail. It applies to every model and Block Editor view, never paper/PDF;
   affects only strokes through the LT1-7 mapping (blocks join when LT2/LT3
-  route them through it); persists as a user preference in QSettings.
+  route them through it); persists as a user preference in QSettings
+  (`view/thin_lines`). Paper isolation: a viewport pass suspends Thin Lines
+  (paint-time consumers resolve non-thin), and unweighted PDF-underlay layers
+  whose baked pen is thin are re-penned from their stored source width for the
+  pass — paper output is identical with Thin Lines on or off.
 - **Out of scope (filed):** wall paper weight (L11); the paper **categories'**
   QSettings-as-live-store flaw (Open overwrites the template; New doesn't
   reset); Full Color white-on-white for Construction + Blocks.
@@ -223,43 +240,58 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **H2** Persisted as `paper_display.line_weights`;
   `apply_paper_display_from_project` sets the project table (old file →
   template); `new_file` resets it from the template.
-- **H3** *(as-proposed — dirty path probe)* The Line Weights tab edits the
-  project table and dirties the project through the existing scene-modified
-  path; Cancel restores its snapshot into the project table.
-- **H4** *(as-proposed — underlay refresh probe)*
-  `paper_display.canvas_weight_px(width_mm)` implements LT1-7 and returns 1.0
-  under Thin Lines; it replaces the inline mapping in `underlay_layer_pen`,
+- **H3** The Line Weights tab edits the project table; every edit emits
+  `DisplayManager.lineWeightsChanged` (not `sceneModified`, which fans out to
+  3D / elevation rebuilds). MainWindow `_on_line_weights_changed` marks the
+  project modified and calls `_refresh_weight_canvases` (re-pens every
+  underlay, repaints model / paper / Block Editor views); `_apply_loaded_file`
+  calls the same refresh after applying an opened file's table. Cancel replays
+  renames in reverse and restores the snapshot (only when the table was
+  edited). "Set as Default" writes the template.
+- **H4** `paper_display.canvas_weight_px(width_mm)` implements LT1-7 and
+  returns 1.0 while `thin_lines_active()` (Thin Lines on and not suspended by a
+  paper pass); it replaces the inline mapping in `underlay_layer_pen`,
   `_pdf_width_to_px` (keeping its floor) and `TextItem._frame_pen`.
 - **H5** `BlockInstance` gains `_paper_pen_width` / `_paper_pen_color` (the
   Pipe pattern), set by an `_apply_block` branch of `apply_paper_overrides`
   and cleared by `restore_model_display`; compiled op pens are never mutated
   (flyweight). Nested blocks are covered because the compile flattens their ops.
-- **H6** *(as-proposed — Paper-tab row source probe)* `"Blocks"` joins
-  `_CATEGORY_KEYS` with `_FACTORY_LW` Light, outside `_HAS_FILL` /
-  `_HAS_SECTION`.
-- **H7** `save_to_library(..., weights=)` fed by a `used_weight_names`
-  collector; on load, `block_library.read_bundled_weights(path)` is merged by
-  one `Model_Space` helper at both embed sites (`load_blocks_from_files`,
-  `reload_from_library`).
-- **H8** *(as-proposed — paper annotation aliasing probe)*
-  `_line_weight_in_use` / `_propagate_lw_rename` extend to sheet annotations
-  and definition text primitives (rename → `BlockRegistry.invalidate`).
-- **H9** `paper_display.weight_names()` feeds `frame_group` and both
-  property-row builders.
+  Selection never plots (the accent is skipped while a paper width is set);
+  the block placement ghost is paper-excluded (`PAPER_EXCLUDED` is read
+  per instance).
+- **H6** `"Blocks"` joins `_CATEGORY_KEYS` with `_FACTORY_LW` Light, outside
+  `_HAS_FILL` / `_HAS_SECTION`, and the Display Manager Paper tab's
+  `_PS_GROUPS["Drafting"]` (rows come from `_PS_GROUPS`, not the key list).
+- **H7** `save_to_library` computes the `weights` map itself via the
+  `used_weight_names` collector (definition + bundle); on load,
+  `block_library.read_bundled_weights(path)` is merged by
+  `Model_Space._merge_bundled_weights` at both embed sites
+  (`load_blocks_from_files`, `reload_block_definition`).
+- **H8** `_line_weight_in_use` / `_propagate_lw_rename` walk
+  `DisplayManager._text_weight_refs` (sheet annotations — live paper TextItems
+  alias them — model-plan TextItems, definition text primitives → rename calls
+  `BlockRegistry.invalidate`).
+- **H9** `paper_display.weight_names()` feeds `frame_group`, both
+  property-row builders and the Underlay Manager weight menu.
 - **H10** `FooterRail.thin_pill` (copy of the HALO pill, tooltip, no shortcut
-  in LT1); MainWindow wiring sets the flag, stores `view/thin_lines`,
-  re-applies underlay pens and updates every model / Block Editor viewport.
+  in LT1); MainWindow `_toggle_thin_lines` sets the flag, stores
+  `view/thin_lines` and calls `_refresh_weight_canvases`; the flag is restored
+  at startup before any underlay is built. Paper isolation: the module counter
+  `_THIN_SUSPEND` (incremented by `apply_paper_overrides`, released by
+  `restore_model_display`, warns if unbalanced).
 
-### LT1 guards (VC3)
+### LT1 guards (VC3) — as built
 
-T1 block weight parsed from a real PDF export (1:100 + 1:50, nested two deep;
-category → Heavy follows) · T2 white-pen block plots black in B&W, authored in
-Full Color · T3 `.fpd` round-trip with QSettings untouched by Open; old file /
-New → template; Set as Default → template · T4 `.fpdb` weights added / project
-wins · T5 remove refused + rename followed for sheet and definition texts ·
-T6 THIN pill → weighted underlay + text border pixel-sampled at 1 px, PDF
-unchanged, survives restart · T7 custom text-border weight samples ≈ mm × 6 on
-canvas · T8 custom weight listed in all three Border Weight pickers.
+T1 `tests/test_lt1_block_paper.py` (real PDF parse at 1:50 + 1:100, Thin Lines
+on/off; nested three deep follows Heavy) · T2 same file (BW black / Full Color
+authored, Custom colour, block text, selection never plots, ghost never plots)
+· T3 `tests/test_lt1_project_weights.py`, `tests/test_lt1_weights_dialog.py`,
+`tests/test_lt1_open_order.py` (real `_load_project`) · T4
+`tests/test_lt1_fpdb_weights.py` · T5 `tests/test_lt1_weight_refs.py` · T6
+`tests/test_lt1_thin_lines.py` (paper parity for weighted + unweighted PDF
+underlays; the model-text border is guarded at the paper-pass level because a
+pre-existing crash blocks model text in viewports — filed) · T7
+`tests/test_lt1_canvas_mapping.py` · T8 `tests/test_lt1_pickers.py`.
 
 ## Acceptance Criteria
 
