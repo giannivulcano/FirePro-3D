@@ -1868,6 +1868,25 @@ def test_rotate_commit_refuses_and_pushes_no_undo(qapp):
     assert t._angle == angle0
 
 
+def test_scale_commit_refuses_and_pushes_no_undo(qapp):
+    """D17/D45 Scale commit (constructible since CS4): a line fully defined by
+    Coincident(p1, origin) + Horizontal + a length dim is refused."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+    assert ctl.diagnostics().state(ln._uid) == "defined"
+    sc.push_undo_state()
+    n = len(sc._undo_stack)
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(50, 50)
+    assert sc._modify_ctl.commit_scale(2.0) is False
+    assert len(sc._undo_stack) == n
+    assert math.hypot(ln._pt2.x() - ln._pt1.x(), ln._pt2.y() - ln._pt1.y()) ==         pytest.approx(300.0)
+
+
 def test_d4_migrated_definition_with_coincident_to_origin_opens_satisfied(qapp):
     """D4 seam (closed CS3): migrate THEN load + solve keeps an origin-tied
     constraint satisfied (p1 sat on the old origin)."""

@@ -262,3 +262,74 @@ def test_reference_dim_does_not_open_an_edit(be):
     c = ctl.add("dim_distance", [E(ln)])
     ctl.set_driving(c.id, False)
     assert ctl.open_dim_edit(c.id, v) is False and not sc.readouts.is_editing()
+
+
+# -- Task 7: Scale tool, copies, undo, persistence (D54, section 11 #3/#4) -----
+
+def test_scale_tool_commit_scales_dims_d54(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert c.value == pytest.approx(600.0) and _len(ln) == pytest.approx(600.0, abs=1e-6)
+
+
+def test_mirror_and_rotated_copies_keep_dims_d54(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("dim_distance", [E(ln)])
+    recs = ctl.internal_records([ln])
+    cp1 = _line(sc, (0, 50), (300, 50))
+    ctl.paste_records(recs, {ln._uid: cp1._uid},
+                      mirror_axis=(QPointF(0, 0), QPointF(1, 1)))
+    cp2 = _line(sc, (0, 90), (300, 90))
+    ctl.paste_records(recs, {ln._uid: cp2._uid}, rotation_deg=37.0)
+    dims = [c for c in ctl.constraints if c.type == "dim_distance"]
+    assert len(dims) == 3 and all(d.value == pytest.approx(300.0) for d in dims)
+    assert not any(d.inert for d in dims)
+
+
+def test_undo_redo_add_value_driving(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    sc.push_undo_state()
+    c = ctl.add("dim_distance", [E(ln)])
+    ctl.set_value(c.id, 200.0)
+    ctl.set_driving(c.id, False)
+    sc.undo()
+    (d,) = ctl.constraints
+    assert d.driving and d.value == pytest.approx(200.0)
+    sc.undo()
+    (l2,) = sc._draw_lines
+    assert _len(l2) == pytest.approx(300.0) and ctl.constraints[0].value == pytest.approx(300.0)
+    sc.undo()
+    assert ctl.constraints == []
+    sc.redo(); sc.redo()
+    assert ctl.constraints[0].value == pytest.approx(200.0)
+    (l3,) = sc._draw_lines
+    assert _len(l3) == pytest.approx(200.0)
+
+
+def test_save_reopen_round_trips_the_dim(qapp):
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    project = Model_Space()
+    ln = LineItem(QPointF(0, 0), QPointF(300, 0))
+    defn = BlockDefinition.new(
+        name="B", library="L", series="S", primitives=[ln.to_dict()], origin=(0.0, 0.0),
+        constraints=[{"id": "d1", "type": "dim_distance", "value": 250.0,
+                      "driving": True, "refs": [{"uid": ln._uid, "h": "edge"}]},
+                     {"id": "d2", "type": "dim_distance", "value": 999.0,
+                      "driving": False, "refs": [{"uid": ln._uid, "h": "edge"}]}])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    w.seed_from_definition(defn)
+    sc = w.editor_scene; ctl = sc.constraint_ctl
+    (l,) = sc._draw_lines
+    assert _len(l) == pytest.approx(250.0, abs=1e-6)                # driving applied on open
+    assert [(c.id, c.driving) for c in ctl.constraints] == [("d1", True), ("d2", False)]
+    out = ctl.to_records()
+    assert out[0]["value"] == 250.0 and out[1]["driving"] is False
+    assert project.constraint_ctl.constraints == []                 # never in the plan (C1/C8)
