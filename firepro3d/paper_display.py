@@ -227,7 +227,7 @@ _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Roof", "Room", "Floor",
     "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
-    "Construction", "Hatch",
+    "Construction", "Hatch", "Blocks",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
@@ -251,6 +251,7 @@ _FACTORY_LW = {
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
     "Construction": "Light",
     "Hatch": "Very Light",
+    "Blocks": "Light",          # paper-only, no fill/section (linetypes.md LT1-2)
 }
 
 
@@ -466,6 +467,9 @@ def _category_for_item(item) -> str | None:
         return "Grid Line"
     if isinstance(item, HydraulicNodeBadge):
         return "Hydraulic Badge"
+    from .block_instance import BlockInstance
+    if isinstance(item, BlockInstance):
+        return "Blocks"
     # Detect by class name to avoid circular imports
     cls_name = type(item).__name__
     if cls_name == "RoofItem":
@@ -603,6 +607,24 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
+
+
+def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
+    """Paper overrides for a BlockInstance (linetypes.md LT1-2 / H5).
+
+    Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
+    (divided by ``paper_scale``, the §9.9.1 pattern of ``_apply_pipe``); B&W /
+    Custom force the category colour onto stroke + text ops, Full Color keeps
+    the authored colours. Compiled op pens are never mutated (flyweight: one
+    compile is shared by every instance) -- ``BlockInstance.paint`` reads these
+    two hooks instead. Fill / pattern ops stay under the hatch rules.
+    """
+    from PyQt6.QtGui import QColor
+    inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+    inst._paper_pen_color = (QColor(cat["color"])
+                             if color_mode != PaperColorMode.FULL_COLOR else None)
+    inst.setOpacity(cat["opacity"] / 100.0)
+    inst.update()
 
 
 def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
@@ -798,6 +820,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["marker"] = _save_marker_state(item, "_marker_color")
             elif cat_key == "Detail Marker":
                 entry["marker"] = _save_marker_state(item, "_tag_color")
+            elif cat_key == "Blocks":
+                entry["block_paper"] = (item._paper_pen_width,
+                                        item._paper_pen_color)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -824,6 +849,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
             elif cat_key == "Detail Marker":
                 _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+            elif cat_key == "Blocks":
+                _apply_block(item, cat, color_mode, lw_mm, paper_scale)
             elif cat_key == "Construction":
                 _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
@@ -1012,6 +1039,12 @@ def restore_model_display(saved: list[dict]):
                 item.setPen(ms["pen"])
             if ms.get("brush") is not None:
                 item.setBrush(ms["brush"])
+            item.update()
+
+        elif cat_key == "Blocks":
+            # Paint hooks only (H5); opacity/visibility restored above.
+            item._paper_pen_width, item._paper_pen_color = entry.get(
+                "block_paper", (None, None))
             item.update()
 
         elif cat_key == "Construction":

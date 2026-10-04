@@ -50,6 +50,10 @@ class BlockInstance(QGraphicsObject):
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
+        # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
+        # viewport pass by paper_display._apply_block, None on the model canvas.
+        self._paper_pen_width: Optional[float] = None
+        self._paper_pen_color: Optional[QColor] = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -198,15 +202,24 @@ class BlockInstance(QGraphicsObject):
                     b.setColor(override)
                 if selected:
                     b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if self._paper_pen_color is not None:
+                    b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(b)
             else:
+                # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
-                p.setCosmetic(True)
+                if self._paper_pen_width is not None:
+                    p.setCosmetic(False)          # true mm on paper (LT1-2)
+                    p.setWidthF(self._paper_pen_width)
+                else:
+                    p.setCosmetic(True)           # canvas: authored px (LT1-1)
                 if override is not None:
                     p.setColor(override)
                 if selected:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if self._paper_pen_color is not None:
+                    p.setColor(self._paper_pen_color)
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))

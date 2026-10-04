@@ -2094,7 +2094,7 @@ class DisplayManager(QDialog):
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
         ],
-        "Drafting": ["Hatch"],
+        "Drafting": ["Hatch", "Blocks"],
     }
 
     def _build_paper_space_tab(self) -> QWidget:
