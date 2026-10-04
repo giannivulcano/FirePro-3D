@@ -1,5 +1,5 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 ratified 2026-10-04 (as-proposed, building); LT3–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
 last-verified: 2026-10-04  # LT1 Account; D-L sections beyond LT1 unchanged
 verified-commit: d031637
 applies-to:               # LT1 seams (built) + planned modules (LT2+)
@@ -192,6 +192,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   paper). B&W / Custom force the category colour onto stroke **and** text ops;
   Full Color keeps authored colours. Fill / pattern ops stay under the hatch
   rules. Absorbs todo L33 (white-pen blocks invisible on sheets).
+  *(LT2-5 refines: from LT2 only By Block ops take the category weight;
+  named-weight ops plot at their own mm.)*
 - **LT1-3 Project weight table** (D-L13): saved in the `.fpd`. Open adopts it
   and **never writes QSettings**. An old file without a table, and New Project,
   both copy the template (QSettings, else factory). Edits mark the project
@@ -292,6 +294,159 @@ authored, Custom colour, block text, selection never plots, ghost never plots)
 underlays; the model-text border is guarded at the paper-pass level because a
 pre-existing crash blocks model text in viewports — filed) · T7
 `tests/test_lt1_canvas_mapping.py` · T8 `tests/test_lt1_pickers.py`.
+
+## LT2 — Stroke style record, copy_style, weight resolution, rename aliases (ratified 2026-10-04)
+
+> Slice contract for LT2 (concept LD1 + D-L17a/D-L18/D-L23b), batched with the
+> LT1 follow-up bug "weight rename leaves stale names". The *what* was settled
+> in the LT2 Phase-2 grill (Q1–Q12, FP3 deltas only) and the *how* (H-a–H-g)
+> approved as one batch, both 2026-10-04. P4 probe: an identical `setPen` on
+> Path / Line / Rect items emits no `scene.changed` (paint-time pen sync is
+> loop-free). *Status: as-proposed → BUILT once the slice lands.*
+
+### What (grill Q1–Q12)
+
+- **LT2-1 Record.** The 8 stroke primitives (Polyline, Line, Rectangle,
+  Circle, Arc, RegularPolygon, Ellipse, Spline) carry
+  `style: {linetype, weight, start, finish, colour}`. `TextItem` (own
+  `border_weight`) and `ReferenceLineItem` (fixed reference style + its paper
+  rule) do **not**.
+  - `linetype` = `"continuous"` (reserved keyword — never a block, never
+    "missing") | `"by_block"` | a linetype block id (LT4+). LT7's shipped
+    "Continuous" entry is a picker label for the keyword.
+  - `weight` = a named weight | `"by_linetype"` | `"by_block"`.
+  - `start` / `finish` = `{end: "by_linetype" | "by_block" | <id>, visible: bool}`
+    — stored and preserved from LT2, rendered from LT5.
+  - `colour` = `#hex` (already a valid HF1 ColourValue; HF1 adds tokens
+    without a migration). The record is the **only** source of the authored
+    colour — never `pen()` (which `paint()` tints with `_display_color`).
+- **LT2-2 Migration** (D-L17a). A legacy primitive (`"lineweight"` /
+  `"color"` keys, no `style`) loads as Continuous / By Block / `by_linetype`
+  ends / its authored colour; the px width is dropped. Applies to `.fpd`,
+  `.fpdb`, stored definition primitives, clipboard payloads and undo
+  snapshots. A definition's `version` / `source_status` never changes on
+  migration. Paper output of legacy files is identical.
+- **LT2-3 Edit tools** (D-L23b). Every derive path keeps the full record via
+  `copy_style`. Free ends:
+
+  | Tool | Ends |
+  |---|---|
+  | Break / break-at-point (split) | outer ends keep; both cut ends → `by_linetype` |
+  | Trim (in place) | trimmed end → `by_linetype`; other end keeps |
+  | Extend | moved end keeps (same end, longer) |
+  | Fillet / chamfer | trimmed ends at the tangent/corner → `by_linetype`; the new arc/segment copies style with both ends `by_linetype` |
+  | Join | outer ends of the sources; style from the first-picked item |
+  | Copy / mirror / offset / array / explode / polyline swap / clipboard | verbatim |
+
+- **LT2-4 Canvas** (D-L14, D-L17). Top-level By Block (and, in LT2, By
+  Linetype — Continuous has no weight) → the Display Manager **Model "Blocks"**
+  weight (factory **Light** → exactly 1.0 px); a named weight → its own
+  `canvas_weight_px`. Same rule on the plan canvas (compiled block ops) and the
+  Block Editor (raw items). Thin Lines applies to both. Strokes stay solid
+  until LT3.
+- **LT2-5 Paper.** By Block ops plot at the paper "Blocks" weight (LT1-2,
+  unchanged); named-weight ops plot at their own mm (true mm ÷ viewport
+  scale), nested blocks included. The placement / nested-record `style` slot
+  (D-L5 By Block chaining) stays LT5 — in LT2 By Block always means the
+  category.
+- **LT2-6 Model "Blocks" row.** The Display Manager Model tab gains a Line
+  Weight column, filled only on a new "Blocks" row (weight only — authored
+  block colours, per-instance visibility/opacity unchanged); default Light.
+- **LT2-7 Panel.** Linetype (Continuous / By Block) and Weight (By Block +
+  named weights) are editable on selected primitives, undoable; Polygon gains
+  Colour / Weight rows. The sticky ribbon **current** Linetype/Weight (D-L18)
+  is LT4 (concept LD7); new primitives default to Continuous + By Block.
+- **LT2-8 Rename** (closes the LT1-5 known gaps). After renaming A → B every
+  holder draws at B's width and saves as B: live items, open Block Editors,
+  model / paper / Block Editor undo-redo across the rename, paste of a
+  pre-rename clipboard, `.fpd` save, `.fpdb` save, library re-place, and LT2
+  `style.weight`. Cancel fully restores. A weight later created (or another
+  weight renamed) as A must not hijack the old references. Undo snapshots no
+  longer share primitive dicts with the live definitions.
+- **LT2-9 Explode (recorded for LT5).** Once placements carry style, Explode
+  resolves `by_block` primitives to the instance's concrete values (look
+  unchanged). In LT2 they are copied verbatim.
+- **Out of scope (filed):** hard-coded `"Medium"` text-border default and
+  factory-name assumptions surviving a rename of a factory weight; the
+  categories' QSettings-as-live-store flaw (now also the Model "Blocks" row).
+
+### How (H-a–H-g)
+
+- **H-a Record + migration.** New `stroke_style.py` owns `default_style(colour)`,
+  `normalize_style(d)` (fills missing fields, validates keywords, deep copy)
+  and `migrate_legacy(prim_dict)`. Migration runs at
+  `Geometry2DMixin._geom2d_from_dict` (items) and `BlockDefinition.from_dict`
+  (stored primitive dicts, in place at load, no `version` bump).
+  `_geom2d_to_dict` writes `style`; the 8 classes stop writing
+  `lineweight` / `color`. `Model_Space.SAVE_VERSION` 9 → 10 (informational —
+  migration is key-presence driven; load never reads the version). Shipped
+  `.fpdb`s are not rewritten.
+- **H-b `copy_style(src, dst, *, fresh_ends=())`** in `stroke_style.py` — deep
+  copy of `src.style` (no-op for Text / ReferenceLine); `fresh_ends` names the
+  ends reset to `by_linetype` per LT2-3. Replaces the explicit
+  `color=`/`lineweight=` copies at the `scene_tools` derive sites and the
+  polyline → line swap; dict round-trips (`_clone`, `_spline_copy`, paste,
+  undo, editor seed/commit) carry the record already (`_spline_copy` drops its
+  `"lineweight"` read). Constructors keep `color` / `lineweight` as plain pen
+  arguments (ghosts, reference compile). New primitives take
+  `Model_Space._geom_style()` (`_geom_color_lw` stays for preview pens).
+- **H-c Pen derived at paint.** Each primitive `paint()` calls the mixin's
+  `_sync_stroke_pen()`: colour = `_display_color` or `style.colour`; width =
+  `canvas_weight_px(resolve)` with By Block / By Linetype → the Model "Blocks"
+  weight; cosmetic. Skipped while a placement ghost pen is active. The style
+  record is the truth; the pen is a render cache.
+- **H-c′/H-d Compiled ops.** `RenderOp` gains `weight: str | None`
+  (unresolved name / `"by_block"`), filled at compile from the primitive's
+  style; reference-mode compile and placeholders leave `None`.
+  `BlockInstance.paint` resolves per op — `None`: today's op pen width
+  (canvas) / `_paper_pen_width` (paper); `"by_block"`: Model Blocks px
+  (canvas) / `_paper_pen_width` (paper); named: its `canvas_weight_px` /
+  its mm ÷ `_paper_scale`. `_apply_block` also stores `_paper_scale`;
+  `restore_model_display` clears it. Pen *style* (printed reference-line
+  DashLine) still comes from `op.pen`. The flyweight compile is unchanged.
+- **H-e Model "Blocks" row.** `_CATEGORIES` entry `"Blocks"` with a
+  `line_weight` property (default `"Light"`), persisted through the existing
+  `display_settings` / QSettings path; a Line Weight column on the Model tab,
+  editable only on that row (the shared weight picker over `weight_names()`);
+  an edit emits `lineWeightsChanged` → the LT1 H3 refresh.
+- **H-f Panel rows.** `_geom2d_properties` adds Linetype / Weight (and Colour
+  where missing) through the existing panel undo path; the per-class
+  read-only Colour / Line Weight labels go. `_text_weight_refs`,
+  `_line_weight_in_use`, `_propagate_lw_rename` and `used_weight_names`
+  include `style.weight` references.
+- **H-g Rename aliases.** `paper_display` keeps a project alias map
+  `{old: new}` persisted beside `line_weights` (`.fpd`), reset by New, part of
+  the Display Manager Cancel snapshot. Rename A → B adds A → B, collapses any
+  X → A to X → B and drops a B → … entry (renaming back works).
+  `canonical_weight_name()` follows the chain (cycle-guarded);
+  `resolve_line_weight_mm` uses it. **No hijack:** creating a weight, or
+  renaming a different weight, onto an alias key is refused with a message.
+  Eager rewrite of live holders: the H8 walk + definition-primitive
+  `style.weight` + open Block Editors' raw items (via a provider the
+  `BlockEditorManager` registers on the project scene). Normalisation to
+  canonical names at undo restore (`_restore_network`, model and editor
+  scenes), paste, `.fpd` save, `.fpdb` write / `used_weight_names`, and
+  library merge (an incoming alias-key name canonicalises instead of adding a
+  row). Paper undo commands rely on the resolver + save normalisation.
+  `BlockDefinition.to_dict` deep-copies `primitives` (snapshot isolation; a
+  snapshot-cost probe on a block-heavy scene is a plan step).
+
+### LT2 guards (VC3)
+
+G9 (legacy `.fpd` + `.fpdb` → record defaults; **parsed PDF stroke widths
+identical to base**; definition `version` / `source_status` unchanged) · G8a
+(`.fpd` save/load, undo/redo, `.fpdb` bundle keep the full record; used
+`style.weight` names bundled) · T-edit (every reachable tool through its real
+entry point preserves style; unreachable `scene_tools` functions called
+directly against the LT2-3 table) · T-canvas (pixel sampling, plan + Block
+Editor: By Block = 1 px at Light, wider at Heavy row; named Heavy =
+`canvas_weight_px`; Thin Lines → 1 px) · T-paper (real PDF parse at 1:50 /
+1:100: By Block at the paper Blocks weight, named ops at their mm, nested
+included) · T-panel (Weight / Linetype edit applied, undoable, persisted) ·
+T-colour (Display Manager colour override active → saved `style.colour` =
+authored) · T-rename (per holder in LT2-8: draws at B, saves as B; Cancel
+restores; no hijack) · T-snap (in-place edit of a definition primitive after
+a snapshot leaves the snapshot unchanged).
 
 ## Acceptance Criteria
 
