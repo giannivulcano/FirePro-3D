@@ -1,6 +1,8 @@
 """LT2-1 / LT2-2 / H-a / H-b -- the stroke style record (stroke_style.py)."""
 import copy
 
+import pytest
+
 from firepro3d import stroke_style as ss
 
 
@@ -93,3 +95,108 @@ def test_canvas_px_real_path():
     assert ss.canvas_px("by_block") == 1.0
     assert ss.canvas_px("Heavy") == pd.canvas_weight_px(
         pd.resolve_line_weight_mm("Heavy"))
+
+
+# ---------------------------------------------------------------------------
+# Task 3 -- primitives carry the record; pen derived at paint (H-c)
+# ---------------------------------------------------------------------------
+
+from PyQt6.QtCore import QPointF  # noqa: E402
+from PyQt6.QtGui import QColor  # noqa: E402
+from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem,  # noqa: E402
+                                   LineItem, PolylineItem, RectangleItem,
+                                   ReferenceLineItem, RegularPolygonItem,
+                                   SplineItem)
+from firepro3d.block_definition import _PRIMITIVE_FACTORY  # noqa: E402
+
+
+def _all_styled(qapp):
+    p0, p1 = QPointF(0, 0), QPointF(100, 0)
+    pl = PolylineItem(p0, "#ff0000"); pl.append_point(p1)
+    return [pl, LineItem(p0, p1, "#ff0000"),
+            RectangleItem(p0, QPointF(50, 50), "#ff0000"),
+            CircleItem(p0, 10.0, "#ff0000"),
+            ArcItem(p0, 10.0, 0.0, 90.0, color="#ff0000"),
+            RegularPolygonItem(p0, sides=6, radius_mm=10.0, color="#ff0000"),
+            EllipseItem(p0, 20.0, 10.0, color="#ff0000"),
+            SplineItem([p0, QPointF(50, 50), p1], color="#ff0000")]
+
+
+def test_every_styled_class_round_trips_style(qapp):
+    for it in _all_styled(qapp):
+        it.style["weight"] = "Heavy"
+        it.style["finish"]["visible"] = False
+        d = it.to_dict()
+        assert "lineweight" not in d and "color" not in d, type(it).__name__
+        back = _PRIMITIVE_FACTORY[d["type"]].from_dict(d)
+        assert back.style == it.style, type(it).__name__
+        assert back.style["colour"] == "#ff0000"
+
+
+def test_reference_line_and_text_have_no_style(qapp):
+    rl = ReferenceLineItem(QPointF(0, 0), QPointF(1, 0))
+    assert rl.style is None
+    d = rl.to_dict()
+    assert "style" not in d and d["lineweight"] == 1.0
+
+
+def test_legacy_dict_loads_continuous_by_block(qapp):
+    d = {"type": "draw_line", "pt1": [0, 0], "pt2": [10, 0],
+         "color": "#00ff00", "lineweight": 4.0}
+    it = LineItem.from_dict(d)
+    assert it.style == ss.default_style("#00ff00")
+    assert it.pen().widthF() == 1.0                 # px dropped
+
+
+def test_display_colour_never_serialised(qapp):
+    """T-colour: a Display Manager colour tints the pen, not the record."""
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtWidgets import QGraphicsScene, QStyleOptionGraphicsItem
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0), "#ff0000")
+    sc = QGraphicsScene(); sc.addItem(ln)
+    ln._display_color = "#00ff00"
+    img = QImage(20, 20, QImage.Format.Format_ARGB32)
+    p = QPainter(img); ln.paint(p, QStyleOptionGraphicsItem()); p.end()
+    assert ln.pen().color().name() == "#00ff00"     # painted tint
+    assert ln.to_dict()["style"]["colour"] == "#ff0000"
+    assert ln.style["colour"] == "#ff0000"
+
+
+def test_paint_pen_follows_weight(qapp, monkeypatch):
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtWidgets import QGraphicsScene, QStyleOptionGraphicsItem
+    from firepro3d import paper_display as pd
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0))
+    sc = QGraphicsScene(); sc.addItem(ln)
+    img = QImage(20, 20, QImage.Format.Format_ARGB32)
+
+    def _paint():
+        p = QPainter(img); ln.paint(p, QStyleOptionGraphicsItem()); p.end()
+        return ln.pen().widthF()
+
+    pd.set_model_blocks_weight(None)
+    assert _paint() == pytest.approx(1.0)           # By Block -> Light -> 1 px
+    ln.style["weight"] = "Heavy"
+    assert _paint() == pytest.approx(
+        pd.canvas_weight_px(pd.resolve_line_weight_mm("Heavy")))
+    pd.set_thin_lines(True)
+    try:
+        assert _paint() == pytest.approx(1.0)
+    finally:
+        pd.set_thin_lines(False)
+
+
+def test_polyline_ghost_pen_survives_paint_until_finalize(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QImage, QPainter, QPen
+    from PyQt6.QtWidgets import QGraphicsScene, QStyleOptionGraphicsItem
+    pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(10, 0))
+    ghost = QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine); ghost.setCosmetic(True)
+    pl.setPen(ghost); pl._ghost_pen = True
+    sc = QGraphicsScene(); sc.addItem(pl)
+    img = QImage(20, 20, QImage.Format.Format_ARGB32)
+    p = QPainter(img); pl.paint(p, QStyleOptionGraphicsItem()); p.end()
+    assert pl.pen().style() == Qt.PenStyle.DashLine
+    pl.finalize()
+    assert pl._ghost_pen is False
+    assert pl.pen().style() == Qt.PenStyle.SolidLine

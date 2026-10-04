@@ -613,6 +613,7 @@ class GeometryDrawingController:
             _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
             _ghost.setCosmetic(True)
             pl.setPen(_ghost)
+            pl._ghost_pen = True     # paint must not re-derive (LT2 H-c)
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
@@ -1609,6 +1610,7 @@ class GeometryDrawingController:
         pen = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
+        ghost._ghost_pen = True      # keep the width-1 dashed ghost at paint
         ghost.setZValue(200)
         ghost.setFlag(ghost.GraphicsItemFlag.ItemIsSelectable, False)
         s.addItem(ghost)

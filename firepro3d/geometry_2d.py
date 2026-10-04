@@ -115,6 +115,68 @@ class Geometry2DMixin:
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
         self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
         # fill colour lives in DisplayableItemMixin._display_fill_color
+        # Stroke style record (linetypes.md LT2-1): the source of truth for
+        # linetype / weight / ends / authored colour. None on unstyled
+        # subclasses (ReferenceLineItem, TextItem). Set by _init_stroke.
+        self.style: dict | None = None
+        # True while a placement ghost pen owns the pen (PolylineItem).
+        self._ghost_pen: bool = False
+
+    # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
+    _STYLED = True
+
+    def _init_stroke(self, color, lineweight: float = 1.0) -> None:
+        """Set the record from the constructor colour and the initial pen.
+
+        *lineweight* only seeds the initial cosmetic pen (ghosts / reference
+        compile); the record's weight is By Block (D-L18 default).
+        """
+        from . import stroke_style
+        hexcol = stroke_style._hex(color)
+        if self._STYLED:
+            self.style = stroke_style.default_style(hexcol)
+        pen = QPen(QColor(hexcol))
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+
+    def _sync_stroke_pen(self) -> None:
+        """Derive the pen from the record at paint (H-c).
+
+        Colour = the Display Manager colour if set, else ``style.colour``;
+        width = the canvas px of the resolved weight; cosmetic. Skipped while a
+        placement ghost owns the pen, and while a paper pass has set a
+        non-cosmetic pen (paper_display._apply_construction). Unstyled items
+        keep the pre-LT2 behaviour (display colour onto the pen).
+        """
+        dc = getattr(self, "_display_color", None)
+        if self.style is None:
+            if dc:
+                pen = QPen(self.pen())
+                pen.setColor(QColor(dc))
+                self.setPen(pen)
+            return
+        if self._ghost_pen or not self.pen().isCosmetic():
+            return
+        from .stroke_style import canvas_px
+        pen = QPen(self.pen())
+        pen.setColor(QColor(dc or self.style["colour"]))
+        pen.setWidthF(canvas_px(self.style["weight"]))
+        pen.setCosmetic(True)
+        self.setPen(pen)
+
+    def _set_style_field(self, key: str, value) -> None:
+        """Apply a panel style edit to the record (LT2-7), then repaint."""
+        from .stroke_style import BY_BLOCK, CONTINUOUS, _hex
+        v = str(value)
+        if key == "Linetype":
+            self.style["linetype"] = BY_BLOCK if v == "By Block" else CONTINUOUS
+        elif key == "Weight":
+            self.style["weight"] = BY_BLOCK if v == "By Block" else v
+        else:
+            self.style["colour"] = _hex(v)
+        self._sync_stroke_pen()
+        self.update()
 
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
@@ -184,6 +246,20 @@ class Geometry2DMixin:
     def _geom2d_properties(self) -> dict:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
+        if self.style is not None:
+            from .paper_display import weight_names
+            lt = self.style["linetype"]
+            props["Linetype"] = {"type": "enum",
+                                 "options": ["Continuous", "By Block"],
+                                 "value": "By Block" if lt == "by_block"
+                                 else "Continuous"}
+            w = self.style["weight"]
+            props["Weight"] = {"type": "enum",
+                               "options": ["By Block", *weight_names()],
+                               "value": "By Block" if w in ("by_block",
+                                                           "by_linetype")
+                               else w}
+            props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],
@@ -216,6 +292,9 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if self.style is not None and key in ("Linetype", "Weight", "Colour"):
+            self._dim_edit(lambda v: self._set_style_field(key, v), value)
+            return True
         if key == "Fill":
             self.fill_type = str(value)
             self.update()
@@ -253,6 +332,11 @@ class Geometry2DMixin:
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it (level-less — C3)."""
         d["uid"] = self._uid
+        if self.style is not None:
+            from .stroke_style import normalize_style
+            d.pop("color", None)
+            d.pop("lineweight", None)
+            d["style"] = normalize_style(self.style)
         if getattr(self, "layer", ""):
             d["layer"] = self.layer
         if self.fill_type != "none":
@@ -273,6 +357,16 @@ class Geometry2DMixin:
         uid = data.get("uid")
         if uid:
             self._uid = str(uid)
+        if self._STYLED and self.style is not None:
+            from .stroke_style import migrate_primitive
+            st = migrate_primitive({**data, "type": data.get("type")}).get("style")
+            if st is not None:
+                self.style = st
+                pen = QPen(self.pen())
+                pen.setColor(QColor(st["colour"]))
+                pen.setWidthF(1.0)                  # px dropped (D-L17a)
+                pen.setCosmetic(True)
+                self.setPen(pen)
         self.layer = data.get("layer", "")
         f = data.get("fill")
         if f:
@@ -316,10 +410,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self._lineweight = lineweight   # restored (solid) by finalize() after a dashed ghost
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
@@ -332,8 +423,6 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def get_properties(self) -> dict:
         props = {
             "Type": {"type": "label", "value": "Polyline"},
-            "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Vertices": {"type": "label", "value": str(len(self._points))},
         }
         props.update(self._geom2d_properties())
@@ -380,6 +469,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         p.setStyle(Qt.PenStyle.SolidLine)
         p.setWidthF(getattr(self, "_lineweight", 1.0))
         self.setPen(p)
+        self._ghost_pen = False
         self._rebuild_path()
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -575,11 +665,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        pen_color = self.pen().color().name()
         d = {
             "type":       "polyline",
-            "color":      pen_color,
-            "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
             "closed":     self._closed,
         }
@@ -625,12 +712,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Apply effective display colour (category or per-instance override).
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen())
-            pen.setColor(QColor(dc))
-            self.setPen(pen)
+        # Derive the pen from the style record (+ display colour).
+        self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -689,10 +772,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -703,8 +783,6 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     def get_properties(self) -> dict:
         props = {
             "Type": {"type": "label", "value": "Line"},
-            "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Length": {"type": "dimension", "value": self._fmt(self.line().length()),
                        "value_mm": self.line().length(), "minimum": 0.0},
         }
@@ -727,8 +805,6 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
             "type":        "draw_line",
             "pt1":         [self._pt1.x(), self._pt1.y()],
             "pt2":         [self._pt2.x(), self._pt2.y()],
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
         }
         return self._geom2d_to_dict(d)
 
@@ -852,12 +928,8 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Apply effective display colour (category or per-instance override).
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen())
-            pen.setColor(QColor(dc))
-            self.setPen(pen)
+        # Derive the pen from the style record (+ display colour).
+        self._sync_stroke_pen()
         super().paint(painter, option, widget)
         if self.isSelected() and not _manip_wraps(self):
             ln = self.line()
@@ -897,6 +969,9 @@ class ReferenceLineItem(LineItem):
       output geometry (still dashed).
     * Its own "Reference Lines" Display-Manager category.
     """
+
+    # Unstyled (LT2-1): fixed reference style, keeps color/lineweight keys.
+    _STYLED = False
 
     def __init__(self, pt1: QPointF, pt2: QPointF,
                  color: str | QColor = "#ffffff", lineweight: float = 1.0,
@@ -982,10 +1057,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
@@ -1111,8 +1183,6 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             "Height": {"type": "dimension", "value": self._fmt(r.height()),
                        "value_mm": r.height(), "minimum": 0.0},
             "Angle": {"type": "label", "value": f"{self._angle:.1f}"},
-            "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
         props.update(self._geom2d_properties())
         return props
@@ -1147,8 +1217,6 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             "y":           r.y(),
             "w":           r.width(),
             "h":           r.height(),
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
             "angle":       self._angle,
             "pivot":       pivot,
         }
@@ -1296,12 +1364,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Apply effective display colour (category or per-instance override).
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen())
-            pen.setColor(QColor(dc))
-            self.setPen(pen)
+        # Derive the pen from the style record (+ display colour).
+        self._sync_stroke_pen()
         # Bake-at-rest: rotation is DATA, not a held item transform, so rotate
         # the painter about the pivot here (local rect stays axis-aligned).
         # save/restore keeps the rotation local to this paint call.
@@ -1510,10 +1574,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
@@ -1527,8 +1588,6 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             "Radius": {"type": "dimension", "value": self._fmt(self._radius),
                        "value_mm": self._radius,
                        "minimum": 1.0 - 1e-9},   # reject below the 1 mm floor
-            "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
         props.update(self._geom2d_properties())
         return props
@@ -1550,8 +1609,6 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             "cx":          self._center.x(),
             "cy":          self._center.y(),
             "radius":      self._radius,
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
         }
         return self._geom2d_to_dict(d)
 
@@ -1669,12 +1726,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Apply effective display colour (category or per-instance override).
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen())
-            pen.setColor(QColor(dc))
-            self.setPen(pen)
+        # Derive the pen from the style record (+ display colour).
+        self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -1753,9 +1806,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color), lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlags(
             self.GraphicsItemFlag.ItemIsSelectable |
@@ -1788,8 +1839,6 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                             "formatter": ScaleManager.format_span, "minimum": 0.0,
                             # set_property accepts 0 < span < 360 only
                             "maximum": 360.0 - 1e-6},
-            "Colour":      {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
         props.update(self._geom2d_properties())
         return props
@@ -1821,8 +1870,6 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "radius":     self._radius,
             "start_deg":  self._start_deg,
             "span_deg":   self._span_deg,
-            "color":      self.pen().color().name(),
-            "lineweight": self.pen().widthF(),
         }
         return self._geom2d_to_dict(d)
 
@@ -2014,12 +2061,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Apply effective display colour (category or per-instance override).
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen())
-            pen.setColor(QColor(dc))
-            self.setPen(pen)
+        # Derive the pen from the style record (+ display colour).
+        self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline); only applies when arc is closed
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -2111,10 +2154,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
@@ -2313,8 +2353,6 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             "radius_mm":   self._radius_mm,
             "rotation":    self._rotation_deg,
             "inscribed":   self._inscribed,
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
         }
         return self._geom2d_to_dict(d)
 
@@ -2334,9 +2372,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -2400,10 +2436,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
@@ -2559,8 +2592,6 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                    "value": self._fmt(self._ry), "value_mm": self._ry},
             "Rotation": {"type": "string",
                          "value": f"{self._rotation_deg:.2f}", "suffix": "°"},
-            "Colour":   {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
         props.update(self._geom2d_properties())
         return props
@@ -2595,8 +2626,6 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "rx":          self._rx,
             "ry":          self._ry,
             "rotation":    self._rotation_deg,
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
         }
         return self._geom2d_to_dict(d)
 
@@ -2611,9 +2640,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -2915,10 +2942,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
-        self.setPen(pen)
+        self._init_stroke(color, lineweight)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
@@ -3005,8 +3029,6 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "Points":   {"type": "label", "value": str(len(self._control_points))},
             "Degree":   {"type": "label", "value": str(self._degree)},
             "Rational": {"type": "label", "value": "yes" if self._weights else "no"},
-            "Colour":   {"type": "label", "value": self.pen().color().name()},
-            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
         props.update(self._geom2d_properties())
         return props
@@ -3023,8 +3045,6 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "degree":         self._degree,
             "knots":          list(self._knots) if self._knots else None,
             "weights":        list(self._weights) if self._weights else None,
-            "color":          self.pen().color().name(),
-            "lineweight":     self.pen().widthF(),
         }
         if self._closed:
             d["closed"] = True          # DD7: written only when set
@@ -3043,9 +3063,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        dc = getattr(self, "_display_color", None)
-        if dc:
-            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
