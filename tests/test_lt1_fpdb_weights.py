@@ -146,3 +146,31 @@ def test_unknown_weight_name_not_fabricated(qapp):
     assert "weights" not in rec
     rec = _read(block_library.save_to_library(_text_def("X40", "Two")))
     assert rec["weights"] == {"X40": 0.40}
+
+
+def test_merge_repens_underlay_waiting_on_added_weight(qapp):
+    """An underlay layer overriding to a name the project lacks is baked at
+    the fallback width; a library load that bundles the name re-pens it."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QGraphicsPathItem
+    from firepro3d.underlay import Underlay
+    _project_with()
+    path = block_library.save_to_library(_text_def("X40"))
+    _other_project()                                       # X40 missing
+    sc = Model_Space()
+    rec = Underlay(type="dxf", path="x.dxf", line_weight_name="X40")
+    group, _ = sc._build_batched_underlay_group(
+        [{"kind": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0,
+          "layer": "A"}], rec)
+    sc.underlays.append((rec, group))
+
+    def widths():
+        return [c.pen().widthF() for c in group.childItems()
+                if isinstance(c, QGraphicsPathItem)
+                and c.pen().style() != Qt.PenStyle.NoPen]
+
+    fallback = widths()
+    assert fallback != [pd.canvas_weight_px(0.40)]
+    sc.load_blocks_from_files([path])
+    assert pd.resolve_line_weight_mm("X40") == 0.40
+    assert widths() == [pd.canvas_weight_px(0.40)]

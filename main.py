@@ -3928,6 +3928,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.paper_display import apply_paper_display_from_project
         paper_ds = getattr(self.scene, '_loaded_paper_display', None)
         apply_paper_display_from_project(paper_ds)
+        # load_from_file baked cached-underlay pens against the PREVIOUS
+        # project's weight table; re-pen now that the file's table is live.
+        self._refresh_weight_canvases()
         # Hatch D-A39: patterns the file references but doesn't embed (2D /
         # block fills, DM category + instance section patterns) load from the
         # Hatch patterns folder as part of the undo baseline (no undo step).

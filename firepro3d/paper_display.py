@@ -10,11 +10,13 @@ tab in the Display Manager dialog.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, asdict
 from enum import Enum
 
 from PyQt6.QtCore import QSettings
 
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Line weight definitions
@@ -995,6 +997,10 @@ def restore_model_display(saved: list[dict]):
         if "thin_suspend" in entry:
             if entry["thin_suspend"]:            # lift once per pass
                 entry["thin_suspend"] = False
+                if _THIN_SUSPEND <= 0:
+                    _log.warning("restore_model_display: Thin Lines "
+                                 "suspension counter unbalanced (%d)",
+                                 _THIN_SUSPEND)
                 _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
             continue
         if "underlay_group" in entry:

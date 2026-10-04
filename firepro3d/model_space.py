@@ -1914,6 +1914,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # merge that added names must dirty it (no undo state pushed).
             self._dirty = True
             self.sceneModified.emit()
+            # Underlay pens bake at build: layers that fell back for a name
+            # this merge just added must pick up its real width.
+            for record, _group in list(self.underlays):
+                self.repen_underlay(record)
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).

@@ -192,3 +192,14 @@ def test_model_text_border_unthinned_during_paper_pass(qapp):
     assert during == normal                         # paper sees no Thin Lines
     assert _left_border_run(_border_thickness_px("Very Heavy")) <= 2
     assert pd.thin_lines_active() is True           # suspension lifted
+
+
+def test_unbalanced_suspension_warns(qapp, caplog):
+    """A restore that would drive the suspension counter negative logs it."""
+    import logging
+    saved = pd.apply_paper_overrides(Model_Space(), QRectF(0, 0, 10, 10))
+    pd._THIN_SUSPEND = 0                     # simulate an unbalanced counter
+    with caplog.at_level(logging.WARNING, logger="firepro3d.paper_display"):
+        pd.restore_model_display(saved)
+    assert pd._THIN_SUSPEND == 0
+    assert any("unbalanced" in r.getMessage() for r in caplog.records)
