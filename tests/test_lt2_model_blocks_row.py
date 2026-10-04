@@ -52,3 +52,19 @@ def test_reset_and_set_as_default(qapp):
     assert pd.model_blocks_weight() == "Heavy"
     s = QSettings("GV", "FirePro3D")
     assert s.value("display/Blocks/line_weight") == "Heavy"
+
+
+def test_model_undo_keeps_project_blocks_weight(qapp):
+    """A user default must not flip the project's Blocks weight on Ctrl+Z
+    (apply_saved_display_settings runs at every model undo restore)."""
+    from PyQt6.QtCore import QSettings
+    QSettings("GV", "FirePro3D").setValue(
+        "display/Blocks/default_line_weight", "Light")
+    ms = Model_Space()
+    apply_project_display_settings(ms, {"Blocks": {"line_weight": "Light"}})
+    d = DisplayManager(ms)
+    d._model_blocks_combo.setCurrentText("Heavy")  # project edit, not default
+    d.accept()
+    ms.push_undo_state()
+    ms.push_undo_state(); ms.undo()
+    assert pd.model_blocks_weight() == "Heavy"

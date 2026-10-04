@@ -2947,7 +2947,9 @@ def apply_saved_display_settings(scene):
         # Write back so Display Manager shows these values
         _write_category_to_settings(key, vals, settings)
         _apply_to_scene_items(scene, key, vals, respect_overrides=True)
-    _apply_model_blocks_weight(None, settings, prefer_default=False)
+    # Not the user default: this also runs at every undo restore (LT2-6).
+    _apply_model_blocks_weight(None, settings, prefer_default=False,
+                               use_user_default=False)
     settings.sync()
 
 
@@ -2977,14 +2979,26 @@ def apply_default_display_settings(scene):
 
 
 def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
-                               prefer_default: bool) -> None:
+                               prefer_default: bool,
+                               use_user_default: bool = True) -> None:
     """Resolve the Model "Blocks" weight (linetypes.md LT2-6): user default
-    -> project -> current QSettings -> factory (mirrors the category
-    precedence). *prefer_default* (New Project) skips the current key."""
+    -> project -> current QSettings -> factory.
+
+    Args:
+        project: the project ``display_settings`` dict (Open), or None.
+        settings: the QSettings store.
+        prefer_default: New Project -- skip the current key (default ->
+            factory).
+        use_user_default: consult the "Set as Default" key. False on the
+            ``apply_saved_display_settings`` path, which also runs at every
+            model undo restore: it keeps the current project value instead of
+            flipping it to the user default (current -> factory).
+    """
     from .paper_display import (MODEL_BLOCKS_FACTORY_WEIGHT,
                                 set_model_blocks_weight)
     key = _MODEL_BLOCKS_KEY
-    name = settings.value(f"display/{key}/default_line_weight")
+    name = (settings.value(f"display/{key}/default_line_weight")
+            if use_user_default else None)
     if not name and project:
         name = (project.get(key) or {}).get("line_weight")
     if not name and not prefer_default:
