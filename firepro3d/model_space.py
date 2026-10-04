@@ -4181,6 +4181,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "constrain_horizontal":     "_move_constrain_pick",
         "constrain_vertical":       "_move_constrain_pick",
         "constrain_coincident":     "_move_constrain_pick",
+        "constrain_dim_distance":   "_move_constrain_pick",
     }
 
     # Mode -> name of the method that redraws the placement preview from an
@@ -4812,6 +4813,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "constrain_horizontal":     "_press_constrain_pick",
         "constrain_vertical":       "_press_constrain_pick",
         "constrain_coincident":     "_press_constrain_pick",
+        "constrain_dim_distance":   "_press_constrain_pick",
     }
 
     # ── Constraint pick mode (parametric-constraint-system.md D21) ────────

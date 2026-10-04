@@ -1417,6 +1417,14 @@ class ConstraintController:
                     refs.reverse()
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
+        if ctype == "dim_distance":            # D50: the tool stays live
+            self.pick = PickState(self, ctype)
+            c = self.add(ctype, refs)
+            self._scene.instructionChanged.emit(self.pick.status())
+            self._repaint()
+            if c is not None and c.driving:
+                self.open_dim_edit(c.id, view)
+            return True
         self.pick = None
         self._scene.set_mode("select")
         self.add(ctype, refs)
@@ -1503,7 +1511,8 @@ class ConstraintController:
                 # One icon home (sketch_model.icon_for, VC9 F6): an inert row
                 # keeps its type's icon (muted), an unknown type the neutral one.
                 icon=themed_icon(sm.icon_for(c.type), icon_t),
-                text=kind,
+                text=(self.dim_text(c) if c.type in sm.VALUED and not c.inert
+                      else kind),
                 subtext=self.targets_text(c, " ↔ ", by),
                 muted=not c.enabled or c.inert,
                 strike=not c.enabled and not c.inert,
@@ -1521,6 +1530,16 @@ class ConstraintController:
         return dict(title=f"Constraints · {len(rows)}", rows=rows,
                     footer=footer, footer_state=fstate,
                     empty="No constraints on this entity")
+
+    def dim_text(self, c) -> str:
+        """Panel row text of a dim: ``Smart Dimension · 300.0 mm`` (a
+        Reference dim: its measured length in parentheses)."""
+        smgr = getattr(self._scene, "scale_manager", None)
+        v = c.value if c.driving else self.measure(c)
+        if v is None:
+            return c.label_text
+        s = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
+        return f"{c.label_text} · {s if c.driving else f'({s})'}"
 
     def _hover_row(self, cid, on) -> None:
         """Panel-row hover drives the canvas glow like a glyph hover (D11)."""
@@ -1782,9 +1801,25 @@ class ConstraintAdapter:
                  "Targets": {"type": "label", "value": self.ctl.targets_text(c, ", ")}}
         if not c.inert:
             props["Suppressed"] = {"type": "bool", "value": not c.enabled}
+        if not c.inert and c.type in sm.VALUED:          # CS4: Value + Driving (D52)
+            smgr = getattr(self.ctl._scene, "scale_manager", None)
+            v = c.value if c.driving else self.ctl.measure(c)
+            v = float(v) if v is not None else 0.0
+            fmt = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
+            props["Value"] = ({"type": "dimension", "value": fmt, "value_mm": v,
+                               "minimum": 0.0}
+                              if c.driving else {"type": "label", "value": f"({fmt})"})
+            props["Driving"] = {"type": "bool", "value": bool(c.driving)}
         return props
 
     def set_property(self, key, value) -> None:
         c = self.c
         if key == "Suppressed" and c is not None and not c.inert:
             self.ctl.set_enabled(c.id, not bool(value))
+        elif key == "Value" and c is not None:
+            try:
+                self.ctl.set_value(c.id, float(value))
+            except (TypeError, ValueError):
+                pass
+        elif key == "Driving" and c is not None:
+            self.ctl.set_driving(c.id, bool(value))

@@ -104,6 +104,7 @@ class Model_View(QGraphicsView):
             "constrain_horizontal":   _C.PointingHandCursor,
             "constrain_vertical":     _C.PointingHandCursor,
             "constrain_coincident":   _C.PointingHandCursor,
+            "constrain_dim_distance": _C.PointingHandCursor,
         }
 
         # Accept drag-drop for PDF/DXF import
