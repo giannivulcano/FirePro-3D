@@ -1,6 +1,7 @@
 """Guard tests for BlockDefinition (Block system S1)."""
 import uuid
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.stroke_style import migrate_primitive
 
 
 def _line_dict(x1=0.0, y1=0.0, x2=100.0, y2=0.0):
@@ -30,7 +31,8 @@ def test_to_dict_from_dict_round_trip():
     assert d2.version == d.version
     assert d2.name == "A"
     assert d2.origin == (5.0, 7.0)
-    assert d2.primitives == d.primitives
+    # LT2-2: load migrates legacy dicts to the style record.
+    assert d2.primitives == [migrate_primitive(p) for p in d.primitives]
     assert d2.scale_mode == "real_size"
 
 
