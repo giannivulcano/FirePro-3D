@@ -333,3 +333,69 @@ def test_save_reopen_round_trips_the_dim(qapp):
     out = ctl.to_records()
     assert out[0]["value"] == 250.0 and out[1]["driving"] is False
     assert project.constraint_ctl.constraints == []                 # never in the plan (C1/C8)
+
+
+# -- Review fix round (whole-diff review F1-F5, F7) ---------------------------
+
+def test_pasted_stale_reference_dim_is_not_red_f1(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    ctl.set_driving(c.id, False)
+    ln.set_length(420.0)                                   # Reference: free to move
+    recs = ctl.internal_records([ln])
+    cp1 = _line(sc, (0, 50), (420, 50))
+    ctl.paste_records(recs, {ln._uid: cp1._uid})
+    assert ctl.red == set()
+    assert ctl.sketch_state()[1] != "conflict"
+
+
+def test_suppressed_dim_refuses_value_edits_f2(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    a = _line(sc, (0, 0), (0, 50)); b = _line(sc, (100, 0), (100, 50))
+    c = ctl.add("dim_distance", [E(a, "p1"), E(b, "p1")])
+    ctl.set_enabled(c.id, False)
+    n = len(sc._undo_stack)
+    assert ctl.set_value(c.id, 60.0) is False
+    assert c.value == pytest.approx(100.0) and len(sc._undo_stack) == n
+    assert ctl.open_dim_edit(c.id, v) is False and not sc.readouts.is_editing()
+
+
+def test_scale_scales_a_suppressed_internal_dim_too_f3(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    ctl.set_enabled(c.id, False)                           # nothing active touches ln
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert c.value == pytest.approx(600.0) and _len(ln) == pytest.approx(600.0)
+
+
+def test_scale_body_exception_restores_dim_values_f4(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    with pytest.raises(RuntimeError):
+        with ctl.edit([ln], scale=2.0):
+            raise RuntimeError("boom")
+    assert c.value == 300.0
+
+
+def test_unchanged_value_pushes_no_undo_f5(qapp):
+    sc = _scene(); ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    n = len(sc._undo_stack)
+    assert ctl.set_value(c.id, 300.0) is True
+    assert len(sc._undo_stack) == n
+
+
+def test_short_edge_dim_is_still_pickable_f7(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (25, 0))                        # label wider than the edge
+    c = ctl.add("dim_distance", [E(ln)])
+    sc.clearSelection()
+    (e,) = cd.dim_entries(v, ctl)
+    assert not e.layout.fits
+    assert cp.dim_at(v, ctl, e.layout.center) == c.id

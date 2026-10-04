@@ -93,6 +93,7 @@ DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define th
                         "sketch")                                    # D52
 DIM_ZERO_STATUS = "Pick two separate points"
 DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
+DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
 
 
 def _xy(p) -> tuple[float, float]:
@@ -920,12 +921,23 @@ class ConstraintController:
         multiplied by it before the solve and restored on a rollback.
         """
         items = list(items)
+        scaled = (self._scale_dims(items, scale)
+                  if scale is not None and items and self.enabled else [])
         if not items or not self.enabled or not self.touches(items):
-            yield
+            try:
+                yield
+            except BaseException:
+                for c, v in scaled:
+                    c.value = v
+                raise
             return
         snap = self._snapshot(items)
-        scaled = self._scale_dims(items, scale) if scale is not None else []
-        yield
+        try:
+            yield
+        except BaseException:
+            for c, v in scaled:
+                c.value = v
+            raise
         pins = self._typed_pins(items, snap) if typed else None
         if not self._solve(edited=items, typed=pins):
             self._restore(snap)
@@ -1253,7 +1265,8 @@ class ConstraintController:
         status, no undo step. True when applied (one undo step)."""
         from .constraint_dims import readout_for
         c = self.find(cid)
-        if c is None or c.inert or c.type not in sm.VALUED or not c.driving:
+        if (c is None or c.inert or c.type not in sm.VALUED or not c.driving
+                or not c.enabled):                 # F2: a suppressed dim is read-only
             return False
         try:
             v = float(value)
@@ -1261,17 +1274,24 @@ class ConstraintController:
             return False
         if not math.isfinite(v) or v <= 0.0:
             return False
+        if (c.value is not None and c.id not in self.red
+                and math.isclose(v, c.value, rel_tol=1e-12, abs_tol=1e-9)):
+            return True                            # F5: unchanged -- no undo step
         hit = readout_for(self, c)
         old, was_red = c.value, c.id in self.red
         items = [hit[0]] if hit is not None else []
         snap = self._snapshot(items)
         c.value = v
         self.red.discard(c.id)
-        if hit is not None:
-            hit[1].apply(v)
-            ok = self._solve(edited=items, typed=self._typed_pins(items, snap))
-        else:
-            ok = self._solve(focus=_safe_ref_uids(c) or set())
+        try:
+            if hit is not None:
+                hit[1].apply(v)
+                ok = self._solve(edited=items, typed=self._typed_pins(items, snap))
+            else:
+                ok = self._solve(focus=_safe_ref_uids(c) or set())
+        except Exception:                          # F10: never leave a half-applied value
+            _log.exception("dim set_value failed")
+            ok = False
         if not ok:
             self._restore(snap)
             c.value = old
@@ -1294,6 +1314,9 @@ class ConstraintController:
             return False
         if not c.driving:
             self._status(DIM_REFERENCE_HINT)
+            return False
+        if not c.enabled:                          # F2
+            self._status(DIM_SUPPRESSED_HINT)
             return False
         e = edit_entry(view, self, c)
         if e is None:
@@ -1767,7 +1790,8 @@ class ConstraintController:
         # a source's red one) is red on the copy too -- never active-unapplied
         # (review I-1).
         self.red |= self._unsatisfied(
-            [c for c in new if c.enabled and not c.inert])
+            [c for c in new if c.enabled and not c.inert
+             and not (c.type in sm.VALUED and not c.driving)])   # F1: Reference never red
         self._commit_gen += 1
 
 

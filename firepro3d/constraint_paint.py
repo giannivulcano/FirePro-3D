@@ -305,10 +305,12 @@ def dim_at(view, ctl, vp_pt) -> str | None:
     A manipulator grip under the point wins."""
     if not ctl.enabled or not ctl.constraints:
         return None
+    from dataclasses import replace
     from .readout_paint import hit_layout
     p = QPointF(vp_pt)
     for e in reversed(_frame(view, ctl).dims):
-        if hit_layout(e.layout, p):
+        # D51: drawn even when it overhangs its edge, so it picks too (F7).
+        if hit_layout(replace(e.layout, fits=True), p):
             return None if _grip_under(view, ctl, p) else e.cid
     return None
 
