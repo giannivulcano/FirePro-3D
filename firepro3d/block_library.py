@@ -156,6 +156,29 @@ def _read_index(series_dir: str) -> dict:
         return {}
 
 
+def used_weight_names(records) -> set[str]:
+    """Named weights referenced by definition dicts (LT1: text ``border_weight``).
+
+    LT2+ extends this collector (style weights); the ``.fpdb`` format stays.
+    """
+    names = set()
+    for rec in records:
+        for prim in rec.get("primitives", []) or []:
+            if prim.get("type") == "text" and prim.get("border_weight"):
+                names.add(prim["border_weight"])
+    return names
+
+
+def read_bundled_weights(path: str) -> dict:
+    """The ``weights`` ``{name: mm}`` map of a ``.fpdb`` ({} when absent/unreadable)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return dict(json.load(fh).get("weights") or {})
+    except Exception:
+        _log.debug("unreadable bundled weights in %s", path, exc_info=True)
+        return {}
+
+
 def save_to_library(definition: BlockDefinition, root: str | None = None,
                     *, overwrite: bool = False, bundled: dict | None = None) -> str:
     """Write *definition* to the tree + update the Series index; returns the path.
@@ -174,6 +197,9 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         bundled: ``{id: to_dict}`` of the definitions *definition* nests
             (``BlockRegistry.bundle_for``). Non-empty → the file is written as
             schema 2 with a ``bundled`` map (D11); empty/None → schema 1.
+
+    Writes an optional ``weights`` map of the named line weights the definition
+    and its bundle use (linetypes.md LT1-4); absent when none are used.
     """
     series_dir = _series_dir(root, definition.library, definition.series)
     filename = sanitize(definition.name) + ".fpdb"
@@ -200,6 +226,10 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     if bundled:
         rec["schema"] = 2
         rec["bundled"] = dict(bundled)
+    from .paper_display import resolve_line_weight_mm
+    used = used_weight_names([rec, *(bundled or {}).values()])
+    if used:
+        rec["weights"] = {n: resolve_line_weight_mm(n) for n in sorted(used)}
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
     # ``tile`` flags pattern blocks (hatch D-A37) so the pattern-picker scan

@@ -1784,6 +1784,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._load_would_cycle(bundled, lib_def):
             return False
         self._add_bundled(bundled, lib_def)              # project copy wins
+        self._merge_bundled_weights(path)
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -1825,6 +1826,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 continue
             existing = self._block_definitions.get(defn.id)
             if existing is not None:
+                self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 if existing.version == defn.version:
                     summary["skipped"].append(defn.name)
@@ -1841,6 +1843,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if clash:
                 summary["refused"].append(defn.name)
                 continue
+            self._merge_bundled_weights(path)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
@@ -1899,6 +1902,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         merged = reg.merged_with_file(bundled, defn)
         pool = {d.id for d in [*bundled, defn]}
         return any(i in reg.closure(i, merged) for i in pool)
+
+    def _merge_bundled_weights(self, path) -> None:
+        """Add a library file's bundled named weights the project lacks
+        (project wins -- linetypes.md LT1-4)."""
+        from . import block_library
+        from .paper_display import merge_project_line_weights
+        merge_project_line_weights(block_library.read_bundled_weights(path))
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).
