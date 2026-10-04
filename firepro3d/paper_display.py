@@ -75,6 +75,75 @@ def validate_line_weight_width(width_mm: float) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Project weight table (linetypes.md LT1-3 / H1)
+# ---------------------------------------------------------------------------
+# The LIVE named-weight table is project-scoped: saved in the .fpd and bundled
+# into .fpdb files. QSettings (load_line_weights / save_line_weights) is only
+# the TEMPLATE new projects and table-less files copy. Lazily seeded from the
+# template so headless callers (and tests that patch load_line_weights) work.
+
+_PROJECT_LW: list[LineWeightDef] | None = None
+_THIN_LINES = False
+
+
+def project_line_weights() -> list[LineWeightDef]:
+    """The live project weight table (seeded from the template on first use)."""
+    global _PROJECT_LW
+    if _PROJECT_LW is None:
+        _PROJECT_LW = load_line_weights()
+    return _PROJECT_LW
+
+
+def set_project_line_weights(defs: list[LineWeightDef]) -> None:
+    """Replace the live project table (copies *defs*)."""
+    global _PROJECT_LW
+    _PROJECT_LW = [LineWeightDef(d.name, float(d.width_mm)) for d in defs]
+    _clear_hatch_mm()
+
+
+def reset_project_line_weights() -> None:
+    """Re-seed the project table from the template (New Project / old files)."""
+    set_project_line_weights(load_line_weights())
+
+
+def weight_names() -> list[str]:
+    """Project weight names sorted by width — the source for every picker."""
+    return [d.name for d in sorted(project_line_weights(),
+                                   key=lambda d: d.width_mm)]
+
+
+def merge_project_line_weights(weights: dict) -> list[str]:
+    """Add bundled ``{name: mm}`` weights the project lacks (project wins).
+
+    Returns the names added. Invalid widths are skipped.
+    """
+    have = {d.name for d in project_line_weights()}
+    added = []
+    for name, mm in (weights or {}).items():
+        try:
+            mm = float(mm)
+        except (TypeError, ValueError):
+            continue
+        if name in have or not name or not validate_line_weight_width(mm):
+            continue
+        added.append(LineWeightDef(str(name), mm))
+        have.add(name)
+    if added:
+        set_project_line_weights([*project_line_weights(), *added])
+    return [d.name for d in added]
+
+
+def _parse_weight_list(raw) -> list[LineWeightDef] | None:
+    """``[{"name", "width_mm"}, ...]`` -> defs, or None when absent/malformed."""
+    if not raw:
+        return None
+    try:
+        return [LineWeightDef(str(e["name"]), float(e["width_mm"])) for e in raw]
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Color mode
 # ---------------------------------------------------------------------------
 
@@ -243,11 +312,17 @@ def get_paper_display_for_save() -> dict:
     return {
         "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
+        "line_weights": [asdict(d) for d in project_line_weights()],
     }
 
 
 def apply_paper_display_from_project(data: dict | None):
     """Apply paper display settings loaded from a project file."""
+    parsed = _parse_weight_list((data or {}).get("line_weights"))
+    if parsed is None:
+        reset_project_line_weights()       # old file / no paper_display -> template
+    else:
+        set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
@@ -278,8 +353,12 @@ def apply_paper_display_from_project(data: dict | None):
 
 def resolve_line_weight_mm(name: str,
                            settings: QSettings | None = None) -> float:
-    """Resolve a line weight name to its mm width.  Falls back to 0.25mm."""
-    defs = load_line_weights(settings)
+    """Resolve a line weight name to its mm width.  Falls back to 0.25mm.
+
+    Reads the live PROJECT table; an explicit *settings* reads that template
+    store instead (Display Manager / tests).
+    """
+    defs = load_line_weights(settings) if settings is not None         else project_line_weights()
     for d in defs:
         if d.name == name:
             return d.width_mm

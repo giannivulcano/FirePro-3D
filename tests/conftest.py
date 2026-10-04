@@ -100,6 +100,21 @@ def _preserve_grip_object_limit():
 
 
 @pytest.fixture(autouse=True)
+def _reset_project_line_weights():
+    """Reset the project weight table + Thin Lines flag (paper_display module
+    globals, linetypes.md LT1) so a table one test sets can't leak into the
+    next; the lazy re-seed reads that test's (isolated or patched) template."""
+    from firepro3d import paper_display as pd
+    pd._PROJECT_LW = None
+    pd._THIN_LINES = False
+    pd._clear_hatch_mm()
+    yield
+    pd._PROJECT_LW = None
+    pd._THIN_LINES = False
+    pd._clear_hatch_mm()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_qsettings(tmp_path_factory):
     """Point the isolated QSettings store at a FRESH per-test temp dir (#312), so
     a key written by one test can't leak into the next. The class-level redirect

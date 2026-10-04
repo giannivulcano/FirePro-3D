@@ -4079,6 +4079,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Apply saved display defaults to the new project
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        # LT1-3: a new project's weight table copies the template.
+        from firepro3d.paper_display import reset_project_line_weights
+        reset_project_line_weights()
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.
