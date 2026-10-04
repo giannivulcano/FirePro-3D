@@ -157,15 +157,20 @@ def _read_index(series_dir: str) -> dict:
 
 
 def used_weight_names(records) -> set[str]:
-    """Named weights referenced by definition dicts (LT1: text ``border_weight``).
-
-    LT2+ extends this collector (style weights); the ``.fpdb`` format stays.
+    """Named weights referenced by definition dicts (canonical names, H-g):
+    text ``border_weight`` and stroke ``style.weight`` (LT2). The ``.fpdb``
+    format stays.
     """
+    from .paper_display import canonical_weight_name
+    from .stroke_style import BY_BLOCK, BY_LINETYPE
     names = set()
     for rec in records:
         for prim in rec.get("primitives", []) or []:
             if prim.get("type") == "text" and prim.get("border_weight"):
-                names.add(prim["border_weight"])
+                names.add(canonical_weight_name(prim["border_weight"]))
+            w = (prim.get("style") or {}).get("weight")
+            if w and w not in (BY_BLOCK, BY_LINETYPE):
+                names.add(canonical_weight_name(w))
     return names
 
 
