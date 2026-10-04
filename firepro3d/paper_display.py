@@ -87,10 +87,13 @@ _THIN_LINES = False
 
 
 def project_line_weights() -> list[LineWeightDef]:
-    """The live project weight table (seeded from the template on first use)."""
-    global _PROJECT_LW
+    """The live project weight table (seeded from the template on first use).
+
+    Callers must not mutate the result (or its defs); use
+    ``set_project_line_weights`` to change the table.
+    """
     if _PROJECT_LW is None:
-        _PROJECT_LW = load_line_weights()
+        set_project_line_weights(load_line_weights())   # copies the defs
     return _PROJECT_LW
 
 
@@ -137,10 +140,21 @@ def _parse_weight_list(raw) -> list[LineWeightDef] | None:
     """``[{"name", "width_mm"}, ...]`` -> defs, or None when absent/malformed."""
     if not raw:
         return None
+    out: list[LineWeightDef] = []
+    seen: set[str] = set()
     try:
-        return [LineWeightDef(str(e["name"]), float(e["width_mm"])) for e in raw]
-    except (KeyError, TypeError, ValueError):
+        for e in raw:
+            try:
+                name, mm = str(e["name"]), float(e["width_mm"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not name or name in seen or not validate_line_weight_width(mm):
+                continue
+            seen.add(name)
+            out.append(LineWeightDef(name, mm))
+    except TypeError:                      # raw not iterable
         return None
+    return out or None
 
 
 # ---------------------------------------------------------------------------

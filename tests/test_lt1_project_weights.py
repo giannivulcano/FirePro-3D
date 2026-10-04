@@ -29,7 +29,8 @@ def test_fpd_round_trip_and_open_never_writes_qsettings(qapp, tmp_path):
                                  LineWeightDef("Site", 0.40)])
     path = str(tmp_path / "w.fpd")
     ms.save_to_file(path)
-    on_disk = json.load(open(path, encoding="utf-8"))["paper_display"]["line_weights"]
+    with open(path, encoding="utf-8") as f:
+        on_disk = json.load(f)["paper_display"]["line_weights"]
     assert {"name": "Site", "width_mm": 0.40} in on_disk
 
     _template([LineWeightDef("Other", 0.9)])            # template differs
@@ -72,3 +73,33 @@ def test_set_project_line_weights_clears_hatch_cache(qapp):
     pd.set_project_line_weights([LineWeightDef(n.name, n.width_mm * 2)
                                  for n in pd.FACTORY_LINE_WEIGHTS])
     assert pd.hatch_line_mm() == first * 2
+
+
+def test_lazy_seed_does_not_alias_factory(qapp):
+    pd._PROJECT_LW = None
+    pd.project_line_weights()[0].width_mm = 99.0
+    assert pd.FACTORY_LINE_WEIGHTS[0].width_mm != 99.0
+
+
+def test_parse_skips_bad_entries_keeps_good(qapp):
+    raw = [{"name": "Ok", "width_mm": 0.3}, {"name": "", "width_mm": 0.3},
+           {"name": "Ok", "width_mm": 0.4}, {"name": "Big", "width_mm": 9},
+           {"name": "NoWidth"}]
+    assert _names_widths(pd._parse_weight_list(raw)) == [("Ok", 0.3)]
+    assert pd._parse_weight_list([{"name": "x", "width_mm": -1}]) is None
+
+
+def test_new_file_resets_project_table_to_template(qapp, monkeypatch):
+    import main as _main_module
+    from firepro3d.view_3d import View3D
+    _main_module.View3D = View3D
+    from main import MainWindow
+    w = MainWindow()
+    try:
+        monkeypatch.setattr(w, "_ask_save_changes", lambda *a, **k: True)
+        _template([LineWeightDef("NewProjTmpl", 0.37)])
+        pd.set_project_line_weights([LineWeightDef("OldProject", 0.9)])
+        w.new_file()
+        assert pd.weight_names() == ["NewProjTmpl"]
+    finally:
+        w.close()

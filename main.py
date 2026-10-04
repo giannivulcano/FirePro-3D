@@ -705,6 +705,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._create_elevation_markers()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        # LT1-3: a new project's weight table copies the template.
+        from firepro3d.paper_display import reset_project_line_weights
+        reset_project_line_weights()
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # Render the linked default title block on the startup sheet (Task A);
