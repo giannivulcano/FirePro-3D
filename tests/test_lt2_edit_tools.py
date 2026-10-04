@@ -129,3 +129,51 @@ def test_new_primitive_default_style(qapp):
     ms = _editor()
     st = ms._geom_style()
     assert st["linetype"] == "continuous" and st["weight"] == "by_block"
+
+
+# -- in-place trim free ends (real two-phase _handle_trim_click flow) --------
+
+def _trim(item, attr, edge_pts, edge_click, item_click):
+    from tests._snap_polish_helpers import click, close_view, make_view
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _styled(item)
+        scene.addItem(item); getattr(scene, attr).append(item)
+        edge = LineItem(QPointF(*edge_pts[0]), QPointF(*edge_pts[1]))
+        scene.addItem(edge); scene._draw_lines.append(edge)
+        scene.set_mode("trim")
+        click(view, QPointF(*edge_click))          # cutting edge
+        click(view, QPointF(*item_click))          # piece to remove
+        return {e: item.style[e]["end"] for e in ("start", "finish")}
+    finally:
+        close_view(view, scene)
+
+
+def test_trim_line_pt1_side_start_fresh(qapp):
+    ends = _trim(LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines",
+                 ((50, -100), (50, 100)), (50, 80), (10, 0))
+    assert ends == {"start": "by_linetype", "finish": "by_block"}
+
+
+def test_trim_line_pt2_side_finish_fresh(qapp):
+    ends = _trim(LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines",
+                 ((50, -100), (50, 100)), (50, 80), (90, 0))
+    assert ends == {"start": "by_block", "finish": "by_linetype"}
+
+
+def test_trim_arc_start_moves_start_fresh(qapp):
+    import math
+    r = 100.0
+    vis = lambda d: (r * math.cos(math.radians(d)), -r * math.sin(math.radians(d)))
+    ends = _trim(ArcItem(QPointF(0, 0), r, 0.0, 180.0), "_draw_arcs",
+                 ((50, -200), (50, 200)), (50, 150), vis(20))
+    assert ends == {"start": "by_linetype", "finish": "by_block"}
+
+
+def test_trim_arc_span_shrinks_finish_fresh(qapp):
+    import math
+    r = 100.0
+    vis = lambda d: (r * math.cos(math.radians(d)), -r * math.sin(math.radians(d)))
+    ends = _trim(ArcItem(QPointF(0, 0), r, 0.0, 180.0), "_draw_arcs",
+                 ((50, -200), (50, 200)), (50, 150), vis(120))
+    assert ends == {"start": "by_block", "finish": "by_linetype"}
