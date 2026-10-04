@@ -34,8 +34,11 @@ def test_polygon_gains_rows(qapp):
 
 def test_weight_edit_applies_undoes_and_persists(qapp):
     ms, ln = _editor_with_line()
+    n0, pos0 = len(ms._undo_stack), ms._undo_pos
     with ms.deferred_undo_push():
         ln.set_property("Weight", "Heavy")
+    assert len(ms._undo_stack) == n0 + 1           # exactly one step pushed
+    assert ms._undo_pos == pos0 + 1
     assert ln.style["weight"] == "Heavy"
     assert ln.to_dict()["style"]["weight"] == "Heavy"
     ms.undo()

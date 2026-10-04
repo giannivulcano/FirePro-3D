@@ -145,8 +145,9 @@ class Geometry2DMixin:
 
         Colour = the Display Manager colour if set, else ``style.colour``;
         width = the canvas px of the resolved weight; cosmetic. Skipped while a
-        placement ghost owns the pen, and while a paper pass has set a
-        non-cosmetic pen (paper_display._apply_construction). Unstyled items
+        placement ghost owns the pen, while a paper pass has set a
+        non-cosmetic pen (paper_display._apply_construction), and for the
+        whole of any paper pass (``paper_display.paper_pass_active``). Unstyled items
         keep the pre-LT2 behaviour (display colour onto the pen).
         """
         dc = getattr(self, "_display_color", None)
@@ -158,6 +159,9 @@ class Geometry2DMixin:
             return
         if self._ghost_pen or not self.pen().isCosmetic():
             return
+        from .paper_display import paper_pass_active
+        if paper_pass_active():
+            return                  # paper pass owns the pen (no ping-pong)
         from .stroke_style import canvas_px
         pen = QPen(self.pen())
         pen.setColor(QColor(dc or self.style["colour"]))

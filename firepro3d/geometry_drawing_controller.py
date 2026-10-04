@@ -417,6 +417,7 @@ class GeometryDrawingController:
         from .geometry_2d import EllipseItem
         prev = EllipseItem(s._ellipse_center, rx, 0.5, s._ellipse_rot,
                            s._geom_color_lw()[0], 2)
+        prev._ghost_pen = True       # keep the width-2 preview pen at paint
         prev.setZValue(200)
         s.addItem(prev)
         s._ellipse_preview = prev
@@ -1737,6 +1738,7 @@ class GeometryDrawingController:
         if s._spline_preview is None:
             prev = SplineItem(list(s._spline_points), 3, None, None,
                               s._geom_color_lw()[0], 2)
+            prev._ghost_pen = True   # keep the width-2 preview pen at paint
             prev.setZValue(200)
             s.addItem(prev)
             s._spline_preview = prev

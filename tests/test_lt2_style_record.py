@@ -102,7 +102,7 @@ def test_canvas_px_real_path():
 # ---------------------------------------------------------------------------
 
 from PyQt6.QtCore import QPointF  # noqa: E402
-from PyQt6.QtGui import QColor  # noqa: E402
+from PyQt6.QtGui import QPen  # noqa: E402
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem,  # noqa: E402
                                    LineItem, PolylineItem, RectangleItem,
                                    ReferenceLineItem, RegularPolygonItem,
@@ -186,17 +186,109 @@ def test_paint_pen_follows_weight(qapp, monkeypatch):
         pd.set_thin_lines(False)
 
 
-def test_polyline_ghost_pen_survives_paint_until_finalize(qapp):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QImage, QPainter, QPen
-    from PyQt6.QtWidgets import QGraphicsScene, QStyleOptionGraphicsItem
-    pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(10, 0))
-    ghost = QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine); ghost.setCosmetic(True)
-    pl.setPen(ghost); pl._ghost_pen = True
-    sc = QGraphicsScene(); sc.addItem(pl)
+def _paint_item(item):
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem
     img = QImage(20, 20, QImage.Format.Format_ARGB32)
-    p = QPainter(img); pl.paint(p, QStyleOptionGraphicsItem()); p.end()
+    p = QPainter(img); item.paint(p, QStyleOptionGraphicsItem()); p.end()
+
+
+@pytest.fixture
+def heavy_blocks(qapp):
+    """Model Blocks weight -> Heavy, so an unflagged paint-time re-derive would
+    visibly change a ghost pen's width (it would be 1 px under the default)."""
+    from firepro3d import paper_display as pd
+    pd.set_model_blocks_weight("Heavy")
+    heavy = pd.canvas_weight_px(pd.resolve_line_weight_mm("Heavy"))
+    assert heavy not in (1.0, 2.0)
+    try:
+        yield heavy
+    finally:
+        pd.set_model_blocks_weight(None)
+
+
+def _editor_scene():
+    from firepro3d.model_space import Model_Space
+    return Model_Space(scene_role="block_editor")
+
+
+def test_polyline_ghost_pen_survives_paint_until_finalize(heavy_blocks):
+    """Real placement path: _press_polyline ghosts, paint keeps it, finish solid."""
+    from PyQt6.QtCore import Qt
+    ms = _editor_scene()
+    ms.set_mode("polyline")
+    for pt in (QPointF(0, 0), QPointF(100, 0), QPointF(100, 100)):
+        ms._press_polyline(None, None, pt, None, None, None)
+    pl = ms._polyline_active
+    assert pl is not None
+    _paint_item(pl)
     assert pl.pen().style() == Qt.PenStyle.DashLine
-    pl.finalize()
+    assert pl.pen().widthF() == pytest.approx(1.0)
+    ms._finish_polyline()
     assert pl._ghost_pen is False
+    _paint_item(pl)
     assert pl.pen().style() == Qt.PenStyle.SolidLine
+    assert pl.pen().widthF() == pytest.approx(heavy_blocks)   # record-derived
+
+
+def test_polygon_ghost_pen_survives_paint(heavy_blocks):
+    from PyQt6.QtCore import Qt
+    ms = _editor_scene()
+    ms.set_mode("polygon")
+    ms._press_polygon(None, None, QPointF(0, 0), None, None, None)
+    ms._press_polygon(None, None, QPointF(100, 0), None, None, None)
+    ghost = ms._polygon_preview
+    assert ghost is not None
+    _paint_item(ghost)
+    assert ghost.pen().style() == Qt.PenStyle.DashLine
+    assert ghost.pen().widthF() == pytest.approx(1.0)
+
+
+def test_ellipse_preview_pen_survives_paint(heavy_blocks):
+    ms = _editor_scene()
+    ms.set_mode("draw_ellipse")
+    ms._press_draw_ellipse(None, None, QPointF(0, 0), None, None, None)
+    ms._press_draw_ellipse(None, None, QPointF(100, 0), None, None, None)
+    prev = ms._ellipse_preview
+    assert prev is not None
+    _paint_item(prev)
+    assert prev.pen().widthF() == pytest.approx(2.0)
+
+
+def test_spline_preview_pen_survives_paint(heavy_blocks):
+    ms = _editor_scene()
+    ms.set_mode("draw_spline")
+    for pt in (QPointF(0, 0), QPointF(100, 50), QPointF(200, 0)):
+        ms._press_draw_spline(None, None, pt, None, None, None)
+    prev = ms._spline_preview
+    assert prev is not None
+    _paint_item(prev)
+    assert prev.pen().widthF() == pytest.approx(2.0)
+
+
+def test_paper_pass_leaves_styled_pen_untouched(qapp):
+    """I2: during a real paper pass, paint must not re-derive the pen (an
+    EllipseItem is not Construction-mapped, so its pen stays cosmetic)."""
+    from PyQt6.QtCore import QRectF
+    from firepro3d import paper_display as pd
+    ms = _editor_scene()
+    el = EllipseItem(QPointF(0, 0), 20.0, 10.0, color="#ff0000")
+    el.style["weight"] = "Heavy"
+    ms.addItem(el)
+    ms._draw_ellipses.append(el)
+    pd.set_thin_lines(True)
+    try:
+        _paint_item(el)
+        assert el.pen().widthF() == pytest.approx(1.0)       # Thin Lines
+        assert el.pen().isCosmetic()
+        saved = pd.apply_paper_overrides(ms, QRectF(-100, -100, 200, 200))
+        try:
+            assert pd.paper_pass_active()
+            before = QPen(el.pen())
+            _paint_item(el)
+            assert el.pen() == before
+        finally:
+            pd.restore_model_display(saved)
+        assert not pd.paper_pass_active()
+    finally:
+        pd.set_thin_lines(False)

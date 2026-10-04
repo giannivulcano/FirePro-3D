@@ -240,6 +240,18 @@ def thin_lines_active() -> bool:
     return _THIN_LINES and _THIN_SUSPEND == 0
 
 
+def paper_pass_active() -> bool:
+    """True while a paper pass is live (apply_paper_overrides ..
+    restore_model_display).
+
+    Paint-time canvas pen derivation (``Geometry2DMixin._sync_stroke_pen``)
+    must leave the pen alone during the pass: re-deriving there would resolve
+    the non-thin width and flip it back on the next model paint, a setPen /
+    scene.changed ping-pong against the paper echo guard (LT2 H-c).
+    """
+    return _THIN_SUSPEND > 0
+
+
 def canvas_weight_px(width_mm: float) -> float:
     """Cosmetic canvas width for a named weight's mm value.
 
