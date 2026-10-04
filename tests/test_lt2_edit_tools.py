@@ -177,3 +177,29 @@ def test_trim_arc_span_shrinks_finish_fresh(qapp):
     ends = _trim(ArcItem(QPointF(0, 0), r, 0.0, 180.0), "_draw_arcs",
                  ((50, -200), (50, 200)), (50, 150), vis(120))
     assert ends == {"start": "by_block", "finish": "by_linetype"}
+
+
+def test_join_takes_outer_ends_of_sources(qapp):
+    """LT2-3: Join = outer ends of the sources (orientation-aware)."""
+    ms = _editor()
+    # a: (0,0)->(10,0); b is drawn REVERSED: (20,0)->(10,0), so the chain
+    # a + reversed(b) ends at b's *start*.  c prepends: (-10,0)->(0,0).
+    a = LineItem(QPointF(0, 0), QPointF(10, 0))
+    b = LineItem(QPointF(20, 0), QPointF(10, 0))
+    c = LineItem(QPointF(0, 0), QPointF(-10, 0))   # reversed prepend
+    a.style["start"]["end"] = "A0"; a.style["finish"]["end"] = "A1"
+    b.style["start"]["end"] = "B0"; b.style["finish"]["end"] = "B1"
+    c.style["start"]["end"] = "C0"; c.style["finish"]["end"] = "C1"
+    for ln in (a, b, c):
+        ms.addItem(ln); ms._draw_lines.append(ln)
+        ln.setSelected(True)
+    ms._tools.join_selected_items()
+    (pl,) = ms._polylines
+    pts = [(round(p.x()), round(p.y())) for p in pl._points]
+    # selectedItems() order is unspecified, so the chain may run either way;
+    # the outer end at each extreme point is fixed by the geometry:
+    # (-10,0) is c's finish, (20,0) is b's start.
+    outer = {(-10, 0): "C1", (20, 0): "B0"}
+    assert {pts[0], pts[-1]} == set(outer), pts
+    assert pl.style["start"]["end"] == outer[pts[0]]
+    assert pl.style["finish"]["end"] == outer[pts[-1]]
