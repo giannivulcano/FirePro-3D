@@ -178,7 +178,9 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
     smalls = page.findChildren(RibbonSmallButton)
     larges = [b for b in page.findChildren(QToolButton)
               if not isinstance(b, RibbonSmallButton)]
-    assert sorted(b.text() for b in larges) == ["New", "Open"]
+    # CS4 (parametric-constraint-system D15/§10): Constrain leads with a large
+    # Smart Dimension button.
+    assert sorted(b.text() for b in larges) == ["New", "Open", "Smart Dimension"]
     assert smalls and all("\n" not in b.text() for b in smalls), \
         [b.text() for b in smalls if "\n" in b.text()]
     assert all(b.toolTip() for b in page.findChildren(QToolButton))
