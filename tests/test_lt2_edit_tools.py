@@ -125,10 +125,25 @@ def test_polyline_two_point_swap_keeps_style(qapp):
     assert ln.style == expected
 
 
-def test_new_primitive_default_style(qapp):
-    ms = _editor()
-    st = ms._geom_style()
-    assert st["linetype"] == "continuous" and st["weight"] == "by_block"
+@pytest.mark.parametrize("mode,attr,pts", [
+    ("draw_line", "_draw_lines", ((0, 0), (600, 0))),
+    ("draw_circle", "_draw_circles", ((0, 0), (400, 0))),
+])
+def test_new_primitive_default_style(qapp, mode, attr, pts):
+    """LT2-1 / D-L18: a primitive placed through the real tool (posted
+    presses) carries the default record for its colour."""
+    from firepro3d.stroke_style import default_style
+    from tests._snap_polish_helpers import click, close_view, make_view
+    view, scene = make_view(scale=0.25, mode=None)
+    try:
+        scene.set_mode(mode)
+        for p in pts:
+            click(view, QPointF(*p))
+        (item,) = getattr(scene, attr)
+        assert item.style == default_style(item.style["colour"])
+        assert item.style["colour"] == "#ffffff"
+    finally:
+        close_view(view, scene)
 
 
 # -- in-place trim free ends (real two-phase _handle_trim_click flow) --------

@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
 from .render_op import STROKE, FILL, PATTERN, TEXT
+from .stroke_style import BY_BLOCK, BY_LINETYPE
 
 _PLACEHOLDER_MM = 200.0
 
@@ -238,7 +239,7 @@ class BlockInstance(QGraphicsObject):
         the viewport scale (the §9.9.1 pattern).
         """
         w = op.weight
-        if w is None or w in ("by_block", "by_linetype") or not self._paper_scale:
+        if w is None or w in (BY_BLOCK, BY_LINETYPE) or not self._paper_scale:
             return self._paper_pen_width
         from .paper_display import resolve_line_weight_mm
         return resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)

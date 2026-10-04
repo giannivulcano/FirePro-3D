@@ -407,3 +407,115 @@ def test_library_replace_after_rename(qapp):
     prims = sc.block_registry.get(defn.id).primitives
     assert prims[0]["style"]["weight"] == "B"
     assert prims[1]["border_weight"] == "B"
+
+
+# -- VC9 seam fix round ------------------------------------------------------
+
+def _project_b_file(tmp_path):
+    """Save project B: live "Heavy", no aliases, a definition whose line
+    style and text primitive both name "Heavy"."""
+    pd.set_project_line_weights(list(pd.FACTORY_LINE_WEIGHTS))
+    pd.set_weight_aliases({})
+    ms = Model_Space()
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.style["weight"] = "Heavy"
+    txt = TextItem(TextAnnotationData(text="T", border=True,
+                                      border_weight="Heavy")).to_dict()
+    defn = BlockDefinition.new(name="D", library="L", series="S",
+                               primitives=[ln.to_dict(), txt], origin=(0, 0))
+    ms.register_block_definition(defn)
+    path = tmp_path / "b.fpd"
+    ms.save_to_file(str(path))
+    return path, defn.id
+
+
+def test_open_ignores_previous_project_aliases(qapp, tmp_path):
+    """C1: after renaming Heavy -> Bold in project A, opening project B
+    (live Heavy) keeps B's names -- they resolve to Heavy's mm and re-save as
+    Heavy (main._apply_loaded_file order: load_from_file, then paper apply)."""
+    import json
+    path, did = _project_b_file(tmp_path)
+    _rename("Heavy", "Bold")                           # session = project A
+    assert pd.weight_aliases() == {"Heavy": "Bold"}
+    ms2 = Model_Space()
+    ms2.load_from_file(str(path))
+    pd.apply_paper_display_from_project(ms2._loaded_paper_display)
+    prims = ms2.block_registry.get(did).primitives
+    assert prims[0]["style"]["weight"] == "Heavy"
+    assert prims[1]["border_weight"] == "Heavy"
+    heavy_mm = dict((d.name, d.width_mm) for d in pd.FACTORY_LINE_WEIGHTS)["Heavy"]
+    assert pd.resolve_line_weight_mm(prims[0]["style"]["weight"]) == pytest.approx(heavy_mm)
+    out = tmp_path / "b2.fpd"
+    ms2.save_to_file(str(out))
+    saved = json.loads(out.read_text(encoding="utf-8"))["block_definitions"][did]
+    assert saved["primitives"][0]["style"]["weight"] == "Heavy"
+    assert saved["primitives"][1]["border_weight"] == "Heavy"
+
+
+def test_open_installs_file_aliases_whose_key_is_live_in_previous_table(qapp, tmp_path):
+    """M3 order (load path): the file's alias key may be a live row of the
+    PREVIOUS project's table -- it must survive (pruned against the file's
+    table, which is installed first)."""
+    _rename("Heavy", "Bold")                           # project C: Heavy -> Bold
+    ms = Model_Space()
+    path = tmp_path / "c.fpd"
+    ms.save_to_file(str(path))
+    pd.set_project_line_weights(list(pd.FACTORY_LINE_WEIGHTS))   # session: live Heavy
+    pd.set_weight_aliases({})
+    Model_Space().load_from_file(str(path))
+    assert pd.weight_aliases() == {"Heavy": "Bold"}
+    assert pd.canonical_weight_name("Heavy") == "Bold"
+
+
+def test_set_weight_aliases_drops_live_name_keys(qapp):
+    """M3 order (paper apply / Cancel): table first, then aliases -- a
+    corrupt alias whose key is a live row never redirects that row."""
+    data = {"line_weights": [{"name": d.name, "width_mm": d.width_mm}
+                             for d in pd.FACTORY_LINE_WEIGHTS],
+            "line_weight_aliases": {"Heavy": "Light", "Gone": "Light"}}
+    pd.apply_paper_display_from_project(data)
+    assert pd.weight_aliases() == {"Gone": "Light"}
+    assert pd.canonical_weight_name("Heavy") == "Heavy"
+    # Other order: aliases then table -- set_project_line_weights prunes.
+    pd.set_project_line_weights([LineWeightDef("Only", 0.3)])
+    pd.set_weight_aliases({"X": "Only"})
+    pd.set_project_line_weights([LineWeightDef("Only", 0.3),
+                                 LineWeightDef("X", 0.5)])
+    assert pd.weight_aliases() == {}
+
+
+def test_model_blocks_weight_stored_canonical(qapp):
+    """I3: an alias-key Blocks weight is stored as its target, so the in-use
+    guard protects the target row."""
+    _rename("Heavy", "Bold")
+    try:
+        pd.set_model_blocks_weight("Heavy")
+        assert pd.model_blocks_weight() == "Bold"
+        d = DisplayManager(Model_Space(), active_context="paper")
+        assert d._line_weight_in_use("Bold")
+        d.reject()
+        # Real Open path: the project display_settings name an alias key.
+        from PyQt6.QtCore import QSettings
+        from firepro3d.display_manager import apply_project_display_settings
+        pd.set_model_blocks_weight(None)
+        QSettings("GV", "FirePro3D").remove("display/Blocks/default_line_weight")
+        apply_project_display_settings(Model_Space(),
+                                       {"Blocks": {"line_weight": "Heavy"}})
+        assert pd.model_blocks_weight() == "Bold"
+    finally:
+        pd.set_model_blocks_weight(None)
+
+
+@pytest.mark.parametrize("name", ["by_block", "BY_LINETYPE", "By Block",
+                                  "by linetype", "Continuous", " continuous "])
+def test_reserved_keyword_names_refused(qapp, name):
+    """M2: keyword spellings can never become a weight row."""
+    assert not pd.validate_line_weight_name(name, pd.project_line_weights())
+    ms, _defn, _t = _scene()
+    d = _dm_rename(ms, "A", name)                      # real DM edit path
+    assert "A" in [x.name for x in d._lw_defs]
+    assert name.strip() not in [x.name for x in d._lw_defs]
+    d.reject()
+
+
+def test_ordinary_names_still_valid(qapp):
+    assert pd.validate_line_weight_name("Blocky", pd.project_line_weights())

@@ -252,16 +252,17 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .paper_display import weight_names
+            from .stroke_style import BY_BLOCK, BY_LINETYPE
             lt = self.style["linetype"]
             props["Linetype"] = {"type": "enum",
                                  "options": ["Continuous", "By Block"],
-                                 "value": "By Block" if lt == "by_block"
+                                 "value": "By Block" if lt == BY_BLOCK
                                  else "Continuous"}
             w = self.style["weight"]
             props["Weight"] = {"type": "enum",
                                "options": ["By Block", *weight_names()],
-                               "value": "By Block" if w in ("by_block",
-                                                           "by_linetype")
+                               "value": "By Block" if w in (BY_BLOCK,
+                                                           BY_LINETYPE)
                                else w}
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
@@ -362,15 +363,18 @@ class Geometry2DMixin:
         if uid:
             self._uid = str(uid)
         if self._STYLED and self.style is not None:
-            from .stroke_style import migrate_primitive
-            st = migrate_primitive({**data, "type": data.get("type")}).get("style")
-            if st is not None:
-                self.style = st
-                pen = QPen(self.pen())
-                pen.setColor(QColor(st["colour"]))
-                pen.setWidthF(1.0)                  # px dropped (D-L17a)
-                pen.setCosmetic(True)
-                self.setPen(pen)
+            from .stroke_style import default_style, normalize_style
+            # Always a fresh record (never the caller's dict), independent of
+            # data["type"]; a legacy dict migrates from "color" (D-L17a).
+            raw = data.get("style")
+            st = (normalize_style(raw) if isinstance(raw, dict)
+                  else default_style(data.get("color") or "#ffffff"))
+            self.style = st
+            pen = QPen(self.pen())
+            pen.setColor(QColor(st["colour"]))
+            pen.setWidthF(1.0)                      # px dropped (D-L17a)
+            pen.setCosmetic(True)
+            self.setPen(pen)
         self.layer = data.get("layer", "")
         f = data.get("fill")
         if f:

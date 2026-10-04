@@ -73,3 +73,42 @@ def test_pdf_by_block_and_named(qapp, tmp_path, scale, nested):
         assert strokes, weight
         for w, _rgb in strokes:
             assert w == pytest.approx(want, abs=0.02), (weight, w)
+
+
+# -- T-canvas: RAW primitive in a Block Editor scene (pixel sampling) --------
+
+def _editor_line(weight):
+    """Block Editor scene with one loose horizontal LineItem at scene y=-200
+    (clear of the editor's X axis through the origin)."""
+    ms = Model_Space(scene_role="block_editor")
+    ln = LineItem(QPointF(-_HALF_LEN, -200.0), QPointF(_HALF_LEN, -200.0))
+    ln.style["weight"] = weight
+    ms.addItem(ln); ms._draw_lines.append(ln)
+    return ms
+
+
+def _run_near(img, x, y, half=15):
+    """Lit run in column *x* within rows y +- half (the line's thickness)."""
+    from PyQt6.QtGui import QColor
+    return sum(1 for r in range(max(0, y - half), min(img.height(), y + half))
+               if QColor(img.pixel(x, r)).lightness() > 128)
+
+
+# _render_model maps scene -400..400 mm onto 400 px: scene y=-200 -> row 100.
+_EDITOR_ROW = 100
+
+
+def test_block_editor_raw_primitive_canvas_weight(qapp):
+    pd.set_model_blocks_weight(None)
+    pd.set_thin_lines(False)
+    try:
+        img = _render_model(_editor_line("by_block"))
+        assert _run_near(img, 320, _EDITOR_ROW) == 1      # Model Blocks Light
+        heavy = _editor_line("Heavy")
+        assert _run_near(_render_model(heavy), 320, _EDITOR_ROW) >= 2
+        pd.set_thin_lines(True)
+        heavy.update()
+        assert _run_near(_render_model(heavy), 320, _EDITOR_ROW) == 1
+    finally:
+        pd.set_thin_lines(False)
+        pd.set_model_blocks_weight(None)

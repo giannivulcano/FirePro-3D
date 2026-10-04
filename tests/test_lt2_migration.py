@@ -89,3 +89,19 @@ def test_g8a_fpd_round_trip_keeps_full_record(qapp, tmp_path):
     ms2 = Model_Space()
     ms2.load_from_file(str(path))
     assert ms2.block_registry.get(d.id).primitives[0]["style"] == ln.style
+
+
+def test_item_from_dict_never_shares_caller_style(qapp):
+    """M4: _geom2d_from_dict builds a fresh record even for a dict without
+    "type" (no aliasing of the caller's style dict)."""
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.stroke_style import default_style
+    st = default_style("#00ff00")
+    st["weight"] = "Heavy"
+    item = LineItem.from_dict({"pt1": [0, 0], "pt2": [10, 0], "style": st})
+    assert item.style == st and item.style is not st
+    item.style["finish"]["visible"] = False
+    assert st["finish"]["visible"] is True
+    legacy = LineItem.from_dict({"pt1": [0, 0], "pt2": [10, 0],
+                                 "color": "#123456", "lineweight": 3.0})
+    assert legacy.style == default_style("#123456")

@@ -1072,7 +1072,9 @@ class DisplayManager(QDialog):
         if hasattr(self, "_model_blocks_snapshot"):
             from .paper_display import model_blocks_weight, set_model_blocks_weight
             if model_blocks_weight() != self._model_blocks_snapshot:
-                set_model_blocks_weight(self._model_blocks_snapshot)
+                # Raw: runs before reject() restores the table + aliases.
+                set_model_blocks_weight(self._model_blocks_snapshot,
+                                        canonical=False)
                 self._settings.setValue(
                     f"display/{_MODEL_BLOCKS_KEY}/line_weight",
                     self._model_blocks_snapshot)
@@ -2688,7 +2690,9 @@ class DisplayManager(QDialog):
                                     save_paper_categories,
                                     set_model_blocks_weight)
         if model_blocks_weight() == old:
-            set_model_blocks_weight(new)
+            # Raw: the Cancel replay writes a pre-rename (alias-key) name
+            # before the table + aliases are restored.
+            set_model_blocks_weight(new, canonical=False)
             self._settings.setValue(
                 f"display/{_MODEL_BLOCKS_KEY}/line_weight", new)
         cats = load_paper_categories(self._settings)
@@ -3003,8 +3007,7 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
             model undo restore: it keeps the current project value instead of
             flipping it to the user default (current -> factory).
     """
-    from .paper_display import (MODEL_BLOCKS_FACTORY_WEIGHT,
-                                set_model_blocks_weight)
+    from .paper_display import model_blocks_weight, set_model_blocks_weight
     key = _MODEL_BLOCKS_KEY
     name = (settings.value(f"display/{key}/default_line_weight")
             if use_user_default else None)
@@ -3012,9 +3015,8 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
         name = (project.get(key) or {}).get("line_weight")
     if not name and not prefer_default:
         name = settings.value(f"display/{key}/line_weight")
-    set_model_blocks_weight(name or None)
-    settings.setValue(f"display/{key}/line_weight",
-                      name or MODEL_BLOCKS_FACTORY_WEIGHT)
+    set_model_blocks_weight(name or None)      # canonical (alias key -> live)
+    settings.setValue(f"display/{key}/line_weight", model_blocks_weight())
 
 
 def get_display_settings_for_save() -> dict:

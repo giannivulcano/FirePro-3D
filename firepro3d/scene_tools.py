@@ -36,7 +36,7 @@ from .node import Node
 
 from . import geometry_intersect as gi
 from . import tool_geometry
-from .stroke_style import copy_style
+from .stroke_style import BY_LINETYPE, copy_style
 from .arc_math import yup_angle
 
 from .tool_geometry import extract_edges  # re-exported for existing importers
@@ -46,7 +46,7 @@ def _fresh_end(item, end: str) -> None:
     """Reset one end of an in-place-trimmed item to By Linetype (LT2-3)."""
     st = getattr(item, "style", None)
     if st is not None:
-        st[end]["end"] = "by_linetype"
+        st[end]["end"] = BY_LINETYPE
 
 
 # ``extract_edges`` moved to ``tool_geometry.py`` (Model_Space decomposition,

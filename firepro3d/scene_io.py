@@ -196,6 +196,13 @@ class SceneIOMixin:
         # --- Display settings ---
         self._loaded_display_settings = payload.get("display_settings", None)
         self._loaded_paper_display = payload.get("paper_display", None)
+        # Weight table + rename aliases BEFORE any definition / text parse:
+        # those canonicalise weight names, and must do so against THIS file's
+        # aliases, not the previous project's (LT2-8 / H-g). Open and crash
+        # recovery both come through here; apply_paper_display_from_project
+        # re-applies the same values afterwards.
+        from .paper_display import apply_project_weights
+        apply_project_weights(self._loaded_paper_display)
 
         # --- Scale ---
         if "scale" in payload:

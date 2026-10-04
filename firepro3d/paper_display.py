@@ -65,10 +65,24 @@ def save_line_weights(defs: list[LineWeightDef],
 
 def validate_line_weight_name(name: str,
                               existing: list[LineWeightDef]) -> bool:
-    """Return True if *name* is valid (non-empty, unique)."""
+    """Return True if *name* is valid (non-empty, unique, not reserved).
+
+    The style keywords (By Block / By Linetype / Continuous, in keyword or
+    display spelling, any case) are reserved: a row so named would collide
+    with the keyword everywhere a weight is read (LT2-8).
+    """
     if not name or not name.strip():
         return False
+    if name.strip().lower() in _reserved_weight_names():
+        return False
     return all(lw.name != name.strip() for lw in existing)
+
+
+def _reserved_weight_names() -> frozenset[str]:
+    """Lower-cased names a weight row may never take."""
+    from .stroke_style import BY_BLOCK, BY_LINETYPE, CONTINUOUS
+    keys = (BY_BLOCK, BY_LINETYPE, CONTINUOUS)
+    return frozenset({*keys, *(k.replace("_", " ") for k in keys)})
 
 
 def validate_line_weight_width(width_mm: float) -> bool:
@@ -106,10 +120,20 @@ def model_blocks_weight() -> str:
     return _MODEL_BLOCKS_WEIGHT or MODEL_BLOCKS_FACTORY_WEIGHT
 
 
-def set_model_blocks_weight(name: str | None) -> None:
-    """Set the Model "Blocks" weight (None -> factory)."""
+def set_model_blocks_weight(name: str | None, *, canonical: bool = True) -> None:
+    """Set the Model "Blocks" weight (None -> factory).
+
+    A renamed-away name is stored canonical (H-g), so the in-use check and
+    the combo see the live row name. ``canonical=False`` is only for the
+    Display Manager Cancel replay, which restores a pre-rename name BEFORE
+    the table and aliases are restored.
+    """
     global _MODEL_BLOCKS_WEIGHT
-    _MODEL_BLOCKS_WEIGHT = str(name) if name else None
+    if not name:
+        _MODEL_BLOCKS_WEIGHT = None
+    else:
+        _MODEL_BLOCKS_WEIGHT = (canonical_weight_name(str(name)) if canonical
+                                else str(name))
 
 
 def weight_aliases() -> dict[str, str]:
@@ -118,10 +142,18 @@ def weight_aliases() -> dict[str, str]:
 
 
 def set_weight_aliases(aliases: dict | None) -> None:
-    """Replace the alias map (Cancel snapshot restore / project load)."""
+    """Replace the alias map (Cancel snapshot restore / project load).
+
+    Keeps the invariant "an alias key is never a live table name" (as
+    ``set_project_line_weights`` does): keys that are live rows of the
+    CURRENT table are dropped. Every caller installs the table first
+    (``apply_project_weights``, Cancel restore, reset), so the current table
+    is the one the aliases belong to.
+    """
     global _WEIGHT_ALIASES
+    live = {d.name for d in (_PROJECT_LW or ())}
     _WEIGHT_ALIASES = {str(k): str(v) for k, v in (aliases or {}).items()
-                       if k and v and k != v}
+                       if k and v and k != v and str(k) not in live}
     _clear_hatch_mm()
 
 
@@ -464,14 +496,26 @@ def get_paper_display_for_save() -> dict:
     }
 
 
-def apply_paper_display_from_project(data: dict | None):
-    """Apply paper display settings loaded from a project file."""
-    parsed = _parse_weight_list((data or {}).get("line_weights"))
+def apply_project_weights(data: dict | None) -> None:
+    """Install a project file's weight table, then its rename aliases.
+
+    Called at the top of ``load_from_file`` (before any definition / text
+    parse canonicalises weight names -- else the PREVIOUS project's aliases
+    would rewrite this file's names) and again by
+    ``apply_paper_display_from_project`` (same values; idempotent).
+    """
+    data = data if isinstance(data, dict) else {}
+    parsed = _parse_weight_list(data.get("line_weights"))
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
     else:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
-        set_weight_aliases((data or {}).get("line_weight_aliases"))
+        set_weight_aliases(data.get("line_weight_aliases"))
+
+
+def apply_paper_display_from_project(data: dict | None):
+    """Apply paper display settings loaded from a project file."""
+    apply_project_weights(data)
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
