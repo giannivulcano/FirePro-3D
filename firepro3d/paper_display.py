@@ -656,8 +656,12 @@ def _category_for_item(item) -> str | None:
     return None
 
 
-def _apply_generic(item, cat, color_mode, lw_mm):
-    """Apply paper overrides to a generic item (Wall, Room, Floor, Roof)."""
+def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
+    """Apply paper overrides to a generic item (Wall, Room, Floor, Roof).
+
+    ``_paper_pen_width`` (true on-paper mm in model units, §9.9.1) is read by
+    ``DisplayableItemMixin._outline_pen`` in the outline-painting items.
+    """
     if color_mode != PaperColorMode.FULL_COLOR:
         item._display_color = cat["color"]
         if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
@@ -673,6 +677,7 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     from .room import Room
     if isinstance(item, Room):
         item._paper_no_fill = True
+    item._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         pen.setWidthF(lw_mm)
@@ -1015,7 +1020,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             elif cat_key == "Construction":
                 _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
-                _apply_generic(item, cat, color_mode, lw_mm)
+                _apply_generic(item, cat, color_mode, lw_mm, paper_scale)
                 # WallOpening gap fill: set paper-white so the gap reads as a
                 # clean hole on white paper instead of the dark screen background.
                 from .wall_opening import WallOpening as _WallOpening
@@ -1242,6 +1247,7 @@ def restore_model_display(saved: list[dict]):
                 del item._paper_fill_opaque
             if hasattr(item, "_paper_no_fill"):
                 del item._paper_no_fill
+            item.__dict__.pop("_paper_pen_width", None)
             # Restore the room label's model-unit font size + colour (§9.9).
             if "room_label_font_size" in entry:
                 item._label_font_size = entry["room_label_font_size"]

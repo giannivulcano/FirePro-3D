@@ -437,9 +437,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
         line_col = QColor(self._display_color or self._color.name())
 
-        pen = QPen(line_col, 1, Qt.PenStyle.DashLine)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
+        painter.setPen(self._outline_pen(line_col, style=Qt.PenStyle.DashLine))
         # In paper viewports rooms render as boundary + tag only — no fill
         # (_paper_no_fill set by paper_display.apply_paper_overrides). On the
         # model canvas the fill stays (opaque under _paper_fill_opaque, else

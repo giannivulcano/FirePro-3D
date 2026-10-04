@@ -303,8 +303,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         p1l, p1r, p2r, p2l = self.mitered_quad()
         line_col = QColor(self._display_color) if self._display_color else self._color
-        pen = QPen(line_col, 1)
-        pen.setCosmetic(True)
+        pen = self._outline_pen(line_col)
 
         # Fill (always fill the full quad area)
         fill_brush = Qt.BrushStyle.NoBrush
@@ -366,7 +365,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                color=line_col,
                                pattern=pattern,
                                # canvas cosmetic px width (paper uses hatch_line_mm)
-                               line_width=pen.widthF() or 1.0,
+                               line_width=pen.widthF() if pen.isCosmetic() else 1.0,
                                section_fill=sec_fill,
                                hatch_scale=h_scale,
                                to_scene=self.sceneTransform())
