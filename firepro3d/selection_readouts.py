@@ -145,6 +145,7 @@ class _EditSession:
     spec: DimSpec
     key: tuple
     kind: object
+    commit: object = None       # CS4: a dim edit drives its constraint instead
 
 
 class SelectionReadoutController:
@@ -154,6 +155,12 @@ class SelectionReadoutController:
     every call, so geometry changes need no notification, only repaints.
     Readouts are painted overlay records, never ``QGraphicsItem``s.
     """
+
+    # D57 (smoke ruling 2026-10-03): Smart Dimension owns edge lengths in the
+    # Block Editor, so the transient length / width / height / segment
+    # readouts are off; angular + radius readouts stay until CS5. The
+    # readout machinery itself is unchanged (its tests opt back in).
+    show_edge_lengths = False
 
     def __init__(self, scene):
         self._scene = scene
@@ -213,6 +220,7 @@ class SelectionReadoutController:
         live = getattr(self._scene, "_live_manip", None)
         manip = live() if callable(live) else None
         dragging = manip is not None and manip.is_dragging()
+        from .constraint_dims import is_edge_readout
         out = []
         for it in self._scene.selectedItems():
             fn = getattr(it, "dimension_specs", None)
@@ -222,7 +230,10 @@ class SelectionReadoutController:
             t = manip.held_delta(it) if dragging else None
             if t is not None and not t.isIdentity():
                 specs = [map_spec(s, t) for s in specs]
-            out.extend((it, s) for s in specs)
+            # D57 (smoke ruling 2026-10-03): Smart Dimension owns edge lengths;
+            # angular + radius readouts stay until CS5.
+            out.extend((it, s) for s in specs
+                       if self.show_edge_lengths or not is_edge_readout(s.key))
         return out
 
     def layouts(self, view) -> list[ReadoutEntry]:
@@ -423,12 +434,20 @@ class SelectionReadoutController:
         """Whether a readout edit session is open."""
         return self._edit is not None
 
-    def begin_edit(self, view, e: ReadoutEntry) -> None:
+    def editing_key(self):
+        """The open edit's key (``(id(item), key)`` or ``("dim", cid)``)."""
+        return getattr(self._edit, "key", None)
+
+    def begin_edit(self, view, e: ReadoutEntry, *, commit=None, key=None) -> None:
         """Open a latched, engaged one-field HUD on *e* (selection-mode §15).
 
         The HUD seeds from the spec's live value, latches to the label's scene
         position (so pan/zoom carry it) and takes the keyboard: from here until
         commit/cancel ``Model_Space.is_input_mode()`` is True.
+
+        CS4: *commit* (``value_mm -> None``) replaces the spec's setter + undo
+        push (a persisted dim drives its constraint, which pushes its own
+        step); *key* names the edited label (``("dim", cid)``).
         """
         from .dynamic_input import DynamicInputHud, FieldKind, FieldSpec, Schema
         self.cancel_edit()
@@ -447,8 +466,9 @@ class SelectionReadoutController:
         if kind is FieldKind.DIMENSION and sm is not None and sm.is_calibrated:
             seed = sm.mm_to_scene(seed)
         hud.set_values({e.spec.field: seed})
-        self._edit = _EditSession(view=view, hud=hud, item=e.item,
-                                  spec=e.spec, key=self._key(e), kind=kind)
+        self._edit = _EditSession(view=view, hud=hud, item=e.item, spec=e.spec,
+                                  key=key if key is not None else self._key(e),
+                                  kind=kind, commit=commit)
         hud.committed.connect(self._on_committed)
         hud.cancelled.connect(self._on_cancelled)
         anchor = view.mapToScene(e.layout.center.toPoint())
@@ -487,6 +507,14 @@ class SelectionReadoutController:
             import logging
             logging.getLogger(__name__).exception("readout commit read failed")
             self.cancel_edit()
+            return
+        if s.commit is not None:               # CS4: a dim edit drives its constraint
+            self._end_session()
+            try:
+                s.commit(v)                    # set_value pushes its own undo step
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("dim commit failed")
             return
         try:
             # Constraint seam (parametric-constraint-system §8): the typed

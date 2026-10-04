@@ -171,11 +171,13 @@ def visible_constraints(ctl, sel_uids) -> list:
     """
     if not ctl.enabled or getattr(ctl, "pick", None) is not None:
         return []
+    from .constraint_dims import is_dim          # a dim is its label, never a box (D51)
     if ctl.show_all:
-        return list(ctl.constraints)
+        return [c for c in ctl.constraints if not is_dim(c)]
     from .constraint_controller import _safe_ref_uids
     return [c for c in ctl.constraints
-            if c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids]
+            if not is_dim(c)
+            and (c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids)]
 
 
 def _selected_uids(ctl) -> set:
@@ -190,11 +192,12 @@ def _selected_uids(ctl) -> set:
 
 class _Frame:
     """One frame's glyph state: ``uid -> item`` (None when nothing shows),
-    the held-preview mapper and the visible glyph layouts."""
-    __slots__ = ("by", "held", "layouts")
+    the held-preview mapper, the visible glyph layouts and the dim labels
+    (CS4, ``constraint_dims.DimEntry``)."""
+    __slots__ = ("by", "held", "layouts", "dims")
 
-    def __init__(self, by, held, layouts):
-        self.by, self.held, self.layouts = by, held, layouts
+    def __init__(self, by, held, layouts, dims=()):
+        self.by, self.held, self.layouts, self.dims = by, held, layouts, list(dims)
 
 
 def _frame_key(view, ctl) -> tuple:
@@ -203,7 +206,8 @@ def _frame_key(view, ctl) -> tuple:
     return (ctl._scene_gen, ctl._sel_gen, ctl.show_all, ctl.selected_id,
             getattr(ctl, "pick", None) is None, id(ctl.constraints),
             len(ctl.constraints), vp.width(), vp.height(),
-            t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy())
+            t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy(),
+            ctl._commit_gen)            # CS4: a dim value / driving / red change
 
 
 def _frame(view, ctl) -> _Frame:
@@ -225,12 +229,17 @@ def _frame(view, ctl) -> _Frame:
 
 def _compute_layouts(view, ctl) -> _Frame:
     """The uncached frame build (one per frame, VC9 F3)."""
-    cons = visible_constraints(ctl, _selected_uids(ctl)) if ctl.constraints else []
+    from .constraint_dims import dim_entries, is_dim
     held = _held_fn(ctl)
-    if not cons:
+    if not ctl.constraints:
+        return _Frame(None, held, [])
+    cons = visible_constraints(ctl, _selected_uids(ctl))
+    has_dims = any(is_dim(c) for c in ctl.constraints)
+    if not cons and not has_dims:
         return _Frame(None, held, [])
     by = ctl.item_by_uid()
-    return _Frame(by, held, _layout(view, cons, by, held))
+    dims = dim_entries(view, ctl, by, held) if has_dims else []
+    return _Frame(by, held, _layout(view, cons, by, held) if cons else [], dims)
 
 
 def _layout(view, cons, by, held) -> list:
@@ -271,6 +280,9 @@ def dirty_rect(view, ctl) -> QRect:
     out = QRectF()
     for _cid, r in fr.layouts:
         out = out.united(r)
+    if fr.dims:
+        from .constraint_dims import dims_rect
+        out = out.united(dims_rect(view, fr.dims))
     path = _glow_path(view, ctl, _glow_ids(ctl), fr)
     if not path.isEmpty():
         out = out.united(path.boundingRect())
@@ -288,13 +300,32 @@ def _grip_under(view, ctl, vp_pt) -> bool:
     return bool(manip.hit_handle(view.mapToScene(QPointF(vp_pt).toPoint())))
 
 
-def glyph_at(view, ctl, vp_pt) -> str | None:
-    """Constraint id of the VISIBLE glyph under *vp_pt* (viewport px), or None.
+def dim_at(view, ctl, vp_pt) -> str | None:
+    """Constraint id of the dim label under *vp_pt* (viewport px), or None.
+    A manipulator grip under the point wins."""
+    if not ctl.enabled or not ctl.constraints:
+        return None
+    from dataclasses import replace
+    from .readout_paint import hit_layout
+    p = QPointF(vp_pt)
+    for e in reversed(_frame(view, ctl).dims):
+        # D51: drawn even when it overhangs its edge, so it picks too (F7).
+        if hit_layout(replace(e.layout, fits=True), p):
+            return None if _grip_under(view, ctl, p) else e.cid
+    return None
 
-    A manipulator grip under the point wins (§10 pick order: grips > glyphs).
+
+def glyph_at(view, ctl, vp_pt) -> str | None:
+    """Constraint id of the dim label or VISIBLE glyph under *vp_pt*
+    (viewport px), or None.
+
+    §10 pick order: grips > dim labels (CS4) > glyphs.
     """
     if not ctl.enabled or not ctl.constraints:
         return None
+    cid = dim_at(view, ctl, vp_pt)
+    if cid is not None:
+        return cid
     p = QPointF(vp_pt)
     for cid, r in reversed(_frame(view, ctl).layouts):
         if r.adjusted(-2, -2, 2, 2).contains(p):
@@ -484,6 +515,9 @@ def paint(painter: QPainter, view, ctl) -> None:
                 ir = r.adjusted(pad, pad, -pad, -pad).toRect()
                 painter.drawPixmap(ir, icon.pixmap(ir.size()))
             painter.setOpacity(1.0)
+        if fr.dims:                                # D51: always, pick mode included
+            from .constraint_dims import paint_dims
+            paint_dims(painter, view, ctl, fr.dims, t)
         pick = getattr(ctl, "pick", None)
         if pick is not None and hasattr(pick, "paint"):
             pick.paint(painter, view, t)

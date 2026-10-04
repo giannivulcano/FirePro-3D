@@ -38,7 +38,7 @@ class _RecCtl:
         self.events: list = []
 
     @contextlib.contextmanager
-    def edit(self, items, *, typed=False):   # typed: D31 (readout / panel seams)
+    def edit(self, items, *, typed=False, scale=None):   # typed: D31; scale: CS4 D54
         items = list(items)
         self.events.append(("edit_enter", items, [_geo(it) for it in items]))
         yield

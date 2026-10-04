@@ -158,6 +158,7 @@ def themed_be(request, qapp, monkeypatch):
     v.resetTransform()
     v.centerOn(0, 0)
     sc.set_mode("select")
+    sc.readouts.show_edge_lengths = True   # machinery test: pre-D57 line readout
     # Non-vacuity: the canvas background must not itself read as ink/muted.
     bg = v.viewport().grab().toImage().pixelColor(3, 3)
     assert not _near(bg, t.color("ink")) and not _near(bg, t.color("muted")), bg.name()

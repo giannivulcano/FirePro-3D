@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-02  # CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
-verified-commit: 2a22ba9   # feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
+last-verified: 2026-10-03  # CS4 Account: §3.3 pick modes (Flip/Mirror, constrain_*) take no cursor snap; prior CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
+verified-commit: 8c36a10   # feat/cs4-smart-dimension; prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
 applies-to:
   - firepro3d/snap_engine.py
   - firepro3d/model_view.py
@@ -122,6 +122,8 @@ Revit solves this by making targets **named** ("centerline-end-A", "face-left-co
 | Contextual snap-by-tool (different snaps depending on whether you're placing a wall vs a duct) | Violates AutoCAD predictability; recall harder to audit. |
 | Inferred dimension guides | This is a separate subsystem (§2.3). Belongs in the next spec. |
 | "Aligns with face of wall above" alignment guides | This is OTRACK (§2.3). Deferred. |
+
+**Pick modes take no cursor snap (not snap-by-tool):** modes that pick *existing* geometry with their own picker get no cursor SNAP / ALIGN / grid at all (`get_effective_position` returns the raw cursor, no glyph) — the Flip / Mirror axis step (`scene-tools.md`) and the Block Editor constraint pick modes `constrain_*` (`parametric-constraint-system.md` D21/D57, CS4 smoke 2026-10-03). No mode gets a *different* snap set.
 
 ---
 

@@ -170,10 +170,11 @@ def _paint_arc(painter: QPainter, lay: ReadoutLayout, color: QColor) -> None:
         painter.drawPath(head)
 
 
-def paint_readout(painter: QPainter, lay: ReadoutLayout, th) -> None:
+def paint_readout(painter: QPainter, lay: ReadoutLayout, th, color=None) -> None:
     """Paint one laid-out readout in viewport px (caller skips unfit ones).
 
-    Text in ``ink``; reference arc + arrowheads in ``muted``.
+    Text in ``ink`` (or *color*: CS4 persisted dims); reference arc +
+    arrowheads in ``muted``.
     """
     painter.save()
     painter.resetTransform()
@@ -186,5 +187,5 @@ def paint_readout(painter: QPainter, lay: ReadoutLayout, th) -> None:
     path.addText(QPointF(-lay.width / 2, (fm.ascent() - fm.descent()) / 2), font, lay.text)
     painter.translate(lay.center)
     painter.rotate(lay.angle_deg)
-    painter.fillPath(path, th.color("ink"))
+    painter.fillPath(path, color if color is not None else th.color("ink"))
     painter.restore()

@@ -818,3 +818,52 @@ def test_point_on_circle_solve_lands_on_the_circle():
     assert res.converged
     p, c, r = res.x[:2], res.x[2:4], res.x[4]
     assert abs(np.hypot(*(p - c)) - r) < 1e-6
+
+
+# ── CS4: dim_distance (‖b − a‖ − D) ──────────────────────────────────────────
+
+def _fd(row, x, h=1e-6):
+    g = np.zeros(len(row.deps))
+    for k, d in enumerate(row.deps):
+        e = np.zeros_like(x)
+        e[d] = h
+        g[k] = (row.fn(x + e)[0] - row.fn(x - e)[0]) / (2 * h)
+    return g
+
+
+def test_dim_distance_raw_points_residual_and_jacobian():
+    s = ss.System(x=np.array([0.0, 0.0, 30.0, 40.0]))
+    ss.BUILDERS["dim_distance"]("d", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s, value=50.0)
+    (row,) = s.rows
+    assert abs(row.fn(s.x)[0]) < 1e-12                       # satisfied
+    x = np.array([1.0, -2.0, 7.0, 3.0])
+    r, g = row.fn(x)
+    assert r == pytest.approx(math.hypot(6, 5) - 50.0)
+    assert np.allclose(g, _fd(row, x), atol=1e-6)
+
+
+def test_dim_distance_to_origin_and_derived_point():
+    s = ss.System(x=np.array([3.0, 4.0]))
+    ss.BUILDERS["dim_distance"]("d", (ss.const_point(0, 0), ss.raw_point(0, 1)), s, value=5.0)
+    assert abs(s.rows[0].fn(s.x)[0]) < 1e-12
+    s2 = ss.System(x=np.array([0.0, 0.0, 10.0, 0.3, 50.0, 0.0, 10.0, 0.0]))
+    ss.BUILDERS["dim_distance"]("d", (_derived_point(0), _derived_point(4)), s2, value=40.0)
+    rng = np.random.default_rng(1)
+    for _ in range(5):
+        x = s2.x + rng.uniform(-1, 1, 8)
+        assert np.allclose(s2.rows[0].fn(x)[1], _fd(s2.rows[0], x), atol=1e-5)
+
+
+def test_dim_distance_zero_length_guard_is_finite():
+    s = ss.System(x=np.array([2.0, 2.0, 2.0, 2.0]))
+    ss.BUILDERS["dim_distance"]("d", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s, value=7.0)
+    r, g = s.rows[0].fn(s.x)
+    assert r == pytest.approx(-7.0) and np.all(np.isfinite(g))
+
+
+def test_dim_distance_solve_drives_the_length():
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 0.0]))
+    ss.BUILDERS["dim_distance"]("d", (ss.raw_point(0, 1), ss.raw_point(2, 3)), s, value=60.0)
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
+    assert res.converged
+    assert math.hypot(res.x[2] - res.x[0], res.x[3] - res.x[1]) == pytest.approx(60.0, abs=1e-6)

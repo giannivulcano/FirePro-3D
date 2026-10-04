@@ -12,6 +12,7 @@ PRIMITIVES = {
     "ink", "muted", "faint", "accent", "accent_ink", "on_accent",
     "selection", "selection_active", "selection_hover", "ok", "warn", "danger",
     "constraint_free",          # D26 (parametric-constraint-system): under-defined tint
+    "dimension",                # CS4 D48 (parametric-constraint-system): driving-dim text
 }
 
 SEMANTICS = {
@@ -184,3 +185,12 @@ def test_selection_hover_token_resolves():
         assert c.name().lower() != t.color("selection").name().lower()
         assert c.name().lower() != "#00eeee"
         th.refresh_theme_preference()
+
+
+def test_dimension_token_is_violet_and_distinct():
+    """CS4 colour gate (2026-10-03, live grabs both themes): driving dims."""
+    assert th.DARK.dimension == "#B48CFF"
+    assert th.LIGHT.dimension == "#7A3FD1"
+    for preset in (th.DARK, th.LIGHT):
+        assert preset.dimension not in (preset.accent, preset.selection,
+                                        preset.constraint_free, preset.ink)

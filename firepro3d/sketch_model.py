@@ -12,6 +12,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 GROUNDS = ("origin", "x_axis", "y_axis")
+# Types whose record carries a numeric ``value`` the residual reads (§6.3):
+# the controller passes it to the builder and drops Reference dims (D7/D52).
+VALUED = frozenset({"dim_distance", "dim_radius", "dim_diameter", "dim_angle",
+                    "dim_point_line"})
 _KNOWN = frozenset(("id", "type", "refs", "value", "driving", "enabled", "helper", "label"))
 
 
@@ -56,7 +60,7 @@ REGISTRY: dict[str, TypeSpec] = {
     "vertical": TypeSpec("Vertical", (("edge",), ("point", "point")), 1, True),
     "coincident": TypeSpec("Coincident", (("point", "point"),), 2, True),
     "point_on_curve": TypeSpec("Coincident", (("point", "edge"), ("point", "curve"), ("point", "axis")), 1, True),
-    "dim_distance": TypeSpec("Smart Dimension", (("edge",), ("point", "point")), 1),
+    "dim_distance": TypeSpec("Smart Dimension", (("edge",), ("point", "point")), 1, True),
     "dim_radius": TypeSpec("Smart Dimension", (("curve",),), 1),
     "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1),
     "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1),

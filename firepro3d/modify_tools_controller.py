@@ -1258,7 +1258,7 @@ class ModifyToolsController:
         if s.constraint_ctl.refuse_grounded(targets):          # D17 (CS3)
             self._end_refused(items)
             return False
-        with s.constraint_ctl.edit(targets):
+        with s.constraint_ctl.edit(targets, scale=factor):     # D54: inside dims scale
             for it in targets:
                 it.manip_scale_about(QPointF(base), factor)
         if targets:

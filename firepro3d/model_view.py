@@ -104,6 +104,7 @@ class Model_View(QGraphicsView):
             "constrain_horizontal":   _C.PointingHandCursor,
             "constrain_vertical":     _C.PointingHandCursor,
             "constrain_coincident":   _C.PointingHandCursor,
+            "constrain_dim_distance": _C.PointingHandCursor,
         }
 
         # Accept drag-drop for PDF/DXF import
@@ -988,6 +989,25 @@ class Model_View(QGraphicsView):
             logging.getLogger(__name__).exception("constraint glyph press failed")
         return False
 
+    def _dim_double_click(self, sc, event) -> bool:
+        """Double-click a dim label: open its value HUD (CS4 D51). A Reference
+        dim posts a hint instead. Never raises (virtual override)."""
+        try:
+            ctl = self._glyph_ctl(sc)
+            if ctl is None:
+                return False
+            from . import constraint_paint
+            cid = constraint_paint.dim_at(self, ctl, QPointF(event.pos()))
+            if cid is None:
+                return False
+            ctl.open_dim_edit(cid, self)
+            event.accept()
+            return True
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("dim double-click failed")
+            return False
+
     def _constraint_glyph_hover(self, sc, event) -> bool:
         """Update the hovered constraint glyph; True while over one (HALO is
         then cleared and skipped, like a readout label). Never raises."""
@@ -1463,6 +1483,8 @@ class Model_View(QGraphicsView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             sc = self.scene()
+            if self._dim_double_click(sc, event):      # CS4 D51: edit a dim's value
+                return
             if sc is not None:
                 scene_pos = self.mapToScene(event.pos())
                 # Check for double-click on a gridline spacing dimension.

@@ -885,5 +885,28 @@ def build_point_on_curve(cid: str, ends, sys: System) -> None:
         _point_row(cid, (p, a, b), (), _on_line, sys)
 
 
+def _distance(value: float):
+    """``‖b − a‖ − D`` over P = (a, b); a zero-length pair has no direction
+    (residual ``−D``, zero gradient -- like ``_on_line``'s guard)."""
+    def f(P, _E):
+        a, b = P
+        d = b - a
+        L = math.hypot(d[0], d[1])
+        if L < _EPS_LEN:
+            return -float(value), np.zeros((2, 2)), np.zeros(0)
+        u = d / L
+        return L - float(value), np.array([-u, u]), np.zeros(0)
+    return f
+
+
+def build_dim_distance(cid: str, ends, sys: System, value: float = 0.0) -> None:
+    """Smart Dimension, linear (pinned CS4, D49): ``refs`` = ``[edge]`` (its
+    two ends) or ``[point, point | origin]``, order not significant;
+    ``value`` = D in mm, ``helper`` = ``{}``. One row ``‖b − a‖ − D``."""
+    a, b = ends
+    _point_row(cid, (a, b), (), _distance(value), sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
-            "coincident": build_coincident, "point_on_curve": build_point_on_curve}
+            "coincident": build_coincident, "point_on_curve": build_point_on_curve,
+            "dim_distance": build_dim_distance}

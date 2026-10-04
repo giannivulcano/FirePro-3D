@@ -2,6 +2,16 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS4 Smart Dimension: linear (+ D17 Scale-commit guard) — 2026-10-03
+
+- [x] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD] [done:2026-10-03]
+  - Details: spec D7/D12, §10. Persisted dims reuse `readout_paint` + the readout HUD editor; label placement picks aligned/Δx/Δy; a permanent dim suppresses its transient readout. Depends CS3.
+  - Build: branch `feat/cs4-smart-dimension` (base `55603ae`; feature, tier Large → Medium after the grill; inline execution, 8-task plan + one whole-diff review round + two smoke rounds). Delivered D48–D57 (spec §1): `dim_distance` (edge length / aligned point–point; Δx/Δy dropped, lock-a-readout promotion dropped), persisted readout dims in the new `dimension` token (violet, mockup-gated), tool-first flow with value HUD, Driving/Reference (auto-Reference when implied), D53/D55 value edits, D54 Scale scales inside dims, D56 one dim per measure + own-ends → edge, D57 no transient edge-length readouts + no snap in constraint pick modes. New module `constraint_dims.py`. Closed at `8c36a10`; VC6 6806 passed / 3 pre-existing (filed shortcut bug); user smoke passed.
+
+- [x] [type:maint] D17 Scale-commit refusal guard once a scalable primitive can be fully defined (CS4 dims / CS8 Fix) [P3] [subject:Testing] [done:2026-10-03]
+  - Details: CS3 wired `refuse_grounded` into `commit_scale`, but no CS1–CS3 sketch can fully define a scalable item (Scale skips text / instances), so only the tool-entry refusal is guarded. Add a commit-level guard (fully defined rect via dims/Fix -> commit_scale refused, no undo push). Spec §8 Move/Rotate/Scale row.
+  - Build: absorbed into CS4 (user choice, phase-drift logged): `test_scale_commit_refuses_and_pushes_no_undo` — a line fully defined by Coincident-to-origin + Horizontal + a length dim; shown RED with the `refuse_grounded` call reverted.
+
 ## Block Editor constraint system — CS3 Coincident (+ D17 refusal, D4 seam) — 2026-10-03
 
 - [x] [type:feature] CS3 — Coincident (point↔point, point↔origin, point-on-curve / point-on-axis) [P1] [subject:CAD] [done:2026-10-03]

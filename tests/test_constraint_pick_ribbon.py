@@ -20,8 +20,8 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
-CONSTRAIN_LABELS = {"Horizontal", "Vertical", "Coincident", "Show Constraints",
-                    "Constraint Status", "Delete Constraints"}
+CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
+                    "Show Constraints", "Constraint Status", "Delete Constraints"}
 
 
 @pytest.fixture(scope="module")
@@ -186,7 +186,8 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert titles[i + 1:] == ["CONSTRAIN", "INSPECT"]
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
-        == {"Horizontal", "Vertical", "Coincident"}   # no greyed placeholders (D15)
+        == {"Smart Dimension", "Horizontal", "Vertical",
+            "Coincident"}                              # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS

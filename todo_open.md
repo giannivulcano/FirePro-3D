@@ -211,10 +211,14 @@
 
 One constraint type per session, in order (spec §12). Every session: §11 guard tests (math / real-scene E2E drag / save-reopen / undo / diagnostics pixel-sampled / ribbon+icon) → full suite → user smoke + approval → flip the spec's §7.3/§12 row to built + stamp `verified-commit` → reconcile smoke deltas → only then the next session. Decisions D1–D20 + B1–B4 are ratified (2026-09-29 grill); do not re-litigate — a session pins only its own catalogue row (ref order, helper fields, degenerate cases) before building.
 
-- [ ] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD]
-  - Details: spec D7/D12, §10. Persisted dims reuse `readout_paint` + the readout HUD editor; label placement picks aligned/Δx/Δy; a permanent dim suppresses its transient readout. Depends CS3.
 - [ ] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P1] [subject:CAD]
-  - Details: spec §7.3 (atan2 angle residual, from refs[0] to refs[1] CCW Y-up). Depends CS4.
+  - Details: spec §7.3 (atan2 angle residual, from refs[0] to refs[1] CCW Y-up). Depends CS4. **Scope added at the CS4 smoke (user, 2026-10-03):** ellipse semi-axis dims (rx / ry — the R1 / R2 readouts; needs a new catalogue type), and retire the radius / angle transient readouts once dims cover them (as D57 did for edge lengths — `SelectionReadoutController.show_edge_lengths` is the precedent). Reuse `constraint_dims` (readout mapping, `measure_key`, label paint).
+- [ ] [type:design] Dim labels that land on one spot overlap (CS4 review F8) [P3] [subject:UX]
+  - Details: dims sit at their readout's automatic spot (D48), so two dims whose labels resolve to the same place draw on top of each other (e.g. an implied Reference dim next to a driving one, or dims on coincident edges of different items). Decide a stacking / offset rule (and whether a user-dragged label offset — the reserved `label` record key — comes back). Found by the CS4 whole-diff review.
+- [ ] [type:feature] Select / edit existing dims while the Smart Dimension tool is live (CS4 review F9) [P3] [subject:UX]
+  - Details: D50 keeps the tool live, but label pick / double-click edit are gated on select mode (`Model_View._glyph_ctl`), so a dim can't be selected or re-edited without Esc first; a fast double-click on an edge in the tool also cancels the HUD its first click opened. SolidWorks lets you double-click a dim inside the tool. Found by the CS4 whole-diff review.
+- [ ] [type:maint] Decompose `constraint_controller.py` — PickState, panel / adapter, copy rules out [P3] [subject:Architecture]
+  - Details: past the 1,000-line tripwire. Natural seams (CS4 reuse sweep): `PickState` → its own module (dims added a flow branch), panel text / rows + `ConstraintAdapter` → `constraint_panel.py`, D30/D44/D54 copy rules → `sketch_model`. Pure relocation: parity = the constraint test set.
 - [ ] [type:feature] CS6 — Concentric [P1] [subject:CAD]
   - Details: spec §7.3 (substituted). Depends CS5.
 - [ ] [type:feature] CS7 — Symmetric (about an edge, X/Y axis, or reference line) [P1] [subject:CAD]
@@ -237,8 +241,6 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: spec §7.3 (signed, side in `helper`). Depends CS14. After CS15 the spec `status` → current.
 - [ ] [type:feature] Splines in the constraint system — endpoints first (Coincident / H / V on spline end points), point-on-spline later [P3] [subject:CAD]
   - Details: user question at the CS3 smoke (2026-10-03). Splines are excluded by D5 (no adapter, no handles, no pick markers). First cut: a spline adapter exposing its two end points (derived from control points; fit vs control-point splines differ — decide in the grill) so Coincident joins a spline to other geometry; point-on-spline needs a curve residual + projection. Spec §5.1/D5 amendment. `sketch_adapters.py`, `constraint_controller.py`.
-- [ ] [type:maint] D17 Scale-commit refusal guard once a scalable primitive can be fully defined (CS4 dims / CS8 Fix) [P3] [subject:Testing]
-  - Details: CS3 wired `refuse_grounded` into `commit_scale`, but no CS1–CS3 sketch can fully define a scalable item (Scale skips text / instances), so only the tool-entry refusal is guarded. Add a commit-level guard (fully defined rect via dims/Fix -> commit_scale refused, no undo push). Spec §8 Move/Rotate/Scale row.
 - [ ] [type:maint] Retire the Align tool (Shift+L, mode `"align"`, `_execute_align`) — redundant with Move + the snap system [P3] [subject:CAD]
   - Details: user, 2026-09-29 constraint grill (D2). ALIGN *tracking* in the snap system stays — only the Align modify tool goes. The padlock/`AlignmentConstraint` half is retired by CS1; if this runs first, retire both. Whole-repo grep (`"align"` mode, `_press_align`, `_execute_align`, Shift+L shortcut, `tests/test_align_tool.py`, `docs/superpowers/specs/2026-04-30-align-tool-design.md`, `scene-tools.md`). Confirm with the user that nothing else rides on the tool before removal.
 - [ ] [type:bug] Explode drops a closed polyline's closing segment [P3] [subject:CAD]

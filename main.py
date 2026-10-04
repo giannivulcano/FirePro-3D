@@ -2504,6 +2504,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_horizontal": "Horizontal",
         "constrain_vertical": "Vertical",
         "constrain_coincident": "Coincident",
+        "constrain_dim_distance": "Smart Dimension",
     }
 
     def _update_snap_indicator(self, enabled: bool) -> None:
@@ -4883,9 +4884,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
-        # Smart Dimension (CS4) later.
+        # CS4 Smart Dimension (large, tool-first, D50).
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
+        b_d = gc.add_large_button(
+            "Smart Dimension", self._modify_icon(icon_for("dim_distance")),
+            lambda checked: self._be_constrain("dim_distance", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_dim_distance"] = b_d
         b_h = gc.add_small_button(
             "Horizontal", self._modify_icon(icon_for("horizontal")),
             lambda checked: self._be_constrain("horizontal", checked),
@@ -4923,12 +4929,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "Delete Constraints",
             self._modify_icon("constraint_delete_constraints_icon.svg"),
             self._be_delete_constraints)
-        self._be_constrain_buttons = {"Horizontal": b_h,
+        self._be_constrain_buttons = {"Smart Dimension": b_d,
+                                      "Horizontal": b_h,
                                       "Vertical": b_v,
                                       "Coincident": b_c,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
+        _editor_only(b_d, "Smart Dimension — dimension a line's length or the "
+                          "distance between two points (pick an edge or 2 "
+                          "points), then type the value to drive it")
         _editor_only(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge")
         _editor_only(b_v, "Vertical — make the selected line vertical, "
@@ -4966,6 +4976,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # CS3 ruling: handle-level picks only -- always pick mode.
             sc.clearSelection()
             sc.set_mode(mode)
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctype == "dim_distance":
+            # D50: tool-first; one selected line is dimensioned at once (HUD
+            # open), any other selection just clears; the tool stays live.
+            refs = ctl.selection_refs(ctype)
+            sc.clearSelection()
+            sc.set_mode(mode)
+            if refs is not None:
+                c = ctl.add(ctype, refs)
+                if c is not None and c.driving:
+                    ctl.open_dim_edit(c.id, self._active_view())
             self._sync_mode_buttons(sc.mode)
             return
         refs = ctl.selection_refs(ctype)
