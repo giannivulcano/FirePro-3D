@@ -125,7 +125,7 @@ defaults so pre-existing `.fpd` files load with the border off:
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `border` | `bool` | `False` | Frame visibility. |
-| `border_weight` | `str` | `"Light"` | Named line-weight → `resolve_line_weight_mm()`. |
+| `border_weight` | `str` | `"Light"` | Named line-weight → `resolve_line_weight_mm()`. Canonicalised through the weight-rename aliases on `to_dict`/`from_dict` ([`linetypes.md`](linetypes.md) "LT2" H-g). |
 | `border_line_type` | `str` | `"solid"` | `solid` \| `dashed` \| `dotted` \| `dashdot`. |
 | `border_corner` | `str` | `"square"` | `square` \| `round` \| `chamfer`. |
 
