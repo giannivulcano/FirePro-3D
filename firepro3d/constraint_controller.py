@@ -1284,6 +1284,24 @@ class ConstraintController:
         self._committed()
         return True
 
+    def open_dim_edit(self, cid: str, view) -> bool:
+        """Open the readout HUD on a driving dim (D50/D51); a Reference dim
+        posts a hint instead (D52). True when the HUD opened."""
+        from .constraint_dims import edit_entry, is_dim
+        c = self.find(cid)
+        ro = getattr(self._scene, "readouts", None)
+        if c is None or not is_dim(c) or ro is None or view is None:
+            return False
+        if not c.driving:
+            self._status(DIM_REFERENCE_HINT)
+            return False
+        e = edit_entry(view, self, c)
+        if e is None:
+            return False
+        ro.begin_edit(view, e, commit=lambda v, cid=cid: self.set_value(cid, v),
+                      key=("dim", cid))
+        return True
+
     def set_driving(self, cid: str, driving: bool) -> None:
         """Driving <-> Reference (D7/D52). Re-driving starts from the current
         length (no jump); one that over-defines goes red / amber per D9."""

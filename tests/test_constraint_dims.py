@@ -156,3 +156,109 @@ def test_invalid_value_record_loads_inert(qapp):
     ln = _line(sc, (0, 0), (300, 0))
     ctl.load([{"id": "d", "type": "dim_distance", "refs": [E(ln)], "value": -5}])
     assert ctl.constraints[0].inert
+
+
+# -- Task 5: canvas -- paint, pick, suppression, HUD edit ---------------------
+
+from PyQt6.QtTest import QTest  # noqa: E402
+from PyQt6.QtWidgets import QApplication  # noqa: E402
+
+from firepro3d import constraint_paint as cp  # noqa: E402
+from firepro3d import theme as th  # noqa: E402
+from firepro3d.model_view import Model_View  # noqa: E402
+from firepro3d.scale_manager import ScaleManager  # noqa: E402
+
+
+@pytest.fixture
+def be(qapp):
+    """(view, scene): a shown Block Editor scene at 1 px / mm."""
+    sc = Model_Space(scene_role="block_editor")
+    sc.scale_manager = ScaleManager()
+    v = Model_View(sc)
+    v.resize(800, 600)
+    v.show()
+    QTest.qWaitForWindowExposed(v)
+    v.resetTransform()
+    v.centerOn(150, 0)
+    sc.set_mode("select")
+    QApplication.processEvents()
+    yield v, sc
+    sc.readouts.cancel_edit()
+    sc.clearSelection()
+    sc.cleanup()
+    v.close()
+    v.deleteLater()
+    QApplication.processEvents()
+
+
+def test_dim_label_shows_with_nothing_selected_and_picks(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    sc.clearSelection()
+    ents = cd.dim_entries(v, ctl)
+    assert [e.cid for e in ents] == [c.id]
+    assert cp.dim_at(v, ctl, ents[0].layout.center) == c.id
+    assert cp.glyph_at(v, ctl, ents[0].layout.center) == c.id      # select path
+    assert all(cid != c.id for cid, _r in cp.glyph_layouts(v, ctl))  # no box (D51)
+
+
+def test_dim_text_in_the_dimension_colour_pixel(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("dim_distance", [E(ln)])
+    sc.clearSelection()
+    (e,) = cd.dim_entries(v, ctl)
+    v.viewport().repaint(); QApplication.processEvents()
+    img = v.viewport().grab().toImage(); dpr = img.devicePixelRatio()
+    want = th.detect().color("dimension")
+    lay = e.layout
+    hits = 0
+    for dx in range(-int(lay.width / 2), int(lay.width / 2)):
+        for dy in range(-6, 7):
+            q = img.pixelColor(int((lay.center.x() + dx) * dpr),
+                               int((lay.center.y() + dy) * dpr))
+            if (abs(q.red() - want.red()) + abs(q.green() - want.green())
+                    + abs(q.blue() - want.blue())) < 60:
+                hits += 1
+    assert hits > 5
+
+
+def test_reference_text_is_parenthesised_and_muted(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    ctl.set_driving(c.id, False)
+    (e,) = cd.dim_entries(v, ctl)
+    assert e.layout.text.startswith("(") and e.layout.text.endswith(")")
+    t = th.detect()
+    assert cd.dim_colour(ctl, c, ctl.diagnostics(), t) == t.color("muted")
+
+
+def test_duplicate_transient_readout_is_suppressed_d51(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ln.setSelected(True)
+    assert [s.key for _i, s in sc.readouts.entries()] == ["length"]
+    ctl.add("dim_distance", [E(ln)])
+    ln.setSelected(True)
+    assert [s.key for _i, s in sc.readouts.entries()] == []
+
+
+def test_dim_hud_commit_drives_the_constraint(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    assert ctl.open_dim_edit(c.id, v)
+    assert sc.readouts.is_editing() and sc.readouts.editing_key() == ("dim", c.id)
+    sc.readouts._on_committed({"Length": 250.0})
+    assert not sc.readouts.is_editing()
+    assert _len(ln) == pytest.approx(250.0, abs=1e-6) and c.value == 250.0
+
+
+def test_reference_dim_does_not_open_an_edit(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    ctl.set_driving(c.id, False)
+    assert ctl.open_dim_edit(c.id, v) is False and not sc.readouts.is_editing()
