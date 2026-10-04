@@ -166,6 +166,101 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   draw ends; (e) a missing linetype/end block draws Continuous/Flat plus a
   visible warning badge, never nothing.
 
+## LT1 — Project weights, Blocks paper category, canvas mapping, Thin Lines (ratified 2026-10-03)
+
+> Slice contract for LT1 (concept LD4). The *what* was settled in the LT1
+> Phase-2 grill (Q1–Q13) and the *how* (H1–H10) was approved as one batch,
+> both on 2026-10-03. Decisions marked *as-proposed* rest on a probe that is
+> still open (P4) and become locked once that probe passes as plan step 1.
+
+### What (grill Q1–Q13)
+
+- **LT1-1 Canvas blocks unchanged.** On the model canvas, block linework keeps
+  its authored cosmetic px until LT2 migrates primitives to By Block. The
+  Model-tab "Blocks" row, with its weight cell, lands with LT2; LT1 adds no
+  Model-tab row.
+- **LT1-2 Paper "Blocks" category** (Paper tab only): weight / colour /
+  visibility / opacity, **no fill column**, factory weight **Light**. Every
+  block stroke op (nested included) plots non-cosmetic at that weight in true
+  mm, whatever its authored px (D-L17's By Block → Blocks, applied early on
+  paper). B&W / Custom force the category colour onto stroke **and** text ops;
+  Full Color keeps authored colours. Fill / pattern ops stay under the hatch
+  rules. Absorbs todo L33 (white-pen blocks invisible on sheets).
+- **LT1-3 Project weight table** (D-L13): saved in the `.fpd`. Open adopts it
+  and **never writes QSettings**. An old file without a table, and New Project,
+  both copy the template (QSettings, else factory). Edits mark the project
+  dirty; they are not undoable (like every Display Manager edit). "Set as
+  Default" on the Line Weights tab writes the template.
+- **LT1-4 `.fpdb` weights.** An optional `weights: {name: mm}` key carries the
+  names used by the definition and its bundled nested definitions (LT1: text
+  `border_weight`). No used names → no key; no schema bump. On load, missing
+  names are added and the project silently wins conflicts. A name in neither
+  falls back to `resolve_line_weight_mm`'s default.
+- **LT1-5 In-use / rename** cover paper categories (incl. Blocks), underlays,
+  sheet texts (all sheets) and text primitives in project block definitions.
+  Library files on disk are not rewritten.
+- **LT1-6 Pickers.** Every Border Weight picker lists the live table, sorted
+  by width (custom weights included).
+- **LT1-7 One canvas mapping** (D-L14): px = mm × `UNDERLAY_MM_TO_PX_HINT`;
+  ≤ 1.25 px snaps to ≤ 1.0 (the underlay fast path). It serves underlay
+  layers, PDF-underlay widths and text borders; the bespoke text-border px
+  table is retired.
+- **LT1-8 Thin Lines** (D-L14): a **global** view-display toggle (the spec's
+  "view-level" means a view display toggle, not per-tab state) on the footer
+  rail. It applies to every model and Block Editor view, never paper/PDF;
+  affects only strokes through the LT1-7 mapping (blocks join when LT2/LT3
+  route them through it); persists as a user preference in QSettings.
+- **Out of scope (filed):** wall paper weight (L11); the paper **categories'**
+  QSettings-as-live-store flaw (Open overwrites the template; New doesn't
+  reset); Full Color white-on-white for Construction + Blocks.
+
+### How (H1–H10)
+
+- **H1** The live table is module-level in `paper_display`
+  (`project_line_weights` / `set_project_line_weights` /
+  `reset_project_line_weights`); `resolve_line_weight_mm(name)` reads it.
+  `load_line_weights` / `save_line_weights(settings)` are the template API.
+- **H2** Persisted as `paper_display.line_weights`;
+  `apply_paper_display_from_project` sets the project table (old file →
+  template); `new_file` resets it from the template.
+- **H3** *(as-proposed — dirty path probe)* The Line Weights tab edits the
+  project table and dirties the project through the existing scene-modified
+  path; Cancel restores its snapshot into the project table.
+- **H4** *(as-proposed — underlay refresh probe)*
+  `paper_display.canvas_weight_px(width_mm)` implements LT1-7 and returns 1.0
+  under Thin Lines; it replaces the inline mapping in `underlay_layer_pen`,
+  `_pdf_width_to_px` (keeping its floor) and `TextItem._frame_pen`.
+- **H5** `BlockInstance` gains `_paper_pen_width` / `_paper_pen_color` (the
+  Pipe pattern), set by an `_apply_block` branch of `apply_paper_overrides`
+  and cleared by `restore_model_display`; compiled op pens are never mutated
+  (flyweight). Nested blocks are covered because the compile flattens their ops.
+- **H6** *(as-proposed — Paper-tab row source probe)* `"Blocks"` joins
+  `_CATEGORY_KEYS` with `_FACTORY_LW` Light, outside `_HAS_FILL` /
+  `_HAS_SECTION`.
+- **H7** `save_to_library(..., weights=)` fed by a `used_weight_names`
+  collector; on load, `block_library.read_bundled_weights(path)` is merged by
+  one `Model_Space` helper at both embed sites (`load_blocks_from_files`,
+  `reload_from_library`).
+- **H8** *(as-proposed — paper annotation aliasing probe)*
+  `_line_weight_in_use` / `_propagate_lw_rename` extend to sheet annotations
+  and definition text primitives (rename → `BlockRegistry.invalidate`).
+- **H9** `paper_display.weight_names()` feeds `frame_group` and both
+  property-row builders.
+- **H10** `FooterRail.thin_pill` (copy of the HALO pill, tooltip, no shortcut
+  in LT1); MainWindow wiring sets the flag, stores `view/thin_lines`,
+  re-applies underlay pens and updates every model / Block Editor viewport.
+
+### LT1 guards (VC3)
+
+T1 block weight parsed from a real PDF export (1:100 + 1:50, nested two deep;
+category → Heavy follows) · T2 white-pen block plots black in B&W, authored in
+Full Color · T3 `.fpd` round-trip with QSettings untouched by Open; old file /
+New → template; Set as Default → template · T4 `.fpdb` weights added / project
+wins · T5 remove refused + rename followed for sheet and definition texts ·
+T6 THIN pill → weighted underlay + text border pixel-sampled at 1 px, PDF
+unchanged, survives restart · T7 custom text-border weight samples ≈ mm × 6 on
+canvas · T8 custom weight listed in all three Border Weight pickers.
+
 ## Acceptance Criteria
 
 - [ ] Collinear lines sharing a linetype are indistinguishable from one line (D-L9).
