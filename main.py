@@ -3699,8 +3699,44 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.paper_space import PaperSpaceWidget
         ctx = "paper" if isinstance(self.central_tabs.currentWidget(),
                                      PaperSpaceWidget) else "model"
-        dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
+        dlg = self._make_display_manager(ctx)
         dlg.exec()  # live preview handles apply/revert internally
+
+    def _make_display_manager(self, ctx: str):
+        """Build the Display Manager wired to MainWindow (split out so tests
+        drive the real connections without the modal exec())."""
+        from firepro3d.display_manager import DisplayManager
+        dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
+        dlg.lineWeightsChanged.connect(self._on_line_weights_changed)
+        return dlg
+
+    def _on_line_weights_changed(self):
+        """Weight table edited (linetypes.md LT1-3): dirty the project, re-pen
+        underlays, repaint canvases. Not undoable (Display Manager edits
+        never are)."""
+        self._modified = True
+        self._update_title()
+        self._refresh_weight_canvases()
+
+    def _refresh_weight_canvases(self):
+        """Re-apply every pen that goes through the canvas weight mapping.
+
+        Underlay screen pens are baked at build time, so they are re-penned;
+        text borders / block strokes resolve weights at paint time and only
+        need a repaint (model, paper sheet, open Block Editors).
+        """
+        for record, _group in list(getattr(self.scene, "underlays", [])):
+            self.scene.repen_underlay(record)
+        scenes = [self.scene]
+        psw = getattr(self, "paper_space_widget", None)
+        if psw is not None and getattr(psw, "paper_scene", None) is not None:
+            scenes.append(psw.paper_scene)
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is not None:
+            scenes.extend(w.editor_scene for w in mgr.open_editors())
+        for sc in scenes:
+            for v in sc.views():
+                v.viewport().update()
 
     def _open_level_dialog(self):
         """Open the Level Manager dialog."""
