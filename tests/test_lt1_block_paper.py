@@ -22,6 +22,7 @@ from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
 # and sized 80 mm / scale so the viewport stays 80 mm at every scale.
 _VP_X, _VP_Y, _VP_W = 65.0, 30.0, 80.0
 _HALF_LEN = 1500.0                      # block line runs x = -1500 .. +1500
+_TEXT_X, _TEXT_Y, _TEXT_H = -500.0, -1000.0, 400.0   # block text glyph (model)
 
 
 def _crop(scale):
@@ -29,14 +30,15 @@ def _crop(scale):
     return QRectF(-half, -half, 2 * half, 2 * half)
 
 
-def _line_def(name, colour="#ffffff"):
+def _line_def(name, colour="#ffffff", extra=()):
     ln = LineItem(QPointF(-_HALF_LEN, 0), QPointF(_HALF_LEN, 0))
     pen = ln.pen()
     pen.setColor(QColor(colour))
     pen.setWidthF(3.0)                  # authored px -- must be ignored on paper
     ln.setPen(pen)
     return BlockDefinition.new(name=name, library="L", series="S",
-                               primitives=[ln.to_dict()], origin=(0.0, 0.0))
+                               primitives=[ln.to_dict(), *extra],
+                               origin=(0.0, 0.0))
 
 
 def _nested(block_id):
@@ -44,7 +46,15 @@ def _nested(block_id):
             "pos": [0, 0], "rotation": 0.0}
 
 
-def _scene_with_blocks(nested=False):
+def _text_prim():
+    """A white block text glyph well clear of the line (model y=-1000)."""
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    return TextItem(TextAnnotationData(text="H", x=_TEXT_X, y=_TEXT_Y,
+                                       height_mm=_TEXT_H,
+                                       color="#ffffff")).to_dict()
+
+
+def _scene_with_blocks(nested=False, text=False):
     ms = Model_Space()
     if nested:
         c = _line_def("C")
@@ -56,7 +66,7 @@ def _scene_with_blocks(nested=False):
             ms.register_block_definition(d)
         ms.place_block_instance(a.id, (0.0, 0.0), level=ms.active_level)
     else:
-        d = _line_def("P")
+        d = _line_def("P", extra=[_text_prim()] if text else ())
         ms.register_block_definition(d)
         ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
     return ms
@@ -136,6 +146,58 @@ def test_white_block_plots_black_in_bw_authored_in_full_color(qapp, tmp_path):
     assert abs(fc[0][0] - 0.18) < 0.02, fc                # weight in every mode
 
 
+def test_selected_block_plots_authored_colour_in_full_color(qapp, tmp_path):
+    """Selection is canvas feedback: a selected block plots authored on paper."""
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    ms = _scene_with_blocks()
+    inst = ms._block_instances[0]
+    assert inst.flags() & inst.GraphicsItemFlag.ItemIsSelectable
+    inst.setSelected(True)
+    assert inst.isSelected()
+    fc = _block_strokes(_export(tmp_path, ms, 0.02, "sel.pdf"), 0.02)
+    assert len(fc) == 1 and fc[0][1] == (1.0, 1.0, 1.0), fc
+    assert inst.isSelected()                       # pass did not deselect
+
+
+def _text_fills(pdf):
+    """Fill colours of drawings inside the block text's paper box.
+
+    Selected by position only: fill-type drawings whose rect lies inside the
+    viewport, clear of its full-box background, and away from the block
+    line's row (y = 70 mm) -- the text glyph sits 20 mm off that row.
+    """
+    pt = 25.4 / 72.0
+    line_y = _VP_Y + _VP_W / 2.0
+    doc = fitz.open(str(pdf))
+    try:
+        res = []
+        for d in doc[0].get_drawings():
+            if "f" not in (d.get("type") or ""):
+                continue
+            r = d["rect"]
+            x0, y0, x1, y1 = (v * pt for v in (r.x0, r.y0, r.x1, r.y1))
+            if (_VP_X + 1 < x0 and x1 < _VP_X + _VP_W - 1
+                    and _VP_Y + 1 < y0 and y1 < _VP_Y + _VP_W - 1
+                    and (y1 < line_y - 5 or y0 > line_y + 5)):
+                res.append(d.get("fill"))
+        return res
+    finally:
+        doc.close()
+
+
+def test_block_text_plots_black_in_bw(qapp, tmp_path):
+    """LT1-2: B&W forces the category colour onto TEXT ops too."""
+    save_paper_color_mode(PaperColorMode.BW)
+    fills = _text_fills(_export(tmp_path, _scene_with_blocks(text=True),
+                                0.02, "t.pdf"))
+    assert fills, "block text glyph not found in PDF"
+    assert all(f == (0.0, 0.0, 0.0) for f in fills), fills
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)       # authored white kept
+    fc = _text_fills(_export(tmp_path, _scene_with_blocks(text=True),
+                             0.02, "tf.pdf"))
+    assert fc and all(f == (1.0, 1.0, 1.0) for f in fc), fc
+
+
 def test_custom_mode_forces_category_colour(qapp, tmp_path):
     save_paper_color_mode(PaperColorMode.CUSTOM)
     cats = pd.load_paper_categories()
@@ -173,6 +235,24 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
         assert pd.load_paper_categories()["Blocks"]["line_weight"] == "Heavy"
     finally:
         dlg.close()
+
+
+def test_placement_ghost_never_plots(qapp):
+    """A ghost-flagged BlockInstance is hidden for the pass, restored after."""
+    ms = _scene_with_blocks()
+    ms._place_block_id = ms._block_instances[0].block_id
+    ms._place_block_make_ghost()
+    g = ms._place_block_ghost
+    assert g is not None and g.isVisible()
+    saved = pd.apply_paper_overrides(ms, _crop(0.02), paper_scale=0.02)
+    try:
+        assert not g.isVisible()
+        assert g.opacity() == 0.5 and g._paper_pen_width is None
+        assert ms._block_instances[0]._paper_pen_width is not None
+    finally:
+        pd.restore_model_display(saved)
+    assert g.isVisible() and g.opacity() == 0.5
+    ms._place_block_drop_ghost()
 
 
 def _render_model(ms):

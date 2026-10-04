@@ -200,7 +200,8 @@ class BlockInstance(QGraphicsObject):
                 b = QBrush(QColor(op.colour or "#ffffff"))
                 if override is not None:
                     b.setColor(override)
-                if selected:
+                # Selection is canvas feedback -- never plots (LT1-2).
+                if selected and self._paper_pen_width is None:
                     b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
@@ -216,7 +217,7 @@ class BlockInstance(QGraphicsObject):
                     p.setCosmetic(True)           # canvas: authored px (LT1-1)
                 if override is not None:
                     p.setColor(override)
-                if selected:
+                if selected and self._paper_pen_width is None:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)

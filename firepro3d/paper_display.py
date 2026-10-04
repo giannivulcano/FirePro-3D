@@ -759,7 +759,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         for item in items:
             if not item.isVisible():
                 continue
-            if getattr(type(item), "PAPER_EXCLUDED", False):
+            # Instance-aware: class flags (manipulator, markers) and per-item
+            # flags (the block placement ghost) both exclude.
+            if getattr(item, "PAPER_EXCLUDED", False):
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
                 item.setVisible(False)

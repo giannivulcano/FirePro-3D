@@ -6117,6 +6117,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                           resolver=self.get_block_definition, level=self.active_level)
         g.setOpacity(0.5)
         g.setFlag(g.GraphicsItemFlag.ItemIsSelectable, False)
+        # Authoring preview -- never plots (a real BlockInstance would
+        # otherwise take the paper "Blocks" category, linetypes.md LT1-2).
+        g.PAPER_EXCLUDED = True
         self.addItem(g)
         self._place_block_ghost = g
 
