@@ -55,7 +55,7 @@ def test_custom_border_weight_maps_mm_times_hint(qapp):
     """T7: a custom 0.80 mm weight draws ~4.8 px (pre-LT1: unknown name -> 1 px)."""
     pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
                                  LineWeightDef("Fat", 0.80)])
-    assert _left_border_run(_border_thickness_px("Fat")) >= 4
+    assert 4 <= _left_border_run(_border_thickness_px("Fat")) <= 6
 
 
 def test_thin_lines_border_is_one_px(qapp):
