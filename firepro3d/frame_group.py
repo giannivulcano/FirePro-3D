@@ -17,7 +17,6 @@ _CORNERS = (("square", "corner_square.svg", "Square corner"),
             ("round", "corner_fillet.svg", "Fillet (rounded) corner"),
             ("chamfer", "corner_chamfer.svg", "Chamfer (cut) corner"))
 _LINE_TYPES = ("solid", "dashed", "dotted", "dashdot")
-_WEIGHTS = ("Very Light", "Light", "Medium", "Heavy", "Very Heavy")
 
 
 class FrameGroupController(QObject):
@@ -79,11 +78,22 @@ class FrameGroupController(QObject):
         col.addWidget(self.line_type_combo)
 
         self.weight_combo = QComboBox()
-        self.weight_combo.addItems(_WEIGHTS)
+        self._refill_weights()
         self.weight_combo.setToolTip("Border line weight")
         self.weight_combo.activated.connect(
             lambda _i: self.commit_weight(self.weight_combo.currentText()))
         col.addWidget(self.weight_combo)
+
+    def _refill_weights(self):
+        """Fill the weight combo from the live project table (LT1-6)."""
+        from .paper_display import weight_names
+        cur = self.weight_combo.currentText()
+        self.weight_combo.blockSignals(True)
+        self.weight_combo.clear()
+        self.weight_combo.addItems(weight_names())
+        if cur:
+            self.weight_combo.setCurrentText(cur)
+        self.weight_combo.blockSignals(False)
 
     def _targets(self):
         return [t for t in self._get_targets() if t is not None]
@@ -150,6 +160,8 @@ class FrameGroupController(QObject):
         try:
             if not targets:
                 return
+            from .paper_display import weight_names
+            self._refill_weights()
 
             def uniform(getter):
                 vals = {getter(t.data) for t in targets}
@@ -163,7 +175,7 @@ class FrameGroupController(QObject):
             if lt in _LINE_TYPES:
                 self.line_type_combo.setCurrentText(lt)
             wt = uniform(lambda d: d.border_weight)
-            if wt in _WEIGHTS:
+            if wt in weight_names():
                 self.weight_combo.setCurrentText(wt)
             on = self.border_btn.isChecked()
             for w in (self.line_type_combo, self.weight_combo, *self.corner_btns.values()):

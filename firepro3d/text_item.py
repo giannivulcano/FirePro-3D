@@ -1099,6 +1099,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._on_paper():
             from .paper_space import _text_panel_properties
             return _text_panel_properties(self._data)
+        from .paper_display import weight_names
         d = self._data
         props = {
             "Text":     {"type": "header", "value": "Text"},
@@ -1122,7 +1123,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                           "options": ["none", "solid", "dashed", "dotted", "dashdot"],
                           "value": ("none" if not d.border else d.border_line_type)},
             "Border Weight": {"type": "enum",
-                              "options": ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"],
+                              "options": weight_names(),
                               "value": d.border_weight},
             "Corner":   {"type": "icon_enum", "value": d.border_corner,
                          "options": [("square", "corner_square.svg"),
