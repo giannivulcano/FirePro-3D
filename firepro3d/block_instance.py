@@ -27,7 +27,7 @@ from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .render_op import STROKE, FILL, PATTERN, TEXT
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
-                           resolve_stroke)
+                           linetype_block, resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
 
@@ -64,7 +64,7 @@ class BlockInstance(QGraphicsObject):
         # Placement-ghost preview (Model_Space._place_block_make_ghost): draws
         # on the continuous base geometry, no missing badge (LT3-6).
         self._is_ghost: bool = False
-        self._lt_ref_cache = None   # (ops list, any stroke op with a linetype id)
+        self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
         self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion)})
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
@@ -182,10 +182,11 @@ class BlockInstance(QGraphicsObject):
         r = self._posed_path().boundingRect()
         m = 2.0  # pen margin (mm)
         r = r.adjusted(-m, -m, m, m)
-        if self._has_linetype_ref():
-            # A linetype id may go missing (LT3-10): the canvas glyph is drawn
-            # at the insertion point, a fixed device size -- bound it at this
-            # zoom whether or not it resolves (no geometry change on a flip).
+        if self._has_missing_linetype():
+            # A missing linetype (LT3-10) draws its canvas glyph at the
+            # insertion point, a fixed device size: bound it at this zoom only
+            # while a reference is unresolved (a resolving linetype keeps the
+            # Continuous bounds -- manipulator frame, copy base point).
             from .view_scale import scene_hit_width
             px = _lr.badge_pad_px()
             h = scene_hit_width(self, px, px)
@@ -193,16 +194,25 @@ class BlockInstance(QGraphicsObject):
             r = r.united(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h))
         return r
 
-    def _has_linetype_ref(self) -> bool:
-        """True when any compiled stroke op names a linetype block id
-        (memoised on the compiled op list's identity)."""
+    def _has_missing_linetype(self) -> bool:
+        """True when a compiled stroke op names a linetype id that does not
+        resolve to a linetype block (LT3-10, ``linetype_ref_missing``).
+
+        The distinct ids are memoised on the compiled op list's identity; the
+        registry lookup itself runs every call (a few dict gets), so a
+        linetype added / removed later is seen without invalidation.
+        """
         ops = self.render_ops()
         c = self._lt_ref_cache
-        if c is not None and c[0] is ops:
-            return c[1]
-        has = any(op.kind == STROKE and is_linetype_ref(op.linetype) for op in ops)
-        self._lt_ref_cache = (ops, has)
-        return has
+        if c is None or c[0] is not ops:
+            ids = frozenset(op.linetype for op in ops
+                            if op.kind == STROKE and is_linetype_ref(op.linetype))
+            c = self._lt_ref_cache = (ops, ids)
+        if not c[1] or self._is_ghost:
+            return False
+        sc = self.scene()
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        return any(linetype_block(i, reg) is None for i in c[1])
 
     def shape(self) -> QPainterPath:
         # Copy (implicitly shared, O(1)): callers may mutate what shape()

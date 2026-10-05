@@ -1717,15 +1717,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
 
-        Refused (returns False) while any instance references it or any other
-        definition nests it, directly or indirectly (D12 — see
-        :meth:`block_users_message`). On success the definition is popped, an
-        undo state is pushed (``_capture_network`` already serializes
-        definitions), and ``blockDefinitionsChanged`` is emitted.
+        Refused (returns False) while any instance references it, any other
+        definition nests it, directly or indirectly (D12), or any live styled
+        primitive in the plan or an open Block Editor uses it as its linetype
+        (LT3-2) -- see :meth:`block_users_message`. On success the definition
+        is popped, an undo state is pushed (``_capture_network`` already
+        serializes definitions), and ``blockDefinitionsChanged`` is emitted.
         """
         if self.instance_count(block_id) > 0:
             return False
         if self._block_registry.users_of(block_id):
+            return False
+        if self.linetype_user_contexts(block_id):
             return False
         if block_id not in self._block_definitions:
             return False
@@ -1734,20 +1737,49 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def linetype_user_contexts(self, block_id: str) -> list[str]:
+        """Where live styled primitives use *block_id* as their linetype (LT3-2).
+
+        Scans this (project) scene and every open Block Editor scene (the
+        ``_editor_scenes_provider`` hook BlockEditorManager registers).
+
+        Returns:
+            Context labels in order -- ``"the plan"``, ``"the open Block
+            Editor"`` -- for the scenes that hold such a primitive; empty
+            when none does.
+        """
+        from .block_registry import linetype_users_in
+        out = []
+        if linetype_users_in(self, block_id):
+            out.append("the plan")
+        prov = self._editor_scenes_provider
+        if callable(prov) and any(linetype_users_in(sc, block_id)
+                                  for sc in prov() if sc is not self):
+            out.append("the open Block Editor")
+        return out
+
     def block_users_message(self, block_id: str) -> str | None:
-        """Delete-refusal text when other blocks nest *block_id* (D12).
+        """Delete-refusal text when other blocks nest *block_id* (D12) or live
+        primitives use it as their linetype (LT3-2).
 
         Args:
             block_id: The definition the user wants to delete.
 
         Returns:
             ``“B” is used inside: A, D — explode or remove it there first.``
-            (users sorted by name, direct and indirect), or None when no
-            other block nests it.
+            (users sorted by name, direct and indirect), else ``“Hidden” is
+            used by lines in the plan and in the open Block Editor — change
+            their linetype first.``, or None when nothing uses it.
         """
         users = self._block_registry.users_of(block_id)
         if not users:
-            return None
+            ctx = self.linetype_user_contexts(block_id)
+            if not ctx:
+                return None
+            d = self.get_block_definition(block_id)
+            where = " and ".join(("in " + c) for c in ctx)
+            return (f"“{d.name}” is used by lines {where}"
+                    " — change their linetype first.")
         d = self.get_block_definition(block_id)
         names = sorted(self.get_block_definition(u).name for u in users)
         return (f"“{d.name}” is used inside: {', '.join(names)}"

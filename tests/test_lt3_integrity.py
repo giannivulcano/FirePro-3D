@@ -207,3 +207,43 @@ def test_fpdb_save_brings_linetype_into_fresh_project(qapp, tmp_path):
     assert fresh.get_block_definition(u.id).primitives[0]["style"]["linetype"] == lid
     assert fresh.get_block_definition(lid).repeat == {"length": 9.0, "size": "drafting"}
     assert fresh.block_registry.users_of(lid) == {u.id}
+
+
+# -- LT3-2: live (uncommitted) primitives also hold a linetype ---------------
+
+def _raw(scene, lid):
+    ln = LineItem(QPointF(0, 0), QPointF(30, 0))
+    ln.style["linetype"] = lid
+    scene.addItem(ln)
+    scene._draw_lines.append(ln)
+    return ln
+
+
+def test_delete_refused_while_a_plan_line_uses_the_linetype(qapp):
+    ms = Model_Space()
+    lid = hidden(ms)
+    ln = _raw(ms, lid)
+    assert ms.delete_block_definition(lid) is False
+    msg = ms.block_users_message(lid)
+    assert msg is not None and "in the plan" in msg and "Hidden" in msg
+    ln.style["linetype"] = "continuous"
+    assert ms.block_users_message(lid) is None
+    assert ms.delete_block_definition(lid) is True
+
+
+def test_delete_refused_while_an_open_block_editor_line_uses_it(qapp):
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.block_editor import BlockEditorManager
+    project = Model_Space()
+    lid = hidden(project)
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, project)
+    w = mgr.open_new()
+    try:
+        _raw(w.editor_scene, lid)
+        assert project.delete_block_definition(lid) is False
+        msg = project.block_users_message(lid)
+        assert msg is not None and "in the open Block Editor" in msg
+        assert "in the plan" not in msg
+    finally:
+        w.editor_scene.cleanup()

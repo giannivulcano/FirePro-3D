@@ -53,3 +53,20 @@ def test_named_weight_overrides_dash_weight():
     ms = Model_Space()
     heavy = hidden(ms, weight="Heavy")
     assert ss.resolve_stroke(_style(heavy, "Light"), ms.block_registry).weight == "Light"
+
+
+def test_non_linetype_block_id_is_missing():
+    """A ref resolving to a block WITHOUT ``repeat`` is not a linetype: it
+    draws Continuous with the missing badge (LT3-10), unlike a malformed
+    ``repeat`` block (solid, no badge -- test above)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.geometry_2d import LineItem
+    ms = Model_Space()
+    plain = BlockDefinition.new(name="Plain", library="L", series="S",
+                                primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
+                                origin=(0.0, 0.0))
+    ms.register_block_definition(plain)
+    r = ss.resolve_stroke(_style(plain.id, ss.BY_LINETYPE), ms.block_registry)
+    assert r.lt is None and r.missing_id == plain.id
+    assert r.weight == ss.BY_LINETYPE

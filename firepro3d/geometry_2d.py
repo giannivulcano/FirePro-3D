@@ -23,7 +23,7 @@ from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
 from .linetype_render import badge_pad_px
 from .scale_manager import ScaleManager
-from .stroke_style import is_linetype_ref, resolve_stroke
+from .stroke_style import is_linetype_ref, linetype_block, resolve_stroke
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -166,11 +166,18 @@ class Geometry2DMixin:
         if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
             return base
         px = pen.widthF() / 2.0 + 0.75
-        # A linetype id may go missing (LT3-10): its canvas glyph sits at the
-        # stroke's mid-length, so pad for it whenever the record references a
-        # linetype block (resolved or not -- no geometry change on a flip).
-        if self.style is not None and is_linetype_ref(self.style.get("linetype")):
-            px = max(px, badge_pad_px())
+        # A missing linetype (LT3-10) draws its canvas glyph at the stroke's
+        # mid-length: pad for it only while the reference is unresolved,
+        # decided by a registry lookup (right before the first paint; a
+        # resolving linetype keeps the Continuous bounds -- manipulator frame,
+        # copy base point). Flips are announced by BlockRegistry.invalidate.
+        if self.style is not None:
+            ref = self.style.get("linetype")
+            if is_linetype_ref(ref):
+                sc = self.scene()
+                reg = getattr(sc, "block_registry", None) if sc is not None else None
+                if linetype_block(ref, reg) is None:
+                    px = max(px, badge_pad_px())
         p = scene_hit_width(self, px, px)
         return base.adjusted(-p, -p, p, p)
 
@@ -320,13 +327,14 @@ class Geometry2DMixin:
         For ``"Linetype"`` *value* is the resolved ref (``continuous``,
         ``by_block`` or a linetype block id -- ``linetype_ref_from_value``).
         """
-        from .stroke_style import BY_BLOCK, _hex
+        from .stroke_style import BY_BLOCK, BY_LINETYPE, _hex
         v = str(value)
         if key == "Linetype":
             self.prepareGeometryChange()     # badge pad follows the linetype ref
             self.style["linetype"] = v
         elif key == "Weight":
-            self.style["weight"] = BY_BLOCK if v == "By Block" else v
+            self.style["weight"] = {"By Block": BY_BLOCK,
+                                    "By Linetype": BY_LINETYPE}.get(v, v)
         else:
             self.style["colour"] = _hex(v)
         self._sync_stroke_pen()
@@ -446,12 +454,13 @@ class Geometry2DMixin:
                 options = [value] + options
             props["Linetype"] = {"type": "enum", "options": options,
                                  "value": value}
+            # LT3-8: By Linetype takes the linetype's dash weight, so it is
+            # its own option (D-L4), not folded into By Block.
             w = self.style["weight"]
             props["Weight"] = {"type": "enum",
-                               "options": ["By Block", *weight_names()],
-                               "value": "By Block" if w in (BY_BLOCK,
-                                                           BY_LINETYPE)
-                               else w}
+                               "options": ["By Block", "By Linetype", *weight_names()],
+                               "value": {BY_BLOCK: "By Block",
+                                         BY_LINETYPE: "By Linetype"}.get(w, w)}
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",

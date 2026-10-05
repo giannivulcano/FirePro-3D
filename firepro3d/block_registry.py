@@ -54,6 +54,20 @@ def prim_refs(primitives) -> set[str]:
     return out
 
 
+def linetype_users_in(scene, block_id: str) -> list:
+    """The scene's live styled primitives whose ``style.linetype`` is
+    *block_id* (LT3-2 / LT3-10); empty for a scene without geometry tools."""
+    tools = getattr(scene, "_tools", None)
+    if tools is None:
+        return []
+    out = []
+    for item in tools._all_geometry_items():
+        st = getattr(item, "style", None)
+        if isinstance(st, dict) and st.get("linetype") == block_id:
+            out.append(item)
+    return out
+
+
 def referenced_ids(defn) -> set[str]:
     """Every block id *defn* depends on (nested + pattern + linetype; hatch HD4a, LT LD5, LT3-2)."""
     return prim_refs(defn.primitives)
@@ -271,6 +285,10 @@ class BlockRegistry:
             if d is not None:
                 d.invalidate_cache()
         from PyQt6 import sip
+        # Only a linetype (or a vanished id) can flip a raw stroke's missing
+        # state -- skip the geometry scan for ordinary symbol edits / loads.
+        d0 = self._store.get(block_id)
+        lt_scan = d0 is None or bool(getattr(d0, "repeat", None))
         for sc in list(self._scenes):
             if sip.isdeleted(sc):
                 self._scenes.remove(sc)
@@ -278,3 +296,8 @@ class BlockRegistry:
             for inst in list(getattr(sc, "_block_instances", [])):
                 if inst.block_id in affected and id(inst) not in skip:
                     inst.on_definition_changed()
+            # Raw primitives styled with *block_id* as their linetype: their
+            # missing-glyph bounds pad may flip with this change (LT3-10).
+            for item in (linetype_users_in(sc, block_id) if lt_scan else ()):
+                item.prepareGeometryChange()
+                item.update()

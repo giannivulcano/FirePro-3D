@@ -114,6 +114,20 @@ def is_named_weight(w) -> bool:
     return isinstance(w, str) and bool(w) and w not in (BY_BLOCK, BY_LINETYPE)
 
 
+def linetype_block(ref, registry):
+    """The registry block *ref* names when it is a linetype (has a ``repeat``
+    record, malformed or not), else None -- the LT3-10 "missing" test shared
+    by ``resolve_stroke`` and the badge bounds (``linetype_ref_missing``)."""
+    d = registry.get(ref) if registry is not None else None
+    return d if d is not None and getattr(d, "repeat", None) else None
+
+
+def linetype_ref_missing(ref, registry) -> bool:
+    """True when *ref* is a linetype id that does not resolve to a linetype
+    block in *registry* -- the stroke draws Continuous + the badge (LT3-10)."""
+    return is_linetype_ref(ref) and linetype_block(ref, registry) is None
+
+
 def is_linetype_ref(lt) -> bool:
     """True for a linetype block-id reference (a non-empty string that is not
     ``continuous`` / ``by_block``) -- the values the LT3-8 cascade resolves
@@ -149,7 +163,8 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
 
     Linetype: ``continuous`` / ``by_block`` (until LT5) draw solid; a block id
     resolves to its ``LinetypeDef`` (malformed -> solid, no badge) or reports
-    ``missing_id``. Weight: ``by_linetype`` takes the linetype's dash weight
+    ``missing_id`` -- also for an id naming a block that is not a linetype
+    (no ``repeat``; ``linetype_block``). Weight: ``by_linetype`` takes the linetype's dash weight
     when it has one; otherwise the weight is returned unchanged (callers map
     By Block / By Linetype to the surface category as in LT2).
     """
@@ -157,7 +172,7 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
     weight = style.get("weight") or BY_BLOCK
     lt, missing = None, None
     if ref not in (CONTINUOUS, BY_BLOCK):
-        d = registry.get(ref) if registry is not None else None
+        d = linetype_block(ref, registry)
         if d is None:
             missing = ref
         else:

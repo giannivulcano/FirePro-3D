@@ -1,4 +1,5 @@
 """G11 -- a missing linetype draws Continuous + a canvas-only badge."""
+import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
@@ -166,3 +167,90 @@ def test_block_missing_tooltip(qapp):
     inst = ms._block_instances[0]
     _warn_px(ms, QRectF(-2000, -2000, 4000, 4000), 40, 40)
     assert inst.toolTip() == _TIP
+
+
+# -- E: an id naming a non-linetype block is missing -------------------------
+
+def test_non_linetype_block_ref_draws_badge_and_tooltip(qapp):
+    ms = Model_Space(scene_role="block_editor")
+    plain = BlockDefinition.new(name="Plain", library="L", series="S",
+                                primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
+                                origin=(0.0, 0.0))
+    ms.register_block_definition(plain)
+    ln = LineItem(QPointF(0, 0), QPointF(36, 0))
+    ln.style["linetype"] = plain.id
+    ms.addItem(ln)
+    assert _warn_px(ms, QRectF(0, -6, 40, 12), 400, 120) > 10
+    assert ln.toolTip() == f"Missing linetype: {plain.id} \u2014 drawn Continuous"
+    assert ln.get_properties()["Linetype"]["value"] == f"Missing ({plain.id})"
+
+
+# -- B: the glyph pad applies only while the reference is unresolved ---------
+
+def _pad_scene(linetype):
+    """p2's scenario: plan view at 0.05, block line x = 1000..3000 with the
+    insertion at 0 (far off the geometry), plus a raw plan line."""
+    from tests._snap_polish_helpers import close_view, make_view
+    from tests.lt3_support import hidden
+    view, ms = make_view(role="plan", scale=0.05, mode=None)
+    lid = hidden(ms)
+    ref = {"continuous": "continuous", "hidden": lid, "missing": "deadbeef"}[linetype]
+    ln = LineItem(QPointF(1000, 0), QPointF(3000, 0))
+    ln.style["linetype"] = ref
+    d = BlockDefinition.new(name="B", library="L", series="S",
+                            primitives=[ln.to_dict()], origin=(0.0, 0.0))
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+    raw = LineItem(QPointF(0, 5000), QPointF(2000, 5000))
+    raw.style["linetype"] = ref
+    ms.addItem(raw)
+    ms._draw_lines.append(raw)
+    return view, ms, inst, raw
+
+
+def _frames(linetype):
+    from tests._snap_polish_helpers import close_view
+    from firepro3d.selection_manipulator import manip_bounds
+    view, ms, inst, raw = _pad_scene(linetype)
+    try:
+        return (manip_bounds(inst), inst.sceneBoundingRect(),
+                manip_bounds(raw), raw.sceneBoundingRect())
+    finally:
+        close_view(view, ms)
+
+
+def test_resolved_linetype_bounds_equal_continuous(qapp):
+    """A resolving Hidden linetype leaves the manipulator frame, the scene
+    bounds (copy base point = its centre) identical to Continuous -- before
+    any paint."""
+    assert _frames("hidden") == _frames("continuous")
+
+
+def test_missing_linetype_bounds_contain_the_glyph(qapp):
+    bi, bb, ri, rb = _frames("missing")
+    k = 1.0 / 0.05                                     # mm per device px
+    assert bb.contains(QRectF(-7 * k, -7 * k, 14 * k, 12 * k))   # at the insertion
+    assert rb.contains(QRectF(1000 - 7 * k, 5000 - 7 * k, 14 * k, 12 * k))   # mid-length
+
+
+# -- G: the pad derives from the glyph's real extent -------------------------
+
+@pytest.mark.parametrize("badge_px", [12, 20])
+def test_badge_pad_covers_the_drawn_glyph(qapp, monkeypatch, badge_px):
+    """Paint the glyph alone and measure every tinted pixel: its half-extent
+    from the anchor never exceeds ``badge_pad_px()``."""
+    from firepro3d import constants
+    from firepro3d import linetype_render as lr
+    monkeypatch.setattr(constants, "LINETYPE_BADGE_PX", badge_px)
+    img = QImage(100, 100, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    lr.paint_missing_badge(p, QPointF(50.0, 50.0))
+    p.end()
+    ext = 0.0
+    for x in range(100):
+        for y in range(100):
+            if QColor(img.pixel(x, y)).red() > 0:       # any glyph coverage
+                ext = max(ext, abs(x + 0.5 - 50.0), abs(y + 0.5 - 50.0))
+    assert ext > 0.0
+    assert ext <= lr.badge_pad_px(), (ext, lr.badge_pad_px())

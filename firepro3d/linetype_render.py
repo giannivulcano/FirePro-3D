@@ -215,11 +215,25 @@ def mid_point(pieces) -> QPointF | None:
     return pw.point_at_total(pieces, pw.total_length(pieces) / 2.0) if pieces else None
 
 
+# Missing-glyph geometry (mockup option A) in mockup units: authored on a
+# 12-unit grid, scaled to LINETYPE_BADGE_PX. The glyph's farthest point from
+# its anchor is _BADGE_REACH units (triangle apex / base corners); the bounds
+# pad adds _BADGE_AA_PX of antialiasing fringe. One home for both.
+_BADGE_GRID = 12.0
+_BADGE_REACH = 7.0
+_BADGE_AA_PX = 1.0
+
+
+def _badge_unit() -> float:
+    """Device px per mockup unit at the current ``LINETYPE_BADGE_PX``."""
+    from . import constants
+    return constants.LINETYPE_BADGE_PX / _BADGE_GRID
+
+
 def badge_pad_px() -> float:
     """Device-px half-extent the missing glyph needs around its anchor: the
-    bounds pad of an item that may draw it (glyph spans +/-7 px at 12 px)."""
-    from .constants import LINETYPE_BADGE_PX
-    return LINETYPE_BADGE_PX / 2.0 + 1.0
+    bounds pad of an item that may draw it (the glyph's reach + AA fringe)."""
+    return _BADGE_REACH * _badge_unit() + _BADGE_AA_PX
 
 
 def sync_missing_tooltip(item, missing_id) -> None:
@@ -248,17 +262,17 @@ def paint_missing_badge(painter, at: QPointF) -> None:
     from PyQt6.QtCore import QRectF
     from PyQt6.QtGui import QColor, QPainter, QPolygonF
     from . import theme
-    from .constants import LINETYPE_BADGE_PX
     c = painter.transform().map(at)
-    k = LINETYPE_BADGE_PX / 12.0                 # mockup geometry is 12 px
+    k = _badge_unit()                            # mockup geometry: 12-unit grid
+    r = _BADGE_REACH * k
     painter.save()
     painter.resetTransform()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(theme.detect().warn))
-    painter.drawPolygon(QPolygonF([QPointF(c.x(), c.y() - 7 * k),
-                                   QPointF(c.x() + 7 * k, c.y() + 5 * k),
-                                   QPointF(c.x() - 7 * k, c.y() + 5 * k)]))
+    painter.drawPolygon(QPolygonF([QPointF(c.x(), c.y() - r),
+                                   QPointF(c.x() + r, c.y() + 5 * k),
+                                   QPointF(c.x() - r, c.y() + 5 * k)]))
     painter.setBrush(QColor("#ffffff"))
     painter.drawRoundedRect(QRectF(c.x() - 0.9 * k, c.y() - 2.6 * k,
                                    1.8 * k, 4.6 * k), 0.6 * k, 0.6 * k)
