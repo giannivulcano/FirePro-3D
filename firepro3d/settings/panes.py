@@ -27,7 +27,7 @@ from firepro3d.constants import (
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, BLOCK_DIR_KEY as _BLOCK_DIR_KEY,
-    HATCH_DIR_KEY as _HATCH_DIR_KEY,
+    HATCH_DIR_KEY as _HATCH_DIR_KEY, LINETYPE_DIR_KEY as _LINETYPE_DIR_KEY,
     migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
@@ -1056,6 +1056,32 @@ class GeneralPane(SettingsPane):
         hatch_row.addWidget(hatch_browse)
         hatch_row.addWidget(hatch_reset)
         dv.addLayout(hatch_row)
+
+        # Linetypes folder (linetypes.md LT3-13) — the library source every
+        # Linetype picker lists; overrides ``<block library>/System/Linetypes``.
+        lt_hint = QLabel(
+            "Linetypes (optional): a folder of linetype blocks offered in "
+            "every Linetype picker. Leave blank to use "
+            "<block library>/System/Linetypes.")
+        lt_hint.setWordWrap(True)
+        dv.addWidget(lt_hint)
+        lt_row = QHBoxLayout()
+        self._lt_dir_edit = QLineEdit()
+        self._lt_dir_edit.setPlaceholderText("(block library)/System/Linetypes")
+        self._lt_dir_edit.setToolTip(
+            "Folder of linetype blocks offered in every Linetype picker "
+            "(default: <block library>/System/Linetypes)")
+        lt_browse = QPushButton("Browse…")
+        lt_browse.setToolTip("Choose the linetypes folder")
+        lt_browse.clicked.connect(self._pick_lt_dir)
+        lt_reset = QPushButton("Reset")
+        lt_reset.setToolTip(
+            "Use the default (<block library>/System/Linetypes)")
+        lt_reset.clicked.connect(self._lt_dir_edit.clear)
+        lt_row.addWidget(self._lt_dir_edit, 1)
+        lt_row.addWidget(lt_browse)
+        lt_row.addWidget(lt_reset)
+        dv.addLayout(lt_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -1091,6 +1117,15 @@ class GeneralPane(SettingsPane):
             self, "Choose hatch patterns folder", start)
         if chosen:
             self._hatch_dir_edit.setText(chosen)
+
+    def _pick_lt_dir(self) -> None:
+        start = (self._lt_dir_edit.text().strip()
+                 or self._block_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose linetypes folder", start)
+        if chosen:
+            self._lt_dir_edit.setText(chosen)
 
     def migrate_prompt_if_needed(self) -> None:
         """After Apply/OK: if the data root changed and the old root still holds
@@ -1156,6 +1191,9 @@ class GeneralPane(SettingsPane):
         hatch = s.value(_HATCH_DIR_KEY, "", type=str) or ""
         self._hatch_dir_snapshot = hatch
         self._hatch_dir_edit.setText(hatch)
+        lt = s.value(_LINETYPE_DIR_KEY, "", type=str) or ""
+        self._lt_dir_snapshot = lt
+        self._lt_dir_edit.setText(lt)
 
     def apply(self) -> None:
         """Write checkbox states + the data-folder/title-block overrides.
@@ -1174,6 +1212,7 @@ class GeneralPane(SettingsPane):
         s.setValue(_TB_DIR_KEY, self._tb_dir_edit.text().strip())
         s.setValue(_BLOCK_DIR_KEY, self._block_dir_edit.text().strip())
         s.setValue(_HATCH_DIR_KEY, self._hatch_dir_edit.text().strip())
+        s.setValue(_LINETYPE_DIR_KEY, self._lt_dir_edit.text().strip())
 
     def revert(self) -> None:
         """Restore snapshot values to checkboxes + the path fields."""
@@ -1184,6 +1223,7 @@ class GeneralPane(SettingsPane):
         self._tb_dir_edit.setText(getattr(self, "_tb_dir_snapshot", ""))
         self._block_dir_edit.setText(getattr(self, "_block_dir_snapshot", ""))
         self._hatch_dir_edit.setText(getattr(self, "_hatch_dir_snapshot", ""))
+        self._lt_dir_edit.setText(getattr(self, "_lt_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.
