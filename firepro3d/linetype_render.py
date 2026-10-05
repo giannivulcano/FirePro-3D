@@ -17,7 +17,7 @@ from PyQt6.QtGui import QPainterPath, QPen
 
 from . import path_walk as pw
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
-                        LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
+                        LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
                         LINETYPE_MAX_PERIODS)
 
 
@@ -32,7 +32,9 @@ class LinetypeDef:
     dash_weight: str | None
     size: str              # "drafting" | "model"
 
-    _CACHE = {}            # (id, version) -> LinetypeDef | None
+    # (id, version, origin) -> LinetypeDef | None; LRU, LINETYPE_DEF_CACHE_MAX.
+    # Origin is in the key: the origin setter moves the unit without a bump.
+    _CACHE = OrderedDict()
 
     @classmethod
     def from_block(cls, defn) -> "LinetypeDef | None":
@@ -40,11 +42,12 @@ class LinetypeDef:
         rep = getattr(defn, "repeat", None)
         if not rep:
             return None
-        key = (defn.id, defn.version)
+        ox, oy = defn.origin
+        key = (defn.id, defn.version, (ox, oy))
         if key in cls._CACHE:
+            cls._CACHE.move_to_end(key)
             return cls._CACHE[key]
         length = float(rep["length"])
-        ox, oy = defn.origin
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
             if prim.get("type") != "draw_line":
@@ -79,6 +82,8 @@ class LinetypeDef:
             res = cls(defn.id, defn.version, length, tuple(sorted(dashes)),
                       tuple(sorted(dots)), dash_weight, rep["size"])
         cls._CACHE[key] = res
+        while len(cls._CACHE) > LINETYPE_DEF_CACHE_MAX:
+            cls._CACHE.popitem(last=False)
         return res
 
 

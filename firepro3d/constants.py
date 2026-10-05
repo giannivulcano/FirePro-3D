@@ -354,6 +354,7 @@ HATCH_VISIBLE_SNAP_CELLS = 4    # visible cell range snapped outward to multiple
 # Linetypes (linetypes.md LT3)
 LINETYPE_LOD_MIN_PERIOD_PX = 2.0   # screen period below this draws continuous (D-L21)
 LINETYPE_CACHE_MAX = 4096          # expansion LRU entries
+LINETYPE_DEF_CACHE_MAX = 512       # LinetypeDef reading LRU entries
 LINETYPE_MAX_PERIODS = 200_000     # safety cap per piece (draw continuous beyond)
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this

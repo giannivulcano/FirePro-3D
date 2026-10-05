@@ -205,3 +205,21 @@ def test_partially_outside_line_is_clamped_dash():
 def test_true_dot_kept_in_frame_and_dropped_outside():
     lt = lr.LinetypeDef.from_block(make_linetype(dashes=((0, 6),), dots=(9.0, 12.0)))
     assert lt.dots == (9.0,)
+
+
+# ── F3: reading cache keys on origin and is bounded ─────────────────────────
+
+def test_origin_change_without_version_bump_rereads():
+    d = make_linetype()                                   # dash 0..6
+    assert lr.LinetypeDef.from_block(d).dashes == ((0.0, 6.0),)
+    v = d.version
+    d.origin = (3.0, 0.0)                                 # real setter, no bump
+    assert d.version == v
+    assert lr.LinetypeDef.from_block(d).dashes == ((0.0, 3.0),)
+
+
+def test_reading_cache_is_bounded():
+    from firepro3d.constants import LINETYPE_DEF_CACHE_MAX
+    for _ in range(LINETYPE_DEF_CACHE_MAX + 10):
+        lr.LinetypeDef.from_block(make_linetype())
+    assert len(lr.LinetypeDef._CACHE) <= LINETYPE_DEF_CACHE_MAX
