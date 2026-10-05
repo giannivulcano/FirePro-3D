@@ -121,6 +121,8 @@ class Geometry2DMixin:
         self.style: dict | None = None
         # True while a placement ghost pen owns the pen (PolylineItem).
         self._ghost_pen: bool = False
+        # Unresolvable linetype id seen at the last paint (badge, LT3-10).
+        self._lt_missing: str | None = None
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -188,9 +190,58 @@ class Geometry2DMixin:
         from .stroke_style import canvas_px
         pen = QPen(self.pen())
         pen.setColor(QColor(dc or self.style["colour"]))
-        pen.setWidthF(canvas_px(self.style["weight"]))
+        rs = self._resolved_stroke()
+        pen.setWidthF(canvas_px(rs.weight if rs is not None else self.style["weight"]))
         pen.setCosmetic(True)
         self.setPen(pen)
+
+    def _resolved_stroke(self):
+        """LT3-8 cascade for this primitive (None for unstyled items)."""
+        if self.style is None:
+            return None
+        from .stroke_style import resolve_stroke
+        sc = self.scene()
+        return resolve_stroke(self.style,
+                              getattr(sc, "block_registry", None) if sc else None)
+
+    def _linetype_factor(self, lt) -> float:
+        """LT3-5 length factor: Block Editor / Model size -> 1; paper pass ->
+        1 / viewport scale; plan canvas -> drawing scale."""
+        if lt.size == "model":
+            return 1.0
+        sc = self.scene()
+        if sc is None or getattr(sc, "scene_role", "plan") == "block_editor":
+            return 1.0
+        ps = getattr(sc, "_hatch_paper_scale", None)   # set for a viewport pass
+        if ps:
+            return 1.0 / ps
+        sm = getattr(sc, "scale_manager", None)
+        return float(sm.drawing_scale) if sm is not None else 1.0
+
+    def _paint_linetyped(self, painter) -> bool:
+        """Draw the stroke (+ selection highlight) through the linetype renderer.
+
+        Returns False when the caller must draw its unchanged plain stroke
+        (Continuous / By Block / unresolved / malformed / LOD / ghost).
+        Records ``_lt_missing`` for the badge (LT3-10).
+        """
+        rs = self._resolved_stroke()
+        self._lt_missing = rs.missing_id if rs is not None else None
+        if rs is None or rs.lt is None or self._ghost_pen:
+            return False
+        from .linetype_render import paint_stroke
+        pieces = self.stroke_pieces()
+        factor = self._linetype_factor(rs.lt)
+        o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
+        anchor = (o.x(), o.y())
+        if not paint_stroke(painter, pieces, rs.lt, self.pen(),
+                            factor=factor, anchor=anchor):
+            return False
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor)
+        return True
 
     def _set_style_field(self, key: str, value) -> None:
         """Apply a panel style edit to the record (LT2-7), then repaint."""
@@ -763,8 +814,10 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
+        if self.isSelected() and not _manip_wraps(self) and not dashed:
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             painter.setPen(highlight)
@@ -975,8 +1028,10 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
         self._sync_stroke_pen()
-        super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
+        if self.isSelected() and not _manip_wraps(self) and not dashed:
             ln = self.line()
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
@@ -1423,6 +1478,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         # Bake-at-rest: rotation is DATA, not a held item transform, so rotate
         # the painter about the pivot here (local rect stays axis-aligned).
         # save/restore keeps the rotation local to this paint call.
+        base_xf = painter.worldTransform()
         painter.save()
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
@@ -1438,9 +1494,16 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self._rotation_transform() * self.sceneTransform())
-        super().paint(painter, option, widget)
+        # Linetype dashes draw in the UNROTATED item frame (stroke_pieces()
+        # already carry the rotation), after the fill so it stays behind.
+        painter.save()
+        painter.setWorldTransform(base_xf)
+        dashed = self._paint_linetyped(painter)
+        painter.restore()
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 highlight.setCosmetic(True)
                 painter.setPen(highlight)
@@ -1796,9 +1859,11 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 highlight.setCosmetic(True)
                 painter.setPen(highlight)
@@ -2138,9 +2203,11 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 highlight.setCosmetic(True)
                 painter.setPen(highlight)
@@ -2453,9 +2520,11 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 hl.setCosmetic(True)
                 painter.setPen(hl)
@@ -2728,9 +2797,11 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 hl.setCosmetic(True)
                 painter.setPen(hl)
@@ -3164,9 +3235,11 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        dashed = self._paint_linetyped(painter)
+        if not dashed:
+            super().paint(painter, option, widget)
         if self.isSelected():
-            if not _manip_wraps(self):
+            if not _manip_wraps(self) and not dashed:
                 hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
                 hl.setCosmetic(True)
                 painter.setPen(hl)
