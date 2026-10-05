@@ -42,7 +42,7 @@ from .constants import (
     OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK,
     OPENING_ALIGNMENTS,
 )
-from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for, feature_label
+from .feature import FEATURE_REGISTRY, FEATURE_LABEL, get_feature, nearest_feature_for, feature_label
 from .view_scale import scene_hit_width
 
 if TYPE_CHECKING:
@@ -191,6 +191,15 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     def openings_type(self) -> str:
         """Opening type string: "door" | "window" | "blank"."""
         return self._type
+
+    @property
+    def display_category(self) -> str:
+        """Display Manager category key: "Door" | "Window" | "Opening".
+
+        The one home for an opening's category on the Model and Paper tabs
+        (the tier-1 Feature label; the blank kind is "Opening").
+        """
+        return FEATURE_LABEL.get(self._type, "Opening")
 
     # ── Feature switching (template + placement) ─────────────────────────────
 
