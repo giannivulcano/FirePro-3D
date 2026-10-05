@@ -2,7 +2,7 @@
 
 Mirrors the hatch pattern picker (hatch-and-fill.md D-A36 / D-A37,
 ``hatch_patterns.tile_choices`` / ``ensure_pattern_available``): the panel
-Linetype row lists Continuous, By Block, the project's linetype (``repeat``)
+Linetype row lists Continuous, the project's linetype (``repeat``)
 blocks, then Linetypes-folder linetypes not yet loaded; picking a folder
 linetype loads it into the project before its id is stored. An unresolvable
 stored id shows as ``"Missing (<id>)"`` (LT3-10) and is never rewritten by
@@ -10,11 +10,11 @@ re-picking that label. UI paths only -- never called from paint.
 """
 from __future__ import annotations
 
-from .stroke_style import BY_BLOCK, CONTINUOUS
+from .stroke_style import CONTINUOUS
 
 #: Prefix of the panel label shown for an unresolvable linetype id (LT3-10).
 MISSING_PREFIX = "Missing"
-_FIXED = (("Continuous", CONTINUOUS), ("By Block", BY_BLOCK))
+_FIXED = (("Continuous", CONTINUOUS),)
 
 
 def _folder_linetypes() -> list[tuple[str, str, str]]:
@@ -28,7 +28,7 @@ def _folder_linetypes() -> list[tuple[str, str, str]]:
 def linetype_choices(registry=None, exclude=()) -> list[tuple[str, str]]:
     """``[(label, ref)]`` for the panel Linetype row (LT3-12).
 
-    Continuous, By Block, the project's linetype blocks by name, then the
+    Continuous, the project's linetype blocks by name, then the
     Linetypes folder's linetypes not already in the project. Labels are unique
     (a colliding name gets `` (project)`` / `` (library)`` appended, as in
     ``hatch_patterns.tile_choices``), so every ref is reachable by label.
@@ -81,7 +81,7 @@ def ensure_linetype_available(ref: str | None, scene) -> bool:
     """Load a Linetypes-folder linetype into the project before its id is
     stored (LT3-12; one undo step via ``blocks_browser.ensure_block_loaded``).
 
-    Continuous / By Block, a linetype already in the project registry, or a
+    Continuous, a linetype already in the project registry, or a
     ref that is no folder linetype need nothing. The load targets the PROJECT
     scene (a Block Editor scene's ``_block_registry_owner``).
 
@@ -89,7 +89,7 @@ def ensure_linetype_available(ref: str | None, scene) -> bool:
         False only when *ref* is a folder linetype that failed to load (the
         caller must not keep it); True otherwise.
     """
-    if not ref or ref in (CONTINUOUS, BY_BLOCK) or scene is None:
+    if not ref or ref == CONTINUOUS or scene is None:
         return True
     project = getattr(scene, "_block_registry_owner", None) or scene
     reg = getattr(project, "block_registry", None)

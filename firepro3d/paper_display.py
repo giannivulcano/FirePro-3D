@@ -112,7 +112,8 @@ _THIN_SUSPEND = 0
 # the table on New / table-less Open.
 _WEIGHT_ALIASES: dict[str, str] = {}
 # Display Manager Model "Blocks" weight (LT2-4/LT2-6) -- the canvas weight of
-# By Block strokes. Cached here so paint never reads QSettings.
+# By Linetype strokes with no dash weight (WM-5). Cached here so paint never
+# reads QSettings.
 _MODEL_BLOCKS_WEIGHT: str | None = None
 MODEL_BLOCKS_FACTORY_WEIGHT = "Light"     # 0.18 mm -> exactly 1.0 canvas px
 

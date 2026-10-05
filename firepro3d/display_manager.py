@@ -1509,7 +1509,8 @@ class DisplayManager(QDialog):
 
     def _add_model_blocks_row(self):
         """Weight-only "Blocks" row (linetypes.md LT2-6): the canvas weight of
-        By Block block linework. Not a _CATEGORIES entry -- block colours,
+        block linework whose weight is By Linetype on a Continuous line
+        (linetypes.md WM-5 fallback). Not a _CATEGORIES entry -- block colours,
         visibility and opacity stay authored / per instance."""
         from .paper_display import model_blocks_weight, weight_names
         parent = None
@@ -1528,8 +1529,9 @@ class DisplayManager(QDialog):
         combo = QComboBox()
         combo.addItems(weight_names())
         combo.setCurrentText(model_blocks_weight())
-        combo.setToolTip("Canvas line weight of block linework drawn By Block "
-                         "(Thin Lines still applies)")
+        combo.setToolTip("Canvas line weight of block linework whose weight is "
+                         "By Linetype on a Continuous line (Thin Lines still "
+                         "applies)")
         combo.currentTextChanged.connect(self._on_model_blocks_weight)
         self._tree.setItemWidget(row, _COL_LW, combo)
         self._model_blocks_combo = combo

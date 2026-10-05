@@ -356,4 +356,4 @@ def test_editor_import_uses_the_standard_primitive_lineweight(qapp):
     assert len(prims) == 6
     for p in prims:
         assert p.style == default_style(colour), type(p).__name__
-        assert p.style["weight"] == "by_block"
+        assert p.style["weight"] == "by_linetype"   # WM-10 (was by_block)

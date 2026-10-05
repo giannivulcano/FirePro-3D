@@ -1,7 +1,7 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); LT4–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-05  # Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 489dcc2   # Weight model design (spec-only); prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4–LT8, WM2, WM3 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+last-verified: 2026-10-05  # WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 123ead7   # WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 seams (built)
   - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category; LT2: Model Blocks weight, rename aliases, apply_project_weights, paper_pass_active
   - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge) only (rest owned by block-system.md)
@@ -14,7 +14,10 @@ applies-to:               # LT1 + LT2 + LT3 seams (built)
   - firepro3d/capability_folder.py   # LT3 parts — shared tile/repeat folder scan ("repeat" flag; the hatch side is owned by hatch-and-fill.md)
   - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile only (rest owned by block-system.md)
   - firepro3d/block_registry.py      # LT3: linetype refs in prim_refs, linetype_users_in, invalidate(was_linetype) only
-  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows only (the rest is owned by 2d-geometry.md)
+  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows only (the rest is owned by 2d-geometry.md)
+  - firepro3d/geometry_drawing_controller.py  # WM1: apply_current at the 7 draw commits only
+  - firepro3d/placement_input_coordinator.py  # WM1: scene-aware GeometryTemplate only
+  - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore only
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
 
@@ -193,9 +196,10 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 > Design run (the P1 "Weight model" task, filed at the LT3 close). *What*
 > settled in a Phase-2 grill (Q1–Q12, every row user-ratified); supersedes
 > D-L4 (weight half), D-L5, D-L6, D-L17 and LT2-9, amends D-L18/D-L19/D-L22.
-> **Unbuilt** — slices WM1 (primitive half), WM2 (placement half), WM3 (colour
-> cascade) in `todo_open.md`; LT3-8's `by_block` rows stay as-built until
-> WM1/WM2 land. Worked examples below are the acceptance scenarios.
+> **WM1 BUILT 2026-10-05** (primitive half, `feat/wm1-weight-model-primitive`,
+> verified `123ead7` — see "WM1 — as built" below); WM2 (placement half) and
+> WM3 (colour cascade) unbuilt in `todo_open.md`. Worked examples below are
+> the acceptance scenarios.
 
 - **WM-1 Drivers** (all four ratified): what is authored is what is seen; a
   Revit-style per-instance override; system geometry driven by its placement
@@ -246,8 +250,12 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **WM-10 New primitives.** Factory current = Continuous · By Linetype weight
   · By Linetype colour; a pick becomes the sticky current for the next
   primitive (picking a linetype changes neither weight nor colour); the
-  current is app-session-scoped, shared by every Block Editor, factory on
-  launch, never saved in the `.fpd`.
+  current is shared by every Block Editor and never saved in the `.fpd`.
+  *(Amended 2026-10-05 by the WM1 Phase-2: the current **persists** in
+  QSettings like every new template family (`property-panel.md` §3.7) instead
+  of resetting on launch; its surface is the pre-placement GeometryTemplate in
+  the Properties panel, not a ribbon group; only a pick on the template moves
+  it — editing a selected primitive never does.)*
 - **WM-11 Explode and ends.** Explode bakes the record's resolved values
   (look unchanged); As Authored explodes verbatim (By Linetype kept); By
   Category bakes the current DM value as a concrete name / colour. A placement
@@ -267,6 +275,51 @@ Medium → all Medium; Linetype Hidden → all dashed; Colour Grey → all grey;
 nested record Heavy inside an outer Light placement → all Light; a legacy file
 → pixel-identical canvas + PDF; Explode of an overridden record → identical
 look.
+
+### WM1 — as built (2026-10-05, verified `123ead7`)
+
+*What* (WM1 Phase-2, FP3 deltas, user-ratified): D1 a primitive with a
+linetype id + `by_block` migrates like the rest (it then draws at the dash
+weight — data only possible since LT3); D2 the current lives on the
+GeometryTemplate (ribbon group dropped, no mockup gate); only a template pick
+moves the current; the template's Linetype list is the primitive panel's
+(folder linetypes load on pick); the current persists; a current linetype that
+is not a linetype in the project draws / shows Continuous.
+
+*How:* `stroke_style` — `normalize_style` / `_end` migrate `by_block`
+(weight → `by_linetype`, linetype → `continuous`, end → `by_linetype`;
+`BY_BLOCK` survives only as migration input and defensive guards);
+`default_style` = Continuous / By Linetype; `weight_label` /
+`weight_from_label` ("By Linetype (<dash weight | Model Blocks weight>)");
+the current store `current_style` / `set_current` / `reset_current` /
+`current_to_settings` / `current_from_settings` (QSettings
+`template/geometry/linetype|weight`; an unknown weight → By Linetype) /
+`apply_current` (stamped right after construction at the 8 draw commits —
+`geometry_drawing_controller` circle / ellipse / polyline / rectangle / arc /
+polygon / spline and `Model_Space._make_line_like`; never imports, edit tools,
+paste or previews). `geometry_2d.stroke_rows` builds the Linetype / Weight
+rows (tooltips) for primitives and `GeometryTemplate` (now scene-aware via
+`PlacementInputCoordinator._get_geometry_template`); `linetype_choices`
+offers no By Block. `MainWindow._on_mode_changed_template` shows the
+template of the *signalling* scene for all 8 draw modes
+(`_GEOMETRY_DRAW_MODES`); `save_settings` / `restore_settings` persist the
+current. No panel-refresh exclusion was needed: every draw tool is
+single-placement and nothing changes the selection while one is armed
+(probed, 2026-10-05).
+
+*Guards (VC3):* `tests/test_wm1_style.py` (migration, labels, store),
+`test_wm1_parity.py` (G1 canvas pixel + parsed-PDF parity for by_block input
+through `BlockDefinition.from_dict` / `LineItem.from_dict`; G2 the linetype
+edge — RED with the migration reverted), `test_wm1_template.py` (pickers,
+template rows, folder pick, all 8 tools stamp the current, import does not),
+`test_wm1_mainwindow.py` (real MainWindow + Block Editor: every tool shows the
+signalling scene's template — RED with the old routing; a template pick drives
+a real two-click line; selection edits don't move the current; save_settings
+round-trip; G5 no "By Block" UI string). Contract-retired + rewritten:
+`test_lt2_style_record` (default, empty weight, copy_style marker),
+`test_lt2_edit_tools` (`_styled` marker), `test_lt2_panel` (4),
+`test_lt3_picker` (option lists, fixed choices), `test_lt2_migration` (2),
+`test_block_curve_import` (1).
 
 ## LT1 — Project weights, Blocks paper category, canvas mapping, Thin Lines (ratified 2026-10-03)
 
@@ -460,6 +513,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   named weights) are editable on selected primitives, undoable; Polygon gains
   Colour / Weight rows. The sticky ribbon **current** Linetype/Weight (D-L18)
   is LT4 (concept LD7); new primitives default to Continuous + By Block.
+  *(Superseded by WM1: no By Block options; Weight = "By Linetype (<resolved>)"
+  + named; the current is the GeometryTemplate, default Continuous / By
+  Linetype.)*
 - **LT2-8 Rename** (closes the LT1-5 known gaps). After renaming A → B every
   holder draws at B's width and saves as B: live items, open Block Editors,
   model / paper / Block Editor undo-redo across the rename, paste of a
@@ -676,7 +732,8 @@ a snapshot leaves the snapshot unchanged).
 - **LT3-7 Selection** (Q6). The accent highlight follows the expanded dashes
   (raw primitives re-stroke the expansion with the highlight pen; a placed
   block strokes its expansion with the accent pen).
-- **LT3-8 Cascade** (Q9):
+- **LT3-8 Cascade** (Q9) *(the `by_block` rows are retired by WM1 — a legacy
+  `by_block` is migrated on load and never reaches the cascade)*:
 
   | Linetype | Draws |
   |---|---|
@@ -715,7 +772,7 @@ a snapshot leaves the snapshot unchanged).
   existing perf guards stay green; 200 placed instances of a block with Hidden
   lines paint ≤ 2× the same scene Continuous (bar kept by the user's perf-fix
   ruling; met via H3-f). D-L21 stays LT8.
-- **LT3-12 Picker** (Q12). The panel Linetype row lists Continuous, By Block,
+- **LT3-12 Picker** (Q12; *By Block removed by WM1*). The panel Linetype row lists Continuous, By Block,
   the project's linetypes, then Linetypes-folder linetypes not yet loaded
   (unique labels; in a Block Editor the edited block and anything that would
   cycle are left out); picking a folder linetype loads it (one undo step,

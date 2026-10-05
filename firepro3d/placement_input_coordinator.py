@@ -1230,6 +1230,6 @@ class PlacementInputCoordinator:
         """Return (lazily-created) geometry template for line/rect/circle/polyline."""
         from .geometry_2d import GeometryTemplate
         if self._scene._geometry_template is None:
-            self._scene._geometry_template = GeometryTemplate()
+            self._scene._geometry_template = GeometryTemplate(self._scene)
         # Geometry templates are level-less (containment C3) — no level sync.
         return self._scene._geometry_template

@@ -397,7 +397,7 @@ class BlockInstance(QGraphicsObject):
         (linetype, weight) per paint (``paint``'s memo).
 
         LT3-8 cascade: linetype + resolved weight (By Linetype -> the
-        linetype's dash weight when it has one). Continuous / By Block /
+        linetype's dash weight when it has one). Continuous /
         unstyled ops never reach the resolver (LT3-11). *width* is the paper
         width on a viewport pass, else the cosmetic canvas px (None for an
         unweighted op: keep the compiled pen's width). *lt* is the linetype
@@ -408,7 +408,7 @@ class BlockInstance(QGraphicsObject):
         rs = None
         if routed and is_linetype_ref(op.linetype):
             rs = resolve_stroke({"linetype": op.linetype,
-                                 "weight": op.weight or BY_BLOCK}, registry)
+                                 "weight": op.weight or BY_LINETYPE}, registry)
         weight = rs.weight if rs is not None else op.weight
         if on_paper:
             width = self._paper_op_width(weight)
@@ -458,7 +458,8 @@ class BlockInstance(QGraphicsObject):
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
 
-        By Block / By Linetype / unweighted ops take the category weight
+        By Linetype (and a legacy un-migrated By Block) / unweighted ops take
+        the category weight
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """

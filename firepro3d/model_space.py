@@ -5969,6 +5969,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._reference_lines.append(item)
         else:
             item = LineItem(anchor, tip, _c, _lw)
+            from .stroke_style import apply_current
+            apply_current(item, self)  # WM1: the draw tool's current
             self.addItem(item)
             self._draw_lines.append(item)
         self.clearSelection()  # only the just-placed item stays selected

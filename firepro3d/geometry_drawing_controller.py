@@ -32,6 +32,7 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     rect_side_ghost, rect_signed_depth,
                                     rect_from_side_and_depth, apply_rect_ghost)
 from .constants import SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX
+from .stroke_style import apply_current
 
 
 def close_hit(first: QPointF, tip: QPointF, cursor: QPointF,
@@ -315,6 +316,7 @@ class GeometryDrawingController:
         tmpl = self._scene._get_geometry_template()
         _c, _lw = self._scene._geom_color_lw()
         item = CircleItem(centre, r, _c, _lw)
+        apply_current(item, self._scene)
         self._scene.addItem(item)
         self._scene._draw_circles.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
@@ -489,6 +491,7 @@ class GeometryDrawingController:
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = EllipseItem(s._ellipse_center, rx, ry, rot, _c, _lw)
+        apply_current(item, self._scene)
         s.addItem(item)
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
@@ -609,6 +612,7 @@ class GeometryDrawingController:
             tmpl = self._scene._get_geometry_template()
             _c, _lw = self._scene._geom_color_lw()
             pl = PolylineItem(snapped, _c, _lw)
+            apply_current(pl, self._scene)
             # Ghost the in-progress polyline in the canonical reference-line style
             # (width-1 dashed); finalize() restores the committed solid pen.
             _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
@@ -834,6 +838,7 @@ class GeometryDrawingController:
         tmpl = self._scene._get_geometry_template()
         _c, _lw = self._scene._geom_color_lw()
         item = RectangleItem(pt1, pt2, _c, _lw)
+        apply_current(item, self._scene)
         item.set_angle(angle_deg, self._scene._draw_rect_pivot)
         self._scene.addItem(item)
         self._scene._draw_rects.append(item)
@@ -1161,6 +1166,7 @@ class GeometryDrawingController:
         # ``ArcItem.__init__``.
         item = ArcItem(s._draw_arc_center, s._draw_arc_radius,
                        s._draw_arc_start_deg, span, _c, _lw)
+        apply_current(item, self._scene)
         self._finish_arc_commit(item)
         return True
 
@@ -1565,6 +1571,7 @@ class GeometryDrawingController:
                                   rotation_deg=angle_deg,
                                   inscribed=s._polygon_inscribed,
                                   color=_c, lineweight=_lw)
+        apply_current(item, self._scene)
         s.addItem(item)
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1855,6 +1862,7 @@ class GeometryDrawingController:
         tmpl = s._get_geometry_template()
         _c, _lw = s._geom_color_lw()
         item = SplineItem(pts, 3, None, None, _c, _lw, closed=closed)
+        apply_current(item, self._scene)
         s.addItem(item)
         s._draw_splines.append(item)
         s.clearSelection()            # only the just-placed item stays selected

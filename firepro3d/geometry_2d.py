@@ -135,7 +135,8 @@ class Geometry2DMixin:
         """Set the record from the constructor colour and the initial pen.
 
         *lineweight* only seeds the initial cosmetic pen (ghosts / reference
-        compile); the record's weight is By Block (D-L18 default).
+        compile); the record is Continuous / By Linetype (WM-10 factory);
+        draw tools then stamp the current (``stroke_style.apply_current``).
         """
         from . import stroke_style
         hexcol = stroke_style._hex(color)
@@ -283,7 +284,7 @@ class Geometry2DMixin:
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
         Returns False when the caller must draw its unchanged plain stroke
-        (Continuous / By Block / unresolved / malformed / LOD / ghost).
+        (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
         tooltip (LT3-10).
         """
@@ -324,17 +325,16 @@ class Geometry2DMixin:
     def _set_style_field(self, key: str, value) -> None:
         """Apply a panel style edit to the record (LT2-7), then repaint.
 
-        For ``"Linetype"`` *value* is the resolved ref (``continuous``,
-        ``by_block`` or a linetype block id -- ``linetype_ref_from_value``).
+        For ``"Linetype"`` *value* is the resolved ref (``continuous`` or a
+        linetype block id -- ``linetype_ref_from_value``).
         """
-        from .stroke_style import BY_BLOCK, BY_LINETYPE, _hex
+        from .stroke_style import _hex, weight_from_label
         v = str(value)
         if key == "Linetype":
             self.prepareGeometryChange()     # badge pad follows the linetype ref
             self.style["linetype"] = v
         elif key == "Weight":
-            self.style["weight"] = {"By Block": BY_BLOCK,
-                                    "By Linetype": BY_LINETYPE}.get(v, v)
+            self.style["weight"] = weight_from_label(v)
         else:
             self.style["colour"] = _hex(v)
         self._sync_stroke_pen()
@@ -438,29 +438,9 @@ class Geometry2DMixin:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
         if self.style is not None:
-            from .paper_display import weight_names
             from .hatch_patterns import picker_exclude
-            from .linetype_choices import linetype_choices, missing_label
-            from .stroke_style import BY_BLOCK, BY_LINETYPE
-            lt = self.style["linetype"]
-            choices = linetype_choices(self._tile_registry(),
-                                       picker_exclude(self.scene()))
-            options = [n for n, _ in choices]
-            value = next((n for n, r in choices if r == lt), None)
-            if value is None:
-                # LT3-10: an unresolvable id shows as missing (kept until the
-                # user picks another linetype).
-                value = missing_label(lt)
-                options = [value] + options
-            props["Linetype"] = {"type": "enum", "options": options,
-                                 "value": value}
-            # LT3-8: By Linetype takes the linetype's dash weight, so it is
-            # its own option (D-L4), not folded into By Block.
-            w = self.style["weight"]
-            props["Weight"] = {"type": "enum",
-                               "options": ["By Block", "By Linetype", *weight_names()],
-                               "value": {BY_BLOCK: "By Block",
-                                         BY_LINETYPE: "By Linetype"}.get(w, w)}
+            props.update(stroke_rows(self.style, self._tile_registry(),
+                                     picker_exclude(self.scene())))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3566,22 +3546,97 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
 
 
-class GeometryTemplate:
-    """Pre-placement template for geometry tools (line, rectangle, circle, etc.).
+_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
+                 "from the Linetypes folder load into the project when picked.")
+_WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
+               "(shown in brackets); a named weight overrides it.")
 
-    Provides ``get_properties()`` / ``set_property()`` so the PropertyManager
-    can display and edit default values before placement.  Colour and
-    line-weight are derived from the selected layer at placement time.
+
+def stroke_rows(style: dict, registry, exclude=()) -> dict:
+    """Linetype + Weight panel rows for a style record (WM1; shared by
+    primitives and the GeometryTemplate).
+
+    Args:
+        style: ``{"linetype", "weight", ...}`` (a primitive record or the
+            current).
+        registry: Project block registry (or None).
+        exclude: Linetype ids the picker must not offer (``picker_exclude``).
+    """
+    from .paper_display import weight_names
+    from .linetype_choices import linetype_choices, missing_label
+    from .stroke_style import BY_LINETYPE, weight_label
+    lt = style["linetype"]
+    choices = linetype_choices(registry, exclude)
+    options = [n for n, _ in choices]
+    value = next((n for n, r in choices if r == lt), None)
+    if value is None:
+        # LT3-10: an unresolvable id shows as missing (kept until re-picked).
+        value = missing_label(lt)
+        options = [value] + options
+    by_lt = weight_label(BY_LINETYPE, lt, registry)
+    w = style["weight"]
+    return {
+        "Linetype": {"type": "enum", "options": options, "value": value,
+                     "tooltip": _LINETYPE_TIP},
+        "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
+                   "value": by_lt if w == BY_LINETYPE else w,
+                   "tooltip": _WEIGHT_TIP},
+    }
+
+
+class GeometryTemplate:
+    """Pre-placement template for the 2D draw tools (property-panel.md §3.7).
+
+    Its Linetype / Weight rows ARE the current style for the next primitive
+    (linetypes.md WM-10): a pick here moves the current; editing a selected
+    primitive never does. ``_scene_ref`` (set by the scene's
+    ``_get_geometry_template``) supplies the project registry for the
+    picker; the template is off-scene, so it has no ``scene()``.
     """
 
-    def __init__(self):
+    def __init__(self, scene=None):
         # Level-less (containment C3): geometry templates carry no level.
         self.name: str = "(Template)"
+        self._scene_ref = scene
+
+    def _registry(self):
+        return getattr(self._scene_ref, "block_registry", None)
+
+    def _exclude(self):
+        from .hatch_patterns import picker_exclude
+        return picker_exclude(self._scene_ref)
 
     def get_properties(self) -> dict:
-        return {
-            "Type": {"type": "label", "value": "Geometry"},
-        }
+        from . import stroke_style as ss
+        cur = ss.current_style()
+        if (ss.is_linetype_ref(cur["linetype"])
+                and ss.linetype_block(cur["linetype"], self._registry()) is None):
+            ss.set_current(linetype=ss.CONTINUOUS)       # WM1: not in this project
+            cur = ss.current_style()
+        props = {"Type": {"type": "label", "value": "Geometry"}}
+        props.update(stroke_rows(cur, self._registry(), self._exclude()))
+        props["Linetype"]["tooltip"] = (
+            "Linetype for the next primitive you draw (kept between sessions). "
+            "Linetypes from the Linetypes folder load into the project when picked.")
+        props["Weight"]["tooltip"] = (
+            "Line weight for the next primitive you draw (kept between sessions). "
+            "By Linetype uses the linetype's designed weight (shown in brackets).")
+        return props
 
     def set_property(self, key: str, value):
-        return
+        from . import stroke_style as ss
+        if key == "Weight":
+            ss.set_current(weight=ss.weight_from_label(value))
+        elif key == "Linetype":
+            from .linetype_choices import (ensure_linetype_available,
+                                           is_missing_label,
+                                           linetype_ref_from_value)
+            if is_missing_label(str(value)):
+                return
+            ref = linetype_ref_from_value(str(value), self._registry(),
+                                          self._exclude())
+            if ref is None:
+                return
+            if not ensure_linetype_available(ref, self._scene_ref):
+                return                                   # failed folder load
+            ss.set_current(linetype=ref)

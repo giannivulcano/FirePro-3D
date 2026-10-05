@@ -6,10 +6,11 @@ import pytest
 from firepro3d import stroke_style as ss
 
 
-def test_default_style_is_continuous_by_block():
+def test_default_style_is_continuous_by_linetype():
+    # WM-10 (retired LT2-1 "By Block" default): Continuous / By Linetype.
     st = ss.default_style("#ff0000")
     assert st == {
-        "linetype": "continuous", "weight": "by_block",
+        "linetype": "continuous", "weight": "by_linetype",
         "start": {"end": "by_linetype", "visible": True},
         "finish": {"end": "by_linetype", "visible": True},
         "colour": "#ff0000",
@@ -24,7 +25,7 @@ def test_normalize_fills_missing_and_defaults_empty_weight():
     assert st["colour"] == "#00ff00"
     assert st["start"] == {"end": "by_linetype", "visible": False}
     assert st["finish"] == {"end": "by_linetype", "visible": True}
-    assert ss.normalize_style({"weight": ""})["weight"] == "by_block"
+    assert ss.normalize_style({"weight": ""})["weight"] == "by_linetype"  # WM-10
     assert ss.normalize_style(None) == ss.default_style("#ffffff")
 
 
@@ -60,16 +61,17 @@ def test_copy_style_resets_fresh_ends_only():
     class _P:
         style = None
     a, b = _P(), _P()
+    # WM-9: by_block is no longer storable -- an end id is the marker.
     a.style = ss.normalize_style({"weight": "Heavy",
-                                  "start": {"end": "by_block"},
-                                  "finish": {"end": "by_block"}})
+                                  "start": {"end": "end-marker"},
+                                  "finish": {"end": "end-marker"}})
     b.style = ss.default_style()      # dst must itself be styled (else no-op)
     ss.copy_style(a, b, fresh_ends=("finish",))
     assert b.style["weight"] == "Heavy"
-    assert b.style["start"]["end"] == "by_block"
+    assert b.style["start"]["end"] == "end-marker"
     assert b.style["finish"]["end"] == "by_linetype"
     b.style["start"]["end"] = "x"
-    assert a.style["start"]["end"] == "by_block"      # deep copy
+    assert a.style["start"]["end"] == "end-marker"    # deep copy
 
 
 def test_copy_style_noop_for_unstyled():

@@ -143,7 +143,7 @@ The `DisplayManager` class in `display_manager.py` is a `QDialog` with a tree wi
 - Opacity (0-100 slider)
 - Font size (for label-bearing categories)
 - Per-category reset button
-- Line weight — only on the weight-only **Blocks** row (canvas weight of By Block block linework; see [`specs/linetypes.md`](../specs/linetypes.md) "LT2" H-e)
+- Line weight — only on the weight-only **Blocks** row (canvas weight of block linework whose weight resolves to the Blocks fallback; see [`specs/linetypes.md`](../specs/linetypes.md) "LT2" H-e and WM-5)
 
 Changes apply live to the canvas. Cancelling the dialog reverts all changes to their prior state.
 

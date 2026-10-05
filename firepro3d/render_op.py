@@ -31,8 +31,8 @@ class RenderOp:
         tile_ref: Pattern tile block id or legacy alias (pattern only).
         origin: Pattern origin, definition-local (pattern only).
         scale: Pattern scale multiplier (pattern only).
-        weight: Unresolved stroke weight -- a named weight, ``"by_block"``
-            or ``"by_linetype"``; None for reference-mode / placeholder ops
+        weight: Unresolved stroke weight -- a named weight or
+            ``"by_linetype"``; None for reference-mode / placeholder ops
             (stroke only, LT2 H-c').
         pieces: Analytic stroke pieces (``path_walk`` Seg / Arc / EllipseArc /
             Curve), definition-local and origin-relative (stroke only, LT3).
