@@ -126,3 +126,54 @@ def test_hook_is_paper_only_and_restored(qapp):
     assert getattr(wall, "_paper_pen_width", None) is None
     canvas_pen = wall._outline_pen(QColor("#000000"))
     assert canvas_pen.isCosmetic() and canvas_pen.widthF() == 1.0
+
+
+from firepro3d.wall_opening import WallOpening
+
+_OP_IDS = {"Door": "door_914", "Window": "window_900", "Opening": "blank_900"}
+
+
+def _build_opening(kind):
+    ms = _build("Wall")
+    w = ms._walls[0]
+    op = WallOpening(wall=w, feature_id=_OP_IDS[kind], offset_along=1500.0)
+    ms.addItem(op)
+    w.openings.append(op)
+    op._reposition()
+    return ms
+
+
+@pytest.mark.parametrize("scale", [0.02, 0.01])
+@pytest.mark.parametrize("kind", ["Door", "Window", "Opening"])
+def test_opening_plots_at_its_category_weight(qapp, tmp_path, kind, scale):
+    save_paper_color_mode(PaperColorMode.BW)
+    _set_weight("Wall", "Heavy")      # 0.35
+    _set_weight(kind, "Medium")       # 0.25 -- distinct from 1.5 px (0.127)
+    widths = _inner_stroke_widths(_export(tmp_path, _build_opening(kind), scale))
+    wall_w = pd.resolve_line_weight_mm("Heavy")
+    op_w = pd.resolve_line_weight_mm("Medium")
+    assert any(abs(w - op_w) < 0.02 for w in widths), widths
+    assert all(abs(w - wall_w) < 0.02 or abs(w - op_w) < 0.02
+               for w in widths), widths
+
+
+@pytest.mark.parametrize("kind", ["Door", "Window", "Opening"])
+def test_hidden_opening_category_hides_symbol(qapp, tmp_path, kind):
+    """Hiding the opening's OWN row drops its strokes (stroke count, not width:
+    under the Wall row an opening would plot at the wall weight)."""
+    save_paper_color_mode(PaperColorMode.BW)
+    _set_weight("Wall", "Heavy")
+    shown = _inner_stroke_widths(_export(tmp_path, _build_opening(kind), 0.02))
+    cats = pd.load_paper_categories()
+    cats[kind]["visible"] = False
+    pd.save_paper_categories(cats)
+    hidden = _inner_stroke_widths(_export(tmp_path, _build_opening(kind), 0.02))
+    wall_w = pd.resolve_line_weight_mm("Heavy")
+    assert 0 < len(hidden) < len(shown), (shown, hidden)
+    assert all(abs(w - wall_w) < 0.02 for w in hidden), hidden
+
+
+def test_paper_tab_lists_openings_under_architecture():
+    from firepro3d.display_manager import DisplayManager
+    arch = DisplayManager._PS_GROUPS["Architecture"]
+    assert arch[:4] == ["Wall", "Door", "Window", "Opening"]

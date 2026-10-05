@@ -2219,7 +2219,7 @@ class DisplayManager(QDialog):
             "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
             "Hydraulic Badge",
         ],
-        "Architecture": ["Wall", "Roof", "Room", "Floor"],
+        "Architecture": ["Wall", "Door", "Window", "Opening", "Roof", "Room", "Floor"],
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
         ],

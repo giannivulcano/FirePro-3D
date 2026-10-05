@@ -359,8 +359,8 @@ def save_paper_color_mode(mode: PaperColorMode,
 # Keys match _CATEGORIES in display_manager.py
 _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
-    "Hydraulic Badge", "Wall", "Roof", "Room", "Floor",
-    "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
+    "Hydraulic Badge", "Wall", "Door", "Window", "Opening", "Roof", "Room",
+    "Floor", "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
     "Construction", "Hatch", "Blocks",
 ]
 
@@ -381,6 +381,7 @@ _FACTORY_LW = {
     "Pipe": "Medium", "Sprinkler": "Medium", "Fitting": "Medium",
     "Water Supply": "Medium", "Node": "Light", "Hydraulic Badge": "Very Light",
     "Wall": "Heavy", "Roof": "Medium", "Room": "Very Light", "Floor": "Medium",
+    "Door": "Light", "Window": "Light", "Opening": "Light",
     "Grid Line": "Medium", "Level Datum": "Very Light",
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
     "Construction": "Light",
@@ -608,7 +609,7 @@ def _category_for_item(item) -> str | None:
     if isinstance(item, WallSegment):
         return "Wall"
     if isinstance(item, WallOpening):
-        return "Wall"
+        return item.display_category
     if isinstance(item, Room):
         return "Room"
     if isinstance(item, Node):
@@ -657,7 +658,7 @@ def _category_for_item(item) -> str | None:
 
 
 def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
-    """Apply paper overrides to a generic item (Wall, Room, Floor, Roof).
+    """Apply paper overrides to a generic item (Wall, Door / Window / Opening, Room, Floor, Roof).
 
     ``_paper_pen_width`` (true on-paper mm in model units, §9.9.1) is read by
     ``DisplayableItemMixin._outline_pen`` in the outline-painting items.
@@ -678,11 +679,6 @@ def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
     if isinstance(item, Room):
         item._paper_no_fill = True
     item._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
-    if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
-        pen = item.pen()
-        pen.setWidthF(lw_mm)
-        pen.setCosmetic(False)
-        item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)
     item.update()
 

@@ -87,13 +87,20 @@ class TestPaperColorMode:
 
 
 class TestPaperCategories:
-    def test_factory_defaults_all_17_categories(self):
+    def test_factory_defaults_all_20_categories(self):
         # 14 model-mirrored categories + the paper-only "Construction" category
         # (bug #3: construction/draw geometry plots via a pen-only paper category)
         # + the paper-only Hatch pattern-line weight (hatch D-A31)
-        # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6).
+        # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6)
+        # + Door / Window / Opening (2026-10-04 opening split).
         cats = FACTORY_PAPER_CATEGORIES
-        assert len(cats) == 17
+        assert len(cats) == 20
+
+    def test_factory_opening_categories_light(self):
+        for k in ("Door", "Window", "Opening"):
+            c = FACTORY_PAPER_CATEGORIES[k]
+            assert c["line_weight"] == "Light" and c["color"] == "#000000"
+            assert c["fill"] is None and c["visible"] is True
 
     def test_factory_blocks_category_light_no_fill(self):
         """Blocks: paper-only, factory Light, no fill / section (LT1-2, H6)."""
@@ -464,16 +471,16 @@ class TestViewportIntegration:
         assert wall._display_color == "#666666"
 
     def test_line_weight_applied(self, scene_with_wall):
+        """The category weight reaches the outline hook (§9.9.1), not the pen."""
         scene, wall = scene_with_wall
         cats = load_paper_categories()
         cats["Wall"]["line_weight"] = "Heavy"
         save_paper_categories(cats)
         source_rect = QRectF(-10, -60, 220, 120)
         saved = apply_paper_overrides(scene, source_rect)
-        pen = wall.pen()
-        assert pen.widthF() == pytest.approx(0.35, abs=0.01)
-        assert pen.isCosmetic() is False
+        assert wall._paper_pen_width == pytest.approx(0.35, abs=0.01)
         restore_model_display(saved)
+        assert getattr(wall, "_paper_pen_width", None) is None
 
     def test_full_color_preserves_model_colors(self, scene_with_wall):
         scene, wall = scene_with_wall
