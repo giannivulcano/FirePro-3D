@@ -245,3 +245,25 @@ def test_same_id_version_origin_different_content_read_apart():
     assert lr.LinetypeDef.from_block(a).dashes == ((0.0, 6.0),)
     assert lr.LinetypeDef.from_block(b).dashes == ((0.0, 2.0),)
     assert lr.LinetypeDef.from_block(a).dashes == ((0.0, 6.0),)
+
+
+# ── Q3: non-positive / non-finite period draws nothing dashed ───────────────
+
+@pytest.mark.parametrize("factor", [0.0, -1.0, float("nan"), float("inf")])
+def test_bad_factor_expands_empty_and_paint_declines(factor):
+    from PyQt6.QtGui import QImage, QPainter, QPen
+    lt = lr.LinetypeDef.from_block(make_linetype())
+    dash, dot = lr.expand((pw.Seg(0, 0, 20, 0),), lt, factor, (0.0, 0.0))
+    assert dash.isEmpty() and dot.isEmpty()
+    img = QImage(8, 8, QImage.Format.Format_ARGB32)
+    p = QPainter(img)
+    try:
+        assert lr.paint_stroke(p, (pw.Seg(0, 0, 20, 0),), lt, QPen(),
+                               factor=factor, anchor=(0.0, 0.0)) is False
+    finally:
+        p.end()
+
+
+@pytest.mark.parametrize("length", [float("inf"), float("nan"), -1.0])
+def test_non_finite_or_negative_length_is_malformed(length):
+    assert lr.LinetypeDef.from_block(make_linetype(length=length)) is None

@@ -77,7 +77,7 @@ class LinetypeDef:
             from .stroke_style import is_named_weight
             if is_named_weight(w):
                 weights.append(w)
-        if length <= 0 or (not dashes and not dots):
+        if not (0.0 < length < math.inf) or (not dashes and not dots):
             res = None
         else:
             dash_weight = None
@@ -105,6 +105,8 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
     same tuple object on a hit: the paths are shared cached objects and must
     be treated as read-only.
     """
+    if not _period_ok(lt, factor):
+        return QPainterPath(), QPainterPath()   # never walk a bad period
     key = (tuple(pieces), lt, round(factor, 9),
            (round(anchor[0], 6), round(anchor[1], 6)))
     hit = _EXPAND.get(key)
@@ -149,12 +151,12 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
                  anchor: tuple) -> bool:
     """Draw *pieces* dashed in *lt* with *pen* (LT3 one paint entry).
 
-    Returns False -- nothing drawn -- when there is no linetype, no pieces, or
-    (screen only, ``_lod_ok``) the on-screen period is below
+    Returns False -- nothing drawn -- when there is no linetype, no pieces, a
+    non-positive / non-finite scaled period, or (screen only, ``_lod_ok``) the on-screen period is below
     ``LINETYPE_LOD_MIN_PERIOD_PX``; the caller then draws its unchanged plain
     stroke. Paper passes always expand.
     """
-    if lt is None or not pieces:
+    if lt is None or not pieces or not _period_ok(lt, factor):
         return False
     if not _lod_ok(painter, lt.period * factor):
         return False
@@ -169,6 +171,14 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
         painter.setPen(p)
         painter.drawPath(dot)
     return True
+
+
+def _period_ok(lt: LinetypeDef, factor: float) -> bool:
+    """True when the scaled period is positive and finite (else no dashes:
+    a zero / negative / NaN / inf length factor would not terminate or
+    would draw nothing)."""
+    period = lt.period * factor
+    return period > 0.0 and math.isfinite(period)
 
 
 def _lod_ok(painter, period: float) -> bool:
