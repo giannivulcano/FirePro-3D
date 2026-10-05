@@ -223,3 +223,25 @@ def test_reading_cache_is_bounded():
     for _ in range(LINETYPE_DEF_CACHE_MAX + 10):
         lr.LinetypeDef.from_block(make_linetype())
     assert len(lr.LinetypeDef._CACHE) <= LINETYPE_DEF_CACHE_MAX
+
+
+# ── Q1 / Q2: expansion keys on the reading; reading keys on content ─────────
+
+def test_expand_rekeys_on_origin_change_without_version_bump():
+    d = make_linetype()                                   # dash 0..6
+    seg = (pw.Seg(0, 0, 20, 0),)
+    first = _subpaths(lr.expand(seg, lr.LinetypeDef.from_block(d), 1.0, (0.0, 0.0))[0])[0]
+    assert (first[0][0], first[-1][0]) == pytest.approx((0.0, 6.0))
+    d.origin = (3.0, 0.0)                                 # unit now 0..3 on, no bump
+    first = _subpaths(lr.expand(seg, lr.LinetypeDef.from_block(d), 1.0, (0.0, 0.0))[0])[0]
+    assert (first[0][0], first[-1][0]) == pytest.approx((0.0, 3.0))
+
+
+def test_same_id_version_origin_different_content_read_apart():
+    a = make_linetype(dashes=((0, 6),))
+    b = make_linetype(dashes=((0, 2),))
+    b.id = a.id                                           # e.g. two project copies
+    assert (a.version, a.origin) == (b.version, b.origin)
+    assert lr.LinetypeDef.from_block(a).dashes == ((0.0, 6.0),)
+    assert lr.LinetypeDef.from_block(b).dashes == ((0.0, 2.0),)
+    assert lr.LinetypeDef.from_block(a).dashes == ((0.0, 6.0),)

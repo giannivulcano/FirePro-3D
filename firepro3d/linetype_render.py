@@ -32,8 +32,12 @@ class LinetypeDef:
     dash_weight: str | None
     size: str              # "drafting" | "model"
 
-    # (id, version, origin) -> LinetypeDef | None; LRU, LINETYPE_DEF_CACHE_MAX.
-    # Origin is in the key: the origin setter moves the unit without a bump.
+    # (id, version, origin) -> (primitives list, LinetypeDef | None); LRU,
+    # LINETYPE_DEF_CACHE_MAX. Origin is in the key: the origin setter moves
+    # the unit without a bump. The held primitives list is a hit only when it
+    # *is* the definition's list (two copies sharing id + version read apart);
+    # holding the ref keeps its identity from being recycled (the
+    # ``hatch_render._lattice`` idiom).
     _CACHE = OrderedDict()
 
     @classmethod
@@ -44,9 +48,10 @@ class LinetypeDef:
             return None
         ox, oy = defn.origin
         key = (defn.id, defn.version, (ox, oy))
-        if key in cls._CACHE:
+        hit = cls._CACHE.get(key)
+        if hit is not None and hit[0] is defn.primitives:
             cls._CACHE.move_to_end(key)
-            return cls._CACHE[key]
+            return hit[1]
         length = float(rep["length"])
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
@@ -81,7 +86,8 @@ class LinetypeDef:
                 dash_weight = max(weights, key=resolve_line_weight_mm)
             res = cls(defn.id, defn.version, length, tuple(sorted(dashes)),
                       tuple(sorted(dots)), dash_weight, rep["size"])
-        cls._CACHE[key] = res
+        cls._CACHE[key] = (defn.primitives, res)
+        cls._CACHE.move_to_end(key)
         while len(cls._CACHE) > LINETYPE_DEF_CACHE_MAX:
             cls._CACHE.popitem(last=False)
         return res
@@ -93,10 +99,13 @@ _EXPAND: OrderedDict = OrderedDict()
 def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
     """``(dash_path, dot_path)`` for *pieces* in *lt* scaled by *factor*.
 
-    Cached on (pieces, linetype id + version, factor, anchor); returns the
-    same tuple object on a hit.
+    Cached on (pieces, the *lt* reading itself, factor, anchor) -- keyed on
+    the frozen reading's value, so a re-read that differs (e.g. a moved
+    origin without a version bump) never hits a stale expansion. Returns the
+    same tuple object on a hit: the paths are shared cached objects and must
+    be treated as read-only.
     """
-    key = (tuple(pieces), lt.block_id, lt.version, round(factor, 9),
+    key = (tuple(pieces), lt, round(factor, 9),
            (round(anchor[0], 6), round(anchor[1], 6)))
     hit = _EXPAND.get(key)
     if hit is not None:
