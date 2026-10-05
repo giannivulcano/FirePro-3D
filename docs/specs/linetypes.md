@@ -527,7 +527,9 @@ a snapshot leaves the snapshot unchanged).
 > - *User rulings:* arc / ellipse dash rhythm **restarts at 0°** (2026-10-05;
 >   amends D-L9b, H3-a / H3-c); missing glyph = mockup **option A**
 >   (2026-10-04; LT3-10); the LT3-11 **perf fix keeps the 2× bar** — a per-paint
->   memo, with only the expansion held across paints, **per instance** (H3-f).
+>   memo, with only the expansion held across paints, per instance (H3-f); and
+>   **blocks with no linetype refs take the pre-LT3 paint path** (2026-10-05:
+>   plain 200-instance scene back to base `b256fe6` speed, best-of-40).
 > - *Orchestrator rulings from the seam review (VC9, 2026-10-05):* the glyph
 >   bounds pad applies **only while a reference is unresolved** (LT3-10); a
 >   linetype id naming a **non-`repeat` block is missing** (LT3-8 / LT3-10); the
