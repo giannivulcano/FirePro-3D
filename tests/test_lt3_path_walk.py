@@ -84,6 +84,31 @@ def test_curve_from_path_flattens_and_measures():
     assert pw.phase0(c, (123.0, 4.0)) == 0.0
 
 
+def _cubic_pt(b, t):
+    u = 1.0 - t
+    w = (u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t)
+    return (sum(k * p[0] for k, p in zip(w, b)), sum(k * p[1] for k, p in zip(w, b)))
+
+
+def test_curve_from_path_stays_on_the_analytic_cubic():
+    # The drawn (rasterised) cubic is the ground truth: the flattened Curve
+    # -- vertices AND chord midpoints -- must stay within ±0.02 mm of it.
+    b = ((0.0, 0.0), (10.0, 20.0), (30.0, -5.0), (50.0, 10.0))
+    path = QPainterPath(QPointF(*b[0]))
+    path.cubicTo(QPointF(*b[1]), QPointF(*b[2]), QPointF(*b[3]))
+    c = pw.Curve.from_path(path)
+    dense = [_cubic_pt(b, i / 20000) for i in range(20001)]
+
+    def dist(x, y):
+        return min(math.hypot(x - px, y - py) for px, py in dense)
+
+    probes = list(c.pts) + [((x0 + x1) / 2, (y0 + y1) / 2)
+                            for (x0, y0), (x1, y1) in zip(c.pts, c.pts[1:])]
+    worst = max(dist(x, y) for x, y in probes)
+    assert worst <= 0.02, worst
+    assert c.pts[0] == pytest.approx(b[0]) and c.pts[-1] == pytest.approx(b[3])
+
+
 def test_map_piece_rotates_arc_start_angle():
     t = QTransform()
     t.rotate(-90.0)                      # Y-up CCW 90° (Qt CW-positive)

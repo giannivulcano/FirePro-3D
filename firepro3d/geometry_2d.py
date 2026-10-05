@@ -3047,13 +3047,8 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def stroke_pieces(self) -> tuple:
         """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
-        # The drawn path is cubicTo; Qt's default flattening (Curve.from_path)
-        # strays > 0.1 mm from it, so flatten scaled up and map back.
-        from .constants import LINETYPE_CURVE_FLATTEN_SCALE as k
         from .path_walk import Curve
-        polys = self.path().toSubpathPolygons(QTransform.fromScale(k, k))
-        pts = tuple((q.x() / k, q.y() / k) for q in polys[0]) if polys else ()
-        return (Curve(pts),)
+        return (Curve.from_path(self.path()),)
 
     def get_closed_path(self) -> QPainterPath | None:
         if not self.is_closed():

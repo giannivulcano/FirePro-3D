@@ -75,9 +75,15 @@ class Curve:
 
     @classmethod
     def from_path(cls, path: QPainterPath) -> "Curve":
-        """Flatten *path* (first subpath) into a Curve."""
-        polys = path.toSubpathPolygons(QTransform())
-        pts = tuple((p.x(), p.y()) for p in polys[0]) if polys else ()
+        """Flatten *path* (first subpath) into a Curve.
+
+        Qt's default flattening strays > 0.1 mm from a mm-scale cubic, so the
+        path is flattened scaled up by ``LINETYPE_CURVE_FLATTEN_SCALE`` and
+        mapped back (~0.01 mm from the drawn curve).
+        """
+        from .constants import LINETYPE_CURVE_FLATTEN_SCALE as k
+        polys = path.toSubpathPolygons(QTransform.fromScale(k, k))
+        pts = tuple((p.x() / k, p.y() / k) for p in polys[0]) if polys else ()
         return cls(pts)
 
 
