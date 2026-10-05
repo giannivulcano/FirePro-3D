@@ -103,7 +103,9 @@ per host style/scale); QPen dash patterns (two paths, width-multiple units).
   (op id, resolved-style hash, scale bucket).
 - **Compile:** `BlockDefinition._compile` emits `StrokeOp`s — the stroke half
   of hatch HD4's `RenderOp` (one refactor, whichever slice lands first).
-  `BlockInstance.paint` stops forcing cosmetic pens.
+  ~~`BlockInstance.paint` stops forcing cosmetic pens.~~ *Retired by LT3-4
+  (`linetypes.md`): paper is non-cosmetic since LT1/LT2; canvas widths stay
+  cosmetic per D-L14 because explicit dash geometry cannot collapse.*
 
 ### LD4 — Weights and surfaces
 
@@ -151,8 +153,8 @@ per host style/scale); QPen dash patterns (two paths, width-multiple units).
 |---|---|---|
 | LT1 | Project-scoped weights + Blocks category + `_category_for_item` BlockInstance case + canvas px mapping + Thin Lines | — |
 | LT2 | Style record + `copy_style` + migration (Continuous/By Block) + format bump + edit-tool preservation | — |
-| LT3 | `path_walk` + `linetype_render` (dashes, axis phase, LOD, cache) + StrokeOp compile + non-cosmetic block paint + cascade resolver | LT1, LT2; HF2 RenderOp (or lands it) |
-| LT4 | `repeat` capability + authoring (frame, Pattern list, preview) + `referenced_ids` + pickers + ribbon current style | LT3 |
+| LT3 | `path_walk` + `linetype_render` (dashes, axis phase, LOD, cache) + StrokeOp compile + cascade resolver + (moved from LT4, 2026-10-04 grill) `repeat` data key, integrity set (no symbol placement, delete refusal, `referenced_ids`), panel picker, Linetypes folder — contract `linetypes.md` "LT3" | LT1, LT2; HF2 RenderOp |
+| LT4 | `repeat` authoring (frame, Pattern list, preview) + browser badge + ribbon current style | LT3 |
 | LT5 | `end` capability + end rendering/trim + per-end override/visible + By Block chain through placements/nested | LT4 |
 | LT6 | Embedded symbols + fit-skip + upright text + `@[key]` in end blocks | LT5, SB1 attributes |
 | LT7 | System Linetypes / End Types / Piping series | LT6, SB1b |

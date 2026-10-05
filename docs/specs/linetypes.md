@@ -1,5 +1,5 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 RATIFIED 2026-10-04 (proposal, unbuilt); LT4–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
 last-verified: 2026-10-04  # paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
 verified-commit: 4c799ee   # audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 seams (built) + planned modules (LT3+)
@@ -10,6 +10,7 @@ applies-to:               # LT1 + LT2 seams (built) + planned modules (LT3+)
   - firepro3d/render_op.py           # LT2: RenderOp.weight only (type owned by hatch-and-fill.md)
   - firepro3d/path_walk.py           # planned — arc-length walker + axis phase
   - firepro3d/linetype_render.py     # planned — expansion renderer
+  - firepro3d/capability_folder.py   # planned (LT3) — shared tile/repeat folder scan
   - firepro3d/geometry_2d.py         # Geometry2DMixin style record only (the rest is owned by 2d-geometry.md)
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
@@ -75,7 +76,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **D-L3 Sizing.** Per-linetype flag: **Drafting** (printed mm, default) |
   **Model** (real-world mm). Drafting in model views needs `PlanView.scale`
   (System Blocks SB1c) and falls back to real size until then (mirrors hatch
-  D-A10).
+  D-A10). *(Amended by LT3-5: the plan-canvas fallback is the project
+  `drawing_scale`, not real size; the Block Editor stays real size.)*
 - **D-L12 Library.** Linetypes and end types are ordinary blocks with a
   capability (`repeat` / `end`; no kind field — hatch D-A9 / System Blocks F3).
   Project registry + libraries; System > Linetypes and System > End Types
@@ -164,7 +166,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   linetype; the plan-block line is Linetype By Block + Weight By Linetype.
   Pipe-as-linear-Feature is its own design task.
 - **D-L23 Defaults.** (a) strokes inside repeat units/end blocks are always
-  Continuous (no recursion); (b) explode, copy, mirror and modify tools keep
+  Continuous (no recursion) — and, per LT3-9, so are pattern-tile strokes when
+  stamped as a hatch; (b) explode, copy, mirror and modify tools keep
   Linetype/Weight/ends — new free ends from break/trim get By Linetype ends;
   (c) mirror flips end blocks, text stays upright; (d) closed shapes never
   draw ends; (e) a missing linetype/end block draws Continuous/Flat plus a
@@ -498,6 +501,176 @@ T-colour (Display Manager colour override active → saved `style.colour` =
 authored) · T-rename (per holder in LT2-8: draws at B, saves as B; Cancel
 restores; no hijack) · T-snap (in-place edit of a definition primitive after
 a snapshot leaves the snapshot unchanged).
+
+## LT3 — Linetype renderer, repeat data, Linetypes folder (ratified 2026-10-04)
+
+> Slice contract for LT3 (concept LD-A, LD2, LD3, part of LD5). The *what* was
+> settled in the LT3 Phase-2 grill (Q1–Q13, FP3 deltas) and the *how* (H3-a–H3-i)
+> approved section by section in the brainstorm, both 2026-10-04. **Unbuilt.**
+> Scope moved forward from LT4 by Q1/Q2/Q12/Q13: the `repeat` data key, the
+> integrity set, the panel picker and the Linetypes folder. LT4 keeps the
+> authoring surface (repeat frame, Pattern list, preview, browser badge, sticky
+> current style).
+>
+> **P4 probe (2026-10-04, PyQt6 → QPdfWriter → PyMuPDF):** flat-cap dash
+> subpaths plot at exact length (6.000 mm); `arcTo` dashes reach the PDF as
+> curves; a **zero-length round-cap subpath is dropped** on screen and in the
+> PDF, while a 1 µm round-cap segment (or `drawPoint`) renders a dot in both.
+
+### What (grill Q1–Q13)
+
+- **LT3-1 Source** (Q1). A linetype is a block with a `repeat` record. LT3
+  ships the data key and picker, no authoring UI; the smoke uses hand-made
+  `.fpdb` linetypes in the Linetypes folder.
+- **LT3-2 Integrity** (Q2). A `repeat` block is not placeable as a symbol
+  (paste skips it), cannot be deleted while a primitive uses it, and
+  `referenced_ids` follows primitives' linetype ids (bundle, closure, cycle,
+  users_of, invalidate). The Blocks-browser badge stays LT4.
+- **LT3-3 Unit reading** (Q3). In the unit (definition-local, origin at the
+  unit start, +X along the line): Line primitives lying on the X axis within
+  `[0, length]` are **dashes**; zero-length axis Lines are **dots**; uncovered
+  axis is **gap**. One dash weight per linetype = the heaviest named weight
+  among the dashes (none named → By Linetype falls back per LT3-8). Every other
+  primitive in the unit is ignored until LT6.
+- **LT3-4 Canvas** (Q4). Widths stay cosmetic per D-L14 (Thin Lines still
+  applies); dash/gap lengths are geometry and scale with zoom. Paper/PDF are
+  true mm for both. LD3's "BlockInstance.paint stops forcing cosmetic pens" is
+  retired as met by LT1/LT2 on paper — explicit dash geometry cannot collapse.
+- **LT3-5 Drafting sizing** (Q5; **amends D-L3's fallback**). Length factor per
+  surface: plan canvas — Drafting × `ScaleManager.drawing_scale` (SB1c later
+  swaps in `PlanView.scale`), Model × 1; paper pass — Drafting ÷ the viewport's
+  paper scale, Model × 1; Block Editor — × 1 (real size).
+- **LT3-6 Surfaces.** Plan canvas (detail views included), sheet viewports /
+  PDF, Block Editor raw items. Placement ghosts, HALO, snap and `shape()` stay
+  on the continuous base geometry. No other surface paints block strokes
+  (verified 2026-10-04: only `BlockInstance`, raw primitives and the tile
+  lattice consume strokes).
+- **LT3-7 Selection** (Q6). The accent highlight follows the expanded dashes.
+- **LT3-8 Cascade** (Q9):
+
+  | Linetype | Draws |
+  |---|---|
+  | `continuous` | solid |
+  | `by_block` | solid (Continuous) until LT5's placement slot |
+  | a linetype id | its dashes; missing → solid + badge (LT3-10) |
+
+  | Weight | Canvas | Paper |
+  |---|---|---|
+  | named | its `canvas_weight_px` | its mm ÷ viewport scale (LT2-5) |
+  | `by_block` | Model "Blocks" weight | paper "Blocks" weight |
+  | `by_linetype` + a resolvable linetype with a dash weight | the dash weight | its mm ÷ viewport scale |
+  | `by_linetype` otherwise | Model "Blocks" weight (LT2-4) | paper "Blocks" weight |
+
+- **LT3-9 Pattern tiles** (Q7; **extends D-L23a**). Strokes of a pattern-tile
+  block stamped as a hatch always draw Continuous; editing the tile in the
+  Block Editor shows its linetypes (raw items).
+- **LT3-10 Missing** (Q8). A linetype id that does not resolve draws
+  Continuous everywhere, plus a canvas-only warning glyph (tooltip names the
+  id; never plots; at the stroke's mid-length for a raw primitive, once at the
+  insertion point for a placed block) and "Missing (<id>)" in the panel
+  Linetype row. A *malformed*
+  linetype (`length ≤ 0`, no axis dash or dot) draws Continuous without a
+  badge. Glyph look is mockup-gated (first plan step).
+- **LT3-11 Performance** (Q10). Continuous ops never reach the expander;
+  existing perf guards stay green; 200 placed instances of a block with Hidden
+  lines paint ≤ 2× the same scene Continuous. D-L21 stays LT8.
+- **LT3-12 Picker** (Q12). The panel Linetype row lists Continuous, By Block,
+  the project's linetypes, then Linetypes-folder linetypes not yet loaded
+  (unique labels); picking a folder linetype loads it (one undo step) before
+  its id is stored.
+- **LT3-13 Linetypes folder** (Q13). System Settings > Data gains
+  "Linetypes (optional)" (path, Browse…, Reset, tooltips), default
+  `<block library>/System/Linetypes`; key and precedence owned by
+  [`settings-dialog.md`](settings-dialog.md) §4.5b beside the Hatch patterns
+  folder. No seeding until LT7.
+
+### How (H3-a–H3-i)
+
+- **H3-a `path_walk.py`.** Piece types `Seg(p0, p1)`, `Arc(c, r, a0, sweep)`,
+  `EllipseArc(c, a, b, rot, t0, t1)`, `Curve(path)`; `length(piece)`;
+  `phase0(piece, anchor)` per D-L9/D-L9b — Seg: projection of `p0` on its axis
+  (direction folded to [0°, 180°)) measured from the anchor's projection; Arc:
+  `r × a0` (Y-up CCW from the circle's 0°; a negative sweep is normalised to
+  its CCW equivalent first, so phase never depends on draw direction); EllipseArc: arc length from its 0°;
+  Curve: 0 at its start. `split(piece, s0, s1)` returns the exact sub-piece
+  (Arc / EllipseArc stay analytic, Curve flattens). Existing helpers reused:
+  `arc_math.point_at` / `yup_angle`, `geometry_intersect.point_on_segment_param`,
+  `_periodic_bezier_spans` / `_bspline_path`.
+- **H3-b `stroke_pieces()`** on the 8 styled classes (definition-local, the
+  item's own frame incl. baked rotation): Line 1 Seg; Polyline its segments
+  (+ the closing Seg when closed); Rectangle 4 Segs; RegularPolygon N Segs;
+  Circle one 360° Arc; Arc one Arc; Ellipse one EllipseArc; Spline one Curve
+  (its drawn path).
+- **H3-c `linetype_render.py`.** `LinetypeDef.from_block(defn)` (LT3-3 reading
+  → `period`, `dashes [(start, length)]`, `dots [pos]`, `dash_weight`, `size`;
+  `None` when malformed). `expand(pieces, lt, length_factor, anchor) ->
+  (dash_path, dot_path)`: dashes are flat-cap subpaths (arcs via `arcTo`), dots
+  are 1 µm round-cap segments (P4). LRU cache keyed `(pieces key, linetype id,
+  definition version, length_factor)` with a budget (the `hatch_render._lattice`
+  pattern). `paint_stroke(painter, pieces, base_path, resolved, pen, *,
+  length_factor, anchor, selected) -> missing_id | None` is the one paint entry:
+  Continuous / unresolved / period × device scale < 2 px
+  (`hatch_render._device_scale`) → `drawPath(base_path)` unchanged; else the
+  dash path (FlatCap) then the dot path (RoundCap); when selected the accent
+  highlight strokes the same paths.
+- **H3-d `stroke_style.resolve_stroke(style, registry)`** →
+  `ResolvedStroke(lt: LinetypeDef | None, weight: str, missing_id)` per LT3-8.
+  `canvas_weight_name` / `canvas_px` take the resolved weight (By Linetype →
+  dash weight when present).
+- **H3-e RenderOp.** The stroke kind gains `pieces` (tuple, definition-local)
+  and `linetype` (the style's raw value); the existing `origin` doubles as the
+  stroke's phase anchor (the defining definition's origin, origin-relative);
+  `mapped()` maps pieces and anchor, so nested blocks keep their own
+  definition's phase. `_compile` fills them; reference-mode ops and
+  placeholders leave them empty (always Continuous). Additive — the HD4a
+  contract (`kind`, `pen`, order) is unchanged.
+- **H3-f Paint routing.** The 8 primitive `paint()`s replace their
+  `super().paint()` stroke + highlight with `paint_stroke` (fill, reference
+  guides unchanged; anchor = the Block Editor's `origin_point()`, else the
+  scene origin). `BlockInstance.paint` calls `paint_stroke` per stroke op under
+  the pose (`painter.setWorldTransform(pose, True)`), so expansion is
+  definition-local and shared by every instance. Length factor per LT3-5;
+  `paint_stroke`'s missing id → the caller draws the badge unless
+  `paper_pass_active()`. The tile lattice (`hatch_render`) is untouched.
+- **H3-g `repeat` data** (mirrors HF2 `tile`). `BlockDefinition.repeat` =
+  `{length, size: "drafting"|"model"}` | None via `_norm_repeat` and
+  `set_repeat()` (version bump → cache key); additive `.fpdb` / embed key (no
+  schema bump); library `index.json` entries gain a `repeat` flag. `ends`
+  defaults (LD1) stay LT5.
+- **H3-h Integrity.** `block_registry.prim_refs` adds a styled primitive's
+  `style.linetype` when it is a block id → `referenced_ids`, `users_of` (the
+  existing delete refusal), `closure`, `bundle_for`, `would_cycle`,
+  `invalidate` follow. Pattern-placement refusal + paste skip extended to
+  `repeat` blocks. Picking a linetype that would cycle is refused via
+  `would_cycle`.
+- **H3-i Folder + picker.** `app_data.linetypes_dir()` (override
+  `LINETYPE_DIR_KEY`, else `<block_library_dir>/System/Linetypes`). The folder
+  scan is generalised out of `hatch_patterns.library_patterns()` into one
+  capability-folder scanner (new `capability_folder.py`) (folder + two subfolder levels, `index.json` flag,
+  mtime cache) called with `"tile"` and `"repeat"`. `linetype_choices(registry,
+  exclude)` mirrors `tile_choices`; a picked folder linetype loads via
+  `blocks_browser.ensure_block_loaded`; the panel Linetype row uses it.
+
+### LT3 guards (VC3)
+
+G1 seam (collinear Hidden lines, abutting + gapped, opposite directions → axis
+raster identical to one line) · G2 trim/break through the real tools →
+surviving dash raster unchanged · G3 print exact (Drafting Hidden at 1:50 and
+1:100 → PDF dash lengths = authored mm ± 0.05; a Model linetype scales with the
+viewport) · G4-LT3 cascade (named / By Block / By Linetype primitives, placed +
+nested → PDF widths and canvas px per LT3-8) · G-canvas (plan dash px = printed
+mm × drawing_scale × zoom; Block Editor real size; period < 2 px → solid) ·
+G-sel (accent only on dash pixels) · G-tile (stamped tile stroke solid) · G11
+missing (solid + badge on canvas, no badge in the PDF, panel "Missing") ·
+G8-LT3 (`.fpd` save/load, undo/redo, `.fpdb` save → fresh-project load keep the
+linetype; delete-while-used refused; symbol placement refused; cycle refused) ·
+G-perf (LT3-11). Unit tests: `path_walk` phase per piece type + split
+exactness; `LinetypeDef.from_block` reading + malformed units.
+
+Contract-retired + rewritten (planned): `test_lt1_block_paper._block_strokes`
+(must read dashed strokes, not only full-length ones),
+`test_lt2_style_record::test_weight_name_for_by_block_is_model_blocks` (By
+Linetype row), `test_render_op_compile` (additive fields only).
 
 ## Acceptance Criteria
 
