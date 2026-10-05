@@ -458,7 +458,8 @@ class BlockInstance(QGraphicsObject):
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
 
-        By Block / By Linetype / unweighted ops take the category weight
+        By Linetype (and a legacy un-migrated By Block) / unweighted ops take
+        the category weight
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """

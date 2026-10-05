@@ -135,7 +135,8 @@ class Geometry2DMixin:
         """Set the record from the constructor colour and the initial pen.
 
         *lineweight* only seeds the initial cosmetic pen (ghosts / reference
-        compile); the record's weight is By Block (D-L18 default).
+        compile); the record is Continuous / By Linetype (WM-10 factory);
+        draw tools then stamp the current (``stroke_style.apply_current``).
         """
         from . import stroke_style
         hexcol = stroke_style._hex(color)
@@ -283,7 +284,7 @@ class Geometry2DMixin:
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
         Returns False when the caller must draw its unchanged plain stroke
-        (Continuous / By Block / unresolved / malformed / LOD / ghost).
+        (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
         tooltip (LT3-10).
         """

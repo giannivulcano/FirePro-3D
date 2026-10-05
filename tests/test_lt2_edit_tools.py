@@ -8,11 +8,13 @@ from firepro3d.model_space import Model_Space
 
 
 def _styled(item):
+    """A distinctive record. WM-9 retired ``by_block`` as a storable value
+    (copies normalise it away), so marker ids stand in for it."""
     item.style["weight"] = "Heavy"
-    item.style["linetype"] = "by_block"
+    item.style["linetype"] = "lt-marker"
     item.style["colour"] = "#ff00ff"
-    item.style["start"]["end"] = "by_block"
-    item.style["finish"]["end"] = "by_block"
+    item.style["start"]["end"] = "end-marker"
+    item.style["finish"]["end"] = "end-marker"
     return item
 
 
@@ -33,10 +35,10 @@ def test_break_line_cut_ends_fresh(qapp):
     l1, l2 = ms._draw_lines
     for piece in (l1, l2):
         _same_body(ln, piece)
-    assert l1.style["start"]["end"] == "by_block"
+    assert l1.style["start"]["end"] == "end-marker"
     assert l1.style["finish"]["end"] == "by_linetype"
     assert l2.style["start"]["end"] == "by_linetype"
-    assert l2.style["finish"]["end"] == "by_block"
+    assert l2.style["finish"]["end"] == "end-marker"
 
 
 def test_break_circle_to_arc_both_fresh(qapp):
@@ -55,10 +57,10 @@ def test_break_at_point_arc(qapp):
     ms.addItem(a); ms._draw_arcs.append(a)
     ms._tools._break_at_point(a, QPointF(35.355, -35.355))
     a1, a2 = ms._draw_arcs
-    assert a1.style["start"]["end"] == "by_block"
+    assert a1.style["start"]["end"] == "end-marker"
     assert a1.style["finish"]["end"] == "by_linetype"
     assert a2.style["start"]["end"] == "by_linetype"
-    assert a2.style["finish"]["end"] == "by_block"
+    assert a2.style["finish"]["end"] == "end-marker"
 
 
 def test_explode_and_join_keep_style(qapp):
@@ -91,7 +93,7 @@ def test_fillet_new_arc_fresh_and_trimmed_ends_fresh(qapp):
     end1 = "start" if data["near1"] == "_pt1" else "finish"
     assert l1.style[end1]["end"] == "by_linetype"
     other = "finish" if end1 == "start" else "start"
-    assert l1.style[other]["end"] == "by_block"
+    assert l1.style[other]["end"] == "end-marker"
 
 
 def test_chamfer_new_line_fresh_and_trimmed_ends_fresh(qapp):
@@ -167,13 +169,13 @@ def _trim(item, attr, edge_pts, edge_click, item_click):
 def test_trim_line_pt1_side_start_fresh(qapp):
     ends = _trim(LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines",
                  ((50, -100), (50, 100)), (50, 80), (10, 0))
-    assert ends == {"start": "by_linetype", "finish": "by_block"}
+    assert ends == {"start": "by_linetype", "finish": "end-marker"}
 
 
 def test_trim_line_pt2_side_finish_fresh(qapp):
     ends = _trim(LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines",
                  ((50, -100), (50, 100)), (50, 80), (90, 0))
-    assert ends == {"start": "by_block", "finish": "by_linetype"}
+    assert ends == {"start": "end-marker", "finish": "by_linetype"}
 
 
 def test_trim_arc_start_moves_start_fresh(qapp):
@@ -182,7 +184,7 @@ def test_trim_arc_start_moves_start_fresh(qapp):
     vis = lambda d: (r * math.cos(math.radians(d)), -r * math.sin(math.radians(d)))
     ends = _trim(ArcItem(QPointF(0, 0), r, 0.0, 180.0), "_draw_arcs",
                  ((50, -200), (50, 200)), (50, 150), vis(20))
-    assert ends == {"start": "by_linetype", "finish": "by_block"}
+    assert ends == {"start": "by_linetype", "finish": "end-marker"}
 
 
 def test_trim_arc_span_shrinks_finish_fresh(qapp):
@@ -191,7 +193,7 @@ def test_trim_arc_span_shrinks_finish_fresh(qapp):
     vis = lambda d: (r * math.cos(math.radians(d)), -r * math.sin(math.radians(d)))
     ends = _trim(ArcItem(QPointF(0, 0), r, 0.0, 180.0), "_draw_arcs",
                  ((50, -200), (50, 200)), (50, 150), vis(120))
-    assert ends == {"start": "by_block", "finish": "by_linetype"}
+    assert ends == {"start": "end-marker", "finish": "by_linetype"}
 
 
 def test_join_takes_outer_ends_of_sources(qapp):

@@ -150,8 +150,8 @@ def is_linetype_ref(lt) -> bool:
 def canvas_weight_name(weight: str) -> str:
     """The named weight a canvas stroke resolves to (LT2-4).
 
-    By Block and, in LT2, By Linetype (Continuous has no weight) map to the
-    Display Manager Model "Blocks" weight.
+    By Linetype with no dash weight (WM-5; a legacy un-migrated By Block
+    too) maps to the Display Manager Model "Blocks" weight.
     """
     if weight in (BY_BLOCK, BY_LINETYPE):
         return _pd.model_blocks_weight()

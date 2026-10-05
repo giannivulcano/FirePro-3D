@@ -20,7 +20,7 @@ def test_from_dict_migrates_without_version_bump():
     assert d.version == 7
     line = d.primitives[0]
     assert "lineweight" not in line and line["style"]["colour"] == "#ff0000"
-    assert line["style"]["weight"] == "by_block"
+    assert line["style"]["weight"] == "by_linetype"   # WM-9 (was by_block)
     assert d.primitives[1] == {"type": "text", "border_weight": "Medium"}
 
 
@@ -77,7 +77,8 @@ def test_g8a_fpd_round_trip_keeps_full_record(qapp, tmp_path):
     from firepro3d.geometry_2d import LineItem
     ms = Model_Space()
     ln = LineItem(QPointF(0, 0), QPointF(10, 0), "#ff0000")
-    ln.style.update(weight="Heavy", linetype="by_block")
+    # WM-9: by_block is no longer storable; a linetype id is the marker.
+    ln.style.update(weight="Heavy", linetype="lt-marker")
     ln.style["finish"]["visible"] = False
     d = BlockDefinition.new(name="R", library="L", series="S",
                             primitives=[ln.to_dict()], origin=(0, 0))

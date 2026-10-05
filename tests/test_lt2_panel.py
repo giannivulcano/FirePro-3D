@@ -18,11 +18,13 @@ def _editor_with_line():
 def test_rows_present_with_options(qapp):
     _ms, ln = _editor_with_line()
     props = ln.get_properties()
-    assert props["Linetype"]["options"] == ["Continuous", "By Block"]
+    # WM-4/WM-5 (retired LT2-7 By Block options): Continuous only, and the
+    # weight row opens with By Linetype showing what it resolves to.
+    assert props["Linetype"]["options"] == ["Continuous"]
     assert props["Linetype"]["value"] == "Continuous"
-    # LT3-8 makes By Linetype visible (D-L4 lists it as a line weight).
-    assert props["Weight"]["options"] == ["By Block", "By Linetype", *pd.weight_names()]
-    assert props["Weight"]["value"] == "By Block"
+    by_lt = f"By Linetype ({pd.model_blocks_weight()})"
+    assert props["Weight"]["options"] == [by_lt, *pd.weight_names()]
+    assert props["Weight"]["value"] == by_lt
     assert props["Colour"]["type"] == "color"
     assert "Line Weight" not in props
 
@@ -43,29 +45,28 @@ def test_weight_edit_applies_undoes_and_persists(qapp):
     assert ln.style["weight"] == "Heavy"
     assert ln.to_dict()["style"]["weight"] == "Heavy"
     ms.undo()
-    assert ms._draw_lines[0].style["weight"] == "by_block"
+    assert ms._draw_lines[0].style["weight"] == "by_linetype"   # WM-10 default
 
 
 def test_linetype_and_colour_edits(qapp):
     ms, ln = _editor_with_line()
-    ln.set_property("Linetype", "By Block")
+    ln.style["linetype"] = "x-unresolved"       # WM-4: no By Block to pick
+    ln.set_property("Linetype", "Continuous")
     ln.set_property("Colour", "#123456")
-    assert ln.style["linetype"] == "by_block"
+    assert ln.style["linetype"] == "continuous"
     assert ln.style["colour"] == "#123456"
 
 
 def test_weight_row_shows_and_sets_by_linetype(qapp):
-    """LT3-8: By Linetype draws differently from By Block (dash weight), so the
-    row names it and a pick stores ``by_linetype`` (one undo step)."""
+    """LT3-8 / WM-5: the row shows By Linetype with its resolved weight and a
+    pick of that label stores ``by_linetype`` (one undo step)."""
     ms, ln = _editor_with_line()
-    ln.style["weight"] = "by_linetype"
-    assert ln.get_properties()["Weight"]["value"] == "By Linetype"
-    ln.style["weight"] = "by_block"
+    by_lt = f"By Linetype ({pd.model_blocks_weight()})"
+    assert ln.get_properties()["Weight"]["value"] == by_lt
+    ln.style["weight"] = "Heavy"
     n0 = len(ms._undo_stack)
     with ms.deferred_undo_push():
-        ln.set_property("Weight", "By Linetype")
+        ln.set_property("Weight", by_lt)
     assert ln.style["weight"] == "by_linetype"
     assert len(ms._undo_stack) == n0 + 1
-    assert ln.get_properties()["Weight"]["value"] == "By Linetype"
-    ln.set_property("Weight", "By Block")
-    assert ln.style["weight"] == "by_block"
+    assert ln.get_properties()["Weight"]["value"] == by_lt

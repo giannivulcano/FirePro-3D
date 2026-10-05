@@ -45,7 +45,7 @@ def test_options_order_project_then_folder(lt_dir):
     ln = LineItem(QPointF(0, 0), QPointF(10, 0))
     ms.addItem(ln)
     row = ln.get_properties()["Linetype"]
-    assert row["options"] == ["Continuous", "By Block", "Hidden", "Center"]
+    assert row["options"] == ["Continuous", "Hidden", "Center"]
     assert row["value"] == "Continuous"
 
 
@@ -55,7 +55,7 @@ def test_folder_linetype_already_in_project_is_listed_once(lt_dir):
     ms.register_block_definition(lt)
     ln = _line_in(ms)
     assert ln.get_properties()["Linetype"]["options"] == [
-        "Continuous", "By Block", "Hidden"]
+        "Continuous", "Hidden"]
 
 
 def test_colliding_names_get_unique_labels(lt_dir):
@@ -65,7 +65,7 @@ def test_colliding_names_get_unique_labels(lt_dir):
     lib = _folder(lt_dir, name="Hidden", series="Other")
     ln = _line_in(ms)
     assert ln.get_properties()["Linetype"]["options"] == [
-        "Continuous", "By Block", "Hidden", "Hidden (library)"]
+        "Continuous", "Hidden", "Hidden (library)"]
     ln.set_property("Linetype", "Hidden")
     assert ln.style["linetype"] == proj
     ln.set_property("Linetype", "Hidden (library)")
@@ -131,8 +131,10 @@ def test_pick_project_linetype_is_one_undo_step(qapp):
 def test_fixed_choices_still_resolve(qapp):
     ms = Model_Space()
     ln = _line_in(ms)
+    # WM-4: By Block is retired -- an unknown label changes nothing.
     ln.set_property("Linetype", "By Block")
-    assert ln.style["linetype"] == "by_block"
+    assert ln.style["linetype"] == "continuous"
+    ln.style["linetype"] = "x-unresolved"
     ln.set_property("Linetype", "Continuous")
     assert ln.style["linetype"] == "continuous"
 
@@ -162,7 +164,7 @@ def test_block_editor_picker_excludes_the_edited_block(qapp):
     ln = LineItem(QPointF(0, 0), QPointF(10, 0))
     ms.addItem(ln)
     assert ln.get_properties()["Linetype"]["options"] == [
-        "Continuous", "By Block", "Center"]
+        "Continuous", "Center"]
 
 
 def test_pick_through_the_property_panel_loads_it(lt_dir):
@@ -178,7 +180,7 @@ def test_pick_through_the_property_panel_loads_it(lt_dir):
     QApplication.processEvents()
     combo = pm._prop_widgets["Linetype"]
     items = [combo.itemText(i) for i in range(combo.count())]
-    assert items == ["Continuous", "By Block", "Center"]
+    assert items == ["Continuous", "Center"]
     pos0 = ms._undo_pos
     combo.setCurrentText("Center")
     QApplication.processEvents()
