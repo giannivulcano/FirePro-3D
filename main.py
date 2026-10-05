@@ -892,6 +892,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             raw = self.settings.value("template/text", {})
             if isinstance(raw, dict):
                 apply_template_settings(self.current_text_template.data, raw)
+        # WM1: the current Linetype / Weight for new primitives (§3.7 template).
+        from firepro3d import stroke_style as _ss
+        _ss.current_from_settings(self.settings)
         if self.settings.contains("template/opening"):
             op = self.settings.value("template/opening", {})
             if isinstance(op, dict):
@@ -2433,8 +2436,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     # ── Template workflow helpers ─────────────────────────────────────────────
 
+    # 2D draw tools whose pre-placement template is the current Linetype /
+    # Weight (linetypes.md WM-10; property-panel.md §3.7).
+    _GEOMETRY_DRAW_MODES = ("draw_line", "draw_rectangle", "draw_circle",
+                            "draw_arc", "polyline", "polygon",
+                            "draw_ellipse", "draw_spline")
+
     def _on_mode_changed_template(self, mode: str):
         """Show pre-placement template properties when entering wall/floor/geometry mode."""
+        # A Block Editor scene connects here too: its geometry template must
+        # be its own (the picker reads that scene's registry / exclusions).
+        sender = self.sender()
+        sc = sender if hasattr(sender, "_get_geometry_template") else self.scene
         if mode == "wall":
             template = self.scene._get_wall_template()
             template._alignment = self.scene._wall_alignment
@@ -2445,10 +2458,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         elif mode in ("roof", "roof_rect"):
             template = self.scene._get_roof_template()
             self.prop_manager.show_properties(template)
-        elif mode in ("draw_line", "draw_rectangle",
-                       "draw_circle", "draw_arc", "polyline"):
-            template = self.scene._get_geometry_template()
-            self.prop_manager.show_properties(template)
+        elif mode in self._GEOMETRY_DRAW_MODES:
+            self.prop_manager.show_properties(sc._get_geometry_template())
         else:
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)
@@ -5379,6 +5390,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.settings.setValue(
                 "template/text",
                 text_template_to_settings(self.current_text_template.data))
+        # WM1: the current Linetype / Weight for new primitives (§3.7 template).
+        from firepro3d import stroke_style as _ss
+        _ss.current_to_settings(self.settings)
         if getattr(self, "current_opening_template", None) is not None:
             t = self.current_opening_template
             self.settings.setValue("template/opening", {
