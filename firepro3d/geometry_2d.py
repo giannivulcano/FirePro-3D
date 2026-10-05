@@ -12,7 +12,7 @@ import math
 import uuid
 
 from PyQt6.QtWidgets import (
-    QGraphicsLineItem, QGraphicsPathItem,
+    QAbstractGraphicsShapeItem, QGraphicsLineItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsEllipseItem,
     QStyle,
 )
@@ -139,6 +139,29 @@ class Geometry2DMixin:
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
+
+    def boundingRect(self) -> QRectF:
+        """Qt base bounds padded to cover the cosmetic stroke at this zoom.
+
+        Qt pads by ``widthF / 2`` in item units, but a cosmetic pen's width is
+        screen px (LT2 weights reach ~18 px), so a heavy stroke zoomed out paints
+        past the bounds + the view's 2 px margin and leaves trails. Pad by the
+        pen half-width plus half the selection highlight's +1.5 px, converted at
+        the current view zoom. Non-cosmetic (paper-pass) pens are already
+        bounded correctly by the base. Subclass overrides (Rect, Arc) call
+        ``super().boundingRect()`` and so inherit the pad. Stroked Qt bases
+        only: ``TextItem`` (a ``QGraphicsTextItem``, no pen) measures its
+        content via ``super().boundingRect()`` and must get the raw base.
+        """
+        base = super().boundingRect()
+        if not isinstance(self, (QAbstractGraphicsShapeItem, QGraphicsLineItem)):
+            return base
+        pen = self.pen()
+        if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
+            return base
+        px = pen.widthF() / 2.0 + 0.75
+        p = scene_hit_width(self, px, px)
+        return base.adjusted(-p, -p, p, p)
 
     def _sync_stroke_pen(self) -> None:
         """Derive the pen from the record at paint (H-c).

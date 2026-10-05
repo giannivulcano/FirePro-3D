@@ -313,8 +313,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         line_col = QColor(self._display_color) if self._display_color else self._color
-        pen = QPen(line_col, 1)
-        pen.setCosmetic(True)
+        pen = self._outline_pen(line_col)
         painter.setPen(pen)
 
         if self._display_fill_color:
@@ -331,9 +330,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             painter.drawPolygon(QPolygonF(oh_pts))
             # If overhang is active, draw inner wall boundary as dotted line
             if oh_pts is not self._points:
-                inner_pen = QPen(line_col, 1, Qt.PenStyle.DotLine)
-                inner_pen.setCosmetic(True)
-                painter.setPen(inner_pen)
+                painter.setPen(self._outline_pen(line_col, style=Qt.PenStyle.DotLine))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPolygon(QPolygonF(self._points))
                 painter.setPen(pen)
@@ -343,9 +340,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         # Draw ridge/hip lines
         ridge_lines = self._compute_ridge_lines()
         if ridge_lines:
-            ridge_pen = QPen(line_col, 1, Qt.PenStyle.DashDotLine)
-            ridge_pen.setCosmetic(True)
-            painter.setPen(ridge_pen)
+            painter.setPen(self._outline_pen(line_col, style=Qt.PenStyle.DashDotLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             for p1, p2 in ridge_lines:
                 painter.drawLine(p1, p2)

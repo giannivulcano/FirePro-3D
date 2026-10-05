@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-04  # 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: 4c799ee   # stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -407,6 +407,15 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
   `prepareGeometryChange()` on `ItemSelectedChange`) so the radials repaint; its
   `shape()` stays the stroked arc, so clicking empty space near the centre does
   not select it.
+- **Stroke bounds pad (2026-10-04).** `Geometry2DMixin.boundingRect()` pads the Qt
+  base bounds by the cosmetic pen half-width + 0.75 px (half the selection
+  highlight's +1.5) in scene units at the current view zoom
+  (`view_scale.scene_hit_width`), so heavy weights (a 3 mm weight is ~18 px) leave
+  no repaint trails zoomed out. Stroked Qt bases only — `TextItem` measures its
+  content through `super().boundingRect()` and gets the raw base; non-cosmetic
+  (paper-pass) pens keep the base. Known gap: the selected `SplineItem` control
+  polygon and `RegularPolygonItem` circumradius guides can still paint outside
+  bounds (filed).
 
 ## 4. Placement workflows (`model_space.py`)
 

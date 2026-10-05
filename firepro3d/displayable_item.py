@@ -19,7 +19,8 @@ interfering with the Qt graphics item constructor chain.  Call
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor, QTransform
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QPen, QTransform
 from .constants import DEFAULT_LEVEL
 
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
@@ -136,6 +137,20 @@ class DisplayableItemMixin:
         self._display_section_color: str | None = None   # set by Display Manager
         self._display_section_pattern: str | None = None  # set by Display Manager
         self._display_section_scale: float = 1.0          # set by Display Manager
+
+    def _outline_pen(self, color, cosmetic_px: float = 1.0,
+                     style: Qt.PenStyle = Qt.PenStyle.SolidLine) -> QPen:
+        """Outline pen for a system item's linework.
+
+        Canvas: cosmetic *cosmetic_px*. During a paper pass,
+        ``paper_display._apply_generic`` sets ``_paper_pen_width`` (the paper
+        category weight in model units, ``lw_mm / paper_scale`` — paper-space
+        §9.9.1), so the outline plots at the true on-paper weight.
+        """
+        w = getattr(self, "_paper_pen_width", None)
+        pen = QPen(QColor(color), cosmetic_px if w is None else w, style)
+        pen.setCosmetic(w is None)
+        return pen
 
     # ── View-range / section-cut protocol ──────────────────────────────────
 
