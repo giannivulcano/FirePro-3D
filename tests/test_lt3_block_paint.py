@@ -93,3 +93,68 @@ def test_canvas_by_linetype_takes_dash_weight(qapp):
     by_blk = _thickness(_render_model(_scene(weight="by_block")), 230)
     assert by_lt == heavy
     assert by_blk != heavy and by_blk == round(canvas_px("by_block"))
+
+
+# -- I2: the placement ghost stays continuous, no badge (LT3-6) ---------------
+
+def _ghost_render(linetype_of):
+    from tests._snap_polish_helpers import close_view, make_view, move
+    view, ms = make_view(role="plan", scale=0.1, mode=None)
+    try:
+        ln = LineItem(QPointF(-1500, 0), QPointF(1500, 0))
+        ln.style["linetype"] = linetype_of(ms)
+        d = BlockDefinition.new(name="B", library="L", series="S",
+                                primitives=[ln.to_dict()], origin=(0.0, 0.0))
+        ms.register_block_definition(d)
+        ms.set_mode("place_block", template=d.id)
+        move(view, QPointF(0, 1000))                    # real place_block move
+        g = ms._place_block_ghost
+        assert g is not None and not ms._block_instances
+        x, y = g.block_pos()
+        return _render_model(ms), x, y
+    finally:
+        close_view(view, ms)
+
+
+def test_placement_ghost_draws_continuous(qapp):
+    img, x, y = _ghost_render(hidden)
+    row = round(200 + y / 10.0)
+    runs = []
+    start = None
+    for px in range(400):                               # ghost is 50 % opacity
+        on = QColor(img.pixel(px, row)).lightness() > 40
+        if on and start is None:
+            start = px
+        if not on and start is not None:
+            runs.append(px - start)
+            start = None
+    assert runs and max(runs) > 250, runs
+
+
+def test_placement_ghost_has_no_missing_badge(qapp):
+    # The ghost paints at 50 % opacity, so the amber glyph would blend toward
+    # black: detect it by hue (red well above blue), not by the exact token.
+    img, x, y = _ghost_render(lambda ms: "deadbeef")
+    amber = [(i, j) for i in range(400) for j in range(400)
+             if QColor(img.pixel(i, j)).red() - QColor(img.pixel(i, j)).blue() > 30]
+    assert amber == []
+
+
+def test_nested_instance_in_block_editor_is_real_size(qapp):
+    """LT3-5: a placed (nested) block inside the Block Editor draws real size,
+    not x drawing_scale (the editor scene has its own ScaleManager)."""
+    ms = Model_Space(scene_role="block_editor")
+    lid = hidden(ms)
+    ln = LineItem(QPointF(0, 0), QPointF(36, 0))
+    ln.style["linetype"] = lid
+    d = BlockDefinition.new(name="B", library="L", series="S",
+                            primitives=[ln.to_dict()], origin=(0.0, 0.0))
+    ms.register_block_definition(d)
+    ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+    img = QImage(400, 40, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    ms.render(p, QRectF(0, 0, 400, 40), QRectF(0, -2, 40, 4))   # 10 px/mm
+    p.end()
+    row = [QColor(img.pixel(x, 20)).lightness() > 128 for x in range(400)]
+    assert all(row[5:55]) and not any(row[65:85]) and all(row[95:145])

@@ -199,6 +199,28 @@ def mid_point(pieces) -> QPointF | None:
     return pw.point_at_total(pieces, pw.total_length(pieces) / 2.0) if pieces else None
 
 
+def badge_pad_px() -> float:
+    """Device-px half-extent the missing glyph needs around its anchor: the
+    bounds pad of an item that may draw it (glyph spans +/-7 px at 12 px)."""
+    from .constants import LINETYPE_BADGE_PX
+    return LINETYPE_BADGE_PX / 2.0 + 1.0
+
+
+def sync_missing_tooltip(item, missing_id) -> None:
+    """Name *missing_id* in *item*'s own tooltip (LT3-10); restore the
+    previous tooltip once it resolves again. Only writes on a change."""
+    cur = getattr(item, "_lt_tip_id", None)
+    if cur == missing_id:
+        return
+    if missing_id:
+        if cur is None:
+            item._lt_tip_prev = item.toolTip()
+        item.setToolTip(f"Missing linetype: {missing_id} — drawn Continuous")
+    else:
+        item.setToolTip(getattr(item, "_lt_tip_prev", ""))
+    item._lt_tip_id = missing_id
+
+
 def paint_missing_badge(painter, at: QPointF) -> None:
     """Canvas-only missing-linetype glyph at item point *at* (LT3-10).
 

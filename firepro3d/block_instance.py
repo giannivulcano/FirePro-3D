@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from .block_definition import BlockDefinition
 from .render_op import STROKE, FILL, PATTERN, TEXT
-from .stroke_style import BY_BLOCK, BY_LINETYPE
+from .stroke_style import BY_BLOCK, BY_LINETYPE, is_linetype_ref
 
 _PLACEHOLDER_MM = 200.0
 
@@ -57,6 +57,10 @@ class BlockInstance(QGraphicsObject):
         self._paper_pen_color: Optional[QColor] = None
         # Paper mm per model mm during a viewport pass (LT2-5); None on canvas.
         self._paper_scale: Optional[float] = None
+        # Placement-ghost preview (Model_Space._place_block_make_ghost): draws
+        # on the continuous base geometry, no missing badge (LT3-6).
+        self._is_ghost: bool = False
+        self._lt_ref_cache = None   # (ops list, any stroke op with a linetype id)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -172,7 +176,29 @@ class BlockInstance(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         r = self._posed_path().boundingRect()
         m = 2.0  # pen margin (mm)
-        return r.adjusted(-m, -m, m, m)
+        r = r.adjusted(-m, -m, m, m)
+        if self._has_linetype_ref():
+            # A linetype id may go missing (LT3-10): the canvas glyph is drawn
+            # at the insertion point, a fixed device size -- bound it at this
+            # zoom whether or not it resolves (no geometry change on a flip).
+            from .linetype_render import badge_pad_px
+            from .view_scale import scene_hit_width
+            px = badge_pad_px()
+            h = scene_hit_width(self, px, px)
+            c = self.pose_transform().map(QPointF(0.0, 0.0))
+            r = r.united(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h))
+        return r
+
+    def _has_linetype_ref(self) -> bool:
+        """True when any compiled stroke op names a linetype block id
+        (memoised on the compiled op list's identity)."""
+        ops = self.render_ops()
+        c = self._lt_ref_cache
+        if c is not None and c[0] is ops:
+            return c[1]
+        has = any(op.kind == STROKE and is_linetype_ref(op.linetype) for op in ops)
+        self._lt_ref_cache = (ops, has)
+        return has
 
     def shape(self) -> QPainterPath:
         # Copy (implicitly shared, O(1)): callers may mutate what shape()
@@ -193,8 +219,11 @@ class BlockInstance(QGraphicsObject):
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
         selected = self.isSelected()
-        from .stroke_style import canvas_px    # once per paint, not per op
-        missing = False                         # any unresolvable linetype (badge)
+        from .stroke_style import canvas_px, resolve_stroke   # once per paint
+        sc = self.scene()
+        registry = getattr(sc, "block_registry", None) if sc is not None else None
+        routed = not self._is_ghost             # ghosts stay continuous (LT3-6)
+        missing = None                          # first unresolvable linetype id
         for op in ops:
             if op.kind in (FILL, PATTERN):
                 self._paint_fill_op(painter, pose, op)
@@ -214,16 +243,14 @@ class BlockInstance(QGraphicsObject):
                 painter.setBrush(b)
             else:
                 # LT3-8 cascade: linetype + resolved weight (By Linetype ->
-                # the linetype's dash weight when it has one).
+                # the linetype's dash weight when it has one). Continuous /
+                # By Block / unstyled ops never reach the resolver (LT3-11).
                 rs = None
-                if op.linetype is not None:
-                    from .stroke_style import resolve_stroke
-                    sc = self.scene()
+                if routed and is_linetype_ref(op.linetype):
                     rs = resolve_stroke({"linetype": op.linetype,
-                                         "weight": op.weight or BY_BLOCK},
-                                        getattr(sc, "block_registry", None) if sc else None)
-                    if rs.missing_id:
-                        missing = True
+                                         "weight": op.weight or BY_BLOCK}, registry)
+                    if rs.missing_id and missing is None:
+                        missing = rs.missing_id
                 weight = rs.weight if rs is not None else op.weight
                 # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
@@ -244,18 +271,23 @@ class BlockInstance(QGraphicsObject):
                     # Expand definition-local under the pose (H3-f): one
                     # cached expansion shared by every instance.
                     from .linetype_render import paint_stroke
-                    painter.save()
-                    painter.setWorldTransform(pose, True)
                     a = op.origin or QPointF(0.0, 0.0)
-                    drawn = paint_stroke(painter, op.pieces, rs.lt, p,
-                                         factor=self._linetype_factor(rs.lt),
-                                         anchor=(a.x(), a.y()))
-                    painter.restore()
+                    painter.save()
+                    try:
+                        painter.setWorldTransform(pose, True)
+                        drawn = paint_stroke(painter, op.pieces, rs.lt, p,
+                                             factor=self._linetype_factor(rs.lt),
+                                             anchor=(a.x(), a.y()))
+                    finally:
+                        painter.restore()
                     if drawn:
                         continue
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))
+        if routed and (missing or getattr(self, "_lt_tip_id", None)):
+            from .linetype_render import sync_missing_tooltip
+            sync_missing_tooltip(self, missing)     # names the id (LT3-10)
         if missing:
             # Canvas-only glyph, once at the insertion point (LT3-10).
             from .paper_display import paper_pass_active
@@ -264,13 +296,17 @@ class BlockInstance(QGraphicsObject):
                 paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
 
     def _linetype_factor(self, lt) -> float:
-        """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan -> drawing scale."""
+        """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan canvas ->
+        drawing scale; anything else (Block Editor nested instance) -> 1."""
         if lt.size == "model":
             return 1.0
         if self._paper_scale:
             return 1.0 / self._paper_scale
-        sm = self._scale_manager()
-        return float(sm.drawing_scale) if sm is not None else 1.0
+        sc = self.scene()
+        if getattr(sc, "scene_role", None) == "plan":
+            sm = self._scale_manager()
+            return float(sm.drawing_scale) if sm is not None else 1.0
+        return 1.0
 
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).

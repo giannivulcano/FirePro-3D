@@ -113,6 +113,13 @@ def is_named_weight(w) -> bool:
     return isinstance(w, str) and bool(w) and w not in (BY_BLOCK, BY_LINETYPE)
 
 
+def is_linetype_ref(lt) -> bool:
+    """True for a linetype block-id reference (a non-empty string that is not
+    ``continuous`` / ``by_block``) -- the values the LT3-8 cascade resolves
+    through the registry (and that can go missing, LT3-10)."""
+    return isinstance(lt, str) and bool(lt) and lt not in (CONTINUOUS, BY_BLOCK)
+
+
 def canvas_weight_name(weight: str) -> str:
     """The named weight a canvas stroke resolves to (LT2-4).
 

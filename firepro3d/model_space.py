@@ -6145,6 +6145,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Authoring preview -- never plots (a real BlockInstance would
         # otherwise take the paper "Blocks" category, linetypes.md LT1-2).
         g.PAPER_EXCLUDED = True
+        # Placement ghosts stay on the continuous base geometry (LT3-6).
+        g._is_ghost = True
         self.addItem(g)
         self._place_block_ghost = g
 

@@ -97,3 +97,74 @@ def test_panel_shows_missing(qapp):
     ln.style["linetype"] = "deadbeef"
     ms.addItem(ln)
     assert ln.get_properties()["Linetype"]["value"] == "Missing (deadbeef)"
+
+
+# -- I1: the glyph is inside the item's bounds; tooltip names the id ----------
+
+_TIP = "Missing linetype: deadbeef \u2014 drawn Continuous"
+
+
+def _warn_px(ms, src, w, h):
+    img = QImage(w, h, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    ms.render(p, QRectF(0, 0, w, h), src)
+    p.end()
+    return sum(_is_warn(QColor(img.pixel(x, y))) for x in range(w) for y in range(h))
+
+
+def test_block_badge_renders_when_only_the_insertion_point_is_exposed(qapp):
+    """Geometry 1000..3000 mm, insertion at 0: an expose of just the insertion
+    point still paints the glyph (it is inside boundingRect at this zoom)."""
+    from tests._snap_polish_helpers import close_view, make_view
+    view, ms = make_view(role="plan", scale=0.1, mode=None)
+    try:
+        ln = LineItem(QPointF(1000, 0), QPointF(3000, 0))
+        ln.style["linetype"] = "deadbeef"
+        d = BlockDefinition.new(name="B", library="L", series="S",
+                                primitives=[ln.to_dict()], origin=(0.0, 0.0))
+        ms.register_block_definition(d)
+        inst = ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+        assert _warn_px(ms, QRectF(-400, -400, 800, 800), 80, 80) > 10
+        # The glyph's device box (+/-7 px x, -7/+5 px y) at 0.1 px/mm.
+        glyph = QRectF(-70, -70, 140, 120)
+        assert inst.sceneBoundingRect().contains(glyph)
+    finally:
+        close_view(view, ms)
+
+
+def test_raw_badge_inside_bounds_on_a_short_vertical_stroke(qapp):
+    from tests._snap_polish_helpers import close_view, make_view
+    view, ms = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        ln = LineItem(QPointF(0, 0), QPointF(0, 20))
+        ln.style["linetype"] = "deadbeef"
+        ms.addItem(ln)
+        ms._draw_lines.append(ln)
+        # Badge at mid-length (0, 10); its left part lies at x < -3 mm, outside
+        # the pen pad -- an expose of that strip alone must still paint it.
+        assert _warn_px(ms, QRectF(-20, -10, 17, 40), 17, 40) > 0
+        assert ln.sceneBoundingRect().contains(QRectF(-7, 3, 14, 12))
+    finally:
+        close_view(view, ms)
+
+
+def test_missing_tooltip_names_the_id_and_restores(qapp):
+    from tests.lt3_support import hidden
+    ms = Model_Space(scene_role="block_editor")
+    ln = LineItem(QPointF(0, 0), QPointF(36, 0))
+    ln.setToolTip("orig")
+    ln.style["linetype"] = "deadbeef"
+    ms.addItem(ln)
+    _warn_px(ms, QRectF(0, -6, 40, 12), 40, 12)          # paint
+    assert ln.toolTip() == _TIP
+    ln.style["linetype"] = hidden(ms)                    # resolves now
+    _warn_px(ms, QRectF(0, -6, 40, 12), 40, 12)
+    assert ln.toolTip() == "orig"
+
+
+def test_block_missing_tooltip(qapp):
+    ms = _missing_block_scene()
+    inst = ms._block_instances[0]
+    _warn_px(ms, QRectF(-2000, -2000, 4000, 4000), 40, 40)
+    assert inst.toolTip() == _TIP
