@@ -42,7 +42,7 @@ from .constants import (
     OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK,
     OPENING_ALIGNMENTS,
 )
-from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for, feature_label
+from .feature import FEATURE_REGISTRY, FEATURE_LABEL, get_feature, nearest_feature_for, feature_label
 from .view_scale import scene_hit_width
 
 if TYPE_CHECKING:
@@ -191,6 +191,15 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     def openings_type(self) -> str:
         """Opening type string: "door" | "window" | "blank"."""
         return self._type
+
+    @property
+    def display_category(self) -> str:
+        """Display Manager category key: "Door" | "Window" | "Opening".
+
+        The one home for an opening's category on the Model and Paper tabs
+        (the tier-1 Feature label; the blank kind is "Opening").
+        """
+        return FEATURE_LABEL.get(self._type, "Opening")
 
     # ── Feature switching (template + placement) ─────────────────────────────
 
@@ -523,7 +532,8 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     def _paint_symbol(self, painter):
         """Draw the plan-view symbol for this opening type.
 
-        Uses a cosmetic pen in the type's default colour (or ``_display_color``
+        Uses ``_outline_pen`` (cosmetic 1.5 px on the canvas; the Door /
+        Window / Opening paper weight in a paper pass) in the type's default colour (or ``_display_color``
         if one has been assigned).  The gap rect receives a white fill so the
         opening visually cuts through the wall.  The swing/glass lines are
         stroked on top.
@@ -565,9 +575,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         painter.drawRect(_QRectF(-half_w, -ht, half_w * 2.0, ht * 2.0))
 
         # Stroke the full path (gap outline + swing / glass lines)
-        pen = QPen(pen_color, 1.5)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
+        painter.setPen(self._outline_pen(pen_color, 1.5))   # paper weight §6.2
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 

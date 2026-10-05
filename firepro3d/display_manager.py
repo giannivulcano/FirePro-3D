@@ -228,6 +228,8 @@ _CATEGORIES: list[dict] = [
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Design Area",      "color": "#dc1e1e", "fill": "#ffc800", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Door",            "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Window",          "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Opening",         "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": "#8B4513", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
@@ -278,6 +280,7 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     """
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
+    _migrate_opening_split(settings)
     cat_def = _CATEGORY_MAP[key]
     ov = overrides or {}
 
@@ -671,6 +674,38 @@ def _apply_gridline(gl, color, scale, opacity, visible, fill_color, font_size=No
 # Public helper — apply category defaults to a newly created item
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Door / Window were split out of the single "Opening" row (2026-10-04). A
+# store or project written before the split seeds them from "Opening".
+_SPLIT_FROM_OPENING = ("Door", "Window")
+_OPENING_SPLIT_MARK = "display/_opening_split_v1"
+
+
+def _migrate_opening_split(settings: QSettings) -> None:
+    """One-shot: copy ``display/Opening/*`` (current + ``default_*``) to the
+    Door / Window keys that are absent. Idempotent via a store marker."""
+    if settings.value(_OPENING_SPLIT_MARK):
+        return
+    settings.beginGroup("display/Opening")
+    legacy = {p: settings.value(p) for p in settings.childKeys()}
+    settings.endGroup()
+    for key in _SPLIT_FROM_OPENING:
+        for prop, val in legacy.items():
+            k = f"display/{key}/{prop}"
+            if not settings.contains(k):
+                settings.setValue(k, val)
+    settings.setValue(_OPENING_SPLIT_MARK, True)
+
+
+def _project_entry(display_dict: dict, key: str) -> dict:
+    """Project ``display_settings`` entry for *key*; a pre-split project has
+    only "Opening", which seeds Door / Window."""
+    if key in display_dict:
+        return display_dict[key]
+    if key in _SPLIT_FROM_OPENING:
+        return display_dict.get("Opening", {})
+    return {}
+
+
 def apply_category_defaults(item):
     """Read QSettings for the item's category and apply display settings.
 
@@ -705,7 +740,7 @@ def apply_category_defaults(item):
     elif isinstance(item, WallSegment):
         key = "Wall"
     elif _is_opening_item(item):
-        key = "Opening"
+        key = item.display_category
     elif isinstance(item, Room):
         key = "Room"
     elif isinstance(item, DesignArea):
@@ -724,6 +759,7 @@ def apply_category_defaults(item):
         return
 
     settings = QSettings("GV", "FirePro3D")
+    _migrate_opening_split(settings)
 
     # For SVG-based categories, only apply overrides when the user has
     # explicitly saved settings — otherwise the default colour tint would
@@ -2183,7 +2219,7 @@ class DisplayManager(QDialog):
             "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
             "Hydraulic Badge",
         ],
-        "Architecture": ["Wall", "Roof", "Room", "Floor"],
+        "Architecture": ["Wall", "Door", "Window", "Opening", "Roof", "Room", "Floor"],
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
         ],
@@ -2947,6 +2983,7 @@ def apply_saved_display_settings(scene):
     so the user's "Set as Default" preferences are always honoured.
     """
     settings = QSettings("GV", "FirePro3D")
+    _migrate_opening_split(settings)
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
         # Build overrides from default_* keys so they win over current keys
@@ -2973,6 +3010,7 @@ def apply_default_display_settings(scene):
     Reads from ``display/{key}/default_*`` keys, falling back to regular keys.
     """
     settings = QSettings("GV", "FirePro3D")
+    _migrate_opening_split(settings)
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
@@ -3045,10 +3083,11 @@ def apply_project_display_settings(scene, display_dict: dict):
     Falls back to QSettings for any category not present in *display_dict*.
     """
     settings = QSettings("GV", "FirePro3D")
+    _migrate_opening_split(settings)
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
-        proj = display_dict.get(key, {})
+        proj = _project_entry(display_dict, key)
 
         # User defaults win over project-embedded values
         merged = dict(proj)
@@ -3096,11 +3135,10 @@ def _items_for_category_static(scene, key: str) -> list:
         return list(getattr(scene, "_roofs", []))
     elif key == "Wall":
         return list(getattr(scene, "_walls", []))
-    elif key == "Opening":
-        openings = []
-        for wall in getattr(scene, "_walls", []):
-            openings.extend(getattr(wall, "openings", []))
-        return openings
+    elif key in ("Door", "Window", "Opening"):
+        return [op for wall in getattr(scene, "_walls", [])
+                for op in getattr(wall, "openings", [])
+                if op.display_category == key]
     elif key == "Room":
         return list(getattr(scene, "_rooms", []))
     elif key == "Floor":

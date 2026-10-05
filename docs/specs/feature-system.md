@@ -1,7 +1,7 @@
 ---
 status: proposal          # system build deferred (Phase B/C); F4 naming SETTLED + Phase-A code re-keyed 2026-09-21
-last-verified: 2026-09-21
-verified-commit: 7934ccf
+last-verified: 2026-10-04   # F4: tier-1 label keys the Display Manager (display_category)
+verified-commit: cbfe14f     # prior 7934ccf
 applies-to:
   - firepro3d/feature.py
   - firepro3d/wall_opening.py   # the first Feature (Opening); behavior today governed by wall-room-floor-system.md §7
@@ -98,7 +98,9 @@ Type` labels: same three tiers, canonical labels.
 **Phase-A code** (`feature.py`, landed 2026-09-21): `FeatureDef` carries `kind`
 (the paint/legacy discriminator `"door"|"window"|"blank"`; `feature_label()` maps it
 to the Feature name — `blank → Opening`), `family`, and `type_name`;
-`features_by_hierarchy()` returns `Feature → Family → Type`. Built-in `id`s are
+`features_by_hierarchy()` returns `Feature → Family → Type`. The tier-1 label also
+keys the Display Manager (`WallOpening.display_category`, 2026-10-04 — contract in
+`wall-room-floor-system.md` §7.8.1). Built-in `id`s are
 **frozen**. This contract is **locked for migration discipline** — do not re-key
 on-disk libraries or `feature_id` values twice.
 

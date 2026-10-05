@@ -54,6 +54,8 @@ Categories are defined in `_CATEGORIES` in `display_manager.py`, organized into 
 | Room | `#4488cc` | `#4488cc` | -- | -- |
 | Floor | `#8888cc` | `#8888cc` | `#666666` | diagonal |
 
+Openings have one category per Feature (Door / Window / Opening) — contract, defaults and the legacy-"Opening" seed rule: `docs/specs/wall-room-floor-system.md` §7.8.1.
+
 **Grids & Levels:**
 
 | Category | Default Colour |
