@@ -267,3 +267,16 @@ def test_bad_factor_expands_empty_and_paint_declines(factor):
 @pytest.mark.parametrize("length", [float("inf"), float("nan"), -1.0])
 def test_non_finite_or_negative_length_is_malformed(length):
     assert lr.LinetypeDef.from_block(make_linetype(length=length)) is None
+
+
+# ── Q4: a long Curve expands in O(log n) per dash ───────────────────────────
+
+def test_long_curve_expands_quickly():
+    import math
+    import time
+    c = pw.Curve(tuple((i * 1.0, math.sin(i / 50) * 10) for i in range(10_001)))
+    lt = lr.LinetypeDef.from_block(make_linetype())
+    t = time.perf_counter()
+    dash, _ = lr.expand((c,), lt, 1.0, (0.0, 0.0))
+    assert time.perf_counter() - t < 1.0
+    assert not dash.isEmpty()

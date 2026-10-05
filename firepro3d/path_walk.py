@@ -65,6 +65,14 @@ class Curve:
     """Free curve (splines) as a flattened polyline; phase starts at its start."""
     pts: tuple
 
+    def __post_init__(self):
+        # Hash once: cache lookups (``_curve_cum``, the expansion LRU) would
+        # otherwise rehash every vertex per dash.
+        object.__setattr__(self, "_hash", hash(self.pts))
+
+    def __hash__(self):
+        return self._hash
+
     @classmethod
     def from_path(cls, path: QPainterPath) -> "Curve":
         """Flatten *path* (first subpath) into a Curve."""
@@ -131,11 +139,14 @@ def point_at_param(e: EllipseArc, t_deg: float) -> QPointF:
     return _ellipse_frame(e).map(QPointF(e.rx * math.cos(a), -e.ry * math.sin(a)))
 
 
-def _curve_cum(c: Curve) -> list:
+@lru_cache(maxsize=256)
+def _curve_cum(c: Curve) -> tuple:
+    """Cumulative vertex arc lengths of *c*, computed once per Curve value
+    (expansion calls ``split`` / ``point_at`` per dash: O(log n) each)."""
     cum = [0.0]
     for (x0, y0), (x1, y1) in zip(c.pts, c.pts[1:]):
         cum.append(cum[-1] + math.hypot(x1 - x0, y1 - y0))
-    return cum
+    return tuple(cum)
 
 
 # ── public API ────────────────────────────────────────────────────────────
@@ -246,12 +257,9 @@ def split(p, s0: float, s1: float):
         t1 = _ellipse_t_of_s(p.rx, p.ry, base + s1)
         return EllipseArc(p.cx, p.cy, p.rx, p.ry, p.rot, t0, t1 - t0)
     cum = _curve_cum(p)
-    pts = [point_at(p, s0)]
-    for i, c in enumerate(cum):
-        if s0 < c < s1:
-            pts.append(QPointF(*p.pts[i]))
-    pts.append(point_at(p, s1))
-    return Curve(tuple((q.x(), q.y()) for q in pts))
+    a, b = point_at(p, s0), point_at(p, s1)
+    i0, i1 = bisect.bisect_right(cum, s0), bisect.bisect_left(cum, s1)
+    return Curve(((a.x(), a.y()), *p.pts[i0:i1], (b.x(), b.y())))
 
 
 def append(path: QPainterPath, p) -> None:

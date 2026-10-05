@@ -122,3 +122,12 @@ def test_split_at_zero_ellipse_and_passthrough():
     assert pw.split_at_zero(s) == (s,)
     a = pw.Arc(0, 0, 10, 10.0, 90.0)
     assert pw.split_at_zero(a) == (a,)
+
+
+def test_curve_split_keeps_interior_vertices():
+    c = pw.Curve(((0, 0), (10, 0), (10, 10), (20, 10)))
+    s = pw.split(c, 5.0, 25.0)
+    assert s.pts == ((5.0, 0.0), (10.0, 0.0), (10.0, 10.0), (15.0, 10.0))
+    assert pw.length(s) == pytest.approx(20.0)
+    p = pw.point_at(c, 15.0)
+    assert (p.x(), p.y()) == pytest.approx((10.0, 5.0))
