@@ -324,17 +324,16 @@ class Geometry2DMixin:
     def _set_style_field(self, key: str, value) -> None:
         """Apply a panel style edit to the record (LT2-7), then repaint.
 
-        For ``"Linetype"`` *value* is the resolved ref (``continuous``,
-        ``by_block`` or a linetype block id -- ``linetype_ref_from_value``).
+        For ``"Linetype"`` *value* is the resolved ref (``continuous`` or a
+        linetype block id -- ``linetype_ref_from_value``).
         """
-        from .stroke_style import BY_BLOCK, BY_LINETYPE, _hex
+        from .stroke_style import _hex, weight_from_label
         v = str(value)
         if key == "Linetype":
             self.prepareGeometryChange()     # badge pad follows the linetype ref
             self.style["linetype"] = v
         elif key == "Weight":
-            self.style["weight"] = {"By Block": BY_BLOCK,
-                                    "By Linetype": BY_LINETYPE}.get(v, v)
+            self.style["weight"] = weight_from_label(v)
         else:
             self.style["colour"] = _hex(v)
         self._sync_stroke_pen()
@@ -438,29 +437,9 @@ class Geometry2DMixin:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
         if self.style is not None:
-            from .paper_display import weight_names
             from .hatch_patterns import picker_exclude
-            from .linetype_choices import linetype_choices, missing_label
-            from .stroke_style import BY_BLOCK, BY_LINETYPE
-            lt = self.style["linetype"]
-            choices = linetype_choices(self._tile_registry(),
-                                       picker_exclude(self.scene()))
-            options = [n for n, _ in choices]
-            value = next((n for n, r in choices if r == lt), None)
-            if value is None:
-                # LT3-10: an unresolvable id shows as missing (kept until the
-                # user picks another linetype).
-                value = missing_label(lt)
-                options = [value] + options
-            props["Linetype"] = {"type": "enum", "options": options,
-                                 "value": value}
-            # LT3-8: By Linetype takes the linetype's dash weight, so it is
-            # its own option (D-L4), not folded into By Block.
-            w = self.style["weight"]
-            props["Weight"] = {"type": "enum",
-                               "options": ["By Block", "By Linetype", *weight_names()],
-                               "value": {BY_BLOCK: "By Block",
-                                         BY_LINETYPE: "By Linetype"}.get(w, w)}
+            props.update(stroke_rows(self.style, self._tile_registry(),
+                                     picker_exclude(self.scene())))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3564,6 +3543,44 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     # Y-up CCW angle → CAD_Math's screen-space rotate takes the negation
     # (the same CW negate ``set_angle`` applies via ``setRotation``).
     return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
+
+
+_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
+                 "from the Linetypes folder load into the project when picked.")
+_WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
+               "(shown in brackets); a named weight overrides it.")
+
+
+def stroke_rows(style: dict, registry, exclude=()) -> dict:
+    """Linetype + Weight panel rows for a style record (WM1; shared by
+    primitives and the GeometryTemplate).
+
+    Args:
+        style: ``{"linetype", "weight", ...}`` (a primitive record or the
+            current).
+        registry: Project block registry (or None).
+        exclude: Linetype ids the picker must not offer (``picker_exclude``).
+    """
+    from .paper_display import weight_names
+    from .linetype_choices import linetype_choices, missing_label
+    from .stroke_style import BY_LINETYPE, weight_label
+    lt = style["linetype"]
+    choices = linetype_choices(registry, exclude)
+    options = [n for n, _ in choices]
+    value = next((n for n, r in choices if r == lt), None)
+    if value is None:
+        # LT3-10: an unresolvable id shows as missing (kept until re-picked).
+        value = missing_label(lt)
+        options = [value] + options
+    by_lt = weight_label(BY_LINETYPE, lt, registry)
+    w = style["weight"]
+    return {
+        "Linetype": {"type": "enum", "options": options, "value": value,
+                     "tooltip": _LINETYPE_TIP},
+        "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
+                   "value": by_lt if w == BY_LINETYPE else w,
+                   "tooltip": _WEIGHT_TIP},
+    }
 
 
 class GeometryTemplate:
