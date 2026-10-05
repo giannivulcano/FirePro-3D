@@ -247,3 +247,13 @@ def test_delete_refused_while_an_open_block_editor_line_uses_it(qapp):
         assert "in the plan" not in msg
     finally:
         w.editor_scene.cleanup()
+
+
+def test_delete_message_names_nesting_blocks_and_loose_lines(qapp):
+    ms = Model_Space()
+    lid = hidden(ms)
+    _user(ms, lid)                                   # block "U" uses it
+    _raw(ms, lid)                                    # and a plan line
+    assert ms.delete_block_definition(lid) is False
+    msg = ms.block_users_message(lid)
+    assert "inside: U" in msg and "by lines in the plan" in msg, msg

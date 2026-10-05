@@ -1767,23 +1767,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             ``“B” is used inside: A, D — explode or remove it there first.``
-            (users sorted by name, direct and indirect), else ``“Hidden” is
-            used by lines in the plan and in the open Block Editor — change
-            their linetype first.``, or None when nothing uses it.
+            (users sorted by name, direct and indirect); ``“Hidden” is used
+            by lines in the plan and in the open Block Editor — change their
+            linetype first.``; both together (``… inside: U, and by lines in
+            the plan — …``); or None when nothing uses it.
         """
         users = self._block_registry.users_of(block_id)
-        if not users:
-            ctx = self.linetype_user_contexts(block_id)
-            if not ctx:
-                return None
-            d = self.get_block_definition(block_id)
-            where = " and ".join(("in " + c) for c in ctx)
-            return (f"“{d.name}” is used by lines {where}"
-                    " — change their linetype first.")
+        ctx = self.linetype_user_contexts(block_id)
+        if not users and not ctx:
+            return None
         d = self.get_block_definition(block_id)
+        lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
+        if not users:
+            return (f"“{d.name}” is used {lines}"
+                    " — change their linetype first.")
         names = sorted(self.get_block_definition(u).name for u in users)
-        return (f"“{d.name}” is used inside: {', '.join(names)}"
-                " — explode or remove it there first.")
+        both = f", and {lines}" if ctx else ""
+        fix = (" — explode or remove it there, and change their linetype first."
+               if ctx else " — explode or remove it there first.")
+        return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the

@@ -108,9 +108,13 @@ class BlockRegistry:
         Args:
             defn: The ``BlockDefinition`` to store.
         """
+        old = self._store.get(defn.id)
         self._store[defn.id] = defn
         defn._resolve = self.get
-        self.invalidate(defn.id)
+        # A replaced linetype may become a non-linetype (missing for its raw
+        # users): capture the OLD repeat before it is gone (LT3-10).
+        self.invalidate(defn.id,
+                        was_linetype=bool(getattr(old, "repeat", None)))
 
     def ids(self) -> list[str]:
         """Every definition id in the store."""
@@ -269,7 +273,8 @@ class BlockRegistry:
         return out
 
     # ── invalidation ─────────────────────────────────────────────────────
-    def invalidate(self, block_id: str, *, already=()) -> None:
+    def invalidate(self, block_id: str, *, already=(),
+                   was_linetype: bool = False) -> None:
         """Drop compile caches of *block_id* + its users; repaint their instances.
 
         Args:
@@ -277,6 +282,8 @@ class BlockRegistry:
             already: Instances the caller has just repainted (e.g. the
                 backrefs ``BlockDefinition.set_primitives`` notified) — skipped
                 so each live instance repaints exactly once.
+            was_linetype: The definition *block_id* replaced was a linetype
+                (``add``), so raw users may flip even if the new one is not.
         """
         skip = {id(i) for i in already}
         affected = {block_id} | self.users_of(block_id)
@@ -285,10 +292,11 @@ class BlockRegistry:
             if d is not None:
                 d.invalidate_cache()
         from PyQt6 import sip
-        # Only a linetype (or a vanished id) can flip a raw stroke's missing
-        # state -- skip the geometry scan for ordinary symbol edits / loads.
+        # Only a linetype -- old or new -- (or a vanished id) can flip a raw
+        # stroke's missing state; skip the scan for ordinary symbol edits.
         d0 = self._store.get(block_id)
-        lt_scan = d0 is None or bool(getattr(d0, "repeat", None))
+        lt_scan = (was_linetype or d0 is None
+                   or bool(getattr(d0, "repeat", None)))
         for sc in list(self._scenes):
             if sip.isdeleted(sc):
                 self._scenes.remove(sc)

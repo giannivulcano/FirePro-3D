@@ -254,3 +254,34 @@ def test_badge_pad_covers_the_drawn_glyph(qapp, monkeypatch, badge_px):
                 ext = max(ext, abs(x + 0.5 - 50.0), abs(y + 0.5 - 50.0))
     assert ext > 0.0
     assert ext <= lr.badge_pad_px(), (ext, lr.badge_pad_px())
+
+
+def test_linetype_replaced_by_non_linetype_announces_raw_bounds(qapp):
+    """R1: replacing a linetype with a same-id NON-repeat block (library
+    reload / load-from-file replace -> ``_swap_block_definition``) flips the
+    raw user to missing; the registry announces the geometry change so the
+    padded glyph bounds are repainted, not left stale."""
+    from tests._snap_polish_helpers import close_view, make_view
+    from tests.lt3_support import hidden
+    view, ms = make_view(role="plan", scale=0.05, mode=None)
+    try:
+        lid = hidden(ms)
+        ln = LineItem(QPointF(0, 0), QPointF(2000, 0))
+        ln.style["linetype"] = lid
+        ms.addItem(ln)
+        ms._draw_lines.append(ln)
+        calls = []
+        orig = ln.prepareGeometryChange
+        ln.prepareGeometryChange = lambda: (calls.append(1), orig())[1]
+        old = ms.get_block_definition(lid)
+        plain = BlockDefinition(id=lid, version=old.version + 1, name="Hidden",
+                                library="L", series="S", scale_mode="real_size",
+                                origin=(0.0, 0.0), attributes=[],
+                                primitives=list(old.primitives))
+        ms._swap_block_definition(lid, plain)
+        assert calls, "the flip to missing was not announced"
+        k = 1.0 / 0.05
+        assert ln.sceneBoundingRect().contains(
+            QRectF(1000 - 7 * k, -7 * k, 14 * k, 12 * k))
+    finally:
+        close_view(view, ms)
