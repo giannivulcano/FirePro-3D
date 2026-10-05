@@ -194,6 +194,7 @@ class BlockInstance(QGraphicsObject):
         override = self._display_pen_color()   # display-manager / pre-highlight hook
         selected = self.isSelected()
         from .stroke_style import canvas_px    # once per paint, not per op
+        missing = False                         # any unresolvable linetype (badge)
         for op in ops:
             if op.kind in (FILL, PATTERN):
                 self._paint_fill_op(painter, pose, op)
@@ -212,33 +213,73 @@ class BlockInstance(QGraphicsObject):
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(b)
             else:
+                # LT3-8 cascade: linetype + resolved weight (By Linetype ->
+                # the linetype's dash weight when it has one).
+                rs = None
+                if op.linetype is not None:
+                    from .stroke_style import resolve_stroke
+                    sc = self.scene()
+                    rs = resolve_stroke({"linetype": op.linetype,
+                                         "weight": op.weight or BY_BLOCK},
+                                        getattr(sc, "block_registry", None) if sc else None)
+                    if rs.missing_id:
+                        missing = True
+                weight = rs.weight if rs is not None else op.weight
                 # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
                 if self._paper_pen_width is not None:
                     p.setCosmetic(False)          # true mm on paper (LT1-2)
-                    p.setWidthF(self._paper_op_width(op))
+                    p.setWidthF(self._paper_op_width(weight))
                 else:
                     p.setCosmetic(True)           # canvas (LT2-4)
-                    if op.weight is not None:
-                        p.setWidthF(canvas_px(op.weight))
+                    if weight is not None:
+                        p.setWidthF(canvas_px(weight))
                 if override is not None:
                     p.setColor(override)
                 if selected and self._paper_pen_width is None:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
+                if rs is not None and rs.lt is not None:
+                    # Expand definition-local under the pose (H3-f): one
+                    # cached expansion shared by every instance.
+                    from .linetype_render import paint_stroke
+                    painter.save()
+                    painter.setWorldTransform(pose, True)
+                    a = op.origin or QPointF(0.0, 0.0)
+                    drawn = paint_stroke(painter, op.pieces, rs.lt, p,
+                                         factor=self._linetype_factor(rs.lt),
+                                         anchor=(a.x(), a.y()))
+                    painter.restore()
+                    if drawn:
+                        continue
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))
+        if missing:
+            # Canvas-only glyph, once at the insertion point (LT3-10).
+            from .paper_display import paper_pass_active
+            if not paper_pass_active():
+                from .linetype_render import paint_missing_badge
+                paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
 
-    def _paper_op_width(self, op) -> float:
-        """Non-cosmetic paper width for a stroke op (LT2-5).
+    def _linetype_factor(self, lt) -> float:
+        """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan -> drawing scale."""
+        if lt.size == "model":
+            return 1.0
+        if self._paper_scale:
+            return 1.0 / self._paper_scale
+        sm = self._scale_manager()
+        return float(sm.drawing_scale) if sm is not None else 1.0
+
+    def _paper_op_width(self, weight) -> float:
+        """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
 
         By Block / By Linetype / unweighted ops take the category weight
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """
-        w = op.weight
+        w = weight
         if w is None or w in (BY_BLOCK, BY_LINETYPE) or not self._paper_scale:
             return self._paper_pen_width
         from .paper_display import resolve_line_weight_mm

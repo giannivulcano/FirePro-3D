@@ -243,6 +243,18 @@ class Geometry2DMixin:
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor)
         return True
 
+    def _paint_lt_badge(self, painter) -> None:
+        """Missing-linetype glyph at mid-length; canvas only (LT3-10)."""
+        if not getattr(self, "_lt_missing", None):
+            return
+        from .paper_display import paper_pass_active
+        if paper_pass_active():
+            return
+        from .linetype_render import mid_point, paint_missing_badge
+        at = mid_point(self.stroke_pieces())
+        if at is not None:
+            paint_missing_badge(painter, at)
+
     def _set_style_field(self, key: str, value) -> None:
         """Apply a panel style edit to the record (LT2-7), then repaint."""
         from .stroke_style import BY_BLOCK, CONTINUOUS, _hex
@@ -822,6 +834,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             highlight.setCosmetic(True)
             painter.setPen(highlight)
             painter.drawPath(self.path())
+        self._paint_lt_badge(painter)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -1037,6 +1050,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
             highlight.setCosmetic(True)
             painter.setPen(highlight)
             painter.drawLine(ln.p1(), ln.p2())
+        self._paint_lt_badge(painter)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -1518,6 +1532,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             for a, b in self._selection_ref_segments():
                 painter.drawLine(a, b)
         painter.restore()
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """Corner-diagonal reference guides, in the rect's LOCAL (axis-aligned)
@@ -1877,6 +1892,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             painter.drawRect(self.rect())               # bounding box
             for a, b in self._selection_ref_segments():
                 painter.drawLine(a, b)                  # radius guide
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """A single radius guide from the centre to the right edge (local coords)."""
@@ -2221,6 +2237,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             for a, b in self._selection_ref_segments():
                 painter.drawLine(a, b)
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """Reference radials centre→start and centre→end (scene coords)."""
@@ -2539,6 +2556,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             painter.setPen(ref_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QRectF(cx - rv, cy - rv, 2 * rv, 2 * rv))
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -2817,6 +2835,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             gp = self.grip_points()
             painter.drawLine(gp[1], gp[2])   # major axis (major+ ↔ major-)
             painter.drawLine(gp[3], gp[4])   # minor axis (minor+ ↔ minor-)
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -3258,6 +3277,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                     legs.append((self._control_points[-1], self._control_points[0]))
                 for a, b in legs:
                     painter.drawLine(a, b)
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()

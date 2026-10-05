@@ -197,3 +197,32 @@ def _lod_ok(painter, period: float) -> bool:
 def mid_point(pieces) -> QPointF | None:
     """Point at half the total length (missing-linetype badge anchor)."""
     return pw.point_at_total(pieces, pw.total_length(pieces) / 2.0) if pieces else None
+
+
+def paint_missing_badge(painter, at: QPointF) -> None:
+    """Canvas-only missing-linetype glyph at item point *at* (LT3-10).
+
+    Approved mockup option A (2026-10-04): a filled amber (theme ``warn``)
+    triangle with a white '!' drawn as geometry (no font dependency), in
+    device space at a fixed ``LINETYPE_BADGE_PX`` size. Callers skip it
+    during a paper pass (``paper_display.paper_pass_active``).
+    """
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QColor, QPainter, QPolygonF
+    from . import theme
+    from .constants import LINETYPE_BADGE_PX
+    c = painter.transform().map(at)
+    k = LINETYPE_BADGE_PX / 12.0                 # mockup geometry is 12 px
+    painter.save()
+    painter.resetTransform()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(theme.detect().warn))
+    painter.drawPolygon(QPolygonF([QPointF(c.x(), c.y() - 7 * k),
+                                   QPointF(c.x() + 7 * k, c.y() + 5 * k),
+                                   QPointF(c.x() - 7 * k, c.y() + 5 * k)]))
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawRoundedRect(QRectF(c.x() - 0.9 * k, c.y() - 2.6 * k,
+                                   1.8 * k, 4.6 * k), 0.6 * k, 0.6 * k)
+    painter.drawEllipse(QPointF(c.x(), c.y() + 3.7 * k), 1.0 * k, 1.0 * k)
+    painter.restore()
