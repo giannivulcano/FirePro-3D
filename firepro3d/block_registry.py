@@ -11,6 +11,7 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 from __future__ import annotations
 
 from .hatch_patterns import canonical_ref
+from .stroke_style import is_linetype_ref
 
 NESTED_TYPE = "block_instance"
 
@@ -29,11 +30,14 @@ def nested_ids(defn) -> set[str]:
 
 
 def prim_refs(primitives) -> set[str]:
-    """Block ids a primitive list depends on: nested records + pattern refs.
+    """Block ids a primitive list depends on: nested records + pattern refs +
+    linetype refs (LT3-2).
 
     Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
     are ordinary blocks): bundled with the host, cycle-checked, counted as a
-    user. Legacy names are mapped to their frozen ids.
+    user. Legacy names are mapped to their frozen ids. A styled primitive's
+    ``style.linetype`` block id is one too (linetypes.md H3-h); the
+    ``continuous`` / ``by_block`` keywords are not.
     """
     out = set()
     for p in primitives:
@@ -44,11 +48,14 @@ def prim_refs(primitives) -> set[str]:
             ref = canonical_ref(f.get("pattern"))
             if ref:
                 out.add(ref)
+        st = p.get("style")
+        if isinstance(st, dict) and is_linetype_ref(st.get("linetype")):
+            out.add(st["linetype"])
     return out
 
 
 def referenced_ids(defn) -> set[str]:
-    """Every block id *defn* depends on (nested + pattern; hatch HD4a, LT LD5)."""
+    """Every block id *defn* depends on (nested + pattern + linetype; hatch HD4a, LT LD5, LT3-2)."""
     return prim_refs(defn.primitives)
 
 

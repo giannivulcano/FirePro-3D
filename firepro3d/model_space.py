@@ -1167,11 +1167,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         if mode == "place_block" and isinstance(template, str):
             defn = self.get_block_definition(template)
-            if defn is not None and defn.tile:
-                # hatch D-A34: a pattern block fills regions - never a symbol.
-                # Refused at the shared entry every ribbon / browser / drag path hits.
+            if defn is not None and (defn.tile or defn.repeat):
+                # hatch D-A34 / linetypes LT3-2: a pattern block fills regions
+                # and a linetype block styles lines - never a symbol. Refused
+                # at the shared entry every ribbon / browser / drag path hits.
                 from . import block_library
-                self._show_status(block_library.PATTERN_REASON, 5000)
+                reason = (block_library.PATTERN_REASON if defn.tile
+                          else block_library.LINETYPE_REASON)
+                self._show_status(reason, 5000)
                 return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
@@ -6163,11 +6166,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._place_block_id is None:
             return
         defn = self.get_block_definition(self._place_block_id)
-        if defn is not None and defn.tile:
-            # hatch D-A34: the block became a pattern (Block Editor save) while
-            # this mode was armed — refuse at the click and leave the mode.
+        if defn is not None and (defn.tile or defn.repeat):
+            # hatch D-A34 / linetypes LT3-2: the block became a pattern or a
+            # linetype (Block Editor save, library reload) while this mode was
+            # armed — refuse at the click and leave the mode.
             from . import block_library
-            self._show_status(block_library.PATTERN_REASON, 5000)
+            reason = (block_library.PATTERN_REASON if defn.tile
+                      else block_library.LINETYPE_REASON)
+            self._show_status(reason, 5000)
             self.set_mode(None)
             return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
@@ -7650,7 +7656,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
-        pattern_skipped = 0   # hatch D-A34: tiled blocks are never re-placed
+        pattern_skipped = 0   # hatch D-A34 / LT3-2: tile + repeat blocks never re-placed
+        skip_reason = None    # footer text for the last skipped tile / repeat block
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -7742,8 +7749,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
-                if _d is not None and _d.tile:
-                    pattern_skipped += 1          # became a pattern since the copy
+                if _d is not None and (_d.tile or _d.repeat):
+                    # became a pattern / linetype since the copy
+                    pattern_skipped += 1
+                    from . import block_library
+                    skip_reason = (block_library.PATTERN_REASON if _d.tile
+                                   else block_library.LINETYPE_REASON)
                 elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],
@@ -7776,8 +7787,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
         if pattern_skipped:
-            from . import block_library
-            self._show_status(block_library.PATTERN_REASON)
+            self._show_status(skip_reason)
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
         return new_items
