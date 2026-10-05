@@ -15,7 +15,10 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QPainterPath, QPen
 
+from . import hatch_render as _hr
+from . import paper_display as _pd
 from . import path_walk as pw
+from . import stroke_style as _ss
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
                         LINETYPE_MAX_PERIODS)
@@ -52,7 +55,6 @@ class LinetypeDef:
         if hit is not None and hit[0] is defn.primitives:
             cls._CACHE.move_to_end(key)
             return hit[1]
-        from .stroke_style import is_named_weight
         length = float(rep["length"])
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
@@ -75,15 +77,14 @@ class LinetypeDef:
                 continue
             dashes.append((round(a, 9), round(b - a, 9)))
             w = (prim.get("style") or {}).get("weight")
-            if is_named_weight(w):
+            if _ss.is_named_weight(w):
                 weights.append(w)
         if not (0.0 < length < math.inf) or (not dashes and not dots):
             res = None
         else:
             dash_weight = None
             if weights:
-                from .paper_display import resolve_line_weight_mm
-                dash_weight = max(weights, key=resolve_line_weight_mm)
+                dash_weight = max(weights, key=_pd.resolve_line_weight_mm)
             res = cls(defn.id, defn.version, length, tuple(sorted(dashes)),
                       tuple(sorted(dots)), dash_weight, rep["size"])
         cls._CACHE[key] = (defn.primitives, res)
@@ -105,7 +106,7 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
     same tuple object on a hit: the paths are shared cached objects and must
     be treated as read-only.
     """
-    if not _period_ok(lt, factor):
+    if not period_ok(lt, factor):
         return QPainterPath(), QPainterPath()   # never walk a bad period
     key = (tuple(pieces), lt, round(factor, 9),
            (round(anchor[0], 6), round(anchor[1], 6)))
@@ -156,28 +157,39 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
     ``LINETYPE_LOD_MIN_PERIOD_PX``; the caller then draws its unchanged plain
     stroke. Paper passes always expand.
     """
-    if lt is None or not pieces or not _period_ok(lt, factor):
+    if lt is None or not pieces or not period_ok(lt, factor):
         return False
     if not _lod_ok(painter, lt.period * factor):
         return False
     dash, dot = expand(pieces, lt, factor, anchor)
-    p = QPen(pen)
-    p.setCapStyle(Qt.PenCapStyle.FlatCap)
     painter.save()
     try:
-        painter.setPen(p)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(dash)
-        if not dot.isEmpty():
-            p.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(p)
-            painter.drawPath(dot)
+        draw_expansion(painter, dash, dot, QPen(pen))
     finally:
         painter.restore()
     return True
 
 
-def _period_ok(lt: LinetypeDef, factor: float) -> bool:
+def draw_expansion(painter, dash: QPainterPath, dot: QPainterPath,
+                   pen: QPen) -> None:
+    """Stroke an ``expand`` result: dashes flat-capped, dots round-capped.
+
+    The low-level half of ``paint_stroke`` for callers that already decided
+    period / LOD and hold the expansion (``BlockInstance.paint``). Leaves
+    the painter's pen and brush changed -- the caller brackets it with
+    ``save`` / ``restore`` -- and sets *pen*'s cap style (pass a copy).
+    """
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPath(dash)
+    if not dot.isEmpty():
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawPath(dot)
+
+
+def period_ok(lt: LinetypeDef, factor: float) -> bool:
     """True when the scaled period is positive and finite (else no dashes:
     a zero / negative / NaN / inf length factor would not terminate or
     would draw nothing)."""
@@ -187,11 +199,15 @@ def _period_ok(lt: LinetypeDef, factor: float) -> bool:
 
 def _lod_ok(painter, period: float) -> bool:
     """Screen-only LOD (D-L21): paper/PDF passes always expand."""
-    from .paper_display import paper_pass_active
-    if paper_pass_active():
+    if _pd.paper_pass_active():
         return True
-    from .hatch_render import _device_scale
-    return period * _device_scale(painter) >= LINETYPE_LOD_MIN_PERIOD_PX
+    return lod_ok_at(period, _hr._device_scale(painter))
+
+
+def lod_ok_at(period: float, device_scale: float) -> bool:
+    """The screen LOD test (D-L21) for a period at a known device scale
+    (device px per painter unit); callers handle the paper-pass bypass."""
+    return period * device_scale >= LINETYPE_LOD_MIN_PERIOD_PX
 
 
 def mid_point(pieces) -> QPointF | None:

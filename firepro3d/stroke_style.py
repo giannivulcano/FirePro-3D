@@ -10,6 +10,8 @@ from __future__ import annotations
 import copy
 from typing import NamedTuple
 
+from . import paper_display as _pd
+
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"
 BY_LINETYPE = "by_linetype"
@@ -55,11 +57,10 @@ def normalize_style(d: dict | None) -> dict:
 
     Weight names are canonicalised through the rename alias map (H-g).
     """
-    from .paper_display import canonical_weight_name
     d = d if isinstance(d, dict) else {}
     weight = d.get("weight") or BY_BLOCK
     if weight not in (BY_BLOCK, BY_LINETYPE):
-        weight = canonical_weight_name(str(weight))
+        weight = _pd.canonical_weight_name(str(weight))
     return {
         "linetype": str(d.get("linetype") or CONTINUOUS),
         "weight": weight,
@@ -126,16 +127,14 @@ def canvas_weight_name(weight: str) -> str:
     By Block and, in LT2, By Linetype (Continuous has no weight) map to the
     Display Manager Model "Blocks" weight.
     """
-    from .paper_display import model_blocks_weight
     if weight in (BY_BLOCK, BY_LINETYPE):
-        return model_blocks_weight()
+        return _pd.model_blocks_weight()
     return weight
 
 
 def canvas_px(weight: str) -> float:
     """Cosmetic canvas width for a style weight (LT1-7 mapping)."""
-    from .paper_display import canvas_weight_px, resolve_line_weight_mm
-    return canvas_weight_px(resolve_line_weight_mm(canvas_weight_name(weight)))
+    return _pd.canvas_weight_px(_pd.resolve_line_weight_mm(canvas_weight_name(weight)))
 
 
 class ResolvedStroke(NamedTuple):

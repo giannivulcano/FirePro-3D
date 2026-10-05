@@ -21,9 +21,13 @@ from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
+from . import hatch_render as _hr
+from . import linetype_render as _lr
+from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .render_op import STROKE, FILL, PATTERN, TEXT
-from .stroke_style import BY_BLOCK, BY_LINETYPE, is_linetype_ref
+from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
+                           resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
 
@@ -61,6 +65,7 @@ class BlockInstance(QGraphicsObject):
         # on the continuous base geometry, no missing badge (LT3-6).
         self._is_ghost: bool = False
         self._lt_ref_cache = None   # (ops list, any stroke op with a linetype id)
+        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion)})
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         # ItemIsMovable off: native Qt drag is dead in plan view; the
         # SelectionManipulator drives movement via translate().
@@ -181,9 +186,8 @@ class BlockInstance(QGraphicsObject):
             # A linetype id may go missing (LT3-10): the canvas glyph is drawn
             # at the insertion point, a fixed device size -- bound it at this
             # zoom whether or not it resolves (no geometry change on a flip).
-            from .linetype_render import badge_pad_px
             from .view_scale import scene_hit_width
-            px = badge_pad_px()
+            px = _lr.badge_pad_px()
             h = scene_hit_width(self, px, px)
             c = self.pose_transform().map(QPointF(0.0, 0.0))
             r = r.united(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h))
@@ -219,12 +223,20 @@ class BlockInstance(QGraphicsObject):
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
         selected = self.isSelected()
-        from .stroke_style import canvas_px, resolve_stroke   # once per paint
         sc = self.scene()
         registry = getattr(sc, "block_registry", None) if sc is not None else None
         routed = not self._is_ghost             # ghosts stay continuous (LT3-6)
+        on_paper = self._paper_pen_width is not None
         missing = None                          # first unresolvable linetype id
-        for op in ops:
+        # Per-paint memo (LT3-11 perf): every input below is global or
+        # instance state that cannot change inside one paint, so each
+        # distinct (linetype, weight) resolves once per paint and nothing
+        # resolved here outlives it -- weight table / alias / Model Blocks /
+        # Thin Lines / registry / drawing-scale edits reach the next paint.
+        strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod]
+        dev_scale = None    # device px per local unit under the pose (lazy)
+        paper_pass = None   # paper_display.paper_pass_active() (lazy)
+        for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 self._paint_fill_op(painter, pose, op)
                 continue
@@ -235,65 +247,120 @@ class BlockInstance(QGraphicsObject):
                 if override is not None:
                     b.setColor(override)
                 # Selection is canvas feedback -- never plots (LT1-2).
-                if selected and self._paper_pen_width is None:
+                if selected and not on_paper:
                     b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(b)
             else:
-                # LT3-8 cascade: linetype + resolved weight (By Linetype ->
-                # the linetype's dash weight when it has one). Continuous /
-                # By Block / unstyled ops never reach the resolver (LT3-11).
-                rs = None
-                if routed and is_linetype_ref(op.linetype):
-                    rs = resolve_stroke({"linetype": op.linetype,
-                                         "weight": op.weight or BY_BLOCK}, registry)
-                    if rs.missing_id and missing is None:
-                        missing = rs.missing_id
-                weight = rs.weight if rs is not None else op.weight
+                key = (op.linetype, op.weight)
+                ent = strokes.get(key)
+                if ent is None:
+                    ent = strokes[key] = self._resolve_op_stroke(
+                        op, routed, registry, on_paper)
+                rs, width, lt, factor, ok = ent
+                if rs is not None and rs.missing_id and missing is None:
+                    missing = rs.missing_id
                 # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
-                if self._paper_pen_width is not None:
+                if on_paper:
                     p.setCosmetic(False)          # true mm on paper (LT1-2)
-                    p.setWidthF(self._paper_op_width(weight))
+                    p.setWidthF(width)
                 else:
                     p.setCosmetic(True)           # canvas (LT2-4)
-                    if weight is not None:
-                        p.setWidthF(canvas_px(weight))
+                    if width is not None:
+                        p.setWidthF(width)
                 if override is not None:
                     p.setColor(override)
-                if selected and self._paper_pen_width is None:
+                if selected and not on_paper:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
-                if rs is not None and rs.lt is not None:
+                if lt is not None and op.pieces:
                     # Expand definition-local under the pose (H3-f): one
                     # cached expansion shared by every instance.
-                    from .linetype_render import paint_stroke
-                    a = op.origin or QPointF(0.0, 0.0)
-                    painter.save()
-                    try:
-                        painter.setWorldTransform(pose, True)
-                        drawn = paint_stroke(painter, op.pieces, rs.lt, p,
-                                             factor=self._linetype_factor(rs.lt),
-                                             anchor=(a.x(), a.y()))
-                    finally:
-                        painter.restore()
-                    if drawn:
+                    if ok is None:              # LOD: once per entry per paint
+                        if paper_pass is None:
+                            paper_pass = _pd.paper_pass_active()
+                        if paper_pass:
+                            ok = True             # paper/PDF always expands
+                        else:
+                            if dev_scale is None:
+                                painter.save()
+                                painter.setWorldTransform(pose, True)
+                                dev_scale = _hr._device_scale(painter)
+                                painter.restore()
+                            ok = _lr.lod_ok_at(lt.period * factor, dev_scale)
+                        ent[4] = ok
+                    if ok:
+                        dash, dot = self._op_expansion(ops, i, op, lt, factor)
+                        painter.save()
+                        try:
+                            painter.setWorldTransform(pose, True)
+                            _lr.draw_expansion(painter, dash, dot, p)
+                        finally:
+                            painter.restore()
                         continue
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))
         if routed and (missing or getattr(self, "_lt_tip_id", None)):
-            from .linetype_render import sync_missing_tooltip
-            sync_missing_tooltip(self, missing)     # names the id (LT3-10)
+            _lr.sync_missing_tooltip(self, missing)     # names the id (LT3-10)
         if missing:
             # Canvas-only glyph, once at the insertion point (LT3-10).
-            from .paper_display import paper_pass_active
-            if not paper_pass_active():
-                from .linetype_render import paint_missing_badge
-                paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
+            if not _pd.paper_pass_active():
+                _lr.paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
+
+    def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
+        """``[rs, width, lt, factor, None]`` for a stroke op -- once per distinct
+        (linetype, weight) per paint (``paint``'s memo).
+
+        LT3-8 cascade: linetype + resolved weight (By Linetype -> the
+        linetype's dash weight when it has one). Continuous / By Block /
+        unstyled ops never reach the resolver (LT3-11). *width* is the paper
+        width on a viewport pass, else the cosmetic canvas px (None for an
+        unweighted op: keep the compiled pen's width). *lt* is the linetype
+        to expand (None: plain stroke) and *factor* its LT3-5 length factor;
+        a non-positive / non-finite scaled period draws plain. The last slot
+        is ``paint``'s lazily decided screen LOD for this entry.
+        """
+        rs = None
+        if routed and is_linetype_ref(op.linetype):
+            rs = resolve_stroke({"linetype": op.linetype,
+                                 "weight": op.weight or BY_BLOCK}, registry)
+        weight = rs.weight if rs is not None else op.weight
+        if on_paper:
+            width = self._paper_op_width(weight)
+        else:
+            width = canvas_px(weight) if weight is not None else None
+        lt = rs.lt if rs is not None else None
+        factor = None
+        if lt is not None:
+            factor = self._linetype_factor(lt)
+            if not _lr.period_ok(lt, factor):
+                lt = None
+        return [rs, width, lt, factor, None]
+
+    def _op_expansion(self, ops, i, op, lt, factor):
+        """``linetype_render.expand`` for op *i* of *ops*, held across paints.
+
+        Keyed on the compiled op list (held, so its identity can't be
+        recycled -- the ``_posed_cache`` idiom; a new list on every content
+        change), the op index, the linetype reading itself (a new object on
+        a definition edit / version bump) and the exact length factor -- every
+        input of ``expand``, so a hit returns what ``expand`` would.
+        """
+        c = self._lt_exp_cache
+        if c is None or c[0] is not ops:
+            c = self._lt_exp_cache = (ops, {})
+        hit = c[1].get(i)
+        if hit is not None and hit[0] is lt and hit[1] == factor:
+            return hit[2]
+        a = op.origin or QPointF(0.0, 0.0)
+        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()))
+        c[1][i] = (lt, factor, res)
+        return res
 
     def _linetype_factor(self, lt) -> float:
         """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan canvas ->
@@ -318,8 +385,7 @@ class BlockInstance(QGraphicsObject):
         w = weight
         if w is None or w in (BY_BLOCK, BY_LINETYPE) or not self._paper_scale:
             return self._paper_pen_width
-        from .paper_display import resolve_line_weight_mm
-        return resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
+        return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
         """Fill / pattern op: boundary posed, pattern stamped in scene axes (D-A11)."""

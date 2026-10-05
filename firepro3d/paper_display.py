@@ -16,6 +16,8 @@ from enum import Enum
 
 from PyQt6.QtCore import QSettings
 
+from .constants import UNDERLAY_FAST_PATH_SNAP_PX, UNDERLAY_MM_TO_PX_HINT
+
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -293,7 +295,6 @@ def canvas_weight_px(width_mm: float) -> float:
     """
     if thin_lines_active():
         return 1.0
-    from .constants import UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX
     px = width_mm * UNDERLAY_MM_TO_PX_HINT
     if px <= UNDERLAY_FAST_PATH_SNAP_PX:
         px = min(px, 1.0)

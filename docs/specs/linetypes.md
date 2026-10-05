@@ -627,9 +627,14 @@ a snapshot leaves the snapshot unchanged).
 - **H3-f Paint routing.** The 8 primitive `paint()`s replace their
   `super().paint()` stroke + highlight with `paint_stroke` (fill, reference
   guides unchanged; anchor = the Block Editor's `origin_point()`, else the
-  scene origin). `BlockInstance.paint` calls `paint_stroke` per stroke op under
-  the pose (`painter.setWorldTransform(pose, True)`), so expansion is
-  definition-local and shared by every instance. Length factor per LT3-5;
+  scene origin). `BlockInstance.paint` applies `paint_stroke`'s rules per
+  stroke op under the pose (`painter.setWorldTransform(pose, True)`), so
+  expansion is definition-local and shared by every instance; for LT3-11 it
+  resolves each distinct (linetype, weight) once per paint (cascade, width,
+  length factor, period check, screen LOD) and strokes the op's expansion via
+  `draw_expansion`. Only the expansion crosses paints — held per instance,
+  keyed on the compiled op list, the `LinetypeDef` reading and the exact
+  factor (every `expand` input). Length factor per LT3-5;
   `paint_stroke`'s missing id → the caller draws the badge unless
   `paper_pass_active()`. The tile lattice (`hatch_render`) is untouched.
 - **H3-g `repeat` data** (mirrors HF2 `tile`). `BlockDefinition.repeat` =
