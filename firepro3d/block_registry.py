@@ -11,6 +11,7 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 from __future__ import annotations
 
 from .hatch_patterns import canonical_ref
+from .stroke_style import is_linetype_ref
 
 NESTED_TYPE = "block_instance"
 
@@ -29,11 +30,14 @@ def nested_ids(defn) -> set[str]:
 
 
 def prim_refs(primitives) -> set[str]:
-    """Block ids a primitive list depends on: nested records + pattern refs.
+    """Block ids a primitive list depends on: nested records + pattern refs +
+    linetype refs (LT3-2).
 
     Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
     are ordinary blocks): bundled with the host, cycle-checked, counted as a
-    user. Legacy names are mapped to their frozen ids.
+    user. Legacy names are mapped to their frozen ids. A styled primitive's
+    ``style.linetype`` block id is one too (linetypes.md H3-h); the
+    ``continuous`` / ``by_block`` keywords are not.
     """
     out = set()
     for p in primitives:
@@ -44,11 +48,28 @@ def prim_refs(primitives) -> set[str]:
             ref = canonical_ref(f.get("pattern"))
             if ref:
                 out.add(ref)
+        st = p.get("style")
+        if isinstance(st, dict) and is_linetype_ref(st.get("linetype")):
+            out.add(st["linetype"])
+    return out
+
+
+def linetype_users_in(scene, block_id: str) -> list:
+    """The scene's live styled primitives whose ``style.linetype`` is
+    *block_id* (LT3-2 / LT3-10); empty for a scene without geometry tools."""
+    tools = getattr(scene, "_tools", None)
+    if tools is None:
+        return []
+    out = []
+    for item in tools._all_geometry_items():
+        st = getattr(item, "style", None)
+        if isinstance(st, dict) and st.get("linetype") == block_id:
+            out.append(item)
     return out
 
 
 def referenced_ids(defn) -> set[str]:
-    """Every block id *defn* depends on (nested + pattern; hatch HD4a, LT LD5)."""
+    """Every block id *defn* depends on (nested + pattern + linetype; hatch HD4a, LT LD5, LT3-2)."""
     return prim_refs(defn.primitives)
 
 
@@ -87,9 +108,13 @@ class BlockRegistry:
         Args:
             defn: The ``BlockDefinition`` to store.
         """
+        old = self._store.get(defn.id)
         self._store[defn.id] = defn
         defn._resolve = self.get
-        self.invalidate(defn.id)
+        # A replaced linetype may become a non-linetype (missing for its raw
+        # users): capture the OLD repeat before it is gone (LT3-10).
+        self.invalidate(defn.id,
+                        was_linetype=bool(getattr(old, "repeat", None)))
 
     def ids(self) -> list[str]:
         """Every definition id in the store."""
@@ -248,7 +273,8 @@ class BlockRegistry:
         return out
 
     # ── invalidation ─────────────────────────────────────────────────────
-    def invalidate(self, block_id: str, *, already=()) -> None:
+    def invalidate(self, block_id: str, *, already=(),
+                   was_linetype: bool = False) -> None:
         """Drop compile caches of *block_id* + its users; repaint their instances.
 
         Args:
@@ -256,6 +282,8 @@ class BlockRegistry:
             already: Instances the caller has just repainted (e.g. the
                 backrefs ``BlockDefinition.set_primitives`` notified) — skipped
                 so each live instance repaints exactly once.
+            was_linetype: The definition *block_id* replaced was a linetype
+                (``add``), so raw users may flip even if the new one is not.
         """
         skip = {id(i) for i in already}
         affected = {block_id} | self.users_of(block_id)
@@ -264,6 +292,11 @@ class BlockRegistry:
             if d is not None:
                 d.invalidate_cache()
         from PyQt6 import sip
+        # Only a linetype -- old or new -- (or a vanished id) can flip a raw
+        # stroke's missing state; skip the scan for ordinary symbol edits.
+        d0 = self._store.get(block_id)
+        lt_scan = (was_linetype or d0 is None
+                   or bool(getattr(d0, "repeat", None)))
         for sc in list(self._scenes):
             if sip.isdeleted(sc):
                 self._scenes.remove(sc)
@@ -271,3 +304,8 @@ class BlockRegistry:
             for inst in list(getattr(sc, "_block_instances", [])):
                 if inst.block_id in affected and id(inst) not in skip:
                     inst.on_definition_changed()
+            # Raw primitives styled with *block_id* as their linetype: their
+            # missing-glyph bounds pad may flip with this change (LT3-10).
+            for item in (linetype_users_in(sc, block_id) if lt_scan else ()):
+                item.prepareGeometryChange()
+                item.update()

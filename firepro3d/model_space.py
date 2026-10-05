@@ -1167,11 +1167,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         if mode == "place_block" and isinstance(template, str):
             defn = self.get_block_definition(template)
-            if defn is not None and defn.tile:
-                # hatch D-A34: a pattern block fills regions - never a symbol.
-                # Refused at the shared entry every ribbon / browser / drag path hits.
+            if defn is not None and (defn.tile or defn.repeat):
+                # hatch D-A34 / linetypes LT3-2: a pattern block fills regions
+                # and a linetype block styles lines - never a symbol. Refused
+                # at the shared entry every ribbon / browser / drag path hits.
                 from . import block_library
-                self._show_status(block_library.PATTERN_REASON, 5000)
+                reason = (block_library.PATTERN_REASON if defn.tile
+                          else block_library.LINETYPE_REASON)
+                self._show_status(reason, 5000)
                 return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
         # Task 6 updates it.  Fold into the unified "wall" mode with the rect
@@ -1714,15 +1717,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
 
-        Refused (returns False) while any instance references it or any other
-        definition nests it, directly or indirectly (D12 — see
-        :meth:`block_users_message`). On success the definition is popped, an
-        undo state is pushed (``_capture_network`` already serializes
-        definitions), and ``blockDefinitionsChanged`` is emitted.
+        Refused (returns False) while any instance references it, any other
+        definition nests it, directly or indirectly (D12), or any live styled
+        primitive in the plan or an open Block Editor uses it as its linetype
+        (LT3-2) -- see :meth:`block_users_message`. On success the definition
+        is popped, an undo state is pushed (``_capture_network`` already
+        serializes definitions), and ``blockDefinitionsChanged`` is emitted.
         """
         if self.instance_count(block_id) > 0:
             return False
         if self._block_registry.users_of(block_id):
+            return False
+        if self.linetype_user_contexts(block_id):
             return False
         if block_id not in self._block_definitions:
             return False
@@ -1731,24 +1737,55 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def linetype_user_contexts(self, block_id: str) -> list[str]:
+        """Where live styled primitives use *block_id* as their linetype (LT3-2).
+
+        Scans this (project) scene and every open Block Editor scene (the
+        ``_editor_scenes_provider`` hook BlockEditorManager registers).
+
+        Returns:
+            Context labels in order -- ``"the plan"``, ``"the open Block
+            Editor"`` -- for the scenes that hold such a primitive; empty
+            when none does.
+        """
+        from .block_registry import linetype_users_in
+        out = []
+        if linetype_users_in(self, block_id):
+            out.append("the plan")
+        prov = self._editor_scenes_provider
+        if callable(prov) and any(linetype_users_in(sc, block_id)
+                                  for sc in prov() if sc is not self):
+            out.append("the open Block Editor")
+        return out
+
     def block_users_message(self, block_id: str) -> str | None:
-        """Delete-refusal text when other blocks nest *block_id* (D12).
+        """Delete-refusal text when other blocks nest *block_id* (D12) or live
+        primitives use it as their linetype (LT3-2).
 
         Args:
             block_id: The definition the user wants to delete.
 
         Returns:
             ``“B” is used inside: A, D — explode or remove it there first.``
-            (users sorted by name, direct and indirect), or None when no
-            other block nests it.
+            (users sorted by name, direct and indirect); ``“Hidden” is used
+            by lines in the plan and in the open Block Editor — change their
+            linetype first.``; both together (``… inside: U, and by lines in
+            the plan — …``); or None when nothing uses it.
         """
         users = self._block_registry.users_of(block_id)
-        if not users:
+        ctx = self.linetype_user_contexts(block_id)
+        if not users and not ctx:
             return None
         d = self.get_block_definition(block_id)
+        lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
+        if not users:
+            return (f"“{d.name}” is used {lines}"
+                    " — change their linetype first.")
         names = sorted(self.get_block_definition(u).name for u in users)
-        return (f"“{d.name}” is used inside: {', '.join(names)}"
-                " — explode or remove it there first.")
+        both = f", and {lines}" if ctx else ""
+        fix = (" — explode or remove it there, and change their linetype first."
+               if ctx else " — explode or remove it there first.")
+        return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the
@@ -6145,6 +6182,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Authoring preview -- never plots (a real BlockInstance would
         # otherwise take the paper "Blocks" category, linetypes.md LT1-2).
         g.PAPER_EXCLUDED = True
+        # Placement ghosts stay on the continuous base geometry (LT3-6).
+        g._is_ghost = True
         self.addItem(g)
         self._place_block_ghost = g
 
@@ -6161,11 +6200,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._place_block_id is None:
             return
         defn = self.get_block_definition(self._place_block_id)
-        if defn is not None and defn.tile:
-            # hatch D-A34: the block became a pattern (Block Editor save) while
-            # this mode was armed — refuse at the click and leave the mode.
+        if defn is not None and (defn.tile or defn.repeat):
+            # hatch D-A34 / linetypes LT3-2: the block became a pattern or a
+            # linetype (Block Editor save, library reload) while this mode was
+            # armed — refuse at the click and leave the mode.
             from . import block_library
-            self._show_status(block_library.PATTERN_REASON, 5000)
+            reason = (block_library.PATTERN_REASON if defn.tile
+                      else block_library.LINETYPE_REASON)
+            self._show_status(reason, 5000)
             self.set_mode(None)
             return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
@@ -7648,7 +7690,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
-        pattern_skipped = 0   # hatch D-A34: tiled blocks are never re-placed
+        pattern_skipped = 0   # hatch D-A34 / LT3-2: tile + repeat blocks never re-placed
+        skip_reason = None    # footer text for the last skipped tile / repeat block
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -7740,8 +7783,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
-                if _d is not None and _d.tile:
-                    pattern_skipped += 1          # became a pattern since the copy
+                if _d is not None and (_d.tile or _d.repeat):
+                    # became a pattern / linetype since the copy
+                    pattern_skipped += 1
+                    from . import block_library
+                    skip_reason = (block_library.PATTERN_REASON if _d.tile
+                                   else block_library.LINETYPE_REASON)
                 elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],
@@ -7774,8 +7821,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
         if pattern_skipped:
-            from . import block_library
-            self._show_status(block_library.PATTERN_REASON)
+            self._show_status(skip_reason)
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
         return new_items

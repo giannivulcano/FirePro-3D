@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-04  # 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: 4c799ee   # stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-05  # LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: be7c88a   # LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -138,6 +138,10 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   `lineweight` / `color` keys are replaced by a `style` record and the pen is
   derived at paint — see [`linetypes.md`](linetypes.md) "LT2" (LT2-1–LT2-4,
   H-a–H-c). ReferenceLineItem / TextItem are unchanged.
+  **LT3 (2026-10-05):** the 8 styled classes expose `stroke_pieces()` and route their stroke +
+  selection highlight through the linetype renderer (`Geometry2DMixin._paint_routed_stroke`); the
+  panel Linetype row lists linetypes and the Weight row gains **By Linetype** — contract in
+  [`linetypes.md`](linetypes.md) "LT3" (H3-b, H3-f, H3-i, LT3-8, LT3-10, LT3-12).
 
 ### 1.2 Per-item reflect / scale (scene-tools P1 batch DD1, as-built 2026-10-01)
 
@@ -413,7 +417,8 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
   (`view_scale.scene_hit_width`), so heavy weights (a 3 mm weight is ~18 px) leave
   no repaint trails zoomed out. Stroked Qt bases only — `TextItem` measures its
   content through `super().boundingRect()` and gets the raw base; non-cosmetic
-  (paper-pass) pens keep the base. Known gap: the selected `SplineItem` control
+  (paper-pass) pens keep the base. While a stroke's linetype reference is unresolved the pad
+  also covers the missing-linetype glyph (`linetypes.md` LT3-10). Known gap: the selected `SplineItem` control
   polygon and `RegularPolygonItem` circumradius guides can still paint outside
   bounds (filed).
 

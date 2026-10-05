@@ -21,7 +21,9 @@ from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker
                          QPolygonF, QTransform)
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
+from .linetype_render import badge_pad_px
 from .scale_manager import ScaleManager
+from .stroke_style import is_linetype_ref, linetype_block, resolve_stroke
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -121,6 +123,10 @@ class Geometry2DMixin:
         self.style: dict | None = None
         # True while a placement ghost pen owns the pen (PolylineItem).
         self._ghost_pen: bool = False
+        # Unresolvable linetype id seen at the last paint (badge, LT3-10) and
+        # the id the item's tooltip currently names (sync_missing_tooltip).
+        self._lt_missing: str | None = None
+        self._lt_tip_id: str | None = None
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -160,6 +166,18 @@ class Geometry2DMixin:
         if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
             return base
         px = pen.widthF() / 2.0 + 0.75
+        # A missing linetype (LT3-10) draws its canvas glyph at the stroke's
+        # mid-length: pad for it only while the reference is unresolved,
+        # decided by a registry lookup (right before the first paint; a
+        # resolving linetype keeps the Continuous bounds -- manipulator frame,
+        # copy base point). Flips are announced by BlockRegistry.invalidate.
+        if self.style is not None:
+            ref = self.style.get("linetype")
+            if is_linetype_ref(ref):
+                sc = self.scene()
+                reg = getattr(sc, "block_registry", None) if sc is not None else None
+                if linetype_block(ref, reg) is None:
+                    px = max(px, badge_pad_px())
         p = scene_hit_width(self, px, px)
         return base.adjusted(-p, -p, p, p)
 
@@ -172,6 +190,10 @@ class Geometry2DMixin:
         non-cosmetic pen (paper_display._apply_construction), and for the
         whole of any paper pass (``paper_display.paper_pass_active``). Unstyled items
         keep the pre-LT2 behaviour (display colour onto the pen).
+
+        Returns:
+            The LT3-8 ``ResolvedStroke`` (None for unstyled items) -- resolved
+            once per paint and handed to ``_paint_routed_stroke``.
         """
         dc = getattr(self, "_display_color", None)
         if self.style is None:
@@ -179,31 +201,173 @@ class Geometry2DMixin:
                 pen = QPen(self.pen())
                 pen.setColor(QColor(dc))
                 self.setPen(pen)
-            return
+            return None
+        rs = self._resolved_stroke()
         if self._ghost_pen or not self.pen().isCosmetic():
-            return
+            return rs
         from .paper_display import paper_pass_active
         if paper_pass_active():
-            return                  # paper pass owns the pen (no ping-pong)
+            return rs               # paper pass owns the pen (no ping-pong)
         from .stroke_style import canvas_px
         pen = QPen(self.pen())
         pen.setColor(QColor(dc or self.style["colour"]))
-        pen.setWidthF(canvas_px(self.style["weight"]))
+        pen.setWidthF(canvas_px(rs.weight))
         pen.setCosmetic(True)
         self.setPen(pen)
+        return rs
+
+    def _resolved_stroke(self):
+        """LT3-8 cascade for this primitive (None for unstyled items)."""
+        st = self.style
+        if st is None:
+            return None
+        reg = None
+        if is_linetype_ref(st.get("linetype")):   # only ids consult the registry
+            sc = self.scene()
+            reg = getattr(sc, "block_registry", None) if sc is not None else None
+        return resolve_stroke(st, reg)
+
+    def _linetype_factor(self, lt) -> float:
+        """LT3-5 length factor: Model size -> 1; paper pass -> 1 / viewport
+        scale; plan canvas -> drawing scale; anything else (Block Editor,
+        no scene) -> 1 (real size)."""
+        if lt.size == "model":
+            return 1.0
+        sc = self.scene()
+        if sc is None:
+            return 1.0
+        ps = getattr(sc, "_hatch_paper_scale", None)   # set for a viewport pass
+        if ps:
+            return 1.0 / ps
+        if getattr(sc, "scene_role", None) == "plan":
+            sm = getattr(sc, "scale_manager", None)
+            return float(sm.drawing_scale) if sm is not None else 1.0
+        return 1.0
+
+    def _paint_routed_stroke(self, painter, option, widget, rs,
+                             draw_highlight, lt_frame=None) -> bool:
+        """The stroke + plain selection highlight of the 8 styled paints (H3-f).
+
+        Draws through the linetype renderer when it can; otherwise the Qt
+        base stroke and, when selected (and not manipulator-boxed),
+        ``draw_highlight(painter)`` with the accent highlight pen set.
+        *lt_frame* is the world transform the dashes draw under (Rect: the
+        unrotated item frame, since its ``stroke_pieces()`` carry the
+        rotation); None keeps the painter's. Returns True when dashed.
+        """
+        if rs is None or (rs.lt is None and not rs.missing_id
+                          and self._lt_tip_id is None):
+            self._lt_missing = None      # Continuous fast path (LT3-11)
+            dashed = False
+        elif lt_frame is None:
+            dashed = self._paint_linetyped(painter, rs)
+        else:
+            painter.save()
+            try:
+                painter.setWorldTransform(lt_frame)
+                dashed = self._paint_linetyped(painter, rs)
+            finally:
+                painter.restore()
+        if dashed:
+            return True
+        super().paint(painter, option, widget)
+        if self.isSelected() and not _manip_wraps(self):
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            draw_highlight(painter)
+        return False
+
+    def _paint_linetyped(self, painter, rs) -> bool:
+        """Draw the stroke (+ selection highlight) through the linetype renderer.
+
+        *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
+        Returns False when the caller must draw its unchanged plain stroke
+        (Continuous / By Block / unresolved / malformed / LOD / ghost).
+        Records ``_lt_missing`` for the badge and names it in the item's
+        tooltip (LT3-10).
+        """
+        # Ghost previews stay on the continuous base, no badge (LT3-6).
+        self._lt_missing = (rs.missing_id if rs is not None and not self._ghost_pen
+                            else None)
+        if rs is not None and (self._lt_missing or self._lt_tip_id):
+            from .linetype_render import sync_missing_tooltip
+            sync_missing_tooltip(self, self._lt_missing)
+        if rs is None or rs.lt is None or self._ghost_pen:
+            return False
+        from .linetype_render import paint_stroke
+        pieces = self.stroke_pieces()
+        factor = self._linetype_factor(rs.lt)
+        o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
+        anchor = (o.x(), o.y())
+        if not paint_stroke(painter, pieces, rs.lt, self.pen(),
+                            factor=factor, anchor=anchor):
+            return False
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor)
+        return True
+
+    def _paint_lt_badge(self, painter) -> None:
+        """Missing-linetype glyph at mid-length; canvas only (LT3-10)."""
+        if not self._lt_missing:
+            return
+        from .paper_display import paper_pass_active
+        if paper_pass_active():
+            return
+        from .linetype_render import mid_point, paint_missing_badge
+        at = mid_point(self.stroke_pieces())
+        if at is not None:
+            paint_missing_badge(painter, at)
 
     def _set_style_field(self, key: str, value) -> None:
-        """Apply a panel style edit to the record (LT2-7), then repaint."""
-        from .stroke_style import BY_BLOCK, CONTINUOUS, _hex
+        """Apply a panel style edit to the record (LT2-7), then repaint.
+
+        For ``"Linetype"`` *value* is the resolved ref (``continuous``,
+        ``by_block`` or a linetype block id -- ``linetype_ref_from_value``).
+        """
+        from .stroke_style import BY_BLOCK, BY_LINETYPE, _hex
         v = str(value)
         if key == "Linetype":
-            self.style["linetype"] = BY_BLOCK if v == "By Block" else CONTINUOUS
+            self.prepareGeometryChange()     # badge pad follows the linetype ref
+            self.style["linetype"] = v
         elif key == "Weight":
-            self.style["weight"] = BY_BLOCK if v == "By Block" else v
+            self.style["weight"] = {"By Block": BY_BLOCK,
+                                    "By Linetype": BY_LINETYPE}.get(v, v)
         else:
             self.style["colour"] = _hex(v)
         self._sync_stroke_pen()
         self.update()
+
+    def _set_linetype_from_panel(self, value: str) -> None:
+        """Apply a panel Linetype pick (LT3-12; mirrors the D-A36/D-A37
+        Pattern pick).
+
+        A ``"Missing (<id>)"`` label or an unknown label changes nothing (the
+        stored ref is never rewritten). A Linetypes-folder linetype is loaded
+        into the project first: the ref is set BEFORE the load so the load's
+        one undo snapshot carries it, and a failed load restores the old ref.
+        Any other pick is one undo step via ``_dim_edit``.
+        """
+        from .hatch_patterns import picker_exclude
+        from .linetype_choices import (ensure_linetype_available,
+                                       is_missing_label,
+                                       linetype_ref_from_value)
+        from .stroke_style import is_linetype_ref
+        if is_missing_label(value):
+            return                            # LT3-10: never rewrite a missing ref
+        reg = self._tile_registry()
+        ref = linetype_ref_from_value(value, reg, picker_exclude(self.scene()))
+        if ref is None:
+            return
+        if is_linetype_ref(ref) and reg is not None and reg.get(ref) is None:
+            old = self.style["linetype"]
+            self._set_style_field("Linetype", ref)
+            if not ensure_linetype_available(ref, self.scene()):
+                self._set_style_field("Linetype", old)
+            return
+        self._dim_edit(lambda r: self._set_style_field("Linetype", r), ref)
 
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
@@ -275,18 +439,28 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .paper_display import weight_names
+            from .hatch_patterns import picker_exclude
+            from .linetype_choices import linetype_choices, missing_label
             from .stroke_style import BY_BLOCK, BY_LINETYPE
             lt = self.style["linetype"]
-            props["Linetype"] = {"type": "enum",
-                                 "options": ["Continuous", "By Block"],
-                                 "value": "By Block" if lt == BY_BLOCK
-                                 else "Continuous"}
+            choices = linetype_choices(self._tile_registry(),
+                                       picker_exclude(self.scene()))
+            options = [n for n, _ in choices]
+            value = next((n for n, r in choices if r == lt), None)
+            if value is None:
+                # LT3-10: an unresolvable id shows as missing (kept until the
+                # user picks another linetype).
+                value = missing_label(lt)
+                options = [value] + options
+            props["Linetype"] = {"type": "enum", "options": options,
+                                 "value": value}
+            # LT3-8: By Linetype takes the linetype's dash weight, so it is
+            # its own option (D-L4), not folded into By Block.
             w = self.style["weight"]
             props["Weight"] = {"type": "enum",
-                               "options": ["By Block", *weight_names()],
-                               "value": "By Block" if w in (BY_BLOCK,
-                                                           BY_LINETYPE)
-                               else w}
+                               "options": ["By Block", "By Linetype", *weight_names()],
+                               "value": {BY_BLOCK: "By Block",
+                                         BY_LINETYPE: "By Linetype"}.get(w, w)}
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -320,7 +494,10 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
-        if self.style is not None and key in ("Linetype", "Weight", "Colour"):
+        if self.style is not None and key == "Linetype":
+            self._set_linetype_from_panel(str(value))
+            return True
+        if self.style is not None and key in ("Weight", "Colour"):
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
@@ -683,6 +860,15 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._closed = True
             self._rebuild_path()
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        pts = self._points
+        segs = [Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(pts, pts[1:])]
+        if self.is_closed():
+            segs.append(Seg(pts[-1].x(), pts[-1].y(), pts[0].x(), pts[0].y()))
+        return tuple(segs)
+
     def get_closed_path(self) -> QPainterPath | None:
         """Return a closed QPainterPath if flagged closed, else None."""
         if not self.is_closed():
@@ -744,7 +930,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -754,12 +940,9 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawPath(self.path())
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawPath(self.path()))
+        self._paint_lt_badge(painter)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -951,6 +1134,11 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         """Lines are never closed shapes."""
         return False
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        return (Seg(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y()),)
+
     def get_closed_path(self) -> None:
         """Lines have no closed path."""
         return None
@@ -960,14 +1148,10 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
-        self._sync_stroke_pen()
-        super().paint(painter, option, widget)
-        if self.isSelected() and not _manip_wraps(self):
-            ln = self.line()
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawLine(ln.p1(), ln.p2())
+        rs = self._sync_stroke_pen()
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawLine(self.line()))
+        self._paint_lt_badge(painter)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -1385,6 +1569,15 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         """Rectangles are always closed shapes."""
         return True
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Rotation is data: the axis-aligned local rect's corners mapped through
+        # the same _rotation_transform() paint() applies to the painter.
+        from .path_walk import Seg
+        r, t = self.rect(), self._rotation_transform()
+        c = [t.map(p) for p in (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft())]
+        return tuple(Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(c, c[1:] + c[:1]))
+
     def get_closed_path(self) -> QPainterPath:
         """Return a QPainterPath rectangle for hatching / fill operations."""
         path = QPainterPath()
@@ -1396,42 +1589,45 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         # Bake-at-rest: rotation is DATA, not a held item transform, so rotate
         # the painter about the pivot here (local rect stays axis-aligned).
         # save/restore keeps the rotation local to this paint call.
+        base_xf = painter.worldTransform()
         painter.save()
-        if self._angle != 0.0:
-            painter.setWorldTransform(self._rotation_transform(), True)
-        # Draw fill FIRST (behind the outline).
-        if getattr(self, "fill_type", "none") != "none":
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                # The painter frame is rotated: painter-local → item via the
-                # rotation, then item → scene (Qt row-vector order), so the
-                # hatch stays in scene axes (D-A11).
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self._rotation_transform() * self.sceneTransform())
-        super().paint(painter, option, widget)
-        if self.isSelected():
-            if not _manip_wraps(self):
-                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                highlight.setCosmetic(True)
-                painter.setPen(highlight)
-                painter.drawRect(self.rect())
-            # Corner-diagonal reference guides — shown whenever selected (a content
-            # aid, NOT the selection highlight). Canonical width-1 dashed style,
-            # matching EllipseItem's axis guides.
-            ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
-            ref.setCosmetic(True)
-            painter.setPen(ref)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            for a, b in self._selection_ref_segments():
-                painter.drawLine(a, b)
-        painter.restore()
+        try:
+            if self._angle != 0.0:
+                painter.setWorldTransform(self._rotation_transform(), True)
+            # Draw fill FIRST (behind the outline).
+            if getattr(self, "fill_type", "none") != "none":
+                cp = self.get_closed_path()
+                if cp is not None:
+                    from .displayable_item import draw_fill
+                    # The painter frame is rotated: painter-local → item via the
+                    # rotation, then item → scene (Qt row-vector order), so the
+                    # hatch stays in scene axes (D-A11).
+                    draw_fill(painter, cp, self.scene(), self.fill_type,
+                              self.fill_pattern, self._display_fill_color or "#888888",
+                              alpha=int(round(self.fill_opacity * 255)),
+                              to_scene=self._rotation_transform() * self.sceneTransform())
+            # Linetype dashes draw in the UNROTATED item frame (stroke_pieces()
+            # already carry the rotation), after the fill so it stays behind.
+            self._paint_routed_stroke(painter, option, widget, rs,
+                                      lambda p: p.drawRect(self.rect()),
+                                      lt_frame=base_xf)
+            if self.isSelected():
+                # Corner-diagonal reference guides — shown whenever selected (a content
+                # aid, NOT the selection highlight). Canonical width-1 dashed style,
+                # matching EllipseItem's axis guides.
+                ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+                ref.setCosmetic(True)
+                painter.setPen(ref)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for a, b in self._selection_ref_segments():
+                    painter.drawLine(a, b)
+        finally:
+            painter.restore()
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """Corner-diagonal reference guides, in the rect's LOCAL (axis-aligned)
@@ -1747,6 +1943,11 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         """Circles are always closed shapes."""
         return True
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Arc
+        return (Arc(self._center.x(), self._center.y(), self._radius, 0.0, 360.0),)
+
     def get_closed_path(self) -> QPainterPath:
         """Return a QPainterPath ellipse for hatching / fill operations."""
         path = QPainterPath()
@@ -1758,7 +1959,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -1768,13 +1969,9 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawEllipse(self.rect()))
         if self.isSelected():
-            if not _manip_wraps(self):
-                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                highlight.setCosmetic(True)
-                painter.setPen(highlight)
-                painter.drawEllipse(self.rect())
             # Radius guide + bounding box — shown whenever selected (a content aid,
             # NOT the selection highlight). Canonical width-1 dashed style.
             ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
@@ -1784,6 +1981,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             painter.drawRect(self.rect())               # bounding box
             for a, b in self._selection_ref_segments():
                 painter.drawLine(a, b)                  # radius guide
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """A single radius guide from the centre to the right edge (local coords)."""
@@ -2079,6 +2277,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Return True if the arc spans a full 360 degrees (i.e. a full circle)."""
         return abs(self._span_deg) >= 360
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Stored CCW (span > 0) with Qt arcTo angles, exactly as _rebuild_path.
+        from .path_walk import Arc
+        return (Arc(self._center.x(), self._center.y(), self._radius,
+                    self._start_deg, self._span_deg),)
+
     def get_closed_path(self) -> QPainterPath | None:
         """Return a QPainterPath ellipse if the arc is a full circle, else None."""
         if not self.is_closed():
@@ -2093,7 +2298,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         # Derive the pen from the style record (+ display colour).
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline); only applies when arc is closed
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -2103,13 +2308,9 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawPath(self.path()))
         if self.isSelected():
-            if not _manip_wraps(self):
-                highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                highlight.setCosmetic(True)
-                painter.setPen(highlight)
-                painter.drawPath(self.path())
             # Centre→start / centre→end reference radials — shown whenever
             # selected (a content aid, NOT the selection highlight). Canonical
             # width-1 dashed style, matching EllipseItem's axis guides.
@@ -2119,6 +2320,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             for a, b in self._selection_ref_segments():
                 painter.drawLine(a, b)
+        self._paint_lt_badge(painter)
 
     def _selection_ref_segments(self):
         """Reference radials centre→start and centre→end (scene coords)."""
@@ -2224,6 +2426,12 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             path.closeSubpath()
         self.setPath(path)
         self.update()
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        v = self.vertices()
+        return tuple(Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(v, v[1:] + v[:1]))
 
     def get_closed_path(self) -> QPainterPath | None:
         p = QPainterPath()
@@ -2403,7 +2611,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -2412,13 +2620,9 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawPath(self.path()))
         if self.isSelected():
-            if not _manip_wraps(self):
-                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                hl.setCosmetic(True)
-                painter.setPen(hl)
-                painter.drawPath(self.path())
             # Dashed circumradius reference circle — shown whenever selected
             # (manipulator-wrapped or not): a content aid, NOT the highlight.
             # Canonical reference-line style (width-1 dashed).
@@ -2429,6 +2633,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             painter.setPen(ref_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QRectF(cx - rv, cy - rv, 2 * rv, 2 * rv))
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -2477,6 +2682,13 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         p = QPainterPath()
         p.addEllipse(QPointF(0.0, 0.0), self._rx, self._ry)
         return p
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Frame translate(c)·rotate(−rot), the same as get_closed_path.
+        from .path_walk import EllipseArc
+        return (EllipseArc(self._center.x(), self._center.y(), self._rx, self._ry,
+                           self._rotation_deg, 0.0, 360.0),)
 
     def get_closed_path(self) -> QPainterPath:
         t = QTransform()
@@ -2671,7 +2883,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -2680,13 +2892,9 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawPath(self.path()))
         if self.isSelected():
-            if not _manip_wraps(self):
-                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                hl.setCosmetic(True)
-                painter.setPen(hl)
-                painter.drawPath(self.path())
             # Dashed major + minor axis reference guides — shown whenever the
             # ellipse is selected (manipulator-wrapped or not): a content aid,
             # NOT the selection highlight. Canonical reference-line style
@@ -2698,6 +2906,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             gp = self.grip_points()
             painter.drawLine(gp[1], gp[2])   # major axis (major+ ↔ major-)
             painter.drawLine(gp[3], gp[4])   # minor axis (minor+ ↔ minor-)
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
@@ -2980,6 +3189,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._regenerate()
 
     def _regenerate(self):
+        self._stroke_pieces_cache = None      # stroke_pieces() memo (LT3 H3-b)
         self.setPath(_bspline_path(self._control_points, self._degree,
                                    self._knots, self._weights,
                                    closed=self._closed))
@@ -2996,6 +3206,18 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """True for a smooth periodic closed spline (DD7) — not the legacy
         coincident-end form (snap emits no endpoints for it)."""
         return self._closed
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Flattening is the costly step (paint calls this per frame): memoised
+        # until _regenerate — the sole setPath site — clears it.
+        cached = getattr(self, "_stroke_pieces_cache", None)
+        if cached is None:
+            from .path_walk import Curve
+            c = Curve.from_path(self.path())
+            cached = (c,) if len(c.pts) >= 2 else ()
+            self._stroke_pieces_cache = cached
+        return cached
 
     def get_closed_path(self) -> QPainterPath | None:
         if not self.is_closed():
@@ -3094,7 +3316,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        self._sync_stroke_pen()
+        rs = self._sync_stroke_pen()
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -3103,13 +3325,9 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
-        super().paint(painter, option, widget)
+        self._paint_routed_stroke(painter, option, widget, rs,
+                                  lambda p: p.drawPath(self.path()))
         if self.isSelected():
-            if not _manip_wraps(self):
-                hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-                hl.setCosmetic(True)
-                painter.setPen(hl)
-                painter.drawPath(self.path())
             # Dashed control-polygon reference guide (straight lines between the
             # control points) — shown whenever selected (manipulator or not):
             # a content aid, NOT the selection highlight. Canonical reference-
@@ -3124,6 +3342,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                     legs.append((self._control_points[-1], self._control_points[0]))
                 for a, b in legs:
                     painter.drawLine(a, b)
+        self._paint_lt_badge(painter)
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()

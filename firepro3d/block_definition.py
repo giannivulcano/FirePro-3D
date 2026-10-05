@@ -150,6 +150,14 @@ def _norm_tile(tile) -> dict | None:
             "size": "model" if tile.get("size") == "model" else "drafting"}
 
 
+def _norm_repeat(repeat) -> dict | None:
+    """Normalised linetype repeat record, or None (linetypes.md LT3 H3-g)."""
+    if not repeat:
+        return None
+    return {"length": float(repeat.get("length", 0.0)),
+            "size": "model" if repeat.get("size") == "model" else "drafting"}
+
+
 def _load_prim(p):
     """Return a fresh, LT2-migrated copy of a stored primitive dict."""
     from .stroke_style import STYLED_TYPES, migrate_primitive
@@ -184,7 +192,8 @@ class BlockDefinition:
                  series: str, scale_mode: str, origin: tuple[float, float],
                  attributes: list, primitives: list[dict],
                  render_mode: str = "default", geoms: list[dict] | None = None,
-                 constraints: list | None = None, tile: dict | None = None):
+                 constraints: list | None = None, tile: dict | None = None,
+                 repeat: dict | None = None):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -201,6 +210,9 @@ class BlockDefinition:
         # Pattern-tile capability (hatch D-A9/HD4a): {"w","h","row_shift","size"}
         # or None. Additive key — absent => None (no schema bump).
         self._tile: dict | None = _norm_tile(tile)
+        # Linetype capability (linetypes.md LT3 H3-g): {"length","size"} or
+        # None. Additive key — absent => None (no schema bump).
+        self._repeat: dict | None = _norm_repeat(repeat)
         # Reference definitions (render_mode="reference") own the curve-preserving,
         # layer-tagged import geom-dict list. This is the geometry data model for
         # imported references — rendered by the batched underlay builder (which
@@ -225,12 +237,13 @@ class BlockDefinition:
             primitives: list[dict], origin: tuple[float, float],
             render_mode: str = "default",
             constraints: list | None = None,
-            tile: dict | None = None) -> "BlockDefinition":
+            tile: dict | None = None,
+            repeat: dict | None = None) -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
                    attributes=[], primitives=primitives, render_mode=render_mode,
-                   constraints=constraints, tile=tile)
+                   constraints=constraints, tile=tile, repeat=repeat)
 
     @classmethod
     def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
@@ -300,6 +313,26 @@ class BlockDefinition:
                 (one edit = one version bump).
         """
         self._tile = _norm_tile(tile)
+        self.invalidate_cache()
+        if notify:
+            self.version += 1
+            for inst in list(self._instances):
+                inst.on_definition_changed()
+
+    @property
+    def repeat(self) -> dict | None:
+        """The linetype repeat ``{length, size}``; None = not a linetype."""
+        return dict(self._repeat) if self._repeat else None
+
+    def set_repeat(self, repeat, *, notify: bool = True) -> None:
+        """Replace the repeat record, bump the version (linetype caches key on it).
+
+        Args:
+            repeat: New repeat dict or None.
+            notify: Bump the version and repaint backref instances (as
+                ``set_tile``).
+        """
+        self._repeat = _norm_repeat(repeat)
         self.invalidate_cache()
         if notify:
             self.version += 1
@@ -394,8 +427,22 @@ class BlockDefinition:
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
             st = getattr(item, "style", None)
+            pieces, lt = (), None
+            if st is not None and hasattr(item, "stroke_pieces"):
+                # Same map as the path: mapToParent (Qt transform, then pos --
+                # row-vector order) then the origin shift. Rect data rotation
+                # is already inside its stroke_pieces().
+                from PyQt6.QtGui import QTransform
+                from .path_walk import map_piece
+                t = item.transform() * QTransform.fromTranslate(
+                    item.pos().x() - ox, item.pos().y() - oy)
+                pieces = tuple(map_piece(p, t) for p in item.stroke_pieces())
+                lt = st["linetype"]
             ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
-                                weight=st["weight"] if st else None))
+                                weight=st["weight"] if st else None,
+                                pieces=pieces, linetype=lt,
+                                # phase anchor: this definition's origin
+                                origin=QPointF(0.0, 0.0) if pieces else None))
         return ops
 
     def _resolve_nested(self, prim):
@@ -489,6 +536,7 @@ class BlockDefinition:
             "render_mode": self.render_mode,
             "constraints": [dict(c) for c in self.constraints],
             "tile": dict(self._tile) if self._tile else None,
+            "repeat": dict(self._repeat) if self._repeat else None,
         }
 
     @classmethod
@@ -505,4 +553,5 @@ class BlockDefinition:
             render_mode=data.get("render_mode", "default"),
             constraints=data.get("constraints", []),
             tile=data.get("tile"),
+            repeat=data.get("repeat"),
         )

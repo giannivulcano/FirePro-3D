@@ -20,7 +20,8 @@ def test_rows_present_with_options(qapp):
     props = ln.get_properties()
     assert props["Linetype"]["options"] == ["Continuous", "By Block"]
     assert props["Linetype"]["value"] == "Continuous"
-    assert props["Weight"]["options"] == ["By Block", *pd.weight_names()]
+    # LT3-8 makes By Linetype visible (D-L4 lists it as a line weight).
+    assert props["Weight"]["options"] == ["By Block", "By Linetype", *pd.weight_names()]
     assert props["Weight"]["value"] == "By Block"
     assert props["Colour"]["type"] == "color"
     assert "Line Weight" not in props
@@ -51,3 +52,20 @@ def test_linetype_and_colour_edits(qapp):
     ln.set_property("Colour", "#123456")
     assert ln.style["linetype"] == "by_block"
     assert ln.style["colour"] == "#123456"
+
+
+def test_weight_row_shows_and_sets_by_linetype(qapp):
+    """LT3-8: By Linetype draws differently from By Block (dash weight), so the
+    row names it and a pick stores ``by_linetype`` (one undo step)."""
+    ms, ln = _editor_with_line()
+    ln.style["weight"] = "by_linetype"
+    assert ln.get_properties()["Weight"]["value"] == "By Linetype"
+    ln.style["weight"] = "by_block"
+    n0 = len(ms._undo_stack)
+    with ms.deferred_undo_push():
+        ln.set_property("Weight", "By Linetype")
+    assert ln.style["weight"] == "by_linetype"
+    assert len(ms._undo_stack) == n0 + 1
+    assert ln.get_properties()["Weight"]["value"] == "By Linetype"
+    ln.set_property("Weight", "By Block")
+    assert ln.style["weight"] == "by_block"

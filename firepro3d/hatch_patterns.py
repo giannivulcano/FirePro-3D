@@ -18,6 +18,9 @@ import logging
 import os
 import shutil
 
+# The folder walk + log-once are shared with the Linetypes folder (LT3 H3-i).
+from .capability_folder import _log_once, _scan_dirs
+
 # Frozen ids of the shipped patterns (D-A39: ordinary block ids — the files
 # live in firepro3d/system_blocks/Hatches; the ids predate the shipped files).
 BUILTIN_DIAGONAL = "builtin-hatch-diagonal"
@@ -293,78 +296,12 @@ def picker_exclude(scene) -> frozenset:
 
 
 _log = logging.getLogger(__name__)
-_LIB_CACHE: dict = {}        # abs folder -> (stamp, [(name, id, path)])
-_PARSE_CACHE: dict = {}      # (.fpdb path, mtime_ns) -> (is_tile, id, name) | None
-_LOGGED: set = set()         # paths already logged as unreadable (log once)
-
-
-def _log_once(path: str, exc) -> None:
-    if path not in _LOGGED:
-        _LOGGED.add(path)
-        _log.warning("Hatch pattern library: unreadable %s: %s", path, exc)
-
-
-def _scan_dirs(folder: str) -> list[str]:
-    """*folder*, its subfolders and their subfolders (a Series, a Library or a
-    Library root all work as the patterns folder), sorted for determinism."""
-    dirs, level = [folder], [folder]
-    for _depth in range(2):
-        nxt = []
-        for d in level:
-            try:
-                subs = sorted(e.path for e in os.scandir(d) if e.is_dir())
-            except OSError:
-                continue
-            nxt.extend(subs)
-        dirs.extend(nxt)
-        level = nxt
-    return dirs
-
-
-def _dir_stamp(dirs: list[str]) -> tuple:
-    """Cache key: every index.json / .fpdb path in *dirs* with its mtime."""
-    stamp = []
-    for d in dirs:
-        try:
-            entries = sorted(os.scandir(d), key=lambda e: e.name)
-        except OSError:
-            continue
-        for e in entries:
-            low = e.name.lower()
-            if e.is_file() and (low == "index.json" or low.endswith(".fpdb")):
-                try:
-                    stamp.append((e.path, e.stat().st_mtime_ns))
-                except OSError:
-                    continue
-    return tuple(stamp)
-
-
-def _parse_fpdb(path: str, mtime_ns: int):
-    """``(is_tile, id, name)`` read from the .fpdb itself (index lacked
-    ``tile``), cached per (path, mtime); None if unreadable."""
-    key = (path, mtime_ns)
-    if key in _PARSE_CACHE:
-        return _PARSE_CACHE[key]
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        res = (bool(data.get("tile")), data.get("id") or "", data.get("name") or "")
-    except Exception as exc:          # noqa: BLE001 — skip silently, log once
-        _log_once(path, exc)
-        res = None
-    _PARSE_CACHE[key] = res
-    return res
 
 
 def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
-    """Pattern blocks in the Hatch patterns folder (D-A37).
-
-    Scans *folder* (default ``app_data.hatch_patterns_dir()``) plus two levels
-    of subfolders. Each Series ``index.json`` entry's ``tile`` flag decides;
-    an older entry without the flag (or a ``.fpdb`` with no entry) is parsed
-    once. Cached on the folder + every index.json/.fpdb mtime, so a newly
-    saved pattern appears without a restart. Unreadable files are skipped
-    (logged once). Never called from paint paths.
+    """Pattern blocks in the Hatch patterns folder (D-A37) -- the ``tile``
+    blocks of :func:`capability_folder.scan` (folder + two subfolder levels,
+    ``index.json`` flag, mtime cache). Never called from paint paths.
 
     Args:
         folder: Folder to scan; None = the configured Hatch patterns folder.
@@ -375,51 +312,8 @@ def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
     if folder is None:
         from .app_data import hatch_patterns_dir
         folder = hatch_patterns_dir()
-    folder = os.path.abspath(folder)
-    if not os.path.isdir(folder):
-        return []
-    dirs = _scan_dirs(folder)
-    stamp = _dir_stamp(dirs)
-    hit = _LIB_CACHE.get(folder)
-    if hit is not None and hit[0] == stamp:
-        return list(hit[1])
-    mtimes = dict(stamp)
-    out, seen = [], set()
-    for d in dirs:
-        idx_path = os.path.join(d, "index.json")
-        index: dict = {}
-        if os.path.isfile(idx_path):
-            try:
-                with open(idx_path, "r", encoding="utf-8") as fh:
-                    index = json.load(fh)
-                if not isinstance(index, dict):
-                    raise ValueError("index is not a mapping")
-            except Exception as exc:  # noqa: BLE001
-                _log_once(idx_path, exc)
-                index = {}
-        try:
-            names = sorted(e.name for e in os.scandir(d)
-                           if e.is_file() and e.name.lower().endswith(".fpdb"))
-        except OSError:
-            continue
-        for fname in names:
-            path = os.path.join(d, fname)
-            meta = index.get(fname)
-            if isinstance(meta, dict) and "tile" in meta and meta.get("id"):
-                is_tile = bool(meta["tile"])
-                bid, name = meta["id"], meta.get("name") or fname[:-5]
-            else:
-                parsed = _parse_fpdb(path, mtimes.get(path, 0))
-                if parsed is None:
-                    continue
-                is_tile, bid, name = parsed
-                name = name or fname[:-5]
-            if is_tile and bid and bid not in seen:
-                seen.add(bid)
-                out.append((name, bid, path))
-    out.sort(key=lambda x: x[0].lower())
-    _LIB_CACHE[folder] = (stamp, out)
-    return list(out)
+    from .capability_folder import scan
+    return scan(folder, "tile")
 
 
 def _unique(name: str, used: set, tag: str) -> str:

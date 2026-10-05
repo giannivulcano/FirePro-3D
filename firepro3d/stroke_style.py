@@ -8,6 +8,9 @@ Continuous / By Block / By Linetype ends with the px dropped (D-L17a).
 from __future__ import annotations
 
 import copy
+from typing import NamedTuple
+
+from . import paper_display as _pd
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"
@@ -54,11 +57,10 @@ def normalize_style(d: dict | None) -> dict:
 
     Weight names are canonicalised through the rename alias map (H-g).
     """
-    from .paper_display import canonical_weight_name
     d = d if isinstance(d, dict) else {}
     weight = d.get("weight") or BY_BLOCK
     if weight not in (BY_BLOCK, BY_LINETYPE):
-        weight = canonical_weight_name(str(weight))
+        weight = _pd.canonical_weight_name(str(weight))
     return {
         "linetype": str(d.get("linetype") or CONTINUOUS),
         "weight": weight,
@@ -112,19 +114,70 @@ def is_named_weight(w) -> bool:
     return isinstance(w, str) and bool(w) and w not in (BY_BLOCK, BY_LINETYPE)
 
 
+def linetype_block(ref, registry):
+    """The registry block *ref* names when it is a linetype (has a ``repeat``
+    record, malformed or not), else None -- the LT3-10 "missing" test shared
+    by ``resolve_stroke`` and the badge bounds (``linetype_ref_missing``)."""
+    d = registry.get(ref) if registry is not None else None
+    return d if d is not None and getattr(d, "repeat", None) else None
+
+
+def linetype_ref_missing(ref, registry) -> bool:
+    """True when *ref* is a linetype id that does not resolve to a linetype
+    block in *registry* -- the stroke draws Continuous + the badge (LT3-10)."""
+    return is_linetype_ref(ref) and linetype_block(ref, registry) is None
+
+
+def is_linetype_ref(lt) -> bool:
+    """True for a linetype block-id reference (a non-empty string that is not
+    ``continuous`` / ``by_block``) -- the values the LT3-8 cascade resolves
+    through the registry (and that can go missing, LT3-10)."""
+    return isinstance(lt, str) and bool(lt) and lt not in (CONTINUOUS, BY_BLOCK)
+
+
 def canvas_weight_name(weight: str) -> str:
     """The named weight a canvas stroke resolves to (LT2-4).
 
     By Block and, in LT2, By Linetype (Continuous has no weight) map to the
     Display Manager Model "Blocks" weight.
     """
-    from .paper_display import model_blocks_weight
     if weight in (BY_BLOCK, BY_LINETYPE):
-        return model_blocks_weight()
+        return _pd.model_blocks_weight()
     return weight
 
 
 def canvas_px(weight: str) -> float:
     """Cosmetic canvas width for a style weight (LT1-7 mapping)."""
-    from .paper_display import canvas_weight_px, resolve_line_weight_mm
-    return canvas_weight_px(resolve_line_weight_mm(canvas_weight_name(weight)))
+    return _pd.canvas_weight_px(_pd.resolve_line_weight_mm(canvas_weight_name(weight)))
+
+
+class ResolvedStroke(NamedTuple):
+    """Result of the LT3-8 cascade."""
+    lt: object | None          # linetype_render.LinetypeDef or None (solid)
+    weight: str                # named weight, "by_block" or "by_linetype"
+    missing_id: str | None     # unresolvable linetype id (badge, LT3-10)
+
+
+def resolve_stroke(style: dict, registry) -> ResolvedStroke:
+    """Resolve *style* against the project *registry* (linetypes.md LT3-8).
+
+    Linetype: ``continuous`` / ``by_block`` (until LT5) draw solid; a block id
+    resolves to its ``LinetypeDef`` (malformed -> solid, no badge) or reports
+    ``missing_id`` -- also for an id naming a block that is not a linetype
+    (no ``repeat``; ``linetype_block``). Weight: ``by_linetype`` takes the linetype's dash weight
+    when it has one; otherwise the weight is returned unchanged (callers map
+    By Block / By Linetype to the surface category as in LT2).
+    """
+    ref = style.get("linetype") or CONTINUOUS
+    weight = style.get("weight") or BY_BLOCK
+    lt, missing = None, None
+    if ref not in (CONTINUOUS, BY_BLOCK):
+        d = linetype_block(ref, registry)
+        if d is None:
+            missing = ref
+        else:
+            from .linetype_render import LinetypeDef
+            lt = LinetypeDef.from_block(d)
+    if weight == BY_LINETYPE and lt is not None and lt.dash_weight:
+        weight = lt.dash_weight
+    return ResolvedStroke(lt, weight, missing)

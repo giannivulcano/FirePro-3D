@@ -22,6 +22,8 @@ _INDEX = "index.json"
 LOOP_REASON = "a block can't contain itself"
 # Place / drag refusal for a tiled (pattern) block (hatch D-A34).
 PATTERN_REASON = "Pattern blocks fill regions — they can't be placed"
+# Place / drag refusal for a linetype (repeat) block (linetypes.md LT3-2).
+LINETYPE_REASON = "Linetype blocks style lines — they can't be placed"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
@@ -239,11 +241,13 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         rec["weights"] = weights
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
-    # ``tile`` flags pattern blocks (hatch D-A37) so the pattern-picker scan
-    # needn't parse every file; readers tolerate older entries without it.
+    # ``tile`` / ``repeat`` flag capability blocks (hatch D-A37, linetypes
+    # LT3 H3-g) so the pattern / linetype picker scans needn't parse every
+    # file; readers tolerate older entries without them.
     index[filename] = {"id": definition.id, "name": definition.name,
                        "version": definition.version, "thumbnail": None,
-                       "tile": bool(definition.tile)}
+                       "tile": bool(definition.tile),
+                       "repeat": bool(definition.repeat)}
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
     _notify_changed()
     return path

@@ -34,6 +34,12 @@ class RenderOp:
         weight: Unresolved stroke weight -- a named weight, ``"by_block"``
             or ``"by_linetype"``; None for reference-mode / placeholder ops
             (stroke only, LT2 H-c').
+        pieces: Analytic stroke pieces (``path_walk`` Seg / Arc / EllipseArc /
+            Curve), definition-local and origin-relative (stroke only, LT3).
+        linetype: The style's raw linetype value; None for reference-mode /
+            placeholder ops (stroke only, LT3). ``origin`` doubles as a
+            stroke's phase anchor -- its defining definition's origin, so a
+            nested block keeps its own phase after ``mapped``.
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -48,8 +54,15 @@ class RenderOp:
     origin: QPointF | None = None
     scale: float = 1.0
     weight: str | None = None
+    pieces: tuple = ()
+    linetype: str | None = None
 
     def mapped(self, t: QTransform) -> "RenderOp":
-        """This op with ``path`` (and ``origin``) mapped through *t*."""
+        """This op with ``path`` / ``origin`` / ``pieces`` mapped through *t*."""
+        pieces = self.pieces
+        if pieces:
+            from .path_walk import map_piece
+            pieces = tuple(map_piece(p, t) for p in pieces)
         return replace(self, path=t.map(self.path),
-                       origin=None if self.origin is None else t.map(self.origin))
+                       origin=None if self.origin is None else t.map(self.origin),
+                       pieces=pieces)

@@ -652,6 +652,9 @@ class Model_View(QGraphicsView):
                                 f"{block_library.LOOP_REASON}")
         if getattr(defn, "tile", None):
             return defn, pool, block_library.PATTERN_REASON
+        if getattr(defn, "repeat", None):
+            # linetypes LT3-2: a linetype block styles lines, never a symbol.
+            return defn, pool, block_library.LINETYPE_REASON
         return defn, pool, None
 
     def _begin_block_drag(self, sc, payload, defn, pool) -> None:
