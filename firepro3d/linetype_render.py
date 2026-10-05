@@ -54,17 +54,21 @@ class LinetypeDef:
             if abs(y1) > LINETYPE_AXIS_TOL_MM or abs(y2) > LINETYPE_AXIS_TOL_MM:
                 continue
             a, b = sorted((x1, x2))
-            if b < -LINETYPE_AXIS_TOL_MM or a > length + LINETYPE_AXIS_TOL_MM:
+            if b - a <= LINETYPE_AXIS_TOL_MM:
+                # Zero-length (unclamped) axis Line = dot, kept only in frame.
+                if -LINETYPE_AXIS_TOL_MM <= a <= length + LINETYPE_AXIS_TOL_MM:
+                    dots.append(round(min(max(a, 0.0), length), 9))
                 continue
+            # Non-zero Line: clamp to the frame; what is left is a dash, and
+            # a sliver (or a Line wholly outside) is ignored -- never a dot.
             a, b = max(a, 0.0), min(b, length)
             if b - a <= LINETYPE_AXIS_TOL_MM:
-                dots.append(round(a, 9))
-            else:
-                dashes.append((round(a, 9), round(b - a, 9)))
-                w = (prim.get("style") or {}).get("weight")
-                from .stroke_style import is_named_weight
-                if is_named_weight(w):
-                    weights.append(w)
+                continue
+            dashes.append((round(a, 9), round(b - a, 9)))
+            w = (prim.get("style") or {}).get("weight")
+            from .stroke_style import is_named_weight
+            if is_named_weight(w):
+                weights.append(w)
         if length <= 0 or (not dashes and not dots):
             res = None
         else:

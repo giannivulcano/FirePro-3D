@@ -180,3 +180,28 @@ def test_ellipse_trim_keeps_surviving_dashes():
     start_trim = _ink_angles(_dash([pw.EllipseArc(3, 4, 20, 10, 15.0, 20.0, 40.0)]), ang, 300.0)
     assert _same(_clip(full, 300.0, 350.0), _clip(end_trim, 300.0, 350.0))
     assert _same(_clip(full, 380.0, 420.0), _clip(start_trim, 380.0, 420.0)),         (full, start_trim)
+
+
+# ── F2 (LT3-3): dot test uses the unclamped Line length ─────────────────────
+
+def test_out_of_frame_lines_touching_boundary_are_not_dots():
+    d = make_linetype(dashes=((0, 6), (-5, 5), (9, 6)), length=9)   # -5..0, 9..15
+    lt = lr.LinetypeDef.from_block(d)
+    assert lt.dashes == ((0.0, 6.0),)
+    assert lt.dots == ()
+
+
+def test_unit_with_only_out_of_frame_lines_is_malformed():
+    assert lr.LinetypeDef.from_block(
+        make_linetype(dashes=((-5, 5), (9, 6)), length=9)) is None
+
+
+def test_partially_outside_line_is_clamped_dash():
+    lt = lr.LinetypeDef.from_block(make_linetype(dashes=((-2, 6), (8, 4)), length=9))
+    assert lt.dashes == ((0.0, 4.0), (8.0, 1.0))
+    assert lt.dots == ()
+
+
+def test_true_dot_kept_in_frame_and_dropped_outside():
+    lt = lr.LinetypeDef.from_block(make_linetype(dashes=((0, 6),), dots=(9.0, 12.0)))
+    assert lt.dots == (9.0,)
