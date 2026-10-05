@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-10-01
-verified-commit: c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-10-04  # paper-outline-weight Account: §6.2 outline-pen note, §11.8 floor outline -> _outline_pen; prior 2026-10-01
+verified-commit: 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -305,6 +305,8 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 4. **End edges**: Drawn only if `solid_ptN` is `False` for that endpoint.
 5. **Section hatch** (if applicable): Overlaid when `_fill_mode` is Section/Hatch, OR when `_is_section_cut` is True. Uses shared `draw_section_hatch()` with clip path.
 6. **Selection highlight**: Red outline when selected.
+
+**Outline pen (walls, rooms, floors, roofs).** Edges come from `DisplayableItemMixin._outline_pen()`: a 1 px cosmetic pen on the canvas (rooms dashed; roof inner outline dotted, ridge/hip lines dash-dot); during a paper pass the paper category weight in true on-paper mm — contract owned by `paper-space.md` §6.2 (generic outlines). Selection pens are never routed through it.
 
 ### 6.3 Hit-Testing
 
@@ -789,7 +791,7 @@ Type · Name
 
 1. **Occlusion mask** (if `_is_occluding`): Opaque polygon in scene background color.
 2. **Fill**: Semi-transparent polygon (alpha 50) in display fill color (opaque when `_paper_fill_opaque`).
-3. **Outline**: 1 px cosmetic pen in display line color.
+3. **Outline**: `_outline_pen()` in display line color — 1 px cosmetic on the canvas, paper category weight on sheets (§6.2 note).
 4. **Section hatch** (if `_is_section_cut`): Diagonal overlay via `draw_section_hatch()` with the slab polygon as clip path; appearance from the display cascade. `LevelManager` sets `_is_section_cut = True` when the cut plane straddles the slab's Z-range (`z_bot < view_height < z_top`).
 5. **Selection**: Red outline.
 
