@@ -8,6 +8,7 @@ Continuous / By Block / By Linetype ends with the px dropped (D-L17a).
 from __future__ import annotations
 
 import copy
+from typing import NamedTuple
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"
@@ -128,3 +129,34 @@ def canvas_px(weight: str) -> float:
     """Cosmetic canvas width for a style weight (LT1-7 mapping)."""
     from .paper_display import canvas_weight_px, resolve_line_weight_mm
     return canvas_weight_px(resolve_line_weight_mm(canvas_weight_name(weight)))
+
+
+class ResolvedStroke(NamedTuple):
+    """Result of the LT3-8 cascade."""
+    lt: object | None          # linetype_render.LinetypeDef or None (solid)
+    weight: str                # named weight, "by_block" or "by_linetype"
+    missing_id: str | None     # unresolvable linetype id (badge, LT3-10)
+
+
+def resolve_stroke(style: dict, registry) -> ResolvedStroke:
+    """Resolve *style* against the project *registry* (linetypes.md LT3-8).
+
+    Linetype: ``continuous`` / ``by_block`` (until LT5) draw solid; a block id
+    resolves to its ``LinetypeDef`` (malformed -> solid, no badge) or reports
+    ``missing_id``. Weight: ``by_linetype`` takes the linetype's dash weight
+    when it has one; otherwise the weight is returned unchanged (callers map
+    By Block / By Linetype to the surface category as in LT2).
+    """
+    ref = style.get("linetype") or CONTINUOUS
+    weight = style.get("weight") or BY_BLOCK
+    lt, missing = None, None
+    if ref not in (CONTINUOUS, BY_BLOCK):
+        d = registry.get(ref) if registry is not None else None
+        if d is None:
+            missing = ref
+        else:
+            from .linetype_render import LinetypeDef
+            lt = LinetypeDef.from_block(d)
+    if weight == BY_LINETYPE and lt is not None and lt.dash_weight:
+        weight = lt.dash_weight
+    return ResolvedStroke(lt, weight, missing)
