@@ -3584,21 +3584,58 @@ def stroke_rows(style: dict, registry, exclude=()) -> dict:
 
 
 class GeometryTemplate:
-    """Pre-placement template for geometry tools (line, rectangle, circle, etc.).
+    """Pre-placement template for the 2D draw tools (property-panel.md §3.7).
 
-    Provides ``get_properties()`` / ``set_property()`` so the PropertyManager
-    can display and edit default values before placement.  Colour and
-    line-weight are derived from the selected layer at placement time.
+    Its Linetype / Weight rows ARE the current style for the next primitive
+    (linetypes.md WM-10): a pick here moves the current; editing a selected
+    primitive never does. ``_scene_ref`` (set by the scene's
+    ``_get_geometry_template``) supplies the project registry for the
+    picker; the template is off-scene, so it has no ``scene()``.
     """
 
-    def __init__(self):
+    def __init__(self, scene=None):
         # Level-less (containment C3): geometry templates carry no level.
         self.name: str = "(Template)"
+        self._scene_ref = scene
+
+    def _registry(self):
+        return getattr(self._scene_ref, "block_registry", None)
+
+    def _exclude(self):
+        from .hatch_patterns import picker_exclude
+        return picker_exclude(self._scene_ref)
 
     def get_properties(self) -> dict:
-        return {
-            "Type": {"type": "label", "value": "Geometry"},
-        }
+        from . import stroke_style as ss
+        cur = ss.current_style()
+        if (ss.is_linetype_ref(cur["linetype"])
+                and ss.linetype_block(cur["linetype"], self._registry()) is None):
+            ss.set_current(linetype=ss.CONTINUOUS)       # WM1: not in this project
+            cur = ss.current_style()
+        props = {"Type": {"type": "label", "value": "Geometry"}}
+        props.update(stroke_rows(cur, self._registry(), self._exclude()))
+        props["Linetype"]["tooltip"] = (
+            "Linetype for the next primitive you draw (kept between sessions). "
+            "Linetypes from the Linetypes folder load into the project when picked.")
+        props["Weight"]["tooltip"] = (
+            "Line weight for the next primitive you draw (kept between sessions). "
+            "By Linetype uses the linetype's designed weight (shown in brackets).")
+        return props
 
     def set_property(self, key: str, value):
-        return
+        from . import stroke_style as ss
+        if key == "Weight":
+            ss.set_current(weight=ss.weight_from_label(value))
+        elif key == "Linetype":
+            from .linetype_choices import (ensure_linetype_available,
+                                           is_missing_label,
+                                           linetype_ref_from_value)
+            if is_missing_label(str(value)):
+                return
+            ref = linetype_ref_from_value(str(value), self._registry(),
+                                          self._exclude())
+            if ref is None:
+                return
+            if not ensure_linetype_available(ref, self._scene_ref):
+                return                                   # failed folder load
+            ss.set_current(linetype=ref)
