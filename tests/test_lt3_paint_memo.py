@@ -146,6 +146,36 @@ def test_block_content_edit_reaches_next_paint(qapp):
     _assert_reflected(a, _render(ms), _render(fresh))
 
 
+def test_plain_block_gaining_a_linetype_reaches_next_paint(qapp):
+    """A block with no linetype refs paints the pre-LT3 path; editing a
+    Hidden line into it switches to dashes on the next paint (the ref set
+    is keyed on the compiled op list)."""
+    ms, lid = _build("Heavy")
+    inst = ms._block_instances[0]
+    plain = LineItem(QPointF(-1500, 0.0), QPointF(1500, 0.0))
+    plain.style["weight"] = "Heavy"
+    inst.definition().set_primitives([plain.to_dict()])
+    a = _render(ms)
+    dashed = LineItem(QPointF(-1500, 0.0), QPointF(1500, 0.0))
+    dashed.style["linetype"], dashed.style["weight"] = lid, "Heavy"
+    inst.definition().set_primitives([dashed.to_dict()])
+    _assert_reflected(a, _render(ms), _render(_build("Heavy")[0]))
+
+
+def test_missing_tooltip_clears_when_refs_are_edited_away(qapp):
+    """The pre-LT3 path still restores the tooltip once the block's last
+    linetype ref is edited away (LT3-10)."""
+    ms, _ = _build("Heavy", register_lt=False)
+    inst = ms._block_instances[0]
+    inst.setToolTip("B")
+    _render(ms)
+    assert "Missing linetype" in inst.toolTip()
+    plain = LineItem(QPointF(-1500, 0.0), QPointF(1500, 0.0))
+    inst.definition().set_primitives([plain.to_dict()])
+    _render(ms)
+    assert inst.toolTip() == "B"
+
+
 def test_drawing_scale_change_reaches_next_paint(qapp):
     ms, _ = _build("Heavy")
     a = _render(ms)
