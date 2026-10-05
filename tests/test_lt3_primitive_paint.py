@@ -52,6 +52,21 @@ def test_g1_collinear_pieces_match_one_line(qapp):
     assert r1 == r2
 
 
+def test_g1_off_grid_split_matches_one_line(qapp):
+    """D-L9 axis phase: a split at 16 mm (not a period multiple, not a dash
+    edge) still reproduces the single line -- a start-anchored phase would
+    restart the reversed and the forward piece at their own ends."""
+    ms1, l1 = _editor()
+    _line(ms1, l1, (0, 0), (36, 0))
+    ms2, l2 = _editor()
+    _line(ms2, l2, (16, 0), (0, 0))              # drawn reversed, ends at 16
+    _line(ms2, l2, (16, 0), (36, 0))             # abutting, drawn forward
+    r1 = _row(_render(ms1, QRectF(0, -2, 40, 4)), 20)
+    r2 = _row(_render(ms2, QRectF(0, -2, 40, 4)), 20)
+    assert not any(r1[155:175])                   # the 15.5..17.5 mm gap is real
+    assert r1 == r2
+
+
 def test_continuous_unchanged_and_lod_solid(qapp):
     ms, lid = _editor()
     _line(ms, lid, (0, 0), (3600, 0))
@@ -99,6 +114,31 @@ def test_g2_real_trim_tool_keeps_surviving_dashes(qapp):
         assert not any(after[65:85])               # still dashed (not solid)
         assert after[:195] == before[:195]
         assert not any(after[215:])
+    finally:
+        close_view(view, scene)
+
+
+def test_g2_real_trim_near_end_keeps_surviving_dashes(qapp):
+    """G2 through the real Trim tool removing the NEAR piece: pt1 moves to the
+    cut, and the surviving dashes stay on the axis rhythm (D-L9)."""
+    from tests._snap_polish_helpers import click, close_view, make_view
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        lid = hidden(scene, size="model")          # factor 1 on the plan canvas
+        ln = _line(scene, lid, (0, 0), (36, 0))
+        scene._draw_lines.append(ln)
+        edge = LineItem(QPointF(20, -100), QPointF(20, 100))
+        scene.addItem(edge)
+        scene._draw_lines.append(edge)
+        before = _row(_render(scene, QRectF(0, -2, 40, 4)), 20)
+        scene.set_mode("trim")
+        click(view, QPointF(20, 80))               # cutting edge
+        click(view, QPointF(10, 0))                # remove the near piece
+        assert abs(ln.line().p1().x() - 20.0) < 1e-6   # start really moved
+        after = _row(_render(scene, QRectF(0, -2, 40, 4)), 20)
+        assert not any(after[245:265])             # 24..27 mm axis gap stays dark
+        assert after[205:360] == before[205:360]
+        assert not any(after[15:195])              # the near piece is gone (x<15 px: origin cross)
     finally:
         close_view(view, scene)
 
