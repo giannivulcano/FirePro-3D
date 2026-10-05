@@ -191,3 +191,104 @@ def test_every_styled_primitive_draws_dashes_on_its_stroke(qapp, kind):
     near = {(x + dx, y + dy) for x, y in solid for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
     off = dashed - near                           # 1 px AA rasterisation slack
     assert len(off) <= 0.02 * len(dashed), len(off)   # on the plain stroke
+
+
+# -- seam guard gaps (LT3-5 / LT3-6 / G2 Break) ---------------------------------
+
+def test_plan_raw_line_dashes_at_drawing_scale(qapp):
+    """LT3-5 plan canvas, RAW primitive: a loose plan line given Hidden through
+    the real panel pick dashes at printed mm x drawing_scale x zoom
+    (6 mm x 100 = 600 mm = 60 px at 0.1 px/mm).
+
+    The line is added directly: the draw tools refuse on the plan and Explode
+    is Block-Editor-only (containment C1), so no UI path creates one -- the
+    item is the session-only loose plan geometry (C8) the seam review probed.
+    """
+    from tests._snap_polish_helpers import close_view, make_view
+    view, scene = make_view(role="plan", scale=0.1, mode=None)
+    try:
+        hidden(scene)
+        ln = LineItem(QPointF(-1500, 1000), QPointF(1500, 1000))
+        scene.addItem(ln)
+        scene._draw_lines.append(ln)
+        ln.set_property("Linetype", "Hidden")
+        assert ln.style["linetype"] != "continuous"
+        assert scene.scale_manager.drawing_scale == 100.0
+        img = _render(scene, QRectF(-2000, -2000, 4000, 4000), 400, 400)
+        row = _row(img, 300)
+        runs, start = [], None
+        for x, on in enumerate(row + [False]):
+            if on and start is None:
+                start = x
+            if not on and start is not None:
+                runs.append(x - start)
+                start = None
+        inner = runs[1:-1]
+        assert inner and all(abs(r - 60) <= 2 for r in inner), runs
+    finally:
+        close_view(view, scene)
+
+
+def _parity_pair(make):
+    """(continuous item, Hidden item), each alone in a Block Editor scene."""
+    out = []
+    for styled in (False, True):
+        ms, lid = _editor()
+        it = make()
+        if styled:
+            it.style["linetype"] = lid
+        ms.addItem(it)
+        out.append((ms, it))
+    return out
+
+
+@pytest.mark.parametrize("kind", ["line", "circle", "rect"])
+def test_halo_snap_and_shape_stay_on_the_continuous_base(qapp, kind):
+    """LT3-6: HALO trace, shape() and snap candidates of a linetyped item equal
+    the Continuous item's -- including a cursor over a dash GAP."""
+    from firepro3d.halo import halo_scene_path
+    from firepro3d.snap_engine import SnapEngine
+    from PyQt6.QtGui import QTransform
+    from firepro3d.geometry_2d import CircleItem, RectangleItem
+    make = {"line": lambda: LineItem(QPointF(0, 0), QPointF(36, 0)),
+            "circle": lambda: CircleItem(QPointF(0, 0), 14.0),
+            "rect": lambda: RectangleItem(QPointF(0, 0), QPointF(36, 18))}[kind]
+    (ms_c, c), (ms_h, h) = _parity_pair(make)
+    assert halo_scene_path(h) == halo_scene_path(c)
+    assert h.shape() == c.shape()
+    probes = [QPointF(7.5, 0.3), QPointF(16.5, -0.2), QPointF(18.0, 0.0),
+              QPointF(36.0, 0.2), QPointF(14.0, 0.1), QPointF(0.0, 14.2),
+              QPointF(36.2, 9.0)]
+    for cur in probes:
+        rc = SnapEngine().find(cur, ms_c, QTransform())
+        rh = SnapEngine().find(cur, ms_h, QTransform())
+        key = lambda r: None if r is None else (r.snap_type, round(r.point.x(), 6),
+                                                round(r.point.y(), 6))
+        assert key(rh) == key(rc), cur
+
+
+def test_g2_real_break_tool_keeps_surviving_dashes(qapp):
+    """G2 through the real two-click Break tool (_press_break): the pieces
+    either side of the cut keep the uncut line's dash pixels."""
+    from tests._snap_polish_helpers import click, close_view, make_view
+    view, scene = make_view(role="block_editor", scale=10.0, mode=None)
+    try:
+        lid = hidden(scene)
+        ln = _line(scene, lid, (0, 0), (36, 0))
+        scene._draw_lines.append(ln)
+        before = _row(_render(scene, QRectF(0, -2, 40, 4)), 20)
+        scene.set_mode("break")
+        click(view, QPointF(30, 0))                # pick the line
+        click(view, QPointF(16, 0))                # first break point
+        click(view, QPointF(20.5, 0))              # second break point
+        scene.set_mode("select")                   # (break mode renders blank)
+        a, b = sorted(scene._draw_lines, key=lambda i: i.line().p1().x())
+        cut0, cut1 = a.line().p2().x(), b.line().p1().x()
+        assert 15.0 < cut0 < 17.0 and 19.5 < cut1 < 21.5, (cut0, cut1)
+        after = _row(_render(scene, QRectF(0, -2, 40, 4)), 20)
+        lo, hi = int(cut0 * 10) - 3, int(cut1 * 10) + 3
+        assert after[:lo] == before[:lo]
+        assert after[hi:360] == before[hi:360]
+        assert not any(after[245:265])             # an axis gap stays dark
+    finally:
+        close_view(view, scene)

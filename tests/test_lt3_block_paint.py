@@ -158,3 +158,24 @@ def test_nested_instance_in_block_editor_is_real_size(qapp):
     p.end()
     row = [QColor(img.pixel(x, 20)).lightness() > 128 for x in range(400)]
     assert all(row[5:55]) and not any(row[65:85]) and all(row[95:145])
+
+
+def test_selected_placed_block_accent_only_on_dash_pixels(qapp):
+    """G-sel (LT3-7) for a placed block: selecting it recolours the dashes to
+    the accent and leaves every gap pixel dark -- the lit set is unchanged."""
+    ms = _scene(at_y=1000.0)
+    inst = ms._block_instances[0]
+    before = _render_model(ms)
+    inst.setSelected(True)
+    # The selection manipulator's dashed frame hugs a thin line's bounds;
+    # hide that furniture so the row reads the block's own pixels.
+    ms._manipulator.setVisible(False)
+    after = _render_model(ms)
+    row0 = [QColor(before.pixel(x, 300)).lightness() > 60 for x in range(400)]
+    row1 = [QColor(after.pixel(x, 300)).lightness() > 60 for x in range(400)]
+    assert row1 == row0                                   # same dash/gap pixels
+    assert _lit_runs(after, 300)[1:-1] and not all(row1[50:350])
+    accent = QColor("#63BE8B")
+    lit = [QColor(after.pixel(x, 300)) for x in range(60, 340) if row1[x]]
+    assert lit and all(abs(c.green() - accent.green()) < 40 and c.green() > c.red()
+                       for c in lit)
