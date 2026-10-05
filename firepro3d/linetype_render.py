@@ -97,8 +97,8 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
     dashes = [(s * factor, n * factor) for s, n in lt.dashes]
     dots = [d * factor for d in lt.dots]
     dash_path, dot_path = QPainterPath(), QPainterPath()
-    for raw in pieces:
-        p = pw.canonical(raw)
+    # Canonical pieces, arcs / ellipse arcs broken at 0° (rhythm restarts there).
+    for p in (q for raw in pieces for q in pw.split_at_zero(raw)):
         L = pw.length(p)
         if L <= 1e-9:
             continue

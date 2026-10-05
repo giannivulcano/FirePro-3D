@@ -155,6 +155,36 @@ def canonical(p):
     return p
 
 
+def split_at_zero(p) -> tuple:
+    """Canonical *p* broken at every 0° crossing (F1 ruling 2026-10-05).
+
+    An Arc / EllipseArc's dash rhythm restarts at its circle's / ellipse's 0°:
+    the phase at any point is its own arc length from 0° (angle in [0, 360)).
+    Walking each returned sub-piece from its ``phase0`` realises that, so
+    trimming or breaking an arc across 0° never moves surviving dashes. A
+    full turn starting at 0° stays one piece (seam at 0°). Other pieces pass
+    through as a 1-tuple.
+    """
+    p = canonical(p)
+    if isinstance(p, Arc):
+        start, rest = _norm360(p.a0), p.sweep
+    elif isinstance(p, EllipseArc):
+        start, rest = _norm360(p.t0), p.sweep
+    else:
+        return (p,)
+    out = []
+    while rest > _EPS:
+        span = min(rest, 360.0 - start)
+        if span > _EPS:
+            if isinstance(p, Arc):
+                out.append(Arc(p.cx, p.cy, p.r, start, span))
+            else:
+                out.append(EllipseArc(p.cx, p.cy, p.rx, p.ry, p.rot, start, span))
+        rest -= span
+        start = 0.0
+    return tuple(out) or (p,)
+
+
 def length(p) -> float:
     """Arc length of *p* in its frame's units (mm)."""
     if isinstance(p, Seg):

@@ -99,3 +99,26 @@ def test_append_path_arc_emits_curve_elements():
     pw.append(path, pw.Arc(0, 0, 10, 0.0, 90.0))
     kinds = {path.elementAt(i).type for i in range(path.elementCount())}
     assert QPainterPath.ElementType.CurveToElement in kinds
+
+
+def test_split_at_zero_breaks_arc_crossing_zero():
+    parts = pw.split_at_zero(pw.Arc(0, 0, 10, 330.0, 60.0))
+    assert [(p.a0, p.sweep) for p in parts] == [pytest.approx((330.0, 30.0)),
+                                                pytest.approx((0.0, 30.0))]
+
+
+def test_split_at_zero_full_circle_is_one_piece():
+    assert pw.split_at_zero(pw.Arc(0, 0, 10, 0.0, 360.0)) == (pw.Arc(0, 0, 10, 0.0, 360.0),)
+    parts = pw.split_at_zero(pw.Arc(0, 0, 10, 30.0, 360.0))
+    assert [(p.a0, p.sweep) for p in parts] == [pytest.approx((30.0, 330.0)),
+                                                pytest.approx((0.0, 30.0))]
+
+
+def test_split_at_zero_ellipse_and_passthrough():
+    parts = pw.split_at_zero(pw.EllipseArc(0, 0, 20, 10, 15.0, 300.0, 120.0))
+    assert [(p.t0, p.sweep) for p in parts] == [pytest.approx((300.0, 60.0)),
+                                                pytest.approx((0.0, 60.0))]
+    s = pw.Seg(0, 0, 1, 0)
+    assert pw.split_at_zero(s) == (s,)
+    a = pw.Arc(0, 0, 10, 10.0, 90.0)
+    assert pw.split_at_zero(a) == (a,)
