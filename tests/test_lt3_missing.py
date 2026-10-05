@@ -1,5 +1,4 @@
 """G11 -- a missing linetype draws Continuous + a canvas-only badge."""
-import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
@@ -90,7 +89,6 @@ def test_missing_raw_primitive_badge_never_plots(qapp, tmp_path):
     assert _amber_fills(pdf) == []
 
 
-@pytest.mark.xfail(strict=True, reason="Task 13")
 def test_panel_shows_missing(qapp):
     ms = Model_Space(scene_role="block_editor")
     ln = LineItem(QPointF(0, 0), QPointF(36, 0))

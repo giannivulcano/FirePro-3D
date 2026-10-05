@@ -315,18 +315,51 @@ class Geometry2DMixin:
             paint_missing_badge(painter, at)
 
     def _set_style_field(self, key: str, value) -> None:
-        """Apply a panel style edit to the record (LT2-7), then repaint."""
-        from .stroke_style import BY_BLOCK, CONTINUOUS, _hex
+        """Apply a panel style edit to the record (LT2-7), then repaint.
+
+        For ``"Linetype"`` *value* is the resolved ref (``continuous``,
+        ``by_block`` or a linetype block id -- ``linetype_ref_from_value``).
+        """
+        from .stroke_style import BY_BLOCK, _hex
         v = str(value)
         if key == "Linetype":
             self.prepareGeometryChange()     # badge pad follows the linetype ref
-            self.style["linetype"] = BY_BLOCK if v == "By Block" else CONTINUOUS
+            self.style["linetype"] = v
         elif key == "Weight":
             self.style["weight"] = BY_BLOCK if v == "By Block" else v
         else:
             self.style["colour"] = _hex(v)
         self._sync_stroke_pen()
         self.update()
+
+    def _set_linetype_from_panel(self, value: str) -> None:
+        """Apply a panel Linetype pick (LT3-12; mirrors the D-A36/D-A37
+        Pattern pick).
+
+        A ``"Missing (<id>)"`` label or an unknown label changes nothing (the
+        stored ref is never rewritten). A Linetypes-folder linetype is loaded
+        into the project first: the ref is set BEFORE the load so the load's
+        one undo snapshot carries it, and a failed load restores the old ref.
+        Any other pick is one undo step via ``_dim_edit``.
+        """
+        from .hatch_patterns import picker_exclude
+        from .linetype_choices import (ensure_linetype_available,
+                                       is_missing_label,
+                                       linetype_ref_from_value)
+        from .stroke_style import is_linetype_ref
+        if is_missing_label(value):
+            return                            # LT3-10: never rewrite a missing ref
+        reg = self._tile_registry()
+        ref = linetype_ref_from_value(value, reg, picker_exclude(self.scene()))
+        if ref is None:
+            return
+        if is_linetype_ref(ref) and reg is not None and reg.get(ref) is None:
+            old = self.style["linetype"]
+            self._set_style_field("Linetype", ref)
+            if not ensure_linetype_available(ref, self.scene()):
+                self._set_style_field("Linetype", old)
+            return
+        self._dim_edit(lambda r: self._set_style_field("Linetype", r), ref)
 
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
@@ -398,12 +431,21 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .paper_display import weight_names
+            from .hatch_patterns import picker_exclude
+            from .linetype_choices import linetype_choices, missing_label
             from .stroke_style import BY_BLOCK, BY_LINETYPE
             lt = self.style["linetype"]
-            props["Linetype"] = {"type": "enum",
-                                 "options": ["Continuous", "By Block"],
-                                 "value": "By Block" if lt == BY_BLOCK
-                                 else "Continuous"}
+            choices = linetype_choices(self._tile_registry(),
+                                       picker_exclude(self.scene()))
+            options = [n for n, _ in choices]
+            value = next((n for n, r in choices if r == lt), None)
+            if value is None:
+                # LT3-10: an unresolvable id shows as missing (kept until the
+                # user picks another linetype).
+                value = missing_label(lt)
+                options = [value] + options
+            props["Linetype"] = {"type": "enum", "options": options,
+                                 "value": value}
             w = self.style["weight"]
             props["Weight"] = {"type": "enum",
                                "options": ["By Block", *weight_names()],
@@ -443,7 +485,10 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
-        if self.style is not None and key in ("Linetype", "Weight", "Colour"):
+        if self.style is not None and key == "Linetype":
+            self._set_linetype_from_panel(str(value))
+            return True
+        if self.style is not None and key in ("Weight", "Colour"):
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
