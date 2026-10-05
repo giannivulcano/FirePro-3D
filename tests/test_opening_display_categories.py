@@ -80,3 +80,38 @@ def test_category_defaults_for_new_window(qapp, model_scene):
         apply_category_defaults(op)
     assert not ops["Window"].isVisible()
     assert ops["Door"].isVisible() and ops["Opening"].isVisible()
+
+
+def test_legacy_project_opening_seeds_door_and_window(qapp, model_scene):
+    from firepro3d.display_manager import apply_project_display_settings
+    scene, ops = _scene_with_openings(model_scene)
+    apply_project_display_settings(scene, {"Opening": {"visible": False}})
+    assert not any(op.isVisible() for op in ops.values())
+
+
+def test_legacy_user_default_seeds_door_and_window(qapp, model_scene):
+    from firepro3d.display_manager import apply_saved_display_settings
+    scene, ops = _scene_with_openings(model_scene)
+    # A pre-split store: only "Opening" keys, no Door/Window, no split marker.
+    s = QSettings("GV", "FirePro3D")
+    for k in s.allKeys():
+        if k.startswith(("display/Door/", "display/Window/", "display/_opening")):
+            s.remove(k)
+    s.setValue("display/Opening/default_color", "#ff0000")
+    apply_saved_display_settings(scene)
+    assert all(_red_pixels(scene, op) > 0 for op in ops.values())
+    assert s.value("display/Door/default_color") == "#ff0000"
+
+
+def test_seed_never_overwrites_an_own_key(qapp, model_scene):
+    from firepro3d.display_manager import apply_saved_display_settings
+    scene, ops = _scene_with_openings(model_scene)
+    s = QSettings("GV", "FirePro3D")
+    for k in s.allKeys():
+        if k.startswith(("display/Window/", "display/_opening")):
+            s.remove(k)
+    s.setValue("display/Opening/color", "#ff0000")
+    s.setValue("display/Door/color", "#0000ff")
+    apply_saved_display_settings(scene)
+    assert _red_pixels(scene, ops["Door"]) == 0
+    assert _red_pixels(scene, ops["Window"]) > 0
