@@ -1,9 +1,10 @@
 ---
 status: partial          # HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-03  # HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 53e1773
+last-verified: 2026-10-05  # LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: be7c88a   # LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
-  - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed/scan, picker source, project pattern load
+  - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
+  - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
   - firepro3d/hatch_render.py       # renderer: paint_fill / stamp_lattice / paint_swatch
   - firepro3d/render_op.py          # RenderOp type — shared with linetypes (LT3 extends it); block compile semantics owned by block-system.md
   - firepro3d/tile_frame.py         # Block Editor pattern-tile frame + tile panel rows
@@ -41,10 +42,11 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   unreadable `index.json`, and marks the folder seeded only when every shipped
   id is present and the index is sound (a failed copy retries). Called at app
   startup (`main.py`) and after System Settings Apply/OK.
-- **Folder scan** — `library_patterns()` scans the folder + two subfolder
-  levels; an `index.json` entry's `tile` flag decides (older entries / unindexed
-  files are parsed once, cached per mtime); cached on every index/`.fpdb`
-  mtime; never called from paint.
+- **Folder scan** — `library_patterns()` delegates to the shared
+  `capability_folder.scan(folder, "tile")` (moved there in LT3 so the
+  Linetypes folder reuses it with `"repeat"` — scan rules: `linetypes.md`
+  "LT3" H3-i). The `tile` flag decides; never called from paint. Strokes inside
+  a stamped pattern tile stay Continuous (`linetypes.md` LT3-9).
 - **Resolution** — `canonical_ref` maps a legacy name through `LEGACY_ALIAS`
   (`diagonal`, `cross_hatch`, `horizontal`, `concrete` → frozen ids; D-A29).
   `resolve_tile(ref, registry)` = alias → the **project** block registry, and

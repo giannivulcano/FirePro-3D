@@ -153,7 +153,7 @@ per host style/scale); QPen dash patterns (two paths, width-multiple units).
 |---|---|---|
 | LT1 | Project-scoped weights + Blocks category + `_category_for_item` BlockInstance case + canvas px mapping + Thin Lines | — |
 | LT2 | Style record + `copy_style` + migration (Continuous/By Block) + format bump + edit-tool preservation | — |
-| LT3 | `path_walk` + `linetype_render` (dashes, axis phase, LOD, cache) + StrokeOp compile + cascade resolver + (moved from LT4, 2026-10-04 grill) `repeat` data key, integrity set (no symbol placement, delete refusal, `referenced_ids`), panel picker, Linetypes folder — contract `linetypes.md` "LT3" | LT1, LT2; HF2 RenderOp |
+| LT3 | `path_walk` + `linetype_render` (dashes, axis phase, LOD, cache) + StrokeOp compile + cascade resolver + (moved from LT4, 2026-10-04 grill) `repeat` data key, integrity set (no symbol placement, delete refusal, `referenced_ids`), panel picker, Linetypes folder — contract `linetypes.md` "LT3" — **BUILT 2026-10-05** (as-built: `linetypes.md` "LT3") | LT1, LT2; HF2 RenderOp |
 | LT4 | `repeat` authoring (frame, Pattern list, preview) + browser badge + ribbon current style | LT3 |
 | LT5 | `end` capability + end rendering/trim + per-end override/visible + By Block chain through placements/nested | LT4 |
 | LT6 | Embedded symbols + fit-skip + upright text + `@[key]` in end blocks | LT5, SB1 attributes |

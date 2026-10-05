@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-10-03  # HF2 Account: §4.5b Hatch patterns row (paths/hatch_dir) + paths/hatch_seeded + post-apply seeding; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-24
-verified-commit: 53e1773   # HF2 Account (§4.5b hatch rows); prior d34aeb0 batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-10-05  # LT3 Account: §4.5b Linetypes row (paths/linetype_dir) verified against GeneralPane + app_data.linetypes_dir; prior 2026-10-03 HF2 Account: §4.5b Hatch patterns row (paths/hatch_dir) + paths/hatch_seeded + post-apply seeding; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-24
+verified-commit: be7c88a   # LT3 Account (§4.5b Linetypes row); prior 53e1773 HF2 Account (§4.5b hatch rows); prior d34aeb0 batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
