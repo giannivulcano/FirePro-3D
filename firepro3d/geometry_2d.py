@@ -683,6 +683,15 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._closed = True
             self._rebuild_path()
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        pts = self._points
+        segs = [Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(pts, pts[1:])]
+        if self.is_closed():
+            segs.append(Seg(pts[-1].x(), pts[-1].y(), pts[0].x(), pts[0].y()))
+        return tuple(segs)
+
     def get_closed_path(self) -> QPainterPath | None:
         """Return a closed QPainterPath if flagged closed, else None."""
         if not self.is_closed():
@@ -950,6 +959,11 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     def is_closed(self) -> bool:
         """Lines are never closed shapes."""
         return False
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        return (Seg(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y()),)
 
     def get_closed_path(self) -> None:
         """Lines have no closed path."""
@@ -1385,6 +1399,15 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         """Rectangles are always closed shapes."""
         return True
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Rotation is data: the axis-aligned local rect's corners mapped through
+        # the same _rotation_transform() paint() applies to the painter.
+        from .path_walk import Seg
+        r, t = self.rect(), self._rotation_transform()
+        c = [t.map(p) for p in (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft())]
+        return tuple(Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(c, c[1:] + c[:1]))
+
     def get_closed_path(self) -> QPainterPath:
         """Return a QPainterPath rectangle for hatching / fill operations."""
         path = QPainterPath()
@@ -1747,6 +1770,11 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         """Circles are always closed shapes."""
         return True
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Arc
+        return (Arc(self._center.x(), self._center.y(), self._radius, 0.0, 360.0),)
+
     def get_closed_path(self) -> QPainterPath:
         """Return a QPainterPath ellipse for hatching / fill operations."""
         path = QPainterPath()
@@ -2079,6 +2107,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Return True if the arc spans a full 360 degrees (i.e. a full circle)."""
         return abs(self._span_deg) >= 360
 
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Stored CCW (span > 0) with Qt arcTo angles, exactly as _rebuild_path.
+        from .path_walk import Arc
+        return (Arc(self._center.x(), self._center.y(), self._radius,
+                    self._start_deg, self._span_deg),)
+
     def get_closed_path(self) -> QPainterPath | None:
         """Return a QPainterPath ellipse if the arc is a full circle, else None."""
         if not self.is_closed():
@@ -2224,6 +2259,12 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             path.closeSubpath()
         self.setPath(path)
         self.update()
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        from .path_walk import Seg
+        v = self.vertices()
+        return tuple(Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(v, v[1:] + v[:1]))
 
     def get_closed_path(self) -> QPainterPath | None:
         p = QPainterPath()
@@ -2477,6 +2518,13 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         p = QPainterPath()
         p.addEllipse(QPointF(0.0, 0.0), self._rx, self._ry)
         return p
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # Frame translate(c)·rotate(−rot), the same as get_closed_path.
+        from .path_walk import EllipseArc
+        return (EllipseArc(self._center.x(), self._center.y(), self._rx, self._ry,
+                           self._rotation_deg, 0.0, 360.0),)
 
     def get_closed_path(self) -> QPainterPath:
         t = QTransform()
@@ -2996,6 +3044,16 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """True for a smooth periodic closed spline (DD7) — not the legacy
         coincident-end form (snap emits no endpoints for it)."""
         return self._closed
+
+    def stroke_pieces(self) -> tuple:
+        """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
+        # The drawn path is cubicTo; Qt's default flattening (Curve.from_path)
+        # strays > 0.1 mm from it, so flatten scaled up and map back.
+        from .constants import LINETYPE_CURVE_FLATTEN_SCALE as k
+        from .path_walk import Curve
+        polys = self.path().toSubpathPolygons(QTransform.fromScale(k, k))
+        pts = tuple((q.x() / k, q.y() / k) for q in polys[0]) if polys else ()
+        return (Curve(pts),)
 
     def get_closed_path(self) -> QPainterPath | None:
         if not self.is_closed():

@@ -358,3 +358,7 @@ LINETYPE_DEF_CACHE_MAX = 512       # LinetypeDef reading LRU entries
 LINETYPE_MAX_PERIODS = 200_000     # safety cap per piece (draw continuous beyond)
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
+# Spline stroke pieces flatten at this scale-up: Qt's default flattening of a
+# cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps the
+# Curve within ~0.01 mm of it (probed on the LT3 H3-b guard splines).
+LINETYPE_CURVE_FLATTEN_SCALE = 64.0
