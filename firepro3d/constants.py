@@ -359,6 +359,7 @@ LINETYPE_MAX_PERIODS = 200_000     # safety cap per piece (draw continuous beyon
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 # path_walk.Curve.from_path flattens at this scale-up: Qt's default flattening of a
-# cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps the
-# Curve within ~0.01 mm of it (probed on the LT3 H3-b guard splines).
+# cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps a ~50 mm
+# cubic within ~0.004 mm. Qt caps a single cubic at ~512 segments, so a very
+# long single cubic deviates more: ≈0.045 mm on a 20 m cubic (still < 0.1 mm).
 LINETYPE_CURVE_FLATTEN_SCALE = 64.0

@@ -3028,6 +3028,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._regenerate()
 
     def _regenerate(self):
+        self._stroke_pieces_cache = None      # stroke_pieces() memo (LT3 H3-b)
         self.setPath(_bspline_path(self._control_points, self._degree,
                                    self._knots, self._weights,
                                    closed=self._closed))
@@ -3047,8 +3048,15 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def stroke_pieces(self) -> tuple:
         """Analytic stroke pieces in item-local coords (linetypes.md LT3 H3-b)."""
-        from .path_walk import Curve
-        return (Curve.from_path(self.path()),)
+        # Flattening is the costly step (paint calls this per frame): memoised
+        # until _regenerate — the sole setPath site — clears it.
+        cached = getattr(self, "_stroke_pieces_cache", None)
+        if cached is None:
+            from .path_walk import Curve
+            c = Curve.from_path(self.path())
+            cached = (c,) if len(c.pts) >= 2 else ()
+            self._stroke_pieces_cache = cached
+        return cached
 
     def get_closed_path(self) -> QPainterPath | None:
         if not self.is_closed():

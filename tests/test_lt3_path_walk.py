@@ -91,7 +91,7 @@ def _cubic_pt(b, t):
 
 
 def test_curve_from_path_stays_on_the_analytic_cubic():
-    # The drawn (rasterised) cubic is the ground truth: the flattened Curve
+    # The analytic cubic is the ground truth: the flattened Curve
     # -- vertices AND chord midpoints -- must stay within ±0.02 mm of it.
     b = ((0.0, 0.0), (10.0, 20.0), (30.0, -5.0), (50.0, 10.0))
     path = QPainterPath(QPointF(*b[0]))
