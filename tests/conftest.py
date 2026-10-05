@@ -117,6 +117,16 @@ def _reset_project_line_weights():
 
 
 @pytest.fixture(autouse=True)
+def _reset_current_stroke_style():
+    """Reset the WM1 current Linetype/Weight store (stroke_style module
+    global, linetypes.md WM-10) so one test's current can't leak."""
+    from firepro3d import stroke_style as ss
+    ss.reset_current()
+    yield
+    ss.reset_current()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_qsettings(tmp_path_factory):
     """Point the isolated QSettings store at a FRESH per-test temp dir (#312), so
     a key written by one test can't leak into the next. The class-level redirect

@@ -3,7 +3,9 @@
 The record is the single source of truth for a primitive's linetype, weight,
 ends and authored colour; the item's QPen is a render cache derived at paint
 (H-c). Legacy dicts (``"color"`` + px ``"lineweight"``) migrate on load to
-Continuous / By Block / By Linetype ends with the px dropped (D-L17a).
+Continuous / By Linetype weight / By Linetype ends with the px dropped
+(D-L17a; WM-9: no By Block -- a legacy ``by_block`` migrates in
+``normalize_style``).
 """
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from typing import NamedTuple
 from . import paper_display as _pd
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
-BY_BLOCK = "by_block"
+BY_BLOCK = "by_block"          # legacy input only -- migrated by normalize_style (WM-9)
 BY_LINETYPE = "by_linetype"
 ENDS = ("start", "finish")
 
@@ -27,10 +29,10 @@ STYLED_TYPES = frozenset({
 
 
 def default_style(colour: str = "#ffffff") -> dict:
-    """A fresh Continuous / By Block record with By Linetype ends."""
+    """A fresh Continuous / By Linetype record with By Linetype ends (WM-10)."""
     return {
         "linetype": CONTINUOUS,
-        "weight": BY_BLOCK,
+        "weight": BY_LINETYPE,
         "start": {"end": BY_LINETYPE, "visible": True},
         "finish": {"end": BY_LINETYPE, "visible": True},
         "colour": _hex(colour),
@@ -49,6 +51,8 @@ def _hex(colour) -> str:
 def _end(d) -> dict:
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
+    if end == BY_BLOCK:                          # WM-9 migration
+        end = BY_LINETYPE
     return {"end": str(end), "visible": bool(d.get("visible", True))}
 
 
@@ -56,13 +60,21 @@ def normalize_style(d: dict | None) -> dict:
     """A complete, deep-copied record from *d* (missing fields defaulted).
 
     Weight names are canonicalised through the rename alias map (H-g).
+    Legacy ``by_block`` migrates here (WM-9): weight -> By Linetype, linetype
+    -> Continuous, ends -> By Linetype -- output is unchanged because By
+    Linetype on Continuous resolves exactly as By Block did.
     """
     d = d if isinstance(d, dict) else {}
-    weight = d.get("weight") or BY_BLOCK
-    if weight not in (BY_BLOCK, BY_LINETYPE):
+    weight = d.get("weight") or BY_LINETYPE
+    if weight == BY_BLOCK:
+        weight = BY_LINETYPE
+    if weight != BY_LINETYPE:
         weight = _pd.canonical_weight_name(str(weight))
+    linetype = str(d.get("linetype") or CONTINUOUS)
+    if linetype == BY_BLOCK:
+        linetype = CONTINUOUS
     return {
-        "linetype": str(d.get("linetype") or CONTINUOUS),
+        "linetype": linetype,
         "weight": weight,
         "start": _end(d.get("start")),
         "finish": _end(d.get("finish")),
@@ -154,22 +166,23 @@ def canvas_px(weight: str) -> float:
 class ResolvedStroke(NamedTuple):
     """Result of the LT3-8 cascade."""
     lt: object | None          # linetype_render.LinetypeDef or None (solid)
-    weight: str                # named weight, "by_block" or "by_linetype"
+    weight: str                # named weight or "by_linetype"
     missing_id: str | None     # unresolvable linetype id (badge, LT3-10)
 
 
 def resolve_stroke(style: dict, registry) -> ResolvedStroke:
     """Resolve *style* against the project *registry* (linetypes.md LT3-8).
 
-    Linetype: ``continuous`` / ``by_block`` (until LT5) draw solid; a block id
+    Linetype: ``continuous`` draws solid (a legacy ``by_block`` is migrated
+    before it gets here, WM-9); a block id
     resolves to its ``LinetypeDef`` (malformed -> solid, no badge) or reports
     ``missing_id`` -- also for an id naming a block that is not a linetype
     (no ``repeat``; ``linetype_block``). Weight: ``by_linetype`` takes the linetype's dash weight
     when it has one; otherwise the weight is returned unchanged (callers map
-    By Block / By Linetype to the surface category as in LT2).
+    By Linetype to the surface category as in LT2).
     """
     ref = style.get("linetype") or CONTINUOUS
-    weight = style.get("weight") or BY_BLOCK
+    weight = style.get("weight") or BY_LINETYPE
     lt, missing = None, None
     if ref not in (CONTINUOUS, BY_BLOCK):
         d = linetype_block(ref, registry)
@@ -181,3 +194,100 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
     if weight == BY_LINETYPE and lt is not None and lt.dash_weight:
         weight = lt.dash_weight
     return ResolvedStroke(lt, weight, missing)
+
+
+# -- WM1: resolved weight labels -------------------------------------------
+
+BY_LINETYPE_LABEL = "By Linetype"
+
+
+def weight_label(weight: str, linetype: str, registry) -> str:
+    """Panel label for a style weight (WM-3 "resolved value shown").
+
+    A named weight is its own label; By Linetype shows what it resolves to:
+    the effective linetype's dash weight, else the Model "Blocks" weight
+    (WM-5 fallback) -- e.g. ``"By Linetype (Light)"``.
+    """
+    if weight != BY_LINETYPE:
+        return weight
+    rs = resolve_stroke({"linetype": linetype, "weight": BY_LINETYPE}, registry)
+    name = rs.weight if rs.weight != BY_LINETYPE else _pd.model_blocks_weight()
+    return f"{BY_LINETYPE_LABEL} ({name})"
+
+
+def weight_from_label(label) -> str:
+    """The style weight a panel label stands for (inverse of ``weight_label``)."""
+    v = str(label)
+    return BY_LINETYPE if v.startswith(BY_LINETYPE_LABEL) else v
+
+
+# -- WM1: the current Linetype / Weight for new primitives (WM-10) ----------
+
+_FACTORY_CURRENT = {"linetype": CONTINUOUS, "weight": BY_LINETYPE}
+_current: dict = dict(_FACTORY_CURRENT)
+_KEY_LT = "template/geometry/linetype"
+_KEY_W = "template/geometry/weight"
+
+
+def current_style() -> dict:
+    """A copy of the current ``{"linetype", "weight"}`` for the next primitive."""
+    return dict(_current)
+
+
+def set_current(*, linetype: str | None = None, weight: str | None = None) -> None:
+    """Set the current linetype and/or weight (WM-10; a template pick)."""
+    if linetype is not None:
+        _current["linetype"] = CONTINUOUS if linetype == BY_BLOCK else str(linetype)
+    if weight is not None:
+        w = BY_LINETYPE if weight == BY_BLOCK else str(weight)
+        _current["weight"] = (w if w == BY_LINETYPE
+                              else _pd.canonical_weight_name(w))
+
+
+def reset_current() -> None:
+    """Back to the factory current (Continuous · By Linetype)."""
+    _current.clear()
+    _current.update(_FACTORY_CURRENT)
+
+
+def current_to_settings(settings) -> None:
+    """Persist the current (property-panel.md §3.7 template persistence)."""
+    settings.setValue(_KEY_LT, _current["linetype"])
+    settings.setValue(_KEY_W, _current["weight"])
+
+
+def current_from_settings(settings) -> None:
+    """Restore the current; an unknown weight name -> By Linetype."""
+    reset_current()
+    lt = settings.value(_KEY_LT, None)
+    w = settings.value(_KEY_W, None)
+    if lt:
+        set_current(linetype=str(lt))
+    if w:
+        w = str(w)
+        if w in (BY_LINETYPE, BY_BLOCK) or w in _pd.weight_names():
+            set_current(weight=w)
+
+
+def apply_current(item, scene) -> None:
+    """Stamp the current onto a just-drawn primitive (draw-tool commits only).
+
+    A linetype id that is not a linetype in *scene*'s project registry draws
+    Continuous; a weight name this project lacks becomes By Linetype.
+    """
+    st = getattr(item, "style", None)
+    if st is None:
+        return
+    lt = _current["linetype"]
+    if is_linetype_ref(lt):
+        reg = getattr(scene, "block_registry", None)
+        if linetype_block(lt, reg) is None:
+            lt = CONTINUOUS
+    w = _current["weight"]
+    if w != BY_LINETYPE and w not in _pd.weight_names():
+        w = BY_LINETYPE
+    st["linetype"] = lt
+    st["weight"] = w
+    sync = getattr(item, "_sync_stroke_pen", None)
+    if callable(sync):
+        sync()
