@@ -280,3 +280,27 @@ def test_long_curve_expands_quickly():
     dash, _ = lr.expand((c,), lt, 1.0, (0.0, 0.0))
     assert time.perf_counter() - t < 1.0
     assert not dash.isEmpty()
+
+
+def test_mid_point_of_degenerate_circle():
+    q = lr.mid_point((pw.Arc(3, 4, 0.0, 0.0, 360.0),))
+    assert (q.x(), q.y()) == pytest.approx((3.0, 4.0))
+
+
+def test_paint_stroke_restores_painter_state():
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen
+    lt = lr.LinetypeDef.from_block(make_linetype(dots=(7.5,)))
+    img = QImage(40, 10, QImage.Format.Format_ARGB32)
+    p = QPainter(img)
+    try:
+        before = QPen(QColor("red"), 3)
+        before.setCapStyle(Qt.PenCapStyle.SquareCap)
+        p.setPen(before)
+        p.setBrush(QBrush(QColor("blue")))
+        assert lr.paint_stroke(p, (pw.Seg(0, 5, 40, 5),), lt, QPen(QColor("black"), 2),
+                               factor=1.0, anchor=(0.0, 0.0)) is True
+        assert p.pen() == before
+        assert p.brush().color() == QColor("blue")
+    finally:
+        p.end()

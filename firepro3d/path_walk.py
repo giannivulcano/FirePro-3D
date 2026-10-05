@@ -209,17 +209,24 @@ def length(p) -> float:
 
 
 def point_at(p, s: float) -> QPointF:
-    """Point at arc length *s* from the piece start."""
+    """Point at arc length *s* from the piece start.
+
+    Zero-length (degenerate) Arcs / EllipseArcs return their start point.
+    """
     if isinstance(p, Seg):
         L = length(p) or 1.0
         f = s / L
         return QPointF(p.x0 + (p.x1 - p.x0) * f, p.y0 + (p.y1 - p.y0) * f)
     if isinstance(p, Arc):
-        a = math.radians(p.a0 + math.degrees(s / p.r))
+        a = math.radians(p.a0 + (math.degrees(s / p.r) if p.r > _EPS else 0.0))
         return QPointF(p.cx + p.r * math.cos(a), p.cy - p.r * math.sin(a))
     if isinstance(p, EllipseArc):
+        if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
+            return point_at_param(p, p.t0)
         s0 = _ellipse_s_of_t(p.rx, p.ry, p.t0)
         return point_at_param(p, _ellipse_t_of_s(p.rx, p.ry, s0 + s))
+    if len(p.pts) < 2:
+        return QPointF(*p.pts[0]) if p.pts else QPointF()
     cum = _curve_cum(p)
     i = max(0, min(bisect.bisect_right(cum, s) - 1, len(cum) - 2))
     seg = cum[i + 1] - cum[i]
@@ -292,7 +299,14 @@ def to_path(pieces) -> QPainterPath:
 
 
 def map_piece(p, t: QTransform):
-    """*p* mapped through a rigid, orientation-preserving transform *t*."""
+    """*p* mapped through a rigid, orientation-preserving transform *t*.
+
+    Raises:
+        ValueError: *t* reflects (determinant < 0) -- arc angles and sweeps
+            would silently come out wrong.
+    """
+    if t.m11() * t.m22() - t.m12() * t.m21() < 0:
+        raise ValueError("map_piece needs an orientation-preserving transform")
     d = math.degrees(math.atan2(-t.m12(), t.m11()))      # Qt-angle offset
     if isinstance(p, Seg):
         a, b = t.map(QPointF(p.x0, p.y0)), t.map(QPointF(p.x1, p.y1))
@@ -313,10 +327,22 @@ def total_length(pieces) -> float:
 
 
 def point_at_total(pieces, s: float) -> QPointF | None:
-    """Point at arc length *s* along the concatenated pieces (badge anchor)."""
+    """Point at arc length *s* along the concatenated pieces (badge anchor).
+
+    Zero-length pieces are skipped; all-degenerate pieces give the first
+    piece's start.
+    """
+    if not pieces:
+        return None
+    last = None
     for p in pieces:
         L = length(p)
+        if L <= _EPS:
+            continue
         if s <= L:
             return point_at(p, s)
         s -= L
-    return point_at(pieces[-1], length(pieces[-1])) if pieces else None
+        last = p
+    if last is not None:
+        return point_at(last, length(last))
+    return point_at(pieces[0], 0.0)

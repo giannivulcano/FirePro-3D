@@ -52,6 +52,7 @@ class LinetypeDef:
         if hit is not None and hit[0] is defn.primitives:
             cls._CACHE.move_to_end(key)
             return hit[1]
+        from .stroke_style import is_named_weight
         length = float(rep["length"])
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
@@ -74,7 +75,6 @@ class LinetypeDef:
                 continue
             dashes.append((round(a, 9), round(b - a, 9)))
             w = (prim.get("style") or {}).get("weight")
-            from .stroke_style import is_named_weight
             if is_named_weight(w):
                 weights.append(w)
         if not (0.0 < length < math.inf) or (not dashes and not dots):
@@ -163,13 +163,17 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
     dash, dot = expand(pieces, lt, factor, anchor)
     p = QPen(pen)
     p.setCapStyle(Qt.PenCapStyle.FlatCap)
-    painter.setPen(p)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawPath(dash)
-    if not dot.isEmpty():
-        p.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.save()
+    try:
         painter.setPen(p)
-        painter.drawPath(dot)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(dash)
+        if not dot.isEmpty():
+            p.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(p)
+            painter.drawPath(dot)
+    finally:
+        painter.restore()
     return True
 
 

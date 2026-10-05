@@ -131,3 +131,20 @@ def test_curve_split_keeps_interior_vertices():
     assert pw.length(s) == pytest.approx(20.0)
     p = pw.point_at(c, 15.0)
     assert (p.x(), p.y()) == pytest.approx((10.0, 5.0))
+
+
+@pytest.mark.parametrize("piece", [pw.Arc(3, 4, 0.0, 0.0, 90.0),
+                                   pw.EllipseArc(3, 4, 0.0, 0.0, 0.0, 0.0, 90.0)])
+def test_zero_length_pieces_do_not_crash_point_queries(piece):
+    p = pw.point_at(piece, 0.0)
+    assert (p.x(), p.y()) == pytest.approx((3.0, 4.0))
+    # A degenerate piece before a real one is skipped by the total walk.
+    q = pw.point_at_total((piece, pw.Seg(0, 0, 10, 0)), 5.0)
+    assert (q.x(), q.y()) == pytest.approx((5.0, 0.0))
+    only = pw.point_at_total((piece,), 0.0)
+    assert (only.x(), only.y()) == pytest.approx((3.0, 4.0))
+
+
+def test_map_piece_refuses_reflection():
+    with pytest.raises(ValueError):
+        pw.map_piece(pw.Arc(0, 0, 10, 0.0, 30.0), QTransform(-1, 0, 0, 1, 0, 0))
