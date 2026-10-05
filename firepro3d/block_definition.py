@@ -427,8 +427,22 @@ class BlockDefinition:
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
             st = getattr(item, "style", None)
+            pieces, lt = (), None
+            if st is not None and hasattr(item, "stroke_pieces"):
+                # Same map as the path: mapToParent (Qt transform, then pos --
+                # row-vector order) then the origin shift. Rect data rotation
+                # is already inside its stroke_pieces().
+                from PyQt6.QtGui import QTransform
+                from .path_walk import map_piece
+                t = item.transform() * QTransform.fromTranslate(
+                    item.pos().x() - ox, item.pos().y() - oy)
+                pieces = tuple(map_piece(p, t) for p in item.stroke_pieces())
+                lt = st["linetype"]
             ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
-                                weight=st["weight"] if st else None))
+                                weight=st["weight"] if st else None,
+                                pieces=pieces, linetype=lt,
+                                # phase anchor: this definition's origin
+                                origin=QPointF(0.0, 0.0) if pieces else None))
         return ops
 
     def _resolve_nested(self, prim):
