@@ -1,0 +1,101 @@
+"""LT3 H3-a — path_walk: analytic pieces, arc length, D-L9 phase, split."""
+import math
+import pytest
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtGui import QPainterPath, QTransform
+from firepro3d import path_walk as pw
+
+
+def test_seg_length_and_point():
+    s = pw.Seg(0, 0, 30, 40)
+    assert pw.length(s) == pytest.approx(50)
+    p = pw.point_at(s, 25)
+    assert (p.x(), p.y()) == pytest.approx((15, 20))
+
+
+def test_seg_canonical_direction_folds_to_half_turn():
+    # Opposite draw directions canonicalise to the same piece (D-L9).
+    a = pw.canonical(pw.Seg(10, 5, 0, 5))
+    b = pw.canonical(pw.Seg(0, 5, 10, 5))
+    assert a == b
+
+
+def test_seg_phase_is_axis_projection_from_anchor():
+    # Horizontal axis: phase = x of start relative to the anchor's projection.
+    assert pw.phase0(pw.canonical(pw.Seg(7, 3, 20, 3)), (2.0, 99.0)) == pytest.approx(5.0)
+    # Same axis, gapped, drawn reversed: phase continues the same rhythm.
+    assert pw.phase0(pw.canonical(pw.Seg(40, 3, 25, 3)), (2.0, 99.0)) == pytest.approx(23.0)
+
+
+def test_arc_point_matches_qt_arcto_convention():
+    a = pw.Arc(0, 0, 10, 0.0, 90.0)
+    end = pw.point_at(a, pw.length(a))
+    path = QPainterPath()
+    r = QRectF(-10, -10, 20, 20)
+    path.arcMoveTo(r, 0.0)
+    path.arcTo(r, 0.0, 90.0)
+    assert (end.x(), end.y()) == pytest.approx((path.currentPosition().x(),
+                                                path.currentPosition().y()), abs=1e-6)
+
+
+def test_arc_phase_is_radius_times_start_angle():
+    a = pw.Arc(0, 0, 10, 90.0, 45.0)
+    assert pw.phase0(a, (0.0, 0.0)) == pytest.approx(10 * math.pi / 2)
+
+
+def test_ellipse_arc_length_quarter_matches_numeric():
+    e = pw.EllipseArc(0, 0, 20, 10, 0.0, 0.0, 90.0)
+    # Ramanujan full perimeter / 4 for a=20 b=10.
+    a, b = 20, 10
+    h = ((a - b) / (a + b)) ** 2
+    quarter = math.pi * (a + b) * (1 + 3 * h / (10 + math.sqrt(4 - 3 * h))) / 4
+    assert pw.length(e) == pytest.approx(quarter, rel=1e-3)
+
+
+def test_ellipse_point_matches_qt_parametric_arcto():
+    e = pw.EllipseArc(5, 5, 20, 10, 30.0, 0.0, 360.0)
+    t = QTransform()
+    t.translate(5, 5)
+    t.rotate(-30.0)
+    path = QPainterPath()
+    path.arcMoveTo(QRectF(-20, -10, 40, 20), 45.0)
+    want = t.map(path.currentPosition())
+    got = pw.point_at_param(e, 45.0)
+    assert (got.x(), got.y()) == pytest.approx((want.x(), want.y()), abs=1e-6)
+
+
+def test_split_seg_exact():
+    s = pw.split(pw.Seg(0, 0, 10, 0), 2.0, 5.0)
+    assert s == pw.Seg(2.0, 0.0, 5.0, 0.0)
+
+
+def test_split_arc_stays_analytic():
+    s = pw.split(pw.Arc(0, 0, 10, 0.0, 180.0), 0.0, 10 * math.pi / 2)
+    assert isinstance(s, pw.Arc)
+    assert s.sweep == pytest.approx(90.0)
+
+
+def test_curve_from_path_flattens_and_measures():
+    path = QPainterPath(QPointF(0, 0))
+    path.lineTo(10, 0)
+    path.lineTo(10, 10)
+    c = pw.Curve.from_path(path)
+    assert pw.length(c) == pytest.approx(20)
+    assert pw.phase0(c, (123.0, 4.0)) == 0.0
+
+
+def test_map_piece_rotates_arc_start_angle():
+    t = QTransform()
+    t.rotate(-90.0)                      # Y-up CCW 90° (Qt CW-positive)
+    m = pw.map_piece(pw.Arc(0, 0, 10, 0.0, 30.0), t)
+    assert m.a0 == pytest.approx(90.0)
+    p0 = pw.point_at(m, 0.0)
+    want = t.map(pw.point_at(pw.Arc(0, 0, 10, 0.0, 30.0), 0.0))
+    assert (p0.x(), p0.y()) == pytest.approx((want.x(), want.y()), abs=1e-9)
+
+
+def test_append_path_arc_emits_curve_elements():
+    path = QPainterPath()
+    pw.append(path, pw.Arc(0, 0, 10, 0.0, 90.0))
+    kinds = {path.elementAt(i).type for i in range(path.elementCount())}
+    assert QPainterPath.ElementType.CurveToElement in kinds
