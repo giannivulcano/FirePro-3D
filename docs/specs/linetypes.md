@@ -1,7 +1,7 @@
 ---
 status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); LT4–LT8 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-05  # LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: be7c88a   # LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+last-verified: 2026-10-05  # Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 489dcc2   # Weight model design (spec-only); prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 seams (built)
   - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category; LT2: Model Blocks weight, rename aliases, apply_project_weights, paper_pass_active
   - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge) only (rest owned by block-system.md)
@@ -98,24 +98,27 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   (dash, each symbol). A line's Weight = **By Linetype** | named weight |
   **By Block**. A named weight replaces the dash weight only; symbols keep
   their authored weight. Editing the definition updates By Linetype lines only.
-  *(Weight half under redesign — see `todo_open.md` "Weight model: By Block
-  moves from the primitive to the placement" [P1].)*
-- **D-L5 Host (By Block).** Only By Block primitives follow the host. Every
-  placement and every nested record has a Weight (default = the Display
-  Manager "Blocks" category weight). By Block inside By Block chains outward.
-  Authored named weights never change. *(Under redesign — see `todo_open.md`
-  "Weight model: By Block moves from the primitive to the placement" [P1].)*
-- **D-L6 Linetype By Block.** Linetype = named | By Block, same rule; placement
-  and nested record carry a Linetype (default Continuous).
-- **D-L17 Top-level By Block** resolves to the surface's category: "Blocks"
-  in model, "Construction" on paper. *(Under redesign — see `todo_open.md`
-  "Weight model: By Block moves from the primitive to the placement" [P1].)*
+  *(Weight half **SUPERSEDED** 2026-10-05 by the "Weight model" section — a
+  line's Weight = By Linetype | named (no By Block, WM-5); "a named weight
+  replaces the dash weight only, symbols keep theirs" survives as WM-2.)*
+- ~~**D-L5 Host (By Block).**~~ **SUPERSEDED** 2026-10-05 by "Weight model"
+  WM-2/WM-3/WM-6 (placement override, outer wins). *Was:* only By Block
+  primitives follow the host; every placement and nested record has a Weight
+  (default = the Display Manager "Blocks" weight); By Block chains outward.
+- ~~**D-L6 Linetype By Block.**~~ **SUPERSEDED** 2026-10-05 by "Weight model"
+  WM-4 (placement Linetype = As Authored | named; primitives lose By Block).
+- ~~**D-L17 Top-level By Block.**~~ **SUPERSEDED** 2026-10-05 by "Weight
+  model" WM-5/WM-12 (By Linetype's category fallback = the drawing item's
+  category; D-L17's paper "Construction" survives for raw primitives on a
+  sheet).
 - **D-L18 New primitives** use a sticky **current** Linetype + Weight
-  (ribbon/panel), initially Continuous + By Block. Picking a linetype does
-  not change the current weight.
+  (ribbon/panel). Picking a linetype does not change the current weight.
+  *(Amended 2026-10-05 by "Weight model" WM-10: factory current = Continuous ·
+  By Linetype · By Linetype colour, app-session-scoped.)*
 - **D-L19 Colour.** Unit and end-block content defaults to **By Line** (the
   using line's ColourValue); authors may set explicit component colours; B&W
-  forces black.
+  forces black. *(Extended 2026-10-05 by "Weight model" WM-7: colour gets the
+  same placement/By Linetype cascade.)*
 
 ### Ends
 
@@ -173,7 +176,10 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   is one line in a piping linetype; the "Line Type" enum becomes a Linetype
   property from System > Linetypes > Piping; Main's weight comes from its
   linetype; the plan-block line is Linetype By Block + Weight By Linetype.
-  Pipe-as-linear-Feature is its own design task.
+  Pipe-as-linear-Feature is its own design task. *(Amended 2026-10-05 by
+  "Weight model" WM-4: the plan-block line is authored Continuous + Weight By
+  Linetype and the pipe placement overrides the Linetype; the Main/Branch
+  linetype distinction is expected to go away — user, 2026-10-05.)*
 - **D-L23 Defaults.** (a) strokes inside repeat units/end blocks are always
   Continuous (no recursion) — and, per LT3-9, so are pattern-tile strokes when
   stamped as a hatch; (b) explode, copy, mirror and modify tools keep
@@ -181,6 +187,86 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   (c) mirror flips end blocks, text stays upright; (d) closed shapes never
   draw ends; (e) a missing linetype/end block draws Continuous/Flat plus a
   visible warning badge, never nothing.
+
+## Weight model — By Block moves from the primitive to the placement (ratified 2026-10-05)
+
+> Design run (the P1 "Weight model" task, filed at the LT3 close). *What*
+> settled in a Phase-2 grill (Q1–Q12, every row user-ratified); supersedes
+> D-L4 (weight half), D-L5, D-L6, D-L17 and LT2-9, amends D-L18/D-L19/D-L22.
+> **Unbuilt** — slices WM1 (primitive half), WM2 (placement half), WM3 (colour
+> cascade) in `todo_open.md`; LT3-8's `by_block` rows stay as-built until
+> WM1/WM2 land. Worked examples below are the acceptance scenarios.
+
+- **WM-1 Drivers** (all four ratified): what is authored is what is seen; a
+  Revit-style per-instance override; system geometry driven by its placement
+  or linetype; no "By Block" anywhere in the UI.
+- **WM-2 Override scope.** A named override on a placement or nested record
+  **replaces every stroke's** weight (authored Heavy included — the hierarchy
+  flattens). Symbols embedded in a linetype's repeat unit keep their authored
+  weight (D-L4's surviving rule). A hierarchy-preserving override is the
+  instance-parameters design's (revisit trigger there).
+- **WM-3 Placement Weight** = **As Authored** (default for new and migrated
+  placements) | **By Category** (replace every stroke with the Display
+  Manager "Blocks" weight — Model row on canvas, paper category on sheets) |
+  a named weight. Every deferring picker option shows what it resolves to:
+  "By Category (Light)", "By Linetype (Very Fine)".
+- **WM-4 Placement Linetype** = As Authored | a named linetype (replaces every
+  stroke's linetype). Primitives lose Linetype By Block (Continuous | a
+  linetype). No By Category linetype. Strokes inside repeat units / end
+  blocks / pattern tiles stay Continuous (D-L23a, LT3-9).
+- **WM-5 By Linetype stays on primitives** (weight): it borrows the dash
+  weight of the stroke's **effective** linetype (after any placement
+  override). A placement Weight override (named / By Category) beats it. No
+  dash weight (Continuous, malformed, missing) → the drawing item's category
+  weight (WM-12).
+- **WM-6 Nesting — outer wins.** Each level's override replaces everything
+  beneath it, so the outermost non-As-Authored setting decides (an
+  "existing = Hidden" riser dashes its nested valve too). Nested records carry
+  the same picker as top-level placements.
+- **WM-7 Colour mirrors weight.** Placement / nested-record Colour = As
+  Authored | By Category (the "Blocks" colour — the Model row gains a Colour
+  column; paper uses the paper "Blocks" category colour) | a named colour;
+  replace-all, outer wins, resolved value shown. Unlike weight, a colour
+  override **reaches** linetype-embedded symbols, fills, hatches, text and end
+  blocks ("existing = grey" greys everything). Primitive Colour = explicit |
+  **By Linetype (<colour>)** = the linetype's designed colour = its **first
+  dash's** colour; dashes authored "By Line" (D-L19) give no designed colour →
+  **Automatic** (hatch D-A18; needs HF1). The paper B&W / Custom colour modes
+  stay above the whole cascade.
+- **WM-8 Hatch.** D-A12's foreground colour "By block" is renamed **By
+  Pattern (<colour>)** (the pattern's analogue of By Linetype). A placement
+  Colour override reaches fills and hatches; Weight / Linetype overrides do
+  **not** reach hatch tile strokes.
+- **WM-9 Migration** (on load, every LT2-2 path — `.fpd`, `.fpdb`, stored
+  definitions, clipboard, undo; no definition `version` bump; shipped `.fpdb`s
+  not rewritten): weight `by_block` → `by_linetype`; linetype `by_block` →
+  `continuous`; end `by_block` → `by_linetype`; placements / nested records
+  without a slot → As Authored ×3. Canvas **and paper output stay identical**
+  (By Linetype on Continuous resolves exactly as `by_block` does today).
+- **WM-10 New primitives.** Factory current = Continuous · By Linetype weight
+  · By Linetype colour; a pick becomes the sticky current for the next
+  primitive (picking a linetype changes neither weight nor colour); the
+  current is app-session-scoped, shared by every Block Editor, factory on
+  launch, never saved in the `.fpd`.
+- **WM-11 Explode and ends.** Explode bakes the record's resolved values
+  (look unchanged); As Authored explodes verbatim (By Linetype kept); By
+  Category bakes the current DM value as a concrete name / colour. A placement
+  never swaps end types (a per-placement end override is instance-parameters
+  work), but end blocks take the placement's resolved Colour and Weight
+  (weight-relative caps scale with it).
+- **WM-12 Text and fallback category.** Text in a placed block takes the
+  placement Colour; glyphs are never bolded; the text-box border takes Weight
+  + Colour (+ Linetype once the border migrates to linetypes). The By Linetype
+  fallback category is the drawing item's: inside a placement → "Blocks"
+  (Model / paper); a raw primitive drawn directly on a sheet (latent, LT3-6) →
+  paper "Construction".
+
+Acceptance scenarios (test block "Sprinkler": circle Heavy/red, cross
+Light/Automatic, deflector Medium/blue): As Authored → as authored; Weight
+Medium → all Medium; Linetype Hidden → all dashed; Colour Grey → all grey;
+nested record Heavy inside an outer Light placement → all Light; a legacy file
+→ pixel-identical canvas + PDF; Explode of an overridden record → identical
+look.
 
 ## LT1 — Project weights, Blocks paper category, canvas mapping, Thin Lines (ratified 2026-10-03)
 
@@ -383,7 +469,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   longer share primitive dicts with the live definitions.
 - **LT2-9 Explode (recorded for LT5).** Once placements carry style, Explode
   resolves `by_block` primitives to the instance's concrete values (look
-  unchanged). In LT2 they are copied verbatim.
+  unchanged). In LT2 they are copied verbatim. *(Superseded 2026-10-05 by
+  "Weight model" WM-11: Explode bakes the record's resolved override; As
+  Authored explodes verbatim.)*
 - **Out of scope (filed):** hard-coded `"Medium"` text-border default and
   factory-name assumptions surviving a rename of a factory weight; the
   categories' QSettings-as-live-store flaw (now also the Model "Blocks" row).
@@ -804,7 +892,7 @@ and the RenderOp fields are additive.
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
-- [ ] Every row of the cascade (D-L4/5/6/17) resolves to the stated weight/linetype on canvas and PDF.
+- [ ] Every row of the cascade (Weight model WM-2..WM-12; D-L4/5/6/17 superseded) resolves to the stated weight/linetype/colour on canvas and PDF.
 - [ ] Ends obey D-L7/8/8b; symbols obey D-L15; end attributes obey D-L10.
 - [ ] Weights travel with `.fpd`/`.fpdb` (D-L13); legacy files migrate (D-L17a).
 - [ ] D-L21 bar met on the confirmed bench.
@@ -820,7 +908,7 @@ and the RenderOp fields are additive.
 
 - `block-system.md` — `repeat` / `end` capabilities; placement + nested-record `style` slot; `referenced_ids`; StrokeOp compile; Blocks category weight. *(LT3 part — `repeat`, linetype refs in `referenced_ids`, stroke-op pieces — applied 2026-10-05: "Linetype capability (LT3)" pointer.)*
 - `2d-geometry.md` §1 — `style` record replaces px `lineweight`; current-style defaults; §1.2 "lineweights never scale" stays. *(LT3 pointer — `stroke_pieces()` + paint routing — applied 2026-10-05.)*
-- `paper-space.md` — top-level By Block → Construction; BlockInstance category; project-scoped weights.
+- `paper-space.md` — raw primitives on a sheet: By Linetype fallback → Construction (WM-12); BlockInstance category; project-scoped weights.
 - `2026-05-12-paper-space-display-manager-design.md` §7.2 — weights move from QSettings to the project.
 - `hatch-and-fill.md` HD4 — RenderOp stroke half = StrokeOp (one refactor). *(Applied 2026-10-05: LT3 extended the `stroke` kind with `pieces` / `linetype`; the folder scan moved to `capability_folder.py`.)*
 - `grid-system.md` §16 — linetype property becomes the gridline-from-primitives follow-up.

@@ -1,7 +1,7 @@
 ---
 status: partial          # HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-05  # LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: be7c88a   # LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-10-05  # Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: 489dcc2   # Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -186,7 +186,10 @@ until that doc is approved.
 **Appearance & Fill Types**
 - **D-A12** Two layers: background (Solid | None, default **None**) + foreground
   (pattern block | None) with colour (region colour by default, or "By block"),
-  scale, opacity per layer.
+  scale, opacity per layer. *(Amended 2026-10-05 by `linetypes.md` "Weight
+  model" WM-8: "By block" is labelled **By Pattern (<colour>)**; a placement
+  Colour override reaches fills/hatches, Weight/Linetype overrides do not
+  reach tile strokes.)*
 - **D-A14** Named **Fill Types** (project-scoped, shipped in the template); a
   region references a type, per-instance fields are overrides. Needs a types
   manager UI (mockup-gated).
