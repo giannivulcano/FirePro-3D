@@ -1,27 +1,27 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS (Fixed on-screen size) ratified 2026-10-06, unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-06  # LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: b7b8e87   # LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+last-verified: 2026-10-06  # LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 0b8bf68   # LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built)
   - firepro3d/repeat_frame.py        # LT4 — RepeatFrame (repeat unit frame, Length grip, preview ring); shared frame base capability_frame.py is owned by hatch-and-fill.md
   - firepro3d/linetype_pattern.py    # LT4 — pure rows ⇄ reading (rows_from_reading, spans, content_end / axis_end, validate_rows, SEED_ROWS)
-  - firepro3d/linetype_authoring.py  # LT4 — live rows ⇄ axis Lines (apply_pattern_rows), Weight row, Repeat field edits, begin_linetype, pre_capture hook, preview_painter
-  - firepro3d/capability_panel.py    # LT4 — capability panel rows + write-back (tile rows delegate to tile_frame.py, owned by hatch-and-fill.md)
+  - firepro3d/linetype_authoring.py  # LT4 — live rows ⇄ axis Lines (apply_pattern_rows), Weight row, Repeat field edits, begin_linetype, pre_capture hook, preview_painter; LTS — On screen field, Fixed seed
+  - firepro3d/capability_panel.py    # LT4 — capability panel rows + write-back (tile rows delegate to tile_frame.py, owned by hatch-and-fill.md); LTS — On screen row
   - firepro3d/block_editor.py        # LT4: toggle_capability, capability seed on open, commit with capability only (rest owned by block-system.md)
   - firepro3d/blocks_browser.py      # LT4: _linetype_badge / _capability_badge + library-row index flags only (rest owned by block-system.md)
   - firepro3d/model_space.py         # LT4: block_capability slot + set_block_capability, push_undo_state pre-capture call, symbol_use_refusal / linetype_off_refusal, linetype users wording (_linetype_users_message), commit_block_definition capability= only (rest owned by block-system.md and others)
   - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category; LT2: Model Blocks weight, rename aliases, apply_project_weights, paper_pass_active
-  - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge) only (rest owned by block-system.md)
+  - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge); LTS: _lt_args, deferred Fixed factor, per-op short rule, lazy view window only (rest owned by block-system.md)
   - firepro3d/display_manager.py     # LT1/LT2: Line Weights tab, weight in-use / rename / aliases, Model "Blocks" row only (rest owned by display-system)
   - firepro3d/stroke_style.py        # LT2: stroke style record, migration, copy_style, canvas weight resolution; LT3: resolve_stroke cascade + linetype_block / linetype_ref_missing / is_linetype_ref; LT4: apply_current linetype-editor branch (Continuous + pattern weight)
   - firepro3d/render_op.py           # LT2: RenderOp.weight; LT3: pieces + linetype only (type owned by hatch-and-fill.md)
   - firepro3d/path_walk.py           # LT3 — analytic pieces, arc length, axis phase, split, split_at_zero
-  - firepro3d/linetype_render.py     # LT3 — unit reading, expansion, paint_stroke / draw_expansion, missing badge; LT4 — axis_role (the one per-Line LT3-3 role, shared by the reading and the Pattern list)
+  - firepro3d/linetype_render.py     # LT3 — unit reading, expansion, paint_stroke / draw_expansion, missing badge; LT4 — axis_role (the one per-Line LT3-3 role, shared by the reading and the Pattern list); LTS — length_factor / fixed_on_canvas / periods_on, view_window / visible_spans / expand(window=), _walk_seg fast path
   - firepro3d/linetype_choices.py    # LT3 — panel Linetype picker source (project + Linetypes folder)
   - firepro3d/capability_folder.py   # LT3 parts — shared tile/repeat folder scan ("repeat" flag; the hatch side is owned by hatch-and-fill.md)
-  - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile only (rest owned by block-system.md)
+  - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile; LTS: repeat.screen in _norm_repeat only (rest owned by block-system.md)
   - firepro3d/block_registry.py      # LT3: linetype refs in prim_refs, linetype_users_in, invalidate(was_linetype) only
-  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows only (the rest is owned by 2d-geometry.md)
+  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows; LTS _lt_args + device-scale/fixed= routing only (the rest is owned by 2d-geometry.md)
   - firepro3d/geometry_drawing_controller.py  # WM1: apply_current at the 7 draw commits only
   - firepro3d/placement_input_coordinator.py  # WM1: scene-aware GeometryTemplate only
   - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore; LT4: ribbon Linetype toggle (_be_toggle_linetype / _be_toggle_capability / _sync_capability_buttons) only
@@ -1307,11 +1307,12 @@ Rewritten for the contract change: `test_block_editor_ribbon_tab.py` (the
 editor-only roster gains "Linetype") and `test_icon_theming.py`
 (`linetype_icon.svg` joins `_BLOCK_ICONS`).
 
-## LTS — On-screen size: Fixed on screen (ratified 2026-10-06, unbuilt)
+## LTS — On-screen size: Fixed on screen (ratified 2026-10-06; BUILT 2026-10-06)
 
 > Design run (the P1 "screen-constant linetype pattern" task, filed at the
 > LT4 smoke). *What* settled in a Phase-2 grill (Q1–Q10, every row
-> user-ratified 2026-10-06); no *how* yet — the build task carries it.
+> user-ratified 2026-10-06). **BUILT 2026-10-06** on `feat/lts-fixed-onscreen`
+> (build Phase-2 deltas Δ1/Δ2 inline below; *How* and guards as built).
 > **Amends LT3-4** (dash/gap lengths scale with zoom) for linetypes whose On
 > screen = Fixed size; LT3-5 stays the length rule for paper/PDF, sheet
 > viewports and Scale-with-zoom linetypes.
@@ -1361,7 +1362,17 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   Fixed line stays dashed at **any** zoom — never solid through
   `LINETYPE_MAX_PERIODS` — and a third shape (C) 50 lines of 100 m each
   zoomed in to ~20 px/mm holds a wheel-zoom frame ≤ 16 ms (expansion cost
-  must not scale with the off-screen length of a line).
+  must not scale with the off-screen length of a line). *(Re-pinned by the
+  user at the build, 2026-10-06:)* the absolute 16 ms bars are dropped — the
+  bench renders the whole scene offscreen and the unchanged Scale path at base
+  `f9c74450` already measures 28–142 ms there. Bars are relative: A/B zoom
+  Fixed ≤ 1.5× Scale, pan ≤ 1.1× Scale, C ≤ 2× the same lines cut to the
+  view. The host varied 2–4× run to run (below that noise floor), so G-LTS7
+  is **report-only** (it asserts its own composition and prints ratios). As
+  built: B and C within their bars (B zoom ~1.0–1.2×, pan ~1.0–1.1×; C
+  ~1.1–1.3×); **A zoom ~1.6–2.7×** (2,000 short segments each re-expanded per
+  zoom step — per-segment setup, not dash count) — filed as an LT8 (D-L21)
+  follow-up.
 - **LTS-9 Settled defaults** (Q10, batch-ratified): (a) changing On screen is
   one undo step, the row has a tooltip, every line using the linetype repaints
   at once; (b) weights unchanged — D-L14 px widths and Thin Lines; (c) snap,
@@ -1372,26 +1383,95 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   LT5 end blocks keep their own sizing — an open question for LT5's grill;
   (g) `.fpdb` bundles and library files carry the property.
 
-### LTS guards (VC3) — planned
+### How (H-LTS-a–f) — as built
 
-Real paint through a shown view, observable pixels:
+- **H-LTS-a Data.** `repeat.screen` is stored **only** as `"fixed"`
+  (`block_definition._norm_repeat`; absent = Scale, so Scale records stay
+  byte-identical; any other value normalises away). `LinetypeDef.screen`
+  (`"fixed"` | `"scale"`, default `"scale"`). Carried by every `repeat` path
+  (slot, `.fpd` embed, `.fpdb`, Save / Save As) through `_norm_repeat`.
+- **H-LTS-b One length factor.** `linetype_render.length_factor(lt, *,
+  paper_scale, role, drawing_scale, device_scale=None)` replaces the two
+  former per-class LT3-5 copies; `Geometry2DMixin` and `BlockInstance` each
+  keep `_lt_args()` (their surface inputs — the raw item reads the scene's
+  `_hatch_paper_scale`, the instance its `_paper_scale`) and a one-line
+  `_linetype_factor(lt, device_scale=None)`. **`fixed_on_canvas(lt, *,
+  paper_scale, role)`** = Fixed **and** no paper scale **and** role in
+  (`plan`, `block_editor`) **and** not `paper_pass_active()` — the LTS-2
+  scope test; its Fixed branch returns printed mm ×
+  `UNDERLAY_MM_TO_PX_HINT` ÷ the paint's device scale (Model: ÷ the drawing
+  scale first).
+- **H-LTS-c Paint.** Raw primitives pass `hatch_render._device_scale(painter)`
+  (under `lt_frame`) and `fixed=` to `paint_stroke`. `BlockInstance.paint`
+  defers a Fixed entry's factor (`_resolve_op_stroke` returns
+  `[rs, width, lt, factor=None, lod, fixed]`) to the lazy LOD step, which
+  already reads the device scale under the pose. Short rule (LTS-7):
+  `periods_on(pieces, lt, factor) < 1` → the plain stroke (raw: inside
+  `paint_stroke`; placed: per op).
+- **H-LTS-d Visible window (LTS-8 Δ1).** `view_window(painter)` = the
+  painter's visible area (`hatch_render._visible_area`) snapped outward to a
+  power-of-two grid whose cell is **half** the next 2ⁿ at or above the view's
+  larger side, plus one cell of margin (a hashable key: pans inside a cell
+  keep the expansion cached). `expand(..., window=)` expands a piece longer
+  than `constants.LINETYPE_WINDOW_MIN_PERIODS` (512) periods only over
+  `visible_spans(p, window, min_span)` (Seg: exact Liang–Barsky; other
+  pieces: arc-length bisection on control boxes), keeping the piece's own
+  D-L9 phase and never re-drawing a unit across spans; `LINETYPE_MAX_PERIODS`
+  then caps a **span**, not the piece. A window that no piece qualifies for
+  leaves the cache key (Scale lines keep one key per pan). Only long **Fixed**
+  strokes request a window (raw: `paint_stroke`; placed: once per paint,
+  lazily, for a long Fixed op — never on the Scale path). The per-instance
+  `_lt_exp_cache` keys on the window too.
+- **H-LTS-e Straight-segment fast path.** `expand` walks a `Seg` through
+  `_walk_seg` (dash / dot endpoints by linear interpolation inline — no
+  per-dash `pw.split` / `point_at` / type dispatch). Same output (dash-path
+  fingerprint identical on shape A's 2,000 real segments), 2.1× faster
+  (57.9 → 27.4 ms per zoom step); also speeds Scale mode and PDF.
+- **H-LTS-f Authoring.** Panel row **On screen** (`Fixed size` | `Scale with
+  zoom`, enum, under Size, tooltip) in `capability_panel.capability_rows`;
+  write-back `linetype_authoring.set_repeat_field("On screen")` through
+  `set_block_capability` (one undo step; a same-value pick is a no-op).
+  `begin_linetype` seeds `screen: "fixed"` (LTS-5). Repeat frame ring and
+  panel swatch untouched (LTS-6).
 
-- **G-LTS1** a Fixed-linetype line's dash run measures the same px at two
-  zooms (pixel-run measurement).
-- **G-LTS2** a Scale-with-zoom line's dash run doubles at 2× zoom (today's
-  behaviour kept).
-- **G-LTS3** a sheet viewport on screen and its PDF plot true mm whatever the
-  flag.
-- **G-LTS4** two collinear Fixed lines read seamless at a fixed zoom.
-- **G-LTS5** a Fixed line shorter than one period on screen paints solid.
-- **G-LTS6** a linetype saved without the property loads Scale with zoom; a
-  newly turned-on linetype seeds Fixed; the property survives `.fpd` /
-  `.fpdb` round trips.
-- **G-LTS7** the LTS-8 bench, shapes A, B and C, against its bar.
-- **G-LTS8** a 100 m Fixed line zoomed in past `LINETYPE_MAX_PERIODS`
-  on-screen periods still paints dashes (pixel run), and a short line inside
-  a placed block paints solid while a long edge of the same block stays
-  dashed.
+Known trade-off (accepted): two views of one plan scene at different zooms
+(plan + a detail view) share the per-instance `_lt_exp_cache` slot, so each
+repaint of the other view re-expands that instance's Fixed ops.
+
+### LTS guards (VC3) — as built
+
+Real paint (`scene.render` into an image, or a real PDF), observable pixels:
+
+- `tests/test_lts_data.py` — LTS-1/LTS-5 data: keyless = Scale (dict
+  byte-identical), Fixed survives `to_dict` / `from_dict`, bad value
+  normalises.
+- `tests/test_lts_canvas.py` — **G-LTS1** (raw Block Editor line and a placed
+  plan block: dash 36 px at two zooms), **G-LTS2** (Scale raw doubles at 2×;
+  Scale placed block still follows the drawing scale), **G-LTS4** (Fixed
+  collinear off-grid split ≡ one line). G-LTS1 shown RED before the build.
+- `tests/test_lts_short.py` — **G-LTS5** (a raw line wholly inside a gap
+  paints solid) + **Δ2** (in one placed block a short line paints solid, the
+  long edge stays dashed); RED before the build.
+- `tests/test_lts_window.py` — **G-LTS8** (a 100 m Fixed line at 400 px/mm,
+  past the period cap, paints 36 px dashes — raw and placed; the placed guard
+  RED with the block window disabled), windowed ≡ full expansion inside the
+  window, `visible_spans` Seg / Arc, short pieces ignore the window (one
+  cache key).
+- `tests/test_lts_panel.py` — row, seed, one undo step, no-op re-pick.
+- `tests/test_lts_pdf.py` — **G-LTS3**, PDF half: a Fixed linetype prints
+  6.0 mm dashes at 1:100 (RED with `length_factor`'s paper bypass removed:
+  one solid 15 mm stroke). The on-screen sheet viewport shares the same paper
+  pass (`paper_pass_active()`), so it is covered by the same branch, not by a
+  separate pixel guard.
+- `tests/test_lts_perf.py` — **G-LTS7**, report-only (see LTS-8).
+- **G-LTS6** `.fpd` / `.fpdb` round trip — in the rewritten
+  `tests/test_lt4_roundtrip.py` (seeded dicts carry `screen: "fixed"`; the
+  `.fpdb` reload asserts it).
+
+Contract-retired + rewritten (LTS-5 retires the Scale seed):
+`tests/test_lt4_toggle.py` (two seed asserts),
+`tests/test_lt4_roundtrip.py` (seeded dicts),
+`tests/test_lt4_panel.py::test_rows_for_a_linetype` (roster gains On screen).
 
 ## Acceptance Criteria
 
