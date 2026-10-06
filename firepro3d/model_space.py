@@ -1662,12 +1662,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"``, or None.
             push_undo: Push one undo step (False inside a grip drag, an undo
                 restore or a composite edit -- the caller owns the step).
+
+        Raises:
+            ValueError: *cap*'s kind is not ``"tile"`` / ``"repeat"`` (the
+                slot and frame are left unchanged).
         """
         from PyQt6 import sip
+        from .capability_frame import frame_for
         new = (str(cap[0]), dict(cap[1])) if cap and cap[1] else None
         f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
             self._cap_frame = f = None       # swept out of the scene elsewhere
+        # Build any new frame BEFORE mutating: an unknown kind raises here.
+        built = (frame_for(self, new[0]) if new is not None
+                 and (f is None or f.KIND != new[0]) else None)
         if f is not None and (new is None or f.KIND != new[0]):
             f.setSelected(False)
             self.removeItem(f)
@@ -1677,8 +1685,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.block_capability = new
         if new is not None:
             if f is None:
-                from .capability_frame import frame_for
-                self._cap_frame = frame_for(self, new[0])
+                self._cap_frame = built
                 self.addItem(self._cap_frame)
             self._cap_frame.invalidate_preview()
         if push_undo:

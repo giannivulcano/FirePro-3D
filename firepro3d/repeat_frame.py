@@ -17,15 +17,25 @@ _MIN_LEN = 0.1            # mm -- the grip can't collapse the frame
 
 
 class RepeatFrame(CapabilityFrameItem):
-    """The linetype unit frame of one Block Editor scene."""
+    """The linetype unit frame of one Block Editor scene.
+
+    Args:
+        scene: The Block Editor ``Model_Space`` whose repeat this draws.
+    """
 
     KIND = "repeat"
 
     def _length(self) -> float:
+        """The repeat Length (mm); 0 when unset or malformed (never raises:
+        bounds / paint run inside Qt virtuals, where an exception aborts)."""
         c = self._cap()
-        return float(c["length"]) if c else 0.0
+        try:
+            return float(c.get("length", 0.0)) if c else 0.0
+        except (TypeError, ValueError):
+            return 0.0
 
     def _rect(self) -> QRectF:
+        """The unit frame: origin to Length, +-half-height about the axis."""
         hh = REPEAT_FRAME_HALF_H_MM
         return QRectF(0.0, -hh, self._length(), 2.0 * hh)
 
@@ -35,9 +45,11 @@ class RepeatFrame(CapabilityFrameItem):
         return r.adjusted(-r.width(), 0.0, r.width(), 0.0)
 
     def _circular_grips(self) -> set:
+        """The Length grip draws circular."""
         return {_LEN_GRIP}
 
     def _paint_ring(self, painter, pen, col) -> None:
+        """One period each side through the real linetype expansion."""
         from .linetype_render import LinetypeDef, draw_expansion, expand
         from .path_walk import Seg
         d = self.scratch_definition()
@@ -63,4 +75,5 @@ class RepeatFrame(CapabilityFrameItem):
         prims = [it.to_dict() for it in editor.gather_primitives()
                  if hasattr(it, "to_dict")] if editor is not None else []
         c["length"] = max(pos.x(), content_end(prims), _MIN_LEN)
+        c.setdefault("size", "drafting")
         self._sc.set_block_capability(("repeat", c), push_undo=False)

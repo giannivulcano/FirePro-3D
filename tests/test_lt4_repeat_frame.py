@@ -69,3 +69,37 @@ def test_ring_paints_dashes_outside_the_frame(qapp):
                    for x in range(x0, x1) for y in (19, 20))
     assert lit(15, 65)                            # ring dash painted
     assert not lit(75, 95)                        # ring gap empty
+
+
+def test_repeat_without_length_never_raises(qapp):
+    """Review G3 M2: a malformed repeat (no length) must not raise inside the
+    Qt virtuals (boundingRect / paint) -- that aborts the process."""
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    _, sc = _editor((0, 6))
+    sc.set_block_capability(("repeat", {"size": "drafting"}))
+    f = sc.capability_frame_item()
+    assert isinstance(f, RepeatFrame) and f.scene() is sc
+    assert f.boundingRect().width() == 2.0       # zero-length rect + 1 mm pad
+    assert f.grip_points() == [QPointF(0.0, 0.0)]
+    img = QImage(100, 40, QImage.Format.Format_ARGB32)
+    img.fill(QColor(0, 0, 0, 0))
+    p = QPainter(img)
+    try:
+        f.paint(p, None)
+    finally:
+        p.end()
+
+
+def test_frame_for_rejects_unknown_kind(qapp):
+    """Review G3 M1: an unknown kind raises and leaves the slot unchanged."""
+    import pytest
+    from firepro3d.capability_frame import frame_for
+    _, sc = _editor()
+    with pytest.raises(ValueError, match="unknown capability kind: 'bogus'"):
+        frame_for(sc, "bogus")
+    sc.set_block_capability(("repeat", {"length": 9.0, "size": "drafting"}))
+    f = sc.capability_frame_item()
+    with pytest.raises(ValueError):
+        sc.set_block_capability(("bogus", {"a": 1}))
+    assert sc.block_repeat == {"length": 9.0, "size": "drafting"}
+    assert sc.capability_frame_item() is f and f.scene() is sc

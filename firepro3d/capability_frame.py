@@ -27,12 +27,25 @@ _HIT_PX = 8.0                 # frame pick stroke width, screen px
 
 
 def frame_for(scene, kind: str):
-    """The frame item for *kind* (``"tile"`` / ``"repeat"``)."""
+    """Build the frame item for one capability kind.
+
+    Args:
+        scene: The Block Editor ``Model_Space`` the frame draws.
+        kind: ``"tile"`` (hatch D-A32) or ``"repeat"`` (linetypes LT4).
+
+    Returns:
+        A new ``TileFrame`` / ``RepeatFrame`` (not yet added to *scene*).
+
+    Raises:
+        ValueError: *kind* is neither ``"tile"`` nor ``"repeat"``.
+    """
     if kind == "repeat":
         from .repeat_frame import RepeatFrame
         return RepeatFrame(scene)
-    from .tile_frame import TileFrame
-    return TileFrame(scene)
+    if kind == "tile":
+        from .tile_frame import TileFrame
+        return TileFrame(scene)
+    raise ValueError(f"unknown capability kind: {kind!r}")
 
 
 class CapabilityFrameItem(QGraphicsItem):
@@ -66,9 +79,11 @@ class CapabilityFrameItem(QGraphicsItem):
 
     # ── geometry ──────────────────────────────────────────────────────────
     def boundingRect(self) -> QRectF:
+        """The preview ring plus a 1 mm pad (paint never leaves it)."""
         return self._ring_rect().adjusted(-1.0, -1.0, 1.0, 1.0)
 
     def shape(self) -> QPainterPath:
+        """Pick shape: a screen-constant stroke around the frame outline."""
         from .view_scale import scene_hit_width
         p = QPainterPath()
         p.addRect(self._rect())
@@ -120,6 +135,7 @@ class CapabilityFrameItem(QGraphicsItem):
 
     # ── paint ─────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):
+        """35 % preview ring clipped outside the frame, then the dashed rect."""
         if self._cap() is None:
             return
         from . import theme as th
@@ -145,6 +161,7 @@ class CapabilityFrameItem(QGraphicsItem):
 
     # ── manipulator protocol (U3) ─────────────────────────────────────────
     def manip_handles(self):
+        """Grip handles at ``grip_points`` (circular per ``_circular_grips``)."""
         from .manip_handle import default_grip_handles
         return default_grip_handles(self, circular=self._circular_grips())
 
@@ -153,16 +170,19 @@ class CapabilityFrameItem(QGraphicsItem):
         frame is anchored at the block origin, so a body drag is inert."""
 
     def manip_capabilities(self) -> set:
+        """Translate only (inert; see ``manip_translate``)."""
         return {"translate"}
 
     # ── property panel ────────────────────────────────────────────────────
     def get_properties(self) -> dict:
+        """Panel rows: the Pattern tile rows for a tile; none (yet) for a repeat."""
         if self.KIND != "tile":
             return {}
         from .tile_frame import tile_properties
         return tile_properties(self._sc)
 
     def set_property(self, key, value) -> None:
+        """Apply one panel edit (tile only until the capability panel lands)."""
         if self.KIND != "tile":
             return
         editor = getattr(self._sc, "_tile_editor", None)
