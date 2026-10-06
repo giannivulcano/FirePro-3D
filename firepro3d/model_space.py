@@ -260,10 +260,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
-        # Block Editor pattern tile (hatch D-A32): {"w","h","row_shift","size"}
-        # or None. In the undo snapshot; the frame item mirrors it.
-        self.block_tile: dict | None = None
-        self._tile_frame = None          # TileFrameItem while a tile is set
+        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat):
+        # ("tile", {...}) | ("repeat", {...}) | None -- one slot (H4-a).
+        # In the undo snapshot; the frame item mirrors it.
+        self.block_capability: tuple | None = None
+        self._cap_frame = None           # CapabilityFrameItem while set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
         # Callable -> open Block Editors' scenes, registered on the project
         # scene by BlockEditorManager; the Display Manager weight-rename walker
@@ -586,8 +587,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = False
         self.selectionChanged.connect(self._on_selection_changed)
         if self.scene_role == "block_editor":
-            # Pattern-tile repeat preview follows every committed content edit.
-            self.sceneModified.connect(self._on_tile_content_changed)
+            # Capability-frame repeat preview follows every committed edit.
+            self.sceneModified.connect(self._on_capability_content_changed)
         # Scene-level selection manipulator (frame + rigid transforms) —
         # governing spec docs/specs/selection-manipulator.md.  One undo entry
         # per baked gesture via push_undo_state.
@@ -1628,45 +1629,67 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._block_registry_owner = owner
         registry.attach_scene(self)
 
+    @property
+    def block_tile(self) -> dict | None:
+        """The pattern tile dict (a copy), or None."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "tile" else None
+
+    @property
+    def block_repeat(self) -> dict | None:
+        """The linetype repeat dict (a copy), or None (linetypes LT4)."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "repeat" else None
+
+    def capability_frame_item(self):
+        """The Block Editor capability frame, or None."""
+        return self._cap_frame
+
     def tile_frame_item(self):
-        """The Block Editor tile frame, or None (no tile / not an editor)."""
-        return self._tile_frame
+        """The tile frame, or None (HF2 name; a repeat frame is not a tile)."""
+        c = self.block_capability
+        return self._cap_frame if c and c[0] == "tile" else None
 
     def set_block_tile(self, tile, *, push_undo: bool = True) -> None:
-        """Set / clear the edited block's pattern tile and sync the frame (D-A32).
+        """HF2 alias: set / clear the pattern tile through the one slot (D-A32)."""
+        self.set_block_capability(("tile", tile) if tile else None,
+                                  push_undo=push_undo)
+
+    def set_block_capability(self, cap, *, push_undo: bool = True) -> None:
+        """Set / clear the edited block's capability and sync the frame (H4-a).
 
         Args:
-            tile: Tile dict or None.
-            push_undo: Push one undo step (False inside a grip drag or an
-                undo restore — the caller owns the step).
+            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"``, or None.
+            push_undo: Push one undo step (False inside a grip drag, an undo
+                restore or a composite edit -- the caller owns the step).
         """
         from PyQt6 import sip
-        from .tile_frame import TileFrameItem
-        f = self._tile_frame
+        new = (str(cap[0]), dict(cap[1])) if cap and cap[1] else None
+        f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
-            self._tile_frame = None          # swept out of the scene elsewhere
-        if self._tile_frame is not None:
-            self._tile_frame.prepare_tile_change()   # bounds follow the tile
-        self.block_tile = dict(tile) if tile else None
-        if self.block_tile is None:
-            if self._tile_frame is not None:
-                self._tile_frame.setSelected(False)
-                self.removeItem(self._tile_frame)
-                self._tile_frame = None
-        else:
-            if self._tile_frame is None:
-                self._tile_frame = TileFrameItem(self)
-                self.addItem(self._tile_frame)
-            self._tile_frame.invalidate_preview()
+            self._cap_frame = f = None       # swept out of the scene elsewhere
+        if f is not None and (new is None or f.KIND != new[0]):
+            f.setSelected(False)
+            self.removeItem(f)
+            self._cap_frame = f = None
+        if f is not None:
+            f.prepare_capability_change()    # bounds derive from the slot
+        self.block_capability = new
+        if new is not None:
+            if f is None:
+                from .capability_frame import frame_for
+                self._cap_frame = frame_for(self, new[0])
+                self.addItem(self._cap_frame)
+            self._cap_frame.invalidate_preview()
         if push_undo:
             self.push_undo_state()           # emits sceneModified
         # push_undo=False: the owner of the step (grip commit hook / undo /
-        # seed re-baseline) pushes or emits — no per-drag-frame signal storm.
+        # seed re-baseline) pushes or emits -- no per-drag-frame signal storm.
 
-    def _on_tile_content_changed(self) -> None:
-        """sceneModified (editor role): rebuild the repeat preview lazily."""
-        if self._tile_frame is not None:
-            self._tile_frame.invalidate_preview()
+    def _on_capability_content_changed(self) -> None:
+        """sceneModified (editor role): rebuild the frame preview lazily."""
+        if self._cap_frame is not None:
+            self._cap_frame.invalidate_preview()
 
     @property
     def block_registry(self):
@@ -2417,8 +2440,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                    for bid, d in self._block_definitions.items()},
             "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self.constraint_ctl.capture(),
-            # Block Editor pattern tile (hatch D-A32); None elsewhere.
-            "block_tile":         dict(self.block_tile) if self.block_tile else None,
+            # Block Editor capability (D-A32 / LT4); None elsewhere.
+            "block_capability": ([self.block_capability[0],
+                                  dict(self.block_capability[1])]
+                                 if self.block_capability else None),
         }
 
     def _restore_network(self, state: dict):
@@ -2708,9 +2733,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ── Constraints (after every item is recreated) ───────────────
             self.constraint_ctl.restore(state.get("constraints", []))
 
-            # ── Pattern tile (Block Editor, D-A32) ────────────────────────
-            if state.get("block_tile") or self.block_tile is not None:
-                self.set_block_tile(state.get("block_tile"), push_undo=False)
+            # ── Capability (Block Editor tile / repeat; D-A32, LT4) ───────
+            cap = state.get("block_capability")
+            if cap is None and state.get("block_tile"):
+                cap = ("tile", state["block_tile"])        # pre-LT4 snapshot
+            if cap or self.block_capability is not None:
+                self.set_block_capability(tuple(cap) if cap else None,
+                                          push_undo=False)
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings

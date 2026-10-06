@@ -150,6 +150,7 @@ class TileFrameItem(QGraphicsItem):
     #: Anchored at the block origin (D-A32): a manipulator body move bakes
     #: nothing and pushes no undo step (``SelectionManipulator._bake_move``).
     MANIP_ANCHORED = True
+    KIND = "tile"
 
     def __init__(self, scene):
         super().__init__()
@@ -197,6 +198,9 @@ class TileFrameItem(QGraphicsItem):
 
     def prepare_tile_change(self) -> None:
         """Call BEFORE the scene's tile changes: the bounds derive from it."""
+        self.prepareGeometryChange()
+
+    def prepare_capability_change(self) -> None:
         self.prepareGeometryChange()
 
     def invalidate_preview(self) -> None:
