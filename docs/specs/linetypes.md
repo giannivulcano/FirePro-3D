@@ -1529,9 +1529,11 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   and resolves to the project row with that mm, else the nearest (names never
   matter). In the new factory table the 0.13 defaults land on Thinnest 0.18.
 - **MW-6 Missing names** (Q9). A stored reference to a name the project table
-  lacks: an **old factory name** resolves via its old factory mm to the
-  nearest row; any other unknown name keeps the 0.25 mm fallback. Names
-  present in the table (or LT2 aliases) are untouched.
+  lacks: a **factory name — old or new set** (user, 2026-10-06 plan probe:
+  Paper-tab categories are stored by name in global QSettings, so names must
+  survive both directions) — resolves via its factory mm to the nearest row;
+  any other unknown name keeps the 0.25 mm fallback. Names present in the
+  table (or LT2 aliases) are untouched.
 - **MW-7 Crisp strokes** (Q10, Q20). A horizontal / vertical **weight-mapped**
   stroke of N px renders as exactly N full-intensity rows / columns at any
   coordinate or zoom; diagonals and curves stay anti-aliased. Scope: 2D
@@ -1572,7 +1574,9 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
 - **H-MW-a Data.** `LineWeightDef` gains `model_px: int | None` (None = Auto),
   persisted as an optional `"model_px"` in every list form (`.fpd`
   `paper_display.line_weights`, QSettings `paper/line_weights`,
-  `_parse_weight_list`); absent → Auto. `.fpdb` gains an optional
+  `_parse_weight_list`); absent → Auto, and the key is **omitted** when None
+  (Δ6 — a saved Auto row is byte-identical to today's). Every copy site
+  carries the field (one `LineWeightDef` copy helper). `.fpdb` gains an optional
   `weight_model_px: {name: px}` beside `weights` (overrides of used names
   only; merged project-wins; no schema bump).
 - **H-MW-b Factor.** QSettings `view/model_weight_factor`, factory
@@ -1598,36 +1602,50 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   text-border default mm 0.25 likewise. `nearest_weight_name(mm)` (exact, else
   nearest, tie → thinner) resolves them against the live project table where
   a factory default is materialised (factory category build, Model "Blocks"
-  fallback, new `TextAnnotationData`). `resolve_line_weight_mm` /
-  `canvas_px_for_weight`: exact or alias hit; else a legacy factory name → its
-  old mm → nearest row; else 0.25 mm.
+  fallback, new `TextAnnotationData`); the import-time
+  `FACTORY_PAPER_CATEGORIES` dict becomes a live builder
+  (`factory_paper_categories()`, Δ6). `resolve_line_weight_mm` /
+  `canvas_px_for_weight`: exact or alias hit; else a factory name (old or new
+  set) → its factory mm → nearest row; else 0.25 mm.
 - **H-MW-f Crisp axis-split.** New `crisp_stroke.py`:
   `split_axis(path, xf) -> CrispSplit(axis, other, joints)` partitions the
-  straight elements of a path (mapped by the item / pose 2×2) into maximal
-  runs of axis-aligned segments (device deviation < 0.5 px over the segment)
+  straight elements of a path into maximal runs of **exactly** axis-aligned
+  segments — in scene space after the item / pose / group rotation taken
+  from the painter's world transform, 1e-6 tolerance for float noise (Δ3:
+  zoom-independent; a near-horizontal hand-drawn line stays AA as today) —
   kept as joined subpaths, and everything else (all curve elements) into
   `other`; `joints` are axis↔other junction vertices. `draw_split(painter,
   split, pen)` draws `axis` with Antialiasing off and `other` with it on, and
-  stamps a pen-width round dot at each joint. Splits are cached on geometry /
-  2×2 change, never per paint (views never rotate). Consumers: the
+  stamps a pen-width round dot at each joint. Cosmetic pens only (paper /
+  PDF non-cosmetic pens draw unsplit, as `hatch_render` already does). A
+  Qt-dashed pen is split only when the **whole** path is axis (Δ4 — Qt
+  restarts the dash pattern per subpath); otherwise it draws all AA. Splits
+  are cached on value (geometry + rotation), never on zoom. Consumers: the
   continuous stroke of `Geometry2DMixin` primitives (fills unchanged);
-  `linetype_render.paint_stroke` dash pieces; `BlockInstance` stroke ops
-  (split cached per compiled op, definition-local; used when the pose is
-  axis-preserving — rotation a multiple of 90°, no shear — else all AA);
-  the `TextItem` frame; underlays (each batch built as an axis
-  `_UnderlayPathItem` drawn aliased + an other one, same layer / data tags —
-  the batch's consumers (paper re-pen, snap index, freeze, Underlay Manager)
-  are re-verified in the plan, P3). Selection highlights, glyphs, axes,
-  system items and paper are unchanged.
+  `linetype_render.paint_stroke` dash pieces (each dash its own subpath);
+  `BlockInstance` stroke ops (split cached per compiled op on the instance,
+  keyed by ops-list identity + op index + pose rotation; text / fill ops
+  never split); the `TextItem` frame; underlays — split **inside
+  `_UnderlayPathItem.paint`** with a per-item cache (Δ1: the item count and
+  every batch consumer are unchanged; the freeze capture already draws
+  aliased). Selection highlights, glyphs, axes, system items and paper are
+  unchanged.
 - **H-MW-g Tint.** `ConstraintController.tint_color(item) -> QColor | None`:
   the D39 state colour only in a Block Editor scene with the controller
   enabled and Constraint Status on, for a uid-bearing item that is not
-  selected, text or a spline, and never during a paper pass.
-  `Geometry2DMixin._sync_stroke_pen` colour = tint, else display colour, else
-  `style.colour` (the unstyled branch — reference lines — takes the tint
-  too). `BlockInstance` applies a canvas tint to **stroke ops only**, ahead of
-  selection. The controller `update()`s items whose state changed and all
-  participants on a Constraint Status toggle. Retired: `constraint_paint`
+  selected, text or a spline, and never during a paper pass. A uid absent
+  from the diagnostics is untinted (`SketchDiag.state` reads unknown uids as
+  "free"). The tint is applied to a **painter-local pen copy** in the stroke
+  draw (`draw_split` / `paint_stroke`) — never `setPen`, so it can't leak into
+  `to_dict`, the panel or scene-tool pen copies (Δ2; a reference line's
+  colour lives only in its pen). `BlockInstance` applies it to **stroke ops
+  only**, ahead of selection. `tint_color` reads a uid→state map memoised per
+  diagnostics result (Δ5 — `diagnostics()` rebuilds its key over every item,
+  so per-item calls would be O(n²) per frame); when a new result is first
+  observed the controller `update()`s items whose state changed (at most one
+  frame stale); a Constraint Status toggle repaints the viewport (existing
+  `_repaint`). Callers read the hook via `getattr` (tests install fake
+  controllers). Retired: `constraint_paint`
   `_tint_pen` / `_paint_tint` / `_item_width` and `M.CONSTRAINT_TINT_EXTRA_PX`.
 - **H-MW-h UI.** Line Weights tab third column (H3 snapshot / Cancel, Reset →
   new factory and Set as Default carry `model_px`; mm edits refresh Auto
