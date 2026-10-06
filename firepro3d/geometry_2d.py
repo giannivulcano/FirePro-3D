@@ -439,8 +439,9 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .hatch_patterns import picker_exclude
-            props.update(stroke_rows(self.style, self._tile_registry(),
-                                     picker_exclude(self.scene())))
+            props.update(stroke_rows(
+                self.style, self._tile_registry(), picker_exclude(self.scene()),
+                locked=getattr(self.scene(), "block_repeat", None) is not None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3550,9 +3551,12 @@ _LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
                  "from the Linetypes folder load into the project when picked.")
 _WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
                "(shown in brackets); a named weight overrides it.")
+_LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
+_LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
+                      "(set it in the Repeat section)")
 
 
-def stroke_rows(style: dict, registry, exclude=()) -> dict:
+def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -3561,6 +3565,8 @@ def stroke_rows(style: dict, registry, exclude=()) -> dict:
             current).
         registry: Project block registry (or None).
         exclude: Linetype ids the picker must not offer (``picker_exclude``).
+        locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
+            the Linetype row is disabled with a "why" tooltip.
     """
     from .paper_display import weight_names
     from .linetype_choices import linetype_choices, missing_label
@@ -3575,13 +3581,17 @@ def stroke_rows(style: dict, registry, exclude=()) -> dict:
         options = [value] + options
     by_lt = weight_label(BY_LINETYPE, lt, registry)
     w = style["weight"]
-    return {
+    rows = {
         "Linetype": {"type": "enum", "options": options, "value": value,
                      "tooltip": _LINETYPE_TIP},
         "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
                    "value": by_lt if w == BY_LINETYPE else w,
                    "tooltip": _WEIGHT_TIP},
     }
+    if locked:
+        rows["Linetype"]["disabled"] = True
+        rows["Linetype"]["tooltip"] = _LOCKED_LINETYPE_TIP
+    return rows
 
 
 class GeometryTemplate:
@@ -3609,6 +3619,8 @@ class GeometryTemplate:
     def get_properties(self) -> dict:
         from . import stroke_style as ss
         cur = ss.current_style()
+        if getattr(self._scene_ref, "block_repeat", None) is not None:
+            return self._linetype_unit_properties(cur)
         if (ss.is_linetype_ref(cur["linetype"])
                 and ss.linetype_block(cur["linetype"], self._registry()) is None):
             ss.set_current(linetype=ss.CONTINUOUS)       # WM1: not in this project
@@ -3621,6 +3633,25 @@ class GeometryTemplate:
         props["Weight"]["tooltip"] = (
             "Line weight for the next primitive you draw (kept between sessions). "
             "By Linetype uses the linetype's designed weight (shown in brackets).")
+        return props
+
+    def _linetype_unit_properties(self, cur: dict) -> dict:
+        """Rows inside a linetype Block Editor (LT4-4 / H4-f).
+
+        Show what ``stroke_style.apply_current`` will actually stamp on the
+        next primitive -- Continuous and the linetype's dash Weight (the
+        current Weight when there is no single dash weight) -- both locked.
+        The stored current is never changed here (WM-10).
+        """
+        from . import stroke_style as ss
+        from .linetype_authoring import pattern_weight
+        shown = {"linetype": ss.CONTINUOUS,
+                 "weight": pattern_weight(self._scene_ref) or cur["weight"]}
+        props = {"Type": {"type": "label", "value": "Geometry"}}
+        props.update(stroke_rows(shown, self._registry(), self._exclude(),
+                                 locked=True))
+        props["Weight"]["disabled"] = True
+        props["Weight"]["tooltip"] = _LOCKED_WEIGHT_TIP
         return props
 
     def set_property(self, key: str, value):

@@ -1384,3 +1384,166 @@ class ActionRowList(QWidget):
     def trigger(self, i: int, key: str) -> None:
         """Click row *i*'s *key* action button (as a user would)."""
         self._actions[i][key].click()
+
+
+_PATTERN_TIPS = {"dash": "Dash — a drawn length along the line",
+                 "gap": "Gap — an empty length along the line",
+                 "dot": "Dot — a point (no length)"}
+_LAST_MARK_TIP = "A linetype needs at least one dash or dot"
+
+
+class PatternList(QWidget):
+    """Editable Dash / Gap / Dot rows for a linetype (linetypes.md LT4-1/LT4-2).
+
+    Domain-free: rows are ``(kind, length_mm)`` with kind ``"dash"`` /
+    ``"gap"`` / ``"dot"`` (a dot's length is ignored). Every edit -- a length
+    commit, move, remove, add -- calls ``on_commit(new_rows)`` with the WHOLE
+    list; the owner rebuilds the widget from its own state afterwards (the
+    property panel re-renders on every commit), so the widget never relies on
+    keeping focus across a commit.
+
+    Args:
+        rows: The rows, or None = read-only (``note`` explains why).
+        note: Read-only explanation shown above the (absent) rows.
+        field_factory: ``factory(mm) -> QWidget`` with ``value_mm()`` and an
+            ``editingFinished`` signal (the panel passes a ``DimensionEdit``).
+        on_commit: ``callable(list[tuple[str, float]])``.
+    """
+
+    def __init__(self, rows, *, note: str = "", field_factory, on_commit,
+                 parent=None):
+        super().__init__(parent)
+        t = _detect()
+        self._rows = [tuple(r) for r in rows] if rows is not None else None
+        self._commit = on_commit
+        self.setObjectName("patternList")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            f"QLabel {{ font-size: {M.PROP_FIELD_FS}px; color: {t.ink};"
+            f" background: transparent; }}"
+            f"QLabel#patternKind {{ color: {t.muted}; }}"
+            f"QLabel#patternNote {{ color: {t.warn}; }}"
+            f"QWidget#actionRow {{ border-left: 2px solid transparent; }}"
+            f"QWidget#actionRow[hot=\"true\"] {{ border-left: 2px solid {t.accent};"
+            f" background: {t.raised}; }}"
+            f"QToolButton#actionRowBtn {{ color: {t.muted}; background: transparent;"
+            f" border: none; border-radius: 3px; padding: 0;"
+            f" font-size: {M.ACTION_ROW_BTN_FS}px; }}"
+            f"QToolButton#actionRowBtn:hover {{ color: {t.ink}; background: {t.line}; }}"
+            f"QToolButton#actionRowBtn:disabled {{ color: {t.faint}; }}")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._note = QLabel(note)
+        self._note.setObjectName("patternNote")
+        self._note.setWordWrap(True)
+        self._note.setVisible(bool(note))
+        lay.addWidget(self._note)
+        if self._rows is None:
+            return
+        marks = sum(1 for k, _ in self._rows if k in ("dash", "dot"))
+        for i, (kind, mm) in enumerate(self._rows):
+            row = _ActionRow()
+            row.setFixedHeight(M.PROP_FIELD_H)
+            row.setToolTip(_PATTERN_TIPS[kind])
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(*M.ACTION_ROW_MARGIN)
+            rl.setSpacing(M.ACTION_ROW_GAP)
+            k = QLabel(kind.capitalize())
+            k.setObjectName("patternKind")
+            k.setFixedWidth(M.PATTERN_KIND_W)
+            rl.addWidget(k)
+            if kind == "dot":
+                rl.addWidget(QLabel("—"), 1)
+            else:
+                f = field_factory(mm)
+                f.setToolTip(_PATTERN_TIPS[kind])
+                f.editingFinished.connect(
+                    lambda i=i, f=f: self._set_length(i, f.value_mm()))
+                rl.addWidget(f, 1)
+            last_mark = kind in ("dash", "dot") and marks == 1
+            for glyph, tip, cb, enabled in (
+                    ("▲", "Move up", lambda _=False, i=i: self._move(i, -1), i > 0),
+                    ("▼", "Move down", lambda _=False, i=i: self._move(i, 1),
+                     i < len(self._rows) - 1),
+                    ("✕", _LAST_MARK_TIP if last_mark else "Remove",
+                     lambda _=False, i=i: self._remove(i), not last_mark)):
+                b = QToolButton()
+                b.setObjectName("actionRowBtn")
+                b.setText(glyph)
+                b.setToolTip(tip)
+                b.setFixedSize(M.ACTION_ROW_BTN_PX, M.ACTION_ROW_BTN_PX)
+                b.setEnabled(enabled)
+                b.clicked.connect(cb)
+                rl.addWidget(b)
+            lay.addWidget(row)
+        adds = QHBoxLayout()
+        adds.setContentsMargins(0, M.PROP_ROW_GAP, 0, 0)
+        adds.setSpacing(M.PATTERN_ADD_GAP)
+        for kind, label in (("dash", "+ Dash"), ("gap", "+ Gap"), ("dot", "+ Dot")):
+            b = QToolButton()
+            b.setText(label)
+            b.setToolTip(f"Add a {kind} at the end")
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.clicked.connect(lambda _=False, k=kind: self._add(k))
+            adds.addWidget(b)
+        lay.addLayout(adds)
+
+    def note_text(self) -> str:
+        """The read-only note (empty when editable)."""
+        return self._note.text()
+
+    def _emit(self, rows) -> None:
+        self._commit([tuple(r) for r in rows])
+
+    def _set_length(self, i, mm) -> None:
+        if mm is None or mm <= 0 or mm == self._rows[i][1]:
+            return
+        rows = list(self._rows)
+        rows[i] = (rows[i][0], float(mm))
+        self._emit(rows)
+
+    def _move(self, i, d) -> None:
+        rows = list(self._rows)
+        j = i + d
+        rows[i], rows[j] = rows[j], rows[i]
+        self._emit(rows)
+
+    def _remove(self, i) -> None:
+        rows = list(self._rows)
+        del rows[i]
+        self._emit(rows)
+
+    def _add(self, kind) -> None:
+        # Seed lengths mirror the LT4-6 starter unit (Dash 6 / Gap 3).
+        self._emit(list(self._rows)
+                   + [(kind, {"dash": 6.0, "gap": 3.0}.get(kind, 0.0))])
+
+
+class PaintSwatch(QWidget):
+    """Fixed-height strip painted by a domain callback (LT4-7 preview).
+
+    Args:
+        paint: ``callable(QPainter, QRectF)`` -- draws inside the rect.
+        height: Fixed height in px.
+    """
+
+    def __init__(self, paint, *, height: int, parent=None):
+        super().__init__(parent)
+        self._paint = paint
+        self.setFixedHeight(int(height))
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def paintEvent(self, event):
+        t = _detect()
+        p = QPainter(self)
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            r = QRectF(self.rect())
+            p.fillRect(r, QColor(t.sunken))
+            p.setPen(QColor(t.line))
+            p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
+            self._paint(p, r)
+        finally:
+            p.end()

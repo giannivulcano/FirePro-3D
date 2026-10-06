@@ -161,6 +161,9 @@ class _Metrics:
     ACTION_ROW_BTN_PX = 20       # small square action button
     ACTION_ROW_BTN_FS = 13       # action glyph font (px)
     ACTION_ROW_SUB_FS = 10       # muted subtext font (px)
+    # ui_kit.PatternList (LT4 linetype Dash/Gap/Dot rows; live Qt gate 2026-10-05)
+    PATTERN_KIND_W = 34          # Dash / Gap / Dot kind label column
+    PATTERN_ADD_GAP = 4          # + Dash / + Gap / + Dot button spacing
     DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
     DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
     # empty-canvas placeholder (canvas_placeholder.py — mockup-approved 2026-09-30)

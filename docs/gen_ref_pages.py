@@ -41,6 +41,8 @@ TIERS = {
     "Utilities": [
         "cad_math", "geometry_utils", "geometry_intersect", "format_utils",
         "hatch_patterns", "hatch_render", "render_op", "tile_frame",
+        "capability_frame", "repeat_frame", "capability_panel",
+        "linetype_authoring", "linetype_pattern",
         "constants", "displayable_item",
         "sprinkler_db", "sprinkler_system", "assets",
     ],

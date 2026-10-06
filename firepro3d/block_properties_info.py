@@ -17,12 +17,17 @@ class BlockPropertiesInfo:
         Args:
             scene: The Block Editor ``Model_Space``.
             name: The block's display name.
-            editor: The owning ``BlockEditorWidget`` (Pattern tile rows edit
-                through it); None = tile rows read-only.
+            editor: The owning ``BlockEditorWidget`` (the capability rows --
+                Pattern tile / Linetype -- edit through it); None = those
+                rows read-only.
         """
         self._scene = scene
         self._name = name
         self._editor = editor
+        # The panel's ScaleManager source (PropertyManager._get_scale_manager):
+        # dimension fields follow the project's display units. Deliberately
+        # not a ``scene()`` method -- see the module docstring.
+        self._scene_ref = scene
 
     def get_properties(self) -> dict:
         ctl = self._scene.constraint_ctl
@@ -36,14 +41,14 @@ class BlockPropertiesInfo:
                             "readonly": True},
             "Status": {"type": "status", "value": text, "state": state},
         }
-        # Pattern tile (hatch D-A32): the same rows the selected frame shows.
-        from .tile_frame import tile_properties
-        props["Pattern"] = {"type": "header", "value": ""}
-        props.update(tile_properties(self._scene))
+        # Capability (hatch D-A32 tile / linetypes LT4 repeat): the same rows
+        # the selected capability frame shows.
+        from .capability_panel import capability_rows
+        props.update(capability_rows(self._scene))
         return props
 
     def set_property(self, key, value) -> None:
-        """Block facts are read-only; the Pattern tile rows edit the tile."""
+        """Block facts are read-only; the capability rows edit the capability."""
         if self._editor is not None:
-            from .tile_frame import set_tile_property
-            set_tile_property(self._scene, self._editor, key, value)
+            from .capability_panel import set_capability_property
+            set_capability_property(self._scene, self._editor, key, value)

@@ -4802,8 +4802,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # re-show it while nothing is selected.
         sc.constraint_ctl.panel_fallback = self._get_active_view_info
         sc.sceneModified.connect(self._refresh_block_view)
-        # Pattern Tile button follows panel toggles and undo/redo (D-A32).
-        sc.sceneModified.connect(self._sync_tile_button)
+        # Pattern Tile / Linetype buttons follow panel toggles and undo/redo
+        # (hatch D-A32, linetypes LT4-11f).
+        sc.sceneModified.connect(self._sync_capability_buttons)
         # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
         sc.instructionChanged.connect(self.footer.set_instruction)
@@ -4915,6 +4916,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                 self._be_toggle_tile, checkable=True),
             "Pattern tile — make this block a hatch pattern (repeats on a "
             "tile, fills regions, can't be placed as a symbol)")
+        self._be_linetype_btn = _editor_only(
+            gd.add_small_button("Linetype", _I("linetype_icon.svg"),
+                                self._be_toggle_linetype, checkable=True),
+            "Linetype — make this block a linetype (repeats along lines, "
+            "applied from a line's Linetype row, can't be placed as a symbol)")
 
         # --- 2D Geometry (editor-only) ---
         g = page.add_group("2D Geometry")
@@ -5164,7 +5170,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Re-sync the mode buttons for the (new) active scene: lights the
         # editor's running tool on entry, clears the page's buttons on leave.
         self._sync_mode_buttons(getattr(self._active_scene(), "mode", None))
-        self._sync_tile_button()
+        self._sync_capability_buttons()
 
     def _show_block_editor_ribbon(self):
         """An editor tab became current: switch to the Block Editor page and
@@ -5232,27 +5238,45 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             w.begin_import()
 
     def _be_toggle_tile(self, checked: bool = True):
-        """Ribbon "Pattern Tile" (``toggled``): set the active block's tile
-        on/off (hatch D-A32); a refused toggle (D-A34) snaps the check back."""
-        w = self._active_editor_widget()
-        if w is not None and bool(checked) != (w.editor_scene.block_tile is not None):
-            w.toggle_pattern_tile()
-        self._sync_tile_button()
+        """Ribbon "Pattern Tile" (``toggled``) — hatch D-A32."""
+        self._be_toggle_capability("tile", checked)
 
-    def _sync_tile_button(self) -> None:
-        """Check the Pattern Tile button iff the active editor's block is a tile."""
-        from PyQt6 import sip
-        btn = getattr(self, "_be_tile_btn", None)
-        if btn is None or sip.isdeleted(btn):
-            return
+    def _be_toggle_linetype(self, checked: bool = True):
+        """Ribbon "Linetype" (``toggled``) — linetypes LT4-11f."""
+        self._be_toggle_capability("repeat", checked)
+
+    def _be_toggle_capability(self, kind: str, checked: bool) -> None:
+        """Set the active block's *kind* capability on/off from the ribbon.
+
+        A refused toggle (D-A34 / LT4-5 / LT4-11a-b) snaps the check back.
+
+        Args:
+            kind: ``"tile"`` or ``"repeat"``.
+            checked: the button's new check state.
+        """
         w = self._active_editor_widget()
-        # Silent: the button is wired on ``toggled`` (ribbon _wire), so a
-        # programmatic check must not re-enter _be_toggle_tile.
-        blocked = btn.blockSignals(True)
-        try:
-            btn.setChecked(bool(w is not None and w.editor_scene.block_tile is not None))
-        finally:
-            btn.blockSignals(blocked)
+        if w is not None:
+            cap = w.editor_scene.block_capability
+            if bool(checked) != (cap is not None and cap[0] == kind):
+                w.toggle_capability(kind)
+        self._sync_capability_buttons()
+
+    def _sync_capability_buttons(self) -> None:
+        """Check Pattern Tile / Linetype iff the active editor's block is one."""
+        from PyQt6 import sip
+        w = self._active_editor_widget()
+        cap = w.editor_scene.block_capability if w is not None else None
+        for attr, kind in (("_be_tile_btn", "tile"), ("_be_linetype_btn", "repeat")):
+            btn = getattr(self, attr, None)
+            if btn is None or sip.isdeleted(btn):
+                continue
+            # Silent: the button is wired on ``toggled`` (ribbon _wire), so a
+            # programmatic check must not re-enter _be_toggle_capability.
+            blocked = btn.blockSignals(True)
+            try:
+                btn.setChecked(cap is not None and cap[0] == kind)
+            finally:
+                btn.blockSignals(blocked)
 
     def _be_edit_attributes(self):
         pass   # wired later — block attribute authoring

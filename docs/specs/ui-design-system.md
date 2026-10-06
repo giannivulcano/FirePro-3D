@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-10-02  # CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 7853334   # CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-10-06  # LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: b9b1094   # LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -291,6 +291,31 @@ class ActionRowList(QWidget):           # #actionRowList — titled row list (20
     def row_count(); row_text(i); row_subtext(i); row_actions(i); row_state(i)
     def footer_text(); footer_state()
     def trigger(i, key)                        # click row i's action button
+
+class PatternList(QWidget):             # #patternList — editable Dash/Gap/Dot rows (2026-10-06, LT4)
+    def __init__(self, rows, *, note="", field_factory, on_commit): ...
+    #   rows: [(kind, length_mm)], kind dash | gap | dot (a dot's length is ignored);
+    #   None = read-only: only the note (#patternNote, warn token) shows.
+    #   field_factory(mm) -> a widget with value_mm() + editingFinished (the panel
+    #   passes a DimensionEdit); on_commit(rows) gets the WHOLE list on every length
+    #   commit / move / remove / add -- the owner rebuilds the widget afterwards, so it
+    #   never relies on focus across a commit. Rows reuse the ActionRowList chrome
+    #   (_ActionRow hover bar, PROP_FIELD_H height, ACTION_ROW_* margins / gap /
+    #   ACTION_ROW_BTN_PX buttons): kind label (#patternKind, M.PATTERN_KIND_W) ·
+    #   length field (a dot shows "—") · ▲ / ▼ / ✕ (Move up / Move down / Remove; the
+    #   last dash-or-dot's ✕ is disabled with "A linetype needs at least one dash or
+    #   dot"); then a "+ Dash / + Gap / + Dot" row (M.PATTERN_ADD_GAP spacing; adds
+    #   Dash 6 / Gap 3 / Dot at the end). Glyphs are the geometric ▲ ▼ ✕, not arrow
+    #   characters: at the live Qt gate (user-approved 2026-10-05) the colour-font
+    #   arrows ignored the disabled state. Own QSS (tokens + M). Content-agnostic;
+    #   first consumer: the property panel's `pattern_list` row (linetypes.md LT4 H4-f).
+    def note_text()
+
+class PaintSwatch(QWidget):             # fixed-height strip painted by a callback (2026-10-06, LT4)
+    def __init__(self, paint, *, height): ...  # paint(QPainter, QRectF), Expanding width
+    #   Paints the sunken fill + a 1 px line border, then calls paint(painter, rect).
+    #   Domain-free; first consumer: the property panel's `stroke_preview` row (the
+    #   linetype sample-line + L swatch, linetypes.md LT4-7 / H4-f).
 ```
 
 `ToolbarBar` is a **styling hook only** (`#toolbarBar` + QSS), not a widget class.

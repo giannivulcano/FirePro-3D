@@ -1,23 +1,30 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4–LT8, WM2, WM3 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-05  # WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 123ead7   # WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
-applies-to:               # LT1 + LT2 + LT3 seams (built)
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+last-verified: 2026-10-06  # LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: b9b1094   # LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built)
+  - firepro3d/repeat_frame.py        # LT4 — RepeatFrame (repeat unit frame, Length grip, preview ring); shared frame base capability_frame.py is owned by hatch-and-fill.md
+  - firepro3d/linetype_pattern.py    # LT4 — pure rows ⇄ reading (rows_from_reading, spans, content_end / axis_end, validate_rows, SEED_ROWS)
+  - firepro3d/linetype_authoring.py  # LT4 — live rows ⇄ axis Lines (apply_pattern_rows), Weight row, Repeat field edits, begin_linetype, pre_capture hook, preview_painter
+  - firepro3d/capability_panel.py    # LT4 — capability panel rows + write-back (tile rows delegate to tile_frame.py, owned by hatch-and-fill.md)
+  - firepro3d/block_editor.py        # LT4: toggle_capability, capability seed on open, commit with capability only (rest owned by block-system.md)
+  - firepro3d/blocks_browser.py      # LT4: _linetype_badge / _capability_badge + library-row index flags only (rest owned by block-system.md)
+  - firepro3d/model_space.py         # LT4: block_capability slot + set_block_capability, push_undo_state pre-capture call, symbol_use_refusal / linetype_off_refusal, linetype users wording (_linetype_users_message), commit_block_definition capability= only (rest owned by block-system.md and others)
   - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category; LT2: Model Blocks weight, rename aliases, apply_project_weights, paper_pass_active
   - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge) only (rest owned by block-system.md)
   - firepro3d/display_manager.py     # LT1/LT2: Line Weights tab, weight in-use / rename / aliases, Model "Blocks" row only (rest owned by display-system)
-  - firepro3d/stroke_style.py        # LT2: stroke style record, migration, copy_style, canvas weight resolution; LT3: resolve_stroke cascade + linetype_block / linetype_ref_missing / is_linetype_ref
+  - firepro3d/stroke_style.py        # LT2: stroke style record, migration, copy_style, canvas weight resolution; LT3: resolve_stroke cascade + linetype_block / linetype_ref_missing / is_linetype_ref; LT4: apply_current linetype-editor branch (Continuous + pattern weight)
   - firepro3d/render_op.py           # LT2: RenderOp.weight; LT3: pieces + linetype only (type owned by hatch-and-fill.md)
   - firepro3d/path_walk.py           # LT3 — analytic pieces, arc length, axis phase, split, split_at_zero
-  - firepro3d/linetype_render.py     # LT3 — unit reading, expansion, paint_stroke / draw_expansion, missing badge
+  - firepro3d/linetype_render.py     # LT3 — unit reading, expansion, paint_stroke / draw_expansion, missing badge; LT4 — axis_role (the one per-Line LT3-3 role, shared by the reading and the Pattern list)
   - firepro3d/linetype_choices.py    # LT3 — panel Linetype picker source (project + Linetypes folder)
   - firepro3d/capability_folder.py   # LT3 parts — shared tile/repeat folder scan ("repeat" flag; the hatch side is owned by hatch-and-fill.md)
   - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile only (rest owned by block-system.md)
   - firepro3d/block_registry.py      # LT3: linetype refs in prim_refs, linetype_users_in, invalidate(was_linetype) only
-  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows only (the rest is owned by 2d-geometry.md)
+  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows only (the rest is owned by 2d-geometry.md)
   - firepro3d/geometry_drawing_controller.py  # WM1: apply_current at the 7 draw commits only
   - firepro3d/placement_input_coordinator.py  # WM1: scene-aware GeometryTemplate only
-  - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore only
+  - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore; LT4: ribbon Linetype toggle (_be_toggle_linetype / _be_toggle_capability / _sync_capability_buttons) only
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
 
@@ -25,7 +32,8 @@ source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-
 
 > **Greenfield spec (2026-10-02).** Forged by the linetype concept run (orphan
 > gate, greenfield path). At forging no linetype code existed (see *As-built
-> baseline*; LT1–LT3 have since built — each slice section is as-built). This
+> baseline*; LT1–LT4 and WM1 have since built — each built slice section is
+> as-built). This
 > spec owns **linetype + end-type definitions, the stroke style record, the
 > weight/linetype cascade and the stroke renderer contract**. Block storage,
 > capabilities and the registry stay owned by [`block-system.md`](block-system.md);
@@ -93,7 +101,9 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **D-L20 Authoring.** Draw inside a repeat frame (frame length = period) in
   the Block Editor, plus a property-panel numeric list (Dash / Gap / Dot)
   editing the same block; symbols by drawing only; live preview on a sample
-  line and polyline.
+  line and polyline. *(Amended 2026-10-05 by LT4-1/LT4-2: the drawn axis
+  Lines are canonical, the list is their view/editor and ripples — Length =
+  sum of rows.)*
 
 ### Weight and linetype cascade
 
@@ -946,6 +956,355 @@ By Linetype — seam ruling D). The three planned rewrites
 `test_render_op_compile`) proved unnecessary: the Continuous path is unchanged
 and the RenderOp fields are additive.
 
+## LT4 — `repeat` authoring: repeat frame, Pattern list, preview, badges (ratified 2026-10-05)
+
+> Slice contract for LT4 (concept LD6 authoring half; D-L20, D-L23a, LT3-3).
+> The *what* was settled in the LT4 Phase-2 grill (Q1–Q15, every row
+> user-ratified, 2026-10-05) and the *how* (H4-a–H4-g) approved section by
+> section in the brainstorm the same day. **BUILT 2026-10-06** on
+> `feat/lt4-repeat-authoring`, verified `b9b1094` — the *How* and guards below
+> are as built. Both P4 probes closed
+> 2026-10-05 (H4-a / H4-d: `push_undo_state` is the single commit funnel —
+> draw commits, `commit_paste`, editor import and Explode all push — so one
+> pre-capture hook serves grow-to-fit and the lock; no undo amend). The Pattern-list
+> layout was ratified on a browser mockup (layout A, 24 px rows, 64 px swatch)
+> and then on the **live Qt render under the app QSS** (user-approved
+> 2026-10-05, before build; rows = `M.PROP_FIELD_H`, swatch =
+> `PATTERN_PREVIEW_H_PX`).
+> The sticky current Linetype/Weight moved to WM1 (built); LT4 is authoring
+> only.
+>
+> **Build-time refinements** (who ratified): the live Qt gate incl. the
+> ▲ / ▼ / ✕ row glyphs (**user**, 2026-10-05); ribbon icon candidate A
+> (**user**, 2026-10-05 — [`icon-style-guide.md`](icon-style-guide.md) §5
+> deviation); the pre-placement template display rule (LT4-4), the A6 reword
+> and the empty-stack baseline skip (H4-a) (**orchestrator rulings** at the
+> reviews). Review findings folded in at Account: LT4-11e mixed wording,
+> LT4-11f group name, LT4-12 pre-origin case.
+
+### What (grill Q1–Q15)
+
+- **LT4-1 Geometry canonical** (Q1; *amends D-L20*). The drawn axis Lines ARE
+  the linetype (the LT3-3 reading); the Pattern list is a view and editor of
+  them. Content the list can't express — overlapping dashes, a dot inside a
+  dash — shows the note "Dashes overlap — edit on the canvas" and the rows (and
+  the Weight row) are read-only. The list always shows exactly what the
+  renderer reads.
+- **LT4-2 Ripple** (Q2). Rows are sequential (Dash / Gap / Dot, a Dot has no
+  length): editing a length, adding, removing or reordering a row shifts every
+  later element; **Length = sum of the rows**. The frame grip and the typed
+  Length row change only the trailing gap.
+- **LT4-3 Weight** (Q3). One **Weight** row on the linetype (By Category
+  (<Blocks weight>) | named) sets every axis dash Line's weight; hand-drawn
+  differing weights show `< mixed >` and still read "heaviest wins" (LT3-3).
+  By Category stores `by_linetype` on the dashes (→ Blocks category, WM-5).
+- **LT4-4 Continuous lock** (Q4; *implements D-L23a at authoring*). While the
+  edited block is a linetype, every primitive entering it is Continuous (the
+  sticky current is not changed); a new draw also takes the linetype's Weight.
+  A selected primitive's Linetype row is greyed ("Lines inside a linetype are
+  always Continuous"). Turning Linetype on converts existing non-Continuous
+  primitives in the same undo step ("N lines set to Continuous").
+  *(Amended at the LT4 Account — orchestrator ruling, seam review: the
+  pre-placement **Geometry template** shown while a draw tool is armed inside
+  a linetype editor DISPLAYS what the next draw gets — Continuous and the
+  linetype's dash Weight (the current Weight when there is no single dash
+  weight) — with both rows locked; the stored current is untouched (WM-10).)*
+- **LT4-5 Off while used** (Q5). Turning Linetype off is refused while any line
+  uses the block (definitions, plan, an open Block Editor) — same data and
+  wording family as delete; checked at the toggle and again at save.
+- **LT4-6 Seed** (Q6, Q7). On: Length = the axis content's end from the origin
+  (the list reads it); an empty unit seeds **Dash 6 · Gap 3**; Size seeds
+  **Drafting** (D-L3; unlike hatch D-A38). One undo step.
+- **LT4-7 Preview** (Q8). Canvas: the unit repeats one period each side of the
+  frame at 35 % (the HF2 ring look). Panel: a swatch strip draws a sample line
+  and an L polyline. Both draw through `linetype_render` (preview ≡ render) and
+  update on every edit.
+- **LT4-8 Other content** (Q9, Q10). A ripple moves only axis Lines; off-axis
+  content stays put. List edits move / resize the existing Lines in place (same
+  uid, style, constraints); a constraint the edit violates shows the existing
+  red unsatisfied state; a removed row deletes its Line and its constraints.
+- **LT4-9 Frame bounds** (Q12, Q13). Length never goes below the content end
+  (the grip stops, a typed value reverts). Drawing or moving an axis Line past
+  the end grows Length to fit in the same undo step; shrinking stays manual.
+  Axis content before 0 reads clamped (LT3-3) and the list shows that.
+- **LT4-10 Badges** (Q11). The Blocks browser badges linetypes (dash-dot glyph)
+  **and** patterns on project **and** library rows (the library `index.json`
+  `tile` / `repeat` flags); tooltip "Linetype — apply it from a line's
+  Linetype row; it can't be placed".
+- **LT4-11 Settled defaults** (Q14 a–i, batch-ratified): (a) Linetype on is
+  refused while the block is placed as a symbol (instances or nested; counts in
+  the message; re-checked at save — hatch D-A34 parity); (b) Linetype and
+  Pattern tile are exclusive — turning one on while the other is on is refused
+  with a status message; (c) **Save As keeps the linetype** (fixes the 1b
+  finding: the new-definition path dropped `repeat`); (d) a new linetype is
+  registered, never placed, and a Create-Block-from-selection source stays
+  untouched; (e) the delete refusal for a linetype used by blocks' lines reads
+  "“Hidden” is used by lines inside: Riser, Valve — change their linetype
+  first." (nesting users keep "explode or remove it there"; *amended at
+  Account:* when some blocks nest it and others' lines use it, both clauses
+  appear — "“Hidden” is used inside: Host, and by lines inside: Riser —
+  explode or remove it there, and change their linetype first." — and a block
+  that does both is named in both); (f) a ribbon
+  **Linetype** toggle beside Pattern Tile in the Block Editor tab's
+  **Definition** group (*amended at Account*; the spec first said "Block"),
+  checked state synced with the panel and undo / redo; (g) every toggle, list
+  edit, Weight / Size change and grip drag is one undo step; (h) tooltips on
+  every new control; (i) the Pattern list, frame and swatch are mockup-gated.
+- **LT4-12 Edge cases.** The last remaining dash / dot can't be removed (✕
+  disabled: "A linetype needs at least one dash or dot"); lengths must be > 0
+  (a bad entry reverts); undo / redo restores the capability, the Lines and
+  the frame together; reopening a linetype loads its capability into the undo
+  baseline. *Known behaviour (added at Account, review G4 M-6):* turning
+  Linetype on when the only axis content lies before the origin (e.g. a Line
+  −5..−1) finds no counted axis Line, so it seeds Dash 6 at 0..6 and the
+  pre-origin Line stays as dead on-axis content (the reading ignores it; the
+  list does not show it).
+
+### How (H4-a–H4-g) — as built
+
+- **H4-a One capability slot** (approach A). `Model_Space.block_capability` =
+  `None | ("tile", {w, h, row_shift, size}) | ("repeat", {length, size})`
+  replaces `block_tile`; one setter `set_block_capability(cap, *,
+  push_undo=True)` syncs the frame item. A `repeat` payload is normalised
+  there through `block_definition._norm_repeat` (every reader may index
+  `["length"]` / `["size"]`); an empty payload clears the slot. The frame for a
+  new kind is built (`capability_frame.frame_for`) **before** any mutation, so
+  an unknown kind raises `ValueError` with the slot and frame unchanged. One
+  undo-snapshot key `"block_capability"` (restore also accepts a legacy
+  `"block_tile"` key). Read-only copy views `block_tile` / `block_repeat`;
+  `capability_frame_item()` (either kind) and `tile_frame_item()` (tile only);
+  `set_block_tile` stays as the HF2 alias (passing None clears whatever
+  capability is set). The slot holds one capability; LT4-11b's refusal
+  message lives in the toggle (H4-e). **Pre-capture hook:**
+  `push_undo_state` — after its undo-restore / suspended guard, before
+  `_capture_network` — calls `linetype_authoring.pre_capture(scene)` when
+  the slot is a `repeat` **and the undo stack is non-empty**: grow-to-fit
+  (LT4-9) and the Continuous lock (H4-d) join the commit's snapshot (P4
+  closed: no amend). The empty-stack (re-baseline) push is skipped, so
+  reopening a linetype never mutates the saved definition (orchestrator
+  ruling, review G4). The hook never pushes, so it cannot recurse.
+- **H4-b Shared frame.** Both frames subclass
+  `capability_frame.CapabilityFrameItem` — the shared chrome (overlay tag,
+  exclusions, ring clip + opacity, scratch definition) is owned by
+  [`hatch-and-fill.md`](hatch-and-fill.md) §2 "Block Editor capability
+  frame". LT4's subclass `repeat_frame.RepeatFrame` (`KIND = "repeat"`): rect
+  from the origin to Length, ± `REPEAT_FRAME_HALF_H_MM` about the axis; one
+  circular, X-only Length grip that sets the trailing gap and stops at
+  `max(grip x, linetype_pattern.content_end(...), 0.1 mm)` (LT4-9), writing
+  the slot with `push_undo=False` (the manipulator's commit pushes the one
+  step); the ring is one period each side, drawn by `expand` +
+  `draw_expansion` of the frame's scratch definition (LT4-7). A malformed
+  repeat (no / non-numeric `length`) reads as Length 0 — bounds and paint never
+  raise inside a Qt virtual.
+- **H4-c Rows ⇄ geometry.** One per-Line LT3-3 rule,
+  `linetype_render.axis_role(p1, p2, length)`, serves both
+  `LinetypeDef.from_block` and the list. `linetype_pattern.py` (pure, no Qt
+  items): `rows_from_reading(dashes, dots, length)` (leading / between /
+  trailing gaps, touching dashes = adjacent Dash rows, a dot at a dash's start
+  sorts first, `None` when dashes overlap or a dot sits inside a dash),
+  `spans(rows)` → `(spans, period)`, `content_end` / `axis_end` (unclamped
+  far end of the axis Lines — the one LT4-9 rule), `validate_rows` (≥ one dash
+  or dot; every dash / gap > `LINETYPE_AXIS_TOL_MM`) and `SEED_ROWS`.
+  `linetype_authoring.apply_pattern_rows(scene, rows, *, push_undo=True) ->
+  bool` (a module function, not a `Model_Space` method) matches axis Lines to
+  spans in x order per kind (dash ↔ non-zero Line, dot ↔ zero-length Line),
+  moves / resizes matches in place (same item, uid, style, constraints),
+  removes extras (`ConstraintController.on_items_removed` drops their
+  constraints), creates the rest through the owning editor's `_add_primitive`
+  (Continuous, the current dash weight) and sets Length = period — one undo
+  step. It returns False **before any mutation** when the rows fail
+  `validate_rows`, equal the live `current_rows` within tolerance (a
+  re-commit adds no step), the scene is not a linetype, or a new mark is
+  needed but the scene has no owning Block Editor. A constraint on a moved
+  Line that the ripple violates goes red live through
+  `ConstraintController.mark_unsatisfied_red` (the D38 rule, shared with
+  paste), so live red equals the red an undo / redo restore derives (LT4-8).
+  `set_pattern_weight(scene, weight)` stamps every axis dash in one step
+  (none when nothing changes); `set_repeat_field(scene, key, value)` edits
+  Length (refused — the panel shows the old value — when ≤ 0, below the
+  content end, or unchanged) and Size, one step each.
+- **H4-d Lock.** `pre_capture` (the H4-a hook) sets every non-Continuous
+  styled primitive in a `repeat` scene to Continuous — covering draw commits,
+  paste, Block-Editor import and Explode (P4 closed: all four push; A3 drives
+  each real entry). New draws take Continuous **and** the linetype's dash
+  weight at creation through a `block_repeat` branch in
+  `stroke_style.apply_current` (`pattern_weight(scene)`, else the current
+  Weight; the current itself is not changed). `stroke_rows(..., locked=True)`
+  disables a selected primitive's Linetype row with the tooltip "Lines inside
+  a linetype are always Continuous" (`Geometry2DMixin.get_properties` passes
+  `locked` when its scene has a `block_repeat`). The pre-placement
+  `GeometryTemplate` in a linetype editor shows the rows the next draw gets —
+  Continuous + `pattern_weight` (else the current Weight) — both disabled,
+  Weight tooltip "New lines take the linetype's Weight (set it in the Repeat
+  section)" (LT4-4 amendment).
+- **H4-e Toggle + save.** `BlockEditorWidget.toggle_capability(kind)`
+  (`toggle_pattern_tile` stays a thin alias; an unknown kind raises
+  `ValueError`). Off: a linetype is refused while used
+  (`Model_Space.linetype_off_refusal` → the delete refusal's
+  `block_users_message`, LT4-5). On while the other capability is on: refused
+  with "Turn Pattern tile off first — a block is a pattern or a linetype, not
+  both" (or "Turn Linetype off first — …" the other way). On while placed:
+  `symbol_use_refusal(block_id, kind)` ("Used as a symbol (N placed, M nested
+  in other blocks) — remove those before making it a linetype"; the HF2 name
+  `pattern_use_refusal` stays as a tile alias). Linetype on runs
+  `linetype_authoring.begin_linetype(scene, content_end)` (convert to
+  Continuous, set the repeat — Length = content end, Size Drafting — and seed
+  `SEED_ROWS` into an empty unit) then pushes once, with the status
+  "N lines set to Continuous" when any converted. Opening a definition puts
+  its tile or repeat into the slot before the undo re-baseline (LT4-12).
+  `commit_block_definition(..., capability=)` (the editor passes
+  `block_capability`): re-runs LT4-11a on any capability, never places a new
+  pattern / linetype ("Saved linetype ‘X’ — linetypes aren't placed; your
+  original geometry is unchanged."), refuses dropping a used linetype's repeat
+  (LT4-5), and sets `tile=` / `repeat=` on `BlockDefinition.new` or
+  `set_tile` + `set_repeat` on the edit path (so Save As keeps it, LT4-11c).
+- **H4-f Panel + widgets.** `capability_panel.py` is the one home of the
+  capability rows: `capability_rows(scene)` feeds both the nothing-selected
+  `BlockPropertiesInfo` and a selected frame (`CapabilityFrameItem.get_properties`);
+  `set_capability_property(scene, editor, key, value)` writes back (the two
+  toggles go through `toggle_capability`). Rows: a **Repeat** header, then
+  `Pattern tile` + `Linetype` bools; a tile adds `tile_frame.tile_properties`
+  (owned by `hatch-and-fill.md`); a linetype adds —
+  `Length` (dimension; `minimum` = content end − 1e-6, because
+  `DimensionEdit`'s minimum is strict, so a typed value below the end reverts
+  at once and Length = end is accepted), `Size` (Drafting | Model),
+  `Weight`, a **Pattern** header + `Pattern rows` (row type `pattern_list`;
+  value None + note "Dashes overlap — edit on the canvas" when
+  unrepresentable), a **Preview** header + `Preview swatch` (row type
+  `stroke_preview`, `paint = linetype_authoring.preview_painter(scene)`,
+  height `PATTERN_PREVIEW_H_PX`). **Weight row:** options
+  "By Category (<Model Blocks weight>)" + the named weights (By Category
+  stores `by_linetype`); `< mixed >` when the dashes differ (a `< mixed >`
+  pick is ignored); a dash weight that is not a current weight name is
+  offered as its own option, never silently replaced; disabled when the rows
+  are unrepresentable, and for a **dots-only** unit it shows By Category,
+  disabled, tooltip "Add a dash to set the linetype's Weight". **Swatch:** a
+  straight sample plus an L polyline, `PATTERN_PREVIEW_PERIODS` periods across,
+  through `expand` + `draw_expansion` of the frame's scratch definition, pen =
+  `canvas_px` of the dash weight (By Linetype when none). Panel integration —
+  the two row types, the frame dropped from a multi-selection,
+  `BlockPropertiesInfo._scene_ref` (the nothing-selected panel follows the
+  display units) — is owned by [`property-panel.md`](property-panel.md)
+  §3.1 / §3.2 / §3.5; the widgets `ui_kit.PatternList` / `PaintSwatch` by
+  [`ui-design-system.md`](ui-design-system.md). The form rebuilds on every
+  commit (50 ms debounce), so the list never relies on focus across a commit.
+- **H4-g Ribbon, badge, wording.** Ribbon **Linetype** checkable small
+  button (`MainWindow._be_linetype_btn`, `linetype_icon.svg`) in the Block
+  Editor tab's **Definition** group beside Pattern Tile, tooltip "Linetype —
+  make this block a linetype (repeats along lines, applied from a line's
+  Linetype row, can't be placed as a symbol)". `_be_toggle_linetype` /
+  `_be_toggle_tile` → `_be_toggle_capability(kind, checked)` (a refused
+  toggle snaps the check back); `_sync_tile_button` → `_sync_capability_buttons`
+  (signals blocked), connected to each editor's `sceneModified` and re-run by
+  `_set_block_editor_context` (tab switch / close). Badges: `blocks_browser._linetype_badge(dpr)` (muted dash-dash-dot
+  glyph; `_BADGE_CACHE` keyed by kind, muted colour, dpr) beside
+  `_pattern_badge`, picked by `_capability_badge(kind, dpr)` on **project**
+  rows (the definition's tile / repeat) **and library** rows (the index
+  `tile` / `repeat` flags, from the refresh's single `list_library` read);
+  linetype tooltip "Linetype — apply it from a line's Linetype row; it can't
+  be placed". Wording: `block_users_message` hands a linetype to
+  `_linetype_users_message`, which names the blocks whose **own** lines use it
+  ("“Hidden” is used by lines inside: Riser, Valve — change their linetype
+  first."), adds the live contexts ("…, and by lines in the plan and in the
+  open Block Editor — …"), keeps pure nesting on the D12 wording ("“B” is used
+  inside: A, D — explode or remove it there first."), and for mixed users
+  emits both clauses ("“Hidden” is used inside: Host, and by lines inside:
+  Riser — explode or remove it there, and change their linetype first."). No
+  new paint path: ring and swatch use the LRU-cached `expand` on a handful of
+  pieces — no new perf bench; LT3 perf guards stay keep-green.
+
+### LT4 guards (VC3) — as built
+
+Acceptance guards A1–A9 (ratified with the *how*; each is met by the files
+listed after them):
+
+- **A1 List → geometry** — real Block Editor: Dash 6→8, add Dot, reorder,
+  remove → axis Line coordinates match, Length = sum, off-axis items unmoved,
+  one undo step each, Ctrl+Z restores the exact Lines.
+- **A2 Geometry → list** — drawn axis Lines (incl. past the end, and an
+  overlap) → rows = `LinetypeDef.from_block`; frame grew; overlap → read-only.
+- **A3 Continuous lock** — current Hidden: a drawn line is Continuous; toggle-on
+  converts 2 Hidden lines with the count message; the Linetype row disabled.
+- **A4 Refusals** — on while placed as a symbol; on while Pattern tile is on;
+  off while another block's lines use it → refused, state unchanged; the save
+  re-check refuses too.
+- **A5 Round-trip (G8 authoring half)** — author → Save → use on a line →
+  `.fpd` save / load → undo / redo → Save As → `.fpdb` export / import:
+  `repeat` + Weight survive; the Save As copy is a linetype; the bundle carries
+  the weight names.
+- **A6 Preview ≡ render** — *(reworded at Account, orchestrator ruling on seam
+  review M4)* the swatch and the canvas ring draw through the same renderer
+  path (`expand` + `draw_expansion`) as canvas strokes: the swatch guard
+  compares its pixel coverage with a direct `expand` + `draw_expansion` of the
+  same pieces / factor / pen; the ring has its own pixel guard.
+- **A7 Badge** — project + library linetype / pattern rows carry badge +
+  tooltip.
+- **A8 Delete wording** — the exact LT4-11e message.
+- **A9 Ribbon sync** — real MainWindow: panel toggle, ribbon toggle, undo /
+  redo → button check state follows.
+
+Keep-green: the HF2 tile tests (tile frame, D-A34 refusals), 
+`test_block_editor_ribbon_tab` + `test_icon_theming` (ribbon roster, VC5),
+`test_block_usage_counts`, `test_lt3_*`, `test_wm1_*`,
+`test_property_panel_header`. Live smoke: author Hidden from an empty block,
+apply it to a line in another block, check plan and PDF.
+
+Files (all new, under `tests/`):
+
+- `test_lt4_pattern.py` — pure rows ⇄ reading: `axis_role` = LT3-3,
+  sequential rows, leading gap + touching dashes, overlap / dot-inside →
+  None, dot at a dash start, `spans` round trip, `content_end` (unclamped,
+  axis only), `validate_rows` (incl. a sub-tolerance dash), `SEED_ROWS`.
+- `test_lt4_capability_slot.py` — H4-a: slot views + undo, copy views,
+  legacy `block_tile` snapshot restore, undo / redo across a tile ⇄ repeat
+  switch, re-set after `scene.clear()`, repeat payload normalised.
+- `test_lt4_repeat_frame.py` — H4-b: both frames share the base + tag, Length
+  grip (trailing gap, clamp), not deletable / not a snap target, ring paints
+  dashes outside the frame (the ring pixel guard), malformed repeat never
+  raises, `frame_for` rejects an unknown kind.
+- `test_lt4_authoring.py` — A1 (ripple in place, one step, reorder / remove,
+  invalid rows refused, removed row drops its Line **and** constraints,
+  violated constraint red live and after undo / redo), A2 (rows = the
+  renderer reading, overlap unrepresentable, draw past the end grows in the
+  same step), A3 (lock on commit + draw takes the Weight; real paste,
+  editor import and Explode entries), Weight row, no-editor refusal before
+  mutating, one-step counts for the grip drag (live manipulator), Size and
+  Weight, panel `< mixed >`.
+- `test_lt4_toggle.py` — LT4-6 seed (empty → Dash 6 / Gap 3, Drafting, one
+  step; content → read + convert with the count), A4 (on while placed, both
+  exclusivity wordings, off while used — behaviour and exact wording — and
+  both save re-checks), unknown kind raises, LT4-11c / 11d (Save As keeps
+  it, never placed, Create-from-selection source untouched), LT4-12 (reopen
+  into the baseline; the hook does not mutate it).
+- `test_lt4_panel.py` — rows for a linetype (tooltips), overlap read-only +
+  note, Length below the content end reverts (immediately in the field), real
+  widgets commit through `DimensionEdit`, primitive Linetype row locked only
+  in a linetype, selected frame = nothing-selected rows, swatch through the
+  real renderer, imperial display units in the nothing-selected panel,
+  frame dropped from multi-selections (both orders, plus tile + Rectangle),
+  same rows twice = one step, dots-only Weight row (By Category, disabled,
+  why-tooltip), unknown dash weight shown, the Geometry template inside /
+  outside a linetype.
+- `test_lt4_widgets.py` — `PatternList` / `PaintSwatch` domain-free: whole-list
+  commits, move / remove / add, last dash or dot can't be removed, read-only
+  note, every control has a tooltip, swatch paints its rect.
+- `test_lt4_preview.py` — A6 (seed and authored swatches = a direct
+  `expand` + `draw_expansion`).
+- `test_lt4_roundtrip.py` — A5 through the real editor: author → undo / redo
+  → Save → edit-in-place Save → use on a line → `.fpd` save / load → Save As
+  → `.fpdb` bundle carrying `repeat` + the weight name → load.
+- `test_lt4_browser_wording.py` — A7 (linetype + pattern badges on project
+  and library rows), A8 (line-user wording, pure nesting, mixed nesting +
+  line users, a block in both clauses), one `list_library` read per refresh.
+- `test_lt4_ribbon.py` — A9 on a real MainWindow (own pytest process): panel,
+  ribbon and undo toggles; redo, two-editor tab switch and close.
+- `test_lt4_ref_pages.py` — the LT4 modules are listed in the API-reference
+  `TIERS` beside `tile_frame` (`docs/gen_ref_pages.py`).
+
+Rewritten for the contract change: `test_block_editor_ribbon_tab.py` (the
+editor-only roster gains "Linetype") and `test_icon_theming.py`
+(`linetype_icon.svg` joins `_BLOCK_ICONS`).
+
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
@@ -972,3 +1331,13 @@ and the RenderOp fields are additive.
 - `view-relationships.md` §7.4 — catalog rows 2 and 4 point here.
 - `units-and-formatting.md` — line-weight display convention (named weight + mm).
 - `feature-system.md` — pipe as a Feature (D-L22).
+- **LT4 (applied 2026-10-06, LT4 Account, `b9b1094`):** `hatch-and-fill.md` §2
+  — the frame is now `TileFrame` on the shared `capability_frame` base (that
+  file's home) and the nothing-selected rows come from `capability_panel`;
+  `block-system.md` — "Block Editor capability slot (LT4)" pointer
+  (`block_capability`, `symbol_use_refusal`, library-row badges) + the stale
+  `pattern_use_refusal` mention fixed; `property-panel.md` — `pattern_list` /
+  `stroke_preview` row types (§3.2), the frame never joins a multi-selection
+  (§3.5), `BlockPropertiesInfo._scene_ref` (§3.1); `ui-design-system.md` —
+  `PatternList` / `PaintSwatch` entries; `icon-style-guide.md` §5 —
+  `linetype_icon.svg` deviation; `SPEC-INDEX.md` rows.

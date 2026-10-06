@@ -286,6 +286,12 @@ def apply_current(item, scene) -> None:
     w = _current["weight"]
     if w != BY_LINETYPE and w not in _pd.weight_names():
         w = BY_LINETYPE
+    if getattr(scene, "block_repeat", None) is not None:
+        # LT4-4: inside a linetype unit every stroke is Continuous and a new
+        # dash takes the linetype's Weight (the current is not changed).
+        from .linetype_authoring import pattern_weight
+        lt = CONTINUOUS
+        w = pattern_weight(scene) or w
     st["linetype"] = lt
     st["weight"] = w
     sync = getattr(item, "_sync_stroke_pen", None)

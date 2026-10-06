@@ -260,10 +260,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
-        # Block Editor pattern tile (hatch D-A32): {"w","h","row_shift","size"}
-        # or None. In the undo snapshot; the frame item mirrors it.
-        self.block_tile: dict | None = None
-        self._tile_frame = None          # TileFrameItem while a tile is set
+        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat):
+        # ("tile", {...}) | ("repeat", {...}) | None -- one slot (H4-a).
+        # In the undo snapshot; the frame item mirrors it.
+        self.block_capability: tuple | None = None
+        self._cap_frame = None           # CapabilityFrameItem while set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
         # Callable -> open Block Editors' scenes, registered on the project
         # scene by BlockEditorManager; the Display Manager weight-rename walker
@@ -586,8 +587,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dirty = False
         self.selectionChanged.connect(self._on_selection_changed)
         if self.scene_role == "block_editor":
-            # Pattern-tile repeat preview follows every committed content edit.
-            self.sceneModified.connect(self._on_tile_content_changed)
+            # Capability-frame repeat preview follows every committed edit.
+            self.sceneModified.connect(self._on_capability_content_changed)
         # Scene-level selection manipulator (frame + rigid transforms) —
         # governing spec docs/specs/selection-manipulator.md.  One undo entry
         # per baked gesture via push_undo_state.
@@ -984,10 +985,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Args:
             items: Scene items to delete; an empty iterable is a no-op.
         """
-        # The Block Editor tile frame is an overlay, never deletable geometry
-        # (D-A32): the "Pattern tile" toggle owns its lifetime.
-        from .tile_frame import TILE_FRAME_TAG
-        selected = [i for i in items if i.data(0) != TILE_FRAME_TAG]
+        # The Block Editor capability frame is an overlay, never deletable
+        # geometry (D-A32 / LT4): the capability toggle owns its lifetime.
+        from .capability_frame import CAPABILITY_FRAME_TAG
+        selected = [i for i in items if i.data(0) != CAPABILITY_FRAME_TAG]
         if not selected:
             return
         selected_set = set(selected)
@@ -1628,45 +1629,80 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._block_registry_owner = owner
         registry.attach_scene(self)
 
+    @property
+    def block_tile(self) -> dict | None:
+        """The pattern tile dict (a copy), or None."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "tile" else None
+
+    @property
+    def block_repeat(self) -> dict | None:
+        """The linetype repeat dict (a copy), or None (linetypes LT4)."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "repeat" else None
+
+    def capability_frame_item(self):
+        """The Block Editor capability frame, or None."""
+        return self._cap_frame
+
     def tile_frame_item(self):
-        """The Block Editor tile frame, or None (no tile / not an editor)."""
-        return self._tile_frame
+        """The tile frame, or None (HF2 name; a repeat frame is not a tile)."""
+        c = self.block_capability
+        return self._cap_frame if c and c[0] == "tile" else None
 
     def set_block_tile(self, tile, *, push_undo: bool = True) -> None:
-        """Set / clear the edited block's pattern tile and sync the frame (D-A32).
+        """HF2 alias: set / clear the pattern tile through the one slot (D-A32)."""
+        self.set_block_capability(("tile", tile) if tile else None,
+                                  push_undo=push_undo)
+
+    def set_block_capability(self, cap, *, push_undo: bool = True) -> None:
+        """Set / clear the edited block's capability and sync the frame (H4-a).
 
         Args:
-            tile: Tile dict or None.
-            push_undo: Push one undo step (False inside a grip drag or an
-                undo restore — the caller owns the step).
+            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"``, or None.
+            push_undo: Push one undo step (False inside a grip drag, an undo
+                restore or a composite edit -- the caller owns the step).
+
+        Raises:
+            ValueError: *cap*'s kind is not ``"tile"`` / ``"repeat"`` (the
+                slot and frame are left unchanged).
         """
         from PyQt6 import sip
-        from .tile_frame import TileFrameItem
-        f = self._tile_frame
+        from .capability_frame import frame_for
+        new = (str(cap[0]), dict(cap[1])) if cap and cap[1] else None
+        if new is not None and new[0] == "repeat":
+            # One home for the repeat shape (G4 seam): every reader -- frame,
+            # pre-capture hook, panel -- may index ["length"] / ["size"].
+            from .block_definition import _norm_repeat
+            rep = _norm_repeat(new[1])
+            new = ("repeat", rep) if rep is not None else None
+        f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
-            self._tile_frame = None          # swept out of the scene elsewhere
-        if self._tile_frame is not None:
-            self._tile_frame.prepare_tile_change()   # bounds follow the tile
-        self.block_tile = dict(tile) if tile else None
-        if self.block_tile is None:
-            if self._tile_frame is not None:
-                self._tile_frame.setSelected(False)
-                self.removeItem(self._tile_frame)
-                self._tile_frame = None
-        else:
-            if self._tile_frame is None:
-                self._tile_frame = TileFrameItem(self)
-                self.addItem(self._tile_frame)
-            self._tile_frame.invalidate_preview()
+            self._cap_frame = f = None       # swept out of the scene elsewhere
+        # Build any new frame BEFORE mutating: an unknown kind raises here.
+        built = (frame_for(self, new[0]) if new is not None
+                 and (f is None or f.KIND != new[0]) else None)
+        if f is not None and (new is None or f.KIND != new[0]):
+            f.setSelected(False)
+            self.removeItem(f)
+            self._cap_frame = f = None
+        if f is not None:
+            f.prepare_capability_change()    # bounds derive from the slot
+        self.block_capability = new
+        if new is not None:
+            if f is None:
+                self._cap_frame = built
+                self.addItem(self._cap_frame)
+            self._cap_frame.invalidate_preview()
         if push_undo:
             self.push_undo_state()           # emits sceneModified
         # push_undo=False: the owner of the step (grip commit hook / undo /
-        # seed re-baseline) pushes or emits — no per-drag-frame signal storm.
+        # seed re-baseline) pushes or emits -- no per-drag-frame signal storm.
 
-    def _on_tile_content_changed(self) -> None:
-        """sceneModified (editor role): rebuild the repeat preview lazily."""
-        if self._tile_frame is not None:
-            self._tile_frame.invalidate_preview()
+    def _on_capability_content_changed(self) -> None:
+        """sceneModified (editor role): rebuild the frame preview lazily."""
+        if self._cap_frame is not None:
+            self._cap_frame.invalidate_preview()
 
     @property
     def block_registry(self):
@@ -1687,15 +1723,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return sum(1 for i in self._block_instances if i.block_id == block_id)
 
     def pattern_use_refusal(self, block_id) -> "str | None":
-        """Why *block_id* can't become a pattern tile (hatch D-A34), or None.
+        """HF2 name of :meth:`symbol_use_refusal` for a tile."""
+        return self.symbol_use_refusal(block_id, "tile")
 
-        A pattern fills regions; it can't also be a symbol. Counted: placed
+    def symbol_use_refusal(self, block_id, kind: str = "tile") -> "str | None":
+        """Why *block_id* can't become a pattern tile / linetype, or None.
+
+        Hatch D-A34 / linetypes LT4-11a: a pattern fills regions and a
+        linetype strokes lines; neither can also be a symbol. Counted: placed
         instances in this scene + definitions that nest it directly (a
         transitive host always nests a direct host, so it is refused too).
         The one rule shared by the Block Editor toggle and the save path.
 
         Args:
             block_id: The definition id (None = never saved -> no use).
+            kind: ``"tile"`` or ``"repeat"`` -- picks the message noun.
 
         Returns:
             The status message, or None when the block is unused as a symbol.
@@ -1711,8 +1753,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         parts = ([f"{placed} placed"] if placed else []) + (
             [f"{nested} nested in other blocks"] if nested else [])
+        what = "a linetype" if kind == "repeat" else "a pattern"
         return (f"Used as a symbol ({', '.join(parts)}) — remove those "
-                f"before making it a pattern")
+                f"before making it {what}")
+
+    def linetype_off_refusal(self, block_id) -> "str | None":
+        """Why a linetype can't stop being one (LT4-5): lines use it.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The delete-refusal text (:meth:`block_users_message`), or None.
+        """
+        if block_id is None:
+            return None
+        return self.block_users_message(block_id)
 
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
@@ -1767,16 +1823,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             ``“B” is used inside: A, D — explode or remove it there first.``
-            (users sorted by name, direct and indirect); ``“Hidden” is used
-            by lines in the plan and in the open Block Editor — change their
-            linetype first.``; both together (``… inside: U, and by lines in
-            the plan — …``); or None when nothing uses it.
+            (users sorted by name, direct and indirect); for a linetype used
+            by blocks' lines (LT4-11e) ``“Hidden” is used by lines inside:
+            Riser, Valve — change their linetype first.`` (only the blocks
+            whose own lines use it); ``“Hidden” is used by lines in the plan
+            and in the open Block Editor — change their linetype first.``;
+            both together (``… by lines inside: U, and by lines in the plan
+            — …``); or None when nothing uses it. A linetype that a block
+            also nests keeps the nesting wording ("explode or remove it
+            there").
         """
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
         if not users and not ctx:
             return None
         d = self.get_block_definition(block_id)
+        if d.repeat:
+            msg = self._linetype_users_message(d, users, ctx)
+            if msg is not None:
+                return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
         if not users:
             return (f"“{d.name}” is used {lines}"
@@ -1786,6 +1851,58 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         fix = (" — explode or remove it there, and change their linetype first."
                if ctx else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
+
+    def _linetype_users_message(self, d, users, ctx) -> str | None:
+        """LT4-11e / H4-g: the linetype refusal for *d*, or None.
+
+        "by lines inside" names only the definitions whose own primitives
+        use *d* as their linetype (a block nesting such a definition is
+        freed with it). When some definition also nests *d* (directly, or
+        through a chain of nesting users), those are named in a separate
+        "inside" clause with "explode or remove it there" -- a block that
+        both nests *d* and has lines using it appears in both clauses.
+        None when nothing uses *d* by its lines (the caller's nesting
+        wording applies) or nothing uses it at all.
+
+        Args:
+            d: The linetype definition.
+            users: ``users_of(d.id)`` (direct and indirect).
+            ctx: ``linetype_user_contexts(d.id)`` ("the plan", …).
+        """
+        from .block_registry import nested_ids
+        line_users, nesters = [], []
+        for uid in users:
+            u = self.get_block_definition(uid)
+            if u is None:
+                continue
+            if d.id in nested_ids(u):
+                nesters.append(uid)
+            if any(isinstance(p.get("style"), dict)
+                   and p["style"].get("linetype") == d.id
+                   for p in u.primitives):
+                line_users.append(u.name)
+        if nesters and not line_users:
+            return None                          # pure nesting wording
+        segs = ([f"by lines inside: {', '.join(sorted(line_users))}"]
+                if line_users else [])
+        if ctx:
+            segs.append("by lines " + " and ".join("in " + c for c in ctx))
+        if not segs:
+            return None
+        if not nesters:
+            return (f"“{d.name}” is used " + ", and ".join(segs)
+                    + " — change their linetype first.")
+        # Mixed (H4-g): nesting users keep "explode or remove it there".
+        nest_ids = set(nesters)
+        for nid in nesters:
+            nest_ids |= self._block_registry.users_of(nid) & users
+        nest_names = sorted(self.get_block_definition(i).name
+                            for i in nest_ids)
+        segs.insert(0, f"inside: {', '.join(nest_names)}")
+        return (f"“{d.name}” is used " + ", ".join(segs[:-1])
+                + f", and {segs[-1]}"
+                + " — explode or remove it there, and change their"
+                  " linetype first.")
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the
@@ -2123,7 +2240,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None, tile=None):
+                                constraints=None, capability=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -2156,7 +2273,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             constraints: The editor's sketch constraint records
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
-            tile: Pattern tile dict or None (hatch D-A32).
+            capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
+                (LT4). A repeat (or tile) is never placed; dropping a
+                linetype's repeat is refused while lines use it (LT4-5).
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -2164,26 +2283,37 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
+        kind, data = capability if capability else (None, None)
+        tile = data if kind == "tile" else None
+        repeat = data if kind == "repeat" else None
         pattern_saved_msg = None
-        if tile:
-            # hatch D-A34 at save time (the toggle's check can go stale).
-            why = self.pattern_use_refusal(block_id)
+        if kind is not None:
+            # D-A34 / LT4-11a at save time (the toggle's check can go stale).
+            why = self.symbol_use_refusal(block_id, kind)
             if why is not None:
                 self._show_status(why, 5000)
                 return None
             if place_instance and block_id is None:
-                # User ruling 2026-10-02: a new pattern is registered but never
-                # placed; a Create-Block-from-selection source stays untouched.
-                pattern_saved_msg = (f"Saved pattern ‘{name}’ — patterns "
+                # User ruling 2026-10-02 (LT4-11d): a new pattern / linetype
+                # is registered but never placed; a Create-Block-from-selection
+                # source stays untouched.
+                noun = "linetype" if kind == "repeat" else "pattern"
+                pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
             place_instance, source_items = False, None
+        old = self._block_definitions.get(block_id) if block_id else None
+        if old is not None and old.repeat and repeat is None:
+            why = self.linetype_off_refusal(block_id)       # LT4-5 save re-check
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
                                        constraints=list(constraints or []),
-                                       tile=tile)
+                                       tile=tile, repeat=repeat)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
@@ -2201,6 +2331,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.origin = (ox, oy)
             defn.constraints = list(constraints or [])
             defn.set_tile(tile, notify=False)
+            defn.set_repeat(repeat, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -2417,8 +2548,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                    for bid, d in self._block_definitions.items()},
             "blocks":             [inst.to_dict() for inst in self._block_instances],
             "constraints":        self.constraint_ctl.capture(),
-            # Block Editor pattern tile (hatch D-A32); None elsewhere.
-            "block_tile":         dict(self.block_tile) if self.block_tile else None,
+            # Block Editor capability (D-A32 / LT4); None elsewhere.
+            "block_capability": ([self.block_capability[0],
+                                  dict(self.block_capability[1])]
+                                 if self.block_capability else None),
         }
 
     def _restore_network(self, state: dict):
@@ -2708,9 +2841,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ── Constraints (after every item is recreated) ───────────────
             self.constraint_ctl.restore(state.get("constraints", []))
 
-            # ── Pattern tile (Block Editor, D-A32) ────────────────────────
-            if state.get("block_tile") or self.block_tile is not None:
-                self.set_block_tile(state.get("block_tile"), push_undo=False)
+            # ── Capability (Block Editor tile / repeat; D-A32, LT4) ───────
+            cap = state.get("block_capability")
+            if cap is None and state.get("block_tile"):
+                cap = ("tile", state["block_tile"])        # pre-LT4 snapshot
+            if cap or self.block_capability is not None:
+                self.set_block_capability(tuple(cap) if cap else None,
+                                          push_undo=False)
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
@@ -2738,6 +2875,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
+        if (self.block_capability is not None
+                and self.block_capability[0] == "repeat" and self._undo_stack):
+            # LT4: Continuous lock + grow-to-fit join this commit's snapshot.
+            # Skipped on a re-baseline push (empty stack): reopening a
+            # linetype never mutates it.
+            from .linetype_authoring import pre_capture
+            pre_capture(self)
         state = self._capture_network()
         # Discard redo history beyond current position
         self._undo_stack = self._undo_stack[:self._undo_pos + 1]
@@ -7631,9 +7775,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def copy_selected_items(self):
         """Immediate copy (copy-to-level / internal callers): versioned payload
         with base = the selection's bounding-box centre (scene-tools.md D4)."""
-        from .tile_frame import TILE_FRAME_TAG
-        # The tile frame is never copied, so it never shifts the base point.
-        items = [it for it in self.selectedItems() if it.data(0) != TILE_FRAME_TAG]
+        from .capability_frame import CAPABILITY_FRAME_TAG
+        # The capability frame is never copied, so it never shifts the base point.
+        items = [it for it in self.selectedItems()
+                 if it.data(0) != CAPABILITY_FRAME_TAG]
         rect = QRectF()
         for it in items:
             rect = rect.united(it.sceneBoundingRect())

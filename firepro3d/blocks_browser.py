@@ -24,14 +24,19 @@ _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
 
 
-_BADGE_PX = 14                               # pattern badge size (logical px)
-_BADGE_CACHE: dict = {}                      # (muted colour, dpr) -> QIcon
+_BADGE_PX = 14                               # capability badge size (logical px)
+_BADGE_CACHE: dict = {}                      # (kind, muted colour, dpr) -> QIcon
+
+# Capability leaf tooltips (hatch D-A34, linetypes LT4-10).
+_PAT_LEAF_TIP = "Pattern block — used by hatch fills; it can't be placed"
+_LT_LEAF_TIP = ("Linetype — apply it from a line's Linetype row; "
+                "it can't be placed")
 
 
 def _pattern_badge(dpr: float = 1.0):
     """Small hatch glyph for tiled (pattern) blocks (D-A34).
 
-    Cached per (theme muted colour, device pixel ratio) — the tree rebuilds
+    Cached per (kind, theme muted colour, device pixel ratio) — the tree rebuilds
     on every library change, so a fresh swatch per leaf would repeat work.
 
     Args:
@@ -45,7 +50,7 @@ def _pattern_badge(dpr: float = 1.0):
     from .hatch_render import paint_swatch
     from . import theme as th
     muted = th.detect().muted
-    key = (muted, float(dpr))
+    key = ("pattern", muted, float(dpr))
     icon = _BADGE_CACHE.get(key)
     if icon is not None:
         return icon
@@ -61,7 +66,58 @@ def _pattern_badge(dpr: float = 1.0):
     return icon
 
 
-def library_only_entries(scene, root: str | None = None
+def _linetype_badge(dpr: float = 1.0):
+    """Small dash-dot glyph for linetype (repeat) blocks (linetypes LT4-10).
+
+    Shares :data:`_BADGE_CACHE` with :func:`_pattern_badge` (keyed by kind).
+
+    Args:
+        dpr: The browser widget's ``devicePixelRatioF()`` (crisp on HiDPI).
+
+    Returns:
+        The badge ``QIcon``.
+    """
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QIcon, QPainter, QPen, QPixmap
+    from . import theme as th
+    muted = th.detect().muted
+    key = ("linetype", muted, float(dpr))
+    icon = _BADGE_CACHE.get(key)
+    if icon is not None:
+        return icon
+    side = max(1, round(_BADGE_PX * dpr))
+    pix = QPixmap(side, side)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor(muted), max(1.0, 1.5 * dpr))
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    p.setPen(pen)
+    y = side / 2.0
+    p.drawLine(QPointF(0.5, y), QPointF(side * 0.45, y))
+    p.drawLine(QPointF(side * 0.6, y), QPointF(side * 0.72, y))
+    p.setBrush(QColor(muted))
+    p.setPen(Qt.PenStyle.NoPen)
+    r = max(1.0, 1.1 * dpr)
+    p.drawEllipse(QPointF(side * 0.88, y), r, r)
+    p.end()
+    pix.setDevicePixelRatio(dpr)
+    icon = QIcon(pix)
+    _BADGE_CACHE[key] = icon
+    return icon
+
+
+def _capability_badge(kind, dpr: float):
+    """``(icon, tooltip)`` for a ``"tile"`` / ``"repeat"`` leaf, else None."""
+    if kind == "tile":
+        return _pattern_badge(dpr), _PAT_LEAF_TIP
+    if kind == "repeat":
+        return _linetype_badge(dpr), _LT_LEAF_TIP
+    return None
+
+
+def library_only_entries(scene, root: str | None = None, *,
+                         entries: list[dict] | None = None
                          ) -> list[tuple[str, str, str, str, str]]:
     """Library blocks NOT already in the project.
 
@@ -71,6 +127,8 @@ def library_only_entries(scene, root: str | None = None
     Args:
         scene: The project ``Model_Space`` (its ``_block_definitions`` registry).
         root: Block-library root override (None = the configured library).
+        entries: An already-read ``block_library.list_library(root)`` result
+            (one index read per Blocks-browser refresh); None reads it here.
 
     Returns:
         ``(library, series, name, block_id, path)`` tuples — on-disk index
@@ -78,7 +136,9 @@ def library_only_entries(scene, root: str | None = None
     """
     seen = set(scene._block_definitions)
     out = []
-    for e in block_library.list_library(root):
+    if entries is None:
+        entries = block_library.list_library(root)
+    for e in entries:
         if e.get("id") in seen:
             continue
         out.append((e["library"], e["series"], e.get("name") or e["filename"],
@@ -194,10 +254,11 @@ class BlocksBrowser(QWidget):
 
     # ── data ──────────────────────────────────────────────────────────────
 
-    def _grouped(self) -> dict:
+    def _grouped(self, entries: list[dict] | None = None) -> dict:
         """``{library: {series: [(name, id, path|None), ...]}}`` — the on-disk
         folders + indexed blocks merged with the project's definitions (a
-        library entry whose id is in the project is listed once, as project)."""
+        library entry whose id is in the project is listed once, as project).
+        *entries* is the refresh's one ``list_library`` read (None reads it)."""
         registry = self._scene._block_definitions
         tree: dict = {}
         for lib, series in block_library.list_folders(self._lib_root).items():
@@ -208,7 +269,7 @@ class BlocksBrowser(QWidget):
             tree.setdefault(b.library, {}).setdefault(b.series, []).append(
                 (b.name, b.id, None))
         for lib, ser, name, block_id, path in library_only_entries(
-                self._scene, self._lib_root):
+                self._scene, self._lib_root, entries=entries):
             tree.setdefault(lib, {}).setdefault(ser, []).append(
                 (name, block_id, path))
         return tree
@@ -237,7 +298,13 @@ class BlocksBrowser(QWidget):
         f_lib.setItalic(True)
         from . import theme as th
         dim = QBrush(QColor(th.detect().muted))
-        grouped = self._grouped()
+        entries = block_library.list_library(self._lib_root)   # read once
+        grouped = self._grouped(entries)
+        # Library rows read the index ``tile`` / ``repeat`` flags (LT4-10).
+        lib_caps = {e.get("id"): ("tile" if e.get("tile")
+                                  else "repeat" if e.get("repeat") else None)
+                    for e in entries}
+        dpr = self.devicePixelRatioF()
         for library in sorted(grouped):
             lib_item = QTreeWidgetItem(self._tree, [library])
             lib_item.setFont(0, f_bold)
@@ -250,19 +317,22 @@ class BlocksBrowser(QWidget):
                     leaf.setData(0, _ROLE_ID, block_id)
                     if path is None:
                         d = self._scene.get_block_definition(block_id)
-                        if d is not None and d.tile:
-                            leaf.setIcon(0, _pattern_badge(self.devicePixelRatioF()))
-                            leaf.setToolTip(0, "Pattern block — used by hatch "
-                                               "fills; it can't be placed")
-                        else:
-                            leaf.setToolTip(0, "Drag onto a canvas or double-click "
-                                               "to place")
+                        kind = (None if d is None else "tile" if d.tile
+                                else "repeat" if d.repeat else None)
+                        tip = ("Drag onto a canvas or double-click "
+                               "to place")
                     else:
                         leaf.setData(0, _ROLE_PATH, path)
                         leaf.setFont(0, f_lib)
                         leaf.setForeground(0, dim)
-                        leaf.setToolTip(0, "In the library — drag or double-click "
-                                           "to load into the project and place")
+                        kind = lib_caps.get(block_id)
+                        tip = ("In the library — drag or double-click "
+                               "to load into the project and place")
+                    badge = _capability_badge(kind, dpr)
+                    if badge is not None:
+                        icon, tip = badge
+                        leaf.setIcon(0, icon)
+                    leaf.setToolTip(0, tip)
                 s_item.setExpanded((library, series) not in collapsed)
             lib_item.setExpanded((library,) not in collapsed)
 

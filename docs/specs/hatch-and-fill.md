@@ -1,13 +1,14 @@
 ---
 status: partial          # HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-05  # Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 489dcc2   # Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-10-06  # LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: b9b1094   # LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
   - firepro3d/hatch_render.py       # renderer: paint_fill / stamp_lattice / paint_swatch
   - firepro3d/render_op.py          # RenderOp type — shared with linetypes (LT3 extends it); block compile semantics owned by block-system.md
-  - firepro3d/tile_frame.py         # Block Editor pattern-tile frame + tile panel rows
+  - firepro3d/capability_frame.py   # Block Editor capability frame base (CapabilityFrameItem, tag, frame_for) — shared with linetypes.md LT4 (RepeatFrame), owned here
+  - firepro3d/tile_frame.py         # Block Editor pattern-tile frame (TileFrame) + tile panel rows
   - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files + index.json (D-A39)
   - firepro3d/displayable_item.py   # draw_fill / draw_section_hatch adapters only (the mixin's other state is owned elsewhere)
 source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns as blocks + theme-Automatic colours (2026-10-01)"]
@@ -107,12 +108,34 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   and `draw_section_hatch` (walls / floor slabs section cut: section fill +
   pattern + scale) are thin `paint_fill` wrappers passing the item's
   `sceneTransform()` as `to_scene`.
-- **Block Editor tile frame** (`tile_frame.py`, D-A32/D-A38): `TileFrameItem`
-  overlay with W/H and row-shift grips and an 8-cell repeat preview through
-  `stamp_lattice` (at authored size); `seed_tile` (content extents from the
-  origin, 10×10 empty, Size = Model); `tile_properties` /
-  `set_tile_property` feed the nothing-selected property panel. Excluded from
-  primitives, snap targets and delete.
+- **Block Editor capability frame** (`capability_frame.py`, this file's home
+  since LT4 generalised the HF2 tile frame). `CapabilityFrameItem` is the
+  shared non-primitive overlay of the Block Editor's capability
+  (the one `Model_Space.block_capability` slot — [`linetypes.md`](linetypes.md)
+  LT4 H4-a):
+  tag `CAPABILITY_FRAME_TAG = "capability_frame"` (`data(0)`), dashed accent
+  rect, a repeat-preview ring clipped outside the frame at
+  `PREVIEW_OPACITY` (35 %), a scratch definition compiled from the live
+  editor content with the frame's capability (preview ≡ render), HALO / pick
+  shape, grips through the manipulator, and anchoring at the origin
+  (`MANIP_ANCHORED`, inert translate). It is excluded from primitives
+  (`gather_primitives`), snap targets (`snap_engine._NON_TARGET_TAGS`), delete
+  and copy (`Model_Space.delete_items` / `copy_selected_items`), and never
+  joins a multi-selection panel ([`property-panel.md`](property-panel.md)
+  §3.5). `frame_for(scene, kind)` builds the subclass for `"tile"` /
+  `"repeat"` and raises `ValueError` otherwise. Subclasses: `TileFrame`
+  below; the linetype `RepeatFrame` → [`linetypes.md`](linetypes.md) LT4 H4-b.
+- **Block Editor tile frame** (`tile_frame.py`, D-A32/D-A38): `TileFrame`
+  (`KIND = "tile"`; HF2 names `TileFrameItem` and `TILE_FRAME_TAG` kept as
+  aliases — the tag value is now `"capability_frame"`) with W/H and row-shift
+  grips and an 8-cell repeat preview through `stamp_lattice` (at authored
+  size); `seed_tile` (content extents from the origin, 10×10 empty, Size =
+  Model). `tile_properties` / `set_tile_property` are the tile rows; the
+  nothing-selected panel and a selected frame reach them through the shared
+  capability panel (`capability_panel.py`, owned by
+  [`linetypes.md`](linetypes.md) LT4 H4-f), under a **Repeat** header with
+  the Pattern tile / Linetype toggles (a block is a pattern or a linetype,
+  not both).
 - Fill is still **one item's own closed path** (`get_closed_path()`); no
   multi-item boundary or island detection until Filled Regions (HF3+).
 
@@ -273,7 +296,8 @@ until that doc is approved.
   tile frame with W/H + row-shift grips, typed W/H/shift/Model·Drafting in the
   property panel when nothing is selected, live repeat preview (mockup-gated).
   Frame lower-left = block origin (0,0); seeded W×H = content extents from the
-  origin (10×10 when empty).
+  origin (10×10 when empty). *(LT4, 2026-10-06: Pattern tile and the linetype
+  toggle are mutually exclusive — [`linetypes.md`](linetypes.md) LT4-11b.)*
 - **D-A33** Each cell stamps the tile block's full content offset by the tile
   step — no per-cell clip; only the host boundary clips.
 - **D-A34** Tiled blocks are listed in the Blocks browser with a pattern badge;

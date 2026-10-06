@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="48" height="48" viewBox="0 0 48 48" version="1.1" fill="none"
+     xmlns="http://www.w3.org/2000/svg">
+  <!-- Linetype (linetypes LT4-11f, candidate A approved 2026-10-05; same
+       family as pattern_tile_icon.svg). Two-token (icon-style-guide §5.1):
+       #1a1a1a -> ink (the dashed repeat frame), #004cff -> accent (the
+       dash-dash-dot line running through it). -->
+  <rect x="8" y="12" width="32" height="24"
+        style="fill:none;stroke:#1a1a1a;stroke-width:2;stroke-dasharray:4 3"/>
+  <path d="M2 24 H18 M24 24 H34"
+        style="fill:none;stroke:#004cff;stroke-width:4;stroke-linecap:butt"/>
+  <circle cx="41" cy="24" r="2.6" style="fill:#004cff;stroke:none"/>
+</svg>

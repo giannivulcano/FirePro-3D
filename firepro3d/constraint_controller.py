@@ -1145,6 +1145,31 @@ class ConstraintController:
                 out.add(c.id)
         return out
 
+    def mark_unsatisfied_red(self, cons) -> set:
+        """D38: red-mark each of *cons* the committed geometry violates.
+
+        The live counterpart of the undo-restore derivation (``_unsatisfied``,
+        CS2 review I-1): after a commit that moved / created geometry without
+        a solve (paste, an LT4-8 Pattern-list ripple), a constraint it leaves
+        unsatisfied shows red instead of staying active-unapplied, so the live
+        red set equals the one an undo / redo restore derives. Disabled,
+        inert and Reference (non-driving dim, F1) constraints are never red.
+        Nothing is solved or written.
+
+        Args:
+            cons: Candidate constraint records.
+
+        Returns:
+            The ids newly or already red among *cons* that are unsatisfied.
+        """
+        bad = self._unsatisfied(
+            [c for c in cons if c.enabled and not c.inert
+             and not (c.type in sm.VALUED and not c.driving)])   # F1: Reference never red
+        if not bad <= self.red:
+            self.red |= bad
+            self._commit_gen += 1        # diagnostics key (red changed)
+        return bad
+
     def _recheck_red(self, skip=()) -> None:
         """D37: after a STRUCTURAL commit, each red constraint (list order)
         re-joins if it is satisfiable again -- its solve is written back.
@@ -1821,9 +1846,7 @@ class ConstraintController:
         # D38: a copied constraint the copied geometry does not satisfy (e.g.
         # a source's red one) is red on the copy too -- never active-unapplied
         # (review I-1).
-        self.red |= self._unsatisfied(
-            [c for c in new if c.enabled and not c.inert
-             and not (c.type in sm.VALUED and not c.driving)])   # F1: Reference never red
+        self.mark_unsatisfied_red(new)
         self._commit_gen += 1
 
 
