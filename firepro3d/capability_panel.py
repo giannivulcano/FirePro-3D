@@ -15,7 +15,8 @@ _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
 def _weight_rows(scene, rows_ok: bool) -> dict:
     """The Weight row (LT4-3): the dashes' shared weight, or ``< mixed >``.
 
-    A dots-only pattern (no dash) shows By Category -- nothing is mixed. A
+    A dots-only pattern (no dash) shows By Category -- nothing is mixed --
+    and the row is disabled (a pick would stamp no dash; review G5 R-N1). A
     dash weight that is not a current weight name is offered as its own
     option (shown, never silently replaced -- as ``stroke_rows`` keeps an
     unresolvable value).
@@ -25,18 +26,19 @@ def _weight_rows(scene, rows_ok: bool) -> dict:
     from .linetype_authoring import axis_items, pattern_weight
     by_cat = f"By Category ({pd.model_blocks_weight()})"
     w = pattern_weight(scene)
+    has_dash = any(r[0] == "dash" for _, r in axis_items(scene))
     if w is None:
-        has_dash = any(r[0] == "dash" for _, r in axis_items(scene))
         value = "< mixed >" if has_dash else by_cat
     else:
         value = by_cat if w == ss.BY_LINETYPE else w
     options = [by_cat, *pd.weight_names()]
     if value not in options:
         options = [value] + options
+    tip = ("Weight of every dash — what By Linetype lines draw at"
+           if has_dash else "Add a dash to set the linetype's Weight")
     return {"Weight": {"type": "enum", "options": options, "value": value,
-                       "disabled": not rows_ok,
-                       "tooltip": "Weight of every dash — what By Linetype "
-                                  "lines draw at"}}
+                       "disabled": not rows_ok or not has_dash,
+                       "tooltip": tip}}
 
 
 def capability_rows(scene) -> dict:

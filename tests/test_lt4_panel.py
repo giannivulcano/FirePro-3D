@@ -329,3 +329,19 @@ def test_template_outside_a_linetype_is_unaffected(qapp):
     assert not props["Linetype"].get("disabled")
     assert not props["Weight"].get("disabled")
     assert ss.current_style() == {"linetype": hid.id, "weight": "Light"}
+
+
+# ── review G5 R-N1: a dots-only pattern's Weight row is disabled ─────────
+
+def test_dots_only_weight_row_is_disabled_with_why_tooltip(qapp):
+    from firepro3d.linetype_authoring import apply_pattern_rows
+    w, sc = _lt()
+    pm = PropertyManager()
+    pm.show_properties(BlockPropertiesInfo(sc, "Hidden", w))
+    combo = pm._prop_widgets["Weight"]
+    assert combo.isEnabled()                               # seed has a dash
+    assert apply_pattern_rows(sc, [("dot", 0.0), ("gap", 3.0)])
+    pm.show_properties(BlockPropertiesInfo(sc, "Hidden", w))
+    combo = pm._prop_widgets["Weight"]
+    assert not combo.isEnabled()
+    assert combo.toolTip() == "Add a dash to set the linetype's Weight"
