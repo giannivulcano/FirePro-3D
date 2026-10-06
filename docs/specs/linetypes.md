@@ -953,9 +953,10 @@ and the RenderOp fields are additive.
 > Slice contract for LT4 (concept LD6 authoring half; D-L20, D-L23a, LT3-3).
 > The *what* was settled in the LT4 Phase-2 grill (Q1–Q15, every row
 > user-ratified, 2026-10-05) and the *how* (H4-a–H4-g) approved section by
-> section in the brainstorm the same day. **Unbuilt.** Two P4 probes are open
-> (H4-a amend-in-place undo, H4-d add-path choke point) — the decisions resting
-> on them stay *as-proposed* until probed (plan step 1). The Pattern-list
+> section in the brainstorm the same day. **Unbuilt.** Both P4 probes closed
+> 2026-10-05 (H4-a / H4-d: `push_undo_state` is the single commit funnel —
+> draw commits, `commit_paste`, editor import and Explode all push — so one
+> pre-capture hook serves grow-to-fit and the lock; no undo amend). The Pattern-list
 > layout is ratified on a browser mockup (layout A, 24 px rows, 64 px swatch);
 > the **live Qt render under the app QSS is still a gate before build**.
 > The sticky current Linetype/Weight moved to WM1 (built); LT4 is authoring
@@ -1033,9 +1034,9 @@ and the RenderOp fields are additive.
   push_undo=True)` syncs the frame item; one undo-snapshot key
   `"block_capability"` (restore also accepts a legacy `"block_tile"` key);
   read-only `block_tile` / `block_repeat` properties. Exclusivity (LT4-11b) is
-  structural. **Grow-to-fit** (LT4-9) runs in the editor-role `sceneModified`
-  hook and amends the step just pushed — *P4 probe:* can the house undo stack
-  amend in place? Fallback: grow inside the commit path before the push.
+  structural. **Grow-to-fit** (LT4-9) runs in a `repeat`-scene pre-capture
+  hook at the top of `push_undo_state` (before `_capture_network`), so the
+  draw and the grow are one snapshot (P4 closed: no amend needed).
 - **H4-b Shared frame.** `capability_frame.CapabilityFrameItem` owns the tag
   `"capability_frame"` (replaces `TILE_FRAME_TAG` at the snap / delete /
   selection-filter exclusions), anchoring, HALO outline trace, `manip_bounds`,
@@ -1052,11 +1053,11 @@ and the RenderOp fields are additive.
   resizes matches in place, deletes extras, creates the rest via the editor's
   add path (Continuous, the linetype Weight), sets Length = period — one undo
   step. `set_pattern_weight(w)` re-stamps every axis dash in one step.
-- **H4-d Lock.** `Model_Space._enforce_unit_continuous(item)` wherever a styled
-  primitive enters a `repeat` scene: draw commits (after `apply_current`),
-  paste, Block-Editor import, Explode — *P4 probe:* one add-path choke point,
-  or a call per entry (then a test per entry). `stroke_rows` greys the
-  Linetype row there.
+- **H4-d Lock.** The same `push_undo_state` pre-capture hook sets every
+  non-Continuous styled primitive in a `repeat` scene to Continuous (new
+  draws also take the linetype Weight) — covering draw commits, paste,
+  Block-Editor import and Explode (P4 closed: all four push; A3 tests each
+  entry). `stroke_rows` greys the Linetype row there.
 - **H4-e Toggle + save.** `BlockEditorWidget.toggle_capability(kind)`
   (`toggle_pattern_tile` stays a thin alias); `pattern_use_refusal` →
   `symbol_use_refusal` (tile / linetype wording); off-while-used reuses the
