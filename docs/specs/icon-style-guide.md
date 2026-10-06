@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-02  # CS1 Account: §5.1 constraint icon family joins the 40-unit family (guard _CONSTRAINT_ICONS; shapes owned by parametric-constraint-system.md D25); prior 2026-10-01 scene-tools P1 Account: §5.1 Modify/Edit icons in the 40-unit family + Flip/Mirror/Scale grammar + Scale base-ring carve-out; §4.1 white-fill scope; §8 stale 27 px line; prior 2026-09-30 chrome polish: render-size ref de-restated (was stale 54/27), app_glyph_icon stroke deviation; prior 2026-09-19
-verified-commit: 2a22ba9   # feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 416584c   # prior 0a7b44a
+last-verified: 2026-10-06  # LT4 Account: §5 linetype_icon.svg stroke deviation (4-unit butt-cap accent dashes, candidate A); prior 2026-10-02 CS1 Account: §5.1 constraint icon family joins the 40-unit family (guard _CONSTRAINT_ICONS; shapes owned by parametric-constraint-system.md D25); prior 2026-10-01 scene-tools P1 Account: §5.1 Modify/Edit icons in the 40-unit family + Flip/Mirror/Scale grammar + Scale base-ring carve-out; §4.1 white-fill scope; §8 stale 27 px line; prior 2026-09-30 chrome polish: render-size ref de-restated (was stale 54/27), app_glyph_icon stroke deviation; prior 2026-09-19
+verified-commit: b9b1094   # feat/lt4-repeat-authoring (linetype_icon.svg); prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 416584c   # prior 0a7b44a
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
@@ -103,6 +103,7 @@ Recolouring is performed by `svg_utils.svg_recolor(svg_text, color_map)`:
 - Caps and joins: `stroke-linecap="round"` and `stroke-linejoin="round"`.
 - Prefer **stroked glyphs over filled shapes** where both are readable. Stroked glyphs stay crisp at the small-button render size; heavy fills tend to blob.
 - **Deviation — `app_glyph_icon.svg`** (header-rail identity glyph, chrome polish 2026-09-30): hexagon outline at `stroke-width="3"` — the mockup-approved identity weight at the `M.HEADER_ICON` render size. Still two-token + 48-unit (guarded in `test_icon_theming._CHROME_ICONS`).
+- **Deviation — `linetype_icon.svg`** (Block Editor Linetype toggle, linetypes LT4-11f): the accent dash-dash line is `stroke-width:4` with `stroke-linecap:butt` (the ink frame stays at 2) — user-picked candidate A (2026-10-05): the heavy square-ended dashes read as a dash pattern at the live small-button size. Still two-token + 48-unit (guarded in `test_icon_theming._BLOCK_ICONS`).
 - When a fill is needed (e.g. arrowhead, solid dot), use a filled path with `stroke="none"` rather than a filled-and-stroked shape at the same colour (avoids double-draw artefacts at small sizes).
 
 ### 5.1 2D-geometry icon family (40-unit legacy canvas, 2026-09-16)
