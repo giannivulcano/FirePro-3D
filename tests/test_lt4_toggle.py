@@ -107,7 +107,7 @@ def _used_linetype():
 
 def test_a4_off_refused_while_used_behaviour(qapp):
     """LT4-5 toggle refusal: nothing changes and one status is posted (the
-    exact wording is Task 9's -- see the xfail below)."""
+    exact wording is ``test_a4_off_refused_while_used``)."""
     proj, lt_def = _used_linetype()
     _, w, msgs = _w(proj, lt_def)
     sc = w.editor_scene
@@ -118,7 +118,6 @@ def test_a4_off_refused_while_used_behaviour(qapp):
     assert len(msgs) == 1 and "Riser" in msgs[0]
 
 
-@pytest.mark.xfail(reason="LT4 Task 9 wording", strict=True)
 def test_a4_off_refused_while_used(qapp):
     proj, lt_def = _used_linetype()
     _, w, msgs = _w(proj, lt_def)

@@ -1823,16 +1823,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             ``“B” is used inside: A, D — explode or remove it there first.``
-            (users sorted by name, direct and indirect); ``“Hidden” is used
-            by lines in the plan and in the open Block Editor — change their
-            linetype first.``; both together (``… inside: U, and by lines in
-            the plan — …``); or None when nothing uses it.
+            (users sorted by name, direct and indirect); for a linetype used
+            by blocks' lines (LT4-11e) ``“Hidden” is used by lines inside:
+            Riser, Valve — change their linetype first.`` (only the blocks
+            whose own lines use it); ``“Hidden” is used by lines in the plan
+            and in the open Block Editor — change their linetype first.``;
+            both together (``… by lines inside: U, and by lines in the plan
+            — …``); or None when nothing uses it. A linetype that a block
+            also nests keeps the nesting wording ("explode or remove it
+            there").
         """
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
         if not users and not ctx:
             return None
         d = self.get_block_definition(block_id)
+        if d.repeat:
+            msg = self._linetype_users_message(d, users, ctx)
+            if msg is not None:
+                return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
         if not users:
             return (f"“{d.name}” is used {lines}"
@@ -1842,6 +1851,40 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         fix = (" — explode or remove it there, and change their linetype first."
                if ctx else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
+
+    def _linetype_users_message(self, d, users, ctx) -> str | None:
+        """LT4-11e: the "used by lines" refusal for linetype *d*, or None.
+
+        Names only the definitions whose own primitives use *d* as their
+        linetype (a block nesting such a definition is freed with it). None
+        when some definition nests *d* directly (the caller's nesting wording
+        applies) or when no line uses it.
+
+        Args:
+            d: The linetype definition.
+            users: ``users_of(d.id)`` (direct and indirect).
+            ctx: ``linetype_user_contexts(d.id)`` ("the plan", …).
+        """
+        from .block_registry import nested_ids
+        line_users = []
+        for uid in users:
+            u = self.get_block_definition(uid)
+            if u is None:
+                continue
+            if d.id in nested_ids(u):
+                return None
+            if any(isinstance(p.get("style"), dict)
+                   and p["style"].get("linetype") == d.id
+                   for p in u.primitives):
+                line_users.append(u.name)
+        segs = ([f"lines inside: {', '.join(sorted(line_users))}"]
+                if line_users else [])
+        if ctx:
+            segs.append("lines " + " and ".join("in " + c for c in ctx))
+        if not segs:
+            return None
+        return (f"“{d.name}” is used by " + ", and by ".join(segs)
+                + " — change their linetype first.")
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the
