@@ -84,6 +84,13 @@ def capability_rows(scene) -> dict:
                          "value": "Model" if rep["size"] == "model" else "Drafting",
                          "tooltip": "Drafting: lengths are printed mm (scale with "
                                     "the view). Model: lengths are real size"}
+        props["On screen"] = {
+            "type": "enum", "options": ["Fixed size", "Scale with zoom"],
+            "value": "Fixed size" if rep.get("screen") == "fixed" else "Scale with zoom",
+            "tooltip": "Fixed size: dashes keep the same size on screen at any "
+                       "zoom (model views and the Block Editor). Scale with "
+                       "zoom: dashes zoom with the drawing. Sheets and PDF "
+                       "always print true size"}
         props.update(_weight_rows(scene, rows is not None))
         props["Pattern"] = {"type": "header", "value": ""}
         props["Pattern rows"] = {"type": "pattern_list", "value": rows,
@@ -129,7 +136,7 @@ def set_capability_property(scene, editor, key, value) -> None:
             mm = _to_mm(scene, value)
             if mm is not None:
                 la.set_repeat_field(scene, key, mm)
-        elif key == "Size":
+        elif key in ("Size", "On screen"):
             la.set_repeat_field(scene, key, value)
         elif key == "Weight":
             from . import stroke_style as ss
