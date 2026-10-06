@@ -116,7 +116,8 @@ def _capability_badge(kind, dpr: float):
     return None
 
 
-def library_only_entries(scene, root: str | None = None
+def library_only_entries(scene, root: str | None = None, *,
+                         entries: list[dict] | None = None
                          ) -> list[tuple[str, str, str, str, str]]:
     """Library blocks NOT already in the project.
 
@@ -126,6 +127,8 @@ def library_only_entries(scene, root: str | None = None
     Args:
         scene: The project ``Model_Space`` (its ``_block_definitions`` registry).
         root: Block-library root override (None = the configured library).
+        entries: An already-read ``block_library.list_library(root)`` result
+            (one index read per Blocks-browser refresh); None reads it here.
 
     Returns:
         ``(library, series, name, block_id, path)`` tuples — on-disk index
@@ -133,7 +136,9 @@ def library_only_entries(scene, root: str | None = None
     """
     seen = set(scene._block_definitions)
     out = []
-    for e in block_library.list_library(root):
+    if entries is None:
+        entries = block_library.list_library(root)
+    for e in entries:
         if e.get("id") in seen:
             continue
         out.append((e["library"], e["series"], e.get("name") or e["filename"],
@@ -249,10 +254,11 @@ class BlocksBrowser(QWidget):
 
     # ── data ──────────────────────────────────────────────────────────────
 
-    def _grouped(self) -> dict:
+    def _grouped(self, entries: list[dict] | None = None) -> dict:
         """``{library: {series: [(name, id, path|None), ...]}}`` — the on-disk
         folders + indexed blocks merged with the project's definitions (a
-        library entry whose id is in the project is listed once, as project)."""
+        library entry whose id is in the project is listed once, as project).
+        *entries* is the refresh's one ``list_library`` read (None reads it)."""
         registry = self._scene._block_definitions
         tree: dict = {}
         for lib, series in block_library.list_folders(self._lib_root).items():
@@ -263,7 +269,7 @@ class BlocksBrowser(QWidget):
             tree.setdefault(b.library, {}).setdefault(b.series, []).append(
                 (b.name, b.id, None))
         for lib, ser, name, block_id, path in library_only_entries(
-                self._scene, self._lib_root):
+                self._scene, self._lib_root, entries=entries):
             tree.setdefault(lib, {}).setdefault(ser, []).append(
                 (name, block_id, path))
         return tree
@@ -292,11 +298,12 @@ class BlocksBrowser(QWidget):
         f_lib.setItalic(True)
         from . import theme as th
         dim = QBrush(QColor(th.detect().muted))
-        grouped = self._grouped()
+        entries = block_library.list_library(self._lib_root)   # read once
+        grouped = self._grouped(entries)
         # Library rows read the index ``tile`` / ``repeat`` flags (LT4-10).
         lib_caps = {e.get("id"): ("tile" if e.get("tile")
                                   else "repeat" if e.get("repeat") else None)
-                    for e in block_library.list_library(self._lib_root)}
+                    for e in entries}
         dpr = self.devicePixelRatioF()
         for library in sorted(grouped):
             lib_item = QTreeWidgetItem(self._tree, [library])

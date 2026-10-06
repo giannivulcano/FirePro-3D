@@ -138,3 +138,23 @@ def test_a8_block_nesting_and_lining_appears_in_both_clauses(qapp):
     assert ms.block_users_message(lt.id) == (
         "\u201cHidden\u201d is used inside: Host, and by lines inside: Host "
         "\u2014 explode or remove it there, and change their linetype first.")
+
+
+# -- G6 M3: one library index read per Blocks-browser refresh ---------------
+
+def test_refresh_reads_the_library_index_once(qapp, tmp_path, monkeypatch):
+    ms = Model_Space()
+    lib_lt = make_linetype("Center")
+    block_library.save_to_library(lib_lt, root=str(tmp_path))
+    br = BlocksBrowser(ms, root=str(tmp_path))
+    real, calls = block_library.list_library, []
+
+    def counting(*a, **k):
+        calls.append(a)
+        return real(*a, **k)
+
+    monkeypatch.setattr(block_library, "list_library", counting)
+    br.refresh()
+    assert len(calls) == 1
+    leaf = _leaf(br._tree, "Center")                # still listed + badged
+    assert leaf is not None and not leaf.icon(0).isNull()
