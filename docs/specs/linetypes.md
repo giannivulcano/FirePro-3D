@@ -1348,14 +1348,20 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   screen affects only lines that *use* the linetype.
 - **LTS-7 Short lines** (Q8). On a canvas, a Fixed-linetype stroke whose
   total on-screen length is under one period draws Continuous, so it never
-  vanishes inside a gap (whole item, not per segment). D-L21's < 2 px LOD
+  vanishes inside a gap (whole item, not per segment; inside a placed block
+  the unit is each primitive's stroke op, exactly as if drawn raw — build
+  Phase-2 Δ2, 2026-10-06). D-L21's < 2 px LOD
   keeps applying to Scale-with-zoom linetypes. Paper is exact.
 - **LTS-8 Performance** (Q9). On the D-L21 bench scene with every linetype
   Fixed, in both shapes — (A) few items carrying 2,000 segments, (B) 200
   placed instances of a block with Hidden lines — one wheel-zoom frame is
   ≤ 16 ms **and** ≤ 1.5× the same scene with Scale with zoom; a pan frame is
   no slower than today (expansion cache hit). Bench A/B against the base
-  before any perf fix.
+  before any perf fix. *(Extended by the build Phase-2 Δ1, 2026-10-06:)* a
+  Fixed line stays dashed at **any** zoom — never solid through
+  `LINETYPE_MAX_PERIODS` — and a third shape (C) 50 lines of 100 m each
+  zoomed in to ~20 px/mm holds a wheel-zoom frame ≤ 16 ms (expansion cost
+  must not scale with the off-screen length of a line).
 - **LTS-9 Settled defaults** (Q10, batch-ratified): (a) changing On screen is
   one undo step, the row has a tooltip, every line using the linetype repaints
   at once; (b) weights unchanged — D-L14 px widths and Thin Lines; (c) snap,
@@ -1381,7 +1387,11 @@ Real paint through a shown view, observable pixels:
 - **G-LTS6** a linetype saved without the property loads Scale with zoom; a
   newly turned-on linetype seeds Fixed; the property survives `.fpd` /
   `.fpdb` round trips.
-- **G-LTS7** the LTS-8 bench, both shapes, against its bar.
+- **G-LTS7** the LTS-8 bench, shapes A, B and C, against its bar.
+- **G-LTS8** a 100 m Fixed line zoomed in past `LINETYPE_MAX_PERIODS`
+  on-screen periods still paints dashes (pixel run), and a short line inside
+  a placed block paints solid while a long edge of the same block stays
+  dashed.
 
 ## Acceptance Criteria
 
