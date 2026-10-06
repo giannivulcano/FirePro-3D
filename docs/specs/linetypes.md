@@ -1,7 +1,7 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-06  # LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: b9b1094   # LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS (Fixed on-screen size) ratified 2026-10-06, unbuilt. D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
+last-verified: 2026-10-06  # LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: b7b8e87   # LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built)
   - firepro3d/repeat_frame.py        # LT4 — RepeatFrame (repeat unit frame, Length grip, preview ring); shared frame base capability_frame.py is owned by hatch-and-fill.md
   - firepro3d/linetype_pattern.py    # LT4 — pure rows ⇄ reading (rows_from_reading, spans, content_end / axis_end, validate_rows, SEED_ROWS)
@@ -723,6 +723,8 @@ a snapshot leaves the snapshot unchanged).
   applies); dash/gap lengths are geometry and scale with zoom. Paper/PDF are
   true mm for both. LD3's "BlockInstance.paint stops forcing cosmetic pens" is
   retired as met by LT1/LT2 on paper — explicit dash geometry cannot collapse.
+  *(Amended 2026-10-06 by "LTS" — a linetype with On screen = Fixed size
+  holds a constant screen length on model canvases instead.)*
 - **LT3-5 Drafting sizing** (Q5; **amends D-L3's fallback**). Length factor per
   surface: plan canvas — Drafting × `ScaleManager.drawing_scale` (SB1c later
   swaps in `PlanView.scale`), Model × 1; paper pass — Drafting ÷ the viewport's
@@ -1304,6 +1306,82 @@ Files (all new, under `tests/`):
 Rewritten for the contract change: `test_block_editor_ribbon_tab.py` (the
 editor-only roster gains "Linetype") and `test_icon_theming.py`
 (`linetype_icon.svg` joins `_BLOCK_ICONS`).
+
+## LTS — On-screen size: Fixed on screen (ratified 2026-10-06, unbuilt)
+
+> Design run (the P1 "screen-constant linetype pattern" task, filed at the
+> LT4 smoke). *What* settled in a Phase-2 grill (Q1–Q10, every row
+> user-ratified 2026-10-06); no *how* yet — the build task carries it.
+> **Amends LT3-4** (dash/gap lengths scale with zoom) for linetypes whose On
+> screen = Fixed size; LT3-5 stays the length rule for paper/PDF, sheet
+> viewports and Scale-with-zoom linetypes.
+>
+> **Why (Q1):** a linetype must read as its pattern at any working zoom.
+> Zoomed out, today's geometry-sized dashes collapse toward solid; zoomed in,
+> one dash fills the view. On-screen pattern *accuracy* is not the goal —
+> paper is.
+
+- **LTS-1 Property** (Q3). A per-linetype property **On screen: Fixed size |
+  Scale with zoom**, separate from Size (D-L3): Size still decides paper/PDF
+  length, On screen only changes model canvases. One row under Size in the
+  Block Editor linetype panel. Not a per-view, per-line or app setting.
+- **LTS-2 Scope** (Q2). Fixed applies on every model canvas that paints
+  linetyped strokes — plan, detail views, the Block Editor (and elevation once
+  it paints 2D geometry, a follow-up today). **Sheet viewports on screen and
+  PDF/print stay true paper mm** (the sheet is the WYSIWYG print preview).
+- **LTS-3 Size on screen** (Q4). On-screen length = printed mm ×
+  `UNDERLAY_MM_TO_PX_HINT` (the D-L14 weight mapping, 6 px/mm). Drafting:
+  the authored printed mm; Model: real mm ÷ the project drawing scale (its
+  printed size). E.g. Dash 6 · Gap 3 = 36 px + 18 px at any zoom, in the same
+  proportion to the weight as on paper.
+- **LTS-4 Phase** (Q5). D-L9 / D-L9b unchanged, measured in screen px from
+  the anchor's projection: at any fixed zoom collinear pieces read as one line
+  and trim/split never move surviving dashes; **during a zoom, dashes crawl
+  along the line** (accepted).
+- **LTS-5 Defaults** (Q6). Turning Linetype on seeds On screen = **Fixed**
+  (LT4-6 gains the row). A stored linetype without the property loads as
+  **Scale with zoom** (unchanged look; additive key, no format bump). LT7's
+  shipped System linetypes ship Fixed.
+- **LTS-6 Authoring surfaces** (Q7). Unchanged: the repeat frame and its 35 %
+  ring stay real geometry (they are the unit, LT4-1, and must stay aligned
+  with the frame); the panel swatch keeps fitting periods to its width. On
+  screen affects only lines that *use* the linetype.
+- **LTS-7 Short lines** (Q8). On a canvas, a Fixed-linetype stroke whose
+  total on-screen length is under one period draws Continuous, so it never
+  vanishes inside a gap (whole item, not per segment). D-L21's < 2 px LOD
+  keeps applying to Scale-with-zoom linetypes. Paper is exact.
+- **LTS-8 Performance** (Q9). On the D-L21 bench scene with every linetype
+  Fixed, in both shapes — (A) few items carrying 2,000 segments, (B) 200
+  placed instances of a block with Hidden lines — one wheel-zoom frame is
+  ≤ 16 ms **and** ≤ 1.5× the same scene with Scale with zoom; a pan frame is
+  no slower than today (expansion cache hit). Bench A/B against the base
+  before any perf fix.
+- **LTS-9 Settled defaults** (Q10, batch-ratified): (a) changing On screen is
+  one undo step, the row has a tooltip, every line using the linetype repaints
+  at once; (b) weights unchanged — D-L14 px widths and Thin Lines; (c) snap,
+  HALO, `shape()` and placement ghosts stay on the continuous base geometry
+  (LT3-6); (d) each detail view uses its own zoom; (e) linetyped lines inside
+  placed blocks follow the linetype's On screen like raw lines; (f) LT6
+  symbols in a Fixed unit scale with the pattern (the whole unit is in px);
+  LT5 end blocks keep their own sizing — an open question for LT5's grill;
+  (g) `.fpdb` bundles and library files carry the property.
+
+### LTS guards (VC3) — planned
+
+Real paint through a shown view, observable pixels:
+
+- **G-LTS1** a Fixed-linetype line's dash run measures the same px at two
+  zooms (pixel-run measurement).
+- **G-LTS2** a Scale-with-zoom line's dash run doubles at 2× zoom (today's
+  behaviour kept).
+- **G-LTS3** a sheet viewport on screen and its PDF plot true mm whatever the
+  flag.
+- **G-LTS4** two collinear Fixed lines read seamless at a fixed zoom.
+- **G-LTS5** a Fixed line shorter than one period on screen paints solid.
+- **G-LTS6** a linetype saved without the property loads Scale with zoom; a
+  newly turned-on linetype seeds Fixed; the property survives `.fpd` /
+  `.fpdb` round trips.
+- **G-LTS7** the LTS-8 bench, both shapes, against its bar.
 
 ## Acceptance Criteria
 

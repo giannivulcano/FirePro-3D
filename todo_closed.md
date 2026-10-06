@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes -- screen-constant (Fixed on-screen) linetype design -- 2026-10-06
+
+- [x] [type:design] Screen-constant linetype pattern on the canvas: dashes / gaps / dots keep a fixed on-screen size regardless of zoom (display option) [P1] [subject:CAD] [done:2026-10-06]
+  - Details: user request at the LT4 smoke (2026-10-06). Today dash lengths are geometry and scale with zoom (linetypes.md LT3-4, ratified); Drafting = printed mm x drawing scale in the plan (LT3-5), real size in the Block Editor. A canvas-only mode where the pattern holds N screen px at any zoom would stop the screen showing where dashes fall on paper -- grill first: scope (plan / Block Editor / sheet viewports / all), per-view vs app setting vs per-linetype, how phase / the D-L9 axis rule behave when the period is in px, the repeat-frame ring + panel preview, snap / HALO (stay on continuous geometry, LT3-6), the LOD rule (LT3 screen LOD < 2 px period), paper/PDF unaffected. Precedent: D-L14 makes WEIGHTS screen-constant; gridline dash normalisation (`grid-system.md` §10.1.1). Governing: `linetypes.md`.
+  - Findings: design/Medium, Phase-2 grill Q1–Q10 (all user-ratified). Settled as `docs/specs/linetypes.md` "LTS" LTS-1–LTS-9 + planned guards G-LTS1–G-LTS7 (amends LT3-4). Why: readability at any zoom, not on-screen accuracy. Headline: a per-linetype **On screen: Fixed size | Scale with zoom** property (separate from Size; not per-view/app); Fixed = printed mm × 6 px/mm on every model canvas incl. the Block Editor, sheet viewports + PDF stay true mm; D-L9 axis phase kept (dashes crawl during zoom); a stroke under one on-screen period draws solid; new linetypes seed Fixed, keyless ones load Scale; repeat frame ring + swatch unchanged; perf bar wheel-zoom ≤ 16 ms and ≤ 1.5× Scale mode, both bench shapes. Filed: LTS build task [P1] under "Linetypes build"; notes added to LT5 (end blocks vs Fixed — grill there) and LT7 (ship Fixed). Revisit trigger: SB1c `PlanView.scale` lands → re-check LTS-3's Model-size drawing-scale term.
+
 ## Opening display categories (Door / Window / Opening) + generic paper pen -- 2026-10-04
 
 - [x] [type:feature] Wall-opening symbols (door swing / window) plot at a paper line weight [P3] [subject:CAD] [done:2026-10-04]
