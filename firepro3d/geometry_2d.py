@@ -298,15 +298,19 @@ class Geometry2DMixin:
         pieces = self.stroke_pieces()
         from .hatch_render import _device_scale
         factor = self._linetype_factor(rs.lt, _device_scale(painter))   # LTS-3
+        from .linetype_render import fixed_on_canvas
+        a = self._lt_args()
+        fixed = fixed_on_canvas(rs.lt, paper_scale=a["paper_scale"], role=a["role"])
         o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
         anchor = (o.x(), o.y())
         if not paint_stroke(painter, pieces, rs.lt, self.pen(),
-                            factor=factor, anchor=anchor):
+                            factor=factor, anchor=anchor, fixed=fixed):
             return False
         if self.isSelected() and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
-            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor)
+            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
+                         fixed=fixed)
         return True
 
     def _paint_lt_badge(self, painter) -> None:

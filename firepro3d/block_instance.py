@@ -328,7 +328,8 @@ class BlockInstance(QGraphicsObject):
                             ok = (_lr.period_ok(lt, factor)
                                   and _lr.lod_ok_at(lt.period * factor, dev_scale))
                         ent[4] = ok
-                    if ok:
+                    if ok and not (fixed and _lr.periods_on(op.pieces, lt, factor) < 1.0):
+                        # (LTS-7 / delta 2: a short op falls through to its plain stroke)
                         dash, dot = self._op_expansion(ops, i, op, lt, factor)
                         painter.save()
                         try:

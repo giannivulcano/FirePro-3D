@@ -166,18 +166,22 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
 
 
 def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
-                 anchor: tuple) -> bool:
+                 anchor: tuple, fixed: bool = False) -> bool:
     """Draw *pieces* dashed in *lt* with *pen* (LT3 one paint entry).
 
     Returns False -- nothing drawn -- when there is no linetype, no pieces, a
     non-positive / non-finite scaled period, or (screen only, ``_lod_ok``) the on-screen period is below
     ``LINETYPE_LOD_MIN_PERIOD_PX``; the caller then draws its unchanged plain
-    stroke. Paper passes always expand.
+    stroke. Paper passes always expand. *fixed* is True for a Fixed linetype
+    on a model canvas (``fixed_on_canvas``): a stroke shorter than one period
+    then also returns False, so it draws solid (LTS-7).
     """
     if lt is None or not pieces or not period_ok(lt, factor):
         return False
     if not _lod_ok(painter, lt.period * factor):
         return False
+    if fixed and periods_on(pieces, lt, factor) < 1.0:
+        return False                      # LTS-7: shorter than one period -> solid
     dash, dot = expand(pieces, lt, factor, anchor)
     painter.save()
     try:
@@ -212,6 +216,11 @@ def period_ok(lt: LinetypeDef, factor: float) -> bool:
     would draw nothing)."""
     period = lt.period * factor
     return period > 0.0 and math.isfinite(period)
+
+
+def periods_on(pieces, lt, factor: float) -> float:
+    """How many scaled periods *pieces* span (LTS-7 / LTS-8 tests)."""
+    return pw.total_length(pieces) / (lt.period * factor)
 
 
 _FIXED_ROLES = ("plan", "block_editor")      # model canvases (LTS-2)
