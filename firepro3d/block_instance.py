@@ -442,18 +442,17 @@ class BlockInstance(QGraphicsObject):
         c[1][i] = (lt, factor, res)
         return res
 
-    def _linetype_factor(self, lt) -> float:
-        """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan canvas ->
-        drawing scale; anything else (Block Editor nested instance) -> 1."""
-        if lt.size == "model":
-            return 1.0
-        if self._paper_scale:
-            return 1.0 / self._paper_scale
+    def _lt_args(self) -> dict:
+        """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
         sc = self.scene()
-        if getattr(sc, "scene_role", None) == "plan":
-            sm = self._scale_manager()
-            return float(sm.drawing_scale) if sm is not None else 1.0
-        return 1.0
+        sm = self._scale_manager()
+        return {"paper_scale": self._paper_scale,
+                "role": getattr(sc, "scene_role", None),
+                "drawing_scale": sm.drawing_scale if sm is not None else None}
+
+    def _linetype_factor(self, lt, device_scale=None) -> float:
+        """LT3-5 length factor (``linetype_render.length_factor``)."""
+        return _lr.length_factor(lt, device_scale=device_scale, **self._lt_args())
 
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).

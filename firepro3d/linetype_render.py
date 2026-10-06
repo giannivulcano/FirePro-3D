@@ -214,6 +214,23 @@ def period_ok(lt: LinetypeDef, factor: float) -> bool:
     return period > 0.0 and math.isfinite(period)
 
 
+def length_factor(lt, *, paper_scale, role, drawing_scale,
+                  device_scale=None) -> float:
+    """Definition mm -> painter units for *lt* (LT3-5).
+
+    Model size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan
+    canvas (*role* ``"plan"``) -> the drawing scale; anything else (Block
+    Editor, no scene) -> 1 (real size). *device_scale* is unused until LTS.
+    """
+    if lt.size == "model":
+        return 1.0
+    if paper_scale:
+        return 1.0 / paper_scale
+    if role == "plan":
+        return float(drawing_scale) if drawing_scale is not None else 1.0
+    return 1.0
+
+
 def _lod_ok(painter, period: float) -> bool:
     """Screen-only LOD (D-L21): paper/PDF passes always expand."""
     if _pd.paper_pass_active():
