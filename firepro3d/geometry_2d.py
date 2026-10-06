@@ -228,22 +228,20 @@ class Geometry2DMixin:
             reg = getattr(sc, "block_registry", None) if sc is not None else None
         return resolve_stroke(st, reg)
 
-    def _linetype_factor(self, lt) -> float:
-        """LT3-5 length factor: Model size -> 1; paper pass -> 1 / viewport
-        scale; plan canvas -> drawing scale; anything else (Block Editor,
-        no scene) -> 1 (real size)."""
-        if lt.size == "model":
-            return 1.0
+    def _lt_args(self) -> dict:
+        """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
         sc = self.scene()
         if sc is None:
-            return 1.0
-        ps = getattr(sc, "_hatch_paper_scale", None)   # set for a viewport pass
-        if ps:
-            return 1.0 / ps
-        if getattr(sc, "scene_role", None) == "plan":
-            sm = getattr(sc, "scale_manager", None)
-            return float(sm.drawing_scale) if sm is not None else 1.0
-        return 1.0
+            return {"paper_scale": None, "role": None, "drawing_scale": None}
+        sm = getattr(sc, "scale_manager", None)
+        return {"paper_scale": getattr(sc, "_hatch_paper_scale", None),  # viewport pass
+                "role": getattr(sc, "scene_role", None),
+                "drawing_scale": sm.drawing_scale if sm is not None else None}
+
+    def _linetype_factor(self, lt, device_scale=None) -> float:
+        """LT3-5 length factor (``linetype_render.length_factor``)."""
+        from .linetype_render import length_factor
+        return length_factor(lt, device_scale=device_scale, **self._lt_args())
 
     def _paint_routed_stroke(self, painter, option, widget, rs,
                              draw_highlight, lt_frame=None) -> bool:
@@ -298,16 +296,21 @@ class Geometry2DMixin:
             return False
         from .linetype_render import paint_stroke
         pieces = self.stroke_pieces()
-        factor = self._linetype_factor(rs.lt)
+        from .hatch_render import _device_scale
+        factor = self._linetype_factor(rs.lt, _device_scale(painter))   # LTS-3
+        from .linetype_render import fixed_on_canvas
+        a = self._lt_args()
+        fixed = fixed_on_canvas(rs.lt, paper_scale=a["paper_scale"], role=a["role"])
         o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
         anchor = (o.x(), o.y())
         if not paint_stroke(painter, pieces, rs.lt, self.pen(),
-                            factor=factor, anchor=anchor):
+                            factor=factor, anchor=anchor, fixed=fixed):
             return False
         if self.isSelected() and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
-            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor)
+            paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
+                         fixed=fixed)
         return True
 
     def _paint_lt_badge(self, painter) -> None:

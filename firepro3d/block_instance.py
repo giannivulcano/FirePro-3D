@@ -25,6 +25,7 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
+from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .render_op import STROKE, FILL, PATTERN, TEXT
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
                            linetype_block, resolve_stroke)
@@ -65,7 +66,7 @@ class BlockInstance(QGraphicsObject):
         # on the continuous base geometry, no missing badge (LT3-6).
         self._is_ghost: bool = False
         self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
-        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion)})
+        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window)})
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None
@@ -265,8 +266,9 @@ class BlockInstance(QGraphicsObject):
         # distinct (linetype, weight) resolves once per paint and nothing
         # resolved here outlives it -- weight table / alias / Model Blocks /
         # Thin Lines / registry / drawing-scale edits reach the next paint.
-        strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod]
+        strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod, fixed]
         dev_scale = None    # device px per local unit under the pose (lazy)
+        win = False         # view_window key under the pose (LTS-8; lazy, Fixed only)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
@@ -291,7 +293,7 @@ class BlockInstance(QGraphicsObject):
                 if ent is None:
                     ent = strokes[key] = self._resolve_op_stroke(
                         op, routed, registry, on_paper)
-                rs, width, lt, factor, ok = ent
+                rs, width, lt, factor, ok, fixed = ent
                 if rs is not None and rs.missing_id and missing is None:
                     missing = rs.missing_id
                 # Copy — the compiled op pen is shared by every instance.
@@ -323,10 +325,25 @@ class BlockInstance(QGraphicsObject):
                                 painter.setWorldTransform(pose, True)
                                 dev_scale = _hr._device_scale(painter)
                                 painter.restore()
-                            ok = _lr.lod_ok_at(lt.period * factor, dev_scale)
+                            if factor is None:    # LTS-3 Fixed: this paint's scale
+                                factor = ent[3] = self._linetype_factor(lt, dev_scale)
+                            ok = (_lr.period_ok(lt, factor)
+                                  and _lr.lod_ok_at(lt.period * factor, dev_scale))
                         ent[4] = ok
-                    if ok:
-                        dash, dot = self._op_expansion(ops, i, op, lt, factor)
+                    n = (_lr.periods_on(op.pieces, lt, factor)
+                         if ok and fixed else None)
+                    if ok and not (n is not None and n < 1.0):
+                        # (LTS-7 / delta 2: a short op falls through to its plain
+                        # stroke; LTS-8: a long Fixed op expands near the view)
+                        w = None
+                        if n is not None and n > LINETYPE_WINDOW_MIN_PERIODS:
+                            if win is False:      # once per paint, long Fixed ops only
+                                painter.save()
+                                painter.setWorldTransform(pose, True)
+                                win = _lr.view_window(painter)
+                                painter.restore()
+                            w = win
+                        dash, dot = self._op_expansion(ops, i, op, lt, factor, w)
                         painter.save()
                         try:
                             painter.setWorldTransform(pose, True)
@@ -393,7 +410,7 @@ class BlockInstance(QGraphicsObject):
             painter.drawPath(pose.map(op.path))
 
     def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
-        """``[rs, width, lt, factor, None]`` for a stroke op -- once per distinct
+        """``[rs, width, lt, factor, None, fixed]`` for a stroke op -- once per distinct
         (linetype, weight) per paint (``paint``'s memo).
 
         LT3-8 cascade: linetype + resolved weight (By Linetype -> the
@@ -402,8 +419,10 @@ class BlockInstance(QGraphicsObject):
         width on a viewport pass, else the cosmetic canvas px (None for an
         unweighted op: keep the compiled pen's width). *lt* is the linetype
         to expand (None: plain stroke) and *factor* its LT3-5 length factor;
-        a non-positive / non-finite scaled period draws plain. The last slot
-        is ``paint``'s lazily decided screen LOD for this entry.
+        a non-positive / non-finite scaled period draws plain. The fifth slot
+        is ``paint``'s lazily decided screen LOD for this entry; *fixed* marks a
+        Fixed linetype on a model canvas (LTS-3), whose *factor* stays None
+        until ``paint`` reads its device scale.
         """
         rs = None
         if routed and is_linetype_ref(op.linetype):
@@ -415,45 +434,50 @@ class BlockInstance(QGraphicsObject):
         else:
             width = canvas_px(weight) if weight is not None else None
         lt = rs.lt if rs is not None else None
-        factor = None
+        factor, fixed = None, False
         if lt is not None:
-            factor = self._linetype_factor(lt)
-            if not _lr.period_ok(lt, factor):
-                lt = None
-        return [rs, width, lt, factor, None]
+            a = self._lt_args()
+            fixed = _lr.fixed_on_canvas(lt, paper_scale=a["paper_scale"],
+                                        role=a["role"])
+            if not fixed:                 # Fixed waits for this paint's scale
+                factor = self._linetype_factor(lt)
+                if not _lr.period_ok(lt, factor):
+                    lt = None
+        return [rs, width, lt, factor, None, fixed]
 
-    def _op_expansion(self, ops, i, op, lt, factor):
+    def _op_expansion(self, ops, i, op, lt, factor, window=None):
         """``linetype_render.expand`` for op *i* of *ops*, held across paints.
 
         Keyed on the compiled op list (held, so its identity can't be
         recycled -- the ``_posed_cache`` idiom; a new list on every content
         change), the op index, the linetype reading itself (a new object on
-        a definition edit / version bump) and the exact length factor -- every
-        input of ``expand``, so a hit returns what ``expand`` would.
+        a definition edit / version bump), the exact length factor and the
+        visible window (LTS-8) -- every input of ``expand``, so a hit returns
+        what ``expand`` would.
         """
         c = self._lt_exp_cache
         if c is None or c[0] is not ops:
             c = self._lt_exp_cache = (ops, {})
         hit = c[1].get(i)
-        if hit is not None and hit[0] is lt and hit[1] == factor:
+        if (hit is not None and hit[0] is lt and hit[1] == factor
+                and hit[3] == window):
             return hit[2]
         a = op.origin or QPointF(0.0, 0.0)
-        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()))
-        c[1][i] = (lt, factor, res)
+        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()), window=window)
+        c[1][i] = (lt, factor, res, window)
         return res
 
-    def _linetype_factor(self, lt) -> float:
-        """LT3-5: Model -> 1; paper pass -> 1 / viewport scale; plan canvas ->
-        drawing scale; anything else (Block Editor nested instance) -> 1."""
-        if lt.size == "model":
-            return 1.0
-        if self._paper_scale:
-            return 1.0 / self._paper_scale
+    def _lt_args(self) -> dict:
+        """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
         sc = self.scene()
-        if getattr(sc, "scene_role", None) == "plan":
-            sm = self._scale_manager()
-            return float(sm.drawing_scale) if sm is not None else 1.0
-        return 1.0
+        sm = self._scale_manager()
+        return {"paper_scale": self._paper_scale,
+                "role": getattr(sc, "scene_role", None),
+                "drawing_scale": sm.drawing_scale if sm is not None else None}
+
+    def _linetype_factor(self, lt, device_scale=None) -> float:
+        """LT3-5 length factor (``linetype_render.length_factor``)."""
+        return _lr.length_factor(lt, device_scale=device_scale, **self._lt_args())
 
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).

@@ -21,10 +21,11 @@ def _lt():
 def test_rows_for_a_linetype(qapp):
     _, sc = _lt()
     r = capability_rows(sc)
-    for k in ("Repeat", "Pattern tile", "Linetype", "Length", "Size", "Weight",
-              "Pattern", "Pattern rows", "Preview", "Preview swatch"):
+    for k in ("Repeat", "Pattern tile", "Linetype", "Length", "Size", "On screen",
+              "Weight", "Pattern", "Pattern rows", "Preview", "Preview swatch"):
         assert k in r, k
     assert r["Linetype"]["value"] is True and r["Size"]["value"] == "Drafting"
+    assert r["On screen"]["value"] == "Fixed size"           # LTS-5 seed
     assert r["Pattern rows"]["value"] == [("dash", 6.0), ("gap", 3.0)]
     for k, m in r.items():
         if m["type"] != "header":

@@ -151,11 +151,18 @@ def _norm_tile(tile) -> dict | None:
 
 
 def _norm_repeat(repeat) -> dict | None:
-    """Normalised linetype repeat record, or None (linetypes.md LT3 H3-g)."""
+    """Normalised linetype repeat record, or None (linetypes.md LT3 H3-g).
+
+    ``screen`` (LTS-1) is kept only when ``"fixed"``: an absent key means
+    Scale with zoom (LTS-5), so Scale-mode records stay byte-identical.
+    """
     if not repeat:
         return None
-    return {"length": float(repeat.get("length", 0.0)),
-            "size": "model" if repeat.get("size") == "model" else "drafting"}
+    out = {"length": float(repeat.get("length", 0.0)),
+           "size": "model" if repeat.get("size") == "model" else "drafting"}
+    if repeat.get("screen") == "fixed":
+        out["screen"] = "fixed"
+    return out
 
 
 def _load_prim(p):

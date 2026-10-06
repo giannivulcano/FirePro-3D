@@ -29,7 +29,7 @@ def test_on_empty_seeds_dash6_gap3_drafting_one_step(qapp):
     sc = w.editor_scene
     n = len(sc._undo_stack)
     assert w.toggle_capability("repeat")
-    assert sc.block_repeat == {"length": 9.0, "size": "drafting"}
+    assert sc.block_repeat == {"length": 9.0, "size": "drafting", "screen": "fixed"}  # LTS-5 seed
     assert _axis(sc) == [(0.0, 6.0)]
     assert len(sc._undo_stack) == n + 1
     sc.undo()
@@ -130,7 +130,7 @@ def test_save_as_keeps_the_linetype_and_new_is_never_placed(qapp):
     proj, w, msgs = _w()
     w.toggle_capability("repeat")
     d1 = w.commit_block("Hidden", "L", "Linetypes")
-    assert d1.repeat == {"length": 9.0, "size": "drafting"}
+    assert d1.repeat == {"length": 9.0, "size": "drafting", "screen": "fixed"}  # LTS-5 seed
     assert proj.instance_count(d1.id) == 0
     w._edit_block_id = None                                 # Save As path
     d2 = w.commit_block("Hidden 2", "L", "Linetypes")

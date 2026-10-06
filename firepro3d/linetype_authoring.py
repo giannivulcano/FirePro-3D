@@ -169,7 +169,8 @@ def set_pattern_weight(scene, weight: str) -> None:
 
 
 def set_repeat_field(scene, key: str, value) -> None:
-    """Length (≥ content end, else reverts -- LT4-9) / Size edits; one step."""
+    """Length (≥ content end, else reverts -- LT4-9) / Size / On screen
+    (LTS-1) edits; one step."""
     rep = scene.block_repeat
     if rep is None:
         return
@@ -184,6 +185,14 @@ def set_repeat_field(scene, key: str, value) -> None:
         if size == rep["size"]:
             return
         rep["size"] = size
+    elif key == "On screen":
+        fixed = str(value) == "Fixed size"
+        if fixed == (rep.get("screen") == "fixed"):
+            return
+        if fixed:
+            rep["screen"] = "fixed"
+        else:
+            rep.pop("screen", None)
     else:
         return
     scene.set_block_capability(("repeat", rep))
@@ -212,7 +221,8 @@ def begin_linetype(scene, seed_length: float) -> int:
     """Toggle-on body (LT4-4 / LT4-6) -- the caller pushes the one step.
 
     Converts non-Continuous primitives, sets the repeat capability (Length =
-    *seed_length*, Size Drafting) and seeds Dash 6 / Gap 3 into an empty unit.
+    *seed_length*, Size Drafting, On screen Fixed -- LTS-5) and seeds Dash 6 /
+    Gap 3 into an empty unit.
 
     Returns:
         The number of primitives converted to Continuous.
@@ -220,7 +230,8 @@ def begin_linetype(scene, seed_length: float) -> int:
     bad = _non_continuous(scene)
     _force_continuous(bad)
     scene.set_block_capability(
-        ("repeat", {"length": max(seed_length, 0.1), "size": "drafting"}),
+        ("repeat", {"length": max(seed_length, 0.1), "size": "drafting",
+                    "screen": "fixed"}),          # LTS-5: new linetypes are Fixed
         push_undo=False)
     if not axis_items(scene):
         apply_pattern_rows(scene, list(lp.SEED_ROWS), push_undo=False)
