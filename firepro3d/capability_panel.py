@@ -13,15 +13,25 @@ _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
 
 
 def _weight_rows(scene, rows_ok: bool) -> dict:
-    """The Weight row (LT4-3): the dashes' shared weight, or ``< mixed >``."""
+    """The Weight row (LT4-3): the dashes' shared weight, or ``< mixed >``.
+
+    A dots-only pattern (no dash) shows By Category -- nothing is mixed. A
+    dash weight that is not a current weight name is offered as its own
+    option (shown, never silently replaced -- as ``stroke_rows`` keeps an
+    unresolvable value).
+    """
     from . import paper_display as pd
     from . import stroke_style as ss
-    from .linetype_authoring import pattern_weight
+    from .linetype_authoring import axis_items, pattern_weight
     by_cat = f"By Category ({pd.model_blocks_weight()})"
     w = pattern_weight(scene)
-    value = "< mixed >" if w is None else (by_cat if w == ss.BY_LINETYPE else w)
+    if w is None:
+        has_dash = any(r[0] == "dash" for _, r in axis_items(scene))
+        value = "< mixed >" if has_dash else by_cat
+    else:
+        value = by_cat if w == ss.BY_LINETYPE else w
     options = [by_cat, *pd.weight_names()]
-    if value == "< mixed >":
+    if value not in options:
         options = [value] + options
     return {"Weight": {"type": "enum", "options": options, "value": value,
                        "disabled": not rows_ok,
@@ -54,12 +64,18 @@ def capability_rows(scene) -> dict:
         props.update(tp)
     elif kind == "repeat":
         from .constants import PATTERN_PREVIEW_H_PX
-        from .linetype_authoring import current_rows, preview_painter
+        from .linetype_authoring import (_axis_end, _plain_lines, current_rows,
+                                         preview_painter)
         from .tile_frame import _fmt
         rep = scene.block_repeat
         rows = current_rows(scene)
+        # H4-f: minimum = the content end. DimensionEdit's minimum is strict
+        # (value > minimum), so back off 1e-6 to accept Length == end; the
+        # setter's revert (set_repeat_field) stays the second line of defence.
+        end = _axis_end(_plain_lines(scene))
         props["Length"] = {"type": "dimension", "value": _fmt(scene, rep["length"]),
-                           "value_mm": rep["length"], "minimum": 0.0,
+                           "value_mm": rep["length"],
+                           "minimum": max(end - 1e-6, 0.0),
                            "tooltip": "Period = the sum of the pattern rows; "
                                       "typing a longer value adds a trailing gap"}
         props["Size"] = {"type": "enum", "options": ["Drafting", "Model"],

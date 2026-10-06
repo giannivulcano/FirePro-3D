@@ -103,13 +103,19 @@ def apply_pattern_rows(scene, rows, *, push_undo: bool = True) -> bool:
             caller pushes, e.g. :func:`begin_linetype`).
 
     Returns:
-        False (nothing changed) when *rows* fail ``validate_rows``, the
-        scene is not a linetype, or a new mark is needed but the scene has
-        no owning Block Editor to add it through; True otherwise.
+        False (nothing changed, no undo step) when *rows* fail
+        ``validate_rows``, equal the live ``current_rows``, the scene is not
+        a linetype, or a new mark is needed but the scene has no owning Block
+        Editor to add it through; True otherwise.
     """
     rows = [(str(k), float(n)) for k, n in rows]
     if scene.block_repeat is None or not lp.validate_rows(rows):
         return False
+    cur = current_rows(scene)
+    if (cur is not None and len(cur) == len(rows)
+            and all(a[0] == b[0] and abs(a[1] - b[1]) <= _TOL
+                    for a, b in zip(cur, rows))):
+        return False                             # re-committed rows: no step
     weight = pattern_weight(scene)
     sp, period = lp.spans(rows)
     have = {"dash": [], "dot": []}
@@ -240,8 +246,17 @@ def pre_capture(scene) -> None:
 
 
 def preview_painter(scene):
-    """``paint(painter, rect)`` for the panel swatch (LT4-7): a straight
-    sample and an L polyline through the real renderer (preview ≡ render)."""
+    """Build the panel swatch painter (LT4-7): a straight sample and an L
+    polyline through the real renderer (preview ≡ render).
+
+    Args:
+        scene: The linetype Block Editor ``Model_Space``; its capability
+            frame's scratch definition is read at paint time.
+
+    Returns:
+        ``paint(painter, rect)`` -- draws inside *rect* (QRectF, widget px);
+        draws nothing when the scene has no readable linetype.
+    """
     def paint(painter, rect):
         from PyQt6.QtGui import QColor, QPen
         from . import theme as th

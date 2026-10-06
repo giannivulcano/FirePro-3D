@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
 from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
-from PyQt6.QtWidgets import QButtonGroup
+from PyQt6.QtWidgets import QButtonGroup, QGraphicsItem
 
 
 class _MultilineEdit(QPlainTextEdit):
@@ -213,6 +213,17 @@ class PropertyManager(QWidget):
 
         # Normalise to list (multi-select support)
         targets = item if isinstance(item, list) else [item]
+        if len(targets) > 1:
+            # A Block Editor capability frame is an overlay, not an entity
+            # (delete / copy filter it too): its rows only make sense alone,
+            # and in a mixed selection its keys (Weight, Length, Width, ...)
+            # would cross-write the primitives' (linetypes LT4, hatch D-A32).
+            # QGraphicsItem.data(t, 0), not t.data(0): some items shadow
+            # ``data`` with an attribute (paper TextAnnotation's model).
+            from .capability_frame import CAPABILITY_FRAME_TAG
+            targets = [t for t in targets
+                       if not (isinstance(t, QGraphicsItem)
+                               and QGraphicsItem.data(t, 0) == CAPABILITY_FRAME_TAG)]
 
         # Resolve sprinklers sitting on nodes
         resolved = []

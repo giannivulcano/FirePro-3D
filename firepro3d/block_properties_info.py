@@ -17,8 +17,9 @@ class BlockPropertiesInfo:
         Args:
             scene: The Block Editor ``Model_Space``.
             name: The block's display name.
-            editor: The owning ``BlockEditorWidget`` (Pattern tile rows edit
-                through it); None = tile rows read-only.
+            editor: The owning ``BlockEditorWidget`` (the capability rows --
+                Pattern tile / Linetype -- edit through it); None = those
+                rows read-only.
         """
         self._scene = scene
         self._name = name
