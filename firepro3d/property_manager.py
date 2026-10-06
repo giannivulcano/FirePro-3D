@@ -19,6 +19,9 @@ Property types recognised from ``get_properties()`` dict:
     dimension  — DimensionEdit for mm-based values (requires value_mm in meta)
     bool       — QCheckBox
     font       — QFontComboBox family picker
+    pattern_list   — full-width ui_kit.PatternList (LT4 Dash/Gap/Dot rows;
+                     value None = read-only with meta["note"])
+    stroke_preview — full-width ui_kit.PaintSwatch painted by meta["paint"]
 """
 
 from __future__ import annotations
@@ -285,6 +288,27 @@ class PropertyManager(QWidget):
                 from firepro3d.ui_kit import StatusBadge
                 widget = StatusBadge(str(meta.get("value", "")),
                                      str(meta.get("state", "")))
+
+            # ── pattern_list (LT4 Dash/Gap/Dot editor — full width) ──────
+            elif prop_type == "pattern_list":
+                from firepro3d.ui_kit import PatternList
+                sm = self._get_scale_manager()
+                pl = PatternList(
+                    meta.get("value"), note=str(meta.get("note", "")),
+                    field_factory=lambda mm, sm=sm: DimensionEdit(
+                        sm, initial_mm=float(mm), minimum=0.0),
+                    on_commit=lambda rows, k=key: self._apply_property(k, rows))
+                pl.setToolTip(str(meta.get("tooltip", "")))
+                self._form.addRow(pl)
+                continue
+
+            # ── stroke_preview (LT4 live swatch — full width) ─────────────
+            elif prop_type == "stroke_preview":
+                from firepro3d.ui_kit import PaintSwatch
+                sw = PaintSwatch(meta["paint"], height=int(meta.get("height", 64)))
+                sw.setToolTip(str(meta.get("tooltip", "")))
+                self._form.addRow(sw)
+                continue
 
             # ── label (read-only) ─────────────────────────────────────────
             elif prop_type == "label":

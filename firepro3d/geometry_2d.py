@@ -439,8 +439,9 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .hatch_patterns import picker_exclude
-            props.update(stroke_rows(self.style, self._tile_registry(),
-                                     picker_exclude(self.scene())))
+            props.update(stroke_rows(
+                self.style, self._tile_registry(), picker_exclude(self.scene()),
+                locked=getattr(self.scene(), "block_repeat", None) is not None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3550,9 +3551,10 @@ _LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
                  "from the Linetypes folder load into the project when picked.")
 _WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
                "(shown in brackets); a named weight overrides it.")
+_LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
 
 
-def stroke_rows(style: dict, registry, exclude=()) -> dict:
+def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -3561,6 +3563,8 @@ def stroke_rows(style: dict, registry, exclude=()) -> dict:
             current).
         registry: Project block registry (or None).
         exclude: Linetype ids the picker must not offer (``picker_exclude``).
+        locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
+            the Linetype row is disabled with a "why" tooltip.
     """
     from .paper_display import weight_names
     from .linetype_choices import linetype_choices, missing_label
@@ -3575,13 +3579,17 @@ def stroke_rows(style: dict, registry, exclude=()) -> dict:
         options = [value] + options
     by_lt = weight_label(BY_LINETYPE, lt, registry)
     w = style["weight"]
-    return {
+    rows = {
         "Linetype": {"type": "enum", "options": options, "value": value,
                      "tooltip": _LINETYPE_TIP},
         "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
                    "value": by_lt if w == BY_LINETYPE else w,
                    "tooltip": _WEIGHT_TIP},
     }
+    if locked:
+        rows["Linetype"]["disabled"] = True
+        rows["Linetype"]["tooltip"] = _LOCKED_LINETYPE_TIP
+    return rows
 
 
 class GeometryTemplate:

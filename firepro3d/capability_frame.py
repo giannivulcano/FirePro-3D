@@ -175,17 +175,13 @@ class CapabilityFrameItem(QGraphicsItem):
 
     # ── property panel ────────────────────────────────────────────────────
     def get_properties(self) -> dict:
-        """Panel rows: the Pattern tile rows for a tile; none (yet) for a repeat."""
-        if self.KIND != "tile":
-            return {}
-        from .tile_frame import tile_properties
-        return tile_properties(self._sc)
+        """Panel rows: the capability rows (``capability_panel``)."""
+        from .capability_panel import capability_rows
+        return capability_rows(self._sc)
 
     def set_property(self, key, value) -> None:
-        """Apply one panel edit (tile only until the capability panel lands)."""
-        if self.KIND != "tile":
-            return
+        """Apply one panel edit through the owning Block Editor."""
         editor = getattr(self._sc, "_tile_editor", None)
         if editor is not None:
-            from .tile_frame import set_tile_property
-            set_tile_property(self._sc, editor, key, value)
+            from .capability_panel import set_capability_property
+            set_capability_property(self._sc, editor, key, value)

@@ -237,3 +237,38 @@ def pre_capture(scene) -> None:
     if end > rep["length"] + _TOL:
         rep["length"] = end
         scene.set_block_capability(("repeat", rep), push_undo=False)
+
+
+def preview_painter(scene):
+    """``paint(painter, rect)`` for the panel swatch (LT4-7): a straight
+    sample and an L polyline through the real renderer (preview ≡ render)."""
+    def paint(painter, rect):
+        from PyQt6.QtGui import QColor, QPen
+        from . import theme as th
+        from . import stroke_style as ss
+        from .constants import PATTERN_PREVIEW_PERIODS
+        from .linetype_render import LinetypeDef, draw_expansion, expand
+        from .path_walk import Seg
+        f = scene.capability_frame_item()
+        d = f.scratch_definition() if f is not None else None
+        lt = LinetypeDef.from_block(d) if d is not None else None
+        if lt is None:
+            return
+        m = 8.0
+        x0, x1 = rect.left() + m, rect.right() - m
+        y0, y1 = rect.top() + m, rect.bottom() - m
+        s = (x1 - x0) / (PATTERN_PREVIEW_PERIODS * lt.period)     # px per mm
+        pieces = (Seg(x0, y0, x1, y0), Seg(x0, y0 + 10.0, x0, y1),
+                  Seg(x0, y1, x1, y1))
+        dash, dot = expand(pieces, lt, s, (rect.left(), rect.top()))
+        # By Linetype draws the dash weight, else the Model Blocks weight --
+        # stroke_style.canvas_px owns name -> mm -> px (LT1-7, Thin Lines).
+        pen = QPen(QColor(th.detect().ink),
+                   ss.canvas_px(lt.dash_weight or ss.BY_LINETYPE))
+        pen.setCosmetic(True)
+        painter.save()
+        try:
+            draw_expansion(painter, dash, dot, pen)
+        finally:
+            painter.restore()
+    return paint
