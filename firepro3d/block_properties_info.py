@@ -23,6 +23,10 @@ class BlockPropertiesInfo:
         self._scene = scene
         self._name = name
         self._editor = editor
+        # The panel's ScaleManager source (PropertyManager._get_scale_manager):
+        # dimension fields follow the project's display units. Deliberately
+        # not a ``scene()`` method -- see the module docstring.
+        self._scene_ref = scene
 
     def get_properties(self) -> dict:
         ctl = self._scene.constraint_ctl

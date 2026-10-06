@@ -101,3 +101,28 @@ def test_preview_swatch_paints_through_the_real_renderer(qapp):
     # The top straight sample at y = 8 px: inked dashes AND gaps along it.
     inked = [img.pixelColor(x, 8).alpha() > 0 for x in range(8, 232)]
     assert any(inked) and not all(inked)
+
+
+def test_nothing_selected_panel_follows_imperial_display_units(qapp):
+    """Display units are project-scoped: the nothing-selected Block Editor
+    panel formats and parses its dimension fields through the editor
+    scene's ScaleManager (format_length / parse_dimension), never bare mm."""
+    import pytest
+    from firepro3d.dimension_edit import DimensionEdit
+    from firepro3d.scale_manager import DisplayUnit
+    w, sc = _lt()
+    sm = sc.scale_manager
+    sm.display_unit = DisplayUnit.IMPERIAL
+    pm = PropertyManager()
+    pm.show_properties(BlockPropertiesInfo(sc, "Hidden", w))
+    qapp.processEvents()
+    pl = pm.findChildren(PatternList)
+    field = pl[0].findChildren(DimensionEdit)[0]
+    assert field.text() == sm.format_length(6.0)
+    assert pm._prop_widgets["Length"].text() == sm.format_length(9.0)
+    field.setText('1"')
+    field.editingFinished.emit()
+    qapp.processEvents()
+    (line,) = sc._draw_lines
+    assert line._pt1.x() == pytest.approx(0.0)
+    assert line._pt2.x() == pytest.approx(25.4)
