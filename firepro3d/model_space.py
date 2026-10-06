@@ -1670,6 +1670,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from PyQt6 import sip
         from .capability_frame import frame_for
         new = (str(cap[0]), dict(cap[1])) if cap and cap[1] else None
+        if new is not None and new[0] == "repeat":
+            # One home for the repeat shape (G4 seam): every reader -- frame,
+            # pre-capture hook, panel -- may index ["length"] / ["size"].
+            from .block_definition import _norm_repeat
+            rep = _norm_repeat(new[1])
+            new = ("repeat", rep) if rep is not None else None
         f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
             self._cap_frame = f = None       # swept out of the scene elsewhere

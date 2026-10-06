@@ -76,7 +76,10 @@ def test_repeat_without_length_never_raises(qapp):
     Qt virtuals (boundingRect / paint) -- that aborts the process."""
     from PyQt6.QtGui import QImage, QPainter, QColor
     _, sc = _editor((0, 6))
-    sc.set_block_capability(("repeat", {"size": "drafting"}))
+    # push_undo=False: the slot normalises a missing length to 0.0 (G4 seam)
+    # and a commit would grow it to the content end (LT4-9 pre-capture hook);
+    # the zero-length frame is what the Qt virtuals must survive.
+    sc.set_block_capability(("repeat", {"size": "drafting"}), push_undo=False)
     f = sc.capability_frame_item()
     assert isinstance(f, RepeatFrame) and f.scene() is sc
     assert f.boundingRect().width() == 2.0       # zero-length rect + 1 mm pad

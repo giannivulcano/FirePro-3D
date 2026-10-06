@@ -83,3 +83,16 @@ def test_set_after_scene_clear_adds_a_live_frame(qapp):
         assert f is not None and not sip.isdeleted(f) and f.scene() is sc
         assert f.KIND == second[0]
         assert _frames(sc) == [f]
+
+
+def test_repeat_payload_is_normalised_at_the_slot(qapp):
+    """G4 seam: a malformed repeat is normalised once, at the slot, so the
+    LT4 pre-capture hook (and every other reader) can index its keys."""
+    sc = _sc()
+    sc.set_block_capability(("repeat", {"size": "drafting"}))
+    assert sc.block_repeat == {"length": 0.0, "size": "drafting"}
+    n = len(sc._undo_stack)
+    sc.push_undo_state()                       # runs the hook; must not raise
+    assert len(sc._undo_stack) == n + 1
+    sc.set_block_capability(("repeat", {"length": "5", "size": "bogus"}))
+    assert sc.block_repeat == {"length": 5.0, "size": "drafting"}
