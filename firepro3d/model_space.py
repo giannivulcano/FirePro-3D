@@ -985,10 +985,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Args:
             items: Scene items to delete; an empty iterable is a no-op.
         """
-        # The Block Editor tile frame is an overlay, never deletable geometry
-        # (D-A32): the "Pattern tile" toggle owns its lifetime.
-        from .tile_frame import TILE_FRAME_TAG
-        selected = [i for i in items if i.data(0) != TILE_FRAME_TAG]
+        # The Block Editor capability frame is an overlay, never deletable
+        # geometry (D-A32 / LT4): the capability toggle owns its lifetime.
+        from .capability_frame import CAPABILITY_FRAME_TAG
+        selected = [i for i in items if i.data(0) != CAPABILITY_FRAME_TAG]
         if not selected:
             return
         selected_set = set(selected)
@@ -7660,9 +7660,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def copy_selected_items(self):
         """Immediate copy (copy-to-level / internal callers): versioned payload
         with base = the selection's bounding-box centre (scene-tools.md D4)."""
-        from .tile_frame import TILE_FRAME_TAG
-        # The tile frame is never copied, so it never shifts the base point.
-        items = [it for it in self.selectedItems() if it.data(0) != TILE_FRAME_TAG]
+        from .capability_frame import CAPABILITY_FRAME_TAG
+        # The capability frame is never copied, so it never shifts the base point.
+        items = [it for it in self.selectedItems()
+                 if it.data(0) != CAPABILITY_FRAME_TAG]
         rect = QRectF()
         for it in items:
             rect = rect.united(it.sceneBoundingRect())
