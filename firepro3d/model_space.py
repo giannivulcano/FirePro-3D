@@ -1717,15 +1717,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return sum(1 for i in self._block_instances if i.block_id == block_id)
 
     def pattern_use_refusal(self, block_id) -> "str | None":
-        """Why *block_id* can't become a pattern tile (hatch D-A34), or None.
+        """HF2 name of :meth:`symbol_use_refusal` for a tile."""
+        return self.symbol_use_refusal(block_id, "tile")
 
-        A pattern fills regions; it can't also be a symbol. Counted: placed
+    def symbol_use_refusal(self, block_id, kind: str = "tile") -> "str | None":
+        """Why *block_id* can't become a pattern tile / linetype, or None.
+
+        Hatch D-A34 / linetypes LT4-11a: a pattern fills regions and a
+        linetype strokes lines; neither can also be a symbol. Counted: placed
         instances in this scene + definitions that nest it directly (a
         transitive host always nests a direct host, so it is refused too).
         The one rule shared by the Block Editor toggle and the save path.
 
         Args:
             block_id: The definition id (None = never saved -> no use).
+            kind: ``"tile"`` or ``"repeat"`` -- picks the message noun.
 
         Returns:
             The status message, or None when the block is unused as a symbol.
@@ -1741,8 +1747,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         parts = ([f"{placed} placed"] if placed else []) + (
             [f"{nested} nested in other blocks"] if nested else [])
+        what = "a linetype" if kind == "repeat" else "a pattern"
         return (f"Used as a symbol ({', '.join(parts)}) — remove those "
-                f"before making it a pattern")
+                f"before making it {what}")
+
+    def linetype_off_refusal(self, block_id) -> "str | None":
+        """Why a linetype can't stop being one (LT4-5): lines use it.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The delete-refusal text (:meth:`block_users_message`), or None.
+        """
+        if block_id is None:
+            return None
+        return self.block_users_message(block_id)
 
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
@@ -2153,7 +2173,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None, tile=None):
+                                constraints=None, capability=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -2186,7 +2206,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             constraints: The editor's sketch constraint records
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
-            tile: Pattern tile dict or None (hatch D-A32).
+            capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
+                (LT4). A repeat (or tile) is never placed; dropping a
+                linetype's repeat is refused while lines use it (LT4-5).
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -2194,26 +2216,37 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
+        kind, data = capability if capability else (None, None)
+        tile = data if kind == "tile" else None
+        repeat = data if kind == "repeat" else None
         pattern_saved_msg = None
-        if tile:
-            # hatch D-A34 at save time (the toggle's check can go stale).
-            why = self.pattern_use_refusal(block_id)
+        if kind is not None:
+            # D-A34 / LT4-11a at save time (the toggle's check can go stale).
+            why = self.symbol_use_refusal(block_id, kind)
             if why is not None:
                 self._show_status(why, 5000)
                 return None
             if place_instance and block_id is None:
-                # User ruling 2026-10-02: a new pattern is registered but never
-                # placed; a Create-Block-from-selection source stays untouched.
-                pattern_saved_msg = (f"Saved pattern ‘{name}’ — patterns "
+                # User ruling 2026-10-02 (LT4-11d): a new pattern / linetype
+                # is registered but never placed; a Create-Block-from-selection
+                # source stays untouched.
+                noun = "linetype" if kind == "repeat" else "pattern"
+                pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
             place_instance, source_items = False, None
+        old = self._block_definitions.get(block_id) if block_id else None
+        if old is not None and old.repeat and repeat is None:
+            why = self.linetype_off_refusal(block_id)       # LT4-5 save re-check
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
                                        constraints=list(constraints or []),
-                                       tile=tile)
+                                       tile=tile, repeat=repeat)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
@@ -2231,6 +2264,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.origin = (ox, oy)
             defn.constraints = list(constraints or [])
             defn.set_tile(tile, notify=False)
+            defn.set_repeat(repeat, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.

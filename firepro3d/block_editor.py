@@ -427,8 +427,10 @@ class BlockEditorWidget(QWidget):
         # baseline holds them and Ctrl+Z can never undo them away
         # (parametric-constraint-system §6.5, §8).
         self.editor_scene.constraint_ctl.load(defn.constraints)
-        # The pattern tile joins the baseline too (hatch D-A32).
-        self.editor_scene.set_block_tile(defn.tile, push_undo=False)
+        # The capability joins the baseline too (hatch D-A32 / LT4-12).
+        cap = (("tile", defn.tile) if defn.tile
+               else ("repeat", defn.repeat) if defn.repeat else None)
+        self.editor_scene.set_block_capability(cap, push_undo=False)
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
         if migrated:
@@ -460,29 +462,59 @@ class BlockEditorWidget(QWidget):
         self._rebaseline_undo()
         self.fit_view_to_block()
 
-    def toggle_pattern_tile(self) -> bool:
-        """Ribbon / panel "Pattern tile" toggle (hatch D-A32 / D-A34).
+    _EXCLUSIVE = {"repeat": "Turn Pattern tile off first — a block is a "
+                            "pattern or a linetype, not both",
+                  "tile": "Turn Linetype off first — a block is a pattern "
+                          "or a linetype, not both"}
 
-        On: seeds the frame from the content extents (one undo step); refused
-        with a status message while the saved block is placed as a symbol
-        anywhere in the project (instances, or nested in another definition).
-        Off: clears the tile (one undo step).
+    def toggle_capability(self, kind: str) -> bool:
+        """Ribbon / panel "Pattern tile" / "Linetype" toggle (D-A32, LT4).
+
+        On: refused while the block is placed as a symbol or while the other
+        capability is on; a tile seeds from the content extents, a linetype
+        converts strokes to Continuous and seeds its unit (LT4-4 / LT4-6).
+        Off: a linetype is refused while lines use it (LT4-5). One undo step.
+
+        Args:
+            kind: ``"tile"`` or ``"repeat"``.
 
         Returns:
-            True if the tile state changed.
+            True if the capability changed.
         """
-        from .tile_frame import seed_tile
         sc = self.editor_scene
-        if sc.block_tile is not None:
-            sc.set_block_tile(None)
+        cur = sc.block_capability
+        if cur is not None and cur[0] == kind:
+            if kind == "repeat":
+                why = self._project_scene.linetype_off_refusal(self._edit_block_id)
+                if why is not None:
+                    sc._show_status(why, 5000)
+                    return False
+            sc.set_block_capability(None)
             return True
-        why = self._project_scene.pattern_use_refusal(self._edit_block_id)
+        if cur is not None:
+            sc._show_status(self._EXCLUSIVE[kind], 5000)
+            return False
+        why = self._project_scene.symbol_use_refusal(self._edit_block_id, kind)
         if why is not None:
             sc._show_status(why, 5000)
             return False
         real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
-        sc.set_block_tile(seed_tile(real))
+        if kind == "tile":
+            from .tile_frame import seed_tile
+            sc.set_block_capability(("tile", seed_tile(real)))
+            return True
+        from .linetype_authoring import begin_linetype
+        from .linetype_pattern import content_end
+        end = content_end([it.to_dict() for it in real if hasattr(it, "to_dict")])
+        n = begin_linetype(sc, end)
+        sc.push_undo_state()
+        if n:
+            sc._show_status(f"{n} line{'s' if n != 1 else ''} set to Continuous", 5000)
         return True
+
+    def toggle_pattern_tile(self) -> bool:
+        """HF2 name of ``toggle_capability("tile")``."""
+        return self.toggle_capability("tile")
 
     def gather_primitives(self):
         """Return the editor scene's construction primitives (stable list order).
@@ -545,7 +577,7 @@ class BlockEditorWidget(QWidget):
             source_items=self._seed_source_items if do_replace else None,
             place_at=(base.x(), base.y()) if base is not None else None,
             constraints=self.editor_scene.constraint_ctl.to_records(),
-            tile=self.editor_scene.block_tile)
+            capability=self.editor_scene.block_capability)
         if defn is None:
             return None
         self._edit_block_id = defn.id
