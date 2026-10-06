@@ -66,7 +66,7 @@ class BlockInstance(QGraphicsObject):
         # on the continuous base geometry, no missing badge (LT3-6).
         self._is_ghost: bool = False
         self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
-        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion)})
+        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window)})
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None

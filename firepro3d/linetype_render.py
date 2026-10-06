@@ -118,14 +118,15 @@ _EXPAND: OrderedDict = OrderedDict()
 def view_window(painter):
     """The painter's visible area (painter coords) as a snapped key, or None.
 
-    Snapped outward to a power-of-two grid whose cell is the next 2^n at or
-    above the view's larger side, plus one cell of margin, so a pan inside a
-    cell keeps one expansion-cache key (LTS-8: pans stay cached).
+    Snapped outward to a power-of-two grid whose cell is half the next 2^n
+    at or above the view's larger side, plus one cell of margin, so a pan
+    inside a cell keeps one expansion-cache key (LTS-8: pans stay cached)
+    while the window stays ~2-3x the view, not 4-6x (perf ruling 2026-10-06).
     """
     area = _hr._visible_area(painter, QRectF(-1e15, -1e15, 2e15, 2e15))
     if area.isEmpty() or not _hr._finite_rect(area):
         return None
-    cell = 2.0 ** math.ceil(math.log2(max(area.width(), area.height(), 1e-9)))
+    cell = 0.5 * 2.0 ** math.ceil(math.log2(max(area.width(), area.height(), 1e-9)))
     return ((math.floor(area.left() / cell) - 1) * cell,
             (math.floor(area.top() / cell) - 1) * cell,
             (math.ceil(area.right() / cell) + 1) * cell,
@@ -219,6 +220,7 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
         else:
             spans = ((0.0, L),)
         ph = pw.phase0(p, anchor)
+        seg = isinstance(p, pw.Seg)
         k_done = None                         # never re-draw a unit across spans
         for s_lo, s_hi in spans:
             if (s_hi - s_lo) / period > LINETYPE_MAX_PERIODS:
@@ -228,6 +230,11 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
             k = math.floor((ph + s_lo) / period)
             if k_done is not None:
                 k = max(k, k_done)
+            if seg:
+                k = _walk_seg(p, L, ph, period, k, s_hi, dashes, dots,
+                              dash_path, dot_path)
+                k_done = k
+                continue
             while k * period - ph < s_hi:
                 base = k * period - ph                   # s of this unit's start
                 for st, ln in dashes:
@@ -247,6 +254,35 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
     while len(_EXPAND) > LINETYPE_CACHE_MAX:
         _EXPAND.popitem(last=False)
     return res
+
+
+def _walk_seg(p, L, ph, period, k, s_hi, dashes, dots, dash_path, dot_path):
+    """The unit walk of ``expand`` for a straight piece (LTS-8 perf).
+
+    Same dashes / dots as the generic walk (``pw.split`` / ``pw.point_at`` on
+    a Seg are linear interpolation), computed inline -- no per-dash piece
+    objects or type dispatch. Returns the next unit index.
+    """
+    x0, y0 = p.x0, p.y0
+    dx, dy = p.x1 - x0, p.y1 - y0
+    move, line = dash_path.moveTo, dash_path.lineTo
+    while k * period - ph < s_hi:
+        base = k * period - ph                   # s of this unit's start
+        for st, ln in dashes:
+            a, b = max(base + st, 0.0), min(base + st + ln, L)
+            if b - a > 1e-9:
+                fa, fb = a / L, b / L
+                move(x0 + dx * fa, y0 + dy * fa)
+                line(x0 + dx * fb, y0 + dy * fb)
+        for d in dots:
+            s = base + d
+            if -1e-9 <= s <= L + 1e-9:
+                f = min(max(s, 0.0), L) / L
+                qx, qy = x0 + dx * f, y0 + dy * f
+                dot_path.moveTo(qx, qy)
+                dot_path.lineTo(qx + LINETYPE_DOT_MM, qy)
+        k += 1
+    return k
 
 
 def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
