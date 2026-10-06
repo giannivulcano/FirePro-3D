@@ -95,3 +95,46 @@ def test_a8_linetype_nested_by_a_block_keeps_nesting_wording(qapp):
                      "x": 0.0, "y": 0.0}]))
     assert ms.block_users_message(lt.id) == (
         "“Hidden” is used inside: Host — explode or remove it there first.")
+
+
+# -- G6 M2: mixed nesting + line users name each in its own clause (H4-g) --
+
+def _lined(ms, name, lid, extra=()):
+    ln = LineItem(QPointF(0, 0), QPointF(5, 0))
+    ln.style["linetype"] = lid
+    d = BlockDefinition.new(name=name, library="L", series="S", origin=(0, 0),
+                            primitives=[ln.to_dict(), *extra])
+    ms.register_block_definition(d)
+    return d
+
+
+def _nest(bid):
+    return {"type": "block_instance", "block_id": bid, "x": 0.0, "y": 0.0}
+
+
+def test_a8_mixed_nesting_and_line_users_split_clauses(qapp):
+    ms = Model_Space()
+    lt = make_linetype("Hidden")
+    ms.register_block_definition(lt)
+    ms.register_block_definition(BlockDefinition.new(
+        name="Host", library="L", series="S", origin=(0, 0),
+        primitives=[_nest(lt.id)]))
+    _lined(ms, "Riser", lt.id)
+    plan = LineItem(QPointF(0, 0), QPointF(30, 0))
+    plan.style["linetype"] = lt.id
+    ms.addItem(plan)
+    ms._draw_lines.append(plan)
+    assert ms.block_users_message(lt.id) == (
+        "\u201cHidden\u201d is used inside: Host, by lines inside: Riser, "
+        "and by lines in the plan \u2014 explode or remove it there, and "
+        "change their linetype first.")
+
+
+def test_a8_block_nesting_and_lining_appears_in_both_clauses(qapp):
+    ms = Model_Space()
+    lt = make_linetype("Hidden")
+    ms.register_block_definition(lt)
+    _lined(ms, "Host", lt.id, extra=[_nest(lt.id)])
+    assert ms.block_users_message(lt.id) == (
+        "\u201cHidden\u201d is used inside: Host, and by lines inside: Host "
+        "\u2014 explode or remove it there, and change their linetype first.")

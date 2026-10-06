@@ -1853,12 +1853,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
     def _linetype_users_message(self, d, users, ctx) -> str | None:
-        """LT4-11e: the "used by lines" refusal for linetype *d*, or None.
+        """LT4-11e / H4-g: the linetype refusal for *d*, or None.
 
-        Names only the definitions whose own primitives use *d* as their
-        linetype (a block nesting such a definition is freed with it). None
-        when some definition nests *d* directly (the caller's nesting wording
-        applies) or when no line uses it.
+        "by lines inside" names only the definitions whose own primitives
+        use *d* as their linetype (a block nesting such a definition is
+        freed with it). When some definition also nests *d* (directly, or
+        through a chain of nesting users), those are named in a separate
+        "inside" clause with "explode or remove it there" -- a block that
+        both nests *d* and has lines using it appears in both clauses.
+        None when nothing uses *d* by its lines (the caller's nesting
+        wording applies) or nothing uses it at all.
 
         Args:
             d: The linetype definition.
@@ -1866,25 +1870,39 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ctx: ``linetype_user_contexts(d.id)`` ("the plan", …).
         """
         from .block_registry import nested_ids
-        line_users = []
+        line_users, nesters = [], []
         for uid in users:
             u = self.get_block_definition(uid)
             if u is None:
                 continue
             if d.id in nested_ids(u):
-                return None
+                nesters.append(uid)
             if any(isinstance(p.get("style"), dict)
                    and p["style"].get("linetype") == d.id
                    for p in u.primitives):
                 line_users.append(u.name)
-        segs = ([f"lines inside: {', '.join(sorted(line_users))}"]
+        if nesters and not line_users:
+            return None                          # pure nesting wording
+        segs = ([f"by lines inside: {', '.join(sorted(line_users))}"]
                 if line_users else [])
         if ctx:
-            segs.append("lines " + " and ".join("in " + c for c in ctx))
+            segs.append("by lines " + " and ".join("in " + c for c in ctx))
         if not segs:
             return None
-        return (f"“{d.name}” is used by " + ", and by ".join(segs)
-                + " — change their linetype first.")
+        if not nesters:
+            return (f"“{d.name}” is used " + ", and ".join(segs)
+                    + " — change their linetype first.")
+        # Mixed (H4-g): nesting users keep "explode or remove it there".
+        nest_ids = set(nesters)
+        for nid in nesters:
+            nest_ids |= self._block_registry.users_of(nid) & users
+        nest_names = sorted(self.get_block_definition(i).name
+                            for i in nest_ids)
+        segs.insert(0, f"inside: {', '.join(nest_names)}")
+        return (f"“{d.name}” is used " + ", ".join(segs[:-1])
+                + f", and {segs[-1]}"
+                + " — explode or remove it there, and change their"
+                  " linetype first.")
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the
