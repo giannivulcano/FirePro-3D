@@ -1451,7 +1451,7 @@ class PatternList(QWidget):
             rl.setSpacing(M.ACTION_ROW_GAP)
             k = QLabel(kind.capitalize())
             k.setObjectName("patternKind")
-            k.setFixedWidth(34)
+            k.setFixedWidth(M.PATTERN_KIND_W)
             rl.addWidget(k)
             if kind == "dot":
                 rl.addWidget(QLabel("—"), 1)
@@ -1479,7 +1479,7 @@ class PatternList(QWidget):
             lay.addWidget(row)
         adds = QHBoxLayout()
         adds.setContentsMargins(0, M.PROP_ROW_GAP, 0, 0)
-        adds.setSpacing(4)
+        adds.setSpacing(M.PATTERN_ADD_GAP)
         for kind, label in (("dash", "+ Dash"), ("gap", "+ Gap"), ("dot", "+ Dot")):
             b = QToolButton()
             b.setText(label)
