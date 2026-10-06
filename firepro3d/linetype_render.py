@@ -21,7 +21,7 @@ from . import path_walk as pw
 from . import stroke_style as _ss
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
-                        LINETYPE_MAX_PERIODS)
+                        LINETYPE_MAX_PERIODS, UNDERLAY_MM_TO_PX_HINT)
 
 
 def axis_role(p1, p2, length: float):
@@ -214,14 +214,35 @@ def period_ok(lt: LinetypeDef, factor: float) -> bool:
     return period > 0.0 and math.isfinite(period)
 
 
+_FIXED_ROLES = ("plan", "block_editor")      # model canvases (LTS-2)
+
+
+def fixed_on_canvas(lt, *, paper_scale, role) -> bool:
+    """True when *lt* holds a constant screen length here (LTS-1 / LTS-2).
+
+    A Fixed linetype on a model canvas -- plan (detail views share its
+    scene) or the Block Editor. Never on a paper pass, a sheet or a viewport:
+    paper / PDF stay true mm.
+    """
+    return (getattr(lt, "screen", "scale") == "fixed" and not paper_scale
+            and role in _FIXED_ROLES and not _pd.paper_pass_active())
+
+
 def length_factor(lt, *, paper_scale, role, drawing_scale,
                   device_scale=None) -> float:
-    """Definition mm -> painter units for *lt* (LT3-5).
+    """Definition mm -> painter units for *lt* (LT3-5, LTS-3).
 
-    Model size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan
-    canvas (*role* ``"plan"``) -> the drawing scale; anything else (Block
-    Editor, no scene) -> 1 (real size). *device_scale* is unused until LTS.
+    A Fixed linetype on a model canvas (``fixed_on_canvas``) -> its printed
+    mm x ``UNDERLAY_MM_TO_PX_HINT`` px, divided by *device_scale* (device px
+    per painter unit -- the caller passes this paint's). Otherwise: Model
+    size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan canvas
+    (*role* ``"plan"``) -> the drawing scale; anything else (Block Editor, no
+    scene) -> 1 (real size).
     """
+    if fixed_on_canvas(lt, paper_scale=paper_scale, role=role):
+        # LTS-3: printed mm x the D-L14 mm->px hint, back into painter units.
+        printed = 1.0 if lt.size != "model" else 1.0 / (drawing_scale or 1.0)
+        return printed * UNDERLAY_MM_TO_PX_HINT / max(device_scale or 0.0, 1e-12)
     if lt.size == "model":
         return 1.0
     if paper_scale:

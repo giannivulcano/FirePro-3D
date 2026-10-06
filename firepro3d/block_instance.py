@@ -265,7 +265,7 @@ class BlockInstance(QGraphicsObject):
         # distinct (linetype, weight) resolves once per paint and nothing
         # resolved here outlives it -- weight table / alias / Model Blocks /
         # Thin Lines / registry / drawing-scale edits reach the next paint.
-        strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod]
+        strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod, fixed]
         dev_scale = None    # device px per local unit under the pose (lazy)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
         for i, op in enumerate(ops):
@@ -291,7 +291,7 @@ class BlockInstance(QGraphicsObject):
                 if ent is None:
                     ent = strokes[key] = self._resolve_op_stroke(
                         op, routed, registry, on_paper)
-                rs, width, lt, factor, ok = ent
+                rs, width, lt, factor, ok, fixed = ent
                 if rs is not None and rs.missing_id and missing is None:
                     missing = rs.missing_id
                 # Copy — the compiled op pen is shared by every instance.
@@ -323,7 +323,10 @@ class BlockInstance(QGraphicsObject):
                                 painter.setWorldTransform(pose, True)
                                 dev_scale = _hr._device_scale(painter)
                                 painter.restore()
-                            ok = _lr.lod_ok_at(lt.period * factor, dev_scale)
+                            if factor is None:    # LTS-3 Fixed: this paint's scale
+                                factor = ent[3] = self._linetype_factor(lt, dev_scale)
+                            ok = (_lr.period_ok(lt, factor)
+                                  and _lr.lod_ok_at(lt.period * factor, dev_scale))
                         ent[4] = ok
                     if ok:
                         dash, dot = self._op_expansion(ops, i, op, lt, factor)
@@ -393,7 +396,7 @@ class BlockInstance(QGraphicsObject):
             painter.drawPath(pose.map(op.path))
 
     def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
-        """``[rs, width, lt, factor, None]`` for a stroke op -- once per distinct
+        """``[rs, width, lt, factor, None, fixed]`` for a stroke op -- once per distinct
         (linetype, weight) per paint (``paint``'s memo).
 
         LT3-8 cascade: linetype + resolved weight (By Linetype -> the
@@ -402,8 +405,10 @@ class BlockInstance(QGraphicsObject):
         width on a viewport pass, else the cosmetic canvas px (None for an
         unweighted op: keep the compiled pen's width). *lt* is the linetype
         to expand (None: plain stroke) and *factor* its LT3-5 length factor;
-        a non-positive / non-finite scaled period draws plain. The last slot
-        is ``paint``'s lazily decided screen LOD for this entry.
+        a non-positive / non-finite scaled period draws plain. The fifth slot
+        is ``paint``'s lazily decided screen LOD for this entry; *fixed* marks a
+        Fixed linetype on a model canvas (LTS-3), whose *factor* stays None
+        until ``paint`` reads its device scale.
         """
         rs = None
         if routed and is_linetype_ref(op.linetype):
@@ -415,12 +420,16 @@ class BlockInstance(QGraphicsObject):
         else:
             width = canvas_px(weight) if weight is not None else None
         lt = rs.lt if rs is not None else None
-        factor = None
+        factor, fixed = None, False
         if lt is not None:
-            factor = self._linetype_factor(lt)
-            if not _lr.period_ok(lt, factor):
-                lt = None
-        return [rs, width, lt, factor, None]
+            a = self._lt_args()
+            fixed = _lr.fixed_on_canvas(lt, paper_scale=a["paper_scale"],
+                                        role=a["role"])
+            if not fixed:                 # Fixed waits for this paint's scale
+                factor = self._linetype_factor(lt)
+                if not _lr.period_ok(lt, factor):
+                    lt = None
+        return [rs, width, lt, factor, None, fixed]
 
     def _op_expansion(self, ops, i, op, lt, factor):
         """``linetype_render.expand`` for op *i* of *ops*, held across paints.

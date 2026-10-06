@@ -296,7 +296,8 @@ class Geometry2DMixin:
             return False
         from .linetype_render import paint_stroke
         pieces = self.stroke_pieces()
-        factor = self._linetype_factor(rs.lt)
+        from .hatch_render import _device_scale
+        factor = self._linetype_factor(rs.lt, _device_scale(painter))   # LTS-3
         o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
         anchor = (o.x(), o.y())
         if not paint_stroke(painter, pieces, rs.lt, self.pen(),
