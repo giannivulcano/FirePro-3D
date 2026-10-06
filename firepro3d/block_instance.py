@@ -268,7 +268,7 @@ class BlockInstance(QGraphicsObject):
         # Thin Lines / registry / drawing-scale edits reach the next paint.
         strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod, fixed]
         dev_scale = None    # device px per local unit under the pose (lazy)
-        win = None          # view_window key under the pose (LTS-8, with dev_scale)
+        win = False         # view_window key under the pose (LTS-8; lazy, Fixed only)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
@@ -324,7 +324,6 @@ class BlockInstance(QGraphicsObject):
                                 painter.save()
                                 painter.setWorldTransform(pose, True)
                                 dev_scale = _hr._device_scale(painter)
-                                win = _lr.view_window(painter)
                                 painter.restore()
                             if factor is None:    # LTS-3 Fixed: this paint's scale
                                 factor = ent[3] = self._linetype_factor(lt, dev_scale)
@@ -336,8 +335,14 @@ class BlockInstance(QGraphicsObject):
                     if ok and not (n is not None and n < 1.0):
                         # (LTS-7 / delta 2: a short op falls through to its plain
                         # stroke; LTS-8: a long Fixed op expands near the view)
-                        w = (win if n is not None and n > LINETYPE_WINDOW_MIN_PERIODS
-                             else None)
+                        w = None
+                        if n is not None and n > LINETYPE_WINDOW_MIN_PERIODS:
+                            if win is False:      # once per paint, long Fixed ops only
+                                painter.save()
+                                painter.setWorldTransform(pose, True)
+                                win = _lr.view_window(painter)
+                                painter.restore()
+                            w = win
                         dash, dot = self._op_expansion(ops, i, op, lt, factor, w)
                         painter.save()
                         try:
