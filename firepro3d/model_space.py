@@ -2774,6 +2774,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
+        if (self.block_capability is not None
+                and self.block_capability[0] == "repeat" and self._undo_stack):
+            # LT4: Continuous lock + grow-to-fit join this commit's snapshot.
+            # Skipped on a re-baseline push (empty stack): reopening a
+            # linetype never mutates it.
+            from .linetype_authoring import pre_capture
+            pre_capture(self)
         state = self._capture_network()
         # Discard redo history beyond current position
         self._undo_stack = self._undo_stack[:self._undo_pos + 1]
