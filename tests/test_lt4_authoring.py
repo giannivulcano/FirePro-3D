@@ -196,3 +196,92 @@ def test_apply_rows_without_an_editor_refuses_before_mutating(qapp):
     assert _axis(sc) == [(0.0, 6.0)]                        # nothing moved
     assert sc.block_repeat["length"] == 9.0 and len(sc._undo_stack) == n
 
+
+
+# -- seam review M3: LT4-11g step counts, LT4-3 mixed, LT4-8 row removal ----
+
+def _toggled_editor():
+    """A linetype editor seeded from one 0..6 axis dash (Length 6)."""
+    w = BlockEditorWidget(Model_Space())
+    w._add_primitive(LineItem(QPointF(0, 0), QPointF(6, 0)))
+    assert w.toggle_capability("repeat")
+    sc = w.editor_scene
+    sc._snap_enabled = False
+    return w, sc
+
+
+def test_repeat_frame_grip_drag_is_one_undo_step(qapp):
+    from PyQt6.QtCore import Qt
+    _, sc = _toggled_editor()
+    assert sc.block_repeat["length"] == 6.0
+    f = sc.capability_frame_item()
+    sc.clearSelection()
+    f.setSelected(True)
+    qapp.processEvents()
+    m = sc._live_manip()
+    h = [x.handle for x in m._host_pool if x.isVisible()][0]
+    pos0 = sc._undo_pos
+    nm = Qt.KeyboardModifier.NoModifier
+    m._begin_handle(h, QPointF(6.0, 0.0), QPointF(0, 0))
+    m._update(QPointF(15, 4), nm, QPointF(200, 200))
+    m._finish(QPointF(15, 4), nm)
+    assert sc.block_repeat["length"] == 15.0
+    assert la.current_rows(sc) == [("dash", 6.0), ("gap", 9.0)]
+    assert sc._undo_pos == pos0 + 1
+    sc.undo()
+    assert sc.block_repeat["length"] == 6.0
+
+
+def test_size_change_is_one_undo_step(qapp):
+    _, sc = _toggled_editor()
+    pos0 = sc._undo_pos
+    la.set_repeat_field(sc, "Size", "Model")
+    assert sc.block_repeat["size"] == "model" and sc._undo_pos == pos0 + 1
+    la.set_repeat_field(sc, "Size", "Model")                # re-commit
+    assert sc._undo_pos == pos0 + 1
+    sc.undo()
+    assert sc.block_repeat["size"] == "drafting"
+
+
+def test_weight_change_is_one_undo_step(qapp):
+    _, sc = _toggled_editor()
+    w0 = la.pattern_weight(sc)
+    pos0 = sc._undo_pos
+    la.set_pattern_weight(sc, "Heavy")
+    assert la.pattern_weight(sc) == "Heavy" and sc._undo_pos == pos0 + 1
+    la.set_pattern_weight(sc, "Heavy")                      # no-op
+    assert sc._undo_pos == pos0 + 1
+    sc.undo()
+    assert la.pattern_weight(sc) == w0
+
+
+def test_panel_shows_mixed_for_two_differently_weighted_dashes(qapp):
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    from firepro3d.property_manager import PropertyManager
+    w, sc = _toggled_editor()
+    assert la.apply_pattern_rows(sc, [("dash", 6.0), ("gap", 2.0),
+                                      ("dash", 3.0), ("gap", 2.0)])
+    dashes = [l for l, r in la.axis_items(sc) if r[0] == "dash"]
+    assert len(dashes) == 2
+    dashes[0].style["weight"] = "Heavy"
+    dashes[1].style["weight"] = "Light"
+    pm = PropertyManager()
+    pm.show_properties(BlockPropertiesInfo(sc, "Hidden", w))
+    assert pm._prop_widgets["Weight"].currentText() == "< mixed >"
+
+
+def test_removing_a_row_deletes_its_line_and_its_constraints(qapp):
+    _, _, sc = _lt_editor((0, 6), (8, 10), length=12.0)
+    ctl = sc.constraint_ctl
+    gone = max(sc._draw_lines, key=lambda l: max(l._pt1.x(), l._pt2.x()))
+    ctl.add("dim_distance", [{"uid": gone._uid, "h": "p1"},
+                             {"uid": gone._uid, "h": "p2"}], value=2.0)
+    cid = ctl.constraints[-1].id
+    sc.push_undo_state()
+    assert la.apply_pattern_rows(sc, [("dash", 6.0), ("gap", 6.0)])
+    assert _axis(sc) == [(0.0, 6.0)]
+    assert gone not in sc._draw_lines and gone.scene() is None
+    assert cid not in [c.id for c in ctl.constraints]
+    sc.undo()
+    assert _axis(sc) == [(0.0, 6.0), (8.0, 10.0)]
+    assert cid in [c.id for c in sc.constraint_ctl.constraints]
