@@ -249,3 +249,83 @@ def test_unknown_dash_weight_is_shown_as_its_own_option(qapp):
     row = capability_rows(sc)["Weight"]
     assert row["value"] == "Retired Weight"
     assert row["options"][0] == "Retired Weight"
+
+
+# ── seam review I1: the pre-placement template inside a linetype editor ──
+
+def _hidden_project():
+    from firepro3d.block_definition import BlockDefinition
+    proj = Model_Space()
+    hid = BlockDefinition.new(
+        name="Hidden", library="L", series="S", origin=(0, 0),
+        primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
+        repeat={"length": 8.0, "size": "drafting"})
+    proj.register_block_definition(hid)
+    return proj, hid
+
+
+def _draw_next_line(sc):
+    """Commit a Line through the real draw-tool path (apply_current)."""
+    sc.set_mode("draw_line")
+    sc._make_line_like(QPointF(0, 4), QPointF(7, 4))
+    return sc._draw_lines[-1]
+
+
+def _row_a_selected_line_shows(sc, line):
+    from firepro3d.geometry_2d import stroke_rows
+    return stroke_rows(line.style, sc.block_registry)
+
+
+def _assert_template_matches_draw(sc, expect_weight_value):
+    cur0 = dict(ss.current_style())
+    props = sc._get_geometry_template().get_properties()
+    assert props["Linetype"]["value"] == "Continuous"
+    assert props["Linetype"]["disabled"] is True
+    assert props["Linetype"]["tooltip"] ==         "Lines inside a linetype are always Continuous"
+    assert props["Weight"]["value"] == expect_weight_value
+    assert props["Weight"]["disabled"] is True
+    assert props["Weight"]["tooltip"] ==         "New lines take the linetype's Weight (set it in the Repeat section)"
+    assert ss.current_style() == cur0                       # WM-10 / LT4-4
+    drawn = _draw_next_line(sc)
+    assert drawn.style["linetype"] == ss.CONTINUOUS
+    shown = _row_a_selected_line_shows(sc, drawn)
+    assert shown["Linetype"]["value"] == props["Linetype"]["value"]
+    assert shown["Weight"]["value"] == props["Weight"]["value"]
+    assert ss.current_style() == cur0
+
+
+def test_template_in_a_linetype_shows_continuous_and_the_dash_weight(qapp):
+    from firepro3d import linetype_authoring as la
+    proj, hid = _hidden_project()
+    w = BlockEditorWidget(proj)
+    assert w.toggle_capability("repeat")
+    sc = w.editor_scene
+    la.set_pattern_weight(sc, "Heavy")
+    ss.set_current(linetype=hid.id, weight="Light")
+    _assert_template_matches_draw(sc, "Heavy")
+
+
+def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
+    from firepro3d import linetype_authoring as la
+    proj, hid = _hidden_project()
+    w = BlockEditorWidget(proj)
+    assert w.toggle_capability("repeat")
+    sc = w.editor_scene
+    assert la.apply_pattern_rows(sc, [("dot", 0.0), ("gap", 3.0)])
+    ss.set_current(linetype=hid.id, weight="Light")
+    _assert_template_matches_draw(sc, "Light")
+
+
+def test_template_outside_a_linetype_is_unaffected(qapp):
+    proj, hid = _hidden_project()
+    ss.set_current(linetype=hid.id, weight="Light")
+    props = proj._get_geometry_template().get_properties()
+    assert props["Linetype"]["value"] == "Hidden"
+    assert not props["Linetype"].get("disabled")
+    assert not props["Weight"].get("disabled")
+    assert props["Weight"]["value"] == "Light"
+    plain = BlockEditorWidget(proj).editor_scene        # editor, no repeat
+    props = plain._get_geometry_template().get_properties()
+    assert not props["Linetype"].get("disabled")
+    assert not props["Weight"].get("disabled")
+    assert ss.current_style() == {"linetype": hid.id, "weight": "Light"}
