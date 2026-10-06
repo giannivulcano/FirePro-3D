@@ -24,6 +24,29 @@ from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_MAX_PERIODS)
 
 
+def axis_role(p1, p2, length: float):
+    """LT3-3 role of one unit Line (origin-relative points).
+
+    Returns:
+        ``("dash", start, length)`` (clamped to ``[0, length]``),
+        ``("dot", x)`` (a zero-length axis Line inside the frame), or None
+        (off-axis, wholly outside, or a clamped sliver -- never a dot).
+    """
+    (x1, y1), (x2, y2) = p1, p2
+    tol = LINETYPE_AXIS_TOL_MM
+    if abs(y1) > tol or abs(y2) > tol:
+        return None
+    a, b = sorted((x1, x2))
+    if b - a <= tol:
+        if -tol <= a <= length + tol:
+            return ("dot", round(min(max(a, 0.0), length), 9))
+        return None
+    a, b = max(a, 0.0), min(b, length)
+    if b - a <= tol:
+        return None
+    return ("dash", round(a, 9), round(b - a, 9))
+
+
 @dataclass(frozen=True)
 class LinetypeDef:
     """A repeat block read per LT3-3 (definition-local mm)."""
@@ -61,21 +84,13 @@ class LinetypeDef:
             if prim.get("type") != "draw_line":
                 continue
             (x1, y1), (x2, y2) = prim["pt1"], prim["pt2"]
-            x1, x2, y1, y2 = x1 - ox, x2 - ox, y1 - oy, y2 - oy
-            if abs(y1) > LINETYPE_AXIS_TOL_MM or abs(y2) > LINETYPE_AXIS_TOL_MM:
+            role = axis_role((x1 - ox, y1 - oy), (x2 - ox, y2 - oy), length)
+            if role is None:
                 continue
-            a, b = sorted((x1, x2))
-            if b - a <= LINETYPE_AXIS_TOL_MM:
-                # Zero-length (unclamped) axis Line = dot, kept only in frame.
-                if -LINETYPE_AXIS_TOL_MM <= a <= length + LINETYPE_AXIS_TOL_MM:
-                    dots.append(round(min(max(a, 0.0), length), 9))
+            if role[0] == "dot":
+                dots.append(role[1])
                 continue
-            # Non-zero Line: clamp to the frame; what is left is a dash, and
-            # a sliver (or a Line wholly outside) is ignored -- never a dot.
-            a, b = max(a, 0.0), min(b, length)
-            if b - a <= LINETYPE_AXIS_TOL_MM:
-                continue
-            dashes.append((round(a, 9), round(b - a, 9)))
+            dashes.append((role[1], role[2]))
             w = (prim.get("style") or {}).get("weight")
             if _ss.is_named_weight(w):
                 weights.append(w)
