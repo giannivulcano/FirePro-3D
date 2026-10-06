@@ -12,7 +12,7 @@ import math
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainterPath, QPen
 
 from . import hatch_render as _hr
@@ -21,7 +21,8 @@ from . import path_walk as pw
 from . import stroke_style as _ss
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
-                        LINETYPE_MAX_PERIODS, UNDERLAY_MM_TO_PX_HINT)
+                        LINETYPE_MAX_PERIODS, LINETYPE_WINDOW_MIN_PERIODS,
+                        UNDERLAY_MM_TO_PX_HINT)
 
 
 def axis_role(p1, p2, length: float):
@@ -114,24 +115,96 @@ class LinetypeDef:
 _EXPAND: OrderedDict = OrderedDict()
 
 
-def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
+def view_window(painter):
+    """The painter's visible area (painter coords) as a snapped key, or None.
+
+    Snapped outward to a power-of-two grid whose cell is the next 2^n at or
+    above the view's larger side, plus one cell of margin, so a pan inside a
+    cell keeps one expansion-cache key (LTS-8: pans stay cached).
+    """
+    area = _hr._visible_area(painter, QRectF(-1e15, -1e15, 2e15, 2e15))
+    if area.isEmpty() or not _hr._finite_rect(area):
+        return None
+    cell = 2.0 ** math.ceil(math.log2(max(area.width(), area.height(), 1e-9)))
+    return ((math.floor(area.left() / cell) - 1) * cell,
+            (math.floor(area.top() / cell) - 1) * cell,
+            (math.ceil(area.right() / cell) + 1) * cell,
+            (math.ceil(area.bottom() / cell) + 1) * cell)
+
+
+def visible_spans(p, window, min_span: float) -> list:
+    """Arc-length spans [(s0, s1)] of canonical piece *p* inside *window*.
+
+    *window* = (x0, y0, x1, y1). A Seg clips exactly (Liang-Barsky); other
+    pieces bisect in arc length, dropping halves whose control box misses
+    the window, down to *min_span*. Spans are merged and sorted.
+    """
+    x0, y0, x1, y1 = window
+    L = pw.length(p)
+    if isinstance(p, pw.Seg):
+        dx, dy = p.x1 - p.x0, p.y1 - p.y0
+        t0, t1 = 0.0, 1.0
+        for q, r in ((-dx, p.x0 - x0), (dx, x1 - p.x0),
+                     (-dy, p.y0 - y0), (dy, y1 - p.y0)):
+            if abs(q) < 1e-12:
+                if r < 0:
+                    return []
+                continue
+            t = r / q
+            if q < 0:
+                t0 = max(t0, t)
+            else:
+                t1 = min(t1, t)
+            if t0 > t1:
+                return []
+        return [(t0 * L, t1 * L)]
+    out = []
+
+    def _rec(a, b):
+        r = pw.to_path((pw.split(p, a, b),)).controlPointRect()
+        if r.right() < x0 or r.left() > x1 or r.bottom() < y0 or r.top() > y1:
+            return
+        if b - a <= min_span:
+            out.append((a, b))
+            return
+        m = 0.5 * (a + b)
+        _rec(a, m)
+        _rec(m, b)
+
+    _rec(0.0, L)
+    merged = []
+    for a, b in out:
+        if merged and a <= merged[-1][1] + 1e-9:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
+           window=None):
     """``(dash_path, dot_path)`` for *pieces* in *lt* scaled by *factor*.
 
-    Cached on (pieces, the *lt* reading itself, factor, anchor) -- keyed on
-    the frozen reading's value, so a re-read that differs (e.g. a moved
-    origin without a version bump) never hits a stale expansion. Returns the
-    same tuple object on a hit: the paths are shared cached objects and must
-    be treated as read-only.
+    Cached on (pieces, the *lt* reading itself, factor, anchor, window) --
+    keyed on the frozen reading's value, so a re-read that differs (e.g. a
+    moved origin without a version bump) never hits a stale expansion.
+    Returns the same tuple object on a hit: the paths are shared cached
+    objects and must be treated as read-only. *window* is a ``view_window``
+    key: pieces longer than ``LINETYPE_WINDOW_MIN_PERIODS`` periods expand
+    only inside it (LTS-8); when no piece qualifies it leaves the cache key.
     """
     if not period_ok(lt, factor):
         return QPainterPath(), QPainterPath()   # never walk a bad period
+    period = lt.period * factor
+    if window is not None and not any(
+            pw.length(q) / period > LINETYPE_WINDOW_MIN_PERIODS for q in pieces):
+        window = None                         # nothing windowed: one key per pan
     key = (tuple(pieces), lt, round(factor, 9),
-           (round(anchor[0], 6), round(anchor[1], 6)))
+           (round(anchor[0], 6), round(anchor[1], 6)), window)
     hit = _EXPAND.get(key)
     if hit is not None:
         _EXPAND.move_to_end(key)
         return hit
-    period = lt.period * factor
     dashes = [(s * factor, n * factor) for s, n in lt.dashes]
     dots = [d * factor for d in lt.dots]
     dash_path, dot_path = QPainterPath(), QPainterPath()
@@ -140,24 +213,35 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple):
         L = pw.length(p)
         if L <= 1e-9:
             continue
-        if L / period > LINETYPE_MAX_PERIODS:
-            pw.append(dash_path, p)                 # safety cap: continuous
-            continue
+        if window is not None and L / period > LINETYPE_WINDOW_MIN_PERIODS:
+            spans = visible_spans(p, window,
+                                  max(window[2] - window[0], window[3] - window[1]))
+        else:
+            spans = ((0.0, L),)
         ph = pw.phase0(p, anchor)
-        k = math.floor(ph / period)
-        while k * period - ph < L:
-            base = k * period - ph                   # s of this unit's start
-            for st, ln in dashes:
-                a, b = max(base + st, 0.0), min(base + st + ln, L)
-                if b - a > 1e-9:
-                    pw.append(dash_path, pw.split(p, a, b))
-            for d in dots:
-                s = base + d
-                if -1e-9 <= s <= L + 1e-9:
-                    q = pw.point_at(p, min(max(s, 0.0), L))
-                    dot_path.moveTo(q)
-                    dot_path.lineTo(q.x() + LINETYPE_DOT_MM, q.y())
-            k += 1
+        k_done = None                         # never re-draw a unit across spans
+        for s_lo, s_hi in spans:
+            if (s_hi - s_lo) / period > LINETYPE_MAX_PERIODS:
+                pw.append(dash_path, p if (s_lo, s_hi) == (0.0, L)
+                          else pw.split(p, s_lo, s_hi))   # safety cap: continuous
+                continue
+            k = math.floor((ph + s_lo) / period)
+            if k_done is not None:
+                k = max(k, k_done)
+            while k * period - ph < s_hi:
+                base = k * period - ph                   # s of this unit's start
+                for st, ln in dashes:
+                    a, b = max(base + st, 0.0), min(base + st + ln, L)
+                    if b - a > 1e-9:
+                        pw.append(dash_path, pw.split(p, a, b))
+                for d in dots:
+                    s = base + d
+                    if -1e-9 <= s <= L + 1e-9:
+                        q = pw.point_at(p, min(max(s, 0.0), L))
+                        dot_path.moveTo(q)
+                        dot_path.lineTo(q.x() + LINETYPE_DOT_MM, q.y())
+                k += 1
+            k_done = k
     res = (dash_path, dot_path)
     _EXPAND[key] = res
     while len(_EXPAND) > LINETYPE_CACHE_MAX:
@@ -180,9 +264,14 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
         return False
     if not _lod_ok(painter, lt.period * factor):
         return False
-    if fixed and periods_on(pieces, lt, factor) < 1.0:
-        return False                      # LTS-7: shorter than one period -> solid
-    dash, dot = expand(pieces, lt, factor, anchor)
+    win = None
+    if fixed:
+        n = periods_on(pieces, lt, factor)
+        if n < 1.0:
+            return False                  # LTS-7: shorter than one period -> solid
+        if n > LINETYPE_WINDOW_MIN_PERIODS:
+            win = view_window(painter)    # LTS-8 delta 1: expand near the view only
+    dash, dot = expand(pieces, lt, factor, anchor, window=win)
     painter.save()
     try:
         draw_expansion(painter, dash, dot, QPen(pen))

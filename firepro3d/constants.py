@@ -356,6 +356,7 @@ LINETYPE_LOD_MIN_PERIOD_PX = 2.0   # screen period below this draws continuous (
 LINETYPE_CACHE_MAX = 4096          # expansion LRU entries
 LINETYPE_DEF_CACHE_MAX = 512       # LinetypeDef reading LRU entries
 LINETYPE_MAX_PERIODS = 200_000     # safety cap per piece (draw continuous beyond)
+LINETYPE_WINDOW_MIN_PERIODS = 512  # longer Fixed pieces expand only near the view (LTS-8 delta 1)
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 LINETYPE_BADGE_PX = 12             # missing-linetype glyph (Task 1 mockup gate, option A)

@@ -25,6 +25,7 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
+from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .render_op import STROKE, FILL, PATTERN, TEXT
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
                            linetype_block, resolve_stroke)
@@ -267,6 +268,7 @@ class BlockInstance(QGraphicsObject):
         # Thin Lines / registry / drawing-scale edits reach the next paint.
         strokes = {}        # (linetype, weight) -> [rs, width, lt, factor, lod, fixed]
         dev_scale = None    # device px per local unit under the pose (lazy)
+        win = None          # view_window key under the pose (LTS-8, with dev_scale)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
@@ -322,15 +324,21 @@ class BlockInstance(QGraphicsObject):
                                 painter.save()
                                 painter.setWorldTransform(pose, True)
                                 dev_scale = _hr._device_scale(painter)
+                                win = _lr.view_window(painter)
                                 painter.restore()
                             if factor is None:    # LTS-3 Fixed: this paint's scale
                                 factor = ent[3] = self._linetype_factor(lt, dev_scale)
                             ok = (_lr.period_ok(lt, factor)
                                   and _lr.lod_ok_at(lt.period * factor, dev_scale))
                         ent[4] = ok
-                    if ok and not (fixed and _lr.periods_on(op.pieces, lt, factor) < 1.0):
-                        # (LTS-7 / delta 2: a short op falls through to its plain stroke)
-                        dash, dot = self._op_expansion(ops, i, op, lt, factor)
+                    n = (_lr.periods_on(op.pieces, lt, factor)
+                         if ok and fixed else None)
+                    if ok and not (n is not None and n < 1.0):
+                        # (LTS-7 / delta 2: a short op falls through to its plain
+                        # stroke; LTS-8: a long Fixed op expands near the view)
+                        w = (win if n is not None and n > LINETYPE_WINDOW_MIN_PERIODS
+                             else None)
+                        dash, dot = self._op_expansion(ops, i, op, lt, factor, w)
                         painter.save()
                         try:
                             painter.setWorldTransform(pose, True)
@@ -432,24 +440,26 @@ class BlockInstance(QGraphicsObject):
                     lt = None
         return [rs, width, lt, factor, None, fixed]
 
-    def _op_expansion(self, ops, i, op, lt, factor):
+    def _op_expansion(self, ops, i, op, lt, factor, window=None):
         """``linetype_render.expand`` for op *i* of *ops*, held across paints.
 
         Keyed on the compiled op list (held, so its identity can't be
         recycled -- the ``_posed_cache`` idiom; a new list on every content
         change), the op index, the linetype reading itself (a new object on
-        a definition edit / version bump) and the exact length factor -- every
-        input of ``expand``, so a hit returns what ``expand`` would.
+        a definition edit / version bump), the exact length factor and the
+        visible window (LTS-8) -- every input of ``expand``, so a hit returns
+        what ``expand`` would.
         """
         c = self._lt_exp_cache
         if c is None or c[0] is not ops:
             c = self._lt_exp_cache = (ops, {})
         hit = c[1].get(i)
-        if hit is not None and hit[0] is lt and hit[1] == factor:
+        if (hit is not None and hit[0] is lt and hit[1] == factor
+                and hit[3] == window):
             return hit[2]
         a = op.origin or QPointF(0.0, 0.0)
-        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()))
-        c[1][i] = (lt, factor, res)
+        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()), window=window)
+        c[1][i] = (lt, factor, res, window)
         return res
 
     def _lt_args(self) -> dict:
