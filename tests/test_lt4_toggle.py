@@ -43,11 +43,15 @@ def test_on_reads_content_and_converts_with_count(qapp):
         it = LineItem(QPointF(a, 0), QPointF(b, 0))
         it.style["linetype"] = lt
         w._add_primitive(it)
+    w.editor_scene.push_undo_state()            # the draws' commit
     assert w.toggle_capability("repeat")
     sc = w.editor_scene
     assert sc.block_repeat["length"] == 7.0
     assert {l.style["linetype"] for l in sc._draw_lines} == {ss.CONTINUOUS}
     assert msgs[-1] == "2 lines set to Continuous"
+    sc.undo()                                   # the conversion is in the step
+    assert sc.block_capability is None
+    assert [l.style["linetype"] for l in sc._draw_lines] == [lt, lt]
 
 
 def test_a4_on_refused_while_placed_as_symbol(qapp):
@@ -73,8 +77,23 @@ def test_a4_exclusive_with_pattern_tile(qapp):
     assert w.editor_scene.block_tile is not None
 
 
-@pytest.mark.xfail(reason="LT4 Task 9 wording", strict=True)
-def test_a4_off_refused_while_used(qapp):
+def test_a4_exclusive_reverse_wording(qapp):
+    _, w, msgs = _w()
+    assert w.toggle_capability("repeat")
+    assert w.toggle_capability("tile") is False
+    assert msgs[-1] == ("Turn Linetype off first — a block is a pattern "
+                        "or a linetype, not both")
+    assert w.editor_scene.block_repeat is not None
+
+
+def test_toggle_unknown_kind_raises(qapp):
+    _, w, _ = _w()
+    with pytest.raises(ValueError, match="unknown capability kind: 'bogus'"):
+        w.toggle_capability("bogus")
+    assert w.editor_scene.block_capability is None
+
+
+def _used_linetype():
     proj = Model_Space()
     lt_def = make_linetype("Hidden")
     proj.register_block_definition(lt_def)
@@ -83,9 +102,27 @@ def test_a4_off_refused_while_used(qapp):
     riser = BlockDefinition.new(name="Riser", library="L", series="S",
                                 origin=(0, 0), primitives=[user_line.to_dict()])
     proj.register_block_definition(riser)
+    return proj, lt_def
+
+
+def test_a4_off_refused_while_used_behaviour(qapp):
+    """LT4-5 toggle refusal: nothing changes and one status is posted (the
+    exact wording is Task 9's -- see the xfail below)."""
+    proj, lt_def = _used_linetype()
     _, w, msgs = _w(proj, lt_def)
+    sc = w.editor_scene
+    n = len(sc._undo_stack)
     assert w.toggle_capability("repeat") is False
-    assert w.editor_scene.block_repeat is not None
+    assert sc.block_repeat == lt_def.repeat
+    assert len(sc._undo_stack) == n
+    assert len(msgs) == 1 and "Riser" in msgs[0]
+
+
+@pytest.mark.xfail(reason="LT4 Task 9 wording", strict=True)
+def test_a4_off_refused_while_used(qapp):
+    proj, lt_def = _used_linetype()
+    _, w, msgs = _w(proj, lt_def)
+    w.toggle_capability("repeat")
     assert msgs[-1] == ("“Hidden” is used by lines inside: Riser — change "
                         "their linetype first.")
 
@@ -99,6 +136,61 @@ def test_save_as_keeps_the_linetype_and_new_is_never_placed(qapp):
     w._edit_block_id = None                                 # Save As path
     d2 = w.commit_block("Hidden 2", "L", "Linetypes")
     assert d2.id != d1.id and d2.repeat == d1.repeat
+
+
+def _sink(scene):
+    msgs = []
+    scene._show_status = lambda m, t=5000: msgs.append(m)
+    return msgs
+
+
+def test_save_recheck_refuses_a_linetype_placed_as_symbol(qapp):
+    """LT4-11a at save: the toggle is bypassed, so only the commit re-check
+    stands between a placed symbol and becoming a linetype."""
+    proj = Model_Space()
+    d = BlockDefinition.new(name="Sym", library="L", series="S", origin=(0, 0),
+                            primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()])
+    proj.register_block_definition(d)
+    proj.place_block_instance(d.id, (0.0, 0.0))
+    _, w, _ = _w(proj, d)
+    w.editor_scene.set_block_capability(("repeat", {"length": 9.0, "size": "drafting"}))
+    msgs = _sink(proj)
+    v0, prims0 = d.version, [dict(p) for p in d.primitives]
+    assert w.commit_block("Sym", "L", "S") is None
+    assert d.repeat is None and d.version == v0 and d.primitives == prims0
+    assert msgs == ["Used as a symbol (1 placed) — remove those before "
+                    "making it a linetype"]
+
+
+def test_save_recheck_refuses_dropping_a_used_linetype(qapp):
+    """LT4-5 at save: the capability cleared behind the toggle's back -> the
+    save is refused and the definition stays a linetype."""
+    proj, lt_def = _used_linetype()
+    _, w, _ = _w(proj, lt_def)
+    w.editor_scene.set_block_capability(None)
+    msgs = _sink(proj)
+    v0 = lt_def.version
+    assert w.commit_block("Hidden", "L", "Linetypes") is None
+    assert lt_def.repeat == {"length": 9.0, "size": "drafting"}
+    assert lt_def.version == v0
+    assert len(msgs) == 1 and "Riser" in msgs[0]
+
+
+def test_new_linetype_from_selection_is_not_placed_and_keeps_source(qapp):
+    proj = Model_Space()
+    src = LineItem(QPointF(100, 100), QPointF(106, 100))
+    proj.addItem(src)
+    proj._draw_lines.append(src)
+    msgs = _sink(proj)
+    w = BlockEditorWidget(proj)
+    w.seed_from_selection([src.to_dict()], source_items=[src])
+    assert w.toggle_capability("repeat")
+    defn = w.commit_block("Dashy", "L", "Linetypes")
+    assert defn is not None and defn.repeat is not None
+    assert proj.instance_count(defn.id) == 0
+    assert src.scene() is proj and src in proj._draw_lines
+    assert msgs[-1] == ("Saved linetype ‘Dashy’ — linetypes aren't placed; "
+                        "your original geometry is unchanged.")
 
 
 def test_reopen_loads_capability_into_the_baseline(qapp):

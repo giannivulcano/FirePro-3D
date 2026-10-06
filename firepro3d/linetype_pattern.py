@@ -74,11 +74,22 @@ def content_end(prim_dicts) -> float:
     Returns:
         The largest axis-Line x (may exceed the frame length), or 0.0.
     """
+    return axis_end((p["pt1"], p["pt2"]) for p in prim_dicts
+                    if p.get("type") == "draw_line")
+
+
+def axis_end(segments) -> float:
+    """Far end of the on-axis segments (the one LT4-9 rule); 0 when none.
+
+    Args:
+        segments: ``((x1, y1), (x2, y2))`` Line endpoints, origin-relative.
+
+    Returns:
+        The largest x of a segment lying on the axis (both ends within
+        tolerance of y = 0), or 0.0.
+    """
     end = 0.0
-    for p in prim_dicts:
-        if p.get("type") != "draw_line":
-            continue
-        (x1, y1), (x2, y2) = p["pt1"], p["pt2"]
+    for (x1, y1), (x2, y2) in segments:
         if abs(y1) <= _TOL and abs(y2) <= _TOL:
             end = max(end, x1, x2)
     return float(end)

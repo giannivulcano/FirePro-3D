@@ -56,6 +56,12 @@ def current_rows(scene):
     return lp.rows_from_reading(sorted(dashes), sorted(dots), rep["length"])
 
 
+def _axis_end(lines) -> float:
+    """``linetype_pattern.axis_end`` over live Lines (no per-Line dict)."""
+    return lp.axis_end(((l._pt1.x(), l._pt1.y()), (l._pt2.x(), l._pt2.y()))
+                       for l in lines)
+
+
 def _set_line(line, a: float, b: float) -> None:
     """Move / resize an axis Line in place (same item, uid and style)."""
     line.prepareGeometryChange()
@@ -97,8 +103,9 @@ def apply_pattern_rows(scene, rows, *, push_undo: bool = True) -> bool:
             caller pushes, e.g. :func:`begin_linetype`).
 
     Returns:
-        False (nothing changed) when *rows* fail ``validate_rows`` or the
-        scene is not a linetype; True otherwise.
+        False (nothing changed) when *rows* fail ``validate_rows``, the
+        scene is not a linetype, or a new mark is needed but the scene has
+        no owning Block Editor to add it through; True otherwise.
     """
     rows = [(str(k), float(n)) for k, n in rows]
     if scene.block_repeat is None or not lp.validate_rows(rows):
@@ -111,18 +118,28 @@ def apply_pattern_rows(scene, rows, *, push_undo: bool = True) -> bool:
         have[role[0]].append(line)
     want = {"dash": [s for s in sp if s[0] == "dash"],
             "dot": [s for s in sp if s[0] == "dot"]}
-    removed = []
+    if (getattr(scene, "_tile_editor", None) is None
+            and any(len(want[k]) > len(have[k]) for k in want)):
+        return False                             # checked before any mutation
+    removed, moved = [], []
     for kind in ("dash", "dot"):
         lines, targets = have[kind], want[kind]
         for line, (_, a, b) in zip(lines, targets):
             _set_line(line, a, b)
+            moved.append(line)
         for line in lines[len(targets):]:
             scene._remove_item_from_lists(line)
             removed.append(line)
         for _, a, b in targets[len(lines):]:
             _new_mark(scene, a, b, weight)
+    ctl = scene.constraint_ctl
     if removed:
-        scene.constraint_ctl.on_items_removed(removed)
+        ctl.on_items_removed(removed)
+    # LT4-8: a constraint the ripple violates shows red live, exactly as an
+    # undo / redo restore would derive it (D38).
+    touched = {c.id: c for line in moved for c in ctl.constraints_on(line)}
+    if touched:
+        ctl.mark_unsatisfied_red(list(touched.values()))
     rep = scene.block_repeat
     rep["length"] = period
     scene.set_block_capability(("repeat", rep), push_undo=False)
@@ -152,7 +169,7 @@ def set_repeat_field(scene, key: str, value) -> None:
         return
     if key == "Length":
         mm = float(value)
-        end = lp.content_end([l.to_dict() for l in _plain_lines(scene)])
+        end = _axis_end(_plain_lines(scene))
         if not mm > 0 or mm < end - _TOL or abs(mm - rep["length"]) <= _TOL:
             return                               # panel refresh shows the old value
         rep["length"] = mm
@@ -216,7 +233,7 @@ def pre_capture(scene) -> None:
     if rep is None:
         return
     _force_continuous(_non_continuous(scene))
-    end = lp.content_end([l.to_dict() for l in _plain_lines(scene)])
+    end = _axis_end(_plain_lines(scene))
     if end > rep["length"] + _TOL:
         rep["length"] = end
         scene.set_block_capability(("repeat", rep), push_undo=False)

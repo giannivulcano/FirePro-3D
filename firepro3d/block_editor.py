@@ -480,7 +480,12 @@ class BlockEditorWidget(QWidget):
 
         Returns:
             True if the capability changed.
+
+        Raises:
+            ValueError: *kind* is not ``"tile"`` / ``"repeat"``.
         """
+        if kind not in self._EXCLUSIVE:
+            raise ValueError(f"unknown capability kind: {kind!r}")
         sc = self.editor_scene
         cur = sc.block_capability
         if cur is not None and cur[0] == kind:
