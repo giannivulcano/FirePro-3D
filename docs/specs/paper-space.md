@@ -198,6 +198,11 @@ Existing project files without a `"sheets"` key load normally with an empty shee
 
 ### 6.2 Render Flow (Per Sheet View Paint Cycle)
 
+> *(2026-10-06, ratified, unbuilt — `linetypes.md` "MW":)* the Model weight
+> factor, per-row Model px, crisp axis-split and D39 tint are canvas-only;
+> a paper pass still plots true mm. New factory weight names and the by-mm
+> category defaults (MW-4 / MW-5) are owned there.
+
 `SheetViewport.paint` (screen preview **and** off-screen export share this one path):
 
 1. Placeholder short-circuit when the source view doesn't resolve.

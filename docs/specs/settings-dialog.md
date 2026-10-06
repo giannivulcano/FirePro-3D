@@ -122,7 +122,7 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 
 ## 6. Acceptance Criteria
 
-1. **Structure.** Two dialogs open from two Manage→Settings ribbon buttons. Project Settings rail = [Project Info, Units & Precision]; System Settings rail = [General, UX, UI, Import]; UX SwitchBar = [SNAP, ALIGN, HALO]. Both are `HouseDialog` subclasses, token-clean, hexguard-listed.
+1. **Structure.** Two dialogs open from two Manage→Settings ribbon buttons. Project Settings rail = [Project Info, Units & Precision]; System Settings rail = [General, UX, UI, Import]; UX SwitchBar = [SNAP, ALIGN, HALO]. Both are `HouseDialog` subclasses, token-clean, hexguard-listed. *(2026-10-06, ratified, unbuilt: the UI pane gains "Model line weight scale" — owned by `linetypes.md` "MW" MW-11 / H-MW-h.)*
 2. **Units round-trip.** Setting units in Project Settings → project Save → reload restores those units (observable via the loaded project's `scale_manager` / a formatted length).
 3. **Legacy `.fpd`.** A `.fpd` with no units key loads without error and falls back to the template/factory default.
 4. **Template.** First run auto-creates `default.fpdt`; startup opens a clone; New Project clones it (blank geometry, template's default units, **untitled + not-dirty**); "Save as default" writes settings into the template and the *next* New Project reflects them; a corrupt template regenerates without crashing.
