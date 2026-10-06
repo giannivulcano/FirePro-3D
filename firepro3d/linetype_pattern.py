@@ -23,6 +23,7 @@ def rows_from_reading(dashes, dots, length: float):
         ``[(kind, mm), ...]`` with leading / between / trailing gaps, or None
         when dashes overlap or a dot sits strictly inside a dash.
     """
+    # Middle field (0 = dot, 1 = dash): a dot at a dash's start sorts before it.
     events = sorted([(float(a), 1, float(n)) for a, n in dashes]
                     + [(float(x), 0, 0.0) for x in dots])
     rows, cur = [], 0.0
@@ -45,6 +46,9 @@ def rows_from_reading(dashes, dots, length: float):
 def spans(rows):
     """Axis spans of *rows* and their period (LT4-2: period = sum of rows).
 
+    Args:
+        rows: ``[(kind, mm), ...]`` as ``rows_from_reading`` returns.
+
     Returns:
         ``([(kind, x0, x1), ...], period)`` -- dashes and dots only (a dot
         has ``x0 == x1``), in x order.
@@ -62,7 +66,14 @@ def spans(rows):
 
 
 def content_end(prim_dicts) -> float:
-    """Unclamped far end of the axis Lines (LT4-9 grow-to-fit); 0 when none."""
+    """Unclamped far end of the axis Lines (LT4-9 grow-to-fit); 0 when none.
+
+    Args:
+        prim_dicts: Block primitive dicts; only on-axis ``draw_line`` count.
+
+    Returns:
+        The largest axis-Line x (may exceed the frame length), or 0.0.
+    """
     end = 0.0
     for p in prim_dicts:
         if p.get("type") != "draw_line":
@@ -74,7 +85,14 @@ def content_end(prim_dicts) -> float:
 
 
 def validate_rows(rows) -> bool:
-    """At least one dash or dot; every dash / gap length > 0 (LT4-12)."""
+    """At least one dash or dot; every dash / gap length > tolerance (LT4-12).
+
+    Args:
+        rows: ``[(kind, mm), ...]``.
+
+    Returns:
+        True when the rows can be stored and read back by the renderer.
+    """
     if not any(k in (DASH, DOT) for k, _ in rows):
         return False
-    return all(n > 0 for k, n in rows if k in (DASH, GAP))
+    return all(n > _TOL for k, n in rows if k in (DASH, GAP))

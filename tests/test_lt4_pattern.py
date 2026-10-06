@@ -34,6 +34,11 @@ def test_unrepresentable_overlap_and_dot_inside():
         ("dash", 6.0), ("dot", 0.0), ("gap", 3.0)]
 
 
+def test_dot_at_dash_start_sorts_first():
+    assert rows_from_reading(((2.0, 4.0),), (2.0,), 9.0) == [
+        ("gap", 2.0), ("dot", 0.0), ("dash", 4.0), ("gap", 3.0)]
+
+
 def test_spans_and_period_round_trip():
     rows = [("dash", 6.0), ("gap", 2.0), ("dot", 0.0), ("gap", 2.0)]
     sp, period = spans(rows)
@@ -57,6 +62,8 @@ def test_content_end_unclamped_axis_only():
     ([("dash", 0.0)], False),                # zero length
     ([("dash", -1.0)], False),
     ([("dot", 0.0)], True),
+    ([("dash", 0.0005)], False),             # <= axis tolerance reads as a dot
+    ([("dash", 6.0), ("gap", 0.0005)], False),
 ])
 def test_validate_rows(rows, ok):
     assert validate_rows(rows) is ok
