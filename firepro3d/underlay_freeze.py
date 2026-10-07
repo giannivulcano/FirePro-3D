@@ -25,6 +25,7 @@ from .constants import (
     UNDERLAY_FREEZE_PAD_FRACTION,
     UNDERLAY_FREEZE_SETTLE_MS,
 )
+from .crisp_stroke import SplitCache, stroke_cached
 
 
 class _UnderlayPathItem(QGraphicsPathItem):
@@ -34,12 +35,35 @@ class _UnderlayPathItem(QGraphicsPathItem):
     stock QGraphicsPathItem behavior.
     """
 
+    def __init__(self, *args):
+        super().__init__(*args)
+        # The stroke's crisp axis-split, by value (MW-7, H-MW-f delta 1).
+        self._mw_split_cache = SplitCache()
+
+    def seed_split(self, split) -> None:
+        """Pre-load the identity-frame crisp split of this item's path (built
+        alongside it by the batch builder, MW-13): any orthogonal view / group
+        transform hits it on the first paint; others split lazily."""
+        self._mw_split_cache.seed(self.path(), split)
+
     def paint(self, painter, option, widget=None):
         scene = self.scene()
         ctrl = getattr(scene, "_underlay_freeze", None)
         if ctrl is not None and ctrl.frozen:
             return
-        super().paint(painter, option, widget)
+        pen = self.pen()
+        if (pen.style() == Qt.PenStyle.NoPen or not pen.isCosmetic()
+                or self.brush().style() != Qt.BrushStyle.NoBrush):
+            super().paint(painter, option, widget)      # text fills / paper
+            return
+        # Canvas stroke: axis runs crisp (MW-7, H-MW-f delta 1). The split is
+        # cached per item by path value + rotation -- never per paint / zoom,
+        # and never computed on a paper pass (stroke_cached gates first).
+        painter.save()
+        try:
+            stroke_cached(self._mw_split_cache, painter, self.path(), pen)
+        finally:
+            painter.restore()
 
 
 class UnderlayFreezeController:

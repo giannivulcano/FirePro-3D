@@ -14,7 +14,7 @@ def _table():
 
 def _check_options(opts):
     assert opts == pd.weight_names()
-    assert opts.index("Site") == opts.index("Heavy") + 1  # 0.35 < 0.40 < 0.50
+    assert opts.index("Site") == opts.index("Thin") + 1  # 0.35 < 0.40 < 0.50 (MW-4 names)
 
 
 def test_text_item_property_options_include_custom(qapp):

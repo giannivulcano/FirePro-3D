@@ -159,8 +159,8 @@ def canvas_weight_name(weight: str) -> str:
 
 
 def canvas_px(weight: str) -> float:
-    """Cosmetic canvas width for a style weight (LT1-7 mapping)."""
-    return _pd.canvas_weight_px(_pd.resolve_line_weight_mm(canvas_weight_name(weight)))
+    """Cosmetic canvas width for a style weight (MW H-MW-c mapping)."""
+    return _pd.canvas_px_for_weight(canvas_weight_name(weight))
 
 
 class ResolvedStroke(NamedTuple):
@@ -211,7 +211,9 @@ def weight_label(weight: str, linetype: str, registry) -> str:
     if weight != BY_LINETYPE:
         return weight
     rs = resolve_stroke({"linetype": linetype, "weight": BY_LINETYPE}, registry)
-    name = rs.weight if rs.weight != BY_LINETYPE else _pd.model_blocks_weight()
+    # MW-6: label the row the weight draws as (a legacy name shows its row).
+    name = _pd.picker_weight_name(
+        rs.weight if rs.weight != BY_LINETYPE else _pd.model_blocks_weight())
     return f"{BY_LINETYPE_LABEL} ({name})"
 
 
@@ -257,7 +259,8 @@ def current_to_settings(settings) -> None:
 
 
 def current_from_settings(settings) -> None:
-    """Restore the current; an unknown weight name -> By Linetype."""
+    """Restore the current; a factory weight name the table lacks -> its
+    nearest row by mm (MW-6); any other unknown name -> By Linetype."""
     reset_current()
     lt = settings.value(_KEY_LT, None)
     w = settings.value(_KEY_W, None)
@@ -265,15 +268,21 @@ def current_from_settings(settings) -> None:
         set_current(linetype=str(lt))
     if w:
         w = str(w)
-        if w in (BY_LINETYPE, BY_BLOCK) or w in _pd.weight_names():
+        if w in (BY_LINETYPE, BY_BLOCK):
             set_current(weight=w)
+        else:
+            # MW-6: a factory name the table lacks -> its nearest row by mm.
+            live = _pd.live_weight_name(w)
+            if live is not None:
+                set_current(weight=live)
 
 
 def apply_current(item, scene) -> None:
     """Stamp the current onto a just-drawn primitive (draw-tool commits only).
 
     A linetype id that is not a linetype in *scene*'s project registry draws
-    Continuous; a weight name this project lacks becomes By Linetype.
+    Continuous; a factory weight name this project lacks becomes its nearest
+    row by mm (MW-6), any other unknown name By Linetype.
     """
     st = getattr(item, "style", None)
     if st is None:
@@ -284,8 +293,9 @@ def apply_current(item, scene) -> None:
         if linetype_block(lt, reg) is None:
             lt = CONTINUOUS
     w = _current["weight"]
-    if w != BY_LINETYPE and w not in _pd.weight_names():
-        w = BY_LINETYPE
+    if w != BY_LINETYPE:
+        # MW-6: a factory name the table lacks -> its nearest row by mm.
+        w = _pd.live_weight_name(w) or BY_LINETYPE
     if getattr(scene, "block_repeat", None) is not None:
         # LT4-4: inside a linetype unit every stroke is Continuous and a new
         # dash takes the linetype's Weight (the current is not changed).

@@ -28,27 +28,27 @@ def test_primitive_rows_have_no_by_block(qapp):
 def test_weight_row_shows_resolved_by_linetype(qapp):
     pd.set_model_blocks_weight(None)
     ms = Model_Space(scene_role="block_editor")
-    lt = hidden(ms, weight="Medium")
+    lt = hidden(ms, weight="Thinner")
     ln = _line(ms)
     w = ln.get_properties()["Weight"]
-    assert w["options"][0] == "By Linetype (Light)" == w["value"]
+    assert w["options"][0] == "By Linetype (Thinnest)" == w["value"]
     ln.style["linetype"] = lt
     w = ln.get_properties()["Weight"]
-    assert w["options"][0] == "By Linetype (Medium)" == w["value"]
+    assert w["options"][0] == "By Linetype (Thinner)" == w["value"]
 
 
 def test_picking_by_linetype_label_stores_by_linetype(qapp):
     ms = Model_Space(scene_role="block_editor")
     ln = _line(ms)
-    ln.set_property("Weight", "Heavy")
-    assert ln.style["weight"] == "Heavy"
-    ln.set_property("Weight", "By Linetype (Light)")
+    ln.set_property("Weight", "Thin")
+    assert ln.style["weight"] == "Thin"
+    ln.set_property("Weight", "By Linetype (Thinnest)")
     assert ln.style["weight"] == ss.BY_LINETYPE
 
 
 def test_selected_primitive_edit_does_not_move_current(qapp):
     ms = Model_Space(scene_role="block_editor")
-    _line(ms).set_property("Weight", "Heavy")
+    _line(ms).set_property("Weight", "Thin")
     assert ss.current_style()["weight"] == ss.BY_LINETYPE
 
 
@@ -71,9 +71,9 @@ def test_template_pick_sets_current(qapp):
     ms = Model_Space(scene_role="block_editor")
     lt = hidden(ms)
     t = _tmpl(ms)
-    t.set_property("Weight", "Heavy")
+    t.set_property("Weight", "Thin")
     t.set_property("Linetype", "Hidden")
-    assert ss.current_style() == {"linetype": lt, "weight": "Heavy"}
+    assert ss.current_style() == {"linetype": lt, "weight": "Thin"}
     t.set_property("Weight", t.get_properties()["Weight"]["options"][0])
     assert ss.current_style()["weight"] == ss.BY_LINETYPE
 
@@ -105,12 +105,12 @@ def test_template_folder_pick_loads_and_becomes_current(qapp, tmp_path):
 def heavy_hidden(qapp):
     ms = Model_Space(scene_role="block_editor")
     lt = hidden(ms)
-    ss.set_current(linetype=lt, weight="Heavy")
+    ss.set_current(linetype=lt, weight="Thin")
     return ms, lt
 
 
 def _assert_current(item, lt):
-    assert item.style["linetype"] == lt and item.style["weight"] == "Heavy"
+    assert item.style["linetype"] == lt and item.style["weight"] == "Thin"
 
 
 def test_draw_line_takes_current(heavy_hidden):
@@ -170,7 +170,7 @@ def test_arc_and_polygon_take_current(shown_model_view):
     view, ms = shown_model_view
     ms.scene_role = "block_editor"       # containment C1: plan refuses raw drawing
     lt = hidden(ms)
-    ss.set_current(linetype=lt, weight="Heavy")
+    ss.set_current(linetype=lt, weight="Thin")
     ms.set_mode("draw_arc")
     for p in (QPointF(0, 0), QPointF(400, 0), QPointF(0, -400)):
         _press_at(view, p)

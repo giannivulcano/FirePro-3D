@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from .hatch_patterns import BUILTIN_DIAGONAL
+from .constants import MODEL_WEIGHT_PX_MAX
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +260,14 @@ _COL_RESET   = 9
 
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
 _MODEL_BLOCKS_KEY = "Blocks"
+
+# Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
+_MODEL_PX_TIP = (
+    "Canvas width of this weight in screen pixels (model views and the "
+    "Block Editor; paper always prints the mm width). Auto = paper mm x the "
+    "Model line weight scale (System Settings > UI), rounded, at least 1 px. "
+    f"Type a whole number from 1 to {MODEL_WEIGHT_PX_MAX} to override; clear "
+    "the cell or type 'auto' to return to Auto.")
 
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
@@ -1512,7 +1521,8 @@ class DisplayManager(QDialog):
         block linework whose weight is By Linetype on a Continuous line
         (linetypes.md WM-5 fallback). Not a _CATEGORIES entry -- block colours,
         visibility and opacity stay authored / per instance."""
-        from .paper_display import model_blocks_weight, weight_names
+        from .paper_display import (model_blocks_weight, picker_weight_name,
+                                    weight_names)
         parent = None
         for i in range(self._tree.topLevelItemCount()):
             grp = self._tree.topLevelItem(i)
@@ -1528,7 +1538,7 @@ class DisplayManager(QDialog):
                                   "visibility and opacity stay authored)")
         combo = QComboBox()
         combo.addItems(weight_names())
-        combo.setCurrentText(model_blocks_weight())
+        combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         combo.setToolTip("Canvas line weight of block linework whose weight is "
                          "By Linetype on a Continuous line (Thin Lines still "
                          "applies)")
@@ -1550,13 +1560,14 @@ class DisplayManager(QDialog):
         combo = getattr(self, "_model_blocks_combo", None)
         if combo is None:
             return
-        from .paper_display import model_blocks_weight, weight_names
+        from .paper_display import (model_blocks_weight, picker_weight_name,
+                                    weight_names)
         was = self._suppress
         self._suppress = True
         try:
             combo.clear()
             combo.addItems(weight_names())
-            combo.setCurrentText(model_blocks_weight())
+            combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         finally:
             self._suppress = was
 
@@ -1965,22 +1976,23 @@ class DisplayManager(QDialog):
             self._suppress = False
         self._apply_preview()
         # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
-        from .paper_display import MODEL_BLOCKS_FACTORY_WEIGHT
-        self._model_blocks_combo.setCurrentText(MODEL_BLOCKS_FACTORY_WEIGHT)
+        from .paper_display import model_blocks_factory_weight
+        self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
 
     def _reset_paper_space_tab(self):
         """Reset Paper Space tab to B&W factory defaults."""
         from .paper_display import (
-            FACTORY_PAPER_CATEGORIES, save_paper_categories,
+            factory_paper_categories, save_paper_categories,
             PaperColorMode, save_paper_color_mode, _HAS_FILL, _HAS_SECTION,
             _LW_ONLY,
         )
         save_paper_color_mode(PaperColorMode.BW, self._settings)
-        save_paper_categories(FACTORY_PAPER_CATEGORIES, self._settings)
+        cats = factory_paper_categories()
+        save_paper_categories(cats, self._settings)
         self._suppress = True
         self._color_mode_combo.setCurrentIndex(1)  # B&W
         for key, widgets in self._paper_cat_data.items():
-            factory = FACTORY_PAPER_CATEGORIES[key]
+            factory = cats[key]
             if key not in _LW_ONLY:
                 self._update_color_btn(widgets["color_btn"], factory["color"])
                 widgets["color_btn"].setProperty("_color", factory["color"])
@@ -2009,9 +2021,8 @@ class DisplayManager(QDialog):
 
         Never writes the template; "Set as Default" does that.
         """
-        from .paper_display import FACTORY_LINE_WEIGHTS, LineWeightDef
-        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
-                         for d in FACTORY_LINE_WEIGHTS]
+        from .paper_display import FACTORY_LINE_WEIGHTS
+        self._lw_defs = [d.copy() for d in FACTORY_LINE_WEIGHTS]
         self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
@@ -2291,6 +2302,8 @@ class DisplayManager(QDialog):
         # Load data
         cats = load_paper_categories(self._settings)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
+        from .paper_display import factory_paper_categories, picker_weight_name
+        factory_all = factory_paper_categories()
 
         self._paper_cat_data: dict[str, dict] = {}
 
@@ -2388,7 +2401,8 @@ class DisplayManager(QDialog):
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
                 lw_combo.addItems(lw_names)
-                cur_lw = cat.get("line_weight", "Medium")
+                cur_lw = picker_weight_name(cat.get("line_weight")
+                                            or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                 idx = lw_combo.findText(cur_lw)
                 if idx >= 0:
                     lw_combo.setCurrentIndex(idx)
@@ -2599,20 +2613,25 @@ class DisplayManager(QDialog):
 
     def _build_line_weights_tab(self) -> QWidget:
         """Build the Line Weights definition tab."""
-        from .paper_display import project_line_weights, LineWeightDef
+        from .paper_display import project_line_weights
         from PyQt6.QtWidgets import QTableWidget
 
         page = QWidget()
         layout = QVBoxLayout(page)
 
         self._lw_table = QTableWidget()
-        self._lw_table.setColumnCount(2)
-        self._lw_table.setHorizontalHeaderLabels(["Name", "Width (mm)"])
+        self._lw_table.setColumnCount(3)
+        self._lw_table.setHorizontalHeaderLabels(
+            ["Name", "Width (mm)", "Model (px)"])
         self._lw_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._lw_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Fixed)
         self._lw_table.setColumnWidth(1, 120)
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Fixed)
+        self._lw_table.setColumnWidth(2, 120)
+        self._lw_table.horizontalHeaderItem(2).setToolTip(_MODEL_PX_TIP)
         self._lw_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._lw_table.setSelectionMode(
@@ -2620,10 +2639,8 @@ class DisplayManager(QDialog):
 
         # Edits the live PROJECT table (LT1-3); copies so the dialog never
         # mutates project_line_weights()'s result in place.
-        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
-                         for d in project_line_weights()]
-        self._lw_snapshot = [LineWeightDef(d.name, d.width_mm)
-                             for d in self._lw_defs]
+        self._lw_defs = [d.copy() for d in project_line_weights()]
+        self._lw_snapshot = [d.copy() for d in self._lw_defs]
         # (old, new) renames in order -- reject() replays them backwards.
         self._lw_renames: list[tuple[str, str]] = []
         self._lw_edited = False            # set by _commit_lw_defs
@@ -2649,15 +2666,26 @@ class DisplayManager(QDialog):
         return page
 
     def _populate_lw_table(self):
+        from PyQt6.QtWidgets import QTableWidgetItem
+        from .paper_display import auto_model_px
         self._suppress = True
         self._lw_defs.sort(key=lambda d: d.width_mm)
         self._lw_table.setRowCount(len(self._lw_defs))
+        muted = th.detect().color("muted")
         for row, lw in enumerate(self._lw_defs):
-            from PyQt6.QtWidgets import QTableWidgetItem
             name_item = QTableWidgetItem(lw.name)
             width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
             self._lw_table.setItem(row, 0, name_item)
             self._lw_table.setItem(row, 1, width_item)
+            # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
+            if lw.model_px is None:
+                model_item = QTableWidgetItem(
+                    f"Auto ({auto_model_px(lw.width_mm)})")
+                model_item.setForeground(muted)
+            else:
+                model_item = QTableWidgetItem(str(lw.model_px))
+            model_item.setToolTip(_MODEL_PX_TIP)
+            self._lw_table.setItem(row, 2, model_item)
         self._suppress = False
 
     def _weight_refs(self):
@@ -2807,7 +2835,28 @@ class DisplayManager(QDialog):
             self._propagate_lw_rename(old_name, text)
             self._lw_renames.append((old_name, text))
             renamed = (old_name, text)
-        else:  # Width changed
+        elif col == 2:  # Model (px) override (MW-11)
+            from .paper_display import validate_model_px
+            low = text.lower()
+            if low in ("", "auto") or low.startswith("auto ("):
+                new_px = None
+            else:
+                # ASCII digits only: int() would also take "1_0", "+5" or
+                # non-ASCII digits.
+                new_px = (int(text) if text.isascii() and text.isdigit()
+                          else None)
+                if new_px is None or not validate_model_px(new_px):
+                    # Non-modal refusal at the edited cell, then restore it.
+                    self._show_lw_refusal(row, (
+                        "Model width must be a whole number of pixels from "
+                        f"1 to {MODEL_WEIGHT_PX_MAX}, or Auto"), col=2)
+                    self._populate_lw_table()
+                    return
+            if new_px == old_def.model_px:
+                self._populate_lw_table()     # normalise the cell text
+                return
+            old_def.model_px = new_px
+        elif col == 1:  # Width changed
             try:
                 new_width = float(text)
             except ValueError:
@@ -2831,11 +2880,12 @@ class DisplayManager(QDialog):
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
-    def _show_lw_refusal(self, row: int, text: str) -> None:
-        """Non-modal tooltip at the Name cell of *row* (headless-safe)."""
+    def _show_lw_refusal(self, row: int, text: str, col: int = 0) -> None:
+        """Non-modal tooltip at cell (*row*, *col*) -- the Name cell by
+        default (headless-safe)."""
         from PyQt6.QtWidgets import QToolTip
         tbl = self._lw_table
-        item = tbl.item(row, 0)
+        item = tbl.item(row, col)
         rect = tbl.visualItemRect(item) if item is not None else tbl.rect()
         pos = tbl.viewport().mapToGlobal(rect.bottomLeft())
         QToolTip.showText(pos, text, tbl.viewport(), rect)
@@ -2886,9 +2936,11 @@ class DisplayManager(QDialog):
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
-        from .paper_display import weight_names, load_paper_categories
+        from .paper_display import (weight_names, load_paper_categories,
+                                    picker_weight_name, factory_paper_categories)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
+        factory_all = factory_paper_categories()
         self._suppress = True
         for key, widgets in self._paper_cat_data.items():
             combo = widgets["lw_combo"]
@@ -2899,7 +2951,9 @@ class DisplayManager(QDialog):
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             else:
-                cat_lw = cats[key].get("line_weight", "Medium")
+                cat_lw = picker_weight_name(
+                    cats[key].get("line_weight")
+                    or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                 idx = combo.findText(cat_lw)
                 combo.setCurrentIndex(max(0, idx))
         self._suppress = False

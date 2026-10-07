@@ -24,13 +24,13 @@ def _weight_rows(scene, rows_ok: bool) -> dict:
     from . import paper_display as pd
     from . import stroke_style as ss
     from .linetype_authoring import axis_items, pattern_weight
-    by_cat = f"By Category ({pd.model_blocks_weight()})"
+    by_cat = f"By Category ({pd.picker_weight_name(pd.model_blocks_weight())})"
     w = pattern_weight(scene)
     has_dash = any(r[0] == "dash" for _, r in axis_items(scene))
     if w is None:
         value = "< mixed >" if has_dash else by_cat
     else:
-        value = by_cat if w == ss.BY_LINETYPE else w
+        value = by_cat if w == ss.BY_LINETYPE else pd.picker_weight_name(w)
     options = [by_cat, *pd.weight_names()]
     if value not in options:
         options = [value] + options

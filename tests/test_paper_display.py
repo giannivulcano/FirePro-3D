@@ -10,7 +10,7 @@ from firepro3d.paper_display import (
     LineWeightDef,
     PaperColorMode,
     FACTORY_LINE_WEIGHTS,
-    FACTORY_PAPER_CATEGORIES,
+    factory_paper_categories,
     load_line_weights,
     save_line_weights,
     load_paper_categories,
@@ -44,11 +44,11 @@ class TestLineWeightDefs:
 
     def test_factory_names(self):
         names = [lw.name for lw in FACTORY_LINE_WEIGHTS]
-        assert names == ["Very Light", "Light", "Medium", "Heavy", "Very Heavy"]
+        assert names == ["Thinnest", "Thinner", "Thin", "Thick", "Thickest"]   # MW-4
 
     def test_factory_widths(self):
         widths = [lw.width_mm for lw in FACTORY_LINE_WEIGHTS]
-        assert widths == [0.13, 0.18, 0.25, 0.35, 0.50]
+        assert widths == [0.18, 0.25, 0.35, 0.50, 0.70]   # MW-4
 
     def test_sorted_ascending(self):
         widths = [lw.width_mm for lw in FACTORY_LINE_WEIGHTS]
@@ -67,7 +67,7 @@ class TestLineWeightDefs:
     def test_load_returns_factory_when_no_settings(self):
         loaded = load_line_weights()
         assert len(loaded) == 5
-        assert loaded[0].name == "Very Light"
+        assert loaded[0].name == "Thinnest"          # MW-4 factory
 
 
 class TestPaperColorMode:
@@ -93,52 +93,53 @@ class TestPaperCategories:
         # + the paper-only Hatch pattern-line weight (hatch D-A31)
         # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6)
         # + Door / Window / Opening (2026-10-04 opening split).
-        cats = FACTORY_PAPER_CATEGORIES
+        cats = factory_paper_categories()
         assert len(cats) == 20
 
     def test_factory_opening_categories_light(self):
         for k in ("Door", "Window", "Opening"):
-            c = FACTORY_PAPER_CATEGORIES[k]
-            assert c["line_weight"] == "Light" and c["color"] == "#000000"
+            c = factory_paper_categories()[k]
+            # MW-5: 0.18 mm -> the new factory's Thinnest (was "Light")
+            assert c["line_weight"] == "Thinnest" and c["color"] == "#000000"
             assert c["fill"] is None and c["visible"] is True
 
     def test_factory_blocks_category_light_no_fill(self):
-        """Blocks: paper-only, factory Light, no fill / section (LT1-2, H6)."""
-        c = FACTORY_PAPER_CATEGORIES["Blocks"]
-        assert c["line_weight"] == "Light"
+        """Blocks: paper-only, factory 0.18 mm, no fill / section (LT1-2, H6)."""
+        c = factory_paper_categories()["Blocks"]
+        assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
         assert c["fill"] is None
         assert c["section_color"] is None
         assert c["color"] == "#000000"
         assert c["visible"] is True and c["opacity"] == 100
 
     def test_factory_hatch_category_is_very_light(self):
-        assert FACTORY_PAPER_CATEGORIES["Hatch"]["line_weight"] == "Very Light"
+        assert factory_paper_categories()["Hatch"]["line_weight"] == "Thinnest"   # MW-5: 0.13 -> nearest 0.18
 
     def test_factory_construction_pen_only(self):
         """Construction is a paper-only, pen-only category (color #000000, no fill)."""
-        c = FACTORY_PAPER_CATEGORIES["Construction"]
+        c = factory_paper_categories()["Construction"]
         assert c["color"] == "#000000"
         assert c["fill"] is None
         assert c["section_color"] is None
-        assert c["line_weight"] == "Light"
+        assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
         assert c["visible"] is True
 
     def test_factory_bw_colors(self):
         """Factory default is B&W -- all colors black, fills white."""
-        for key, vals in FACTORY_PAPER_CATEGORIES.items():
+        for key, vals in factory_paper_categories().items():
             assert vals["color"] == "#000000", f"{key} color"
             if vals["fill"] is not None:
                 assert vals["fill"] == "#ffffff", f"{key} fill"
 
     def test_factory_wall_heavy(self):
-        assert FACTORY_PAPER_CATEGORIES["Wall"]["line_weight"] == "Heavy"
+        assert factory_paper_categories()["Wall"]["line_weight"] == "Thin"      # MW-5: 0.35 mm
 
     def test_factory_pipe_medium(self):
-        assert FACTORY_PAPER_CATEGORIES["Pipe"]["line_weight"] == "Medium"
+        assert factory_paper_categories()["Pipe"]["line_weight"] == "Thinner"   # MW-5: 0.25 mm
 
     def test_factory_grid_medium(self):
         # Grid Line factory weight upgraded to Medium (Task 2: bubble-label true-scale)
-        assert FACTORY_PAPER_CATEGORIES["Grid Line"]["line_weight"] == "Medium"
+        assert factory_paper_categories()["Grid Line"]["line_weight"] == "Thinner"   # MW-5: 0.25 mm
 
     def test_round_trip_qsettings(self):
         cats = load_paper_categories()
@@ -149,7 +150,7 @@ class TestPaperCategories:
 
     def test_load_returns_factory_when_no_settings(self):
         loaded = load_paper_categories()
-        assert loaded["Pipe"]["line_weight"] == "Medium"
+        assert loaded["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
 
 class TestProjectPersistence:
@@ -181,7 +182,7 @@ class TestProjectPersistence:
     def test_apply_from_project_missing_key_uses_factory(self):
         apply_paper_display_from_project({})
         cats = load_paper_categories()
-        assert cats["Pipe"]["line_weight"] == "Medium"
+        assert cats["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
 
 class TestProjectFilePersistence:
@@ -200,7 +201,7 @@ class TestProjectFilePersistence:
         apply_paper_display_from_project({})
         assert load_paper_color_mode() == PaperColorMode.BW
         cats = load_paper_categories()
-        assert cats["Pipe"]["line_weight"] == "Medium"
+        assert cats["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
     def test_backward_compat_no_paper_display_key(self):
         """Simulates loading a project file that predates paper_display."""
@@ -358,7 +359,7 @@ class TestRoomLabelPaperHeight:
         return scene, room
 
     def test_room_category_has_label_height(self):
-        assert FACTORY_PAPER_CATEGORIES["Room"].get("label_height_mm") == 2.5
+        assert factory_paper_categories()["Room"].get("label_height_mm") == 2.5
 
     def test_label_font_scaled_to_paper_then_restored(self, scene_with_room):
         scene, room = scene_with_room
@@ -395,7 +396,7 @@ class TestRoomLabelPaperHeight:
         save_paper_color_mode(PaperColorMode.BW)
         saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
                                       paper_scale=0.01)
-        assert room._label_font_color == FACTORY_PAPER_CATEGORIES["Room"]["color"]
+        assert room._label_font_color == factory_paper_categories()["Room"]["color"]
         assert str(room._label_font_color).lstrip("#").lower() == "000000"
         restore_model_display(saved)
         assert room._label_font_color == "#ffffff", "model label colour not restored"
@@ -526,7 +527,7 @@ class TestProjectRoundTrip:
         saved_data = get_paper_display_for_save()
 
         save_paper_color_mode(PaperColorMode.BW)
-        save_paper_categories(FACTORY_PAPER_CATEGORIES)
+        save_paper_categories(factory_paper_categories())
 
         apply_paper_display_from_project(saved_data)
         assert load_paper_color_mode() == PaperColorMode.CUSTOM

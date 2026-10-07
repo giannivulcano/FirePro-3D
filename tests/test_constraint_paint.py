@@ -513,16 +513,27 @@ def test_tinted_reference_line_keeps_its_dashes(be, themed):
     a, b = v.mapFromScene(QPointF(-290, -150)), v.mapFromScene(QPointF(-10, -150))
     bp = v.mapFromScene(QPointF(-150, -250))
     free, bg = t.color("constraint_free"), _px(img, dpr, bp.x(), bp.y())
-    on = gaps = 0
+    # MW-12 (H-MW-g retires CONSTRAINT_TINT_EXTRA_PX): the tint is the item
+    # drawn in its state colour at its own width + AA, so an unsplit 1 px
+    # reference line on a pixel boundary paints two part-intensity rows.
+    # "Tinted" = every lit pixel a pure tint / background blend (no original
+    # colour shows through), not a full-intensity match.
+    from tests.mw_support import blend_spread
+    on = gaps = other = 0
     for x in range(a.x(), b.x()):
-        col = _Near([_px(img, dpr, x, a.y() + dy) for dy in (-1, 0, 1)])
-        if _dist(col, free) <= 60:
-            on += 1
-        elif _dist(col, bg) <= 30:
+        lit = [c for c in (_px(img, dpr, x, a.y() + dy) for dy in (-1, 0, 1))
+               if _dist(c, bg) > 30]
+        if not lit:
             gaps += 1
+        elif all(sp is not None and sp <= 0.12
+                 for sp in (blend_spread(c, bg, free) for c in lit)):
+            on += 1
+        else:
+            other += 1
     span = b.x() - a.x()
     assert on > 0.3 * span, (on, span)          # tinted
     assert gaps > 0.15 * span, (gaps, span)     # still dashed
+    assert other == 0, (other, span)            # no original colour
 
 
 # ── CS3: point-on-curve glyph + glow ─────────────────────────────────────────

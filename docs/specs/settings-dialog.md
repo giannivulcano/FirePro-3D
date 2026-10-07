@@ -1,7 +1,7 @@
 ---
 status: current          # built + code-verified 2026-09-14 (branch feat/settings-dialog)
-last-verified: 2026-10-05  # LT3 Account: §4.5b Linetypes row (paths/linetype_dir) verified against GeneralPane + app_data.linetypes_dir; prior 2026-10-03 HF2 Account: §4.5b Hatch patterns row (paths/hatch_dir) + paths/hatch_seeded + post-apply seeding; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-24
-verified-commit: be7c88a   # LT3 Account (§4.5b Linetypes row); prior 53e1773 HF2 Account (§4.5b hatch rows); prior d34aeb0 batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-10-07  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-05 LT3 Account: §4.5b Linetypes row (paths/linetype_dir) verified against GeneralPane + app_data.linetypes_dir; prior 2026-10-03 HF2 Account: §4.5b Hatch patterns row (paths/hatch_dir) + paths/hatch_seeded + post-apply seeding; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-24
+verified-commit: 736cf5e3  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior be7c88a LT3 Account (§4.5b Linetypes row); prior 53e1773 HF2 Account (§4.5b hatch rows); prior d34aeb0 batch A dead-code sweep; prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 applies-to:
   - firepro3d/settings/panes.py                    # new (this spec) — SettingsPane base + 6 panes
   - firepro3d/settings/project_settings_dialog.py  # new (this spec)
@@ -122,7 +122,7 @@ Each dialog = `HouseDialog` whose `body_layout()` holds **`SideTabs` rail + `QSt
 
 ## 6. Acceptance Criteria
 
-1. **Structure.** Two dialogs open from two Manage→Settings ribbon buttons. Project Settings rail = [Project Info, Units & Precision]; System Settings rail = [General, UX, UI, Import]; UX SwitchBar = [SNAP, ALIGN, HALO]. Both are `HouseDialog` subclasses, token-clean, hexguard-listed.
+1. **Structure.** Two dialogs open from two Manage→Settings ribbon buttons. Project Settings rail = [Project Info, Units & Precision]; System Settings rail = [General, UX, UI, Import]; UX SwitchBar = [SNAP, ALIGN, HALO]. Both are `HouseDialog` subclasses, token-clean, hexguard-listed. *(BUILT 2026-10-07, `feat/mw-model-weights`: the UI pane gains "Model line weight scale" — owned by `linetypes.md` "MW" MW-11 / H-MW-h.)*
 2. **Units round-trip.** Setting units in Project Settings → project Save → reload restores those units (observable via the loaded project's `scale_manager` / a formatted length).
 3. **Legacy `.fpd`.** A `.fpd` with no units key loads without error and falls back to the template/factory default.
 4. **Template.** First run auto-creates `default.fpdt`; startup opens a clone; New Project clones it (blank geometry, template's default units, **untitled + not-dirty**); "Save as default" writes settings into the template and the *next* New Project reflects them; a corrupt template regenerates without crashing.

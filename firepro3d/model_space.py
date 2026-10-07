@@ -95,14 +95,14 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
 
     No effective weight -> exactly UNDERLAY_LINE_WIDTH_PX (today's look).
-    Named weight -> ``paper_display.canvas_weight_px`` (mm x hint, fast-path
-    snap, Thin Lines -> 1 px), still cosmetic.
+    Named weight -> ``paper_display.canvas_px_for_weight`` (row Model px or
+    Auto (MW-8), Thin Lines -> 1 px), still cosmetic.
     """
     colour = QColor(record.effective_layer_colour(layer))
     weight_name = record.effective_layer_weight(layer)
     if weight_name:
-        from .paper_display import resolve_line_weight_mm, canvas_weight_px
-        width_px = canvas_weight_px(resolve_line_weight_mm(weight_name))
+        from .paper_display import canvas_px_for_weight
+        width_px = canvas_px_for_weight(weight_name)
     else:
         width_px = UNDERLAY_LINE_WIDTH_PX
     pen = QPen(colour, width_px)
@@ -118,8 +118,8 @@ def _thin() -> bool:
 def _pdf_width_to_px(pt_width: float) -> float:
     """PDF stroke width (points) -> cosmetic px, floored at the default width.
 
-    Uses ``paper_display.canvas_weight_px`` (mm x hint, fast-path snap, Thin
-    Lines -> 1 px). Preserves the source line-width *hierarchy* while keeping
+    Uses ``paper_display.canvas_weight_px`` (the MW-8 Auto rule: whole px of
+    mm x factor, min 1; Thin Lines -> 1 px). Preserves the source line-width *hierarchy* while keeping
     thin lines at least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
     """
     if pt_width <= 0.0:
@@ -2066,7 +2066,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         (project wins -- linetypes.md LT1-4)."""
         from . import block_library
         from .paper_display import merge_project_line_weights
-        added = merge_project_line_weights(block_library.read_bundled_weights(path))
+        added = merge_project_line_weights(
+            block_library.read_bundled_weights(path),
+            block_library.read_bundled_weight_model_px(path))
         if added:
             # Weights live outside undo, but they travel with the project: a
             # merge that added names must dirty it (no undo state pushed).

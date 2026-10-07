@@ -36,52 +36,52 @@ def test_migrate_legacy_primitive_has_no_by_block():
 
 
 def test_named_weight_survives_normalize():
-    assert ss.normalize_style({"weight": "Heavy"})["weight"] == "Heavy"
+    assert ss.normalize_style({"weight": "Thin"})["weight"] == "Thin"
 
 
 def test_weight_label_continuous_falls_back_to_model_blocks(qapp):
-    pd.set_model_blocks_weight(None)               # factory Light
+    pd.set_model_blocks_weight(None)               # factory 0.18 mm -> Thinnest (MW-5)
     try:
         assert ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, None) == \
-            "By Linetype (Light)"
-        pd.set_model_blocks_weight("Heavy")
+            "By Linetype (Thinnest)"
+        pd.set_model_blocks_weight("Thin")
         assert ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, None) == \
-            "By Linetype (Heavy)"
+            "By Linetype (Thin)"
     finally:
         pd.set_model_blocks_weight(None)
 
 
 def test_weight_label_uses_dash_weight(qapp):
     ms = Model_Space()
-    lt = hidden(ms, weight="Medium")
+    lt = hidden(ms, weight="Thinner")
     assert ss.weight_label(ss.BY_LINETYPE, lt, ms.block_registry) == \
-        "By Linetype (Medium)"
-    assert ss.weight_label("Heavy", lt, ms.block_registry) == "Heavy"
+        "By Linetype (Thinner)"
+    assert ss.weight_label("Thin", lt, ms.block_registry) == "Thin"
 
 
 def test_weight_from_label_round_trip():
-    assert ss.weight_from_label("By Linetype (Light)") == ss.BY_LINETYPE
+    assert ss.weight_from_label("By Linetype (Thinnest)") == ss.BY_LINETYPE
     assert ss.weight_from_label("By Linetype") == ss.BY_LINETYPE
-    assert ss.weight_from_label("Heavy") == "Heavy"
+    assert ss.weight_from_label("Thin") == "Thin"
 
 
 def test_current_factory_and_set_reset():
     assert ss.current_style() == {"linetype": ss.CONTINUOUS,
                                   "weight": ss.BY_LINETYPE}
-    ss.set_current(weight="Heavy")
+    ss.set_current(weight="Thin")
     ss.set_current(linetype="abc")
-    assert ss.current_style() == {"linetype": "abc", "weight": "Heavy"}
+    assert ss.current_style() == {"linetype": "abc", "weight": "Thin"}
     ss.reset_current()
     assert ss.current_style()["weight"] == ss.BY_LINETYPE
 
 
 def test_current_settings_round_trip():
     s = QSettings("GV", "FirePro3D")
-    ss.set_current(linetype="abc", weight="Heavy")
+    ss.set_current(linetype="abc", weight="Thin")
     ss.current_to_settings(s)
     ss.reset_current()
     ss.current_from_settings(s)
-    assert ss.current_style() == {"linetype": "abc", "weight": "Heavy"}
+    assert ss.current_style() == {"linetype": "abc", "weight": "Thin"}
 
 
 def test_current_from_settings_drops_unknown_weight_and_by_block():
@@ -96,18 +96,18 @@ def test_current_from_settings_drops_unknown_weight_and_by_block():
 def test_apply_current_resolvable_linetype(qapp):
     ms = Model_Space()
     lt = hidden(ms)
-    ss.set_current(linetype=lt, weight="Heavy")
+    ss.set_current(linetype=lt, weight="Thin")
     ln = LineItem(QPointF(0, 0), QPointF(10, 0))
     ss.apply_current(ln, ms)
-    assert ln.style["linetype"] == lt and ln.style["weight"] == "Heavy"
+    assert ln.style["linetype"] == lt and ln.style["weight"] == "Thin"
 
 
 def test_apply_current_unresolvable_linetype_is_continuous(qapp):
-    ss.set_current(linetype="not-in-this-project", weight="Heavy")
+    ss.set_current(linetype="not-in-this-project", weight="Thin")
     ln = LineItem(QPointF(0, 0), QPointF(10, 0))
     ss.apply_current(ln, Model_Space())
     assert ln.style["linetype"] == ss.CONTINUOUS
-    assert ln.style["weight"] == "Heavy"
+    assert ln.style["weight"] == "Thin"
 
 
 def test_apply_current_unknown_weight_is_by_linetype(qapp):

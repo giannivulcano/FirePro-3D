@@ -52,14 +52,14 @@ def test_a5_round_trip(qapp, tmp_path, monkeypatch):
     # ── author: Dash 6 / Gap 2 / Dot / Gap 2, Heavy ─────────────────────────
     assert la.apply_pattern_rows(
         sc, [("dash", 6.0), ("gap", 2.0), ("dot", 0.0), ("gap", 2.0)]) is True
-    la.set_pattern_weight(sc, "Heavy")
-    assert la.pattern_weight(sc) == "Heavy"
+    la.set_pattern_weight(sc, "Thin")
+    assert la.pattern_weight(sc) == "Thin"
 
     # ── undo / redo ─────────────────────────────────────────────────────────
     sc.undo()
-    assert la.pattern_weight(sc) != "Heavy"                 # undo really undid
+    assert la.pattern_weight(sc) != "Thin"                 # undo really undid
     sc.redo()
-    assert la.pattern_weight(sc) == "Heavy"
+    assert la.pattern_weight(sc) == "Thin"
     assert la.current_rows(sc) == [("dash", 6.0), ("gap", 2.0),
                                    ("dot", 0.0), ("gap", 2.0)]
     assert sc.block_repeat == {"length": 10.0, "size": "drafting",
@@ -69,7 +69,7 @@ def test_a5_round_trip(qapp, tmp_path, monkeypatch):
     d = w.save()
     assert d is not None and proj.get_block_definition(d.id) is d
     assert d.repeat == {"length": 10.0, "size": "drafting", "screen": "fixed"}
-    assert _reading(d) == (10.0, ((0.0, 6.0),), (8.0,), "Heavy", "drafting")
+    assert _reading(d) == (10.0, ((0.0, 6.0),), (8.0,), "Thin", "drafting")
 
     # ── Save again (edit in place): a longer gap + Model size ───────────────
     assert la.apply_pattern_rows(
@@ -78,7 +78,7 @@ def test_a5_round_trip(qapp, tmp_path, monkeypatch):
     d_again = w.save()
     assert d_again is d                                     # same definition
     assert d.repeat == {"length": 12.0, "size": "model", "screen": "fixed"}
-    assert _reading(d) == (12.0, ((0.0, 6.0),), (8.0,), "Heavy", "model")
+    assert _reading(d) == (12.0, ((0.0, 6.0),), (8.0,), "Thin", "model")
 
     # ── use it on a line in another block ───────────────────────────────────
     ln = LineItem(QPointF(0, 0), QPointF(50, 0))
@@ -95,7 +95,7 @@ def test_a5_round_trip(qapp, tmp_path, monkeypatch):
     proj2.load_from_file(str(path))
     d2 = proj2.get_block_definition(d.id)
     assert d2 is not None and d2.repeat == d.repeat
-    assert _reading(d2) == (12.0, ((0.0, 6.0),), (8.0,), "Heavy", "model")
+    assert _reading(d2) == (12.0, ((0.0, 6.0),), (8.0,), "Thin", "model")
     assert (proj2.get_block_definition(host.id).primitives[0]["style"]["linetype"]
             == d.id)
     assert proj2.block_registry.users_of(d.id) == {host.id}
@@ -117,11 +117,11 @@ def test_a5_round_trip(qapp, tmp_path, monkeypatch):
     with open(fpdb, encoding="utf-8") as fh:
         rec = json.load(fh)
     assert rec["bundled"][d.id]["repeat"] == d.repeat
-    assert "Heavy" in rec.get("weights", {})
+    assert "Thin" in rec.get("weights", {})
     fresh = Model_Space()
     fresh.load_blocks_from_files([fpdb])
     d3 = fresh.get_block_definition(d.id)
     assert d3 is not None and d3.repeat == d.repeat
     assert d3.repeat["screen"] == "fixed"          # G-LTS6: .fpdb carries it
-    assert _reading(d3) == (12.0, ((0.0, 6.0),), (8.0,), "Heavy", "model")
+    assert _reading(d3) == (12.0, ((0.0, 6.0),), (8.0,), "Thin", "model")
     assert fresh.block_registry.users_of(d.id) == {host.id}

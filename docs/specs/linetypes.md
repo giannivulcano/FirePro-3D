@@ -1,8 +1,10 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7)
-last-verified: 2026-10-06  # LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 0b8bf68   # LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
-applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built)
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+last-verified: 2026-10-07  # MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 736cf5e3   # MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
+  - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
+  - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
   - firepro3d/repeat_frame.py        # LT4 — RepeatFrame (repeat unit frame, Length grip, preview ring); shared frame base capability_frame.py is owned by hatch-and-fill.md
   - firepro3d/linetype_pattern.py    # LT4 — pure rows ⇄ reading (rows_from_reading, spans, content_end / axis_end, validate_rows, SEED_ROWS)
   - firepro3d/linetype_authoring.py  # LT4 — live rows ⇄ axis Lines (apply_pattern_rows), Weight row, Repeat field edits, begin_linetype, pre_capture hook, preview_painter; LTS — On screen field, Fixed seed
@@ -173,7 +175,9 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   it uses; on import the project wins and missing names are added.
 - **D-L14 Canvas.** Each named weight maps to a constant screen width (the
   existing mm→px underlay hint); a **Thin Lines** toggle draws all 1 px;
-  paper/PDF are true mm.
+  paper/PDF are true mm. *(Amended 2026-10-06 by "MW" MW-2/MW-3/MW-7: a
+  System factor (factory 8) × mm, rounded to whole px, per-row Model
+  overrides, crisp H/V strokes.)*
 - **D-L16 Import** (follow-ups): DXF LTYPE → project linetype blocks + DXF
   lineweight → nearest named weight; PDF dash arrays/caps → linetypes on Block
   Editor import, underlays draw dashes as authored.
@@ -381,7 +385,9 @@ round-trip; G5 no "By Block" UI string). Contract-retired + rewritten:
 - **LT1-7 One canvas mapping** (D-L14): px = mm × `UNDERLAY_MM_TO_PX_HINT`;
   ≤ 1.25 px snaps to ≤ 1.0 (the underlay fast path). It serves underlay
   layers, PDF-underlay widths and text borders; the bespoke text-border px
-  table is retired.
+  table is retired. *(Superseded 2026-10-06 by "MW" MW-3 / H-MW-c: Auto =
+  round-half-up(mm × the System factor), min 1; a row's Model override wins;
+  the 1.25 px snap is retired.)*
 - **LT1-8 Thin Lines** (D-L14): a **global** view-display toggle (the spec's
   "view-level" means a view display toggle, not per-tab state) on the footer
   rail. It applies to every model and Block Editor view, never paper/PDF;
@@ -508,7 +514,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
 - **LT2-4 Canvas** (D-L14, D-L17). Top-level By Block (and, in LT2, By
   Linetype — Continuous has no weight) → the Display Manager **Model "Blocks"**
   weight (factory **Light** → exactly 1.0 px); a named weight → its own
-  `canvas_weight_px`. Same rule on the plan canvas (compiled block ops) and the
+  `canvas_weight_px`. *(Amended 2026-10-06 by "MW" H-MW-c/H-MW-e: a named
+  weight → `canvas_px_for_weight`; the Model "Blocks" factory is 0.18 mm by
+  nearest row.)* Same rule on the plan canvas (compiled block ops) and the
   Block Editor (raw items). Thin Lines applies to both. Strokes stay solid
   until LT3.
 - **LT2-5 Paper.** By Block ops plot at the paper "Blocks" weight (LT1-2,
@@ -593,7 +601,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   "Annotation & Geometry", a Line Weight column (`_COL_LW`, reset column moves
   to `_COL_RESET` 9) editable only there, tooltip'd. The live value is cached
   as `paper_display.model_blocks_weight()` (factory
-  `MODEL_BLOCKS_FACTORY_WEIGHT` "Light"), stored **canonical** (a raw escape
+  `MODEL_BLOCKS_FACTORY_WEIGHT` "Light" — *superseded 2026-10-06 by "MW"
+  MW-5: `model_blocks_factory_weight()`, the live row nearest 0.18 mm*),
+  stored **canonical** (a raw escape
   `canonical=False` exists only for the Cancel replay), persisted as
   `display_settings["Blocks"]` + QSettings `display/Blocks/line_weight`
   (`default_line_weight` for Set as Default). Precedence: Open = user default →
@@ -1331,7 +1341,9 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   it paints 2D geometry, a follow-up today). **Sheet viewports on screen and
   PDF/print stay true paper mm** (the sheet is the WYSIWYG print preview).
 - **LTS-3 Size on screen** (Q4). On-screen length = printed mm ×
-  `UNDERLAY_MM_TO_PX_HINT` (the D-L14 weight mapping, 6 px/mm). Drafting:
+  `UNDERLAY_MM_TO_PX_HINT` (the D-L14 weight mapping, 6 px/mm; *since "MW"
+  MW-10 its own `FIXED_LINETYPE_PX_PER_MM` 6.0, decoupled from the weight
+  factor*). Drafting:
   the authored printed mm; Model: real mm ÷ the project drawing scale (its
   printed size). E.g. Dash 6 · Gap 3 = 36 px + 18 px at any zoom, in the same
   proportion to the weight as on paper.
@@ -1399,7 +1411,8 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   paper_scale, role)`** = Fixed **and** no paper scale **and** role in
   (`plan`, `block_editor`) **and** not `paper_pass_active()` — the LTS-2
   scope test; its Fixed branch returns printed mm ×
-  `UNDERLAY_MM_TO_PX_HINT` ÷ the paint's device scale (Model: ÷ the drawing
+  `UNDERLAY_MM_TO_PX_HINT` (*now `FIXED_LINETYPE_PX_PER_MM`, "MW" H-MW-d*)
+  ÷ the paint's device scale (Model: ÷ the drawing
   scale first).
 - **H-LTS-c Paint.** Raw primitives pass `hatch_render._device_scale(painter)`
   (under `lt_frame`) and `fixed=` to `paint_stroke`. `BlockInstance.paint`
@@ -1472,6 +1485,274 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
 `tests/test_lt4_toggle.py` (two seed asserts),
 `tests/test_lt4_roundtrip.py` (seeded dicts),
 `tests/test_lt4_panel.py::test_rows_for_a_linetype` (roster gains On screen).
+
+## MW — Model weights, crisp strokes, exact constraint tint (ratified 2026-10-06; BUILT 2026-10-07)
+
+> **BUILT 2026-10-07** on `feat/mw-model-weights` (base `8c3e3577`, verified
+> `736cf5e3`; user smoke passed). The as-built refinements, each ratified or
+> accepted in-run, are recorded under "MW — as built" below; where they differ
+> from H-MW-a–h, the as-built note wins.
+>
+> Consolidating contract for todo L561 (Model / Paper values per named
+> weight) + L523 (D39 tint 1 px heavier, hides linetype gaps). The *what*
+> (MW-1–MW-13) was settled in the 2026-10-06 Phase-2 grill (Q1–Q20); the *how*
+> (H-MW-a–H-MW-h) was approved section by section the same day. **Amends**
+> D-L14 / LT1-7 (the canvas mapping), LT1-8 (Thin Lines width), LT2-4 (canvas
+> px source) and `parametric-constraint-system.md` D39 (tint mechanism). P4
+> probe (2026-10-06, Qt 6, dpr 1.0, cosmetic FlatCap pens): **aliased** H
+> strokes of width N = exactly N full-intensity rows at any device y (N = 1–6);
+> **anti-aliased** ones only when snapped (odd N on a pixel centre, even N on
+> a boundary), else two partial rows; no geometry / block / text item sets a
+> `cacheMode`; canvas views never rotate. Repro at `8c3e3577`: a 1 px line on
+> a pixel boundary paints two 142 rows, on a centre one 255 row; the D39 tint
+> paints both as about 2 px of `constraint_free`; a free 30/15 linetyped line
+> (Scale and Fixed) tints 280/280 px with 0 gap px.
+
+### What (grill Q1–Q20)
+
+- **MW-1 Purpose** (Q1). Canvas weights are **distinct and legible**: each
+  factory weight reads visibly different on screen and heavier reads heavier.
+  Paper / PDF stay the print truth (true mm, unchanged); the canvas is not a
+  print preview.
+- **MW-2 Model width** (Q2, Q4). One **factor** (px per paper mm) is a
+  **System** setting (per-user QSettings, like Thin Lines) — a viewing
+  preference that never affects output. Each project weight row carries an
+  optional whole-px **Model override**; no override = **Auto**. Overrides are
+  project data: they travel with the weight table (`.fpd`, QSettings template,
+  `.fpdb`; the project wins a merge, LT1-4). A new custom row is Auto.
+- **MW-3 Unit** (Q3, Q11). Logical screen px, zoom-constant (cosmetic).
+  Auto = round-half-up(mm × factor), minimum 1 px. Overrides are whole px
+  1–20. Factory factor **8** → the factory weights draw 1 / 2 / 3 / 4 / 6 px.
+  Distinctness is guaranteed for the factory table at the factory factor
+  only; other tables / factors may collide and the Model column shows it.
+- **MW-4 Factory table** (Q5, Q6). **Thinnest 0.18 / Thinner 0.25 / Thin 0.35
+  / Thick 0.50 / Thickest 0.70 mm** (user standard, 2026-10-04) replaces Very
+  Light 0.13 / Light 0.18 / Medium 0.25 / Heavy 0.35 / Very Heavy 0.50.
+  Existing projects are **untouched** (their table loads as saved, every
+  Model cell Auto; paper output identical). A QSettings template equal to the
+  **old** factory is replaced by the new one; a customised template is kept
+  (adopt the standard with the Line Weights tab's Reset + Set as Default).
+- **MW-5 Built-in defaults by mm** (Q7, Q8). Every built-in weight default
+  (paper category factory weights, the Model "Blocks" weight, the text
+  border) states an intended paper mm — **today's printed mm** (e.g. Wall
+  0.35, Pipe 0.25, Room / Hatch 0.13, Model Blocks 0.18, text border 0.25) —
+  and resolves to the project row with that mm, else the nearest (names never
+  matter). In the new factory table the 0.13 defaults land on Thinnest 0.18.
+- **MW-6 Missing names** (Q9). A stored reference to a name the project table
+  lacks: a **factory name — old or new set** (user, 2026-10-06 plan probe:
+  Paper-tab categories are stored by name in global QSettings, so names must
+  survive both directions) — resolves via its factory mm to the nearest row;
+  any other unknown name keeps the 0.25 mm fallback. Names present in the
+  table (or LT2 aliases) are untouched. The same rule covers the saved /
+  applied ribbon **current** weight (WM-10; user, 2026-10-06 Group A fix
+  round): a factory name maps to the nearest row's name, any other unknown
+  name → By Linetype (`paper_display.live_weight_name`).
+- **MW-7 Crisp strokes** (Q10, Q20). A horizontal / vertical **weight-mapped**
+  stroke of N px renders as exactly N full-intensity rows / columns at any
+  coordinate or zoom; diagonals and curves stay anti-aliased. Scope: 2D
+  primitives (continuous and linetyped), block stroke ops, text borders,
+  underlays. System items with their own fixed px (pipes, walls, gridlines,
+  overlays) are a filed follow-up.
+- **MW-8 Underlays** (Q12). Named-weight layers use their row's Model px; raw
+  PDF stroke widths use the Auto rule (round(mm × factor), min 1); unweighted
+  layers stay 1 px.
+- **MW-9 Thin Lines** (Q14). Every weight-mapped canvas stroke draws 1 px,
+  crisp (MW-7); never paper / PDF (LT1-8 unchanged otherwise).
+- **MW-10 Fixed linetypes** (Q15). Fixed on-screen dash lengths keep
+  printed mm × 6 px/mm (LTS-3), **decoupled** from the weight factor.
+- **MW-11 UI** (Q16, Q17). Display Manager Line Weights tab gains a
+  **"Model (px)"** column: Auto rows show muted "Auto (n)"; a typed whole
+  number 1–20 overrides; an empty cell or "auto" returns to Auto; other input
+  is refused with the tab's non-modal cell tooltip; tooltips on header and
+  cells. System Settings › UI gains **"Model line weight scale"** (1.0–20.0,
+  step 0.5, factory 8.0, "px / paper mm", tooltip). Both apply with a live
+  repaint of every canvas; neither is undoable (like every Display Manager /
+  Settings edit).
+- **MW-12 Tint** (Q18, Q19; closes L523). A D39-tinted item looks **exactly
+  like the item drawn in its state colour**: same width (no extra px), same
+  anti-aliasing / crisp split, same dashes — Scale and Fixed linetypes keep
+  their gaps, a short Fixed stroke tints solid (LTS-7), a missing / malformed
+  linetype tints continuous, reference lines keep their dashes. No original
+  colour on any pixel, H/V and diagonal alike, both themes. Nested block
+  instances: every stroke op in the tint colour at its own width and dashes;
+  text, fills, splines and selected items are not tinted (D39 exclusions
+  unchanged).
+- **MW-13 Performance** (Q13). Pan / zoom paint ms per frame ≤ **1.25×** base
+  `8c3e3577` on two shapes: (1) a heavy real PDF underlay (file supplied by
+  the user at bench time), (2) 2,000 drawn primitives of mixed weights. A
+  miss stops for a user decision (no speculative perf fix).
+
+### How (H-MW-a–H-MW-h) — approved 2026-10-06 (see "MW — as built" for refinements)
+
+- **H-MW-a Data.** `LineWeightDef` gains `model_px: int | None` (None = Auto),
+  persisted as an optional `"model_px"` in every list form (`.fpd`
+  `paper_display.line_weights`, QSettings `paper/line_weights`,
+  `_parse_weight_list`); absent → Auto, and the key is **omitted** when None
+  (Δ6 — a saved Auto row is byte-identical to today's). Every copy site
+  carries the field (one `LineWeightDef` copy helper). `.fpdb` gains an optional
+  `weight_model_px: {name: px}` beside `weights` (overrides of used names
+  only; merged project-wins; no schema bump).
+- **H-MW-b Factor.** QSettings `view/model_weight_factor`, factory
+  `MODEL_WEIGHT_FACTOR` (`constants.py`), cached in `paper_display` (paint
+  never reads QSettings), restored at startup before any underlay is built,
+  set by the UI pane, which triggers MainWindow `_refresh_weight_canvases`.
+- **H-MW-c Mapping API.** `paper_display.canvas_px_for_weight(name)`:
+  Thin Lines → 1; else the row's `model_px`; else Auto. It replaces
+  `canvas_weight_px(resolve_line_weight_mm(name))` at every name-based caller
+  (`stroke_style.canvas_px`, `underlay_layer_pen`, the block-op weight
+  helper, `TextItem._frame_pen`). `canvas_weight_px(mm)` becomes the Auto
+  rule (Thin Lines → 1; else `max(1, round-half-up(mm × factor))`), called
+  directly only for raw PDF widths. The ≤ `UNDERLAY_FAST_PATH_SNAP_PX`
+  snap is retired (whole px subsumes it).
+- **H-MW-d Fixed decoupling.** `linetype_render.length_factor` reads a new
+  `FIXED_LINETYPE_PX_PER_MM` (6.0) instead of `UNDERLAY_MM_TO_PX_HINT`; LTS
+  output is byte-identical. The hint constant is removed if nothing reads it.
+- **H-MW-e Factory, template, defaults, legacy names.** `FACTORY_LINE_WEIGHTS`
+  = MW-4's table; `LEGACY_FACTORY_LINE_WEIGHTS` keeps the old five.
+  `load_line_weights` replaces (and rewrites) a stored template whose
+  (name, mm) set equals the legacy one; anything else is returned as stored.
+  `_FACTORY_LW` becomes `{category: mm}`; `MODEL_BLOCKS_FACTORY_MM` 0.18 and a
+  text-border default mm 0.25 likewise. `nearest_weight_name(mm)` (exact, else
+  nearest, tie → thinner) resolves them against the live project table where
+  a factory default is materialised (factory category build, Model "Blocks"
+  fallback, new `TextAnnotationData`); the import-time
+  `FACTORY_PAPER_CATEGORIES` dict becomes a live builder
+  (`factory_paper_categories()`, Δ6). `resolve_line_weight_mm` /
+  `canvas_px_for_weight`: exact or alias hit; else a factory name (old or new
+  set) → its factory mm → nearest row; else 0.25 mm.
+- **H-MW-f Crisp axis-split.** New `crisp_stroke.py`:
+  `split_axis(path, xf) -> CrispSplit(axis, other, joints)` partitions the
+  straight elements of a path into maximal runs of **exactly** axis-aligned
+  segments — in scene space after the item / pose / group rotation taken
+  from the painter's world transform, 1e-6 tolerance for float noise (Δ3:
+  zoom-independent; a near-horizontal hand-drawn line stays AA as today) —
+  kept as joined subpaths, and everything else (all curve elements) into
+  `other`; `joints` are axis↔other junction vertices. `draw_split(painter,
+  split, pen)` draws `axis` with Antialiasing off and `other` with it on, and
+  stamps a pen-width round dot at each joint. Cosmetic pens only (paper /
+  PDF non-cosmetic pens draw unsplit, as `hatch_render` already does). A
+  Qt-dashed pen is split only when the **whole** path is axis (Δ4 — Qt
+  restarts the dash pattern per subpath); otherwise it draws all AA. Splits
+  are cached on value (geometry + rotation), never on zoom. Consumers: the
+  continuous stroke of `Geometry2DMixin` primitives (fills unchanged);
+  `linetype_render.paint_stroke` dash pieces (each dash its own subpath);
+  `BlockInstance` stroke ops (split cached per compiled op on the instance,
+  keyed by ops-list identity + op index + pose rotation; text / fill ops
+  never split); the `TextItem` frame; underlays — split **inside
+  `_UnderlayPathItem.paint`** with a per-item cache (Δ1: the item count and
+  every batch consumer are unchanged; the freeze capture already draws
+  aliased). Selection highlights, glyphs, axes, system items and paper are
+  unchanged.
+- **H-MW-g Tint.** `ConstraintController.tint_color(item) -> QColor | None`:
+  the D39 state colour only in a Block Editor scene with the controller
+  enabled and Constraint Status on, for a uid-bearing item that is not
+  selected, text or a spline, and never during a paper pass. A uid absent
+  from the diagnostics is untinted (`SketchDiag.state` reads unknown uids as
+  "free"). The tint is applied to a **painter-local pen copy** in the stroke
+  draw (`draw_split` / `paint_stroke`) — never `setPen`, so it can't leak into
+  `to_dict`, the panel or scene-tool pen copies (Δ2; a reference line's
+  colour lives only in its pen). `BlockInstance` applies it to **stroke ops
+  only**, ahead of selection. `tint_color` reads a uid→state map memoised per
+  diagnostics result (Δ5 — `diagnostics()` rebuilds its key over every item,
+  so per-item calls would be O(n²) per frame); when a new result is first
+  observed the controller `update()`s items whose state changed (at most one
+  frame stale); a Constraint Status toggle repaints the viewport (existing
+  `_repaint`). Callers read the hook via `getattr` (tests install fake
+  controllers). Retired: `constraint_paint`
+  `_tint_pen` / `_paint_tint` / `_item_width` and `M.CONSTRAINT_TINT_EXTRA_PX`.
+- **H-MW-h UI.** Line Weights tab third column (H3 snapshot / Cancel, Reset →
+  new factory and Set as Default carry `model_px`; mm edits refresh Auto
+  text; edits emit `lineWeightsChanged`). `settings/panes.py` `UIPane`: a
+  spin box following its "Properties panel width" pattern, `load` / `apply`
+  wired, MainWindow callback for the live repaint. Existing widget kinds in
+  existing surfaces — no new-widget mockup gate; the live smoke is the visual
+  check.
+
+### MW — as built (2026-10-07, verified `736cf5e3`)
+
+- **Names.** `paper_display`: `LineWeightDef(name, width_mm, model_px)` +
+  `.copy()` / `.to_dict()`, `validate_model_px`, `auto_model_px`,
+  `canvas_weight_px(mm)`, `canvas_px_for_weight(name)`,
+  `parse_model_weight_factor` / `set_model_weight_factor` /
+  `model_weight_factor`, `nearest_weight_name`, `live_weight_name`,
+  `picker_weight_name`, `factory_paper_categories()`,
+  `model_blocks_factory_weight()`, `paper_legacy_px` / `paper_legacy_pdf_px`;
+  `constants`: `MODEL_WEIGHT_FACTOR*`, `MODEL_WEIGHT_PX_MAX`,
+  `FIXED_LINETYPE_PX_PER_MM`, `DEFAULT_LINE_WEIGHT_MM`,
+  `TEXT_BORDER_DEFAULT_MM`, `MODEL_BLOCKS_FACTORY_MM`, `CRISP_AXIS_TOL`,
+  `CRISP_CLOSE_TOL`, `PAPER_LEGACY_PX_PER_MM` / `PAPER_LEGACY_SNAP_PX`.
+- **MW-6 reach** (user, in-run): the rule also covers the saved / applied
+  ribbon current weight (`stroke_style.current_from_settings` /
+  `apply_current` via `live_weight_name`) and every weight **picker** and
+  label (Display Manager combos, frame group, panel Weight / Border Weight
+  rows, capability rows, underlay weight cell, "By Linetype (…)" /
+  "By Category (…)" labels via `picker_weight_name`) — they show the row a
+  stored name draws as and never rewrite the stored name.
+- **Crisp (H-MW-f as built).** `crisp_stroke.stroke(painter, path, pen,
+  split)` + `stroke_cached(cache, painter, path, pen)` (gate before split: a
+  non-cosmetic pen or a paper pass draws unsplit without touching the cache)
+  — the spec's `draw_split` name was not used. `other` runs and joint dots
+  draw under the painter's **existing** AA hint (canvas views are AA-on;
+  `scene.render` onto a QImage runs AA-off). Joint dots only at pen width
+  ≥ 2 px (identical at 1 px). Closed mixed subpaths start at their first class
+  change (real joins, closing joint). `SplitCache` hits on an equal raw 2×2
+  first; `xf_key` canonicalises exact signed-permutation 2×2s.
+  `LineItem` draws through an analytic fast path (no path / cache). Placement
+  ghosts and unstyled items (reference lines) draw unsplit with the pen copy.
+  Linetype dashes use a pose-keyed LRU (`linetype_render._DASH_SPLITS`).
+  Block ops compose the pose once per paint (`BlockInstance._PoseXf`).
+  Underlays split inside `_UnderlayPathItem.paint`; the split is **seeded at
+  batch build** (`underlay_controller._CrispSeed`, equal to `split_axis` on
+  every item) for the canonical orthogonal key, so first paint does no split;
+  a non-orthogonal group rotation splits lazily.
+- **Paper parity (VC9 seam round).** Unweighted PDF-underlay strokes and
+  primitives with no paper category (Ellipse / RegularPolygon / Spline) keep a
+  cosmetic pen through a paper pass; they plot the frozen pre-MW mapping
+  (`paper_legacy_px` / `paper_legacy_pdf_px`), byte-identical to base and
+  independent of the factor / Model px / Thin Lines (true printed mm for them
+  is a filed design follow-up).
+- **Tint (H-MW-g as built).** `geometry_2d.constraint_tint(item)` (public,
+  getattr-guarded; a failing lookup returns None and logs once per
+  controller — an exception escaping a Python `paint()` aborts the process)
+  calls `ConstraintController.tint_color`; ghosts (`_ghost_pen` /
+  `_is_ghost`) are **never tinted** (user, in-run); the state map is memoised
+  on (commit gen, scene gen, constraint count, participating-list lengths)
+  with tint colours cached per theme.
+- **MW-13 result** (user PDF 23269_FS1.1, 93 items / 883k elements; three
+  interleaved base/HEAD pairs, app's `KeepAspectRatio` fit): LineItems
+  1.13×, split-path items 1.18×, PDF pan/zoom 0.87×, PDF first paint at
+  parity (3.2 s before the seeding fix) — all within 1.25×.
+
+### MW guards (VC3) — as built
+
+`tests/test_mw_weights.py` (G4/G5/G7 + mapping half of G1, MW-6 current),
+`tests/test_mw_pickers.py` (MW-6 pickers/labels), `tests/test_mw_crisp.py`
+(G1/G2/G6 + Δ1/Δ3/Δ4, seed, paper-pass, rotated, joints),
+`tests/test_mw_tint.py` (G8 incl. nested / linetyped block ops, memo update,
+ghost, failure isolation), `tests/test_mw_ui.py` (G3 + MW-11),
+`tests/test_mw_paper_parity.py` (paper / PDF factor-independence),
+`tests/test_mw_perf.py` (G9, three shapes, perf-marked). Each guard shown RED
+with its change reverted. Contract-retired rewrites: factory names / px pins
+(MW-3/4/5), `FACTORY_PAPER_CATEGORIES` → `factory_paper_categories()`,
+`test_tinted_reference_line_keeps_its_dashes` (MW-12).
+
+### MW guards (VC3) — as planned
+
+New `tests/test_mw_*.py`, shown views + pixel sampling unless noted:
+G1 factory weights paint 1/2/3/4/6 rows; an override changes the rows; Thin
+Lines → 1 row each · G2 1 px and 2 px H lines paint 1 / 2 full rows at a
+pixel-centre AND a pixel-boundary y; a diagonal stays AA · G3 the factor set
+through the real `UIPane` repaints Auto rows, not overrides · G4 an
+old-factory `.fpd` opens with its table and PDF output unchanged; template
+migration replaces an old-factory template and keeps a customised one · G5
+defaults and missing old names resolve by mm through the real resolver · G6
+PDF underlay widths 0.18 / 0.25 / 0.35 mm paint 1 / 2 / 3 px · G7 a Fixed
+linetype's dash px is unchanged by a factor change · G8 tint: width equals
+the untinted width, diagonal fringe hue = tint (both themes), Scale and
+Fixed gaps kept, short Fixed solid, missing linetype continuous,
+`test_tinted_reference_line_keeps_its_dashes`, nested block op — each L523
+guard RED with the fix reverted · G9 `perf`-marked A/B bench (MW-13), run
+standalone (Test-harness Invariant 8).
 
 ## Acceptance Criteria
 

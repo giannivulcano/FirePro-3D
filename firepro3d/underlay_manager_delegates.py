@@ -317,9 +317,11 @@ class WeightDelegate(_BaseDelegate):
     def _current_name(self, index) -> str:
         record = self._record(index)
         layer = self._layer(index)
+        # MW-6: show the row a stored name draws as (display only).
+        from .paper_display import picker_weight_name
         if layer is not None:
-            return record.effective_layer_weight(layer) or ""
-        return record.line_weight_name or ""
+            return picker_weight_name(record.effective_layer_weight(layer) or "")
+        return picker_weight_name(record.line_weight_name or "")
 
     def paint(self, painter, option, index):
         self._paint_background(painter, option, index)

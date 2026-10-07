@@ -5,9 +5,11 @@ from firepro3d import paper_display as pd
 from firepro3d.paper_display import LineWeightDef
 
 
+# MW-4 replaced the factory names; these alias tests name the pre-MW rows
+# ("Heavy", "Light", ...) as ordinary live rows, so they seed the legacy table.
 @pytest.fixture(autouse=True)
 def _table():
-    pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
+    pd.set_project_line_weights([*pd.LEGACY_FACTORY_LINE_WEIGHTS,
                                  LineWeightDef("A", 0.40)])
     pd.set_weight_aliases({})
     yield
@@ -414,7 +416,7 @@ def test_library_replace_after_rename(qapp):
 def _project_b_file(tmp_path):
     """Save project B: live "Heavy", no aliases, a definition whose line
     style and text primitive both name "Heavy"."""
-    pd.set_project_line_weights(list(pd.FACTORY_LINE_WEIGHTS))
+    pd.set_project_line_weights(list(pd.LEGACY_FACTORY_LINE_WEIGHTS))
     pd.set_weight_aliases({})
     ms = Model_Space()
     ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.style["weight"] = "Heavy"
@@ -442,7 +444,7 @@ def test_open_ignores_previous_project_aliases(qapp, tmp_path):
     prims = ms2.block_registry.get(did).primitives
     assert prims[0]["style"]["weight"] == "Heavy"
     assert prims[1]["border_weight"] == "Heavy"
-    heavy_mm = dict((d.name, d.width_mm) for d in pd.FACTORY_LINE_WEIGHTS)["Heavy"]
+    heavy_mm = dict((d.name, d.width_mm) for d in pd.LEGACY_FACTORY_LINE_WEIGHTS)["Heavy"]
     assert pd.resolve_line_weight_mm(prims[0]["style"]["weight"]) == pytest.approx(heavy_mm)
     out = tmp_path / "b2.fpd"
     ms2.save_to_file(str(out))
@@ -459,7 +461,7 @@ def test_open_installs_file_aliases_whose_key_is_live_in_previous_table(qapp, tm
     ms = Model_Space()
     path = tmp_path / "c.fpd"
     ms.save_to_file(str(path))
-    pd.set_project_line_weights(list(pd.FACTORY_LINE_WEIGHTS))   # session: live Heavy
+    pd.set_project_line_weights(list(pd.LEGACY_FACTORY_LINE_WEIGHTS))   # session: live Heavy
     pd.set_weight_aliases({})
     Model_Space().load_from_file(str(path))
     assert pd.weight_aliases() == {"Heavy": "Bold"}
@@ -470,7 +472,7 @@ def test_set_weight_aliases_drops_live_name_keys(qapp):
     """M3 order (paper apply / Cancel): table first, then aliases -- a
     corrupt alias whose key is a live row never redirects that row."""
     data = {"line_weights": [{"name": d.name, "width_mm": d.width_mm}
-                             for d in pd.FACTORY_LINE_WEIGHTS],
+                             for d in pd.LEGACY_FACTORY_LINE_WEIGHTS],
             "line_weight_aliases": {"Heavy": "Light", "Gone": "Light"}}
     pd.apply_paper_display_from_project(data)
     assert pd.weight_aliases() == {"Gone": "Light"}

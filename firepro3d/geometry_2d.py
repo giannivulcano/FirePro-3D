@@ -8,8 +8,10 @@ PolylineItem      — a multi-click open polyline on the active user layer.
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
+import weakref
 
 from PyQt6.QtWidgets import (
     QAbstractGraphicsShapeItem, QGraphicsLineItem, QGraphicsPathItem,
@@ -17,16 +19,24 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
-                         QPolygonF, QTransform)
+from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
+                         QPainterPathStroker, QPolygonF, QTransform)
+from . import crisp_stroke as _cs
+from .constants import CRISP_AXIS_TOL
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
 from .linetype_render import badge_pad_px
+from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
-from .stroke_style import is_linetype_ref, linetype_block, resolve_stroke
+from .stroke_style import (canvas_px, canvas_weight_name, is_linetype_ref,
+                           linetype_block, resolve_stroke)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+_AA = QPainter.RenderHint.Antialiasing
+_log = logging.getLogger(__name__)
+# Controllers whose tint lookup already failed and was logged (log once each).
+_TINT_FAIL_LOGGED = weakref.WeakSet()
 
 # Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
 # that needs to reject a vanishingly short segment (2d-geometry.md §8).
@@ -54,6 +64,41 @@ def _manip_wraps(item) -> bool:
     if sip.isdeleted(manip):     # scene rebuild (load/new/sheet) deleted it
         return False
     return manip.wraps(item)
+
+
+def constraint_tint(item):
+    """D39 tint colour for *item*'s canvas stroke (MW-12 / H-MW-g).
+
+    Reads the scene's ``ConstraintController.tint_color`` through ``getattr``
+    (tests install fake controllers without it). The ``enabled`` check is the
+    non-editor fast path: plan / paper scenes never reach ``tint_color``. A
+    failing lookup loses only the tint, never the item's stroke: it is
+    logged once per controller and the item paints in its own colour.
+
+    Args:
+        item: The painting item (a ``Geometry2DMixin`` primitive or a
+            ``BlockInstance``).
+
+    Returns:
+        The state colour to set on the painter-local pen copy, or None.
+    """
+    sc = item.scene()
+    ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
+    fn = getattr(ctl, "tint_color", None)
+    if not callable(fn) or not getattr(ctl, "enabled", False):
+        return None
+    try:
+        return fn(item)
+    except Exception:
+        try:
+            first = ctl not in _TINT_FAIL_LOGGED
+            if first:
+                _TINT_FAIL_LOGGED.add(ctl)
+        except TypeError:            # not weak-referenceable: log every time
+            first = True
+        if first:
+            _log.exception("D39 tint lookup failed; painting untinted")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +168,8 @@ class Geometry2DMixin:
         self.style: dict | None = None
         # True while a placement ghost pen owns the pen (PolylineItem).
         self._ghost_pen: bool = False
+        # The continuous stroke's crisp axis-split, by value (MW-7 / H-MW-f).
+        self._mw_split_cache = _cs.SplitCache()
         # Unresolvable linetype id seen at the last paint (badge, LT3-10) and
         # the id the item's tooltip currently names (sync_missing_tooltip).
         self._lt_missing: str | None = None
@@ -204,13 +251,11 @@ class Geometry2DMixin:
                 self.setPen(pen)
             return None
         rs = self._resolved_stroke()
-        if self._ghost_pen or not self.pen().isCosmetic():
+        pen = self.pen()            # PyQt returns a copy
+        if self._ghost_pen or not pen.isCosmetic():
             return rs
-        from .paper_display import paper_pass_active
         if paper_pass_active():
             return rs               # paper pass owns the pen (no ping-pong)
-        from .stroke_style import canvas_px
-        pen = QPen(self.pen())
         pen.setColor(QColor(dc or self.style["colour"]))
         pen.setWidthF(canvas_px(rs.weight))
         pen.setCosmetic(True)
@@ -254,22 +299,32 @@ class Geometry2DMixin:
         unrotated item frame, since its ``stroke_pieces()`` carry the
         rotation); None keeps the painter's. Returns True when dashed.
         """
+        pen = self.pen()                # painter-local copy (MW-7 / MW-12)
+        if rs is not None and pen.isCosmetic() and paper_pass_active():
+            # No paper category reset this pen (Ellipse / Polygon / Spline):
+            # its canvas width must not reach paper -- plot the frozen pre-MW
+            # mapping of the resolved weight (MW-1 / MW-4).
+            pen.setWidthF(paper_legacy_px(resolve_line_weight_mm(
+                canvas_weight_name(rs.weight))))
+        tint = constraint_tint(self)
+        if tint is not None:
+            pen.setColor(tint)          # pen COPY: never setPen (delta 2)
         if rs is None or (rs.lt is None and not rs.missing_id
                           and self._lt_tip_id is None):
             self._lt_missing = None      # Continuous fast path (LT3-11)
             dashed = False
         elif lt_frame is None:
-            dashed = self._paint_linetyped(painter, rs)
+            dashed = self._paint_linetyped(painter, rs, pen)
         else:
             painter.save()
             try:
                 painter.setWorldTransform(lt_frame)
-                dashed = self._paint_linetyped(painter, rs)
+                dashed = self._paint_linetyped(painter, rs, pen)
             finally:
                 painter.restore()
         if dashed:
             return True
-        super().paint(painter, option, widget)
+        self._paint_base_stroke(painter, option, widget, pen)
         if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
@@ -277,10 +332,73 @@ class Geometry2DMixin:
             draw_highlight(painter)
         return False
 
-    def _paint_linetyped(self, painter, rs) -> bool:
+    # True on single-segment items (LineItem): ``_paint_base_stroke`` takes
+    # its analytic one-segment fast path (MW-13).
+    _CRISP_LINE = False
+
+    def _crisp_base_path(self) -> QPainterPath:
+        """The Qt base item's own stroke geometry, item-local (MW-7)."""
+        if isinstance(self, QGraphicsLineItem):
+            ln = self.line()
+            p = QPainterPath(ln.p1())
+            p.lineTo(ln.p2())
+            return p
+        p = QPainterPath()
+        if isinstance(self, QGraphicsRectItem):
+            p.addRect(self.rect())
+            return p
+        if isinstance(self, QGraphicsEllipseItem):
+            p.addEllipse(self.rect())
+            return p
+        return QPainterPath(self.path())
+
+    def _paint_base_stroke(self, painter, option, widget, pen) -> None:
+        """Continuous stroke: cosmetic pens through the crisp split (cached
+        per item, H-MW-f); non-cosmetic (paper) via the unchanged Qt paint."""
+        if not pen.isCosmetic():
+            super().paint(painter, option, widget)
+            return
+        if self._CRISP_LINE and not self._ghost_pen and self.style is not None:
+            # One straight segment (MW-13 fast path): classify analytically
+            # from the line and the painter's 2x2 -- no path, split or cache.
+            # Exactly axis (split_axis's rule, inlined: hot) draws aliased;
+            # anything else under the painter's own AA hint. Paper passes
+            # draw unsplit (the stroke_cached gate).
+            ln = self.line()
+            painter.setPen(pen)
+            if not paper_pass_active() and painter.testRenderHint(_AA):
+                xf = painter.worldTransform()
+                dx, dy = ln.dx(), ln.dy()
+                vx = dx * xf.m11() + dy * xf.m21()
+                vy = dx * xf.m12() + dy * xf.m22()
+                ax = vx if vx >= 0.0 else -vx
+                ay = vy if vy >= 0.0 else -vy
+                if (ax > 0.0 or ay > 0.0) and \
+                        (ax if ax < ay else ay) <= CRISP_AXIS_TOL * math.hypot(vx, vy):
+                    painter.setRenderHint(_AA, False)
+                    painter.drawLine(ln)
+                    painter.setRenderHint(_AA, True)
+                    return
+            painter.drawLine(ln)
+            return
+        painter.save()
+        try:
+            if self._ghost_pen or self.style is None:
+                # Not weight-mapped (placement ghosts; unstyled reference
+                # lines): outside MW-7's scope, so unsplit -- but still the
+                # pen copy, so a painter-local tint reaches them (MW-12).
+                _cs.stroke(painter, self._crisp_base_path(), pen, None)
+            else:
+                _cs.stroke_cached(self._mw_split_cache, painter,
+                                  self._crisp_base_path(), pen)
+        finally:
+            painter.restore()
+
+    def _paint_linetyped(self, painter, rs, pen=None) -> bool:
         """Draw the stroke (+ selection highlight) through the linetype renderer.
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
+        *pen* is the painter-local stroke pen (None = ``self.pen()``).
         Returns False when the caller must draw its unchanged plain stroke
         (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
@@ -303,7 +421,8 @@ class Geometry2DMixin:
         fixed = fixed_on_canvas(rs.lt, paper_scale=a["paper_scale"], role=a["role"])
         o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
         anchor = (o.x(), o.y())
-        if not paint_stroke(painter, pieces, rs.lt, self.pen(),
+        pen = pen if pen is not None else self.pen()
+        if not paint_stroke(painter, pieces, rs.lt, pen,
                             factor=factor, anchor=anchor, fixed=fixed):
             return False
         if self.isSelected() and not _manip_wraps(self):
@@ -960,6 +1079,8 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     color       : str | QColor — stroke colour (default white for dark theme)
     lineweight  : float — cosmetic pixel width (default 1.0)
     """
+
+    _CRISP_LINE = True      # one segment: _paint_base_stroke fast path (MW-13)
 
     def __init__(self, pt1: QPointF, pt2: QPointF,
                  color: str | QColor = "#ffffff", lineweight: float = 1.0):
@@ -3571,7 +3692,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> d
         locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
             the Linetype row is disabled with a "why" tooltip.
     """
-    from .paper_display import weight_names
+    from .paper_display import picker_weight_name, weight_names
     from .linetype_choices import linetype_choices, missing_label
     from .stroke_style import BY_LINETYPE, weight_label
     lt = style["linetype"]
@@ -3588,7 +3709,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> d
         "Linetype": {"type": "enum", "options": options, "value": value,
                      "tooltip": _LINETYPE_TIP},
         "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
-                   "value": by_lt if w == BY_LINETYPE else w,
+                   "value": by_lt if w == BY_LINETYPE else picker_weight_name(w),
                    "tooltip": _WEIGHT_TIP},
     }
     if locked:

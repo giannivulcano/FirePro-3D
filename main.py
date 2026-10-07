@@ -48,7 +48,8 @@ from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
-from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
+from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
+                                 MODEL_WEIGHT_FACTOR)
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
@@ -611,6 +612,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _thin_on = self.settings.value("view/thin_lines", False, type=bool)
         set_thin_lines(_thin_on)
         self.footer.set_thin_on(_thin_on)
+        # Model weight factor (MW-2): a System setting, restored before any
+        # underlay is built so build-time pens bake the right width. Read
+        # untyped: set_model_weight_factor maps junk / out-of-range to factory.
+        from firepro3d.paper_display import set_model_weight_factor
+        set_model_weight_factor(self.settings.value(
+            "view/model_weight_factor", MODEL_WEIGHT_FACTOR))
 
         # Footer interactions → active scene / dialogs.
         self.footer.snap_pill.clicked.connect(
@@ -2247,6 +2254,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             on_crosshair_changed=self._apply_crosshair,
             on_immersive_changed=self._apply_immersive,
             on_panel_width_changed=self._apply_prop_panel_width,
+            on_weight_factor_changed=self._apply_model_weight_factor,
             parent=self,
         )
         if isinstance(pane, str):
@@ -3744,6 +3752,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         never are)."""
         self._modified = True
         self._update_title()
+        self._refresh_weight_canvases()
+
+    def _apply_model_weight_factor(self, factor: float) -> None:
+        """System Settings > UI "Model line weight scale" applied (MW-2 /
+        MW-11): install the factor, then re-pen / repaint every weight
+        canvas. Not undoable (a viewing preference, never project data)."""
+        from firepro3d.paper_display import set_model_weight_factor
+        set_model_weight_factor(factor)
         self._refresh_weight_canvases()
 
     def _refresh_weight_canvases(self):

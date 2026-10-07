@@ -186,6 +186,16 @@ def read_bundled_weights(path: str) -> dict:
         return {}
 
 
+def read_bundled_weight_model_px(path: str) -> dict:
+    """The ``weight_model_px`` ``{name: px}`` map of a ``.fpdb`` (H-MW-a)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return dict(json.load(fh).get("weight_model_px") or {})
+    except Exception:
+        _log.debug("unreadable bundled weight overrides in %s", path, exc_info=True)
+        return {}
+
+
 def save_to_library(definition: BlockDefinition, root: str | None = None,
                     *, overwrite: bool = False, bundled: dict | None = None) -> str:
     """Write *definition* to the tree + update the Series index; returns the path.
@@ -206,7 +216,8 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
             schema 2 with a ``bundled`` map (D11); empty/None → schema 1.
 
     Writes an optional ``weights`` map of the named line weights the definition
-    and its bundle use (linetypes.md LT1-4); absent when none are used.
+    and its bundle use (linetypes.md LT1-4); absent when none are used. Their
+    Model px overrides ride in an optional ``weight_model_px`` (H-MW-a).
     """
     series_dir = _series_dir(root, definition.library, definition.series)
     filename = sanitize(definition.name) + ".fpdb"
@@ -235,10 +246,14 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         rec["bundled"] = dict(bundled)
     from .paper_display import project_line_weights
     used = used_weight_names([rec, *(bundled or {}).values()])
-    table = {d.name: d.width_mm for d in project_line_weights()}
-    weights = {n: table[n] for n in sorted(used) if n in table}
+    table = {d.name: d for d in project_line_weights()}
+    weights = {n: table[n].width_mm for n in sorted(used) if n in table}
     if weights:                       # unknown names are never fabricated
         rec["weights"] = weights
+        model = {n: table[n].model_px for n in weights
+                 if table[n].model_px is not None}
+        if model:                     # MW H-MW-a: overrides of used names only
+            rec["weight_model_px"] = model
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
     # ``tile`` / ``repeat`` flag capability blocks (hatch D-A37, linetypes

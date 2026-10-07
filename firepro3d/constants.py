@@ -67,14 +67,32 @@ GRIDLINE_BUBBLE_OFFSET_MM = 1000.0  # absolute along-axis bubble standoff (mm)
 # pipeline — measured ~20x slower over a dense underlay (22ms vs 1ms for the
 # same 94k-point drawing; the old 1.5 default made live repaints 500ms+).
 UNDERLAY_LINE_WIDTH_PX = 1.0
-# Screen hints at or below this round DOWN to 1.0 to stay on the fast path;
-# heavier user-chosen weights keep their true hint width (and its cost).
-UNDERLAY_FAST_PATH_SNAP_PX = 1.25
+# (UNDERLAY_FAST_PATH_SNAP_PX / UNDERLAY_MM_TO_PX_HINT retired by MW H-MW-c/d:
+# named underlay weights use the whole-px Model mapping below.)
 
-# Screen-hint conversion for named underlay line weights (§16.3):
-# px = width_mm * UNDERLAY_MM_TO_PX_HINT. 6.0 makes Medium (0.25mm) ≈ 1.5px
-# so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
-UNDERLAY_MM_TO_PX_HINT = 6.0
+# Model (canvas) line weights (linetypes.md MW-2 / MW-3 / MW-11): a weight's
+# Auto canvas width = round-half-up(paper mm x factor) whole px, min 1. The
+# factor is a System setting (QSettings view/model_weight_factor).
+MODEL_WEIGHT_FACTOR = 8.0
+MODEL_WEIGHT_FACTOR_MIN = 1.0
+MODEL_WEIGHT_FACTOR_MAX = 20.0
+MODEL_WEIGHT_PX_MAX = 20          # per-row Model (px) override range 1..20
+# Fixed on-screen linetypes keep printed mm x 6 px/mm, decoupled from the
+# weight factor (MW-10 / H-MW-d; was UNDERLAY_MM_TO_PX_HINT).
+FIXED_LINETYPE_PX_PER_MM = 6.0
+# A cosmetic canvas pen that survives into a paper pass (an unweighted raw-PDF
+# underlay width; a styled primitive with no paper category) plots at the
+# PRE-MW mapping, frozen so paper / PDF output never follows the Model weight
+# factor, Model px or Thin Lines (MW-1 "paper unchanged", MW-4 "paper output
+# identical"): px = mm x 6.0, and <= 1.25 px snaps to min(px, 1.0).
+PAPER_LEGACY_PX_PER_MM = 6.0
+PAPER_LEGACY_SNAP_PX = 1.25
+# Built-in weight defaults state an intended paper mm (MW-5).
+TEXT_BORDER_DEFAULT_MM = 0.25
+MODEL_BLOCKS_FACTORY_MM = 0.18
+# Paper mm of a weight name that resolves to no row (unknown, non-factory
+# name -- MW-6 fallback).
+DEFAULT_LINE_WEIGHT_MM = 0.25
 
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic
@@ -360,6 +378,9 @@ LINETYPE_WINDOW_MIN_PERIODS = 512  # longer Fixed pieces expand only near the vi
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 LINETYPE_BADGE_PX = 12             # missing-linetype glyph (Task 1 mockup gate, option A)
+# Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
+CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)
+CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
 PATTERN_PREVIEW_PERIODS = 4.0      # periods across the swatch's straight sample

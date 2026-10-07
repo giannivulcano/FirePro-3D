@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainterPath, QPen
 
+from . import crisp_stroke as _cs
 from . import hatch_render as _hr
 from . import paper_display as _pd
 from . import path_walk as pw
@@ -22,7 +23,7 @@ from . import stroke_style as _ss
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
                         LINETYPE_MAX_PERIODS, LINETYPE_WINDOW_MIN_PERIODS,
-                        UNDERLAY_MM_TO_PX_HINT)
+                        FIXED_LINETYPE_PX_PER_MM)
 
 
 def axis_role(p1, p2, length: float):
@@ -113,6 +114,30 @@ class LinetypeDef:
 
 
 _EXPAND: OrderedDict = OrderedDict()
+# (id(dash), xf_key) -> (dash, split) LRU -- MW-7. Holding the dash keeps its
+# id from being recycled; the pose key lets a shared block expansion drawn by
+# instances at several rotations keep one split per rotation.
+_DASH_SPLITS: OrderedDict = OrderedDict()
+
+
+def _dash_split(dash, xf):
+    """The crisp split of an ``expand`` dash path under *xf* (MW-7).
+
+    Expansions are cached (``_EXPAND``), so a dash path is a stable object
+    across paints; its split is computed once per (path, rotation) -- never
+    per paint, never on zoom (H-MW-f delta 3).
+    """
+    key = (id(dash), _cs.xf_key(xf))
+    ent = _DASH_SPLITS.get(key)
+    if ent is not None and ent[0] is dash:
+        _DASH_SPLITS.move_to_end(key)
+        return ent[1]
+    split = _cs.split_axis(dash, xf)
+    _DASH_SPLITS[key] = (dash, split)
+    _DASH_SPLITS.move_to_end(key)
+    while len(_DASH_SPLITS) > LINETYPE_CACHE_MAX:
+        _DASH_SPLITS.popitem(last=False)
+    return split
 
 
 def view_window(painter):
@@ -326,9 +351,11 @@ def draw_expansion(painter, dash: QPainterPath, dot: QPainterPath,
     ``save`` / ``restore`` -- and sets *pen*'s cap style (pass a copy).
     """
     pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawPath(dash)
+    # Canvas (cosmetic) dashes draw crisp on the axis (MW-7 / H-MW-f); paper
+    # passes and non-cosmetic pens draw unsplit, gated before any split.
+    canvas = pen.isCosmetic() and not _pd.paper_pass_active()
+    _cs.stroke(painter, dash, pen,
+               _dash_split(dash, painter.worldTransform()) if canvas else None)
     if not dot.isEmpty():
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
@@ -367,16 +394,17 @@ def length_factor(lt, *, paper_scale, role, drawing_scale,
     """Definition mm -> painter units for *lt* (LT3-5, LTS-3).
 
     A Fixed linetype on a model canvas (``fixed_on_canvas``) -> its printed
-    mm x ``UNDERLAY_MM_TO_PX_HINT`` px, divided by *device_scale* (device px
+    mm x ``FIXED_LINETYPE_PX_PER_MM`` px (MW-10, decoupled from the weight
+    factor), divided by *device_scale* (device px
     per painter unit -- the caller passes this paint's). Otherwise: Model
     size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan canvas
     (*role* ``"plan"``) -> the drawing scale; anything else (Block Editor, no
     scene) -> 1 (real size).
     """
     if fixed_on_canvas(lt, paper_scale=paper_scale, role=role):
-        # LTS-3: printed mm x the D-L14 mm->px hint, back into painter units.
+        # LTS-3 / MW-10: printed mm x 6 px/mm, back into painter units.
         printed = 1.0 if lt.size != "model" else 1.0 / (drawing_scale or 1.0)
-        return printed * UNDERLAY_MM_TO_PX_HINT / max(device_scale or 0.0, 1e-12)
+        return printed * FIXED_LINETYPE_PX_PER_MM / max(device_scale or 0.0, 1e-12)
     if lt.size == "model":
         return 1.0
     if paper_scale:

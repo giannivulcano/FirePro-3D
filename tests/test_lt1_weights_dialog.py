@@ -61,9 +61,9 @@ def test_add_edits_project_not_template(qapp):
 def test_width_edit_and_remove_edit_project_not_template(qapp):
     before = _template_raw()
     d = _dlg()
-    row = [x.name for x in d._lw_defs].index("Very Heavy")
+    row = [x.name for x in d._lw_defs].index("Thick")
     d._lw_table.item(row, 1).setText("0.90")       # fires _on_lw_cell_changed
-    assert pd.resolve_line_weight_mm("Very Heavy") == pytest.approx(0.90)
+    assert pd.resolve_line_weight_mm("Thick") == pytest.approx(0.90)
     d._on_lw_add()
     row = [x.name for x in d._lw_defs].index(
         next(x.name for x in d._lw_defs if x.name.startswith("Custom")))
@@ -72,7 +72,7 @@ def test_width_edit_and_remove_edit_project_not_template(qapp):
     assert not any(n.startswith("Custom") for n in pd.weight_names())
     assert _template_raw() == before
     d.reject()
-    assert pd.resolve_line_weight_mm("Very Heavy") == pytest.approx(0.50)
+    assert pd.resolve_line_weight_mm("Thick") == pytest.approx(0.50)
 
 
 def test_set_as_default_writes_template(qapp):
@@ -100,22 +100,22 @@ def test_reset_writes_factory_to_project_not_template(qapp):
 
 def test_cancel_reverts_a_propagated_rename(qapp):
     scene = Model_Space()
-    rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Heavy",
-                   layer_overrides={"A-WALL": {"line_weight": "Heavy"}})
+    rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Thin",
+                   layer_overrides={"A-WALL": {"line_weight": "Thin"}})
     scene.underlays.append((rec, None))
     d = _dlg(scene)
-    row = [x.name for x in d._lw_defs].index("Heavy")
+    row = [x.name for x in d._lw_defs].index("Thin")
     d._lw_table.item(row, 0).setText("Bold")       # fires _on_lw_cell_changed
     assert pd.load_paper_categories()["Wall"]["line_weight"] == "Bold"
     assert "Bold" in pd.weight_names()
     assert rec.line_weight_name == "Bold"
     assert rec.layer_overrides["A-WALL"]["line_weight"] == "Bold"
     d.reject()
-    assert "Heavy" in pd.weight_names()
+    assert "Thin" in pd.weight_names()
     assert "Bold" not in pd.weight_names()
-    assert pd.load_paper_categories()["Wall"]["line_weight"] == "Heavy"
-    assert rec.line_weight_name == "Heavy"
-    assert rec.layer_overrides["A-WALL"]["line_weight"] == "Heavy"
+    assert pd.load_paper_categories()["Wall"]["line_weight"] == "Thin"
+    assert rec.line_weight_name == "Thin"
+    assert rec.layer_overrides["A-WALL"]["line_weight"] == "Thin"
 
 
 def _paper_combo_items(d):
@@ -158,7 +158,7 @@ def main_window(qapp):
 
 def test_weight_edit_dirties_project_and_repens_underlay(main_window):
     w = main_window
-    rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Heavy")
+    rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Thin")
     geoms = [{"kind": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 100,
               "layer": "A-WALL"}]
     group, _ = w.scene._build_batched_underlay_group(geoms, rec)
@@ -170,7 +170,7 @@ def test_weight_edit_dirties_project_and_repens_underlay(main_window):
     w._modified = False
 
     d = w._make_display_manager("model")            # connected as MainWindow does
-    row = [x.name for x in d._lw_defs].index("Heavy")
+    row = [x.name for x in d._lw_defs].index("Thin")
     d._lw_table.item(row, 1).setText("0.70")        # real cell-edit path
     assert w._modified is True
     assert child.pen().widthF() == pytest.approx(pd.canvas_weight_px(0.70))

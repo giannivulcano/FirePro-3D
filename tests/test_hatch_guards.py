@@ -112,8 +112,8 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         assert not row["color_btn"].isEnabled()
         pd._clear_hatch_mm()
         before = pd.hatch_line_mm()
-        row["lw_combo"].setCurrentText("Very Heavy")
-        assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Very Heavy"
+        row["lw_combo"].setCurrentText("Thick")
+        assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Thick"
         after = pd.hatch_line_mm()
         assert after == 0.50 and after != before
         # Colour-mode switch must not re-enable the inapplicable cells.
@@ -127,7 +127,7 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         assert row["color_btn"].styleSheet() == style0
         assert not row["color_btn"].isEnabled()
     finally:
-        pd.save_paper_categories(pd.FACTORY_PAPER_CATEGORIES)
+        pd.save_paper_categories(pd.factory_paper_categories())
         dlg.close()
 
 

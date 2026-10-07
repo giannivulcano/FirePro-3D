@@ -160,7 +160,7 @@ class FrameGroupController(QObject):
         try:
             if not targets:
                 return
-            from .paper_display import weight_names
+            from .paper_display import picker_weight_name, weight_names
             self._refill_weights()
 
             def uniform(getter):
@@ -174,7 +174,7 @@ class FrameGroupController(QObject):
             lt = uniform(lambda d: d.border_line_type)
             if lt in _LINE_TYPES:
                 self.line_type_combo.setCurrentText(lt)
-            wt = uniform(lambda d: d.border_weight)
+            wt = picker_weight_name(uniform(lambda d: d.border_weight))  # MW-6: the row it draws as
             if wt in weight_names():
                 self.weight_combo.setCurrentText(wt)
             on = self.border_btn.isChecked()

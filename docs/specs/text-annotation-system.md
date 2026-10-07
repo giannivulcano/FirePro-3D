@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-09-23
-verified-commit: c2c78cb
+last-verified: 2026-10-07  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 736cf5e3  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -65,8 +65,8 @@ is **explicitly deferred** (see Deferred ledger).
   so the same data renders the frame on whichever surface (`PaperScene` device-
   independent, or `Model_Space`/Block-Editor scene-mm) the item sits on.
 - **Reuse the named line-weight system.** The frame weight is a **named**
-  line-weight (`"Very Light"`…`"Very Heavy"`, `FACTORY_LINE_WEIGHTS` in
-  `paper_display.py`) resolved via `resolve_line_weight_mm()` — the same
+  line-weight (the project weight table — factory names and values owned by
+  `linetypes.md` "MW" MW-4) resolved via `resolve_line_weight_mm()` — the same
   mechanism walls/pipes plot through. No second free-mm weight mechanism.
 - **Reuse the commit/undo path.** Every ribbon/panel commit routes through
   `TextItem.set_property`, which already pushes a `FormatTextCommand` on a paper
@@ -514,7 +514,9 @@ Landed:
   retired `_BORDER_WEIGHT_PX` 2026-10-04), true-mm on paper. Border Weight
   pickers list the project weight table (`linetypes.md` LT1-6).
 - **Model-placement defaults** (`_press_text`, real-size scene mm): white ink,
-  `DEFAULT_MODEL_TEXT_HEIGHT_MM=100`, solid border on, `border_weight="Medium"`,
+  `DEFAULT_MODEL_TEXT_HEIGHT_MM=100`, solid border on, border weight = the
+  live row nearest 0.25 mm (`text_item.default_border_weight`, `linetypes.md`
+  "MW" MW-5; was the literal `"Medium"`),
   `DEFAULT_MODEL_TEXT_PADDING_MM=15`. Paper defaults unchanged (3/16", black, 1 mm).
 - **Font-constant resize.** Model text drops the `"scale"` manip capability
   (surface-aware via `is_device_independent()`), so a corner drag resizes the box

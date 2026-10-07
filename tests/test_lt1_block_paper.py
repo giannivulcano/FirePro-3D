@@ -232,9 +232,11 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
             assert row[w].isEnabled(), w
         assert not row["fill_btn"].isEnabled()
         assert not row["section_btn"].isEnabled()
-        assert row["lw_combo"].currentText() == "Light"
-        row["lw_combo"].setCurrentText("Heavy")
-        assert pd.load_paper_categories()["Blocks"]["line_weight"] == "Heavy"
+        # MW-4/MW-5: factory 0.18 mm -> "Thinnest" (was "Light"); "Thin" is a
+        # live row of the new factory table (was "Heavy").
+        assert row["lw_combo"].currentText() == "Thinnest"
+        row["lw_combo"].setCurrentText("Thin")
+        assert pd.load_paper_categories()["Blocks"]["line_weight"] == "Thin"
     finally:
         dlg.close()
 
