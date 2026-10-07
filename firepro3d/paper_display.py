@@ -672,6 +672,13 @@ def _resolve_def(name: str, defs=None, canonical: bool = True) -> LineWeightDef 
     return _nearest_def(mm, defs) if mm is not None else None
 
 
+def live_weight_name(name: str) -> str | None:
+    """The live row a weight name draws as (MW-6), or None if it resolves to
+    no row (an unknown, non-factory name)."""
+    d = _resolve_def(name)
+    return d.name if d is not None else None
+
+
 def resolve_line_weight_mm(name: str,
                            settings: QSettings | None = None) -> float:
     """Resolve a line weight name to its mm width.  Falls back to 0.25mm.

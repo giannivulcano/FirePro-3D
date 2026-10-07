@@ -183,3 +183,39 @@ def test_factor_restored_on_startup(qapp, tmp_path, monkeypatch):
         w._modified = False
         w.close()
         w.deleteLater()
+
+
+# -- MW-6 extended to the saved / applied current weight (2026-10-06 ruling)
+
+def _store_current_weight(name):
+    QSettings("GV", "FirePro3D").setValue("template/geometry/weight", name)
+
+
+def test_mw6_saved_current_factory_name_maps_by_mm():
+    from firepro3d import stroke_style as ss
+    pd.set_project_line_weights(_defs(_NEW))
+    _store_current_weight("Heavy")                     # old factory 0.35 mm
+    ss.current_from_settings(QSettings("GV", "FirePro3D"))
+    assert ss.current_style()["weight"] == "Thin"
+
+
+def test_mw6_saved_current_unknown_name_is_by_linetype():
+    from firepro3d import stroke_style as ss
+    pd.set_project_line_weights(_defs(_NEW))
+    _store_current_weight("Foo")
+    ss.current_from_settings(QSettings("GV", "FirePro3D"))
+    assert ss.current_style()["weight"] == ss.BY_LINETYPE
+
+
+def test_mw6_applied_current_factory_name_maps_by_mm(qapp):
+    from PyQt6.QtCore import QPointF
+    from firepro3d import stroke_style as ss
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    pd.set_project_line_weights(_defs(_NEW))
+    ms = Model_Space()
+    ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    ms.addItem(ln)
+    ss.set_current(weight="Heavy")
+    ss.apply_current(ln, ms)
+    assert ln.style["weight"] == "Thin"
