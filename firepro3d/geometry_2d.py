@@ -8,8 +8,10 @@ PolylineItem      — a multi-click open polyline on the active user layer.
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
+import weakref
 
 from PyQt6.QtWidgets import (
     QAbstractGraphicsShapeItem, QGraphicsLineItem, QGraphicsPathItem,
@@ -28,6 +30,9 @@ from .stroke_style import is_linetype_ref, linetype_block, resolve_stroke
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+_log = logging.getLogger(__name__)
+# Controllers whose tint lookup already failed and was logged (log once each).
+_TINT_FAIL_LOGGED = weakref.WeakSet()
 
 # Degenerate-geometry floor (mm) shared by every typed-dimension setter/spec
 # that needs to reject a vanishingly short segment (2d-geometry.md §8).
@@ -57,15 +62,39 @@ def _manip_wraps(item) -> bool:
     return manip.wraps(item)
 
 
-def _constraint_tint(item):
-    """D39 tint colour from the scene's constraint controller (H-MW-g), or
-    None; getattr-guarded (fake controllers in tests, non-editor scenes)."""
+def constraint_tint(item):
+    """D39 tint colour for *item*'s canvas stroke (MW-12 / H-MW-g).
+
+    Reads the scene's ``ConstraintController.tint_color`` through ``getattr``
+    (tests install fake controllers without it). The ``enabled`` check is the
+    non-editor fast path: plan / paper scenes never reach ``tint_color``. A
+    failing lookup loses only the tint, never the item's stroke: it is
+    logged once per controller and the item paints in its own colour.
+
+    Args:
+        item: The painting item (a ``Geometry2DMixin`` primitive or a
+            ``BlockInstance``).
+
+    Returns:
+        The state colour to set on the painter-local pen copy, or None.
+    """
     sc = item.scene()
     ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
     fn = getattr(ctl, "tint_color", None)
     if not callable(fn) or not getattr(ctl, "enabled", False):
         return None
-    return fn(item)
+    try:
+        return fn(item)
+    except Exception:
+        try:
+            first = ctl not in _TINT_FAIL_LOGGED
+            if first:
+                _TINT_FAIL_LOGGED.add(ctl)
+        except TypeError:            # not weak-referenceable: log every time
+            first = True
+        if first:
+            _log.exception("D39 tint lookup failed; painting untinted")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -269,7 +298,7 @@ class Geometry2DMixin:
         rotation); None keeps the painter's. Returns True when dashed.
         """
         pen = QPen(self.pen())          # painter-local stroke pen (MW-7 / MW-12)
-        tint = _constraint_tint(self)
+        tint = constraint_tint(self)
         if tint is not None:
             pen.setColor(tint)          # pen COPY: never setPen (delta 2)
         if rs is None or (rs.lt is None and not rs.missing_id

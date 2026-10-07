@@ -5,6 +5,7 @@ Probes sample off x = 0 / y = 0: the Block Editor paints its X/Y constraint
 axes through the origin, over the strokes."""
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtTest import QTest
 
@@ -39,6 +40,12 @@ def _line(sc, a, b, weight="Thinnest"):
     return ln
 
 
+def _is_blend(c, bg, ink) -> bool:
+    """True when *c* is a pure ``bg`` / *ink* blend (spread 0.0 included)."""
+    sp = blend_spread(c, bg, ink)
+    return sp is not None and sp <= 0.12
+
+
 def _profile(v, img, dpr, x, y):
     dev = v.viewportTransform().map(QPointF(x, y))
     bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() + 60) * dpr))
@@ -46,7 +53,6 @@ def _profile(v, img, dpr, x, y):
 
 
 def test_tint_color_reads_state_and_exclusions(be):
-    from firepro3d.geometry_2d import SplineItem
     from firepro3d.text_item import TextAnnotationData, TextItem
     v, sc = be
     ln = _line(sc, (-100, 40), (100, 40))
@@ -57,9 +63,8 @@ def test_tint_color_reads_state_and_exclusions(be):
     ln.setSelected(False)
     t = TextItem(TextAnnotationData(text="HI"))
     sc.addItem(t); sc._texts.append(t)
-    sp = SplineItem([QPointF(0, 0), QPointF(50, -60), QPointF(100, 0)])
-    sc.addItem(sp); sc._draw_splines.append(sp)
-    assert ctl.tint_color(t) is None and ctl.tint_color(sp) is None   # D39 exclusions
+    assert t._uid in ctl.diagnostics().item_dof      # participates, yet ...
+    assert ctl.tint_color(t) is None                 # ... text is never tinted (D39)
     ctl.show_status = False
     assert ctl.tint_color(ln) is None
 
@@ -110,8 +115,7 @@ def test_g8_diagonal_fringe_is_pure_tint_hue(be, theme_name, monkeypatch):
             lit += 1
             # every lit pixel is a blend of tint and background only:
             # c = bg + a (free - bg) with one a for all three channels
-            sp = blend_spread(c, bg, free)
-            assert sp is not None and sp <= 0.12, (sx, c.getRgb(), sp)
+            assert _is_blend(c, bg, free), (sx, c.getRgb(), blend_spread(c, bg, free))
     assert lit > 0
 
 
@@ -185,7 +189,7 @@ def test_g8_tint_never_leaks_into_the_item(be):
     lit = [img.pixelColor(int(x * dpr), int((a.y() + dy) * dpr))
            for x in range(a.x(), b.x()) for dy in (-1, 0, 1)]
     lit = [c for c in lit if dist(c, bg) > 30]
-    assert lit and all((blend_spread(c, bg, free) or 9) <= 0.12 for c in lit)
+    assert lit and all(_is_blend(c, bg, free) for c in lit)
     # ... yet the item's own colour (its pen) is untouched.
     assert rl.to_dict()["color"] == before
     assert rl.pen().color() != free
@@ -301,6 +305,52 @@ def test_ghost_polyline_is_never_tinted(be):
            for x in range(a.x(), b.x()) for dy in (-1, 0, 1)]
     lit = [c for c in lit if dist(c, bg) > 30]
     assert lit
-    assert all((blend_spread(c, bg, ghost) or 0) <= 0.12 for c in lit)
-    assert not any((blend_spread(c, bg, free) or 9) <= 0.12 for c in lit)
+    assert all(_is_blend(c, bg, ghost) for c in lit)
+    # Never tinted: every lit pixel is measurably NOT a tint blend (a None
+    # spread -- tint indistinguishable from bg -- must not pass silently).
+    for c in lit:
+        sp = blend_spread(c, bg, free)
+        assert sp is not None and sp > 0.12, (c.getRgb(), sp)
     sc.set_mode("select"); QApplication.processEvents()
+
+
+def test_block_placement_ghost_is_never_tinted(be):
+    """The same ruling for BlockInstance placement ghosts (``_is_ghost``),
+    made through the real placement-ghost path. The ghost is also listed as
+    a participant so the exclusion -- not a missing uid -- is what holds."""
+    from firepro3d.block_definition import BlockDefinition
+    v, sc = be
+    a = LineItem(QPointF(-100, 0), QPointF(100, 0))
+    d = BlockDefinition.new(name="B", library="L", series="S",
+                            primitives=[a.to_dict()], origin=(0.0, 0.0))
+    sc.register_block_definition(d)
+    sc._place_block_id = d.id
+    sc._place_block_make_ghost()
+    g = sc._place_block_ghost
+    assert g is not None and g._is_ghost
+    sc._block_instances.append(g)
+    try:
+        ctl = sc.constraint_ctl
+        assert g._uid in ctl.diagnostics().item_dof
+        assert ctl.tint_color(g) is None
+    finally:
+        sc._block_instances.remove(g)
+        sc._place_block_drop_ghost()
+        sc._place_block_id = None
+
+
+def test_tint_lookup_failure_paints_the_item_untinted(be, monkeypatch):
+    """A failing tint lookup loses only the tint: the stroke still paints its
+    full rows in the item's own colour."""
+    v, sc = be
+    ink = "#ff00ff"
+    y = boundary_y(v, 40.0)
+    ln = _line(sc, (-150, y), (150, y), "Thick")
+    ln.style["colour"] = ink
+
+    def boom():
+        raise RuntimeError("diagnostics failed")
+    monkeypatch.setattr(sc.constraint_ctl, "diagnostics", boom)
+    img, dpr = grab(v)
+    prof, bg = _profile(v, img, dpr, _X, y)
+    assert rows(prof, QColor(ink), bg) == (4, 0)

@@ -27,7 +27,7 @@ from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
-from .geometry_2d import _constraint_tint
+from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
                            linetype_block, resolve_stroke)
@@ -284,7 +284,7 @@ class BlockInstance(QGraphicsObject):
                 painter.drawPath(self._posed_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
-        tint = _constraint_tint(self)          # D39: stroke ops only (H-MW-g)
+        tint = constraint_tint(self)           # D39: stroke ops only (H-MW-g)
         selected = self.isSelected()
         lc = self._lt_ref_cache               # inline hit of _linetype_ids
         if not (lc[1] if lc is not None and lc[0] is ops else self._linetype_ids(ops)):

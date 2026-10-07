@@ -26,9 +26,13 @@ from PyQt6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen
 
 from . import sketch_model as sm
+from . import theme as _theme
+from .geometry_2d import SplineItem
+from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
                             const_point)
+from .text_item import TextItem
 from .theme import M
 
 # Model_Space tracking lists whose items can carry constraints (§5.1).
@@ -289,6 +293,7 @@ class ConstraintController:
         self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
         self._diag = None              # (key, SketchDiag)
         self._tint_memo = None         # (token, SketchDiag, {uid: state}) -- H-MW-g
+        self._tint_colors = None       # (Theme, {state: QColor}) -- H-MW-g
         self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
         # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
         # bumped on every scene change / item-selection change.
@@ -910,39 +915,51 @@ class ConstraintController:
 
     # ── D39 tint (MW-12 / H-MW-g) ────────────────────────────────────────
     def tint_color(self, item):
-        """D39 state colour for *item*'s canvas stroke, or None (H-MW-g).
+        """D39 state colour for *item*'s canvas stroke (H-MW-g).
 
         None unless this is the Block Editor with Constraint Status on, the
         item participates (uid known to the diagnostics), is not selected,
-        text, a spline or a ghost (an in-progress / placement preview keeps
-        its own colour -- user, 2026-10-06), and no paper pass is live. The
-        caller paints it on a painter-local pen COPY (never ``setPen``,
-        delta 2).
+        not text and not a ghost (an in-progress / placement preview keeps
+        its own colour -- user, 2026-10-06), and no paper pass is live.
+
+        Args:
+            item: A scene item about to paint its stroke.
+
+        Returns:
+            The state colour, painted by the caller on a painter-local pen
+            COPY (never ``setPen``, delta 2) -- a shared cached QColor, so
+            callers must not mutate it -- or None for no tint.
         """
         if (not (self.enabled and self.show_status) or item.isSelected()
-                or getattr(item, "_ghost_pen", False)):
+                or getattr(item, "_ghost_pen", False)
+                or getattr(item, "_is_ghost", False)):
             return None
-        from .geometry_2d import SplineItem
-        from .text_item import TextItem
-        if isinstance(item, (TextItem, SplineItem)):
-            return None
-        from .paper_display import paper_pass_active
-        if paper_pass_active():
+        # TextItem: D39 option b. SplineItem: defensive only -- splines are
+        # not in _PARTICIPATING, so their uids never reach the diagnostics.
+        if isinstance(item, (TextItem, SplineItem)) or paper_pass_active():
             return None
         u = getattr(item, "_uid", None)
         st = self._tint_states().get(u) if u is not None else None
         if st is None:
             return None
-        from . import theme as th
-        return th.detect().color(_TINT_TOKEN[st])
+        t = _theme.detect()
+        tc = self._tint_colors
+        if tc is None or tc[0] is not t:
+            tc = self._tint_colors = (t, {s: t.color(k) for s, k in _TINT_TOKEN.items()})
+        return tc[1][st]
 
     def _tint_states(self) -> dict:
-        """``uid -> state``, memoised per frame token / diagnostics result
-        (delta 5: ``diagnostics()`` rebuilds its key over every item, so a
-        per-item call would be O(n^2) per frame). A newly observed result
-        ``update()``s the items whose state changed (at most one frame
-        stale). Only uids in ``item_dof`` get a state -- ``SketchDiag.state``
-        reads unknown uids as "free"."""
+        """The D39 state of every participating uid, memoised (delta 5).
+
+        Memoised per frame token / diagnostics result: ``diagnostics()``
+        rebuilds its key over every item, so a per-item call would be O(n^2)
+        per frame. A newly observed result ``update()``s the (live) items
+        whose state changed -- at most one frame stale.
+
+        Returns:
+            ``{uid: "free" | "defined" | "conflict"}`` over ``item_dof`` only
+            (``SketchDiag.state`` reads unknown uids as "free").
+        """
         sc = self._scene
         tok = (self._commit_gen, self._scene_gen, len(self.constraints),
                sum(len(getattr(sc, n, ()) or ()) for n in _PARTICIPATING))
@@ -961,7 +978,7 @@ class ConstraintController:
             for u in states.keys() | prev.keys():
                 if states.get(u) != prev.get(u):
                     it = by.get(u)
-                    if it is not None:
+                    if it is not None and not sip.isdeleted(it):
                         it.update()
         return states
 

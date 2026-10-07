@@ -525,7 +525,8 @@ def test_tinted_reference_line_keeps_its_dashes(be, themed):
                if _dist(c, bg) > 30]
         if not lit:
             gaps += 1
-        elif all((blend_spread(c, bg, free) or 9) <= 0.12 for c in lit):
+        elif all(sp is not None and sp <= 0.12
+                 for sp in (blend_spread(c, bg, free) for c in lit)):
             on += 1
         else:
             other += 1
