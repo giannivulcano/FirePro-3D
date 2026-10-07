@@ -22,7 +22,12 @@ from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
 
 
 def default_border_weight() -> str:
-    """Factory text-border weight: the live row nearest 0.25 mm (MW-5)."""
+    """Factory text-border weight: the live row nearest 0.25 mm (MW-5).
+
+    Used as the ``TextAnnotationData.border_weight`` default_factory: the
+    first call may seed the project table, which may migrate an untouched
+    legacy template -- one idempotent QSettings write (MW-4).
+    """
     from .constants import TEXT_BORDER_DEFAULT_MM
     from .paper_display import nearest_weight_name
     return nearest_weight_name(TEXT_BORDER_DEFAULT_MM)

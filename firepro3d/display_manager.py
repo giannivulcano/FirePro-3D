@@ -2293,7 +2293,8 @@ class DisplayManager(QDialog):
         # Load data
         cats = load_paper_categories(self._settings)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
-        from .paper_display import picker_weight_name
+        from .paper_display import factory_paper_categories, picker_weight_name
+        factory_all = factory_paper_categories()
 
         self._paper_cat_data: dict[str, dict] = {}
 
@@ -2391,7 +2392,8 @@ class DisplayManager(QDialog):
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
                 lw_combo.addItems(lw_names)
-                cur_lw = picker_weight_name(cat.get("line_weight", "Medium"))  # MW-6: the row it draws as
+                cur_lw = picker_weight_name(cat.get("line_weight")
+                                            or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                 idx = lw_combo.findText(cur_lw)
                 if idx >= 0:
                     lw_combo.setCurrentIndex(idx)
@@ -2888,9 +2890,10 @@ class DisplayManager(QDialog):
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
         from .paper_display import (weight_names, load_paper_categories,
-                                    picker_weight_name)
+                                    picker_weight_name, factory_paper_categories)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
+        factory_all = factory_paper_categories()
         self._suppress = True
         for key, widgets in self._paper_cat_data.items():
             combo = widgets["lw_combo"]
@@ -2901,7 +2904,9 @@ class DisplayManager(QDialog):
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             else:
-                cat_lw = picker_weight_name(cats[key].get("line_weight", "Medium"))  # MW-6: the row it draws as
+                cat_lw = picker_weight_name(
+                    cats[key].get("line_weight")
+                    or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                 idx = combo.findText(cat_lw)
                 combo.setCurrentIndex(max(0, idx))
         self._suppress = False

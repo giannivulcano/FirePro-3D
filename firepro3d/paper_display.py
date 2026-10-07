@@ -19,7 +19,7 @@ from PyQt6.QtCore import QSettings
 
 from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
-                        MODEL_BLOCKS_FACTORY_MM)
+                        MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM)
 
 _log = logging.getLogger(__name__)
 
@@ -266,7 +266,9 @@ def project_line_weights() -> list[LineWeightDef]:
     """The live project weight table (seeded from the template on first use).
 
     Callers must not mutate the result (or its defs); use
-    ``set_project_line_weights`` to change the table.
+    ``set_project_line_weights`` to change the table. The first (lazy) seed
+    reads the template via ``load_line_weights``, which may migrate an
+    untouched legacy template -- one idempotent QSettings write (MW-4).
     """
     if _PROJECT_LW is None:
         set_project_line_weights(load_line_weights())   # copies the defs
@@ -367,7 +369,9 @@ def paper_pass_active() -> bool:
 def auto_model_px(width_mm: float) -> int:
     """Auto canvas width (MW-3): round-half-up(mm x factor), min 1 -- the
     value the Line Weights tab shows as "Auto (n)" (Thin Lines ignored)."""
-    return max(1, math.floor(width_mm * _MODEL_FACTOR + 0.5))
+    # round(.., 9) first: float noise (1.16 x 12.5 = 14.4999..) must not turn
+    # an exact half down.
+    return max(1, math.floor(round(width_mm * _MODEL_FACTOR, 9) + 0.5))
 
 
 def canvas_weight_px(width_mm: float) -> float:
@@ -388,7 +392,8 @@ def canvas_px_for_weight(name: str) -> float:
     d = _resolve_def(name)
     if d is not None and d.model_px is not None:
         return float(d.model_px)
-    return float(auto_model_px(d.width_mm if d is not None else 0.25))
+    return float(auto_model_px(d.width_mm if d is not None
+                               else DEFAULT_LINE_WEIGHT_MM))
 
 
 def _parse_weight_list(raw) -> list[LineWeightDef] | None:
@@ -642,13 +647,8 @@ def apply_paper_display_from_project(data: dict | None):
 
 def _nearest_def(mm: float, defs) -> LineWeightDef | None:
     """Exact-mm row, else the nearest (tie -> thinner) -- MW-5 / MW-6."""
-    defs = list(defs)
-    if not defs:
-        return None
-    for d in defs:
-        if abs(d.width_mm - mm) < 1e-9:
-            return d
-    return min(defs, key=lambda d: (abs(d.width_mm - mm), d.width_mm))
+    return min(defs, key=lambda d: (abs(d.width_mm - mm), d.width_mm),
+               default=None)
 
 
 def nearest_weight_name(mm: float) -> str:
@@ -700,7 +700,7 @@ def resolve_line_weight_mm(name: str,
         d = _resolve_def(name, load_line_weights(settings), canonical=False)
     else:
         d = _resolve_def(name)
-    return d.width_mm if d is not None else 0.25
+    return d.width_mm if d is not None else DEFAULT_LINE_WEIGHT_MM
 
 
 _HATCH_MM: float | None = None
@@ -715,7 +715,8 @@ def hatch_line_mm() -> float:
     global _HATCH_MM
     if _HATCH_MM is None:
         cat = load_paper_categories().get("Hatch", {})
-        _HATCH_MM = resolve_line_weight_mm(cat.get("line_weight", "Very Light"))
+        _HATCH_MM = resolve_line_weight_mm(
+            cat.get("line_weight") or factory_paper_categories()["Hatch"]["line_weight"])
     return _HATCH_MM
 
 

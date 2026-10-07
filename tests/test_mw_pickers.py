@@ -99,3 +99,64 @@ def test_unknown_name_keeps_todays_display(qapp):
     item = TextItem(TextAnnotationData(text="A", border=True,
                                        border_weight="Foo"))
     assert item.get_properties()["Border Weight"]["value"] == "Foo"
+
+
+def test_capability_dash_weight_row_shows_resolved_row(qapp):
+    from firepro3d import linetype_authoring as la
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.capability_panel import capability_rows
+    from firepro3d.model_space import Model_Space
+    _new_table()
+    w = BlockEditorWidget(Model_Space())
+    assert w.toggle_capability("repeat")
+    sc = w.editor_scene
+    la.set_pattern_weight(sc, "Heavy")             # legacy stored dash weight
+    row = capability_rows(sc)["Weight"]
+    assert row["value"] == "Thin" and row["value"] in row["options"]
+    assert la.pattern_weight(sc) == "Heavy"
+
+
+def test_capability_by_category_label_shows_resolved_row(qapp):
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.capability_panel import capability_rows
+    from firepro3d.model_space import Model_Space
+    _new_table()
+    pd.set_model_blocks_weight("Heavy")
+    try:
+        w = BlockEditorWidget(Model_Space())
+        assert w.toggle_capability("repeat")
+        opts = capability_rows(w.editor_scene)["Weight"]["options"]
+        assert opts[0] == "By Category (Thin)"
+    finally:
+        pd.set_model_blocks_weight(None)
+
+
+def test_by_linetype_label_shows_resolved_row(qapp):
+    from firepro3d import stroke_style as ss
+    from firepro3d.model_space import Model_Space
+    _new_table()
+    pd.set_model_blocks_weight("Heavy")
+    try:
+        ms = Model_Space()
+        assert (ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, ms.block_registry)
+                == "By Linetype (Thin)")
+    finally:
+        pd.set_model_blocks_weight(None)
+
+
+def test_underlay_weight_cell_shows_resolved_row(qapp):
+    from PyQt6.QtCore import QModelIndex
+    from firepro3d.theme import DARK
+    from firepro3d.underlay_manager_delegates import WeightDelegate
+    from firepro3d.underlay_manager_model import Col
+    from tests.test_underlay_manager_delegates import _dxf_model
+    _new_table()
+    rec, _scene, model = _dxf_model()
+    rec.line_weight_name = "Heavy"
+    rec.layer_overrides = {"GRID": {"line_weight": "Medium"}}
+    d = WeightDelegate(DARK)
+    top = model.index(0, int(Col.WEIGHT), QModelIndex())
+    grid = model.index(0, int(Col.WEIGHT), model.index(0, 0, QModelIndex()))
+    assert d._current_name(top) == "Thin"
+    assert d._current_name(grid) == "Thinner"
+    assert rec.line_weight_name == "Heavy"

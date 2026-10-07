@@ -211,7 +211,9 @@ def weight_label(weight: str, linetype: str, registry) -> str:
     if weight != BY_LINETYPE:
         return weight
     rs = resolve_stroke({"linetype": linetype, "weight": BY_LINETYPE}, registry)
-    name = rs.weight if rs.weight != BY_LINETYPE else _pd.model_blocks_weight()
+    # MW-6: label the row the weight draws as (a legacy name shows its row).
+    name = _pd.picker_weight_name(
+        rs.weight if rs.weight != BY_LINETYPE else _pd.model_blocks_weight())
     return f"{BY_LINETYPE_LABEL} ({name})"
 
 

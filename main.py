@@ -48,7 +48,8 @@ from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
-from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
+from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
+                                 MODEL_WEIGHT_FACTOR)
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
@@ -614,7 +615,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Model weight factor (MW-2): a System setting, restored before any
         # underlay is built so build-time pens bake the right width. Read
         # untyped: set_model_weight_factor maps junk / out-of-range to factory.
-        from firepro3d.constants import MODEL_WEIGHT_FACTOR
         from firepro3d.paper_display import set_model_weight_factor
         set_model_weight_factor(self.settings.value(
             "view/model_weight_factor", MODEL_WEIGHT_FACTOR))

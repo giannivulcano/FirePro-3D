@@ -83,6 +83,9 @@ FIXED_LINETYPE_PX_PER_MM = 6.0
 # Built-in weight defaults state an intended paper mm (MW-5).
 TEXT_BORDER_DEFAULT_MM = 0.25
 MODEL_BLOCKS_FACTORY_MM = 0.18
+# Paper mm of a weight name that resolves to no row (unknown, non-factory
+# name -- MW-6 fallback).
+DEFAULT_LINE_WEIGHT_MM = 0.25
 
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic

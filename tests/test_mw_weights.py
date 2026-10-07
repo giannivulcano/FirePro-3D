@@ -161,7 +161,8 @@ def test_fpdb_carries_overrides_and_project_wins(qapp, tmp_path):
     d = BlockDefinition.new(name="Tag", library="Lib", series="S",
                             primitives=[prim], origin=(0.0, 0.0))
     path = block_library.save_to_library(d)
-    rec = json.load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as fh:
+        rec = json.load(fh)
     assert rec["weights"] == {"X40": 0.40} and rec["weight_model_px"] == {"X40": 7}
     pd.set_project_line_weights(_defs(_NEW))
     Model_Space().load_blocks_from_files([path])
@@ -219,3 +220,11 @@ def test_mw6_applied_current_factory_name_maps_by_mm(qapp):
     ss.set_current(weight="Heavy")
     ss.apply_current(ln, ms)
     assert ln.style["weight"] == "Thin"
+
+
+def test_auto_rule_half_up_at_decimal_factor():
+    # 1.16 x 12.5 = 14.5 and 2.28 x 12.5 = 28.5 exactly; float noise must
+    # not round them down (MW-3 round-half-up).
+    pd.set_model_weight_factor(12.5)
+    assert pd.auto_model_px(1.16) == 15
+    assert pd.auto_model_px(2.28) == 29
