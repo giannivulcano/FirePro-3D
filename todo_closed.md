@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes -- WM2 weight model, placement half -- 2026-10-07
+
+- [x] [type:feature] WM2 — Weight model, placement half: Weight (As Authored | By Category | named) + Linetype (As Authored | named) on `BlockInstance` and nested `block_instance` records, outer-wins resolution on canvas + paper, Explode bakes resolved values, end blocks follow the placement weight [P2] [subject:CAD] [done:2026-10-07]
+  - Details: `linetypes.md` WM-2/3/4/6/11/12. Replace-all override (linetype-embedded symbols keep weight; hatch tile strokes untouched); By Linetype resolves against the effective (post-override) linetype; fallback category = the drawing item's ("Blocks" Model / paper). Panel rows on placed blocks (plan) and on nested records (Block Editor), undoable, persisted in `.fpd` / definitions / `.fpdb`, clipboard. Replaces concept LD1's placement `style` slot and the LT2-9 explode rule. Acceptance = the spec's "Sprinkler" scenarios on canvas + PDF. Depends WM1. Tier Large. Blocks LT5.
+  - Built 2026-10-07 on `feat/wm2-placement-overrides` (verified `a65daf67`; feature/Large, chain 1 → 1b → 2 → 3 → 4 → 5 → 6, FP3 + FP6). Phase-2 Q1–Q12 + design H1–H8: `docs/superpowers/specs/2026-10-07-wm2-placement-overrides-design.md`; as built: `linetypes.md` "WM2 — as built". Separate `overrides` key; derived op list (`render_op.apply_overrides`) at compile (nested, outer wins) and per instance (placement); five restore sites; Explode bake + compose; full references (deps, delete refusal "by blocks", rename incl. Cancel, `.fpdb`); panel rows + mixed-selection filtering + tile/repeat lock. Guards G1–G12 (`tests/test_wm2_*.py`). Text-box border half of WM-12 and the end-block half of WM-11 deferred (filed / LT5). Perf: paired evidence accepted (As Authored 0.98/0.99× base; Weight ≤ 1.1×; Linetype ~1.75× report-only).
+
 ## Schematics -- concept design -- 2026-10-07
 
 - [x] [type:design] Schematic views concept — a schematic is a block-like definition authored in a Schematic Editor (Block Editor parity), stored project or system, listed under the Project Browser Schematics stub, and placed on sheets only as a viewport; plan an SV1…SVn build series [P1] [subject:Architecture] [done:2026-10-07]
