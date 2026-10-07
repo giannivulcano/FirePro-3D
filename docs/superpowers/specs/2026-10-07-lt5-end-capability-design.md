@@ -207,8 +207,13 @@ Pipes are out (pipe ends are fittings).
 - Integrity: `prim_refs` + explicit end ids; `referenced_ids` + `repeat.ends`;
   `end_users_in` + `invalidate(was_end=)`; end-off and delete refusals;
   `app_data.end_types_dir` + Settings row.
-- Mockup gate: served HTML of End type mode (frame glyph, trim grip, rows,
-  preview) before the authoring tasks.
+- Mockup gate **passed 2026-10-07** (served HTML, user-ratified): attach
+  glyph = accent crosshair (±8 px) + a +X arrow (arm 28 px, cosmetic) at the
+  origin; **no** frame box around the content; sample line = 35 % ink
+  (`PREVIEW_OPACITY`) from −X, 18 mm long, ending at the trim point; trim
+  grip = the circular LT4-style grip on the axis at x = −trim (X-only, ≥ 0);
+  panel rows header "End type" · Size · Trim · Preview (`PaintSwatch`: the
+  end on a Thin and a Heavy sample line).
 
 ## Acceptance Criteria
 
