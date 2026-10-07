@@ -66,3 +66,22 @@ class RenderOp:
         return replace(self, path=t.map(self.path),
                        origin=None if self.origin is None else t.map(self.origin),
                        pieces=pieces)
+
+
+def apply_overrides(ops, weight=None, linetype=None):
+    """*ops* with every styled stroke's weight / linetype replaced (WM2 H2).
+
+    Keyword-agnostic: ``None`` = keep. Text / fill / pattern ops and the
+    unstyled placeholder (``weight is None``) are returned as is; the input
+    list and its shared flyweight ops are never mutated. With nothing to
+    replace the input list itself is returned (the As Authored fast path).
+    """
+    if weight is None and linetype is None:
+        return ops
+    kw = {}
+    if weight is not None:
+        kw["weight"] = weight
+    if linetype is not None:
+        kw["linetype"] = linetype
+    return [replace(op, **kw) if op.kind == STROKE and op.weight is not None
+            else op for op in ops]
