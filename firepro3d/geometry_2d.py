@@ -601,6 +601,8 @@ class Geometry2DMixin:
             self._set_linetype_from_panel(str(value))
             return True
         if self.style is not None and key in ("Weight", "Colour"):
+            if key == "Weight" and _is_block_only_weight_label(value):
+                return True                    # WM2 Q5: not a primitive value
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
@@ -3678,9 +3680,28 @@ _WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
 _LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
 _LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
                       "(set it in the Repeat section)")
+_PLACEMENT_LINETYPE_TIP = (
+    "Linetype for every stroke in this block, nested blocks included. "
+    "As Authored keeps each stroke's own linetype.")
+_PLACEMENT_WEIGHT_TIP = (
+    "Line weight for every stroke in this block, nested blocks included. "
+    "As Authored keeps each stroke's own weight; By Category uses the "
+    "Display Manager “Blocks” weight (shown in brackets).")
+_LOCKED_PLACEMENT_TIP = (
+    "Strokes in a pattern tile or linetype unit draw Continuous at the "
+    "pattern's own pen, so a nested block can't override them here.")
 
 
-def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> dict:
+def _is_block_only_weight_label(value) -> bool:
+    """True for a placement-only Weight label (WM2 Q5): "As Authored" or
+    "By Category (...)" -- never a primitive value."""
+    from .stroke_style import AS_AUTHORED_LABEL, BY_CATEGORY_LABEL
+    v = str(value)
+    return v == AS_AUTHORED_LABEL or v.startswith(BY_CATEGORY_LABEL)
+
+
+def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
+                placement: bool = False) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -3691,26 +3712,41 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> d
         exclude: Linetype ids the picker must not offer (``picker_exclude``).
         locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
             the Linetype row is disabled with a "why" tooltip.
+        placement: Rows for a placed block / nested record (WM2 Q4): As
+            Authored + By Category instead of By Linetype.
     """
+    from .paper_display import model_blocks_weight as _pd_blocks
     from .paper_display import picker_weight_name, weight_names
     from .linetype_choices import linetype_choices, missing_label
-    from .stroke_style import BY_LINETYPE, weight_label
+    from .stroke_style import (AS_AUTHORED, AS_AUTHORED_LABEL, BY_CATEGORY,
+                               BY_CATEGORY_LABEL, BY_LINETYPE, weight_label)
     lt = style["linetype"]
     choices = linetype_choices(registry, exclude)
+    if placement:
+        choices = [(AS_AUTHORED_LABEL, AS_AUTHORED), *choices]
     options = [n for n, _ in choices]
     value = next((n for n, r in choices if r == lt), None)
     if value is None:
         # LT3-10: an unresolvable id shows as missing (kept until re-picked).
         value = missing_label(lt)
         options = [value] + options
-    by_lt = weight_label(BY_LINETYPE, lt, registry)
     w = style["weight"]
+    if placement:
+        by_cat = f"{BY_CATEGORY_LABEL} ({picker_weight_name(_pd_blocks())})"
+        head = [AS_AUTHORED_LABEL, by_cat]
+        value_w = {AS_AUTHORED: AS_AUTHORED_LABEL,
+                   BY_CATEGORY: by_cat}.get(w) or picker_weight_name(w)
+        tip_lt, tip_w = _PLACEMENT_LINETYPE_TIP, _PLACEMENT_WEIGHT_TIP
+    else:
+        by_lt = weight_label(BY_LINETYPE, lt, registry)
+        head = [by_lt]
+        value_w = by_lt if w == BY_LINETYPE else picker_weight_name(w)
+        tip_lt, tip_w = _LINETYPE_TIP, _WEIGHT_TIP
     rows = {
         "Linetype": {"type": "enum", "options": options, "value": value,
-                     "tooltip": _LINETYPE_TIP},
-        "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
-                   "value": by_lt if w == BY_LINETYPE else picker_weight_name(w),
-                   "tooltip": _WEIGHT_TIP},
+                     "tooltip": tip_lt},
+        "Weight": {"type": "enum", "options": [*head, *weight_names()],
+                   "value": value_w, "tooltip": tip_w},
     }
     if locked:
         rows["Linetype"]["disabled"] = True

@@ -28,9 +28,10 @@ from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
-from .render_op import STROKE, FILL, PATTERN, TEXT
-from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
-                           linetype_block, resolve_stroke)
+from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
+from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, canvas_px,
+                           is_as_authored, is_linetype_ref, linetype_block,
+                           normalize_overrides, override_args, resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
 
@@ -87,6 +88,12 @@ class BlockInstance(QGraphicsObject):
         self._level_offset_mm = float(level_offset_mm)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
+        # Placement Weight / Linetype override (linetypes.md WM2): As
+        # Authored x2 by default; _ov_args is None while nothing overrides
+        # (render_ops' fast path returns the definition's list itself).
+        self.overrides: dict = normalize_overrides(None)
+        self._ov_args = None
+        self._ov_cache = None      # (base ops list, args, derived list)
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
@@ -116,8 +123,36 @@ class BlockInstance(QGraphicsObject):
         return self._resolver(self.block_id)
 
     def render_ops(self):
+        """The definition's compiled ops with this placement's override
+        applied (WM2 H2) -- the base list itself while As Authored; else one
+        derived list memoised on (base list identity, override args), held
+        so its identity can't be recycled (the ``_posed_cache`` idiom)."""
         d = self.definition()
-        return d.render_ops() if d is not None else []
+        base = d.render_ops() if d is not None else []
+        a = self._ov_args
+        if a is None:
+            return base
+        c = self._ov_cache
+        if c is not None and c[0] is base and c[1] == a:
+            return c[2]
+        out = apply_overrides(base, *a)
+        self._ov_cache = (base, a, out)
+        return out
+
+    def set_overrides(self, ov, canonical: bool = True) -> None:
+        """Replace the placement override (normalised); repaint.
+
+        Args:
+            ov: The override dict.
+            canonical: False stores a named weight raw (not alias-mapped) --
+                the Display Manager Cancel replay of a weight rename.
+        """
+        self.prepareGeometryChange()
+        self.overrides = normalize_overrides(ov, canonical)
+        a = override_args(self.overrides, canonical)
+        self._ov_args = None if a == (None, None) else a
+        self._ov_cache = None
+        self.update()
 
     def on_definition_changed(self) -> None:
         """Called by the definition when its geometry changes: repaint."""
@@ -146,9 +181,12 @@ class BlockInstance(QGraphicsObject):
         Returns:
             A D2 ``block_instance`` primitive record (definition-local pose).
         """
-        return {"type": "block_instance", "block_id": self.block_id,
-                "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
-                "uid": self._uid}
+        d = {"type": "block_instance", "block_id": self.block_id,
+             "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
+             "uid": self._uid}
+        if not is_as_authored(self.overrides):
+            d["overrides"] = dict(self.overrides)
+        return d
 
     def set_block_rotation(self, deg: float) -> None:
         self.prepareGeometryChange()
@@ -569,13 +607,13 @@ class BlockInstance(QGraphicsObject):
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
 
-        By Linetype (and a legacy un-migrated By Block) / unweighted ops take
-        the category weight
+        By Linetype (and a legacy un-migrated By Block), a placement By
+        Category and unweighted ops take the category weight
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """
         w = weight
-        if w is None or w in (BY_BLOCK, BY_LINETYPE) or not self._paper_scale:
+        if w is None or w in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY) or not self._paper_scale:
             return self._paper_pen_width
         return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
@@ -641,7 +679,7 @@ class BlockInstance(QGraphicsObject):
             return None
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Type":         {"type": "label",     "value": "Block"},
             "Level":        {"type": "level_ref", "value": self.level},
             "Level Offset": {"type": "dimension", "value": self._fmt(self._level_offset_mm),
@@ -650,6 +688,20 @@ class BlockInstance(QGraphicsObject):
             # RegularPolygonItem / EllipseItem Rotation convention).
             "Rotation":     {"type": "string",    "value": f"{self._pose_rot:.1f}"},
         }
+        # WM2 Q4: placement Linetype / Weight overrides; Q12: locked inside a
+        # pattern-tile / linetype-unit Block Editor (strokes draw Continuous
+        # at the pattern's own pen there).
+        from .geometry_2d import _LOCKED_PLACEMENT_TIP, stroke_rows
+        from .hatch_patterns import picker_exclude
+        sc = self.scene()
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        rows = stroke_rows(self.overrides, reg, picker_exclude(sc), placement=True)
+        if self._overrides_locked():
+            for k in ("Linetype", "Weight"):
+                rows[k]["disabled"] = True
+                rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
+        props.update(rows)
+        return props
 
     def set_property(self, key: str, value) -> None:
         if key == "Level":
@@ -663,6 +715,70 @@ class BlockInstance(QGraphicsObject):
                 self.set_block_rotation(float(value))
             except (TypeError, ValueError):
                 pass
+        elif key in ("Weight", "Linetype"):
+            if self._overrides_locked():
+                return                  # Q12: a mixed selection can't bypass the lock
+            self._set_override_from_panel(key, str(value))
+
+    def _overrides_locked(self) -> bool:
+        """True inside a pattern-tile / linetype-unit Block Editor (WM2 Q12),
+        where strokes draw Continuous at the pattern's own pen, so the
+        placement Linetype / Weight rows are locked."""
+        sc = self.scene()
+        return sc is not None and (getattr(sc, "block_tile", None) is not None
+                                   or getattr(sc, "block_repeat", None) is not None)
+
+    def _set_override_from_panel(self, key: str, value: str) -> None:
+        """Apply a panel pick to the placement override (WM2 Q4/Q5).
+
+        A value outside this row's option set (a primitive's "By Linetype
+        (...)", an unknown name, "Missing (<id>)") changes nothing. A
+        Linetypes-folder pick is loaded into the project first (its load is
+        the undo step); any other change requests one undo step.
+        """
+        from . import stroke_style as ss
+        from .paper_display import weight_names
+        from .linetype_choices import (ensure_linetype_available,
+                                       is_missing_label,
+                                       linetype_ref_from_value)
+        from .hatch_patterns import picker_exclude
+        new = dict(self.overrides)
+        if key == "Weight":
+            if value == ss.AS_AUTHORED_LABEL:
+                new["weight"] = ss.AS_AUTHORED
+            elif value.startswith(ss.BY_CATEGORY_LABEL):
+                new["weight"] = ss.BY_CATEGORY
+            elif value in weight_names():
+                new["weight"] = value
+            else:
+                return
+        else:
+            if value == ss.AS_AUTHORED_LABEL:
+                new["linetype"] = ss.AS_AUTHORED
+            elif is_missing_label(value):
+                return                       # LT3-10: never rewrite a missing ref
+            else:
+                sc = self.scene()
+                reg = getattr(sc, "block_registry", None) if sc is not None else None
+                ref = linetype_ref_from_value(value, reg, picker_exclude(sc))
+                if ref is None:
+                    return
+                if ss.is_linetype_ref(ref) and reg is not None and reg.get(ref) is None:
+                    # Set before the load so its one undo snapshot carries the
+                    # new ref; a failed load restores the old override.
+                    old = self.overrides
+                    self.set_overrides({**new, "linetype": ref})
+                    if not ensure_linetype_available(ref, sc):
+                        self.set_overrides(old)
+                    return
+                new["linetype"] = ref
+        if ss.normalize_overrides(new) == self.overrides:
+            return                                   # no-op commit: no step
+        self.set_overrides(new)
+        sc = self.scene()
+        req = getattr(sc, "request_undo_push", None) if sc is not None else None
+        if callable(req):
+            req()
 
     # ── Serialization ────────────────────────────────────────────────────
     def to_dict(self) -> dict:
@@ -677,6 +793,8 @@ class BlockInstance(QGraphicsObject):
         }
         if self._level_offset_mm != 0.0:
             d["level_offset_mm"] = self._level_offset_mm
+        if not is_as_authored(self.overrides):
+            d["overrides"] = dict(self.overrides)
         return d
 
     @classmethod
@@ -689,6 +807,7 @@ class BlockInstance(QGraphicsObject):
         inst._pose_x, inst._pose_y = float(pos[0]), float(pos[1])
         inst._pose_rot = float(data.get("rotation", 0.0))
         inst.attributes = dict(data.get("attributes", {}))
+        inst.set_overrides(data.get("overrides"))
         if data.get("uid"):
             inst._uid = str(data["uid"])
         return inst

@@ -17,6 +17,11 @@ from . import paper_display as _pd
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"          # legacy input only -- migrated by normalize_style (WM-9)
 BY_LINETYPE = "by_linetype"
+AS_AUTHORED = "as_authored"    # placement / nested-record override: keep (WM2)
+BY_CATEGORY = "by_category"    # placement weight: the "Blocks" category (WM-3)
+AS_AUTHORED_LABEL = "As Authored"
+BY_CATEGORY_LABEL = "By Category"
+_KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
 
 # Primitive types that carry a style record (LT2-1). Text keeps border_weight;
@@ -121,9 +126,9 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
 
 
 def is_named_weight(w) -> bool:
-    """True for a by-name weight reference (a non-empty string that is not
-    ``by_block`` / ``by_linetype``) -- the refs a rename must follow (LT2-8)."""
-    return isinstance(w, str) and bool(w) and w not in (BY_BLOCK, BY_LINETYPE)
+    """True for a by-name weight reference (a non-empty string that is no
+    keyword) -- the refs a rename must follow (LT2-8, WM2)."""
+    return isinstance(w, str) and bool(w) and w not in _KEYWORDS
 
 
 def linetype_block(ref, registry):
@@ -142,18 +147,20 @@ def linetype_ref_missing(ref, registry) -> bool:
 
 def is_linetype_ref(lt) -> bool:
     """True for a linetype block-id reference (a non-empty string that is not
-    ``continuous`` / ``by_block``) -- the values the LT3-8 cascade resolves
-    through the registry (and that can go missing, LT3-10)."""
-    return isinstance(lt, str) and bool(lt) and lt not in (CONTINUOUS, BY_BLOCK)
+    ``continuous`` / ``by_block`` / a keyword) -- the values the LT3-8
+    cascade resolves through the registry (and that can go missing, LT3-10)."""
+    return (isinstance(lt, str) and bool(lt)
+            and lt not in (CONTINUOUS, BY_BLOCK, AS_AUTHORED, BY_CATEGORY))
 
 
 def canvas_weight_name(weight: str) -> str:
     """The named weight a canvas stroke resolves to (LT2-4).
 
     By Linetype with no dash weight (WM-5; a legacy un-migrated By Block
-    too) maps to the Display Manager Model "Blocks" weight.
+    too) and a placement By Category (WM-3) map to the Display Manager Model
+    "Blocks" weight.
     """
-    if weight in (BY_BLOCK, BY_LINETYPE):
+    if weight in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY):
         return _pd.model_blocks_weight()
     return weight
 
@@ -221,6 +228,62 @@ def weight_from_label(label) -> str:
     """The style weight a panel label stands for (inverse of ``weight_label``)."""
     v = str(label)
     return BY_LINETYPE if v.startswith(BY_LINETYPE_LABEL) else v
+
+
+# -- WM2: placement / nested-record overrides ------------------------------
+
+def normalize_overrides(d, canonical: bool = True) -> dict:
+    """A complete ``{"weight", "linetype"}`` override record (WM2 H1).
+
+    Missing / blank / non-string / foreign keyword -> As Authored; a named weight is canonicalised through
+    the rename aliases (legacy factory names keep resolving by mm at paint,
+    MW-6); a linetype value is kept verbatim (``continuous`` or an id).
+
+    Args:
+        d: The raw override dict (anything else reads As Authored).
+        canonical: False keeps a named weight raw -- the Display Manager
+            Cancel replay writes a pre-rename name while its alias is live.
+    """
+    d = d if isinstance(d, dict) else {}
+    w = d.get("weight")
+    w = w.strip() if isinstance(w, str) else ""
+    if not w or w in (BY_BLOCK, BY_LINETYPE, CONTINUOUS):
+        w = AS_AUTHORED
+    elif canonical and w != AS_AUTHORED and w != BY_CATEGORY:
+        w = _pd.canonical_weight_name(w)
+    lt = d.get("linetype")
+    lt = lt.strip() if isinstance(lt, str) else ""
+    if not lt or lt in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY):
+        lt = AS_AUTHORED
+    return {"weight": w, "linetype": lt}
+
+
+def is_as_authored(ov) -> bool:
+    """True when *ov* overrides nothing (omitted from saved records)."""
+    ov = normalize_overrides(ov)
+    return ov["weight"] == AS_AUTHORED and ov["linetype"] == AS_AUTHORED
+
+
+def override_args(ov, canonical: bool = True) -> tuple:
+    """``(weight | None, linetype | None)`` for ``render_op.apply_overrides``
+    (*canonical* as in :func:`normalize_overrides`)."""
+    ov = normalize_overrides(ov, canonical)
+    return (None if ov["weight"] == AS_AUTHORED else ov["weight"],
+            None if ov["linetype"] == AS_AUTHORED else ov["linetype"])
+
+
+def override_refs(ov) -> tuple[set, set]:
+    """``(named weights, linetype ids)`` an override references (WM2 H4)."""
+    ov = normalize_overrides(ov)
+    w = {ov["weight"]} if is_named_weight(ov["weight"]) else set()
+    lt = {ov["linetype"]} if is_linetype_ref(ov["linetype"]) else set()
+    return w, lt
+
+
+def compose_overrides(outer, inner) -> dict:
+    """Per axis: *outer*'s value when it overrides, else *inner*'s (Q7)."""
+    o, i = normalize_overrides(outer), normalize_overrides(inner)
+    return {k: (o[k] if o[k] != AS_AUTHORED else i[k]) for k in o}
 
 
 # -- WM1: the current Linetype / Weight for new primitives (WM-10) ----------

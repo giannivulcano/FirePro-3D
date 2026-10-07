@@ -11,7 +11,7 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 from __future__ import annotations
 
 from .hatch_patterns import canonical_ref
-from .stroke_style import is_linetype_ref
+from .stroke_style import is_linetype_ref, override_refs
 
 NESTED_TYPE = "block_instance"
 
@@ -31,7 +31,7 @@ def nested_ids(defn) -> set[str]:
 
 def prim_refs(primitives) -> set[str]:
     """Block ids a primitive list depends on: nested records + pattern refs +
-    linetype refs (LT3-2).
+    linetype refs (LT3-2) + nested-record Linetype overrides (WM2 H4).
 
     Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
     are ordinary blocks): bundled with the host, cycle-checked, counted as a
@@ -43,6 +43,7 @@ def prim_refs(primitives) -> set[str]:
     for p in primitives:
         if p.get("type") == NESTED_TYPE and p.get("block_id"):
             out.add(p["block_id"])
+            out |= override_refs(p.get("overrides"))[1]      # WM2 H4
         f = p.get("fill")
         if isinstance(f, dict) and f.get("type") == "hatch":
             ref = canonical_ref(f.get("pattern"))
@@ -56,7 +57,8 @@ def prim_refs(primitives) -> set[str]:
 
 def linetype_users_in(scene, block_id: str) -> list:
     """The scene's live styled primitives whose ``style.linetype`` is
-    *block_id* (LT3-2 / LT3-10); empty for a scene without geometry tools."""
+    *block_id* (LT3-2 / LT3-10), plus placed blocks whose Linetype override
+    is *block_id* (WM2 H4); empty for a scene without geometry tools."""
     tools = getattr(scene, "_tools", None)
     if tools is None:
         return []
@@ -65,6 +67,9 @@ def linetype_users_in(scene, block_id: str) -> list:
         st = getattr(item, "style", None)
         if isinstance(st, dict) and st.get("linetype") == block_id:
             out.append(item)
+    for inst in getattr(scene, "_block_instances", []) or []:
+        if block_id in override_refs(getattr(inst, "overrides", None))[1]:
+            out.append(inst)                      # WM2 H4: placement override
     return out
 
 

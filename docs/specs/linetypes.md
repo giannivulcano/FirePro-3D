@@ -1,7 +1,7 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
-last-verified: 2026-10-07  # MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 736cf5e3   # MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+last-verified: 2026-10-07  # WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: a65daf67   # WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
   - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
   - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
@@ -11,22 +11,25 @@ applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams 
   - firepro3d/capability_panel.py    # LT4 — capability panel rows + write-back (tile rows delegate to tile_frame.py, owned by hatch-and-fill.md); LTS — On screen row
   - firepro3d/block_editor.py        # LT4: toggle_capability, capability seed on open, commit with capability only (rest owned by block-system.md)
   - firepro3d/blocks_browser.py      # LT4: _linetype_badge / _capability_badge + library-row index flags only (rest owned by block-system.md)
-  - firepro3d/model_space.py         # LT4: block_capability slot + set_block_capability, push_undo_state pre-capture call, symbol_use_refusal / linetype_off_refusal, linetype users wording (_linetype_users_message), commit_block_definition capability= only (rest owned by block-system.md and others)
+  - firepro3d/model_space.py         # LT4: block_capability slot + set_block_capability, push_undo_state pre-capture call, symbol_use_refusal / linetype_off_refusal, linetype users wording (_linetype_users_message), commit_block_definition capability= only (rest owned by block-system.md and others); WM2: place_block_instance(overrides=), restore/paste overrides, override-user refusal wording
   - firepro3d/paper_display.py       # LT1: project weight table, canvas mapping, Thin Lines, Blocks paper category; LT2: Model Blocks weight, rename aliases, apply_project_weights, paper_pass_active
-  - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge); LTS: _lt_args, deferred Fixed factor, per-op short rule, lazy view window only (rest owned by block-system.md)
-  - firepro3d/display_manager.py     # LT1/LT2: Line Weights tab, weight in-use / rename / aliases, Model "Blocks" row only (rest owned by display-system)
-  - firepro3d/stroke_style.py        # LT2: stroke style record, migration, copy_style, canvas weight resolution; LT3: resolve_stroke cascade + linetype_block / linetype_ref_missing / is_linetype_ref; LT4: apply_current linetype-editor branch (Continuous + pattern weight)
-  - firepro3d/render_op.py           # LT2: RenderOp.weight; LT3: pieces + linetype only (type owned by hatch-and-fill.md)
+  - firepro3d/block_instance.py      # LT1/LT2: paper pen hooks + per-op weight resolution; LT3: linetype paint (memo, expansion cache, plain fast path, badge); LTS: _lt_args, deferred Fixed factor, per-op short rule, lazy view window only (rest owned by block-system.md); WM2: overrides / set_overrides / derived render_ops / _paper_op_width by_category / placement panel rows
+  - firepro3d/display_manager.py     # LT1/LT2: Line Weights tab, weight in-use / rename / aliases, Model "Blocks" row only (rest owned by display-system); WM2: inst / nrec weight refs + rename
+  - firepro3d/stroke_style.py        # LT2: stroke style record, migration, copy_style, canvas weight resolution; LT3: resolve_stroke cascade + linetype_block / linetype_ref_missing / is_linetype_ref; LT4: apply_current linetype-editor branch (Continuous + pattern weight); WM2: AS_AUTHORED / BY_CATEGORY + override helpers
+  - firepro3d/render_op.py           # LT2: RenderOp.weight; LT3: pieces + linetype only (type owned by hatch-and-fill.md); WM2: apply_overrides
   - firepro3d/path_walk.py           # LT3 — analytic pieces, arc length, axis phase, split, split_at_zero
   - firepro3d/linetype_render.py     # LT3 — unit reading, expansion, paint_stroke / draw_expansion, missing badge; LT4 — axis_role (the one per-Line LT3-3 role, shared by the reading and the Pattern list); LTS — length_factor / fixed_on_canvas / periods_on, view_window / visible_spans / expand(window=), _walk_seg fast path
   - firepro3d/linetype_choices.py    # LT3 — panel Linetype picker source (project + Linetypes folder)
   - firepro3d/capability_folder.py   # LT3 parts — shared tile/repeat folder scan ("repeat" flag; the hatch side is owned by hatch-and-fill.md)
-  - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile; LTS: repeat.screen in _norm_repeat only (rest owned by block-system.md)
-  - firepro3d/block_registry.py      # LT3: linetype refs in prim_refs, linetype_users_in, invalidate(was_linetype) only
-  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows; LTS _lt_args + device-scale/fixed= routing only (the rest is owned by 2d-geometry.md)
+  - firepro3d/block_definition.py    # LT3: repeat key + stroke-op pieces at compile; LTS: repeat.screen in _norm_repeat only (rest owned by block-system.md); WM2: nested-record overrides in _load_prim / _nested_ops
+  - firepro3d/block_registry.py      # LT3: linetype refs in prim_refs, linetype_users_in, invalidate(was_linetype) only; WM2: override refs in prim_refs / linetype_users_in
+  - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows; LTS _lt_args + device-scale/fixed= routing only (the rest is owned by 2d-geometry.md); WM2: stroke_rows(placement=) + block-only label filter
   - firepro3d/geometry_drawing_controller.py  # WM1: apply_current at the 7 draw commits only
   - firepro3d/placement_input_coordinator.py  # WM1: scene-aware GeometryTemplate only
   - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore; LT4: ribbon Linetype toggle (_be_toggle_linetype / _be_toggle_capability / _sync_capability_buttons) only
+  - firepro3d/block_explode.py      # WM2: _bake (placement override onto exploded primitives) + compose_overrides onto nested children only (rest owned by block-system.md)
+  - firepro3d/block_library.py      # WM2: used_weight_names counts nested-record override weights only (rest owned by block-system.md)
+  - firepro3d/scene_io.py           # WM2: file-open block loop passes overrides= only
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
 
@@ -211,8 +214,9 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 > settled in a Phase-2 grill (Q1–Q12, every row user-ratified); supersedes
 > D-L4 (weight half), D-L5, D-L6, D-L17 and LT2-9, amends D-L18/D-L19/D-L22.
 > **WM1 BUILT 2026-10-05** (primitive half, `feat/wm1-weight-model-primitive`,
-> verified `123ead7` — see "WM1 — as built" below); WM2 (placement half) and
-> WM3 (colour cascade) unbuilt in `todo_open.md`. Worked examples below are
+> verified `123ead7` — see "WM1 — as built" below); **WM2 BUILT 2026-10-07**
+> (placement half, `feat/wm2-placement-overrides`, verified `a65daf67` — see
+> "WM2 — as built" below); WM3 (colour cascade) unbuilt in `todo_open.md`. Worked examples below are
 > the acceptance scenarios.
 
 - **WM-1 Drivers** (all four ratified): what is authored is what is seen; a
@@ -334,6 +338,94 @@ round-trip; G5 no "By Block" UI string). Contract-retired + rewritten:
 `test_lt2_edit_tools` (`_styled` marker), `test_lt2_panel` (4),
 `test_lt3_picker` (option lists, fixed choices), `test_lt2_migration` (2),
 `test_block_curve_import` (1).
+
+### WM2 — as built (2026-10-07, verified `a65daf67`)
+
+Placement half of the Weight model: a placed block (plan) and a nested
+`block_instance` record (Block Editor) carry **Weight** (As Authored | By
+Category | named) and **Linetype** (As Authored | named), replace-all,
+outermost wins (WM-2/3/4/6). Design + Phase-2 rulings Q1–Q12:
+`docs/superpowers/specs/2026-10-07-wm2-placement-overrides-design.md`.
+Colour (WM-7/WM-8) is WM3.
+
+*What* (Phase-2 Q1–Q12, user-ratified, FP3 deltas): the data path is the core
+deliverable (Q1); overrides never restyle the red missing-nested placeholder;
+reference-mode definitions are never placed (Q2); the text-box border inside a
+block is not compiled today, so the WM-12 border half is a follow-up (Q3); end
+blocks follow the placement Weight in LT5, not here (Q4 — WM-11 second half);
+rows "Linetype" / "Weight" after Rotation on every `BlockInstance`, `As
+Authored` (no resolved value shown), `By Category (<Model Blocks name>)`,
+named weights / the primitive linetype list (Q4/Q5); a mixed selection writes
+each target only values from its own option set (Q5); Explode bakes By
+Category as the Model "Blocks" name (Q6 — accepted consequence: if paper
+"Blocks" ≠ Model "Blocks", exploded strokes plot at the baked name), nested
+children compose per axis (Q7); overrides are full references (Q8); new
+placements are always As Authored, copy / paste / undo / make-from-selection
+keep overrides (Q9); in a pattern-tile or linetype-unit Block Editor both rows
+are locked (Q12 — tile strokes are one lattice path under one pen,
+`hatch_render._lattice`, so neither axis can apply there).
+
+*How:*
+- **Data (H1).** `BlockInstance.overrides` / the record's `"overrides"` =
+  `{"weight", "linetype"}`, omitted when As Authored ×2 (legacy files
+  round-trip unchanged). `stroke_style`: `AS_AUTHORED` / `BY_CATEGORY` (+
+  labels), `normalize_overrides(d, canonical=True)` (non-string / blank /
+  foreign keyword → As Authored; named weights canonicalised unless
+  `canonical=False`), `is_as_authored`, `override_args`, `override_refs`,
+  `compose_overrides`. `is_named_weight` / `is_linetype_ref` exclude the new
+  keywords; `paper_display._reserved_weight_names` reserves them (and their
+  spaced spellings) as weight-row names.
+- **Resolution (H2).** One keyword-agnostic `render_op.apply_overrides(ops,
+  weight, linetype)` replaces styled stroke ops (placeholder `weight is None`,
+  text, fill, pattern untouched). Nested records: applied in
+  `BlockDefinition._nested_ops` after `mapped(t)` (outer wins falls out;
+  `canonical=False` — load already canonicalised, `_load_prim`).
+  Placement: `BlockInstance.render_ops()` returns the derived list memoised on
+  (base list identity, args), the base list itself while As Authored, so every
+  consumer (bounds, shape, missing badge, linetype / expansion / crisp caches,
+  paint) reads one list. `canvas_weight_name(by_category)` → Model "Blocks";
+  `_paper_op_width(by_category)` → the paper "Blocks" width; `resolve_stroke`
+  borrows the dash weight for `by_linetype` only (a weight override beats By
+  Linetype; By Linetype resolves on the overriding linetype, WM-5).
+- **Restore (H3).** `place_block_instance(..., overrides=)` at all five
+  restore sites (file open `scene_io`, undo restore, `paste_items`, Block
+  Editor `seed_from_dicts`, Explode) — structural guard
+  `test_every_restore_caller_passes_overrides`.
+- **Integrity (H4).** `prim_refs` counts nested-record linetype overrides
+  (bundling, cycle check, host invalidation); `linetype_users_in` counts
+  placed instances with a linetype override (delete refusal, `registry.add`
+  repaint / badge flip); `DisplayManager._weight_refs` kinds `inst` / `nrec`
+  (rename writes raw, `set_overrides(..., canonical=False)`, so a Cancel
+  replay restores the pre-rename name); `used_weight_names` (`.fpdb`
+  weights). Refusal wording: override users read "by blocks inside: <names>"
+  / "by blocks in the plan" / "in the open Block Editor" — "change their
+  linetype override first" (`Model_Space._linetype_context_split`).
+- **Panel (H5).** `geometry_2d.stroke_rows(..., placement=True)`;
+  `BlockInstance._set_override_from_panel` (folder linetype loads into the
+  project first; failure restores; one undo step via `request_undo_push`);
+  `_overrides_locked()` gates both rows and the setter;
+  `Geometry2DMixin._geom2d_set` ignores block-only labels.
+- **Explode (H6).** `block_explode._bake` on primitives;
+  `compose_overrides(inst, record)` on nested children; flatten recurses.
+- **Perf (H8, Q11).** Bench `tests/test_wm2_perf.py` (both shapes). On a
+  loaded machine (±30 % run-to-run) the single bar-checked run failed; the
+  user accepted the paired evidence instead (2026-10-07): As Authored vs base
+  median of 9 alternated pairs 0.98 (2000 small instances) / 0.99 (20 large);
+  Weight override vs As Authored passed ≤ 1.1× both runs; Linetype override
+  vs As Authored ~1.75× small / ~1.3× large (report-only — the linetype
+  renderer's own cost, input for LT8's D-L21 bar).
+
+*Guards (VC3):* `tests/test_wm2_style.py` (keywords, validation, helpers,
+reserved names), `test_wm2_canvas_paper.py` (G1–G5 canvas pixels + parsed
+PDF), `test_wm2_persistence.py` (G9: file, undo / redo, paste, Block Editor
+seed, `.fpdb`; structural restore-site guard), `test_wm2_nested_explode.py`
+(G6 outer wins, G8 Explode bake + compose, linetype axis pixel-identical),
+`test_wm2_integrity.py` (G10 deps / delete refusal + wording / rename +
+Cancel / `.fpdb` bundling; Q8 badge; Q9 As Authored placements),
+`test_wm2_panel.py` (rows, G11 mixed selection, Q12 lock incl. mixed bypass,
+folder pick / failed load / Missing), `test_wm2_mainwindow.py` (G12 real
+MainWindow pick → repaint + one undo step), `test_wm2_parity.py` (G7 legacy
+golden recorded at base `7f97f687`, passes at base and HEAD).
 
 ## LT1 — Project weights, Blocks paper category, canvas mapping, Thin Lines (ratified 2026-10-03)
 
@@ -633,7 +725,8 @@ pre-existing crash blocks model text in viewports — filed) · T7
   onto an alias key is refused with a non-modal tooltip on the edited cell
   (renaming the target back is allowed). **Reserved names:**
   `validate_line_weight_name` refuses `by_block` / `by_linetype` /
-  `continuous` (and the spaced spellings), case-insensitive. Eager rewrite of
+  `continuous` — and, since WM2, `as_authored` / `by_category` — (and the
+  spaced spellings), case-insensitive. Eager rewrite of
   live holders: the H8 walk + definition-primitive `style.weight` + styled
   raw items in the project scene and in open Block Editors (via
   `project_scene._editor_scenes_provider`, registered by

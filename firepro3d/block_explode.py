@@ -8,6 +8,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF
 
 from .block_definition import is_scaffold
+from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
 
@@ -52,6 +53,26 @@ def _compose(inst, rec, ox, oy):
     return (p.x(), p.y()), inst.block_rotation() + float(rec.get("rotation", 0.0))
 
 
+def _bake(item, ov) -> None:
+    """Bake a placement override onto an exploded primitive (WM-11, Q6)."""
+    from . import paper_display as pd
+    from .stroke_style import AS_AUTHORED, BY_CATEGORY, normalize_overrides
+    st = getattr(item, "style", None)
+    if st is None:
+        return
+    ov = normalize_overrides(ov)
+    w, lt = ov["weight"], ov["linetype"]
+    if w == BY_CATEGORY:
+        st["weight"] = pd.model_blocks_weight()
+    elif w != AS_AUTHORED:
+        st["weight"] = w
+    if lt != AS_AUTHORED:
+        st["linetype"] = lt
+    sync = getattr(item, "_sync_stroke_pen", None)
+    if callable(sync):
+        sync()
+
+
 def explode_instances(scene, instances, flatten: bool) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
@@ -60,7 +81,9 @@ def explode_instances(scene, instances, flatten: bool) -> list:
     Nested records become new ``BlockInstance``s at the composed pose —
     recursively exploded when *flatten*. An instance whose definition is
     missing, or is geom-backed (an imported reference with no authored
-    primitives), is left in place. Does not push undo (the caller does).
+    primitives), is left in place. Placement overrides bake onto primitives
+    (WM-11) and compose onto nested children per axis (Q7). Does not push
+    undo (the caller does).
 
     Args:
         scene: The Block Editor ``Model_Space``.
@@ -82,7 +105,10 @@ def explode_instances(scene, instances, flatten: bool) -> list:
         for rec in d.primitives:
             if rec.get("type") == _NESTED_TYPE:
                 pos, r = _compose(inst, rec, ox, oy)
-                child = scene.place_block_instance(rec["block_id"], pos, rotation=r)
+                child = scene.place_block_instance(
+                    rec["block_id"], pos, rotation=r,
+                    overrides=compose_overrides(inst.overrides,
+                                                rec.get("overrides")))
                 if flatten:
                     created.extend(explode_instances(scene, [child], flatten=True))
                     if child.scene() is scene:      # unexplodable (missing) — keep it
@@ -95,6 +121,7 @@ def explode_instances(scene, instances, flatten: bool) -> list:
             item = scene._add_from_dict(rec)
             if item is None:
                 continue
+            _bake(item, inst.overrides)
             if hasattr(item, "translate"):
                 item.translate(px - ox, py - oy)
             else:

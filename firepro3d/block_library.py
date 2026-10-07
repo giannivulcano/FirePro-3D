@@ -160,7 +160,8 @@ def _read_index(series_dir: str) -> dict:
 
 def used_weight_names(records) -> set[str]:
     """Named weights referenced by definition dicts (canonical names, H-g):
-    text ``border_weight`` and stroke ``style.weight`` (LT2). The ``.fpdb``
+    text ``border_weight``, stroke ``style.weight`` (LT2) and nested-record
+    Weight overrides (WM2). The ``.fpdb``
     format stays.
     """
     from .paper_display import canonical_weight_name
@@ -173,6 +174,9 @@ def used_weight_names(records) -> set[str]:
             w = (prim.get("style") or {}).get("weight")
             if is_named_weight(w):
                 names.add(canonical_weight_name(w))
+            ov = prim.get("overrides")
+            if isinstance(ov, dict) and is_named_weight(ov.get("weight")):
+                names.add(canonical_weight_name(ov["weight"]))   # WM2 H4
     return names
 
 

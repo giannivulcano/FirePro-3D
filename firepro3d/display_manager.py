@@ -2693,7 +2693,8 @@ class DisplayManager(QDialog):
         sheet annotations; model-plan texts; project definition text
         primitives and stroke ``style.weight``; open Block Editors' texts and
         styled raw items, and the project scene's styled geometry
-        (linetypes.md LT1-5 / LT2-8).
+        (linetypes.md LT1-5 / LT2-8); placed blocks' Weight overrides and
+        definitions' nested-record Weight overrides (WM2).
         """
         from .stroke_style import is_named_weight
         for sheet in getattr(self._scene, "_sheets", []) or []:
@@ -2710,6 +2711,10 @@ class DisplayManager(QDialog):
                 st = getattr(item, "style", None)
                 if isinstance(st, dict) and is_named_weight(st.get("weight")):
                     yield st["weight"], ("raw", item)
+            for inst in getattr(sc, "_block_instances", []) or []:
+                w = getattr(inst, "overrides", {}).get("weight")
+                if is_named_weight(w):
+                    yield w, ("inst", inst)
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
             for bid in reg.ids():
@@ -2720,6 +2725,9 @@ class DisplayManager(QDialog):
                     st = prim.get("style")
                     if isinstance(st, dict) and is_named_weight(st.get("weight")):
                         yield st["weight"], ("sprim", (bid, st))
+                    ov = prim.get("overrides")
+                    if isinstance(ov, dict) and is_named_weight(ov.get("weight")):
+                        yield ov["weight"], ("nrec", (bid, ov))
 
     def _line_weight_in_use(self, name: str) -> bool:
         """True if *name* is referenced anywhere by name.
@@ -2729,7 +2737,8 @@ class DisplayManager(QDialog):
         ``layer_overrides[layer]["line_weight"]``); sheet text annotations
         (all sheets); model-plan texts (``_texts``); text primitives and
         stroke ``style.weight`` of project block definitions; open Block
-        Editors' items; the Model "Blocks" weight (LT2-6 / LT2-8). Holder
+        Editors' items; placed blocks' and nested records' Weight overrides
+        (WM2); the Model "Blocks" weight (LT2-6 / LT2-8). Holder
         names are compared canonically (an alias key counts as its target).
         """
         from .paper_display import (canonical_weight_name,
@@ -2787,6 +2796,15 @@ class DisplayManager(QDialog):
             elif kind == "sprim":
                 bid, st = ref
                 st["weight"] = new
+                touched_defs.add(bid)
+            elif kind == "inst":
+                # Raw, like the Blocks weight: the Cancel replay writes a
+                # pre-rename (alias-key) name before the aliases are restored.
+                ref.set_overrides({**ref.overrides, "weight": new},
+                                  canonical=False)
+            elif kind == "nrec":
+                bid, ov = ref
+                ov["weight"] = new
                 touched_defs.add(bid)
             else:
                 bid, prim = ref

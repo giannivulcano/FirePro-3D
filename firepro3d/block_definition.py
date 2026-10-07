@@ -174,6 +174,13 @@ def _load_prim(p):
     if p.get("type") in STYLED_TYPES:
         return migrate_primitive(p)
     out = copy.deepcopy(p)
+    if out.get("type") == _NESTED_TYPE and "overrides" in out:
+        from .stroke_style import is_as_authored, normalize_overrides
+        ov = normalize_overrides(out["overrides"])      # canonical names (H-g)
+        if is_as_authored(ov):
+            out.pop("overrides")
+        else:
+            out["overrides"] = ov
     if out.get("type") == "text" and out.get("border_weight"):
         out["border_weight"] = canonical_weight_name(out["border_weight"])
     return out
@@ -476,7 +483,15 @@ class BlockDefinition:
             child_ops = child.render_ops()
         finally:
             _COMPILING.discard(self.id)
-        return [op.mapped(t) for op in child_ops]
+        from .render_op import apply_overrides
+        from .stroke_style import override_args
+        # WM2 H2: the record's override replaces what the child's own compile
+        # (and its records) resolved -- outermost wins (WM-6). Raw names
+        # (load already canonicalised them): a compile inside the Display
+        # Manager Cancel replay must not bake the renamed-away alias target.
+        return apply_overrides([op.mapped(t) for op in child_ops],
+                               *override_args(prim.get("overrides"),
+                                              canonical=False))
 
     def _compile_reference(self) -> list[RenderOp]:
         """Batched compile: accumulate each layer's geometry into one path.
