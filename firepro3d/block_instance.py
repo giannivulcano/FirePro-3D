@@ -28,9 +28,10 @@ from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
-from .render_op import STROKE, FILL, PATTERN, TEXT
-from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
-                           linetype_block, resolve_stroke)
+from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
+from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, canvas_px,
+                           is_as_authored, is_linetype_ref, linetype_block,
+                           normalize_overrides, override_args, resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
 
@@ -87,6 +88,12 @@ class BlockInstance(QGraphicsObject):
         self._level_offset_mm = float(level_offset_mm)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
+        # Placement Weight / Linetype override (linetypes.md WM2): As
+        # Authored x2 by default; _ov_args is None while nothing overrides
+        # (render_ops' fast path returns the definition's list itself).
+        self.overrides: dict = normalize_overrides(None)
+        self._ov_args = None
+        self._ov_cache = None      # (base ops list, args, derived list)
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
@@ -116,8 +123,30 @@ class BlockInstance(QGraphicsObject):
         return self._resolver(self.block_id)
 
     def render_ops(self):
+        """The definition's compiled ops with this placement's override
+        applied (WM2 H2) -- the base list itself while As Authored; else one
+        derived list memoised on (base list identity, override args), held
+        so its identity can't be recycled (the ``_posed_cache`` idiom)."""
         d = self.definition()
-        return d.render_ops() if d is not None else []
+        base = d.render_ops() if d is not None else []
+        a = self._ov_args
+        if a is None:
+            return base
+        c = self._ov_cache
+        if c is not None and c[0] is base and c[1] == a:
+            return c[2]
+        out = apply_overrides(base, *a)
+        self._ov_cache = (base, a, out)
+        return out
+
+    def set_overrides(self, ov) -> None:
+        """Replace the placement override (normalised); repaint."""
+        self.prepareGeometryChange()
+        self.overrides = normalize_overrides(ov)
+        a = override_args(self.overrides)
+        self._ov_args = None if a == (None, None) else a
+        self._ov_cache = None
+        self.update()
 
     def on_definition_changed(self) -> None:
         """Called by the definition when its geometry changes: repaint."""
@@ -569,13 +598,13 @@ class BlockInstance(QGraphicsObject):
     def _paper_op_width(self, weight) -> float:
         """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
 
-        By Linetype (and a legacy un-migrated By Block) / unweighted ops take
-        the category weight
+        By Linetype (and a legacy un-migrated By Block), a placement By
+        Category and unweighted ops take the category weight
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """
         w = weight
-        if w is None or w in (BY_BLOCK, BY_LINETYPE) or not self._paper_scale:
+        if w is None or w in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY) or not self._paper_scale:
             return self._paper_pen_width
         return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
