@@ -19,7 +19,9 @@ from PyQt6.QtCore import QSettings
 
 from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
-                        MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM)
+                        MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
+                        PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
+                        UNDERLAY_LINE_WIDTH_PX)
 
 _log = logging.getLogger(__name__)
 
@@ -389,6 +391,28 @@ def canvas_weight_px(width_mm: float) -> float:
     if thin_lines_active():
         return 1.0
     return float(auto_model_px(width_mm))
+
+
+def paper_legacy_px(width_mm: float) -> float:
+    """Cosmetic px a canvas pen plots at on paper: the pre-MW mapping, frozen.
+
+    MW-1 / MW-4: a cosmetic pen that survives into a paper pass must plot
+    exactly as before MW -- independent of the Model weight factor, Model px
+    and Thin Lines. px = mm x ``PAPER_LEGACY_PX_PER_MM``; at or below
+    ``PAPER_LEGACY_SNAP_PX`` it snaps to min(px, 1.0).
+    """
+    px = width_mm * PAPER_LEGACY_PX_PER_MM
+    if px <= PAPER_LEGACY_SNAP_PX:
+        px = min(px, 1.0)
+    return px
+
+
+def paper_legacy_pdf_px(pt_width: float) -> float:
+    """``paper_legacy_px`` of a raw PDF stroke width (points), floored at
+    ``UNDERLAY_LINE_WIDTH_PX`` (unweighted underlay children on paper)."""
+    if pt_width <= 0.0:
+        return UNDERLAY_LINE_WIDTH_PX
+    return max(UNDERLAY_LINE_WIDTH_PX, paper_legacy_px(pt_width * 25.4 / 72.0))
 
 
 def canvas_px_for_weight(name: str) -> float:
@@ -1245,11 +1269,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     pen.setWidthF(resolve_line_weight_mm(weight_name)
                                   / max(paper_scale, 1e-9))
                     pen.setCosmetic(False)  # true mm on paper (§9.9.1 pattern)
-                elif _THIN_LINES and child.data(7) is not None:
-                    # Unweighted PDF width was baked at 1 px by Thin Lines;
-                    # plot the non-thin source width (suspended above).
-                    from .model_space import _pdf_width_to_px
-                    pen.setWidthF(_pdf_width_to_px(float(child.data(7))))
+                elif child.data(7) is not None:
+                    # Unweighted raw width stays cosmetic: plot it at the
+                    # frozen pre-MW mapping -- never the canvas Auto px
+                    # (factor / Thin Lines dependent; MW-1 / MW-4).
+                    pen.setWidthF(paper_legacy_pdf_px(float(child.data(7))))
                 child.setPen(pen)
 
     except Exception:

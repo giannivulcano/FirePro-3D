@@ -26,9 +26,10 @@ from .constants import CRISP_AXIS_TOL
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
 from .linetype_render import badge_pad_px
-from .paper_display import paper_pass_active
+from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
-from .stroke_style import canvas_px, is_linetype_ref, linetype_block, resolve_stroke
+from .stroke_style import (canvas_px, canvas_weight_name, is_linetype_ref,
+                           linetype_block, resolve_stroke)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -299,6 +300,12 @@ class Geometry2DMixin:
         rotation); None keeps the painter's. Returns True when dashed.
         """
         pen = self.pen()                # painter-local copy (MW-7 / MW-12)
+        if rs is not None and pen.isCosmetic() and paper_pass_active():
+            # No paper category reset this pen (Ellipse / Polygon / Spline):
+            # its canvas width must not reach paper -- plot the frozen pre-MW
+            # mapping of the resolved weight (MW-1 / MW-4).
+            pen.setWidthF(paper_legacy_px(resolve_line_weight_mm(
+                canvas_weight_name(rs.weight))))
         tint = constraint_tint(self)
         if tint is not None:
             pen.setColor(tint)          # pen COPY: never setPen (delta 2)

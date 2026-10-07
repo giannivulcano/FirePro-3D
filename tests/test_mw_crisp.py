@@ -654,37 +654,54 @@ def _pts(poly):
                    for k in range(poly.count()))
 
 
-def test_seed_matches_exact_split_on_edge_geoms(qapp):
+_L = lambda x1, y1, x2, y2: {"kind": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+_P = lambda pts, closed=False: {"kind": "path_points", "points": pts, "closed": closed}
+_SEED_EDGE_CASES = {
+    "mixed bag": [
+        _P([[0, 0], [10, 0], [10, 0], [20, 5], [20, 5], [20, 15]]),
+        _L(3, 3, 3, 3),
+        _P([[0, 70], [10, 70], [10, 70], [20, 70], [20, 80]]),
+        _L(0, 30, 50, 30),
+        _P([[0, 40], [30, 40], [15, 60], [0, 40]]),
+        _P([[40, 40], [80, 40], [80, 70], [60, 90]], True),
+        _P([[100, 0], [140, 0], [140, 40], [100, 40.0000001]], True),
+        _P([[100, 60], [140, 60], [140, 90], [100, 90]], True),
+        {"kind": "circle", "x": 0, "y": 100, "w": 20, "h": 20},
+        {"kind": "arc", "rx": 30, "ry": 100, "rw": 20, "rh": 20, "start": 10.0, "span": 90.0},
+    ],
+    # degenerate curves add no curve element: all_axis must stay True
+    "null circle + axis line": [_L(0, 0, 10, 0),
+                                {"kind": "circle", "x": 5, "y": 5, "w": 0, "h": 0}],
+    "zero-span arc + axis line": [_L(0, 0, 10, 0),
+                                  {"kind": "arc", "rx": 0, "ry": 0, "rw": 10, "rh": 10,
+                                   "start": 0, "span": 0}],
+    "null-rect arc + axis line": [_L(0, 0, 10, 0),
+                                  {"kind": "arc", "rx": 0, "ry": 0, "rw": 0, "rh": 0,
+                                   "start": 0, "span": 90}],
+    # a uniform path is returned as-is by split_axis (no ring close added)
+    "open near-ring, uniform other": [_P([[100, 100], [110, 105], [103, 109],
+                                          [100 + 5e-10, 100]])],
+}
+
+
+@pytest.mark.parametrize("case", sorted(_SEED_EDGE_CASES))
+def test_seed_matches_exact_split_on_edge_geoms(qapp, case):
     # The build-time seed equals split_axis of the item's own path, edge
     # cases included: duplicate points (Qt drops them), a zero-length line,
     # an open polyline drawn back to its start, a closed mixed ring, a
-    # fuzzy-coincident close (left to the exact split), curves.
+    # fuzzy-coincident close (left to the exact split), curves, degenerate
+    # curves, and a uniform path (returned whole).
     from firepro3d.dwg_converter import append_geom_to_path
     from firepro3d.underlay_controller import _CrispSeed
-    geoms = [
-        {"kind": "path_points", "points": [[0, 0], [10, 0], [10, 0], [20, 5], [20, 5], [20, 15]]},
-        {"kind": "line", "x1": 3, "y1": 3, "x2": 3, "y2": 3},
-        {"kind": "path_points", "points": [[0, 70], [10, 70], [10, 70], [20, 70], [20, 80]]},
-        {"kind": "line", "x1": 0, "y1": 30, "x2": 50, "y2": 30},
-        {"kind": "path_points", "points": [[0, 40], [30, 40], [15, 60], [0, 40]]},
-        {"kind": "path_points", "points": [[40, 40], [80, 40], [80, 70], [60, 90]],
-         "closed": True},
-        {"kind": "path_points", "points": [[100, 0], [140, 0], [140, 40], [100, 40.0000001]],
-         "closed": True},
-        {"kind": "path_points", "points": [[100, 60], [140, 60], [140, 90], [100, 90]],
-         "closed": True},
-        {"kind": "circle", "x": 0, "y": 100, "w": 20, "h": 20},
-        {"kind": "arc", "rx": 30, "ry": 100, "rw": 20, "rh": 20, "start": 10.0, "span": 90.0},
-    ]
     item_path, seed = QPainterPath(), _CrispSeed()
-    for g in geoms:
+    for g in _SEED_EDGE_CASES[case]:
         append_geom_to_path(item_path, g)
         seed.add(g, append_geom_to_path)
-    got, want = seed.split(), cs.split_axis(item_path, QTransform())
+    got, want = seed.split(item_path), cs.split_axis(item_path, QTransform())
+    assert got.all_axis == want.all_axis
     assert _subs(got.axis) == _subs(want.axis)
     assert _subs(got.other) == _subs(want.other)
     assert _pts(got.joint_points) == _pts(want.joint_points)
-    assert got.all_axis == want.all_axis
 
 
 def test_rotated_view_line_is_classified_in_the_painter_frame(be):

@@ -80,6 +80,13 @@ MODEL_WEIGHT_PX_MAX = 20          # per-row Model (px) override range 1..20
 # Fixed on-screen linetypes keep printed mm x 6 px/mm, decoupled from the
 # weight factor (MW-10 / H-MW-d; was UNDERLAY_MM_TO_PX_HINT).
 FIXED_LINETYPE_PX_PER_MM = 6.0
+# A cosmetic canvas pen that survives into a paper pass (an unweighted raw-PDF
+# underlay width; a styled primitive with no paper category) plots at the
+# PRE-MW mapping, frozen so paper / PDF output never follows the Model weight
+# factor, Model px or Thin Lines (MW-1 "paper unchanged", MW-4 "paper output
+# identical"): px = mm x 6.0, and <= 1.25 px snaps to min(px, 1.0).
+PAPER_LEGACY_PX_PER_MM = 6.0
+PAPER_LEGACY_SNAP_PX = 1.25
 # Built-in weight defaults state an intended paper mm (MW-5).
 TEXT_BORDER_DEFAULT_MM = 0.25
 MODEL_BLOCKS_FACTORY_MM = 0.18

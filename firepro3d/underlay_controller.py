@@ -57,14 +57,13 @@ class _CrispSeed:
     into the item's ``SplitCache`` so the first canvas paint does no split.
     """
 
-    __slots__ = ("axis", "other", "mixed", "joints", "_any_other")
+    __slots__ = ("axis", "other", "mixed", "joints")
 
     def __init__(self):
         self.axis = QPainterPath()
         self.other = QPainterPath()
         self.mixed = QPainterPath()
         self.joints: list = []
-        self._any_other = False
 
     def add(self, g: dict, append) -> None:
         """Route stroke geom *g* (*append* = the item path builder)."""
@@ -77,14 +76,12 @@ class _CrispSeed:
                 tgt = self.axis
             else:
                 tgt = self.other
-                self._any_other = True
             tgt.moveTo(x1, y1)
             tgt.lineTo(x2, y2)
         elif kind == "path_points":
             self._add_polyline(g, append)
         elif kind in ("circle", "arc", "ellipse_full"):
             append(self.other, g)
-            self._any_other = True
         else:                              # splines / unknown: exact split
             append(self.mixed, g)
 
@@ -120,14 +117,12 @@ class _CrispSeed:
                 tgt = self.axis
             else:
                 tgt = self.other
-                self._any_other = True
             tgt.moveTo(pts[0][0], pts[0][1])
             for q in pts[1:]:
                 tgt.lineTo(q[0], q[1])
             if closed:
                 tgt.closeSubpath()
             return
-        self._any_other = True
         segs = list(range(len(kinds)))           # segment k: pts[k] -> pts[k+1]
         if closed:
             k0 = next(m for m in range(1, len(kinds)) if kinds[m] != kinds[m - 1])
@@ -148,21 +143,41 @@ class _CrispSeed:
             last = pts[segs[-1] + 1]
             joints.append(QPointF(last[0], last[1]))   # last run meets the first
 
-    def split(self) -> "_cs.CrispSplit":
-        """The merged identity-frame split."""
+    def split(self, item_path: QPainterPath) -> "_cs.CrispSplit":
+        """The merged identity-frame split of *item_path* (the item's path,
+        built from the same geoms).
+
+        Mirrors ``split_axis`` exactly: "axis" / "other" are read from the
+        merged geometry (a line or curve element -- a degenerate circle / arc
+        that added only a moveTo doesn't count), and a uniform result is the
+        item path itself, as ``split_axis``'s uniform fast path returns it.
+        """
         axis, other = self.axis, self.other
-        any_other = self._any_other
         joints = self.joints
         if not self.mixed.isEmpty():
             ms = _cs.split_axis(self.mixed, QTransform())
             axis.addPath(ms.axis)
             if not ms.other.isEmpty():
                 other.addPath(ms.other)
-                any_other = True
             jp = ms.joint_points
             joints = joints + [jp.at(k) for k in range(jp.count())]
-        return _cs.CrispSplit(axis, other, (not any_other) and not axis.isEmpty(),
-                              QPolygonF(joints))
+        has_axis, has_other = _has_segment(axis), _has_segment(other)
+        if not has_other:
+            return _cs.CrispSplit(QPainterPath(item_path), QPainterPath(), has_axis)
+        if not has_axis:
+            return _cs.CrispSplit(QPainterPath(), QPainterPath(item_path), False)
+        return _cs.CrispSplit(axis, other, False, QPolygonF(joints))
+
+
+_MOVE_EL = QPainterPath.ElementType.MoveToElement
+
+
+def _has_segment(path: QPainterPath) -> bool:
+    """True when *path* holds a line / curve element (not only moveTos)."""
+    for k in range(path.elementCount()):
+        if path.elementAt(k).type != _MOVE_EL:
+            return True
+    return False
 
 
 
@@ -491,7 +506,7 @@ class UnderlayController:
                 # Per-file/layer Line-Weight override wins: single pen, flat
                 # width for the whole layer (today's look).
                 item = _UnderlayPathItem(geom_path)
-                item.seed_split(seed.split())      # MW-13: no first-paint split
+                item.seed_split(seed.split(geom_path))   # MW-13: no first-paint split
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
@@ -519,7 +534,7 @@ class UnderlayController:
                     pen = QPen(colour, _pdf_width_to_px(w))
                     pen.setCosmetic(True)
                     item = _UnderlayPathItem(wpath)
-                    item.seed_split(seeds[w].split())   # MW-13: no first-paint split
+                    item.seed_split(seeds[w].split(wpath))   # MW-13: no first-paint split
                     item.setPen(pen)
                     item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                     item.setZValue(Z_UNDERLAY)
